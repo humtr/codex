@@ -12,6 +12,7 @@ import traceback
 
 from siwc_core_probe import probe as core_probe
 from desktop_lifecycle import RUNTIME, desktop_ready, ready
+from desktop_development_scenario import Development
 
 SOURCE = Path(__file__).resolve().parent
 PROBE_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -94,10 +95,10 @@ def run(args):
         if args.live:
             candidate = SOURCE if args.source_candidate else installed/'source'
             wrapper = root/'bounded.mjs'
-            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((candidate/'desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches=12;return p.apply(this,args);};\nconst e=DesktopLocalTransport.prototype.exchange,b=[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((candidate/'desktop_local_core_trace.mjs').as_uri())+');\n')
+            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((candidate/'desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches='+str(24 if args.development else 12)+';return p.apply(this,args);};\nconst e=DesktopLocalTransport.prototype.exchange,b=[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((candidate/'desktop_local_core_trace.mjs').as_uri())+');\n')
             command = [runtime['bun'],str(wrapper),runtime['bridge'],runtime['session'],str(root)]
         else:
-            command = [runtime['bun'],str(SOURCE/'desktop_surface_fixture.mjs'),runtime['bridge'],str(root)]
+            command = [runtime['bun'],str(SOURCE/('desktop_development_fixture.mjs' if args.development else 'desktop_surface_fixture.mjs')),runtime['bridge'],str(root)]
         with (args.output/'adapter.log').open('w') as log:
             child = subprocess.Popen(command,stdout=log,stderr=log)
             result = {}
@@ -110,7 +111,7 @@ def run(args):
                 options=argparse.Namespace(desktop_server=root/'server.json',model='chatgpt-desktop/gpt-6',account_free_wire=False,
                     compact=False,cancel_resume=False,app_name='owned-native-surface',effort='none',transcript_check=True,
                     mid_turn_compact=False,interrupt_tool=False,reject_tool=False,mcp_discovery=False,
-                    scenario=Surface(args.output),tui_trace_path=args.output/'tui.txt')
+                    scenario=(Development if args.development else Surface)(args.output),tui_trace_path=args.output/'tui.txt')
                 started=time.monotonic()
                 try:
                     result=core_probe(options)
@@ -128,15 +129,17 @@ def run(args):
                 result.update(realService=args.live,actualSignedApp=args.live,installedPayload=installed.name,sourceCandidate=args.source_candidate,
                     productDigests={n:hashlib.sha256(((SOURCE if args.source_candidate or not args.live else installed/'source')/n).read_bytes()).hexdigest() for n in ['desktop_tool_session.mjs','desktop_local_transport.mjs']},actualChatUserSubmissions=proof['observedChatSubmissions'] if args.live else 0,
                     observedUserSubmissions=proof['observedChatSubmissions'],toolReturns=proof['toolResultSubmissions'],
-                    modelStarts=proof.get('observedNativeDispatches',0),guardianRequests=proof['guardianRequests'],
+                    modelStarts=proof.get('observedNativeDispatches',0),guardianRequests=proof['guardianRequests'],compactionSummaries=proof['compactionSummaries'],appliedCheckpoints=proof['appliedCheckpoints'],
                     automaticRetries=proof['retryAttempts'],proStarts=proof['submittedProRequests'],adapterError=proof.get('errorCode'),
                     batchSizes=batch_sizes,parallelBatchObserved=2 in batch_sizes,elapsedSeconds=round(time.monotonic()-started,3),
                     probeSha256=PROBE_DIGEST,
-                    fixtureSha256=hashlib.sha256((SOURCE/'desktop_surface_fixture.mjs').read_bytes()).hexdigest())
+                    fixtureSha256=hashlib.sha256((SOURCE/('desktop_development_fixture.mjs' if args.development else 'desktop_surface_fixture.mjs')).read_bytes()).hexdigest(),
+                    developmentScenario=args.development,scenarioSha256=hashlib.sha256((SOURCE/'desktop_development_scenario.py').read_bytes()).hexdigest() if args.development else None)
                 result['accepted']=bool(result.get('realCoreToolLoopAccepted') and result.get('persistedReportCheck') and result.get('coldTranscriptRestored')
-                    and result.get('resumeWithoutModelRequest') and result.get('renderWithoutModelRequest') and result['parallelBatchObserved']
+                    and result.get('resumeWithoutModelRequest') and result.get('renderWithoutModelRequest') and (args.development or result['parallelBatchObserved'])
                     and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
-                    and result['guardianRequests']>=1 and not result['adapterError'] and result['automaticRetries']==0 and result['proStarts']==0)
+                    and (not args.development or result['compactionSummaries']>=1 and result['appliedCheckpoints']>=1)
+                    and (args.development or result['guardianRequests']>=1) and not result['adapterError'] and result['automaticRetries']==0 and result['proStarts']==0)
             finally:
                 child.terminate()
                 try:
@@ -154,6 +157,7 @@ if __name__=='__main__':
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--live',action='store_true',help='Explicit actual GPT-6 Instant trial, at most12 model starts including guardian; no Pro or automatic retry')
+    p.add_argument('--development',action='store_true',help='Iterative development, manual compaction and resume; live cap24 model starts')
     p.add_argument('--source-candidate',action='store_true',help='Use this source worktree with existing installed immutable dependencies; do not change operating runtime')
     p.add_argument('--output',required=True,type=Path)
     raise SystemExit(0 if run(p.parse_args()) else 1)

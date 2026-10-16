@@ -371,6 +371,8 @@ stream_max_retries = 0
                 events.clear()
                 rpc(42,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':f'Say LOCAL_INTERMEDIATE_REPORT. Read the current proof.txt with one shell call. Preserve the file; do not rerun the interrupted command. Final answer exactly {marker}. No other work.'}]},deadline)
             collect_turn()
+            if scenario and hasattr(scenario, 'continue_work'):
+                scenario.continue_work(rpc, collect_turn, thread_id, deadline, workspace, home, report, events)
             marker_file=workspace/'proof.txt'
             if getattr(args,'reject_tool',False):
                 rejected=json.loads(proxy_proof.read_text())
@@ -433,6 +435,9 @@ stream_max_retries = 0
                 cold_items=[item for turn in cold['thread']['turns'] for item in turn['items']]
                 report['coldTranscriptRestored']=resumed['thread']['id']==thread_id and report_evidence(cold_items)==evidence
                 report['resumeWithoutModelRequest']=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']==before_requests
+                if scenario and hasattr(scenario, 'verify_cold'):
+                    scenario.verify_cold(rpc, collect_turn, thread_id, deadline, report, events)
+                    before_requests=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']
                 os.killpg(process.pid,signal.SIGINT)
                 try:process.wait(timeout=8)
                 except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)

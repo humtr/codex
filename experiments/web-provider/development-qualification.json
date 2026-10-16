@@ -1,0 +1,186 @@
+{
+  "scope": "Installed provider activation plus bounded iterative development, manual compaction, warm continuation and cold Core continuation; no app or adapter restart",
+  "activation": {
+    "accepted": true,
+    "previousInstallation": "9dd2881029f69124a63a",
+    "installation": "85e8f9127b98b12bb311",
+    "source": "7b8e54133365f281d3a1382da1e6c54781655536",
+    "filesVerified": 599,
+    "protectedAuthConfigUnchanged": 12,
+    "endpointAndCapabilityPreserved": true,
+    "signedDesktopIdentityPreserved": true,
+    "adapterReady": true,
+    "actualChatSubmissions": 0,
+    "onlyIdleAdapterStopped": true,
+    "returnTransport": "local"
+  },
+  "live": {
+    "accepted": true,
+    "actualSignedApp": true,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": false,
+    "productDigests": {
+      "desktop_tool_session.mjs": "b7ae482e25c7af69eaaf47f2f195a4863c1c83772b24dc12fdbdc6041d26e8e4",
+      "desktop_local_transport.mjs": "6303164bc50e392b87b8d8858c7b50fb838fd95280a248ccc98f5c0c4527f78c"
+    },
+    "actualChatUserSubmissions": 4,
+    "observedUserSubmissions": 4,
+    "toolReturns": 8,
+    "modelStarts": 12,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "elapsedSeconds": 121.865,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "ownedCoreExited": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true,
+    "probeSha256": "1e2c6c2108f9be0bafd51ee59cf5aba46fc91fd929f634fa181093b17ee7733a",
+    "fixtureSha256": "ee4c7faaa3d892475adf4e6f149db83f7e82f3dea2132f5f45ca7477605a257f",
+    "scenarioSha256": "f102fb719886a96e6c9ebd98c9fbe05cb612f07301dae2fe2ee9ee0f56400359"
+  },
+  "offline": {
+    "accepted": true,
+    "actualSignedApp": false,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": false,
+    "productDigests": {
+      "desktop_tool_session.mjs": "b7ae482e25c7af69eaaf47f2f195a4863c1c83772b24dc12fdbdc6041d26e8e4",
+      "desktop_local_transport.mjs": "6303164bc50e392b87b8d8858c7b50fb838fd95280a248ccc98f5c0c4527f78c"
+    },
+    "actualChatUserSubmissions": 0,
+    "observedUserSubmissions": 4,
+    "toolReturns": 4,
+    "modelStarts": 8,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "elapsedSeconds": 7.96,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "ownedCoreExited": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true,
+    "probeSha256": "1e2c6c2108f9be0bafd51ee59cf5aba46fc91fd929f634fa181093b17ee7733a",
+    "fixtureSha256": "ee4c7faaa3d892475adf4e6f149db83f7e82f3dea2132f5f45ca7477605a257f",
+    "scenarioSha256": "f102fb719886a96e6c9ebd98c9fbe05cb612f07301dae2fe2ee9ee0f56400359"
+  },
+  "additionalCliHoldout": {
+    "accepted": true,
+    "checks": {
+      "reject_{}": true,
+      "reject_null": true,
+      "reject_\"names\"": true,
+      "reject_[true]": true,
+      "unicode_cli_order": true
+    },
+    "actualChatSubmissions": 0,
+    "source": "Model-developed files retained from this trial, executed in a second disposable root"
+  },
+  "preservation": {
+    "installedFilesVerified": 599,
+    "baseAuthConfigUnchanged": 12,
+    "endpointAndCapabilityPreserved": true,
+    "signedDesktopIdentityPreserved": true,
+    "operatingAdapterReady": true,
+    "authenticatedCatalogRead": true,
+    "ordinaryAdapterRequests": 0,
+    "trialBudgetNotAppliedToOperatingAdapter": true,
+    "installedSource": "7b8e54133365f281d3a1382da1e6c54781655536"
+  },
+  "checks": {
+    "providerPython": 42,
+    "unchangedProductPriorNode": 52,
+    "unchangedProductPriorBunAdditional": 37,
+    "surfaceOfflineAfterTestDriverChanges": true,
+    "sourcePython": 18,
+    "publicationPython": 59
+  },
+  "limits": [
+    "Bounded small fixture, not proof of hours-long or whole-repository development.",
+    "Manual compaction tested, not automatic, interrupted or cross-provider compaction.",
+    "Cold Core inference uses a still-live provider and signed app; app/adapter restart and lost remote context are unqualified.",
+    "No physical question interaction; its separate gate remains unfinished.",
+    "Observed submissions and starts do not establish Chat allowance deductions.",
+    "One real Instant trial, no Pro or automatic retry; no remote chat deletion."
+  ],
+  "privateEvidenceDirectory": "~/.cache/codex/acceptance/chat-development-installed-live-1",
+  "retainedOfflineFailures": {
+    "chat-development-offline-1": "Fixture token extractor missed JSON-escaped output; no live inference.",
+    "chat-development-offline-2": "Fixture replacement patch did not establish the required successful repair; changed fixture to Update File form, no live inference."
+  },
+  "hashes": {
+    "development-commands.json": "7b3a2b5b240209b436c24f05d4986eb705ccec8353382fbc9bd596afe7b7a5e8",
+    "developed-source.json": "229e49a1a6386cc169bfa6258d5a54836d915b2fd803138687817df865c53509",
+    "command-output.jsonl": "25ecb6ae51f52fec7638115950f36fe487e44857e9879ce3f087f2771452a125",
+    "independent-cli-holdout.json": "4964bc1c9cee87648bcd9a36efbac9bd831bcf7232d93929a1b00e04188598e3",
+    "tui.txt": "80eb41c81b2b18a0005c19170e74ad12709be92e24a323382f6d0217fc577e66",
+    "native-tools.json": "ed11cf9394535abcd2ed6265e750bcc65c78db829e8854ecc0c10e240a97ec49",
+    "surface-batches.json": "e15bfd9baa6e95c7ae738b81651e0fe31bfc43b26bb5d959596ad5ada0274bf1",
+    "public-trace.json": "0f52e1ed950ce83e3d122333c044375d129c125e0b42f304008843371657cd29",
+    "adapter-proof.json": "899029012d4e8558136a1b3cd4b71c61480543f306262cd4edbefcb9013c32d7",
+    "result.json": "43b77a07a18523b500a49beffc7ed6d594af51f22e5fb8ae29eeacdb446fa5c8",
+    "preservation.json": "789f0d6ffa7c5121317a26232440583d963a7b3ced107ce183ae8608892a81b7"
+  },
+  "testDriverDigests": {
+    "siwc_core_probe.py": "f10615fa9c597a0a99af16b7595ad9ca7c089793a6817c993dd871a19d0c29b8",
+    "desktop_surface_probe.py": "1e2c6c2108f9be0bafd51ee59cf5aba46fc91fd929f634fa181093b17ee7733a",
+    "desktop_development_scenario.py": "f102fb719886a96e6c9ebd98c9fbe05cb612f07301dae2fe2ee9ee0f56400359",
+    "desktop_development_fixture.mjs": "ee4c7faaa3d892475adf4e6f149db83f7e82f3dea2132f5f45ca7477605a257f"
+  },
+  "checkLogDigests": {
+    "chat-development-python.log": "47ca637ef6785a362be60e358bbe33e5f6d556bcdd12647ad49be88eabdb15c0",
+    "chat-development-source-python.log": "d3c789e5c2e25ed8809070b32876151b3da2b78dafdb591fd88a09aac3852681"
+  }
+}

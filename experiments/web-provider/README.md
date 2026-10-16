@@ -20,8 +20,8 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `9dd2881029f69124a63a` uses source0ee0f59 and the6.1.5 bridge
-commit above. Previous payload9014deaf/sourcee27ab09 remains available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
+Installed payload `85e8f9127b98b12bb311` uses source7b8e541 and the6.1.5 bridge
+commit above. Previous payload9dd288/source0ee0f59 and earlier installations remain available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
 neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
 Current acceptance and unresolved work belong to CURRENT.md.
@@ -59,8 +59,8 @@ executes and records each tool separately; the exact results return together on
 one original host call. This candidate passes real GPT-6 Instant + stable53 Core:
 background workers overlap, all native surface/report/restore gates pass,8 model
 starts/6 tool returns/2 user messages,0 Pro/retry. See `batch-qualification.json`.
-Operating9dd288 remains unchanged; this is a source candidate, not activation or
-public stable provider qualification. Chat allowance deduction remains unknown.
+Source7b8e541 is activated as85e8f9; public stable provider qualification
+and broader lifecycle acceptance remain unfinished. Chat allowance deduction remains unknown.
 
 Reproduce the deterministic actual-Core batch surface test without real Chat:
 
@@ -75,6 +75,17 @@ dependencies and the signed app, without changing the operating descriptor. Expl
 cost first: at most12 model starts including guardian, no Pro/automatic retry.
 Without `--source-candidate`, live proof exercises installed product bytes instead.
 Native question answers in this probe come from a driver, not a physical user tap.
+
+`desktop_surface_probe.py --development` additionally exercises a bounded small
+repository: real baseline test failures, implementation repair, unchanged tests,
+manual native compaction, continuation without rereading the removed token file,
+and actual cold Core inference. Installed85e8f9 passes in121.865s:4 user submissions,
+8 host returns and12 model starts,0 Pro/retry. See `development-qualification.json`.
+The deterministic variant sends0 real Chat. Explain cost before `--live --development`:
+at most24 starts including any reviewer. A live adapter and app remain available
+during cold Core verification; hours-long work, automatic/fault compaction and app/
+adapter restart are not qualified by this test. The new files are test drivers,
+not runtime policy; they do not require another provider installation.
 
 Offline real-Core recovery proof, without a Chat request:
 

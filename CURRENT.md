@@ -13,9 +13,13 @@ acceptance cache. No external workflow skill or separate task ledger is required
   branch. Actual version and Core/Manager doctor confirm device selection; stable52
   is retained for rollback. Production upgrade proof and Chat inference acceptance
   remain separate; the new narrow stable53 live proof is described below.
-- Installed opt-in Chat provider:9dd2881029f69124a63a, source0ee0f59,
-  `returnTransport=local`,595 installed files verified including its manifest.
-  Prior9014deaf810ff40a583d and older recovery payloads are retained.
+- Installed opt-in Chat provider:85e8f9127b98b12bb311, source7b8e541,
+  `returnTransport=local`,599 installed files verified including its manifest.
+  Prior9dd2881029f69124a63a/source0ee0f59 and earlier payloads are retained.
+  Explicit gateway batches are now installed. Activation stopped only the verified
+  idle old adapter (zero requests/arrivals since start); endpoint/capability,12 base
+  auth/config hashes and the signed desktop identity are unchanged. Bootstrap and
+  authenticated catalog smoke require no Chat inference.
   This provider is experimental; Core stable publication does not make it a fully
   qualified public Chat provider. No later source edit is implicitly installed.
 - Earlier installed signed-app + stable51 Core proof: one Chat user message,
@@ -64,15 +68,15 @@ acceptance cache. No external workflow skill or separate task ledger is required
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not
 HTTP success, a server counter or a cached tool listing. Responsibility realignment
-and the0.163 production upgrade are complete on rewrite/rust-core. The user's next-work instruction now authorizes offline source
-work on tool input/admission and recovery, followed by native development coverage.
+and the0.163 production upgrade are complete on rewrite/rust-core. The user authorized bounded operating activation and development/continuity
+qualification after native tool recovery and surface coverage.
 
 | Order | Work | Acceptance / current gap |
 | --- | --- | --- |
-| 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. New ordinary-function raw-input recovery is source/offline-qualified below; installed/live coverage of the complete tool contract remains. |
+| 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. Ordinary-function raw-input recovery and basic native surface have narrow installed/live proof below; additional error/capability combinations remain. |
 | 2 | Failure recovery | Installed local transport passes actual signed-app/stable53 malformed JSON→Core error→model correction with one user message. Arrays/whitespace and other recovery cases pass offline; further live error surfaces remain. Completed pre-dispatch rejections require genuine new input; unknown delivery stays blocked without work replay. |
-| 3 | Complete native development surface | Installed legacy single-call trial failed parallel execution. New explicit gateway batch candidate passes actual GPT-6 Instant/stable53 MCP/search, guardian, freeform patch, overlapping background starts/polls, question RPC/driver answer and reports/restore. Candidate is not activated; physical question UI remains unqualified. |
-| 4 | Long context and switching | Preserve canonical requirements/results through automatic/fault compaction, native-to-Chat/Chat-to-native switching, restart and cold resume. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
+| 3 | Complete native development surface | Installed legacy single-call trial failed parallel execution. Installed explicit gateway batch source passes actual GPT-6 Instant/stable53 MCP/search, guardian, freeform patch, overlapping background starts/polls, question RPC/driver answer and reports/restore. Payload85e8f9 is activated; physical question UI remains unqualified. |
+| 4 | Long context and switching | Installed85e8f9 passes bounded test failure→repair→manual compaction→continuation→cold Core inference. Automatic/fault compaction, native-to-Chat/Chat-to-native switching and lost provider/app context remain unqualified. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
 | 6 | Transcript and visible progress | Relay actual model initial/intermediate/final reports and native tool results once, in order. Verify real TUI visibility/persistence and resumed latest state during injected output/observer loss. Heartbeat is not model progress. |
 | 7 | Latency and model-change reload | Time startup/context/dispatch/first-public-output/completion separately; reduce buffering and unnecessary resend. Use upstream session model/effort actions for same-Chat changes; cross-provider handoff remains separately qualified. |
@@ -85,7 +89,8 @@ work on tool input/admission and recovery, followed by native development covera
 After responsibility realignment, first finish1/2, then3, then4/5. Performance
 and alternative transport work must not obscure a broken basic native tool loop.
 Source/offline implementation and pushes are authorized by the current next-work
-instruction. Operating provider activation and live trials remain separate.
+instruction. Operating activation and the bounded live trials below are authorized; further live
+trials still require their necessity, scope and expected submissions to be stated.
 Explain necessity, scope and expected Chat submissions before live trials or
 operating provider changes; do not stop existing tasks.
 
@@ -236,7 +241,7 @@ changed. A generated live-wrapper argv/output-root problem was caught and fixed
 before inference; chat-surface-entry-proof.json executes that exact setup with a
 fake port, never a model. Full wrapper/fixture source is committed for reproduction.
 
-### Explicit gateway batching: candidate live PASS
+### Explicit gateway batching: live PASS, installed
 
 Static inspection of signed app26.1007.21434's exact request-builder assets found
 no ordinary Chat local-function parallel switch. The only parallel_tool_calls
@@ -252,7 +257,8 @@ one original host call. Each native approval/execution/result remains individual
 recorded by Core. Public report appears once. Unknown names, changed host groups,
 missing/duplicate results and uncertain cancellation do not authorize partial
 publication, an invented result, sibling replay or a new user continuation.
-No Core code, executor, service or installed runtime changes were needed.
+No Core code, executor or service changes were needed. The provider payload is
+now installed; the following batch live proof preceded activation.
 
 Actual signed-app + stable53 Core + candidate source passes in66.790s on GPT-6
 Instant: two commands start0.048s apart and overlap; one explicit start batch and
@@ -280,11 +286,59 @@ checksums. All595 installed files and13 protected auth/config/runtime descriptor
 are unchanged. Ordinary adapter and signed desktop remain ready. Owned test
 adapter/Core/workspace roots exited and were removed; no existing task was stopped.
 
-Candidate source is qualified, not installed: operating9dd288/source0ee0f59 still
-uses singular calls. Activation must respect the existing installer's refusal to
-replace a live adapter. Next work is the long-development/context/lifecycle gates;
-physical question UI and later provider activation remain explicit outstanding
-scopes. Keep the previous serial failure as negative evidence.
+Source7b8e541 is now installed as85e8f9127b98b12bb311. The normal installer
+still refuses a live adapter; this authorized activation prebuilt the immutable
+payload, rechecked the old adapter identity and zero lifetime request/arrival
+counters, stopped only that idle process normally and used ordinary installation/
+bootstrap with rollback on failure. Existing signed desktop and user tasks were
+not stopped. Private proof: chat-batch-activation/{result,before,protected}.json.
+Long-development/context/lifecycle and physical question UI remain separate gates.
+Keep the previous serial failure as negative evidence.
+
+### Installed iterative development and continuity: bounded live PASS
+
+Payload85e8f9/source7b8e541 passes a small multi-file development fixture through
+actual signed app + stable53 Core on GPT-6 Instant. The model reads a contract and
+buggy library/CLI, runs the original five tests to observe actual failures, edits
+implementations and reruns tests successfully. Original tests/README are unchanged.
+An independent library holdout and five additional CLI cases (valid non-list JSON,
+non-string entries and Unicode ordering) pass without extra model submissions.
+
+The driver removes only its verified generated token file after successful repair,
+requests native manual compaction, then asks the model to continue. The actual
+summary retains the tool-only token, the adapter consumes one checkpoint, regression
+tests pass and the model recovers the removed token into proof.txt. Completed source
+contents, inode and modification times remain unchanged during continuation. After
+Core process restart, a further real inference recalls the token with no tools.
+Canonical initial/intermediate/final reports survive thread/read/cold resume and
+render in the actual TUI. Read-only restore and rendering add no inference; the
+explicit cold-memory question is a separate counted model request.
+
+Actual result:121.865s,4 user submissions (development, compaction, continuation,
+cold-memory check),8 host tool returns,12 model starts,1 compaction summary and1
+applied checkpoint,0 guardian/Pro/retry. No quota deduction is inferred. All599
+installed hashes and12 existing auth/config hashes verify; endpoint/capability and
+signed desktop identity are preserved. The operating adapter is ready, authenticates
+catalog reads and retains no trial budget. The isolated inference adapter/Core and
+fixture roots exited and were removed. No existing user job was stopped.
+
+Reproduce with desktop_surface_probe.py --development (deterministic app port,
+actual Core and0 Chat) or explicitly --live --development (installed product bytes,
+maximum24 model starts including any reviewer). Offline chat-development-offline-4
+passes8 synthetic starts/4 synthetic users. Existing batch surface offline and42
+provider Python tests pass after the new test-only continuation/cold hooks. Product
+modules remain byte-identical to the earlier89 Node/Bun tests and batch live proof.
+Committed development-qualification.json preserves activation, live/offline counters,
+source/probe/trace hashes and limits; private traces, model-developed code, command
+outputs and rendered TUI are in chat-development-installed-live-1. Negative offline
+setup attempts1/2 are retained and used no real Chat; Update File corrected the
+replacement fixture and escaped-output token matching was fixed before live use.
+
+This is bounded iterative development and manual compaction, not hours-long or
+whole-repository maintenance. Cold Core reused the still-live adapter/signed app;
+loss/restart of either and reconstruction from an empty remote context remain open.
+Next: automatic/fault compaction and provider/app lifecycle, then longer development
+and concurrent-owner qualification. Physical user-input UI remains separate.
 
 ### Deferred and conditional scope
 
