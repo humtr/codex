@@ -60,7 +60,7 @@ pub(crate) struct ReentryRoute {
     pub return_profile: Option<String>,
 }
 
-fn config_profile(config: &crate::legacy_core::config::Config) -> Option<String> {
+fn config_profile(config: &Config) -> Option<String> {
     config
         .config_layer_stack
         .layers_high_to_low()
@@ -129,11 +129,11 @@ pub(crate) fn reentry_route(
         let provider = routing.get("model_providers")?.get(PROVIDER)?;
         args.extend([
             "-c".into(),
-            format!("model_provider={:?}", PROVIDER),
+            format!("model_provider={PROVIDER:?}"),
             "-c".into(),
             format!("model_catalog_json={}", routing.get("model_catalog_json")?),
             "-c".into(),
-            format!("model_providers.{}={provider}", PROVIDER),
+            format!("model_providers.{PROVIDER}={provider}"),
         ]);
     }
     if !entering {
