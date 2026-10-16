@@ -61,6 +61,7 @@ requires_openai_auth = false
         shared_profile.chmod(0o600)
         profiles = home / ".local/share/codex/manager/profiles"
         clients, servers = [], set()
+        leased_homes = {home / ".codex"}
 
         def server_directories():
             state = home / ".local/share/codex/core"
@@ -139,7 +140,7 @@ requires_openai_auth = false
             # Only descendants retaining this fixture's exact home inode on the
             # Core lease FD qualify; do not identify unrelated shells by name.
             homes = {(p.stat().st_dev, p.stat().st_ino)
-                     for p in profiles.glob("*/home") if p.is_dir()}
+                     for p in set(profiles.glob("*/home")) | leased_homes if p.is_dir()}
             remaining = []
             for path in Path("/proc").iterdir():
                 if not path.name.isdigit() or int(path.name) == os.getpid():
@@ -253,10 +254,41 @@ requires_openai_auth = false
             try:
                 assert run("--version").stdout == expected_version
                 run("--profile", "shared-proof", "mcp", "list")
+                # The Core lease must not depend on the Manager registry path.
+                isolated = home / "isolated-account"
+                external = home / ".codex-profiles/direct"
+                for account in [home / ".codex", isolated, external]:
+                    account.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    if account != home / ".codex":
+                        (account / "config.toml").write_text(config)
+                    leased_homes.add(account)
+                    process, master = launch(account)
+                    pid = bind(account, process, master)
+                    actual = Path(f"/proc/{pid}/fd/36").stat()
+                    expected = account.stat()
+                    assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+                    lease = os.open(account, os.O_RDONLY)
+                    try:
+                        try:
+                            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            pass
+                        else:
+                            raise AssertionError("Core-only runtime did not retain execution-home lease")
+                    finally:
+                        os.close(lease)
+                    stop_owned()
+                    if account == isolated:
+                        assert not (account / "sessions").is_symlink()
+                        assert (account / "state_5.sqlite").is_file()
+                    if account == external:
+                        assert (account / "sessions").is_symlink()
+                        assert not (account / "state_5.sqlite").exists()
             finally:
                 (native / "manager.unavailable").rename(manager)
             print("PASS native malformed preference and optional Manager absence preserve ordinary launch")
             print("PASS Manager shared profile projection, local override and native profile use without Manager")
+            print("PASS Core-only default/isolated/external server leases and shared-store isolation")
         finally:
             stop_owned()
 

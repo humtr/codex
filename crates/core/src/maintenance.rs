@@ -3,7 +3,7 @@ use super::*;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
@@ -35,7 +35,14 @@ pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
     if unsafe { flock(file.as_raw_fd(), 1) } != 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(Some(file))
+    // Runtime descriptor publication may replace 33–36. Keep generation
+    // retention independent of those bindings even under descriptor pressure.
+    let safe =
+        unsafe { super::fcntl(file.as_raw_fd(), super::F_DUPFD_CLOEXEC, super::SAFE_MIN_FD) };
+    if safe < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(Some(unsafe { File::from_raw_fd(safe) }))
 }
 
 pub(super) struct UpdateLease<'a> {

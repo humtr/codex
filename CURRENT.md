@@ -178,8 +178,39 @@ Private aggregate: responsibility-manager-qualified.json. Native proof logs:
 responsibility-manager-native-{profiles-final,notifications-signed}.log. The
 stable52 pointer and all eight installed payload hashes/modes remain unchanged;
 no publication, device activation or real credentials were used. Remaining work
-is the account/default delegation and managed-home policy/safety split, followed
-by server/catalog and frontend coupling reduction in the sequence below.
+continues with the execution-home split below, then server/catalog and frontend
+coupling reduction.
+
+### Execution home and retained shared-state binding
+
+Implementation in qualification: execution_lease.rs replaces the registry-aware
+profile lease. It locks every existing owned execution directory by its actual
+inode, including native default, isolated and declared external homes. The
+primitive contains no Manager path, account ID grammar, registration parser or
+registry lock. It preserves native relative/alias path interpretation and the
+original CODEX_HOME; FD36 still protects loaded runtimes and descendants. The
+public managed-home guard stays read-only in shared_layout.rs and refuses missing,
+unsafe or substituted registered homes before the generic lease is acquired.
+
+Disposition after reviewing the real bare path: KEEP the Core compatibility
+binding for the three already-supported shared-home layouts and their required
+SQLite settings. Moving all preparation to optional Manager would strand direct
+first launches and risk a split conversation store when Manager is absent.
+An extra persistent binding registry/migration or a second preparation path would
+add debt without reducing the upstream execution obligation. Core still owns the
+one physical layout preparation; Manager owns account registration/default
+selection/lifecycle and shared configuration-profile policy, and upstream owns
+all record schemas and writer locks. Core's existing default-preference presence
+hint delegates selection to Manager; it neither parses the preference nor chooses
+an account. Retain that narrow bridge rather than add another launch protocol.
+
+Descriptor-pressure proof also found that the generation-retention File could
+occupy36 before home binding. Its shared lock now lives above reserved descriptors
+33–36, retaining CLOEXEC behavior; pressure tests prove both independent locks
+remain held until their proper release. Focused inode/descendant/relative/alias
+and unsafe-home public-path tests pass. Full workspace, exact-source hosted and
+new signed native default/isolated/external proofs remain in qualification.
+No operating runtime or user state has been changed.
 
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
@@ -210,7 +241,7 @@ upstream0.161.0. Relevant observed coupling:
 | Artifact trust, generation retention, activation and rollback | Core; existing producer signs/publishes | One authenticated inventory and transaction. Manager/provider never select arbitrary runtime binaries or write pointers. |
 | Account create/rename/delete/default/select and /switch | Manager | Manager owns registry and handoff UX. Core receives the selected execution home; it does not select accounts or parse the registry. |
 | Profile mutation protection | Manager owns mutation; minimal execution lease protects live homes | Preserve protection through bare launches, exec replacement and persistent servers. Generalize the existing lease only after proving all entrypoints; never delete it merely to remove a Manager path reference. |
-| Installation-wide conversation sharing | Manager-selected product policy; upstream owns all records/DB/locks | Manager prepares the declared layout; Core retains only the generic launch binding needed for already-managed homes. Preserve bare access to existing shared history and explicit isolated homes. |
+| Installation-wide conversation sharing | Existing product contract selects sharing; Manager selects the account; upstream owns all records/DB/locks | Core retains the one compatibility layout/SQLite binding for the three supported shared-home layouts, including bare first launch without Manager. Arbitrary homes remain isolated. No second binding registry or preparation path. |
 | Shared --profile configurations | Manager owns convenience registration; upstream resolves settings | Move registry/projection policy out of Core. Preserve global chatgpt fallback, local overrides and native --profile meaning without copying credentials. |
 | Server process and connection | Upstream owns server/turn lifecycle; Core binds qualified runtime and compatible endpoints | Keep bounded signed-runtime spawn, necessary environment/FDs and peer validation. Manager requests optional configuration; never create a second executor or competing supervisor. |
 | Model catalog, provider selection and frontend server reuse requirements | Manager/frontend; provider owns its account catalog | Core accepts only bounded opaque startup input if the pinned upstream API cannot carry it. It must not know Chat model names, resolve provider auth or own model-selection policy. |
@@ -310,7 +341,7 @@ bare-codex convenience does not justify embedding the convenience's policy there
 | 1. Establish contracts and a small baseline | Amend SPEC4/4.5, generation admission, Manager and9A sections in the relevant implementation slice. Record direct managed-home launch, UI and update behaviors using current public entrypoints. | Separate the three Core meanings: our launcher, upstream engine and modified frontend. Baseline covers absent Manager, isolated/managed home, /switch, /btw, notifications, writer ownership and failed updates. No live Chat use needed. |
 | 2. Split release qualification | auto-release-termux.yml, release_decision.py, manager_tui_artifact.py, producer/inventory tests and release-builder admission. | An optional frontend/provider failure does not prevent constructing and testing a base candidate. Complete candidate inventories still reject missing declared assets. An incompatible enhanced/default update preserves current pointer and user features; no incompatible helper is executed. |
 | 3. Extract Manager launch policy | Core main.rs notification/projection paths; Manager lib.rs/profile launch; shared_profiles.rs; existing handoff tests. | Manager chooses accounts/hooks/config; Core does not parse its policy records. Fresh/resume/switch/side-chat use the same effective permissions/config. Manager absence/failure cannot block a plain independent launch. Existing auth/config bytes stay unchanged. |
-| 4. Separate managed-home policy from execution safety | shared_layout.rs, profile_lease.rs, Manager profile lifecycle and shared-state transition scripts. | Bare launch of an existing managed home still holds the mutation lease and sees canonical history; isolated homes remain isolated. Deletion/rename races, inherited FD lifetime, server retention and interrupted migration preserve data. No second history index or new mandatory daemon. |
+| 4. Separate managed-home policy from execution safety | shared_layout.rs, execution_lease.rs, Manager profile lifecycle and shared-state transition scripts. | Generic inode leasing replaces registry-aware locking; the read-only managed-home guard and one Core shared-state binding preserve direct launch without Manager. Isolated homes remain isolated. Deletion/rename races, inherited FD lifetime, descriptor pressure and server retention preserve data. No second history index, binding registry or mandatory daemon. |
 | 5. Reduce server/catalog coupling | shared_server.rs, manager_tui.rs, Manager task discovery and frontend termux_backend_catalog integration. | Determine the native capability gap on the actual candidate; eliminate only duplicated behavior. Different identities/catalogs do not cross, changed catalog bytes cannot reuse stale state, current writers stay observable, old jobs survive updates, and no upstream unmanaged installer starts. |
 | 6. Minimize frontend and binary changes | native.patch, command-boundary checks, native workflow and release-builder/runtime_patch.rs. | Classify every hunk as compatibility, integration or obsolete. Remove duplicate/dead patches. Compare supported upstream config, small source patch and current binary adaptation by real build/rebase cost; keep the smallest qualified method. Preserve all supported approval modes without bwrap and all36-file-patch behaviors that remain required. |
 | 7. Qualify a real next-upstream candidate | Current producer/signing/readback/update scripts, Android fixtures and current-generation rollback. | Independently build base and integrated candidates; verify unaffected component reuse. Feature-preserving update, failed/missing optional asset, rollback, local reconstruction and retained running clients pass. Physical notification/window observations are reported separately. |

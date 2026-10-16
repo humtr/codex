@@ -2,6 +2,7 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 pub(super) const DIRECTORIES: &[&str] = &[
@@ -39,6 +40,37 @@ fn declared(home: &Path, profile: &Path) -> bool {
             p.parent() == Some(home.join(".local/share/codex/manager/profiles").as_path())
                 && p.file_name().is_some_and(identity)
         })
+}
+
+/// Existing public path binding, not a Manager metadata/ID parser. Keep missing
+/// or substituted registered homes from being bootstrapped as fresh identities.
+pub(super) fn guard_registered_home(home: &Path, profile: &Path) -> io::Result<()> {
+    let registry = home.join(".local/share/codex/manager/profiles");
+    if profile.file_name() != Some(OsStr::new("home"))
+        || profile.parent().and_then(Path::parent) != Some(registry.as_path())
+    {
+        return Ok(());
+    }
+    for path in profile.ancestors() {
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid());
+        }
+    }
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    let uid = unsafe { geteuid() };
+    let parent = fs::symlink_metadata(registry)?;
+    let selected = fs::symlink_metadata(profile)?;
+    if parent.uid() != uid
+        || parent.mode() & 0o022 != 0
+        || selected.uid() != uid
+        || selected.mode() & 0o7777 != 0o700
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 pub(super) fn prepare(home: &Path, selected: Option<&OsStr>) -> io::Result<Option<PathBuf>> {

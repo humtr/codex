@@ -2495,11 +2495,30 @@ A profile selected by the explicit default preference cannot be deleted or renam
 first choose another default. No two-record default/rename transaction is needed.
 
 Profile creation, preference writes and lifecycle mutations serialize with an
-exclusive kernel lock on the existing Manager profiles directory. Registered
-profile launch obtains a shared lock on that directory before validating/opening
-its real home, then holds a shared lock on the home inode across native runtime
-and shared-server execution using FD36. Core provides this physical execution
-lease only; it does not implement deletion, rename or default policy. Manager
+exclusive kernel lock on the existing Manager profiles directory. Manager owns
+that registry coordination; Core execution does not lock or parse the registry.
+For every existing owned upstream execution home, Core opens the actual directory
+and holds a shared kernel lock on its inode across native runtime and shared-server
+execution using FD36. The lease primitive knows no account ID, Manager path or
+registration format. Native aliases/relative paths bind the same actual inode;
+upstream still receives the original CODEX_HOME. A missing home is left to the
+existing execution preparation/upstream rules, and a foreign-owned home does not
+become a Manager-managed account through this optional lease.
+
+The existing declared Manager-home path contract still requires a real private
+owned home and safe ancestors before the generic lease is acquired; missing,
+replaced or unsafe declared homes fail, never become fresh isolated identities.
+The compatibility topology/SQLite binding for the three already-supported shared
+home layouts remains Core-owned so direct launches still see canonical history
+without Manager. This is a retained data-integrity contract, not account selection
+or a reason for Core to parse Manager metadata. No new binding registry, state
+marker, user-data migration or second conversation store is introduced.
+
+The home lease closes the mutation race: lifecycle requires its exclusive lock;
+launch takes the shared lock and revalidates the opened inode against the selected
+path before use. A registry-only mutation for another account cannot block an
+otherwise safe existing-home launch. Core provides this execution lease only;
+it does not implement deletion, rename or default policy. Manager
 requires the exclusive home lease before any rename/delete and additionally
 rejects existing old-generation live Core server bindings for that home. No user
 server is stopped automatically. For pre-lease runtime processes, bounded same-UID
@@ -2508,6 +2527,13 @@ home field may be retained transiently, never unrelated environment values,
 credentials, argv or session content. Unreadable/ambiguous relevant processes
 reject mutation rather than claiming idle. Default selection may change while
 work runs; existing work retains its account and authentication.
+
+An execution-home lease proves directory use, not conversation writer ownership;
+it never authorizes takeover, writer-lock removal or stopping another turn.
+
+Core's generation-retention lease must occupy a descriptor above the reserved
+33–36 range. Installing an execution-home lease under descriptor pressure must
+not release generation protection before the final kernel exec.
 
 New registration metadata is exactly `codex-manager-profile-v2\n`, without an ID
 already owned by the directory name. Existing exact private v1 metadata remains

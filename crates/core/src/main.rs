@@ -1,13 +1,13 @@
 use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
+mod execution_lease;
+#[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
 mod manager_config;
 #[cfg(unix)]
 mod manager_tui;
-#[cfg(unix)]
-mod profile_lease;
 #[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
@@ -1380,16 +1380,6 @@ where
     C: AsRef<std::path::Path>,
 {
     let selection = assets.selection();
-    let _profile_lease = match std::env::var_os("HOME") {
-        Some(home) => {
-            let home = std::path::PathBuf::from(home);
-            match profile_lease::acquire(&home, &upstream_execution_home(&home)) {
-                Ok(lease) => lease,
-                Err(err) => return RuntimeLaunchError::Exec(err),
-            }
-        }
-        None => None,
-    };
     let browser_helpers = match termux_browser_helper_paths(selection) {
         Ok(paths) => paths,
         Err(err) => return RuntimeLaunchError::Environment(err),
@@ -1405,6 +1395,20 @@ where
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
 
+    let _execution_lease = match std::env::var_os("HOME") {
+        Some(home) => {
+            let home = std::path::PathBuf::from(home);
+            let execution = upstream_execution_home(&home);
+            if let Err(err) = shared_layout::guard_registered_home(&home, &execution) {
+                return RuntimeLaunchError::Exec(err);
+            }
+            match execution_lease::acquire(&execution) {
+                Ok(lease) => lease,
+                Err(err) => return RuntimeLaunchError::Exec(err),
+            }
+        }
+        None => None,
+    };
     match prepare_core_shared_state_requirements(config_dir.as_ref()) {
         Ok(Some(shared)) => env_plan
             .assignments
@@ -15060,7 +15064,14 @@ snooze_until	0
     #[test]
     fn test_profile_boundary_conflicts_reject_before_upstream_exec() {
         use std::os::unix::fs::PermissionsExt;
-        for conflict in ["nonempty", "wrong-link", "parent-link"] {
+        for conflict in [
+            "nonempty",
+            "wrong-link",
+            "parent-link",
+            "missing-home",
+            "public-home",
+            "registry-link",
+        ] {
             let root = b2_public_main_fixture("profile-boundary-conflict", false);
             let home = root.join("home");
             let profile = home.join(".local/share/codex/manager/profiles/account.a/home");
@@ -15070,6 +15081,17 @@ snooze_until	0
             std::fs::create_dir(&outside).unwrap();
             std::fs::write(outside.join("sentinel"), b"do-not-touch").unwrap();
             match conflict {
+                "missing-home" => std::fs::remove_dir(&profile).unwrap(),
+                "public-home" => {
+                    std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o755))
+                        .unwrap()
+                }
+                "registry-link" => {
+                    let registry = home.join(".local/share/codex/manager/profiles");
+                    let displaced = root.join("displaced-profiles");
+                    std::fs::rename(&registry, &displaced).unwrap();
+                    std::os::unix::fs::symlink(displaced, registry).unwrap();
+                }
                 "nonempty" => {
                     std::fs::create_dir(profile.join("sessions")).unwrap();
                     std::fs::write(profile.join("sessions/thread"), b"legacy-sentinel").unwrap();

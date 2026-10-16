@@ -1,14 +1,13 @@
-//! Physical execution lease. Manager alone owns registration/lifecycle policy.
+//! Physical directory lease only; no account/registry or sharing policy.
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::{Component, Path};
+use std::path::Path;
 
 unsafe extern "C" {
     fn geteuid() -> u32;
 }
-// AArch64 uses these flags on both musl Linux and Android/Bionic.
 #[cfg(target_arch = "aarch64")]
 const DIRECTORY: i32 = 0o40000;
 #[cfg(not(target_arch = "aarch64"))]
@@ -18,76 +17,35 @@ const NOFOLLOW: i32 = 0o100000;
 #[cfg(not(target_arch = "aarch64"))]
 const NOFOLLOW: i32 = 0o400000;
 
-fn real_directory(path: &Path) -> io::Result<File> {
-    let mut current = std::path::PathBuf::new();
-    for part in path.components() {
-        if !matches!(part, Component::RootDir | Component::Normal(_)) {
-            return Err(io::Error::other("invalid profile execution path"));
-        }
-        current.push(part);
-        let m = fs::symlink_metadata(&current)?;
-        if !m.is_dir() || m.file_type().is_symlink() {
-            return Err(io::Error::other("invalid profile execution path"));
-        }
-    }
-    let file = OpenOptions::new()
+pub(super) fn acquire(execution: &Path) -> io::Result<Option<File>> {
+    // Preserve native relative/alias paths and creation of missing homes. The
+    // declared shared-home guard is separate and not part of this primitive.
+    let physical = match fs::canonicalize(execution) {
+        Ok(path) => path,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let directory = OpenOptions::new()
         .read(true)
         .custom_flags(DIRECTORY | NOFOLLOW)
-        .open(path)?;
-    let m = file.metadata()?;
-    if m.uid() != unsafe { geteuid() } || m.mode() & 0o022 != 0 {
-        return Err(io::Error::other("unsafe profile execution directory"));
+        .open(&physical)?;
+    let opened = directory.metadata()?;
+    if opened.uid() != unsafe { geteuid() } {
+        return Ok(None);
     }
-    Ok(file)
-}
-
-fn shared_lock(file: &File) -> io::Result<()> {
-    if unsafe { super::flock(file.as_raw_fd(), 1 | super::FLOCK_NB) } != 0 {
+    if unsafe { super::flock(directory.as_raw_fd(), 1 | super::FLOCK_NB) } != 0 {
         return Err(io::Error::other(
-            "profile is being changed; retry after the change",
+            "execution home is being changed; retry after the change",
         ));
     }
-    Ok(())
-}
-
-pub(super) fn acquire(home: &Path, execution: &Path) -> io::Result<Option<File>> {
-    let profiles = home.join(".local/share/codex/manager/profiles");
-    let Ok(relative) = execution.strip_prefix(&profiles) else {
-        return Ok(None);
-    };
-    let parts: Vec<_> = relative.components().collect();
-    let [Component::Normal(id), Component::Normal(leaf)] = parts.as_slice() else {
-        return Ok(None);
-    };
-    if *leaf != "home"
-        || id.to_str().is_none_or(|s| {
-            s.is_empty()
-                || s == "."
-                || s == ".."
-                || !s
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-        })
-    {
-        return Ok(None);
+    let current = fs::metadata(execution)?;
+    if current.dev() != opened.dev() || current.ino() != opened.ino() {
+        return Err(io::Error::other("execution home changed"));
     }
-    let parent = real_directory(&profiles)?;
-    shared_lock(&parent)?;
-    let profile = real_directory(execution)?;
-    if profile.metadata()?.mode() & 0o7777 != 0o700 {
-        return Err(io::Error::other("unsafe profile execution home"));
-    }
-    shared_lock(&profile)?;
-    let physical = fs::symlink_metadata(execution)?;
-    let opened = profile.metadata()?;
-    if physical.dev() != opened.dev() || physical.ino() != opened.ino() {
-        return Err(io::Error::other("profile execution home changed"));
-    }
-    // Reserve an inheritable descriptor for native TUI and persistent server.
-    // Other runtime sources are duplicated above all reserved descriptors.
+    // Reserve the native FD only after the owned directory is locked and bound.
     let safe = unsafe {
         super::fcntl(
-            profile.as_raw_fd(),
+            directory.as_raw_fd(),
             super::F_DUPFD_CLOEXEC,
             super::SAFE_MIN_FD,
         )
@@ -96,10 +54,7 @@ pub(super) fn acquire(home: &Path, execution: &Path) -> io::Result<Option<File>>
         return Err(io::Error::last_os_error());
     }
     let safe = unsafe { File::from_raw_fd(safe) };
-    // Either original directory can itself occupy FD36 under descriptor pressure.
-    // Close those owners before installing the reserved inheritable descriptor.
-    drop(profile);
-    drop(parent);
+    drop(directory);
     if unsafe { super::dup2(safe.as_raw_fd(), 36) } < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -112,11 +67,11 @@ mod tests {
     use std::os::unix::fs::{symlink, PermissionsExt};
 
     fn isolated(name: &str) -> bool {
-        const ROLE: &str = "CODEX_PROFILE_LEASE_TEST";
+        const ROLE: &str = "CODEX_EXECUTION_LEASE_TEST";
         if std::env::var(ROLE).as_deref() == Ok(name) {
             return true;
         }
-        let selector = format!("profile_lease::tests::{name}");
+        let selector = format!("execution_lease::tests::{name}");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &selector, "--nocapture"])
             .env(ROLE, name)
@@ -130,8 +85,8 @@ mod tests {
         false
     }
     #[test]
-    fn profile_lease_blocks_mutation_until_release_and_rejects_unsafe_paths() {
-        if !isolated("profile_lease_blocks_mutation_until_release_and_rejects_unsafe_paths") {
+    fn lease_tracks_inode_and_descendants_without_registry_policy() {
+        if !isolated("lease_tracks_inode_and_descendants_without_registry_policy") {
             return;
         }
         let root = super::super::tests::temp_root("profile-lease");
@@ -139,7 +94,7 @@ mod tests {
         let home = profiles.join("work/home");
         fs::create_dir_all(&home).unwrap();
         fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
-        let lease = acquire(&root, &home).unwrap().unwrap();
+        let lease = acquire(&home).unwrap().unwrap();
         let competing = File::open(&home).unwrap();
         assert_ne!(
             unsafe { super::super::flock(competing.as_raw_fd(), 2 | 4) },
@@ -165,26 +120,51 @@ mod tests {
             unsafe { super::super::flock(competing.as_raw_fd(), 2 | 4) },
             0
         );
-        assert!(acquire(&root, &home).is_err());
+        assert!(acquire(&home).is_err());
         drop(competing);
+        // A registry-only lock no longer denies unrelated Core execution.
         let parent = File::open(&profiles).unwrap();
         assert_eq!(unsafe { super::super::flock(parent.as_raw_fd(), 2 | 4) }, 0);
-        assert!(acquire(&root, &home).is_err());
+        drop(acquire(&home).unwrap().unwrap());
         drop(parent);
+        // Mode/managed-path policy belongs to the declared-layout guard.
         fs::set_permissions(&home, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(acquire(&root, &home).is_err());
+        drop(acquire(&home).unwrap().unwrap());
         fs::remove_dir(&home).unwrap();
         let outside = root.join("outside");
         fs::create_dir(&outside).unwrap();
         symlink(&outside, &home).unwrap();
-        assert!(acquire(&root, &home).is_err());
-        assert!(acquire(&root, &outside).unwrap().is_none());
+        let aliased = acquire(&home).unwrap().unwrap();
+        assert_eq!(
+            aliased.metadata().unwrap().ino(),
+            fs::metadata(&outside).unwrap().ino()
+        );
+        drop(aliased);
+        assert!(acquire(&root.join("not-created")).unwrap().is_none());
+        for path in [root.join(".codex"), root.join("isolated")] {
+            fs::create_dir(&path).unwrap();
+            let lease = acquire(&path).unwrap().unwrap();
+            let peer = File::open(&path).unwrap();
+            assert_ne!(unsafe { crate::flock(peer.as_raw_fd(), 2 | 4) }, 0);
+            drop(lease);
+            assert_eq!(unsafe { crate::flock(peer.as_raw_fd(), 2 | 4) }, 0);
+        }
+        let previous_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+        let relative = acquire(Path::new("outside")).unwrap().unwrap();
+        assert_eq!(
+            relative.metadata().unwrap().ino(),
+            fs::metadata(&outside).unwrap().ino()
+        );
+        drop(relative);
+        std::env::set_current_dir(previous_cwd).unwrap();
+
         super::super::tests::remove_temp_root(root);
     }
 
     #[test]
-    fn profile_lease_survives_reserved_descriptor_pressure() {
-        if !isolated("profile_lease_survives_reserved_descriptor_pressure") {
+    fn retention_and_execution_leases_survive_reserved_descriptor_pressure() {
+        if !isolated("retention_and_execution_leases_survive_reserved_descriptor_pressure") {
             return;
         }
         let root = super::super::tests::temp_root("profile-lease-fd-pressure");
@@ -206,7 +186,19 @@ mod tests {
             assert!(file.as_raw_fd() < 36);
             fillers.push(file);
         }
-        let lease = acquire(&root, &home).unwrap().unwrap();
+        let generations = root.join("generations");
+        fs::create_dir(&generations).unwrap();
+        let retention = crate::maintenance::launch_lease(&generations)
+            .unwrap()
+            .unwrap();
+        assert!(retention.as_raw_fd() >= crate::SAFE_MIN_FD);
+        let retention_peer = File::open(&root).unwrap();
+        assert_ne!(
+            unsafe { crate::flock(retention_peer.as_raw_fd(), 2 | 4) },
+            0
+        );
+        drop(retention_peer);
+        let lease = acquire(&home).unwrap().unwrap();
         assert_eq!(lease.as_raw_fd(), 36);
         assert_eq!(
             lease.metadata().unwrap().ino(),
@@ -223,6 +215,17 @@ mod tests {
             0
         );
         drop(competing);
+        let retention_peer = File::open(&root).unwrap();
+        assert_ne!(
+            unsafe { crate::flock(retention_peer.as_raw_fd(), 2 | 4) },
+            0
+        );
+        drop(retention);
+        assert_eq!(
+            unsafe { crate::flock(retention_peer.as_raw_fd(), 2 | 4) },
+            0
+        );
+        drop(retention_peer);
         drop(fillers);
         super::super::tests::remove_temp_root(root);
     }
