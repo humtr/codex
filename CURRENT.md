@@ -76,9 +76,21 @@ rejected-sample recovery and native MCP discovery pass with a deterministic app
 port, rendered/persisted/cold-restored reports and zero Chat submissions. Node46,
 Bun83, provider Python42 and source Python18+59 pass. The repair is installed as
 9dd288 and passes the actual GPT-6 Instant/stable53 malformed-input recovery trial
-above. Next is full native development coverage and long-context/lifecycle work.
-Detailed
-scope and remaining exclusions stay in the experiment's current-state document.
+above. Follow-up sourcef16db36 adds a reproducible full-surface test and committed
+surface-qualification.json. Its actual68.173s trial passes native MCP/search, real
+reviewer, freeform patch, background start/poll/finish, question RPC/driver answer
+and report persistence/cold restore/native rendering, but overall FAIL: Chat emits
+only single-call samples and workers do not overlap. Offline same-sampling pairs
+execute concurrently. One serial sample does not establish host impossibility.
+Observed primary1 + guardian1 user submissions,8 tool returns,10 model starts,
+0 Pro/retry; allowance debits remain unknown. Private raw traces/checksums are in
+~/.cache/codex/acceptance/chat-surface-live-1; public sanitized evidence and scripts
+are on experiment/web-termux. Twelve existing auth/config files and595 installed
+payload files remain unchanged; owned test roots/adapters/workers are removed.
+Next is inspecting actual parallel request/response controls without inference,
+then an explicit gateway batch if necessary, followed by long development/context/
+lifecycle acceptance. Physical question taps remain untested. Detailed scope and
+remaining exclusions stay in the experiment's current-state document.
 
 ## Final Core / Manager responsibility boundary
 
