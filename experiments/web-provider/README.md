@@ -20,8 +20,8 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `85e8f9127b98b12bb311` uses source7b8e541 and the6.1.5 bridge
-commit above. Previous payload9dd288/source0ee0f59 and earlier installations remain available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
+Installed payload `23a08e9e0b6ead12cf11` uses source2245164 and the6.1.5 bridge
+commit above. Previous85e8f9/source7b8e541 and earlier installations remain available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
 neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
 Current acceptance and unresolved work belong to CURRENT.md.
@@ -33,7 +33,7 @@ The adjacent `chatgpt_contract.test.ts` is a fixture for the dependency checkout
 `tests/` directory (its imports target that checkout's `src/`), not this standalone
 provider suite. Do not collect it with an unscoped `bun test` here.
 
-The current source candidate gives the model one canonical callable name per
+The installed provider gives the model one canonical callable name per
 tool, filters old-round callbacks, and records content-free rejected-name/catalog
 fingerprints. A normally completed pre-dispatch rejection can recover only after owned
 cleanup and new user input preserving canonical history; uncertain delivery stays
@@ -44,8 +44,8 @@ arguments on the native function-call wire. Core returns the real argument error
 the local transport returns it on the original call, so the model can correct it
 without a new user prompt. A narrow owned history shim preserves those exact raw
 arguments through the unchanged dependency parser. No command is retried by the
-adapter and no guessed input or synthetic tool result is substituted. Empty JSON
-input, unknown tools and invalid search/gateway envelopes remain pre-dispatch
+adapter and no guessed input or synthetic tool result is substituted. Empty argument
+strings, unknown tools and invalid search/gateway envelopes remain pre-dispatch
 rejections with new-input recovery after completed cleanup; unknown delivery stays
 blocked. This repair is installed as9dd288/source0ee0f59. Actual GPT-6 Instant
 with signed app + stable53 Core passes malformed input→actual Core error→corrected
@@ -59,7 +59,7 @@ executes and records each tool separately; the exact results return together on
 one original host call. This candidate passes real GPT-6 Instant + stable53 Core:
 background workers overlap, all native surface/report/restore gates pass,8 model
 starts/6 tool returns/2 user messages,0 Pro/retry. See `batch-qualification.json`.
-Source7b8e541 is activated as85e8f9; public stable provider qualification
+Source2245164 retains that batching in23a08e9; public stable provider qualification
 and broader lifecycle acceptance remain unfinished. Chat allowance deduction remains unknown.
 
 Reproduce the deterministic actual-Core batch surface test without real Chat:
@@ -76,16 +76,23 @@ cost first: at most12 model starts including guardian, no Pro/automatic retry.
 Without `--source-candidate`, live proof exercises installed product bytes instead.
 Native question answers in this probe come from a driver, not a physical user tap.
 
-`desktop_surface_probe.py --development` additionally exercises a bounded small
-repository: real baseline test failures, implementation repair, unchanged tests,
-manual native compaction, continuation without rereading the removed token file,
-and actual cold Core inference. Installed85e8f9 passes in121.865s:4 user submissions,
-8 host returns and12 model starts,0 Pro/retry. See `development-qualification.json`.
-The deterministic variant sends0 real Chat. Explain cost before `--live --development`:
-at most24 starts including any reviewer. A live adapter and app remain available
-during cold Core verification; hours-long work, automatic/fault compaction and app/
-adapter restart are not qualified by this test. The new files are test drivers,
-not runtime policy; they do not require another provider installation.
+`desktop_surface_probe.py --development` exercises real baseline failures,
+implementation repair, regression/holdout tests, native compaction, continuation
+without rewriting completed source and cold Core inference. `--compaction` selects
+manual, automatic, failed or interrupted checkpoints. Automatic and interrupted
+paths have actual signed-app/stable53 proof in `continuity-qualification.json`;
+failed401 injection is offline. `--repository "$HOME/prj/ai" --live` evaluates a
+tracked source copy with autonomous issue selection and full repository checks;
+the original stays unchanged. Explain cost before live execution: development
+has a24-start cap, repository evaluation48 starts/20minutes; no Pro or automatic
+retry. The deterministic variants spend0 real Chat. These are bounded trials,
+not hours-long, app-restart or physical-user acceptance.
+
+Runtime packaging selects26 source/asset files and retains required third-party
+sources/licenses separately. Packaged Python bootstrap imports, three JS/TS entry
+builds and actual adapter admission pass without account state or Chat submission.
+Trial drivers/reports remain in Git rather than installed dependencies. This
+packaging change still needs activation; current installed23a08e9 has604 files.
 
 Offline real-Core recovery proof, without a Chat request:
 

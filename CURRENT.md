@@ -13,9 +13,9 @@ acceptance cache. No external workflow skill or separate task ledger is required
   branch. Actual version and Core/Manager doctor confirm device selection; stable52
   is retained for rollback. Production upgrade proof and Chat inference acceptance
   remain separate; the new narrow stable53 live proof is described below.
-- Installed opt-in Chat provider:85e8f9127b98b12bb311, source7b8e541,
-  `returnTransport=local`,599 installed files verified including its manifest.
-  Prior9dd2881029f69124a63a/source0ee0f59 and earlier payloads are retained.
+- Installed opt-in Chat provider:23a08e9e0b6ead12cf11, source2245164,
+  `returnTransport=local`,604 installed files verified including its manifest.
+  Prior85e8f9127b98b12bb311/source7b8e541 and earlier payloads are retained.
   Explicit gateway batches are now installed. Activation stopped only the verified
   idle old adapter (zero requests/arrivals since start); endpoint/capability,12 base
   auth/config hashes and the signed desktop identity are unchanged. Bootstrap and
@@ -65,7 +65,7 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Active remaining work
 
-Current source candidate (not installed): optional tool `report` omission no longer
+Installed2245164: optional tool `report` omission no longer
 rejects valid calls; malformed present metadata still refuses. Same-Chat route
 changes preserve the idle lane/context, and warm requests omit already-resident
 public replies and unchanged bootstrap instructions. Cancel recovery requires new
@@ -119,8 +119,8 @@ qualification after native tool recovery and surface coverage.
 | 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. Ordinary-function raw-input recovery and basic native surface have narrow installed/live proof below; additional error/capability combinations remain. |
 | 2 | Failure recovery | Installed local transport passes actual signed-app/stable53 malformed JSON→Core error→model correction with one user message. Arrays/whitespace and other recovery cases pass offline; further live error surfaces remain. Completed pre-dispatch rejections require genuine new input; unknown delivery stays blocked without work replay. |
 | 3 | Complete native development surface | Installed legacy single-call trial failed parallel execution. Installed explicit gateway batch source passes actual GPT-6 Instant/stable53 MCP/search, guardian, freeform patch, overlapping background starts/polls, question RPC/driver answer and reports/restore. Payload85e8f9 is activated; physical question UI remains unqualified. |
-| 4 | Long context and switching | Installed85e8f9 passes bounded test failure→repair→manual compaction→continuation→cold Core inference. Automatic/fault compaction, native-to-Chat/Chat-to-native switching and lost provider/app context remain unqualified. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
-| 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
+| 4 | Long context and switching | Installed85e8f9 passes bounded test failure→repair→manual compaction→continuation→cold Core inference. Automatic/interrupted paths now pass actual signed-app proof; failed401 passes actual Core/offline. Mid-turn and cross-provider compaction, hours-long work and lost provider/app context remain unqualified. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
+| 5 | Lifetime and owners | Actual two-account concurrent work/guardian isolation passes. Native command interruption then explicit Core termination/resume passes offline without replay. Qualify observation-only loss/reconnect and inference continuity across app/adapter restarts. A turn interrupt is distinct from termination of an already-running unified-exec process. |
 | 6 | Transcript and visible progress | Relay actual model initial/intermediate/final reports and native tool results once, in order. Verify real TUI visibility/persistence and resumed latest state during injected output/observer loss. Heartbeat is not model progress. |
 | 7 | Latency and model-change reload | Time startup/context/dispatch/first-public-output/completion separately; reduce buffering and unnecessary resend. Use upstream session model/effort actions for same-Chat changes; cross-provider handoff remains separately qualified. |
 | 8 | Independent MCP return transport | Establish actual new host schema and original-call Core result delivery. Qualify hosted deadlines, long execution/approvals, late results and observation recovery. Preserve local and MCP choices through the same Core/transcript projection. |

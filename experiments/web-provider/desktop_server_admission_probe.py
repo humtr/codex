@@ -12,11 +12,11 @@ import urllib.error
 import urllib.request
 
 
-def probe(bun, bridge):
+def probe(bun, bridge, runtime_source=None):
     with tempfile.TemporaryDirectory(prefix='admit-', dir=os.environ['TMPDIR']) as tmp:
         root = Path(tmp)
         state = root/'server.json'
-        script = Path(__file__).with_name('desktop_responses_server.mjs')
+        script = (runtime_source or Path(__file__).parent)/'desktop_responses_server.mjs'
         with (root/'adapter.log').open('w') as log:
             child = subprocess.Popen([str(bun), str(script), str(bridge), str(root/'no-desktop'), str(state)], stdout=log, stderr=log)
             try:
@@ -132,8 +132,9 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     for name in ['bun', 'bridge', 'report']:
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--runtime-source',type=Path,help='Verify a packaged runtime source tree instead of the development checkout')
     args = parser.parse_args()
-    result = probe(args.bun, args.bridge)
+    result = probe(args.bun, args.bridge,args.runtime_source)
     args.report.write_text(json.dumps(result, indent=2)+'\n')
     args.report.chmod(0o600)
     print(json.dumps(result))

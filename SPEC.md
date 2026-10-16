@@ -3450,6 +3450,11 @@ rewrite the user's config. A private runtime record owns the accepted installati
 paths. Executable/source/asset dependencies must live in XDG lib/cache, separate
 from persistent login data and disposable TMPDIR sockets. Reinstall may reuse the
 verified installed payload after temporary dependency checkouts disappear.
+Package an explicit complete runtime source set, its user entrypoint and required
+assets/licenses. Development fixtures, trial reports and historical investigations
+remain in Git, not installed runtime dependencies. Verify local imports and
+bootstrap/reinstall paths against the packaged source, including optional retained
+transport and viewer paths; trimming must not narrow the native tool surface.
 
 Starts must be bounded and serialized. Check PID/start/executable before reuse;
 prove a local listener possesses its capability before sending that bearer.

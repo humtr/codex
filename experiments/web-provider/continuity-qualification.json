@@ -487,7 +487,7 @@
   "excluded": [
     "Hours-long development",
     "Physical question UI",
-    "App or adapter restart",
+    "Inference continuity across app or adapter restart",
     "Native cross-provider checkpoints",
     "Independent remote MCP return",
     "Public provider release"
@@ -703,5 +703,180 @@
     },
     "productInputsUnchanged": true,
     "accepted": true
+  },
+  "activation": {
+    "accepted": true,
+    "installation": "23a08e9e0b6ead12cf11",
+    "source": "2245164c4b91194dd5eac6ba423433663afede55",
+    "filesVerified": 604,
+    "protectedAuthConfigFiles": 12,
+    "onlyIdleAdapterStopped": true,
+    "endpointCapabilityPreserved": true,
+    "signedDesktopIdentityPreserved": true,
+    "actualChatSubmissions": 0,
+    "priorInstallationRetained": true,
+    "returnTransport": "local"
+  },
+  "installCycle": {
+    "accepted": true,
+    "steps": [
+      {
+        "step": "reinstall",
+        "installation": "23a08e9e0b6ead12cf11",
+        "filesVerified": 604
+      },
+      {
+        "step": "rollback",
+        "installation": "85e8f9127b98b12bb311",
+        "filesVerified": 599
+      },
+      {
+        "step": "restore",
+        "installation": "23a08e9e0b6ead12cf11",
+        "filesVerified": 604
+      }
+    ],
+    "concurrentBootstrapClients": 6,
+    "bootstrapResults": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "protectedAuthConfigFiles": 12,
+    "signedDesktopIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "onlyUnusedAdaptersStopped": true,
+    "actualChatSubmissions": 0,
+    "finalInstallation": "23a08e9e0b6ead12cf11",
+    "priorInstallationRetained": true
+  },
+  "nativeCommandStop": {
+    "realService": false,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "model": "chatgpt-desktop/gpt-6",
+    "turnCompleted": true,
+    "shellToolCompleted": true,
+    "workspaceMarkerVerified": true,
+    "successfulShellCalls": 1,
+    "nativeReplyMatched": true,
+    "nativeCommandState": "S",
+    "lastTokenUsage": {
+      "totalTokens": 6751,
+      "inputTokens": 6726,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 25,
+      "reasoningOutputTokens": 0
+    },
+    "observedContextEstimates": [
+      6258,
+      6600,
+      6751
+    ],
+    "lastTurnStatus": "completed",
+    "nativeToolStopAccepted": true,
+    "turnInterruptLeftCommandRunning": true,
+    "explicitTerminalTermination": true,
+    "ownedTerminalRemovedFromCore": true,
+    "nativeCommandExitedAfterStop": true,
+    "stopWithoutProviderRequest": true,
+    "resumePreservedExistingFile": true,
+    "nativeReports": [
+      {
+        "phase": "commentary",
+        "initial": true,
+        "intermediate": false,
+        "final": false,
+        "characters": 20
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": true,
+        "final": false,
+        "characters": 25
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      }
+    ],
+    "persistedReportCheck": true,
+    "persistedNativeCommands": 1,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "renderWithoutModelRequest": true,
+    "ownedCoreExited": true,
+    "actualSignedApp": false,
+    "deterministicAppPort": true,
+    "chatSubmissions": 0,
+    "proInference": false,
+    "productionChanged": false,
+    "fixtureUserSubmissions": 2,
+    "fixtureToolSubmissions": 2,
+    "fixtureDispatches": 3,
+    "fixtureTotalDispatches": 3,
+    "adapterError": null,
+    "nativeFailure": null,
+    "returnTransport": "local",
+    "accepted": true
+  },
+  "runtimePackage": {
+    "accepted": true,
+    "runtimeSourceFiles": 26,
+    "entryBuilds": [
+      {
+        "entry": "desktop_responses_server.mjs",
+        "sha256": "ba5f10402c947d10b2edfec049f9accee03505956847dc5c54e880707798f60f"
+      },
+      {
+        "entry": "termux_viewer.ts",
+        "sha256": "f222f86981caf65fcd5771cdad1edc1432a61b7ed89b8efe1cf8ecda56f67ee0"
+      },
+      {
+        "entry": "native_chromium_host.mjs",
+        "sha256": "620b0e08631fde28d5024643b924040747f78b555a68a537f54ef28353c3eda9"
+      }
+    ],
+    "packagedAdapterAdmission": {
+      "ready": true,
+      "unauthorizedStatus": 401,
+      "rejectionCodes": [
+        "invalid_desktop_json",
+        "invalid_desktop_request",
+        "unsupported_desktop_route",
+        "desktop_stream_required",
+        "desktop_response_cursor_unavailable"
+      ],
+      "extraRejectionCodes": [
+        "desktop_encoding_unsupported",
+        "invalid_desktop_compression",
+        "invalid_desktop_utf8",
+        "opaque_context_unavailable",
+        "desktop_decoded_request_too_large"
+      ],
+      "largeIdentityAndZstd": true,
+      "wireLimitBytes": 16777216,
+      "decodedLimitBytes": 33554432,
+      "chunkedWireLimit": "typed_413",
+      "oversizeStatus": 413,
+      "oversizeBodySendError": "broken_pipe",
+      "arrivals": 15,
+      "admittedRequests": 0,
+      "chatSubmissions": 0
+    },
+    "actualChatSubmissions": 0
   }
 }

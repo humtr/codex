@@ -1,4 +1,4 @@
-import argparse,json,os,tempfile,unittest
+import argparse,ast,hashlib,json,os,re,subprocess,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 import install_desktop_provider as installer
@@ -30,6 +30,7 @@ class InstalledActivationTests(unittest.TestCase):
             self.activate(lambda _:(_ for _ in ()).throw(RuntimeError('startup failed')))
         self.profile.assert_not_called()
         self.assertEqual(json.loads(self.path.read_text()),self.old)
+
     def test_live_work_is_refused_before_build_or_descriptor_change(self):
         with patch.object(installer,'RUNTIME',self.path),patch.object(installer,'live',return_value={'pid':123}),patch.object(installer,'build') as build:
             with self.assertRaisesRegex(RuntimeError,'requires_stopped_adapter'):installer.activate(self.args)
@@ -40,6 +41,31 @@ class InstalledActivationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'requires_stopped_adapter'):installer.activate(self.args)
             boot.assert_not_called()
         self.assertEqual(json.loads(self.path.read_text()),self.old)
+
+
+class RuntimePackageTests(unittest.TestCase):
+    def test_packaged_bootstrap_imports_without_development_files_or_user_state(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            root=Path(tmp);target=root/'source'
+            installer.copy_runtime(installer.SOURCE,target)
+            self.assertEqual({p.name for p in target.iterdir()},set(installer.RUNTIME_FILES))
+            self.assertFalse(any('test' in p.name or 'probe' in p.name or 'qualification' in p.name for p in target.iterdir()))
+            for p in target.iterdir():
+                self.assertEqual(hashlib.sha256(p.read_bytes()).digest(),hashlib.sha256((installer.SOURCE/p.name).read_bytes()).digest())
+                if p.suffix=='.py':
+                    for node in ast.walk(ast.parse(p.read_text())):
+                        names=[node.module] if isinstance(node,ast.ImportFrom) else [a.name for a in node.names] if isinstance(node,ast.Import) else []
+                        for module in names:
+                            name=(module or '').split('.')[0]+'.py'
+                            if (installer.SOURCE/name).exists():self.assertTrue((target/name).is_file(),name)
+                for name in re.findall(r'[\x27\x22]\./([^\x27\x22]+\.(?:mjs|js|css))[\x27\x22]',p.read_text()):
+                    if (installer.SOURCE/name).exists():self.assertTrue((target/name).is_file(),name)
+            home=root/'home';home.mkdir()
+            r=subprocess.run([sys.executable,'-B','-c',
+                'import desktop_lifecycle,desktop_provider_profile,install_desktop_provider,linux_desktop_trial'],
+                cwd=target,env={**os.environ,'HOME':str(home),'PYTHONPATH':str(target),'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True)
+            self.assertEqual(r.returncode,0,r.stderr.decode())
+            self.assertEqual(list(home.iterdir()),[])
 
 
 if __name__=='__main__':unittest.main()

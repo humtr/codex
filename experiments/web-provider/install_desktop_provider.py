@@ -16,6 +16,25 @@ from desktop_provider_profile import install,server_record,register_home
 from linux_desktop_trial import PROOT_SOURCE,private,write
 
 SOURCE=Path(__file__).resolve().parent
+RUNTIME_FILES=(
+    'README.md','desktop-bridge-615.patch','desktop_app_transport.mjs','desktop_cdp.mjs',
+    'desktop_http.mjs','desktop_lifecycle.py','desktop_local_transport.mjs',
+    'desktop_mcp_broker.mjs','desktop_mcp_stdio.mjs','desktop_mcp_transport.mjs',
+    'desktop_model_controls.mjs','desktop_protocol.mjs','desktop_provider_profile.py',
+    'desktop_response_transport.mjs','desktop_responses_server.mjs','desktop_tool_session.mjs',
+    'fit_browser.py','install_desktop_provider.py','linux_desktop_trial.py',
+    'mobile_controls.css','mobile_controls.js','native_chromium_host.mjs',
+    'open_dual_trial.py','open_linux_browser.py','open_viewer.py','termux_viewer.ts',
+)
+
+
+def copy_runtime(source,target):
+    assert source.is_dir() and not source.is_symlink(),'invalid_runtime_source_root'
+    target.mkdir(mode=0o700)
+    for name in RUNTIME_FILES:
+        path=source/name
+        assert path.is_file() and not path.is_symlink(),'invalid_runtime_source'
+        shutil.copy2(path,target/name)
 
 
 def hashes(root):
@@ -49,7 +68,7 @@ def build(args):
     install_root=private(Path.home()/'.local/lib/codex-web-experiment')
     with tempfile.TemporaryDirectory(prefix='provider-build-',dir=os.environ['TMPDIR']) as tmp:
         stage=Path(tmp)/'payload';stage.mkdir(mode=0o700)
-        tree_copy(SOURCE,stage/'source')
+        copy_runtime(SOURCE,stage/'source')
         if installed:
             for name in ['bun','bridge.mjs']:
                 shutil.copyfile(installed/name,stage/name)
