@@ -1,9 +1,9 @@
 # Manager TUI frontend
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
-/switch to exact official0.161.0 source979011409de0a60b52f179721948e65531d26144;
+/switch to exact official0.163.0 source83086188ae0614bd882818ff1aa23f3194962012;
 upstream retains every existing command and owns conversation UI/title composition.
-Manager owns execution profiles and foreground identity. Official runtime remains
+Manager owns execution profiles and foreground identity. The0.163 candidate must pass native/device gates before publication. Official runtime remains
 the sole execution backend.
 
 `native.patch` contains integration changes to existing upstream files. The

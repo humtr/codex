@@ -1,8 +1,8 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 683c548..9b0db5f 100644
+index 1b07e98..c5daa41 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -152,7 +152,6 @@ use codex_otel::SessionTelemetry;
+@@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
  use codex_otel::TelemetryAuthMode;
  use codex_protocol::ThreadId;
  use codex_protocol::models::ActivePermissionProfile;
@@ -10,16 +10,16 @@ index 683c548..9b0db5f 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -213,6 +212,8 @@ mod app_server_events;
- pub(crate) mod app_server_requests;
+@@ -216,6 +215,8 @@ pub(crate) mod app_server_requests;
+ mod app_server_thread_ownership;
  mod backend_banner_fallback;
  mod background_requests;
 +#[cfg(unix)]
 +pub(crate) mod chat_model_reentry;
  mod composer_hints;
+ mod config_panel;
  mod config_persistence;
- mod connector_mentions;
-@@ -233,6 +234,8 @@ mod managed_worktree_creation;
+@@ -237,6 +238,8 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -28,7 +28,7 @@ index 683c548..9b0db5f 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -429,7 +432,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -436,7 +439,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -37,7 +37,7 @@ index 683c548..9b0db5f 100644
          ),
      }
  }
-@@ -1165,6 +1168,8 @@ impl App {
+@@ -1218,6 +1221,8 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -47,10 +47,10 @@ index 683c548..9b0db5f 100644
          self.chat_widget
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 258ce3d..002cc0d 100644
+index a7f7f1e..a65e2ba 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -438,6 +438,16 @@ impl App {
+@@ -484,6 +484,16 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -67,7 +67,7 @@ index 258ce3d..002cc0d 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -2042,6 +2052,12 @@ impl App {
+@@ -2110,6 +2120,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -81,10 +81,10 @@ index 258ce3d..002cc0d 100644
                  if self
                      .active_thread_model_setting_update_params(model.clone())
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index b35b1a5..598e5e1 100644
+index 40c30df..30793d6 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
-@@ -84,7 +84,7 @@ mod recap_generation;
+@@ -86,7 +86,7 @@ mod recap_generation;
  mod resume_shutdown_tests;
  mod safety_buffering;
  #[path = "tests/session_lifecycle_requests.rs"]
@@ -93,16 +93,7 @@ index b35b1a5..598e5e1 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -6504,7 +6504,7 @@ async fn replace_goal_confirmation_snapshot() {
-     );
- }
-
--fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
-+pub(super) fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
-     ThreadSessionState {
-         daybreak_enabled: false,
-         windows_sandbox_host: crate::app::WindowsSandboxHost::Local,
-@@ -7159,7 +7159,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+@@ -7374,7 +7374,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
 
@@ -111,7 +102,7 @@ index b35b1a5..598e5e1 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7169,7 +7169,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7384,7 +7384,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
 
@@ -121,12 +112,12 @@ index b35b1a5..598e5e1 100644
      turn_id: &str,
      status: TurnStatus,
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 0961865..a1b1410 100644
+index 062efa3..38676c9 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-@@ -40,8 +40,9 @@ use tokio::task::JoinHandle;
- use tokio_tungstenite::accept_async;
+@@ -43,8 +43,9 @@ use tokio_tungstenite::tungstenite::Error as WebSocketError;
  use tokio_tungstenite::tungstenite::Message;
+ use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 -pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 -pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
@@ -134,9 +125,9 @@ index 0961865..a1b1410 100644
 +pub(in crate::app) type RecordingAppServer =
 +    (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 
- #[tokio::test]
- async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
-@@ -340,7 +341,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
+ fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
+     match error {
+@@ -398,7 +399,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
 
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
@@ -145,7 +136,7 @@ index 0961865..a1b1410 100644
      config: &Config,
      blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
      failed_thread_name: Option<&'static str>,
-@@ -827,7 +828,10 @@ fn create_history_rollout(
+@@ -908,7 +909,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
 
@@ -158,10 +149,10 @@ index 0961865..a1b1410 100644
          .lock()
          .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index 7965778..d15b0c9 100644
+index c8d16dc..bbf9c3b 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
-@@ -901,6 +901,12 @@ impl App {
+@@ -894,6 +894,12 @@ impl App {
                          explicit_profile
                              .and_then(RuntimePermissionProfileOverride::turn_permission_profile),
                      );
@@ -175,10 +166,10 @@ index 7965778..d15b0c9 100644
                          .turn_start(
                              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 3185d8a..f95c234 100644
+index a201931..5b371a9 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -593,6 +593,12 @@ pub(crate) enum AppEvent {
+@@ -638,6 +638,12 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
@@ -191,7 +182,7 @@ index 3185d8a..f95c234 100644
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
-@@ -1183,6 +1189,11 @@ pub(crate) enum AppEvent {
+@@ -1230,6 +1236,11 @@ pub(crate) enum AppEvent {
 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
@@ -204,10 +195,10 @@ index 3185d8a..f95c234 100644
      /// Apply a final Astra picker action and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index d2c3249..cfb9ec1 100644
+index 837fcb1..aadf668 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -776,6 +776,11 @@ impl AppServerSession {
+@@ -871,6 +871,11 @@ impl AppServerSession {
          remote_cwd_override: Option<&std::path::Path>,
          selected_profile: Option<&PermissionProfileSelection>,
      ) -> Result<AppServerStartedThread> {
@@ -219,7 +210,7 @@ index d2c3249..cfb9ec1 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -941,6 +946,11 @@ impl AppServerSession {
+@@ -1037,6 +1042,11 @@ impl AppServerSession {
          permission_mode: ForkPermissionMode,
          config_source: ForkConfigSource,
      ) -> Result<AppServerStartedThread> {
@@ -228,10 +219,10 @@ index d2c3249..cfb9ec1 100644
 +            crate::termux_permissions::enabled()
 +                && self.thread_params_mode() == ThreadParamsMode::Embedded,
 +        )?;
+         self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-                 .thread_read(thread_id, /*include_turns*/ false)
-@@ -1848,10 +1858,32 @@ fn approvals_reviewer_override_from_config(
+@@ -1940,10 +1950,32 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -265,7 +256,7 @@ index d2c3249..cfb9ec1 100644
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
      }
-@@ -1860,18 +1892,19 @@ fn config_request_overrides_from_config(
+@@ -1952,18 +1984,19 @@ fn config_request_overrides_from_config(
          .into_iter()
          .flatten()
          .filter(|(key, _)| {
@@ -297,7 +288,7 @@ index d2c3249..cfb9ec1 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2176,6 +2209,11 @@ fn thread_resume_params_from_config(
+@@ -2241,6 +2274,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -309,7 +300,7 @@ index d2c3249..cfb9ec1 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3457,6 +3495,45 @@ mod tests {
+@@ -3585,6 +3623,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
 
@@ -356,7 +347,7 @@ index d2c3249..cfb9ec1 100644
      async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
          let home = tempfile::tempdir()?;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index 07cf41b..85d9ea1 100644
+index cfe0499..41087ef 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
 @@ -155,6 +155,13 @@ impl AppServerSession {
@@ -370,14 +361,14 @@ index 07cf41b..85d9ea1 100644
 +                    && self.thread_params_mode() == super::ThreadParamsMode::Embedded,
 +            )?;
 +        }
+         self.thread_tool_transport().validate_config(&config)?;
          let session_config = if matches!(
              model_settings,
-             ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index 8921eaa..586517b 100644
+index 2ad3f1c..bc1e92a 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-@@ -477,6 +477,10 @@ pub enum InputResult {
+@@ -487,6 +487,10 @@ pub enum InputResult {
  }
 
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
@@ -389,10 +380,10 @@ index 8921eaa..586517b 100644
          return true;
      }
 diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-index 8af67e7..06257e0 100644
+index 4c455ed..b842f88 100644
 --- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
 +++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-@@ -331,6 +331,8 @@ mod tests {
+@@ -339,6 +339,8 @@ mod tests {
              commands,
              vec![
                  SlashCommand::Ide,
@@ -402,10 +393,10 @@ index 8af67e7..06257e0 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 15dac97..6842c87 100644
+index 2f74f84..f88e189 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
-@@ -439,6 +439,7 @@ use crate::streaming::controller::PlanStreamController;
+@@ -442,6 +442,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
 
@@ -413,7 +404,7 @@ index 15dac97..6842c87 100644
  use chrono::Local;
  use codex_app_server_protocol::AskForApproval;
  use codex_file_search::FileMatch;
-@@ -450,7 +451,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+@@ -453,7 +454,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
  use codex_protocol::plan_tool::StepStatus;
  use codex_protocol::plan_tool::UpdatePlanArgs;
  use codex_utils_approval_presets::ApprovalPreset;
@@ -421,7 +412,7 @@ index 15dac97..6842c87 100644
  use strum::IntoEnumIterator;
  use unicode_segmentation::UnicodeSegmentation;
 
-@@ -458,7 +458,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
+@@ -461,7 +461,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
  const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
  const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
  const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
@@ -430,7 +421,7 @@ index 15dac97..6842c87 100644
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index 03efe31..b0c3317 100644
+index aa5de8b..9b03f35 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
@@ -442,7 +433,7 @@ index 03efe31..b0c3317 100644
          if self.restrict_model_picker_to_luna_reserve() {
              self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
              return;
-@@ -234,6 +236,9 @@ impl ChatWidget {
+@@ -233,6 +235,9 @@ impl ChatWidget {
          presets: Vec<ModelPreset>,
          view_id: &'static str,
      ) {
@@ -452,7 +443,7 @@ index 03efe31..b0c3317 100644
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -296,6 +301,20 @@ impl ChatWidget {
+@@ -294,6 +299,20 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -474,7 +465,7 @@ index 03efe31..b0c3317 100644
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index 756f7dc..958b64d 100644
+index 62877cf..3d2730b 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
 @@ -120,7 +120,12 @@ impl ChatWidget {
@@ -510,10 +501,10 @@ index 756f7dc..958b64d 100644
 +#[path = "termux_permission_popups_tests.rs"]
 +mod termux_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
-index 73f2e31..d4152c3 100644
+index 444a11d..0ee2b06 100644
 --- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
-@@ -34,7 +34,9 @@ impl ChatWidget {
+@@ -52,7 +52,9 @@ impl ChatWidget {
          let active_profile = self.config.permissions.active_permission_profile();
          let mut choices = Vec::new();
          for preset in builtin_approval_presets() {
@@ -525,7 +516,7 @@ index 73f2e31..d4152c3 100644
              }
              for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
 diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-index 5ebd1db..cfa8a29 100644
+index 4e2fcb6..47be0a3 100644
 --- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -5,6 +5,9 @@ use crate::permission_discovery::PermissionDiscovery;
@@ -538,7 +529,7 @@ index 5ebd1db..cfa8a29 100644
      match preset.id {
          "read-only" => "Read workspace files, with approval required for edits or internet access",
          "auto" => {
-@@ -102,20 +105,25 @@ impl ChatWidget {
+@@ -77,20 +80,25 @@ impl ChatWidget {
          let mut items = vec![self.builtin_permission_mode_selection_item(
              &discovery,
              default,
@@ -573,7 +564,7 @@ index 5ebd1db..cfa8a29 100644
          }
          items.push(self.builtin_permission_mode_selection_item(
              &discovery,
-@@ -125,14 +133,16 @@ impl ChatWidget {
+@@ -100,14 +108,16 @@ impl ChatWidget {
              AskForApproval::from(full_access.approval),
              ApprovalsReviewer::User,
          ));
@@ -616,10 +607,10 @@ index ac9b5c8..ebdcad9 100644
          if model == LUNA_RESERVE_MODEL {
              return None;
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 8f84887..98b55c3 100644
+index 5327f80..99e589c 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-@@ -304,6 +304,10 @@ impl ChatWidget {
+@@ -309,6 +309,10 @@ impl ChatWidget {
              SlashCommand::Resume => {
                  self.app_event_tx.send(AppEvent::OpenResumePicker);
              }
@@ -630,7 +621,7 @@ index 8f84887..98b55c3 100644
              SlashCommand::Fork => {
                  self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
              }
-@@ -1331,6 +1335,8 @@ impl ChatWidget {
+@@ -1340,6 +1344,8 @@ impl ChatWidget {
              | SlashCommand::Theme
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
@@ -640,13 +631,13 @@ index 8f84887..98b55c3 100644
      }
 
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index fd24d32..0148ba6 100644
+index 8534d75..4816fe2 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -297,6 +297,9 @@ mod status_command_tests;
- mod status_surface_previews;
- #[path = "tests/subagent_activity_tests.rs"]
+@@ -299,6 +299,9 @@ mod status_surface_previews;
  mod subagent_activity;
+ #[path = "tests/terminal_program_status.rs"]
+ mod terminal_program_status;
 +#[cfg(unix)]
 +#[path = "tests/switch_command_tests.rs"]
 +mod switch_command_tests;
@@ -654,7 +645,7 @@ index fd24d32..0148ba6 100644
  #[path = "tests/tool_activity_tests.rs"]
  mod tool_activity_tests;
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
-index cfa2d86..ff160f8 100644
+index 29469b2..5caeb50 100644
 --- a/codex-rs/tui/src/cli.rs
 +++ b/codex-rs/tui/src/cli.rs
 @@ -9,6 +9,10 @@ use codex_utils_cli::SharedCliOptions;
@@ -669,10 +660,10 @@ index cfa2d86..ff160f8 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 14d1c97..8d75f21 100644
+index a3fb544..35275d4 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
-@@ -131,7 +131,11 @@ mod experimental_features;
+@@ -138,7 +138,11 @@ mod experimental_features;
  mod markdown_copy;
  mod permission_discovery;
  mod pets;
@@ -684,7 +675,7 @@ index 14d1c97..8d75f21 100644
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
-@@ -174,6 +178,8 @@ mod markdown_stream;
+@@ -185,6 +189,8 @@ mod markdown_stream;
  mod markdown_text_merge;
  mod mention_codec;
  mod model_catalog;
@@ -693,7 +684,7 @@ index 14d1c97..8d75f21 100644
  mod model_migration;
  mod motion;
  mod multi_agents;
-@@ -221,6 +227,8 @@ mod terminal_palette;
+@@ -232,6 +238,8 @@ mod terminal_palette;
  mod terminal_probe;
  mod terminal_title;
  mod terminal_visualization_instructions;
@@ -702,7 +693,7 @@ index 14d1c97..8d75f21 100644
  mod text_formatting;
  mod text_selection;
  mod theme_picker;
-@@ -560,6 +568,8 @@ async fn start_app_server(
+@@ -572,6 +580,8 @@ async fn start_app_server(
      environment_manager: Arc<EnvironmentManager>,
      embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
  ) -> color_eyre::Result<AppServerClient> {
@@ -711,7 +702,7 @@ index 14d1c97..8d75f21 100644
      let connection = if matches!(target, AppServerTarget::Embedded) {
          None
      } else {
-@@ -1025,7 +1035,7 @@ fn app_server_target_for_launch(
+@@ -1042,7 +1052,7 @@ fn app_server_target_for_launch(
          return Ok(AppServerTarget::Embedded);
      }
      Ok(match explicit_remote_endpoint {
@@ -720,7 +711,7 @@ index 14d1c97..8d75f21 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1087,18 +1097,34 @@ pub async fn run_main(
+@@ -1104,18 +1114,34 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -758,7 +749,7 @@ index 14d1c97..8d75f21 100644
                  token_usage: TokenUsage::default(),
                  thread_id: None,
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
-index 2579fc6..10a4102 100644
+index effb98e..0eb41c3 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
 +++ b/codex-rs/tui/src/permission_discovery.rs
 @@ -6,6 +6,8 @@ use crate::app_event_sender::AppEventSender;
@@ -780,7 +771,7 @@ index 2579fc6..10a4102 100644
  use std::time::Duration;
  use uuid::Uuid;
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index 945041b..764c243 100644
+index afb372b..d10859a 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
 @@ -33,6 +33,8 @@ pub enum SlashCommand {
@@ -792,7 +783,7 @@ index 945041b..764c243 100644
      Fork,
      Worktree,
      App,
-@@ -98,6 +100,8 @@ impl SlashCommand {
+@@ -100,6 +102,8 @@ impl SlashCommand {
              SlashCommand::Review => "review my current changes and find issues",
              SlashCommand::Rename => "rename the current thread",
              SlashCommand::Resume => "resume a saved chat",
@@ -801,7 +792,7 @@ index 945041b..764c243 100644
              SlashCommand::Archive => "archive this session",
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
-@@ -193,6 +197,10 @@ impl SlashCommand {
+@@ -195,6 +199,10 @@ impl SlashCommand {
 
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
@@ -812,7 +803,7 @@ index 945041b..764c243 100644
          matches!(
              self,
              SlashCommand::Copy
-@@ -218,6 +226,10 @@ impl SlashCommand {
+@@ -220,6 +228,10 @@ impl SlashCommand {
 
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
@@ -823,20 +814,20 @@ index 945041b..764c243 100644
          matches!(
              self,
              SlashCommand::New
-@@ -240,6 +252,8 @@ impl SlashCommand {
+@@ -242,6 +254,8 @@ impl SlashCommand {
      /// Whether this command can be run while a task is in progress.
      pub fn available_during_task(self) -> bool {
          match self {
 +            #[cfg(unix)]
 +            SlashCommand::Switch => true,
              SlashCommand::New
-             | SlashCommand::Archive
              | SlashCommand::Delete
+             | SlashCommand::Fork
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index 3cc8dc1..5ef7eb6 100644
+index c29d464..31eb94b 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
-@@ -506,7 +506,10 @@ pub(super) async fn run_main_inner(
+@@ -505,7 +505,10 @@ pub(super) async fn run_main_inner(
      } else {
          None
      };
@@ -848,7 +839,7 @@ index 3cc8dc1..5ef7eb6 100644
          && !cli.agents_overview
          && !cli.no_daemon
          && !app_server_target.uses_remote_workspace();
-@@ -571,7 +574,7 @@ pub(super) async fn run_main_inner(
+@@ -577,7 +580,7 @@ pub(super) async fn run_main_inner(
          }
      }
      // The overview must inspect the shared server's agents regardless of local settings.

@@ -79,6 +79,18 @@ admission, live activation or actual Chat inference is part of this finalization
 These finalized boundaries describe the qualified source; they have not replaced
 the installed stable52 implementation.
 
+### Active next-upstream qualification
+
+User resumed the deferred upgrade after boundary finalization. Target is official
+0.163.0 /83086188ae0614bd882818ff1aa23f3194962012, confirmed against the official
+release and latest-release discovery. Work proceeds base compatibility first,
+then maintained frontend integration, then signed feature-preserving publication.
+No compatibility/version/digest check is waived. Source/build artifacts live in
+TMPDIR/XDG cache; current stable52 and live jobs remain unchanged during trials.
+The changed native permission/resume, /config and managed-server restart surfaces
+must be examined before carrying forward old UI hooks. Optional Manager reuse is
+verified independently; provider transport/inference is outside this upgrade.
+
 ### Owners and retained execution necessities
 
 | Owner | Responsibility | Excluded responsibility |
@@ -245,8 +257,9 @@ crates would not eliminate their qualified behavior obligation.
 
 ### Deferred work after this boundary
 
-1. **Upstream qualification/public release:** user deferred0.163 until after this
-   work. required() still rejects after0.161. Qualify the actual next runtime, then
+1. **Upstream qualification/public release:** active after the user's go-ahead.
+   required() still rejects after0.161 until exact candidate admission is implemented.
+   Qualify the actual next runtime, then
    its integrated frontend and signed publication/readback/update/rollback. Main's
    caller still pins stable52 source; no new native input pins or activation here.
    Retaining LKG is intentional, not independent automatic default advancement.

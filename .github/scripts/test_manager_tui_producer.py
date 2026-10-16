@@ -52,7 +52,7 @@ class NativeProducerTests(unittest.TestCase):
                     p = tools / name; p.write_text('#!' + sys.executable + '\n' + code + '\n'); p.chmod(0o755)
                 env = {**os.environ, 'PATH': str(tools) + ':' + os.environ['PATH'], 'RUNNER_TEMP': str(root),
                        'MANAGER_TUI_INPUT_URL': 'https://example.invalid/qualified', 'MANAGER_TUI_INPUT_SHA256': archive_digest,
-                       'MANAGER_TUI_RUN_ID': '123', 'MANAGER_TUI_SOURCE_SHA': sha, 'MANAGER_TUI_VERSION': '0.161.0',
+                       'MANAGER_TUI_RUN_ID': '123', 'MANAGER_TUI_SOURCE_SHA': sha, 'MANAGER_TUI_VERSION': fixtures.qualifier.VERSION,
                        'MANAGER_TUI_SHA256': digest, 'PYTHONDONTWRITEBYTECODE': '1'}
                 result = subprocess.run(['bash', '-c', step('Acquire successful qualified Manager TUI input')], cwd=root, env=env, text=True, capture_output=True, timeout=20)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr)

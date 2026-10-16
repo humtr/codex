@@ -6,6 +6,13 @@ Active implementation branch: `rewrite/rust-core`
 
 ## Generation-bound Manager TUI admission (2026-10-10)
 
+Upgrade qualification target: official0.163.0 source
+83086188ae0614bd882818ff1aa23f3194962012, with the same Rust1.95.0 source
+build toolchain and unchanged external dependency bindings. This source candidate
+is not installed/public admission until the existing exact artifact, native,
+permission/lifecycle and signed publication gates pass. The stable52/0.161
+contract and retained-generation compatibility remain valid throughout the upgrade.
+
 The signed generation owns the maintained `/switch` frontend. Existing preview
 clients retain their executable until exit; no preview construction or parallel
 update authority is maintained.

@@ -12,8 +12,8 @@ from rald3_preflight import bounded_read, no_duplicate_object
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/manager-tui"))
 from check_command_boundary import nonzero_tests
 
-UPSTREAM = "979011409de0a60b52f179721948e65531d26144"
-VERSION = "0.161.0"
+UPSTREAM = "83086188ae0614bd882818ff1aa23f3194962012"
+VERSION = "0.163.0"
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
     "frontend/manager-tui/native.patch",
@@ -30,8 +30,8 @@ FILES = {"codex", "source.txt", "version.txt", "help.txt", "sha256.txt",
 LOCK = {
     "external_packages_unchanged": 1314,
     "workspace_versions_changed": 160,
-    "original_lock_sha256": "3206e2fdb53a3498758ce2f2972f19fae26beb261befd65cc0eb9e02efe23d52",
-    "normalized_lock_sha256": "4e43cd81ed341c32bde170917f38c3e79702cbc69d1f96744ab1e09f9e80a601",
+    "original_lock_sha256": "17cdd862471774ba7aef836aaf0a0a3ed76bd23e503b1fc7278c89d1f2719d03",
+    "normalized_lock_sha256": "cae541406f7ec43a418e126be2bcd5de00b243e7bbf6382570028727d99c1069",
 }
 
 

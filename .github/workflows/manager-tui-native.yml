@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      UPSTREAM_SHA: 979011409de0a60b52f179721948e65531d26144
+      UPSTREAM_SHA: 83086188ae0614bd882818ff1aa23f3194962012
       RUST_VERSION: 1.95.0
       RUSTUP_TOOLCHAIN: 1.95.0
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -93,10 +93,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-1.95.0-83086188-${{ github.sha }}
           restore-keys: |
+            profile-tui-display-aarch64-musl-1.95.0-83086188-
             profile-tui-display-aarch64-musl-1.95.0-97901140-
-            profile-tui-display-aarch64-musl-1.95.0-a956835d-
       - name: Normalize release workspace versions only
         shell: bash
         run: |
@@ -187,7 +187,7 @@ jobs:
           chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
-          printf 'codex-cli 0.161.0\n' > "$root/version.expected"
+          printf 'codex-cli 0.163.0\n' > "$root/version.expected"
           cmp "$root/version.expected" "$root/artifact/version.txt"
           printf 'codex-termux-resolved-startup-v1\n' > "$root/capability.expected"
           # Invalid user configuration must not be loaded by the static query.
@@ -284,7 +284,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-1.95.0-83086188-${{ github.sha }}
       - name: Retain failed native build diagnosis
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
