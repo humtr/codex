@@ -257,8 +257,34 @@ Local full acceptance passes Python18+66, Core196/one existing ignored,
 Manager46+58+three path gates, builder25, codec3, fmt and Clippy. The codec tests
 pin published namespace bytes and reject mismatched family/owner/content/version,
 oversize records and reader errors, preserving non-UTF8 paths and opaque payloads.
-Native signed catalog coexistence/reuse/discovery and Manager-free execution
-remain in qualification; no live runtime or user state has changed.
+Implementation852be4c passes exact-source hosted full acceptance38857467932 and
+independent Core/runtime qualification38857467984. Core's normal dependency tree
+contains only release-builder and runtime-binding, not Manager; the Android
+binary adds no dynamic-library requirement for the shared source code.
+
+Signed native Android profile/catalog proof passes: actual model/list uses the
+submitted catalog; identical bytes reuse the same socket, changed bytes select
+another namespace, the native sibling and original writer remain available, and
+Manager observes the writer under the correct account. Profile inode/history
+preservation and Core-only default/isolated/external execution also pass with
+Manager physically unavailable. Native task proof passes running-disconnect owner
+discovery, original-owner reconnect, cross-account writer rejection, confirmed
+cancellation, retained-subscriber refusal, PID-stable explicit force scope and
+ordinary same-UUID transfer to the saved-default account. Only the local model
+fixture is used; real Chat submissions are zero.
+
+Retain the failed first profile observer: an already-signalled owned helper exited
+between /proc lookup and stat read with ESRCH. Treat that exact process-exit result
+like ENOENT; no runtime guard or user-process handling changed. The complete native
+profile rerun passes. The task fixture now provisions the real OpenSSL verifier
+under its disposable PREFIX, as the profile fixture already does. Logs:
+responsibility-binding-full.log, responsibility-binding-native-profiles.log
+(failed cleanup observer), responsibility-binding-native-profiles-final.log and
+responsibility-binding-native-tasks.log. Aggregate: responsibility-binding-qualified.json
+under the private acceptance cache. No public release, device activation or user
+state change was performed. This completes the record-codec consolidation, not
+the deferred frontend startup/model-selection work below. Upstream admission
+remains deferred at the user's request while responsibility work continues.
 
 Source audit at f380695: retain the single Core coordinator. The pinned pristine
 0.161 source979011409de0a60b52f179721948e65531d26144 retains the server-startup

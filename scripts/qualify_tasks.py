@@ -124,6 +124,9 @@ def qualify(generation, parent, public_key, observe_owner=None):
         for path in [home / ".codex", home / ".local/share/codex/core/config", prefix / "bin", prefix / "etc/tls"]:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
+        openssl = shutil.which("openssl")
+        assert openssl is not None, "OpenSSL is required for signed native proof"
+        (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
         (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))

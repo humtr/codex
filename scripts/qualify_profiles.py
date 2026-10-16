@@ -165,7 +165,7 @@ requires_openai_auth = false
                 while True:
                     try:
                         fields = (path / "stat").read_text().rsplit(") ", 1)[1].split()
-                    except FileNotFoundError:
+                    except (FileNotFoundError, ProcessLookupError):
                         break
                     if fields[19] != start or fields[0] in ["Z", "X"]:
                         break
