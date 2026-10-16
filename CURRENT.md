@@ -241,8 +241,48 @@ and responsibility-home-native-profiles-diagnostic.log (failed attempts), and
 responsibility-home-native-profiles-traced.log (complete native pass), and
 responsibility-home-native-notifications.log. Aggregate:
 responsibility-home-qualified.json. Operating runtime, public release and user
-state are unchanged. Continue with slice5 server/catalog coupling; keep the
-lifecycle diagnostic follow-up visible rather than treating it as resolved.
+state are unchanged. The server/catalog audit below determines the next change;
+keep the lifecycle diagnostic follow-up visible rather than treating it as resolved.
+
+### Server/catalog audit and 0.163 admission
+
+Source audit at f380695: retain the single Core coordinator. The pinned pristine
+0.161 source979011409de0a60b52f179721948e65531d26144 retains the server-startup
+Config/ModelsManager for model/list; ModelListParams contains only pagination and
+include_hidden, with no caller catalog replacement. The same inspected surfaces
+in upstream0.163 source83086188ae0614bd882818ff1aa23f3194962012 retain this boundary.
+This source comparison is not executable compatibility qualification. Local
+reference proof: acceptance/server-boundary-163/source-proof.json under XDG cache.
+
+Core already receives bounded opaque resolved bytes, does not parse model schemas
+or select providers, and binds reuse to home/runtime/exact bytes. Moving these
+operations into optional Manager would still require a Core-only execution path,
+duplicating qualified execution and splitting its process records from Core
+retention; it would not eliminate a model-selection policy from Core. Preserve
+peer/PID/runtime checks, inherited descriptors, native/default
+rendezvous isolation, both record families and current-client/writer protection.
+Manager/frontend owns catalog resolution; Core owns physical server admission.
+
+There is a real remaining startup cost: Core starts the native/default server
+before the enhanced frontend loads configuration, then a custom resolved catalog
+can require a second namespace. Defer-before-resolution is not safe for the
+published v1 frontend, which expects Core's supplied socket to be ready. Remove
+this extra start together with the frontend integration slice, after qualifying
+an explicit supported startup capability and retaining old-frontend behavior.
+Do not infer it from profile TOML in Core or add a second server supervisor.
+Required proof is one requested backend on a fresh enhanced launch, preserved
+legacy-helper/Core-only launch, correct default/custom catalog, CLI/project config,
+resume/picker/switch paths, changed-catalog isolation and surviving old clients.
+The existing public/private startup contract has not changed in this audit.
+
+Upstream0.163 is released but not admitted: runtime_patch.rs::required explicitly
+rejects versions after0.161, and the qualified frontend/source pair remains0.161.
+The live public stable index still selects stable52/0.161 at this inspection.
+A green scheduled preflight is not evidence that0.163 was built or promoted.
+Next executable qualification must establish0.163 loader/FD/socket/permission
+compatibility before an integrated frontend upgrade; do not remove version or
+exact-digest admission merely to make the updater accept it. No update, provider
+change, actual Chat request or live-process mutation was performed by this audit.
 
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
