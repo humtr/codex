@@ -248,8 +248,13 @@ def probe(args):
         env['OPENAI_BASE_URL']=f'http://127.0.0.1:{model.server_port}/v1'
         config=home/'.codex/config.toml'
         old=config.read_text()
-        if args.native_catalog:
+        catalog_override='model_catalog_json = '+json.dumps(str(home/'.codex/native-models.json'))+'\n'
+        if args.native_catalog or args.catalog_layer!='user':
             old=re.sub(r'^model_catalog_json = .*\n','',old,flags=re.M)
+        if not args.native_catalog and args.catalog_layer in ['project','profile']:
+            layer=work/'.codex/config.toml' if args.catalog_layer=='project' else home/'.codex/startup-proof.config.toml'
+            layer.parent.mkdir(exist_ok=True,mode=0o700)
+            layer.write_text(catalog_override);layer.chmod(0o600)
         old=re.sub(r'^sandbox_mode = .*\n','',old,flags=re.M)
         old=old.replace('approval_policy = "never"','approval_policy = "on-request"').replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
         old=old.replace('[features]\n','[features]\nguardian_approval = true\nplugins = false\n')
@@ -260,11 +265,14 @@ def probe(args):
             old += '\n[permissions.owned.filesystem]\n":root" = "write"\n[permissions.owned.network]\nenabled = true\n'
         old += '\n[model_providers.owned]\nname = "Owned fixture"\nbase_url = ' + json.dumps(env['OPENAI_BASE_URL']) + '\nwire_api = "responses"\nrequires_openai_auth = false\n'
         config.write_text(old)
-        processes=[];masters=[];screen=''
+        processes=[];masters=[];observers=[];screen=''
 
         def start(thread=None):
             master,slave=pty.openpty();fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',40,160,0,0))
-            argv=[shutil.which('strace'),'-f','-e','trace=write,writev,sendto,sendmsg','-s','262144','-o',str(root/('trace-'+str(len(processes)))),str(prefix/'bin/codex'),'--no-alt-screen']
+            argv=[str(prefix/'bin/codex'),'--no-alt-screen']
+            if not args.native_catalog:
+                if args.catalog_layer=='cli':argv+=['-c',catalog_override.strip()]
+                elif args.catalog_layer=='profile':argv+=['--profile','startup-proof']
             if thread:argv+=['resume',thread]
             process=subprocess.Popen(argv,env=env,cwd=work,stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
             os.close(slave);processes.append(process);masters.append(master)
@@ -349,6 +357,19 @@ def probe(args):
             wait(master,lambda:idle(thread))
             before_side=set(loaded())
             single_backend()
+            # Observe the actual fork response without tracing startup bundle
+            # extraction/signature checks, which can cause artificial timeouts.
+            owners=[]
+            for path in server_paths(home):
+                ws=Ws(str(path.resolve()),uri_path='/rpc')
+                try:
+                    if thread in ws.call('thread/loaded/list',{})['data']:owners.append(path)
+                finally:ws.close()
+            assert len(owners)==1, 'one owned parent server required'
+            pid=int(owners[0].with_name('pid').read_text())
+            observer=subprocess.Popen([shutil.which('strace'),'-f','-p',str(pid),'-e','trace=write,writev,sendto,sendmsg','-s','262144','-o',str(root/'trace-1')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            observers.append(observer)
+            wait(master,lambda:('TracerPid:\t'+str(observer.pid)) in Path(f'/proc/{pid}/status').read_text())
             for character in b'/btw':os.write(master,bytes([character]));drain(master,.1)
             drain(master,.4);os.write(master,b'\r')
             wait(master,lambda:bool(set(loaded())-before_side))
@@ -377,8 +398,13 @@ def probe(args):
             assert counts['guardian']>=3,counts
             single_backend()
             assert 'error building bubblewrap command' not in screen
-            return {'accepted':True,'namedPermission':args.named_permission,'nativeCatalog':args.native_catalog,'singleBackendAccepted':args.expect_single_backend,'actualAndroidCommands':3,'guardianRequests':counts['guardian'],'nativeResults':counts['nativeResults'],'initial':first,'seeded':stale,'resumed':restored,'side':side,'realModelInference':False,'productionChanged':False}
+            return {'accepted':True,'namedPermission':args.named_permission,'nativeCatalog':args.native_catalog,'catalogLayer':args.catalog_layer,'singleBackendAccepted':args.expect_single_backend,'backendFamilies':sorted({p.parent.parent.name for p in server_paths(home)}),'actualAndroidCommands':3,'guardianRequests':counts['guardian'],'nativeResults':counts['nativeResults'],'initial':first,'seeded':stale,'resumed':restored,'side':side,'realModelInference':False,'productionChanged':False}
         finally:
+            for observer in observers:
+                if observer.poll() is None:
+                    observer.terminate()
+                    try:observer.wait(timeout=5)
+                    except subprocess.TimeoutExpired:observer.kill();observer.wait()
             for process in processes:
                 if process.poll() is None:
                     os.killpg(process.pid,signal.SIGTERM)
@@ -404,5 +430,5 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))

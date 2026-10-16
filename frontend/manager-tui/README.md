@@ -58,3 +58,7 @@ Pass `--manager` to qualify a candidate Core and Manager together rather than
 reusing the installed Manager in the disposable signed fixture.
 `--expect-single-backend` proves fresh launch/cold resume/side chat create only
 the selected namespace; `--native-catalog` exercises the native/default path.
+`--catalog-layer user|cli|project|profile` checks upstream configuration resolution
+through the real frontend. Syscall observation attaches only to the exact owned
+server after resume, before /btw, so tracing bundled-file extraction cannot distort
+startup deadlines. The actual fork response is still required for acceptance.
