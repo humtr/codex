@@ -99,8 +99,21 @@ into an ordinary account profile. Manager supplies default on-request/auto_revie
 in its existing system-layer fragment; explicit upstream user/profile/CLI choices
 win. Core owns neither default reviewer policy nor provider behavior. These
 changes still require native/device qualification and normal signed publication.
-The autonomous real-repository retry exposed a missing optional progress-report
-field as a provider abort; the experiment owns that repair and further proof.
+The experiment now fixes missing optional reports, preserves same-Chat context,
+reduces warm resend and restores shared app hooks across owner exit orders.
+Actual signed-app/stable53 automatic and interrupted compaction both pass through
+continued real development and cold Core inference; two concurrent account homes
+with independent guardian also pass. Autonomous ai-copy improvements pass full
+repository verification, with an explicitly corrected report-count observer and
+an exact-input evidence limitation. Source2245164 records complete proof and gaps.
+
+Updated Manager system-fragment defaults pass actual Android fresh/resume/btw
+execution in legacy and named permissions: six commands/six guardian reviews,
+dangerFullAccess/auto_review retained. Explicit user reviewer and Full Access
+choices also pass without any model turn. These use stable53's frontend plus the
+new Manager; native same-Chat TUI selection still awaits build38971985065/device
+proof. Source acceptance38971986448 passes. Private cache:
+chat-manager-default{,-named}-lifecycle.json and chat-manager-explicit-{user-3,full}.json.
 
 ## Final Core / Manager responsibility boundary
 

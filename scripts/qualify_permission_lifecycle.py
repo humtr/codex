@@ -277,6 +277,10 @@ def probe(args):
         old=old.replace('approval_policy = "never"','approval_policy = "on-request"').replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
         if getattr(args,'manager_default_reviewer',False):
             old=re.sub(r'^(approval_policy|approvals_reviewer) = .*\n','',old,flags=re.M)
+        if getattr(args,'explicit_reviewer',None):
+            old='approvals_reviewer = '+json.dumps(args.explicit_reviewer)+'\n'+re.sub(r'^approvals_reviewer = .*\n','',old,flags=re.M)
+        if getattr(args,'explicit_policy',None):
+            old='approval_policy = '+json.dumps(args.explicit_policy)+'\n'+re.sub(r'^approval_policy = .*\n','',old,flags=re.M)
         old=old.replace('[features]\n','[features]\nguardian_approval = true\nplugins = false\n')
         old += "\n[projects."+json.dumps(str(work))+"]\ntrust_level = \"trusted\"\n"
         old = 'model_provider = "owned"\n' + old
@@ -354,6 +358,18 @@ def probe(args):
             wait(master,lambda:len(loaded())==1)
             single_backend()
             ids=loaded();assert len(ids)==1,ids;thread=ids[0]
+            if getattr(args,'settings_only',False):
+                # Upstream does not persist a wholly empty thread. Seed only
+                # this owned local history, without starting a model turn.
+                rpc(home,'thread/inject_items',{'threadId':thread,'items':[{'type':'message','role':'user',
+                    'content':[{'type':'input_text','text':'Owned settings-only qualification marker; do not execute.'}]}]})
+                state=snapshot(thread)
+                assert state['sandbox']['type']=='dangerFullAccess',state
+                assert state['approvalsReviewer']==(args.explicit_reviewer or 'auto_review'),state
+                assert state['approvalPolicy']==(args.explicit_policy or 'on-request'),state
+                assert not counts['primary'] and not counts['guardian'],counts
+                return {'accepted':True,'settingsOnly':True,'settings':state,'realModelInference':False,
+                    'guardianRequests':0,'productionChanged':False}
             rpc(home,'turn/start',{'threadId':thread,'input':[{'type':'text','text':'PL_MAIN','text_elements':[]}]})
             wait(master,lambda:(work/'PL_MAIN').is_file() and counts['nativeResults']>=1)
             wait(master,lambda:idle(thread))
@@ -450,6 +466,6 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path);p.add_argument('--generation',type=Path);p.add_argument('--manager',type=Path);p.add_argument('--manager-default-reviewer',action='store_true');p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path);p.add_argument('--generation',type=Path);p.add_argument('--manager',type=Path);p.add_argument('--manager-default-reviewer',action='store_true');p.add_argument('--settings-only',action='store_true');p.add_argument('--explicit-reviewer',choices=['user','auto_review']);p.add_argument('--explicit-policy',choices=['on-request','never']);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
     if a.frontend is None and a.generation is None:p.error('--frontend or explicit Core-only --generation is required')
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))
