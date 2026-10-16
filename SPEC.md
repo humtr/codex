@@ -117,7 +117,7 @@ update authority is maintained.
   Core then passes `CODEX_TERMUX_BACKEND_STARTUP=resolved-v1` and the planned native
   socket address without creating a server. The frontend loads upstream
   configuration and requests exactly its resolved catalog or the native/default
-  server before connecting. Older/unknown helpers keep the original eager startup;
+  server before connecting. Older/unknown helpers keep the original eager startup.
   The Core-owned local target bypasses the TUI's upstream daemon auto-start and
   package/feature recovery paths, including before the resolved server exists.
   Only Core's coordinator may materialize that target; a missing socket is not
@@ -125,10 +125,10 @@ update authority is maintained.
   Upstream's read-only shared-feature compatibility check still runs against the
   resolved server before connection admission; an incompatibility is explicit,
   without an installer, restart prompt or embedded fallback.
-  absent Manager, Core-only and explicit remote/embedded routes retain their paths.
+  Absent Manager, Core-only and explicit remote/embedded routes retain their paths.
   No capability file, persistent probe cache or generation-format change is added.
-  Unsupported explicit
-  upstream modes/options retain the official runtime path and original argv.
+  Unsupported explicit upstream modes/options retain the official runtime path
+  and original argv.
   Core owns no picker, account transition, title composition or terminal controller.
   Missing or changed optional frontend/Manager on an installed generation disables
   that optional UI while leaving independent Core usable. Candidate admission and

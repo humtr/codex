@@ -269,8 +269,8 @@ remain required; no zero-test or source-only result substitutes for that gate.
 This reduces the upstream integration patch from3317 to811 lines across21 existing
 upstream files (previously36 including owned additions), not the
 number of existing supported behaviors or a promise of zero rebase work. The
-original eager/default server start and same-Chat re-entry remain separate known
-follow-ups; neither is silently changed by this ownership split. Installed
+same-Chat re-entry remains a separate known follow-up; resolved startup is qualified
+in the next slice below rather than silently changed by this ownership split. Installed
 stable52, publication main and the optional provider remain unchanged.
 
 Exact-source hosted acceptance38859936580 and native qualification38859936584
@@ -298,15 +298,62 @@ ownership and policy placement, not the startup/re-entry follow-ups above.
 
 ### Server/catalog audit and 0.163 admission
 
-In qualification: the signed frontend advertises resolved-startup-v1 through a
-hidden static query. Core defers server creation only on the exact successful
-bounded response. Upstream config loading remains in the frontend; it requests
-the catalog-bound or native/default server through the existing coordinator.
-Old helpers retain eager startup and new helpers on old Core retain the supplied
-socket contract. Generation format, helper identity and publication inventory
-are unchanged. Required proof covers one namespace on fresh/cold/side execution,
-permissions/reviewer preservation, old/new combinations and retained siblings.
-No public release or live activation is part of this slice.
+Implementation13b457d with frontend correctionsfde1d66/3efa26a: the signed
+helper advertises resolved-startup-v1 through a hidden static query. Core defers
+server creation only on the exact successful bounded response and passes the
+planned native socket. Upstream configuration loading remains in the frontend;
+it requests the catalog-bound or native/default server through Core's existing
+coordinator. Old helpers retain eager startup and new helpers on old Core retain
+the supplied-socket contract. Generation format, helper identity and publication
+inventory are unchanged. The two-second query adds one local helper invocation,
+not network discovery, a persistent capability cache or another supervisor.
+
+The first device candidate correctly failed: without the eager socket, upstream
+DaemonAutoStart tried its package lifecycle before the catalog adapter ran. The
+corrected frontend bypasses upstream auto-start/recovery only for Core-owned local
+targets and retains upstream's read-only feature admission against the resolved
+backend. An incompatibility stays explicit; no installer, restart or embedded
+fallback is offered. Native run38864933871 and intermediate38867289528 were
+cancelled in favor of corrected source; their artifacts are not accepted inputs.
+Final3efa26a passes full source acceptance38867441854 and native38867442090:
+actual build/version/static query with invalid config, all41 TUI tests, lint and
+pristine upstream Core/dependency proof. The artifact verifier admits exact raw
+frontendcdd14952 and identical assembled/formatted/linted sources. Independent
+Core qualification38864934161 passes unchanged Core inputs at13b457d. Local full
+checks pass Python18+66+frontend10, Core197/one existing ignored, Manager46+58+3,
+builder25, codec3, fmt, Clippy and actionlint.
+
+Signed Android fixtures pass one backend across fresh launch, cold resume and /btw
+for user, CLI, project and --profile catalogs, and the native/default path.
+These five runs execute15 real Android commands and15 guardian reviews, retaining
+danger-full-access/on-request/auto_review and named permissions where selected.
+New-Core/old-frontend and old-Core/new-frontend each pass three commands/reviews
+on the retained eager path. /resume opens the actual picker; /switch preserves
+frontend PID and thread, creates one catalog server per home, preserves the
+original server PID and creates no native/default server or packages tree.
+The native/default endpoint responds with stdin still open, reuses its PID/socket,
+and preserves a connected native sibling when a catalog server is requested.
+Actual incompatible structured code-mode-host settings refuse before a thread
+starts, retaining only the resolved catalog server with no installer/embedded
+fallback. Final profile/catalog lifecycle proof also passes home-inode leases,
+rename/delete/history preservation, changed-catalog isolation, Manager writer
+discovery and default/isolated/external launches with Manager physically absent.
+No real Chat inference, user credentials, public publication or device activation
+is used. Physical notification taps/window return are not re-exercised.
+
+Qualification observation now attaches syscall tracing to the exact server only
+after cold resume, before /btw; tracing bundled-file extraction during startup
+caused false deadlines. The corrected old-frontend full rerun passes. Menu proof
+waits for a deterministic loopback response before sending commands and declares
+an explicit local provider, rather than assuming builtin provider environment
+settings fence transport. Initial inert-key attempts were rejected401 and used
+no real account/inference. Failed observers/candidates remain in private logs.
+Private proof: responsibility-startup-qualified.json and responsibility-startup-*
+under the acceptance cache. The aggregate binds21 actual commands/reviews, both
+compatibility directions, menu/feature/Core-only proof and owned-fixture cleanup.
+Installed stable52 activation bytes, manifest signature and all eight payload
+hashes/modes remain unchanged; main is not advanced. No temporary private signing
+keys or running fixture workers are retained after qualification.
 
 The execution-record duplication is now extracted into the dependency-free
 codex-runtime-binding source library. Core produces and retires its existing
@@ -365,17 +412,12 @@ peer/PID/runtime checks, inherited descriptors, native/default
 rendezvous isolation, both record families and current-client/writer protection.
 Manager/frontend owns catalog resolution; Core owns physical server admission.
 
-There is a real remaining startup cost: Core starts the native/default server
-before the enhanced frontend loads configuration, then a custom resolved catalog
-can require a second namespace. Defer-before-resolution is not safe for the
-published v1 frontend, which expects Core's supplied socket to be ready. Remove
-this extra start together with the frontend integration slice, after qualifying
-an explicit supported startup capability and retaining old-frontend behavior.
-Do not infer it from profile TOML in Core or add a second server supervisor.
-Required proof is one requested backend on a fresh enhanced launch, preserved
-legacy-helper/Core-only launch, correct default/custom catalog, CLI/project config,
-resume/picker/switch paths, changed-catalog isolation and surviving old clients.
-The existing public/private startup contract has not changed in this audit.
+The published v1 frontend retains eager startup because it expects Core's socket
+to be ready. The source-qualified resolved-startup capability above removes the
+extra native/default server only when the exact signed helper advertises it.
+Core-only/old-helper behavior remains accepted; Core still does not infer model
+policy from profile TOML. Same-Chat model/effort frontend re-entry remains a
+separate provider/frontend improvement, not a result of this startup change.
 
 Upstream0.163 is released but not admitted: runtime_patch.rs::required explicitly
 rejects versions after0.161, and the qualified frontend/source pair remains0.161.
