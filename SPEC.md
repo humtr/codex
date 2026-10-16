@@ -118,6 +118,10 @@ update authority is maintained.
   socket address without creating a server. The frontend loads upstream
   configuration and requests exactly its resolved catalog or the native/default
   server before connecting. Older/unknown helpers keep the original eager startup;
+  The Core-owned local target bypasses the TUI's upstream daemon auto-start and
+  package/feature recovery paths, including before the resolved server exists.
+  Only Core's coordinator may materialize that target; a missing socket is not
+  permission to enter an upstream installation or embedded-execution path.
   absent Manager, Core-only and explicit remote/embedded routes retain their paths.
   No capability file, persistent probe cache or generation-format change is added.
   Unsupported explicit

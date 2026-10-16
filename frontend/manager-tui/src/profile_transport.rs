@@ -2,6 +2,18 @@
 use super::AppServerTarget;
 use codex_app_server_client::RemoteAppServerEndpoint;
 
+/// Core owns the server lifecycle for its explicit qualified local endpoint.
+pub(super) fn core_owned(target: &AppServerTarget, termux: bool) -> bool {
+    termux
+        && matches!(
+            target,
+            AppServerTarget::LocalDaemon {
+                allow_embedded_fallback: false,
+                ..
+            }
+        )
+}
+
 pub(super) fn target(endpoint: RemoteAppServerEndpoint, termux: bool) -> AppServerTarget {
     if termux && matches!(endpoint, RemoteAppServerEndpoint::UnixSocket { .. }) {
         AppServerTarget::LocalDaemon {

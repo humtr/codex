@@ -832,3 +832,28 @@ index 945041b..764c243 100644
              SlashCommand::New
              | SlashCommand::Archive
              | SlashCommand::Delete
+diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
+index 3cc8dc1..5ef7eb6 100644
+--- a/codex-rs/tui/src/startup_orchestration.rs
++++ b/codex-rs/tui/src/startup_orchestration.rs
+@@ -506,7 +506,10 @@ pub(super) async fn run_main_inner(
+     } else {
+         None
+     };
+-    let auto_start_daemon = config.features.enabled(Feature::DaemonAutoStart)
++    let core_owned =
++        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
++    let auto_start_daemon = !core_owned
++        && config.features.enabled(Feature::DaemonAutoStart)
+         && !cli.agents_overview
+         && !cli.no_daemon
+         && !app_server_target.uses_remote_workspace();
+@@ -571,7 +574,7 @@ pub(super) async fn run_main_inner(
+         }
+     }
+     // The overview must inspect the shared server's agents regardless of local settings.
+-    let compatibility_warning = if cli.agents_overview {
++    let compatibility_warning = if cli.agents_overview || core_owned {
+         None
+     } else {
+         daemon_recovery::check(

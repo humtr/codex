@@ -10,6 +10,15 @@ fn unix() -> RemoteAppServerEndpoint {
 #[test]
 fn profile_transport_core_socket_keeps_local_cwd_and_permission_parameters_without_fallback() {
     let target = target(unix(), true);
+    assert!(core_owned(&target, true));
+    assert!(!core_owned(&target, false));
+    assert!(!core_owned(
+        &AppServerTarget::LocalDaemon {
+            endpoint: unix(),
+            allow_embedded_fallback: true,
+        },
+        true
+    ));
     assert!(matches!(
         target,
         AppServerTarget::LocalDaemon {
@@ -27,6 +36,7 @@ fn profile_transport_core_socket_keeps_local_cwd_and_permission_parameters_witho
 #[test]
 fn profile_transport_unselected_upstream_unix_target_stays_remote() {
     let target = target(unix(), false);
+    assert!(!core_owned(&target, true));
     assert!(target.uses_remote_workspace());
     assert!(matches!(target, AppServerTarget::Remote { .. }));
 }
@@ -40,6 +50,7 @@ fn profile_transport_websocket_stays_remote_even_with_preview_bridge() {
         },
         true,
     );
+    assert!(!core_owned(&target, true));
     assert!(target.uses_remote_workspace());
     assert!(matches!(target, AppServerTarget::Remote { .. }));
 }
