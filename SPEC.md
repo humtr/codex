@@ -70,16 +70,19 @@ update authority is maintained.
   and extended eight files remain distinct exact sets; missing or undeclared
   assets refuse transport, and failed reconstruction removes only its own new
   disposable output. An occupied output is preserved.
-- Maintained frontend source/build tools live in frontend/manager-tui. The active
-  source qualification pairs official0.161.0 with exact upstream commit
-  979011409de0a60b52f179721948e65531d26144 and Rust1.95.0. Local workspace lock
-  normalization changes only local0.0.0 versions/references to0.161.0; all external
-  bindings remain unchanged. The qualified161 frontend release build leaves
+- Maintained frontend source/build tools live in frontend/manager-tui. The next
+  source qualification pairs official0.163.0 with exact upstream commit
+  83086188ae0614bd882818ff1aa23f3194962012 and Rust1.95.0. Local workspace lock
+  normalization changes only local0.0.0 versions/references to0.163.0; all external
+  bindings remain unchanged. Both the retained161 and candidate163 builds leave
   upstream Core source unchanged. Its Clippy check alone may temporarily prepend
   recursion_limit=256 to the exact pristine upstream Core crate root, because
   Rust1.95 Clippy exceeds the default128 query depth in unchanged plugin handling.
   The check must verify the annotated body remains exact and restore the original
   bytes even on failure; every other Core modification refuses qualification.
+  On ARM64 musl, lint may also temporarily allow unnecessary_cast solely on
+  pristine upstream uses_wsl_drvfs, preserving its portable filesystem-type cast.
+  Verify and restore that exact function's original bytes even on failure.
   This validation resource allowance never enters the native patch or artifact.
   Historical0.160.0 preview assets remain protected
   until their clients exit and are not a second source/build authority.
@@ -103,7 +106,13 @@ update authority is maintained.
   repository/workflow/push source and successful completion through GitHub, checks
   the producer's maintained native inputs against that qualified source, and
   verifies the downloaded executable digest, source/version/lock audit and actual
-  nonzero native proof with identical formatted/linted patches. Artifact existence
+  nonzero native proof with identical formatted/linted patches. The163 gate also
+  requires executed upstream tests for retained162 worktrees, pinning, copy,
+  scrolling, hyperlinks, startup defaults, provider capabilities/compaction,
+  CodeMode settlement/search, Retry-After and patch line endings. Each topic
+  needs an actual PASS. CodeMode tests use the exact authenticated official
+  package host used in production, not a separately built V8 runtime.
+  Artifact existence
   or a failed/partial run is insufficient. The qualified executable and minimal
   proof are retained as an exact-digest GitHub Release source-input asset, never
   overwritten after publication. The producer checks the pinned archive digest

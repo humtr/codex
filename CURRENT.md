@@ -53,8 +53,8 @@ This repository carries no external workflow skill or model configuration.
   compaction is also unqualified; opaque native checkpoints are rejected before
   placeholder conversion rather than silently losing context. These are separate
   follow-ups, not completed by the catalog release. Same-Chat model changes still
-  re-enter the frontend. Upstream0.162+ remains unqualified; this release intentionally
-  retains0.161. Existing upstream title/history doctor warnings remain separate;
+  re-enter the frontend. Public stable52 intentionally retains0.161; the active
+  0.163 qualification, including0.162 features, is tracked below. Existing upstream title/history doctor warnings remain separate;
   user title/history data is not edited to conceal them.
 
 ## Chat provider work ownership
@@ -81,65 +81,69 @@ the installed stable52 implementation.
 
 ### Active next-upstream qualification
 
-User resumed the deferred upgrade after boundary finalization. Target is official
-0.163.0 /83086188ae0614bd882818ff1aa23f3194962012, confirmed against the official
-release and latest-release discovery. Work proceeds base compatibility first,
-then maintained frontend integration, then signed feature-preserving publication.
-No compatibility/version/digest check is waived. Source/build artifacts live in
-TMPDIR/XDG cache; current stable52 and live jobs remain unchanged during trials.
-The changed native permission/resume, /config and managed-server restart surfaces
-must be examined before carrying forward old UI hooks. Optional Manager reuse is
-verified independently; provider transport/inference is outside this upgrade.
+User authorized the0.161→0.163 upgrade after boundary finalization, including
+0.162's added features. Target: official0.163.0/source83086188ae0614bd882818ff1aa23f3194962012,
+archive9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb.
+Public/device stable52 remains unchanged. Temporary source/generations use TMPDIR;
+compiler and private evidence use ~/.cache/codex/upstream-0.163.0. No actual ChatGPT
+messages or real account credentials are used by this qualification.
 
-The0.161→0.163 upgrade must also qualify0.162's added features; source inclusion
-alone is not acceptance. The native producer now requires executed upstream
-tests for trusted managed-worktree creation/list/restart, shared task pinning,
-/copy and copy shortcuts, mouse-scroll scaling, terminal hyperlinks, fresh model/
-reasoning defaults, custom provider capabilities/remote compaction, CodeMode
-settlement and ranked search, Retry-After, and CRLF/mixed-line patch preservation.
-Each topic must execute successfully; zero/failed/missing topic proof refuses the
-frontend artifact. These additional gates are pending, not previous green proof.
-Mocks use loopback/dummy auth and do not submit real ChatGPT messages. Windows
-installer changes and Linux sandbox enforcement are not Termux acceptance targets.
-Actual Core-only0.163 legacy/named/config-profile permission menus and shortcuts
-pass without model turns; fresh/cold-resume/btw commands each pass real guardian
-reviews in legacy and named modes. Independent hosted0.163 base qualification
-38888089254 and full source38887974456 pass; integrated frontend/public promotion
-remain unfinished and stable52 stays installed.
-The final433-byte adaptation also passes five actual Android patch invocations:
-CRLF edits, append after trailing blank, repeated context, mixed untouched endings
-and adding a trailing newline. Each output matches expected bytes, the owned
-fixture is removed, and no account/network is used. Private proof:
-upstream-0.163.0/android-line-endings.json. This is engine proof, separate from
-the maintained frontend's still-pending copy/scroll/link interaction tests.
-Final Android Core-only lifecycle proof passes all30 production-builder/install/
-update/rollback steps with unchanged Manager reuse and owned user-state retention
-(core-independence-final.json). Native shared pin/unpin/pin and a new client's
-pinned-list readback also pass (android-pinning.json); TUI p-key dispatch remains
-pending. Actual native CodeMode settlement helpers return fulfilled/rejected
-records over two loopback Responses requests (android-settled-helpers.json).
-That fixture's final text delta omitted item-added, producing an observer warning;
-its evidence covers helper execution/return only, not transcript rendering. All
-three fixtures are removed and submit zero actual ChatGPT messages.
-Production bootstrap plus signed0.163→0.161→0.163 transitions pass with an actual
-loopback turn: both engines read/resume the same conversation UUID and final
-message. Fifteen steps, one loopback model request, no actual ChatGPT submissions,
-owned fixture removed (android-transition.json). Earlier fixture URL/mode/fresh-
-install setup refusals are retained separately, not classified as product defects.
-The first compiled0.163 frontend passes41 actual TUI regressions but fails the
-format/lint identity gate: Clippy removes a portable upstream WSL fstatfs cast on
-aarch64-musl. Native lint now temporarily allows that single upstream function's
-unnecessary_cast lint, verifies its pristine bytes and restores them on all
-outcomes; maintained code has no added lint allowance. Neither this allowance nor
-the existing Core recursion limit enters the release executable. Qualification of
-the final daemon-boundary fix and0.162 feature set is still pending.
-Native38891870711 now passes the42-test candidate set. Its extra feature stage
-fails before running those tests because a standalone host build tries an absent
-denoland V8 musl asset. The test stage now uses the digest-verified official0.163
-package's host, exactly as production does, instead of introducing a second V8/
-host build authority. This is a fixture setup failure, not executed feature proof.
-Actual Android HTTP429/Retry-After:2 recovery completes after2.026s with two
-loopback requests (android-retry-after.json); no actual ChatGPT messages are sent.
+Source49cd664 has full hosted acceptance38898455546. Independent base-only hosted
+0.163 qualification38888089254 passes. Native38898455640 passes42 maintained TUI
+regressions,52 retained-upstream TUI tests,40 engine integration tests and two patch
+line-ending tests, plus final format/lint/artifact source identity. The completed
+successful run and exact source/artifact/proof pass the public producer's admission
+validator. Raw frontend SHA256 is
+34ec4dc18a93834a638cf9f6ad70bce08b2deac5cbd443e86920cb610b7374b2; its identical
+bytes bind the actual Android proofs below (frontend-byte-identity.json).
+
+| Actual Android proof | Result | Private evidence |
+| --- | --- | --- |
+| Core-only production builder/install/update/rollback; unchanged Manager reuse |30 steps pass; owned state retained |core-independence-final.json |
+| Base legacy/named/config-profile permission menus and shortcuts |All three modes pass without model turns |base-permission-menus.json |
+| Base fresh/cold-resume/btw execution and auto_review |Six commands/six guardian reviews across legacy/named modes |base-lifecycle-final.json, base-named-lifecycle-final.json |
+| Integrated permission menus and shortcuts |All three modes pass, same thread/PID/PTY |integrated-menus.json |
+| Integrated fresh/cold-resume/btw with resolved catalog |Six commands/six guardian reviews; one catalog backend per home |integrated-lifecycle.json |
+| Profiles, shared catalog binding, writer discovery, leases and Manager absence |All profile lifecycle cases pass |integrated-profiles.json |
+| /resume and /switch |Same conversation/frontend PID, original server retained, no accidental native server/packages |integrated-startup-transitions.json |
+|0.162 managed worktree and pinning through actual TUI/Core |Create/poll/list, p-key pin/unpin, then resume/switch pass; four primary/one title loopback requests |integrated-worktrees-pinning.json |
+| Native patch line endings |Five CRLF/mixed/repeated/trailing-newline cases match exact bytes |android-line-endings.json |
+| Native CodeMode settlement helpers |Fulfilled/rejected results returned through two loopback requests |android-settled-helpers.json |
+| Native HTTP429 with Retry-After:2 |Two requests,2.026s observed delay, final response succeeds |android-retry-after.json |
+| Native0.163→0.161→0.163 history |Fifteen production install/transition steps preserve/resume actual UUID and message |android-transition.json |
+| Installed stable52 Core→new integrated Core/runtime→old→new |Eleven steps pass with isolated signature key and increasing sequence; entrypoint hashes verified |old-core-transition.json |
+
+Device cases above use isolated roots, which are removed after their probes.
+The two signed base/integrated input roots remain owned test inputs until release
+qualification finishes; their fixture keys must be removed afterwards. Device
+activation and new physical notification taps have not occurred. The0.163 native
+policy is termux-fd-remap-v5:433 adaptation bytes plus54 resolver/system-config FD
+bytes. It additionally forwards supported current local-resume permissions, fixing
+the reproduced stale workspace selection; reviewer/approval remain independent.
+
+Immutable native input is published under manager-tui-native-v0.163.0-49cd664,
+archive SHA2560161217fc0cf03cba17ac9a72bb90d468daea9a8d9b0cb792c3e6a62fe369983.
+A complete public HTTPS download matches that digest. Integrated production now
+pins this successful run/source/executable/archive pair. Remaining gates: accepted
+source publication caller, integrated release and complete signed public readback/
+disposable update/non-forced promotion. All retained162 feature topics have actual
+PASS evidence; zero/failed/missing proof refuses admission. Windows installer
+changes and Linux sandbox enforcement are not Termux acceptance targets.
+
+Retain negative evidence without treating observer/setup failures as product bugs:
+the first163 frontend compile exposed two changed upstream APIs, now adapted. An
+ARM64 Clippy fix removed a portable pristine-upstream WSL fstatfs cast; native lint
+now temporarily allows that single function's unnecessary_cast warning, verifies/
+restores its original bytes, and adds no allowance to maintained code or asset.
+The feature setup's attempted standalone host build hit an absent denoland V8 musl
+asset; it now exercises the authenticated official package host used by production.
+Actual host setup accepts the good archive and rejects corruption before extraction
+(native-host-setup.json). Early transition fixtures had URL/mode/fresh-install/sequence
+setup refusals. An initial worktree observer assumed the embedded-only namespace and
+misclassified a background title request; the strict final trial selects advertised
+names, handles structured title requests, forbids duplicate creation and fails on
+HTTP handler errors. The settlement helper fixture omitted final item-added, so its
+proof covers execution/return, not transcript rendering. Detailed logs stay private.
 
 ### Owners and retained execution necessities
 
