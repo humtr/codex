@@ -2,9 +2,11 @@
 // Preserve the owned public messages so a projection defect can be fixed/replayed
 // without spending another Chat generation. Never record private reasoning.
 import {writeFileSync} from 'node:fs';
-import {DesktopToolSession} from './desktop_tool_session.mjs';
-import {DesktopLocalTransport} from './desktop_local_transport.mjs';
-const [bridge,session,root]=process.argv.slice(2),messages=new Map(),observations=new Map();let tools=[];
+import {pathToFileURL} from 'node:url';
+const [bridge,session,root,runtime,source]=process.argv.slice(2),messages=new Map(),observations=new Map();let tools=[];
+const moduleRoot=source?pathToFileURL(source+'/'):new URL('.',import.meta.url);
+const {DesktopToolSession}=await import(new URL('desktop_tool_session.mjs',moduleRoot));
+const {DesktopLocalTransport}=await import(new URL('desktop_local_transport.mjs',moduleRoot));
 const text=DesktopToolSession.prototype.text,exchange=DesktopLocalTransport.prototype.exchange;
 DesktopLocalTransport.prototype.exchange=function(payload,...args){tools=payload.tools;return exchange.call(this,payload,...args);};
 DesktopToolSession.prototype.text=function(message,emit){
@@ -26,5 +28,5 @@ DesktopToolSession.prototype.text=function(message,emit){
  return text.call(this,message,emit);
 };
 process.env.CODEX_CHAT_RETURN_TRANSPORT='local';process.env.CODEX_CHAT_LOCAL_MAX_DISPATCHES='3';
-process.argv=[process.argv[0],process.argv[1],bridge,session,root+'/server.json'];
-await import('./desktop_responses_server.mjs');
+process.argv=[process.argv[0],process.argv[1],bridge,session,root+'/server.json',...(runtime?[runtime]:[])];
+await import(new URL('desktop_responses_server.mjs',moduleRoot));

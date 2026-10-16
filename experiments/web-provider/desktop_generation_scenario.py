@@ -29,7 +29,7 @@ class Generation:
     def verify_cold(self,rpc,collect,thread,deadline,report,events):
         assert self.commands==2,'initial_tool_count_not_exact'
         before=(self.workspace/'proof.txt').stat()
-        self.checks.update(self.restart_app())
+        self.checks.update(self.restart_backend())
         events.clear()
         rpc(103,'turn/start',{'threadId':thread,'input':[{'type':'text','text':
             'Recall the actual seed value from the completed conversation. Reply exactly that value. '

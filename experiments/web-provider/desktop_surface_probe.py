@@ -11,7 +11,7 @@ import time
 import traceback
 
 from siwc_core_probe import probe as core_probe
-from desktop_lifecycle import RUNTIME, desktop_ready, ready
+from desktop_lifecycle import RUNTIME, desktop_ready, ready, live
 from desktop_development_scenario import Development
 from desktop_generation_scenario import Generation
 from desktop_repository_scenario import RepositoryDevelopment
@@ -128,8 +128,8 @@ def run(args):
         if args.live:
             candidate = SOURCE if args.source_candidate else installed/'source'
             wrapper = root/'bounded.mjs'
-            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((candidate/'desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches='+str(48 if args.repository else 24 if args.development else 4 if args.generation else 12)+';return p.apply(this,args);};\nconst e=DesktopLocalTransport.prototype.exchange,b=[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((candidate/'desktop_local_core_trace.mjs').as_uri())+');\n')
-            command = [runtime['bun'],str(wrapper),runtime['bridge'],runtime['session'],str(root)]
+            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((candidate/'desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches='+('4-b.length' if args.generation else str(48 if args.repository else 24 if args.development else 12))+';return p.apply(this,args);};\nconst fs=await import("node:fs"),e=DesktopLocalTransport.prototype.exchange,b=fs.existsSync(root+"/surface-batches.json")?JSON.parse(fs.readFileSync(root+"/surface-batches.json","utf8")):[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((SOURCE/'desktop_local_core_trace.mjs').as_uri())+');\n')
+            command = [runtime['bun'],str(wrapper),runtime['bridge'],runtime['session'],str(root),'',str(candidate)]
             if args.restart_app:
                 hook=(SOURCE/'desktop_idle_inspection.mjs').as_uri()
                 wrapper.write_text(wrapper.read_text().replace('return r;};',
@@ -154,7 +154,33 @@ def run(args):
                     compact=False,cancel_resume=False,app_name='owned-native-surface',effort='none',transcript_check=True,
                     mid_turn_compact=False,interrupt_tool=False,reject_tool=False,mcp_discovery=False,
                     scenario=RepositoryDevelopment(args.output,args.repository) if args.repository else Development(args.output,args.compaction) if args.development else Generation() if args.generation else Surface(args.output),tui_trace_path=args.output/'tui.txt')
-                if args.restart_app:options.scenario.restart_app=lambda:restart_idle_app(runtime,root,args.output)
+                if args.restart_app:
+                    callback=lambda:restart_idle_app(runtime,root,args.output)
+                    if args.generation:options.scenario.restart_backend=callback
+                    else:options.scenario.restart_app=callback
+                retired=[]
+                if args.restart_adapter:
+                    def restart_adapter():
+                        nonlocal child
+                        from desktop_lifecycle_probe import stop_owned
+                        from linux_desktop_trial import write
+                        binding=root/'server.json';old=json.loads(binding.read_text())
+                        assert live(binding)['pid']==child.pid,'not_the_owned_trial_adapter'
+                        desktop=live(Path(runtime['session']));operating=live(Path(runtime['binding']))
+                        retired.append(json.loads(Path(str(binding)+'.proof').read_text()))
+                        if (root/'public-trace.json').exists():(args.output/'retired-public-trace.json').write_bytes((root/'public-trace.json').read_bytes())
+                        stop_owned(binding);child.wait(timeout=5)
+                        trial_runtime={**runtime,**{k:old[k] for k in ['baseUrl','token','model']},'binding':str(binding),'source':str(candidate),'returnTransport':'local'}
+                        descriptor=root/'trial-runtime.json';write(descriptor,trial_runtime)
+                        successor=command.copy();successor[-2]=str(descriptor)
+                        child=subprocess.Popen(successor,stdout=log,stderr=log)
+                        end=time.monotonic()+20
+                        while not (live(binding) and live(binding)['pid']==child.pid and ready(trial_runtime)):
+                            assert child.poll() is None and time.monotonic()<end,'owned_successor_not_ready'
+                            time.sleep(.05)
+                        assert live(Path(runtime['session']))==desktop and live(Path(runtime['binding']))==operating,'foreign_lifetime_changed'
+                        return {'adapterRestartedAfterSettledTurn':True,'signedDesktopRetained':True,'operatingAdapterRetained':True,'endpointCapabilityRetained':True}
+                    options.scenario.restart_backend=restart_adapter
                 started=time.monotonic()
                 try:
                     result=core_probe(options)
@@ -163,6 +189,10 @@ def run(args):
                     result.update(realCoreToolLoopAccepted=False,failureClass=type(error).__name__,
                         failureFrames=[{'file':Path(f.filename).name,'line':f.lineno} for f in traceback.extract_tb(error.__traceback__)][-5:])
                 proof=json.loads((root/'server.json.proof').read_text())
+                if retired:
+                    (args.output/'adapter-generations.json').write_text(json.dumps([*retired,proof],indent=2)+'\n')
+                    for key in ['observedChatSubmissions','toolResultSubmissions','observedNativeDispatches','guardianRequests','compactionSummaries','appliedCheckpoints','retryAttempts','submittedProRequests']:
+                        proof[key]=sum(p.get(key,0) for p in [*retired,proof])
                 for name in ['surface-host.json','surface-batches.json','public-trace.json','fixture-context.json']:
                     if (root/name).exists():
                         (args.output/name).write_bytes((root/name).read_bytes())
@@ -177,7 +207,7 @@ def run(args):
                     batchSizes=batch_sizes,parallelBatchObserved=2 in batch_sizes,elapsedSeconds=round(time.monotonic()-started,3),
                     probeSha256=PROBE_DIGEST,
                     fixtureSha256=hashlib.sha256((SOURCE/('desktop_development_fixture.mjs' if args.development else 'desktop_surface_fixture.mjs')).read_bytes()).hexdigest(),
-                    repositoryScenario=str(args.repository) if args.repository else None,developmentScenario=args.development,generationScenario=args.generation,compactionMode=args.compaction,appRestartRequested=args.restart_app,scenarioSha256=hashlib.sha256((SOURCE/'desktop_generation_scenario.py' if args.generation else scenario_source).read_bytes()).hexdigest() if args.development or args.repository or args.generation else None)
+                    repositoryScenario=str(args.repository) if args.repository else None,developmentScenario=args.development,generationScenario=args.generation,compactionMode=args.compaction,appRestartRequested=args.restart_app,adapterRestartRequested=args.restart_adapter,scenarioSha256=hashlib.sha256((SOURCE/'desktop_generation_scenario.py' if args.generation else scenario_source).read_bytes()).hexdigest() if args.development or args.repository or args.generation else None)
                 result['accepted']=bool(result.get('realCoreToolLoopAccepted') and result.get('persistedReportCheck') and result.get('coldTranscriptRestored')
                     and result.get('resumeWithoutModelRequest') and result.get('renderWithoutModelRequest') and (args.repository or args.development or args.generation or result['parallelBatchObserved'])
                     and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
@@ -207,11 +237,14 @@ if __name__=='__main__':
     p.add_argument('--generation',action='store_true',help='Short two-request Core/app restart proof; requires live source and --restart-app')
     p.add_argument('--compaction',choices=['manual','automatic','mid-turn','failed','interrupted'],default='manual',help='Development checkpoint trigger or owned fault injection')
     p.add_argument('--source-candidate',action='store_true',help='Use this source worktree with existing installed immutable dependencies; do not change operating runtime')
-    p.add_argument('--restart-app',action='store_true',help='Explicit idle signed-app restart between settled development turns; no foreign lanes or drafts allowed')
+    fault=p.add_mutually_exclusive_group()
+    fault.add_argument('--restart-adapter',action='store_true',help='Restart only the settled private trial adapter; requires --live --generation')
+    fault.add_argument('--restart-app',action='store_true',help='Explicit idle signed-app restart between settled development turns; no foreign lanes or drafts allowed')
     p.add_argument('--output',required=True,type=Path)
     args=p.parse_args()
     if args.repository and (not args.live or args.development):p.error('--repository requires --live and cannot combine with --development')
     if args.compaction!='manual' and not args.development:p.error('--compaction requires --development')
-    if args.generation and (args.development or args.repository or not args.restart_app):p.error('--generation requires --restart-app and its own isolated scenario')
+    if args.generation and (args.development or args.repository or not(args.restart_app or args.restart_adapter)):p.error('--generation requires one restart fault and its own isolated scenario')
     if args.restart_app and not(args.live and (args.development or args.generation) and args.source_candidate):p.error('--restart-app requires --live --development/--generation --source-candidate')
+    if args.restart_adapter and not(args.live and args.generation):p.error('--restart-adapter requires --live --generation')
     raise SystemExit(0 if run(args) else 1)
