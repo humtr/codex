@@ -72,10 +72,7 @@ def qualify(core, generation, parent, mode, prepare_preview=None, public_key=Non
         identity = fields["generation_id"]
         assert ";permission_policy=" in fields["patch_report"]
         runtime = home / ".local/lib/codex/core/generations" / identity
-        if public_key is not None:
-            shutil.copytree(generation, runtime)
-        else:
-            materialize_signed_generation(generation, runtime)
+        materialize_signed_generation(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
                           home / ".local/share/codex/core/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)

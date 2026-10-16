@@ -6,35 +6,29 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable52: local-hosted-0-161-0-e8dc2d76195f-s52,
-  CLI0.161.0, accepted implementation e8dc2d7. Publication38733863985 passes all
-  eight release stages, including Android execution, signing, complete public
-  readback/disposable update and non-forced promotion. main caller ad3e723 pins
-  that source; promotion149b30b preserves the caller and advances the signed index.
-- Ordinary signed `codex update` activates stable52; repeat update is a no-op.
-  Core/Manager doctor is healthy with no failures. All eight installed hashes,
-  modes and the manifest signature verify; fourteen existing config/auth/provider
-  files and seven current PID/start/image identities remain unchanged. Stable51
-  is retained for rollback. Existing clients retain their loaded images until
-  normal restart or frontend re-entry. Private proof: stable52-device-activation.json.
-- The resolved-catalog Core/Manager path preserves the current production
-  permission/profile/window behavior. Local full acceptance passes Core198/one
-  existing ignored, Manager42+56+three path gates, builder25, Python18+59 and
-  fmt/Clippy. Exact-source hosted acceptance38731009205 passes. Corrected native
-  frontend38726029331 passes build/execution, all41 actual TUI tests, lint and
-  pristine upstream Core/dependency proof. Raw frontend23e34867 is bound to
-  immutable archive045a7055 under manager-tui-native-v0.161.0-c2db8f7; its installed
-  FD-adapted SHA256 is7cfb36562d44777f6b68ee425eac7cdf3cec631a4e8f93912eb1a7ce0e556beb.
-- Actual Android legacy/named/--profile menu round trips pass with that frontend
-  and current Core, preserving PID/PTY/home/thread, permissions, config and sibling
-  defaults. Catalog proof separately passes12-tool admission, byte-bound reuse/
-  isolation, old-thread reads and Manager discovery. Both permission fixtures pass
-  six real Android commands and six guardian reviews through launch/cold resume
-  and /btw. These fixtures submit no Chat inference. Private aggregate:
-  stable52-native-device-qualified.json. The failed first native compile exposed
-  duplicate declarations, corrected in c2db8f7; the old permission observer queried
-  only core/servers and now locates its exact owned fixture in both server families.
-  Retain those negative results without treating observer failure as product proof.
+- Public stable53: local-hosted-0-163-0-36bfeed4ea58-s53, CLI0.163.0,
+  accepted implementation36bfeed4ea582778caf1c6d606e69b0e624bc7b5. Release38904810656
+  passes build, Android execution, signing, immutable Release, Pages with retained
+  stable52, complete public readback/disposable update and non-forced promotion.
+  main caller b2622ce pins that exact source; promotion df443eb changes only the
+  signed index. Independent HTTPS readback verifies its signature and exact
+  candidate bytes. Production release and source proofs are linked below.
+- Device remains stable52/CLI0.161.0; stable51 is its retained rollback generation.
+  This upgrade has not activated a live generation or restarted existing clients.
+  Ordinary `codex update` can activate stable53. Running clients retain their
+  loaded images until normal restart or frontend re-entry. Do not describe a
+  published candidate or an isolated fixture as physical activation.
+- Source36bfeed has full hosted acceptance38904327519, including the event's
+  Android Core proof, workspace tests, fmt and Clippy. Native38898455640 passes
+  42 maintained TUI regressions and94 executed retained-upstream feature tests,
+  lint, pristine Core and unchanged external bindings. The exact frontend and
+  minimal proof are immutable input0161217f under manager-tui-native-v0.163.0-49cd664.
+- Actual Android isolated0.163 qualification covers Core independence, profiles,
+  catalog binding, permission menus/shortcuts, fresh/cold-resume/btw commands and
+  auto_review, same-thread /resume and /switch, managed worktree creation/listing,
+  p-key pin/unpin, CodeMode helpers, Retry-After, patch line endings, retained
+  history and old/new Core update/rollback. Detailed evidence and scope are below.
+  No real Chat inference or account credentials are used by this upgrade.
 - Installed opt-in ChatGPT provider is9014deaf810ff40a583d/sourcee27ab09,
   with durable `returnTransport=local`; all590 payload files verify and older
   payloads remain available for recovery. Actual installed signed-app + stable52
@@ -53,8 +47,8 @@ This repository carries no external workflow skill or model configuration.
   compaction is also unqualified; opaque native checkpoints are rejected before
   placeholder conversion rather than silently losing context. These are separate
   follow-ups, not completed by the catalog release. Same-Chat model changes still
-  re-enter the frontend. Public stable52 intentionally retains0.161; the active
-  0.163 qualification, including0.162 features, is tracked below. Existing upstream title/history doctor warnings remain separate;
+  re-enter the frontend. Public stable53 qualifies0.163, including0.162 features,
+  as tracked below. Existing upstream title/history doctor warnings remain separate;
   user title/history data is not edited to conceal them.
 
 ## Chat provider work ownership
@@ -66,25 +60,24 @@ failure is reproduced at the adapter admission boundary. Canonical catalog,
 old-round observation and completed-sample recovery fixes are now installed in
 the opt-in provider, with native MCP live proof above. This remains experimental,
 not a public stable Chat-provider promotion or full lifecycle qualification.
-Core stable52 remains independently accepted; unrelated upstream/update/doctor
-maintenance is separate from Chat acceptance.
+Installed stable52 retains its qualified provider baseline; stable53 Core admission
+and unrelated update/doctor maintenance are separate from Chat acceptance.
 
 ## Final Core / Manager responsibility boundary
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
-responsibility extraction and current-version independent execution are complete;
-next-upstream qualification, integrated public promotion and provider improvements
-remain separate work. Public/device baseline stays stable52/0.161.0. No0.163
-admission, live activation or actual Chat inference is part of this finalization.
-These finalized boundaries describe the qualified source; they have not replaced
-the installed stable52 implementation.
+responsibility extraction and independent execution are complete. The separately
+qualified0.163 upgrade is now public stable53; live device activation and optional
+provider improvements remain separate. Device baseline stays stable52/0.161.0.
+No actual Chat inference is part of this boundary/upgrade qualification.
 
-### Active next-upstream qualification
+### Accepted0.163 upgrade
 
 User authorized the0.161→0.163 upgrade after boundary finalization, including
 0.162's added features. Target: official0.163.0/source83086188ae0614bd882818ff1aa23f3194962012,
 archive9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb.
-Public/device stable52 remains unchanged. Temporary source/generations use TMPDIR;
+Public stable53 is accepted; installed stable52 remains unchanged.
+Temporary source/generations use TMPDIR;
 compiler and private evidence use ~/.cache/codex/upstream-0.163.0. No actual ChatGPT
 messages or real account credentials are used by this qualification.
 
@@ -112,11 +105,13 @@ bytes bind the actual Android proofs below (frontend-byte-identity.json).
 | Native HTTP429 with Retry-After:2 |Two requests,2.026s observed delay, final response succeeds |android-retry-after.json |
 | Native0.163→0.161→0.163 history |Fifteen production install/transition steps preserve/resume actual UUID and message |android-transition.json |
 | Installed stable52 Core→new integrated Core/runtime→old→new |Eleven steps pass with isolated signature key and increasing sequence; entrypoint hashes verified |old-core-transition.json |
+| Published signed stable53 on the actual Android device, isolated from live state |Both permission menus, six real commands/six guardian reviews across launch/resume/btw, full profiles/catalog/leases and Manager-absent launch pass |public-device.json, public-lifecycle.json, public-named-lifecycle.json |
 
 Device cases above use isolated roots, which are removed after their probes.
-The two signed base/integrated input roots remain owned test inputs until release
-qualification finishes; their fixture keys must be removed afterwards. Device
-activation and new physical notification taps have not occurred. The0.163 native
+The six owned temporary input/source/publication roots and private fixture keys
+are removed after checking that no live process references them (fixture-cleanup.json).
+Useful evidence remains in the XDG cache. Device activation and new physical
+notification taps have not occurred. The0.163 native
 policy is termux-fd-remap-v5:433 adaptation bytes plus54 resolver/system-config FD
 bytes. It additionally forwards supported current local-resume permissions, fixing
 the reproduced stale workspace selection; reviewer/approval remain independent.
@@ -124,11 +119,18 @@ the reproduced stale workspace selection; reviewer/approval remain independent.
 Immutable native input is published under manager-tui-native-v0.163.0-49cd664,
 archive SHA2560161217fc0cf03cba17ac9a72bb90d468daea9a8d9b0cb792c3e6a62fe369983.
 A complete public HTTPS download matches that digest. Integrated production now
-pins this successful run/source/executable/archive pair. Remaining gates: accepted
-source publication caller, integrated release and complete signed public readback/
-disposable update/non-forced promotion. All retained162 feature topics have actual
-PASS evidence; zero/failed/missing proof refuses admission. Windows installer
+pins this successful run/source/executable/archive pair. Source36bfeed passes full
+hosted acceptance38904327519. Independent main caller b2622ce pins it without
+merging histories; public release38904810656 passes every stage, including complete
+signed public readback/disposable update and non-forced promotion df443eb. There
+are no remaining public-release gates; live device activation remains separate.
+All retained162 feature topics have actual PASS evidence; zero/failed/missing proof
+refuses admission. Windows installer
 changes and Linux sandbox enforcement are not Termux acceptance targets.
+
+Hosted proof: [exact source](https://github.com/humtr/codex/actions/runs/38904327519),
+[native frontend and retained features](https://github.com/humtr/codex/actions/runs/38898455640),
+[complete public release](https://github.com/humtr/codex/actions/runs/38904810656).
 
 Retain negative evidence without treating observer/setup failures as product bugs:
 the first163 frontend compile exposed two changed upstream APIs, now adapted. An
@@ -143,7 +145,12 @@ setup refusals. An initial worktree observer assumed the embedded-only namespace
 misclassified a background title request; the strict final trial selects advertised
 names, handles structured title requests, forbids duplicate creation and fails on
 HTTP handler errors. The settlement helper fixture omitted final item-added, so its
-proof covers execution/return, not transcript rendering. Detailed logs stay private.
+proof covers execution/return, not transcript rendering. The first public-device
+menu fixture copied transport sidecars into an installed generation, correctly
+refused by Core. It now materializes only manifest-owned files, matching the actual
+installer; the public signed-generation menu/lifecycle/profile trials and all95
+Python tests pass. This correction changes the test fixture, not the released
+payload. Failed observations remain private alongside successful evidence.
 
 ### Owners and retained execution necessities
 
@@ -170,7 +177,7 @@ peer/PID checks, safe socket namespace, inherited FDs and current-client/generat
 retention. Frontend resolves the catalog; Core receives bounded opaque bytes and
 does not parse model schemas, select providers or resolve credentials. Pristine
 0.161 model/list takes pagination/include_hidden, not replacement startup catalogs.
-The0.163 source comparison retains that limitation but is not executable admission.
+The0.163 upgrade qualifies that opaque binding through actual bare/integrated execution.
 Moving the coordinator into optional Manager would duplicate the bare execution
 path and split retention/task records. It would not remove provider policy.
 

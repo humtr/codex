@@ -18,11 +18,12 @@ Termux frontend compatibility correction, not a change to the upstream engine.
 Existing v2/v3/v4 retained-generation admission remains valid. Passing construction
 alone does not qualify Android tools, reviewer, cold resume or side conversations.
 
-Upgrade qualification target: official0.163.0 source
+Qualified upgrade: official0.163.0 source
 83086188ae0614bd882818ff1aa23f3194962012, with the same Rust1.95.0 source
-build toolchain and unchanged external dependency bindings. This source candidate
-is not installed/public admission until the existing exact artifact, native,
-permission/lifecycle and signed publication gates pass. Core-bound /daemon views retain diagnostics and Core update guidance; upstream
+build toolchain and unchanged external dependency bindings. Public stable53 passes
+the exact artifact, native, permission/lifecycle and signed publication gates;
+live device activation remains separate. Core-bound /daemon views retain diagnostics
+and Core update guidance; upstream
 package update/restart actions are disabled and their dispatched mutation events
 refuse before any handoff. Remote/unselected targets keep upstream semantics.
 The stable52/0.161
@@ -70,7 +71,7 @@ update authority is maintained.
   and extended eight files remain distinct exact sets; missing or undeclared
   assets refuse transport, and failed reconstruction removes only its own new
   disposable output. An occupied output is preserved.
-- Maintained frontend source/build tools live in frontend/manager-tui. The next
+- Maintained frontend source/build tools live in frontend/manager-tui. The active
   source qualification pairs official0.163.0 with exact upstream commit
   83086188ae0614bd882818ff1aa23f3194962012 and Rust1.95.0. Local workspace lock
   normalization changes only local0.0.0 versions/references to0.163.0; all external
