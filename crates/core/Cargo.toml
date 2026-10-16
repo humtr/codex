@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 codex-release-builder = { path = "../release-builder" }
+codex-runtime-binding = { path = "../runtime-binding" }

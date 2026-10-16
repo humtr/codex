@@ -1,5 +1,6 @@
 //! Starts only the signed generation's foreground app-server; upstream discovers
 //! its ordinary socket and therefore never enters package/installer lifecycle.
+use codex_runtime_binding::{namespace as catalog_namespace, Binding, CATALOG_LIMIT, FAMILIES};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -117,31 +118,10 @@ fn namespace(home: &Path, program: &OsStr) -> String {
     catalog_namespace(home, program, None)
 }
 
-fn catalog_namespace(home: &Path, program: &OsStr, catalog: Option<&[u8]>) -> String {
-    // The exact owner record below makes a hash collision a rejection, not aliasing.
-    let mut value = 0xcbf29ce484222325_u64;
-    for b in home
-        .as_os_str()
-        .as_bytes()
-        .iter()
-        .chain([0].iter())
-        .chain(program.as_bytes())
-    {
-        value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-    }
-    if let Some(catalog) = catalog {
-        for b in b"\0catalog-v1\0".iter().chain(catalog) {
-            value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-        }
-    }
-    format!("{value:016x}")
-}
-
 fn read_record(path: &Path) -> io::Result<Vec<u8>> {
     read_bounded(path, 16384)
 }
 
-const CATALOG_LIMIT: u64 = 4 * 1024 * 1024;
 pub(super) const CATALOG_COMMAND: &str = "__app-server-catalog-v1";
 
 pub(super) fn read_catalog(input: impl Read) -> io::Result<Vec<u8>> {
@@ -270,12 +250,7 @@ pub(super) fn ensure_catalog(
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    let mut binding = Vec::from(profile.as_os_str().as_bytes());
-    binding.push(0);
-    binding.extend_from_slice(program.as_bytes());
-    if catalog.is_some() {
-        binding.extend_from_slice(b"\0catalog-v1");
-    }
+    let binding = codex_runtime_binding::owner_bytes(profile, program, catalog.is_some());
     let owner = directory.join("owner");
     match read_record(&owner) {
         Ok(b) if b == binding => (),
@@ -436,7 +411,7 @@ pub(super) fn retire_unused(
     generations: &Path,
     keep: &std::collections::HashSet<String>,
 ) -> io::Result<()> {
-    for family in ["servers", "catalogs"] {
+    for family in FAMILIES {
         retire_family(&state.join(family), generations, keep)?;
     }
     Ok(())
@@ -460,25 +435,9 @@ fn retire_family(
             continue;
         }
         private_dir(&directory)?;
-        let owner = read_record(&directory.join("owner"))?;
-        let mut parts = owner.split(|b| *b == 0);
-        let profile = Path::new(OsStr::from_bytes(parts.next().ok_or_else(invalid)?));
-        let program = OsStr::from_bytes(parts.next().ok_or_else(invalid)?);
-        let catalog = match parts.next() {
-            None => None,
-            Some(b"catalog-v1") if parts.next().is_none() => {
-                Some(read_bounded(&directory.join("models.json"), CATALOG_LIMIT)?)
-            }
-            _ => return Err(invalid()),
-        };
-        if catalog.is_some() != (servers.file_name() == Some(OsStr::new("catalogs")))
-            || catalog.as_ref().is_some_and(Vec::is_empty)
-            || entry.file_name()
-                != OsStr::new(&catalog_namespace(profile, program, catalog.as_deref()))
-        {
-            return Err(invalid());
-        }
-        let path = Path::new(program);
+        let binding = Binding::read(&directory, read_bounded)?;
+        let program = binding.program.as_os_str();
+        let path = binding.program.as_path();
         let Some(relative) = path.strip_prefix(generations).ok() else {
             continue;
         };

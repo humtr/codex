@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import pty
@@ -15,7 +16,7 @@ import tempfile
 import termios
 import time
 
-from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
 from rald3_preflight import parse_descriptor
 
 
@@ -68,11 +69,11 @@ requires_openai_auth = false
             return [path for family in ["servers", "catalogs"]
                     for path in (state / family).glob("*")]
 
-        def run(*args, account=None, success=True):
+        def run(*args, account=None, success=True, input_data=None):
             selected = dict(env)
             if account is not None:
                 selected["CODEX_HOME"] = str(account)
-            result = subprocess.run([str(core), *args], env=selected, cwd=root, capture_output=True, timeout=25)
+            result = subprocess.run([str(core), *args], input=input_data, env=selected, cwd=root, capture_output=True, timeout=25)
             if success:
                 assert result.returncode == 0, (args, result.stderr.decode())
             return result
@@ -214,6 +215,38 @@ requires_openai_auth = false
             assert not local_profile.is_symlink()
             assert local_profile.read_text().startswith('# local override\n')
             print("PASS native saved default, inherited priority, FD36 server lease and active/idle profile separation")
+            # Real catalog-bound server and Manager discovery must consume the
+            # same legacy record contract, while the native sibling stays alive.
+            model = json.loads((Path(__file__).parent / "fixtures/permission-model.json").read_text())
+            model["slug"] = "owned-model"
+            catalog = json.dumps({"models": [model]}).encode()
+            request = lambda payload: Path(os.fsdecode(run(
+                "__app-server-catalog-v1", account=override, input_data=payload
+            ).stdout).strip())
+            socket = request(catalog)
+            assert socket.parent.parent.name == "catalogs"
+            assert request(catalog) == socket
+            connection = Ws(socket)
+            try:
+                listed = connection.call("model/list", {})
+                assert any(entry["model"] == "owned-model" for entry in listed["data"])
+                thread = connection.call("thread/start", {"cwd": str(root)})["thread"]["id"]
+                tasks = json.loads(run("termux", "__task-snapshot-v1").stdout)
+                assert any(entry["id"] == thread and entry["owner_profile"] == "override"
+                           for entry in tasks["tasks"]), tasks
+                model["display_name"] = "Changed owned model"
+                changed = request(json.dumps({"models": [model]}).encode())
+                assert changed != socket
+                assert (socket.parent / "models.json").read_bytes() == catalog
+                # Re-query after creating another identity, with the old writer
+                # still connected. A new catalog must never hide or retire it.
+                tasks = json.loads(run("termux", "__task-snapshot-v1").stdout)
+                assert any(entry["id"] == thread and entry["owner_profile"] == "override"
+                           for entry in tasks["tasks"]), tasks
+                assert Path(f"/proc/{override_pid}/exe").resolve() == native / "runtime"
+            finally:
+                connection.close()
+            print("PASS native/catalog coexistence, exact-byte reuse, changed-catalog isolation and Manager writer discovery")
             process.terminate()
             process.wait(timeout=5)
             profile("default", "default")

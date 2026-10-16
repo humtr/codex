@@ -28,12 +28,14 @@ name = "codex"
 version = "0.1.0"
 dependencies = [
  "codex-release-builder",
+ "codex-runtime-binding",
 ]
 
 [[package]]
 name = "codex-manager"
 version = "0.1.0"
 dependencies = [
+ "codex-runtime-binding",
  "libc",
  "serde_json",
  "tungstenite",
@@ -41,6 +43,10 @@ dependencies = [
 
 [[package]]
 name = "codex-release-builder"
+version = "0.1.0"
+
+[[package]]
+name = "codex-runtime-binding"
 version = "0.1.0"
 
 [[package]]

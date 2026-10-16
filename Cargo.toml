@@ -3,5 +3,6 @@ members = [
     "crates/core",
     "crates/manager",
     "crates/release-builder",
+    "crates/runtime-binding",
 ]
 resolver = "2"

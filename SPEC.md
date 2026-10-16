@@ -3224,6 +3224,17 @@ retarget the default `servers` rendezvous. This keeps older Core/Manager readers
 from rejecting a new-format record during rollback. Current Manager discovery
 validates both families, including exact catalog content, runtime and peer PID;
 generation retirement applies the same existing-client/writer protections to both.
+The existing server-record codec has one implementation shared by Core and
+Manager: owner fields, family/namespace binding, opaque catalog bytes and bounds.
+Core owns this execution-record contract; Manager consumes decoded bindings for
+its task UX rather than independently defining Core's catalog/storage format.
+This is a dependency-free source library compiled into each executable, not an
+installed shared runtime or a third management authority. Core never imports
+Manager, and Core-only construction and execution require no Manager artifact.
+Callers retain their filesystem trust checks and revalidate live process/peer
+identity before use. The codec performs no writes, process control, model-schema
+interpretation or provider selection. Existing record bytes and namespaces remain
+unchanged; this introduces no registry, migration, service or runtime RPC.
 Core launches no upstream daemon updater and never creates a packages tree.
 The historical public daemon/remote-control lifecycle fence remains in force.
 

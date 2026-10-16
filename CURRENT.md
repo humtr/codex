@@ -246,6 +246,20 @@ keep the lifecycle diagnostic follow-up visible rather than treating it as resol
 
 ### Server/catalog audit and 0.163 admission
 
+The execution-record duplication is now extracted into the dependency-free
+codex-runtime-binding source library. Core produces and retires its existing
+records through the same codec Manager consumes for task discovery. Only owner
+fields, family/namespace binding and bounded opaque catalog bytes are shared;
+Core retains server startup/reuse/retirement and generation authority, Manager
+retains task/account UX, and each retains its existing filesystem/process checks.
+There is no installed library, Core-to-Manager dependency, new format or RPC.
+Local full acceptance passes Python18+66, Core196/one existing ignored,
+Manager46+58+three path gates, builder25, codec3, fmt and Clippy. The codec tests
+pin published namespace bytes and reject mismatched family/owner/content/version,
+oversize records and reader errors, preserving non-UTF8 paths and opaque payloads.
+Native signed catalog coexistence/reuse/discovery and Manager-free execution
+remain in qualification; no live runtime or user state has changed.
+
 Source audit at f380695: retain the single Core coordinator. The pinned pristine
 0.161 source979011409de0a60b52f179721948e65531d26144 retains the server-startup
 Config/ModelsManager for model/list; ModelListParams contains only pagination and

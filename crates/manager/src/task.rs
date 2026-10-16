@@ -1,10 +1,10 @@
 //! Active upstream work assistance. No history index, credentials or writer mutation.
 use super::*;
+use codex_runtime_binding::{Binding, FAMILIES};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use tungstenite::{client::client_with_config, protocol::WebSocketConfig, Message, WebSocket};
@@ -375,31 +375,13 @@ fn bounded_record(path: &Path, limit: u64) -> Result<Vec<u8>, ManagerError> {
     }
     Ok(bytes)
 }
-fn catalog_namespace(home: &Path, program: &Path, catalog: Option<&[u8]>) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for b in home
-        .as_os_str()
-        .as_bytes()
-        .iter()
-        .chain([0].iter())
-        .chain(program.as_os_str().as_bytes())
-    {
-        hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-    }
-    if let Some(catalog) = catalog {
-        for b in b"\0catalog-v1\0".iter().chain(catalog) {
-            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-        }
-    }
-    format!("{hash:016x}")
-}
 pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
     Ok(servers(context)?.iter().any(|server| server.home == home))
 }
 
 fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
     let mut servers = Vec::new();
-    for family in ["servers", "catalogs"] {
+    for family in FAMILIES {
         servers.extend(server_family(context, family)?);
         if servers.len() > MAX_SERVERS {
             return Err(ERR_TASK);
@@ -421,28 +403,10 @@ fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, Manager
         }
         let dir = entry.map_err(|_| ERR_TASK)?.path();
         private(&dir, true)?;
-        let binding = record(&dir.join("owner"))?;
-        let mut fields = binding.split(|b| *b == 0);
-        let home = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
-        let program = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
-        let catalog = match fields.next() {
-            None => None,
-            Some(b"catalog-v1") if fields.next().is_none() => {
-                Some(bounded_record(&dir.join("models.json"), 4 * 1024 * 1024)?)
-            }
-            _ => return Err(ERR_TASK),
-        };
-        if catalog.is_some() != (family == "catalogs")
-            || catalog.as_ref().is_some_and(Vec::is_empty)
-            || dir.file_name()
-                != Some(OsStr::new(&catalog_namespace(
-                    &home,
-                    &program,
-                    catalog.as_deref(),
-                )))
-        {
-            return Err(ERR_TASK);
-        }
+        let Binding { home, program } = Binding::read(&dir, |path, limit| {
+            bounded_record(path, limit).map_err(|_| io::Error::other("unsafe execution record"))
+        })
+        .map_err(|_| ERR_TASK)?;
         let generations = context.home.join(".local/lib/codex/core/generations");
         if program.file_name() != Some(OsStr::new("runtime"))
             || program.parent().and_then(Path::parent) != Some(generations.as_path())

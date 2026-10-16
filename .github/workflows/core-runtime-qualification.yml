@@ -9,6 +9,7 @@ on:
       - '.github/scripts/rald3_preflight.py'
       - '.github/scripts/release_decision.py'
       - 'crates/core/**'
+      - 'crates/runtime-binding/**'
       - 'crates/release-builder/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
