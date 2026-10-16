@@ -246,7 +246,7 @@ keep the lifecycle diagnostic follow-up visible rather than treating it as resol
 
 ### Frontend source and policy ownership
 
-In qualification: fifteen standalone Manager TUI files move out of native.patch
+Implementation2cd07e2/7c19799: fifteen standalone Manager TUI files move out of native.patch
 to frontend/manager-tui/src. apply.py is the one production assembler: preflight
 owned-source collisions/unsafe paths and patch applicability, patch existing
 upstream files, then create only absent owned files. The hosted build and producer
@@ -266,11 +266,35 @@ also verifies entering/leaving provider argument construction without auth or
 server execution. Source assembly/collision checks and native41-test qualification
 remain required; no zero-test or source-only result substitutes for that gate.
 
-This reduces the upstream integration patch from3317 to about800 lines, not the
+This reduces the upstream integration patch from3317 to811 lines across21 existing
+upstream files (previously36 including owned additions), not the
 number of existing supported behaviors or a promise of zero rebase work. The
 original eager/default server start and same-Chat re-entry remain separate known
 follow-ups; neither is silently changed by this ownership split. Installed
 stable52, publication main and the optional provider remain unchanged.
+
+Exact-source hosted acceptance38859936580 and native qualification38859936584
+pass at7c19799. Native build/version/smoke, all41 actual TUI regressions, lint,
+pristine upstream Core and unchanged external dependencies pass. Production
+artifact verification binds the successful run, exact owned-source tree and
+assembler inputs, raw executable75f650eb and identical formatted/linted/artifact
+source. Local Python18+66 and frontend10 tests pass; the artifact tests also reject
+an owned-source change. The earlier native run38859873904 was cancelled in favor
+of the final formatting commit and is not acceptance evidence.
+
+Signed disposable Android fixtures combine the current Core36ed6f88 and
+Manager11beaef4 with that new frontend. Both legacy and named permission paths
+pass fresh launch, obsolete-workspace saved-state cold resume and /btw: six actual
+commands and six guardian reviews retain danger-full-access/on-request/auto_review
+and the named selection where applicable. The fixture helper now accepts an
+explicit candidate Manager and signs its digest rather than implicitly testing
+only the installed Manager. No real Chat inference, credentials or live state
+changes are used. Physical notification taps/window return were not repeated;
+their implementation is unchanged. Stable52 activation bytes, signature and all
+eight payload hashes/modes remain intact. Private aggregate:
+responsibility-frontend-qualified.json; native logs/source proof and both device
+reports are retained under the private acceptance cache. This completes source
+ownership and policy placement, not the startup/re-entry follow-ups above.
 
 ### Server/catalog audit and 0.163 admission
 

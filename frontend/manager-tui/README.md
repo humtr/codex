@@ -45,3 +45,5 @@ guardian reviews each. No real model inference, credentials or production state
 are used. Pass the raw qualified frontend with `--frontend`, an installed Core
 with `--core` and a private output path with `--report`; `--named-permission` checks
 named selection, and `--expect-stale-resume` qualifies a pre-fix negative control.
+Pass `--manager` to qualify a candidate Core and Manager together rather than
+reusing the installed Manager in the disposable signed fixture.

@@ -34,7 +34,7 @@ def sha(path):
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def fixture(root, core, frontend):
+def fixture(root, core, frontend, manager=None):
     real_home = Path.home()
     activation = dict(line.split('=', 1) for line in
         (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
@@ -48,6 +48,10 @@ def fixture(root, core, frontend):
     core_mode = (generation / 'core').stat().st_mode & 0o777
     shutil.copy2(core, generation / 'core')
     (generation / 'core').chmod(core_mode)
+    if manager is not None:
+        manager_mode = (generation / 'manager').stat().st_mode & 0o777
+        shutil.copy2(manager, generation / 'manager')
+        (generation / 'manager').chmod(manager_mode)
     raw = frontend.read_bytes()
     changed = 0
     for old, new, count in [
@@ -69,6 +73,8 @@ def fixture(root, core, frontend):
     for line in text.splitlines():
         if line.startswith('core_artifact_digest\t'):
             line = 'core_artifact_digest\t' + sha(generation / 'core')
+        elif manager is not None and line.startswith('manager_artifact_digest\t'):
+            line = 'manager_artifact_digest\t' + sha(generation / 'manager')
         elif line.startswith('helper\ttermux-manager-tui-v1:'):
             line = 'helper\ttermux-manager-tui-v1:0.161.0\t' + sha(generation / 'helpers/2')
         lines.append(line)
@@ -169,7 +175,7 @@ def schema_value(schema):
 def probe(args):
     with tempfile.TemporaryDirectory(prefix='pl-',dir=os.environ['TMPDIR']) as tmp:
         root=Path(tmp)
-        home,prefix,env=fixture(root,args.core,args.frontend)
+        home,prefix,env=fixture(root,args.core,args.frontend,args.manager)
         # Deterministic Responses fixture uses the public v1 tool wire format.
         # Production model metadata is never changed.
         for name in ['native-models.json','models_cache.json']:
@@ -384,5 +390,5 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))
