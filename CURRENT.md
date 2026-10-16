@@ -64,6 +64,18 @@ not a public stable Chat-provider promotion or full lifecycle qualification.
 The provider retains its stable52 live-inference proof; stable53 Core admission
 and unrelated update/doctor maintenance are separate from Chat acceptance.
 
+Experiment source0ee0f59 fixes ordinary malformed/non-object JSON argument aborts:
+Core receives the exact attempted wire, returns its own error on the original call,
+and a model correction can continue without an adapter-created user prompt. Three
+actual stable53 Core cases (malformed JSON, array, whitespace) plus baseline,
+rejected-sample recovery and native MCP discovery pass with a deterministic app
+port, rendered/persisted/cold-restored reports and zero Chat submissions. Node46,
+Bun83, provider Python42 and source Python18+59 pass. This candidate is pushed but
+not installed; installed provider9014deaf and its earlier live-inference evidence
+remain unchanged. Next is bounded operating-provider activation/live acceptance,
+then full native development coverage and long-context/lifecycle work. Detailed
+scope and remaining exclusions stay in the experiment's current-state document.
+
 ## Final Core / Manager responsibility boundary
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
