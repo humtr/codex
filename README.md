@@ -189,6 +189,14 @@ and running clients are preserved. The temporary download is always cleaned.
 
 ## Development
 
+Core/runtime qualification can run without Manager or the modified TUI through
+the source branch's **Independent Core/runtime qualification** workflow. Pushes
+qualify the authenticated current runtime; manual dispatch can discover latest
+upstream instead. Unsupported versions still fail the existing compatibility gate.
+This read-only workflow produces unsigned test artifacts only. The regular release
+workflow uses the same qualification implementation in integrated mode and retains
+its full frontend, signing, readback and stable-promotion requirements.
+
 The repository owns its development rules in `AGENTS.md`, optimized for
 GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.
 `scripts/check.sh docs`, `python`, `rust`, or `full` selects the relevant gate.

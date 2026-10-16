@@ -69,6 +69,233 @@ not a public stable Chat-provider promotion or full lifecycle qualification.
 Core stable52 remains independently accepted; unrelated upstream/update/doctor
 maintenance is separate from Chat acceptance.
 
+## Core / Manager responsibility and update plan
+
+Requested2026-10-16. This is a proposed implementation sequence, not an amendment
+of SPEC, a new public command contract, or permission to silently remove existing
+features. No runtime, generation, account or conversation has been changed by
+writing this plan. Amend the affected SPEC sections before each implementation.
+
+Priority confirmed2026-10-16: responsibility realignment precedes the other
+feature/failure improvements. Complete the ownership/interface and relevant
+implementation separation first, preserving the accepted baseline; a document-only
+rename does not satisfy this priority. Do not grow the current coupling by first
+adding provider setup tools, retention machinery, selection fixes or error recovery
+to components that will relinquish that responsibility. Within a separation slice,
+make only the behavior changes needed to preserve its existing public contract.
+Then implement the deferred improvements in their established owners. The
+experiment CURRENT owns that follow-up backlog and the new live failure evidence;
+do not lose those tasks or treat their deferral as completion.
+
+### Outcome and observed coupling
+
+Core must support qualified upstream execution and updates without depending on
+optional convenience development. Manager must retain account, task and Android
+conveniences. The opt-in Chat provider must evolve without adding Chat-specific
+branches to Core. Keep one public entrypoint and one signed activation/rollback
+authority; no second updater, supervisor, conversation database or plugin framework.
+
+First implementation slice separates qualification from publication. The read-only
+qualify-termux-runtime.yml owns existing unsigned construction and Android smoke;
+auto-release-termux.yml calls it only in integrated mode before signing. The new
+core-runtime-qualification.yml requests base-only mode with no publication secrets
+or write permissions. It defaults to the authenticated current upstream archive;
+manual latest discovery still requires the existing exact runtime qualification.
+Base construction skips Manager compilation and frontend acquisition/pins, validates
+all six base assets, and cannot enter the integrated signing/promotion path.
+The normal feature-preserving stable admission is unchanged. This is independent
+qualification, not completion of Core policy extraction or independent default
+upgrades. Main's published caller and device remain stable52 until an accepted
+source is separately pinned and activated. Remaining implementation starts with
+the Manager launch-policy and execution-safety slices below.
+
+Local acceptance for this slice passes full workspace checks: Core198 with one
+pre-existing ignored case, Manager42+56+three path gates, builder25, Python18+66,
+fmt/Clippy and actionlint1.7.7. Final Python acceptance also passes after the
+optional-frontend decision arguments were removed from base mode. Real Android
+Core-only construction from the exact official0.161 archive passes all six base
+asset checks, --version and exec --help; Manager is absent and unsupported sandbox
+argv still exits2. Doctor reports healthy Core/runtime/Code Mode host and Manager
+unavailable; its overall failure is the deliberately credential-free fixture's
+auth check. No user credential was imported to make that probe green. An initial
+fixture helper correctly rejected the base-only identity through its integrated
+publication validator; the disposable device fixture uses its own signing key
+and does not relax that validator. Proof/logs: responsibility-base-{device.json,
+full.log,python.log} in the private acceptance cache. Hosted exact-source checks
+remain separate from these local results; no public release or device activation
+has been performed by this slice.
+
+Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
+upstream0.161.0. Relevant observed coupling:
+
+- SPEC generation admission and auto-release-termux.yml require an exact paired
+  frontend for every new candidate. A frontend-bearing local generation cannot
+  construct an unpaired newer runtime. Core-only execution exists, but the normal
+  publication contract does not provide independent Core advancement.
+- frontend/manager-tui/native.patch touches36 upstream TUI files including tests,
+  snapshots and fixtures. It does not patch the upstream execution-engine source.
+  Its source APIs still require revision-specific maintenance and compilation.
+- Core launch reads Manager notification policy, generates event-specific hooks,
+  recognizes Manager profile paths, projects shared configuration profiles and
+  prepares shared conversation layout. These exceed a pure Android adapter.
+- shared_server.rs combines necessary signed-runtime/socket binding with catalog
+  snapshots and reuse decisions needed by the enhanced frontend. Release-builder
+  also maintains exact-version binary permission/UDS patches. Moving files between
+  crates would not remove these maintenance costs.
+
+### Target responsibility matrix
+
+| Capability | Policy / state owner | Execution boundary and planned change |
+| --- | --- | --- |
+| Upstream inference, tools, approvals/reviewer, threads, resume, compaction and writer locks | Upstream | Use upstream commands/protocol; no local replacement or transcript parser in Core. |
+| Android loader, DNS, certificates, filesystem publication, browser opener and safe socket paths | Core; release-builder constructs artifacts | Apply to bare and Manager launches, including exec/resume/fork/side chat. Requalify actual upstream revisions. |
+| Sandbox availability | Core capability enforcement; upstream approval engine | Enforce unavailable sandbox consistently without changing reviewer/approval intent. Manager presents supported choices only. |
+| Artifact trust, generation retention, activation and rollback | Core; existing producer signs/publishes | One authenticated inventory and transaction. Manager/provider never select arbitrary runtime binaries or write pointers. |
+| Account create/rename/delete/default/select and /switch | Manager | Manager owns registry and handoff UX. Core receives the selected execution home; it does not select accounts or parse the registry. |
+| Profile mutation protection | Manager owns mutation; minimal execution lease protects live homes | Preserve protection through bare launches, exec replacement and persistent servers. Generalize the existing lease only after proving all entrypoints; never delete it merely to remove a Manager path reference. |
+| Installation-wide conversation sharing | Manager-selected product policy; upstream owns all records/DB/locks | Manager prepares the declared layout; Core retains only the generic launch binding needed for already-managed homes. Preserve bare access to existing shared history and explicit isolated homes. |
+| Shared --profile configurations | Manager owns convenience registration; upstream resolves settings | Move registry/projection policy out of Core. Preserve global chatgpt fallback, local overrides and native --profile meaning without copying credentials. |
+| Server process and connection | Upstream owns server/turn lifecycle; Core binds qualified runtime and compatible endpoints | Keep bounded signed-runtime spawn, necessary environment/FDs and peer validation. Manager requests optional configuration; never create a second executor or competing supervisor. |
+| Model catalog, provider selection and frontend server reuse requirements | Manager/frontend; provider owns its account catalog | Core accepts only bounded opaque startup input if the pinned upstream API cannot carry it. It must not know Chat model names, resolve provider auth or own model-selection policy. |
+| Notification preferences, event selection, question text and delivery | Manager | Move policy parsing/hook rendering out of Core. Use upstream hooks/config/events, retaining one question notification and exact existing-window return. |
+| Android window registration, identity, title forwarding and tmux | Manager; Termux app owns native handles; upstream composes /title | Core provides only optional delegation. Bare mode stays usable, tmux stays optional, titles never become route identity. |
+| ChatGPT request/return transport, login context, retries and host lifetime | Optional Chat provider | Expose qualified Responses behavior through upstream provider configuration. Core remains provider-neutral; native tools and canonical transcripts remain upstream-owned. |
+| Diagnosis | Each component owns its checks; Core composes bounded results | Distinguish base failure, optional feature unavailability and upstream warnings. No Manager repair authority or duplicated recovery engine. |
+
+The minimal adapter is determined by the execution invariant, not just by whether
+the code is labelled Android-specific. Generic lease/config/FD validation may
+remain in Core where removing it would make direct launches unsafe. Conversely,
+bare-codex convenience does not justify embedding the convenience's policy there.
+
+### Interfaces and functional improvements
+
+1. **Launch boundary.** Keep codex termux and existing validated Core handoff.
+   Separate Manager preparation from Core environment/exec. Reuse current bounded
+   argv/FD/private-file contracts; do not add a universal launch-plan protocol.
+   An optional capability query must be local, bounded and free of inference,
+   credentials and update discovery. A failed query must not start work twice.
+2. **Configuration boundary.** Manager owns notification and convenience fragments;
+   upstream owns precedence and parsing. First verify the exact pinned upstream
+   loader/API can combine base requirements with Manager input. Do not invent a
+   config-file flag or solve this by editing account config.toml. If generic Core
+   projection is necessary, it validates/applies bounded input without recognizing
+   notification events, Manager registry formats or Chat model names. One effective
+   configuration must cover initial launch, resume, /switch and /btw.
+3. **State boundary.** Reuse current roots and inode/lock protections. Move code
+   ownership before considering physical data relocation. Registration/migration
+   establishes shared layout; launch verifies required bindings without repeatedly
+   repairing user state. Missing optional state is distinct from an unsafe declared
+   managed home, which must fail explicitly. Never reinterpret an unsafe managed
+   account as a fresh isolated account or reset its selected identity.
+4. **Server boundary.** First compare the pinned native server surface with the
+   custom coordinator. Remove custom reuse/retirement only if native behavior
+   preserves exact runtime/environment, account isolation and live-client retention.
+   Otherwise retain that minimum in Core. Move frontend/catalog policy to Manager;
+   a common runtime-binding primitive may remain, with opaque catalog input only
+   where required. Do not duplicate servers in Manager to make Core look smaller.
+5. **Frontend boundary.** Keep one upstream-derived UI with a narrow maintained
+   integration module. Consolidate /switch, window callbacks and provider catalog
+   access behind small call sites. Move domain logic out of upstream app/chatwidget
+   internals. Preserve upstream command inventory, selected permissions, drafts,
+   active-work guards, same-thread re-entry, /title and native transcript rendering.
+   Upstream has no proven general slash-extension hook in this source; an external
+   Manager alone cannot magically add /switch. Some TUI revision work remains.
+6. **Provider boundary.** Keep the existing working local-function return and its
+   independent MCP option outside Core. Provider capability/catalog changes must
+   not require a Core release. A generic frontend handoff may still be necessary
+   where upstream cannot change providers in place; do not promise reload removal
+   by moving code. App-free transport research is a separate provider task.
+
+   Fix same-provider selection separately from cross-provider re-entry. Current
+   needs_reentry returns true whenever the source is Chat or the target is a Chat
+   model, so even effort-only selections take the exec/resume path. The local
+   provider also closes its owned app conversation and resets projection/context
+   whenever the full route changes, including effort. Classify exact no-op,
+   same-provider model/effort change and actual provider/account/transport change.
+   Use upstream in-session model/effort updates for the second case and preserve
+   the owned conversation where the host supports the requested transition.
+   Changing only the frontend predicate is insufficient: catalog admission,
+   context-boundary handling and the provider reset must be qualified together.
+   Prove unchanged frontend PID/TTY/thread, actual next-request settings, retained
+   tool history and no inference on selection itself; reject pending-call changes.
+
+### Update and release design
+
+- Separate qualification into base runtime/compatibility, Manager CLI, enhanced
+  frontend and optional provider. Each records exact inputs and applicable public
+  behavior. A base candidate does not wait for Chat inference or MCP-return trials.
+- Prefer reuse of an unchanged admitted Manager artifact with a newly qualified
+  runtime when its interface tests pass. Backend/frontend compatibility is established
+  by real protocol/behavior proof; do not simply delete the current version check.
+  An upstream-derived frontend still needs a new build when its own source changes.
+- Keep one signed generation inventory, stable index and atomic activation. A
+  qualified producer assembles compatible independently built inputs. No unsigned
+  Manager replacement, mutable external helper pointer or second stable channel.
+- Independently qualify a base candidate even while the enhanced UI is unfinished.
+  Publish/activate a base-only choice only through an explicit supported product
+  mode; do not silently remove /switch, window return or supported permissions from
+  the ordinary update path. This choice is not an existing public command.
+- Prefer an integrated update preserving all accepted functions. If no compatible
+  frontend exists, retain the current default generation and report precisely that
+  the base candidate passed but enhanced integration is blocked. The default-update
+  bottleneck is only fully removed when the integration works across the candidate
+  or an explicit base-mode downgrade policy is accepted. Honest separation of gates
+  alone is not a claim that all feature-preserving upgrades are independent.
+- Keep current trust, complete readback, Android execution, disposable update and
+  non-forced promotion. Capability checks narrow the affected tests; they do not
+  waive security, data or cross-version migration tests. Rollback restores the whole
+  admitted combination while existing processes retain their loaded images.
+
+### Execution slices and acceptance
+
+| Order | Changes and source targets | Required evidence / exit condition |
+| --- | --- | --- |
+| 1. Establish contracts and a small baseline | Amend SPEC4/4.5, generation admission, Manager and9A sections in the relevant implementation slice. Record direct managed-home launch, UI and update behaviors using current public entrypoints. | Separate the three Core meanings: our launcher, upstream engine and modified frontend. Baseline covers absent Manager, isolated/managed home, /switch, /btw, notifications, writer ownership and failed updates. No live Chat use needed. |
+| 2. Split release qualification | auto-release-termux.yml, release_decision.py, manager_tui_artifact.py, producer/inventory tests and release-builder admission. | An optional frontend/provider failure does not prevent constructing and testing a base candidate. Complete candidate inventories still reject missing declared assets. An incompatible enhanced/default update preserves current pointer and user features; no incompatible helper is executed. |
+| 3. Extract Manager launch policy | Core main.rs notification/projection paths; Manager lib.rs/profile launch; shared_profiles.rs; existing handoff tests. | Manager chooses accounts/hooks/config; Core does not parse its policy records. Fresh/resume/switch/side-chat use the same effective permissions/config. Manager absence/failure cannot block a plain independent launch. Existing auth/config bytes stay unchanged. |
+| 4. Separate managed-home policy from execution safety | shared_layout.rs, profile_lease.rs, Manager profile lifecycle and shared-state transition scripts. | Bare launch of an existing managed home still holds the mutation lease and sees canonical history; isolated homes remain isolated. Deletion/rename races, inherited FD lifetime, server retention and interrupted migration preserve data. No second history index or new mandatory daemon. |
+| 5. Reduce server/catalog coupling | shared_server.rs, manager_tui.rs, Manager task discovery and frontend termux_backend_catalog integration. | Determine the native capability gap on the actual candidate; eliminate only duplicated behavior. Different identities/catalogs do not cross, changed catalog bytes cannot reuse stale state, current writers stay observable, old jobs survive updates, and no upstream unmanaged installer starts. |
+| 6. Minimize frontend and binary changes | native.patch, command-boundary checks, native workflow and release-builder/runtime_patch.rs. | Classify every hunk as compatibility, integration or obsolete. Remove duplicate/dead patches. Compare supported upstream config, small source patch and current binary adaptation by real build/rebase cost; keep the smallest qualified method. Preserve all supported approval modes without bwrap and all36-file-patch behaviors that remain required. |
+| 7. Qualify a real next-upstream candidate | Current producer/signing/readback/update scripts, Android fixtures and current-generation rollback. | Independently build base and integrated candidates; verify unaffected component reuse. Feature-preserving update, failed/missing optional asset, rollback, local reconstruction and retained running clients pass. Physical notification/window observations are reported separately. |
+| 8. Simplify after proof | Remove replaced branches, projections and obsolete assumptions; update SPEC/CURRENT/README. | One preparation owner per mutation, one installed entrypoint, no extra management service, no stranded user state. Publish only the proven scope; Chat provider acceptance remains independently tracked. |
+
+Perform each slice as a reviewable change with its own relevant gate; do not hold
+all changes for a single rewrite. Release-admission changes and filesystem/process
+changes need full affected acceptance, including Android; documentation alone needs
+scripts/check.sh docs. Unchanged proof is reusable only for the same inputs/scope.
+
+### Verification matrix and cost controls
+
+- Exercise base execution with Manager/frontend/provider absent, incompatible and
+  unavailable, offline and without optional Termux APIs. Check raw argv, cwd, exit,
+  signals, TTY and explicitly selected account/configuration; no hidden fallback.
+- Exercise managed/external homes, local overrides, shared --profile chatgpt,
+  /new, resume, /switch, /btw and cold restart. Check auth separation, canonical
+  history and current kernel writer ownership, never original message authorship.
+- Exercise Ask/Approve for me/Full Access with real native commands and deterministic
+  model/reviewer fixtures. No bwrap attempts, permissions escalation by fallback or
+  loss of selected approval/reviewer policy. Cover both frontend and upstream routes.
+- Exercise two independent Android windows with tmux off/on. One-tap notifications
+  select the correct existing window without extra sessions, nested tmux or replay;
+  /title and profile/model switches preserve route identity. Physical taps may need
+  the user only after automated checks pass.
+- Inject failed startup, malformed Manager input, update interruption, changed
+  optional inventory, old/new clients and rollback. Verify authenticated runtime
+  binding, no double dispatch and unchanged user files/process identities.
+- Measure version-specific binary sites and production TUI hunks separately from
+  tests; count required edits, build/qualification wall time, reused inputs and
+  blocking gates on a real upstream upgrade. Acceptance is reduced coupling with
+  preserved function, not a lower line count or a crate rename.
+- Initial investigation and deterministic tests consume no Chat messages. Explain
+  necessity and estimated submissions before any later real-provider test; do not
+  repeat live Chat tests for unchanged transport. Do not spend Pro usage.
+
+First implement slices1/2; then3/4,5/6 and7/8. This scope does not restart broader
+Termux cleanup, introduce Manager repair, or move the Chat provider into Core.
+Provider feature expansion and broad autonomous-development requalification follow
+the responsibility realignment; the new invalid_tool_input failure is retained as
+a required recovery/regression task, not used to expand Core during this phase.
+
 ## Termux permission resume correction
 
 - Source795a064 fixes native local resume dropping Core's no-sandbox default and

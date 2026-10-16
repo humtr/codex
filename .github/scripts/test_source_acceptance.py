@@ -15,7 +15,7 @@ import test_rald5_publication as fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / '.github/workflows/rald7-full-acceptance.yml'
-RELEASE_WORKFLOW = ROOT / '.github/workflows/auto-release-termux.yml'
+RELEASE_WORKFLOW = ROOT / '.github/workflows/qualify-termux-runtime.yml'
 
 
 class SourceAcceptanceTests(unittest.TestCase):

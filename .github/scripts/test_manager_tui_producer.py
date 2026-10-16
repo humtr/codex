@@ -14,7 +14,7 @@ import unittest
 import test_manager_tui_artifact as fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / '.github/workflows/auto-release-termux.yml'
+WORKFLOW = ROOT / '.github/workflows/qualify-termux-runtime.yml'
 
 
 def step(name):
@@ -60,8 +60,8 @@ class NativeProducerTests(unittest.TestCase):
                 if fault is None: self.assertIn(digest, result.stdout)
 
     def test_actual_candidate_builder_requires_the_qualified_pair(self):
-        for version in ('0.161.0','0.154.0'):
-            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+        for version,base in (('0.161.0',False),('0.154.0',False),('0.161.0',True),('0.162.0',True)):
+            with self.subTest(version=version,base=base), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp); binary = root / 'source/target/release/codex-release-builder'; binary.parent.mkdir(parents=True)
                 binary.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\
                     import json,os,sys
@@ -69,17 +69,22 @@ class NativeProducerTests(unittest.TestCase):
                     if sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
                     else: Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))
                 ''')); binary.chmod(0o755)
-                script = step('Fetch, adapt, and qualify unsigned candidate').split('\npython3 source/.github/scripts/rald3_preflight.py candidate', 1)[0]
+                script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]
                 for field, value in [('upstream_version', version), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
-                env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root), 'MANAGER_TUI_VERSION': '0.161.0', 'CAPTURE': str(root/'args.json')}
+                env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root), 'MANAGER_TUI_VERSION': '0.161.0', 'CAPTURE': str(root/'args.json'),'BASE_ONLY':str(base).lower()}
+                if base:env.pop('MANAGER_TUI_VERSION')
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env, capture_output=True, text=True, timeout=15)
-                if version != '0.161.0':
+                if version != '0.161.0' and not base:
                     self.assertNotEqual(result.returncode,0)
                     self.assertFalse((root/'args.json').exists())
                     continue
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads((root/'args.json').read_text())
+                if base:
+                    for flag in ('--manager','--manager-tui','--manager-tui-version','--defer-manager-probe'):
+                        self.assertNotIn(flag,args)
+                    continue
                 self.assertIn('--manager', args)
                 self.assertEqual(args[args.index('--manager-tui')+1], str(root/'manager-tui-input/artifact/codex'))
                 self.assertEqual(args[args.index('--manager-tui-version')+1], version)

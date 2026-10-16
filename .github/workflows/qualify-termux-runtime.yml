@@ -1,0 +1,596 @@
+name: Read-only Termux qualification
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      publish:
+        type: boolean
+        default: false
+      rebuild_current:
+        type: boolean
+        default: false
+      base_only:
+        description: Unsigned Core/runtime qualification; publication is forbidden
+        type: boolean
+        default: false
+    outputs:
+      candidate:
+        value: ${{ jobs.producer.outputs.candidate }}
+      artifact_name:
+        value: ${{ jobs.producer.outputs.artifact_name }}
+      qualified_artifact_name:
+        value: ${{ jobs.producer.outputs.qualified_artifact_name }}
+      signed_artifact_name:
+        value: ${{ jobs.producer.outputs.signed_artifact_name }}
+      generation_id:
+        value: ${{ jobs.producer.outputs.generation_id }}
+      upstream_version:
+        value: ${{ jobs.producer.outputs.upstream_version }}
+      expected_main_sha:
+        value: ${{ jobs.producer.outputs.expected_main_sha }}
+      current_generation:
+        value: ${{ jobs.producer.outputs.current_generation }}
+      current_release_sequence:
+        value: ${{ jobs.producer.outputs.current_release_sequence }}
+      release_sequence:
+        value: ${{ jobs.producer.outputs.release_sequence }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: termux-read-only-qualification-${{ inputs.base_only }}
+  cancel-in-progress: false
+
+env:
+  BASE_ONLY: ${{ inputs.base_only }}
+  CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
+  MANAGER_TUI_ARCHIVE_SHA256: '3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8'
+  MANAGER_TUI_VERSION: '0.161.0'
+  MANAGER_TUI_SOURCE_SHA: 'c2db8f715b38acd32dd5cc85167966b1a51b4d1e'
+  MANAGER_TUI_RUN_ID: '38726029331'
+  MANAGER_TUI_SHA256: '23e348679724a7a434dbc96564b07a5e1bf84f5aed8daf0debe5a7d20cafe27a'
+  MANAGER_TUI_INPUT_URL: 'https://github.com/humtr/codex/releases/download/manager-tui-native-v0.161.0-c2db8f7/manager-tui-inputs-0.161.0.tar.gz'
+  MANAGER_TUI_INPUT_SHA256: '045a7055972b77069a8a6794e30027fed9a21b3fc14b07d81498b3f44f1cdd96'
+  RUST_VERSION: '1.98.0'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
+  UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
+  WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+  ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
+  ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
+
+jobs:
+  producer:
+    name: Build unsigned Android/AArch64 candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      candidate: ${{ steps.decision.outputs.candidate }}
+      artifact_name: ${{ steps.decision.outputs.artifact_name }}
+      qualified_artifact_name: ${{ steps.decision.outputs.qualified_artifact_name }}
+      signed_artifact_name: ${{ steps.decision.outputs.signed_artifact_name }}
+      generation_id: ${{ steps.decision.outputs.generation_id }}
+      upstream_version: ${{ steps.decision.outputs.upstream_version }}
+      expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
+      current_generation: ${{ steps.stable.outputs.current_generation }}
+      current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
+      release_sequence: ${{ steps.stable.outputs.release_sequence }}
+    steps:
+      - name: Fetch exact accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CODEX_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if test "$BASE_ONLY" = true; then
+            test '${{ inputs.publish }}' = false
+            test "$CODEX_SOURCE_SHA" = "$GITHUB_SHA"
+            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+            case "$GITHUB_EVENT_NAME" in push|workflow_dispatch) ;; *) exit 1 ;; esac
+          fi
+          rm -rf source
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+          test -z "$(git -C source status --porcelain)"
+
+      - name: Verify source preflight helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/test_rald3_preflight.py
+          python3 -m py_compile \
+            source/.github/scripts/rald3_preflight.py \
+            source/.github/scripts/test_rald3_preflight.py
+
+      - name: Authenticate current public stable
+        id: stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/rald3-stable"
+          rm -rf "$state"
+          mkdir -p "$state"
+
+          expected_main_sha="$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')"
+          test "${#expected_main_sha}" -eq 40
+          case "$expected_main_sha" in (*[!0-9a-f]*) exit 1;; esac
+          pinned_index_url="https://raw.githubusercontent.com/humtr/codex/${expected_main_sha}/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$state/update-index-v1" "$pinned_index_url"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
+            --output "$state/update-index-v1.sig" "${pinned_index_url}.sig"
+          test "$(wc -c < "$state/update-index-v1.sig")" -eq 64
+
+          python3 source/.github/scripts/rald3_preflight.py \
+            index "$state/update-index-v1" > "$state/index.untrusted"
+          current_id="$(sed -n 's/^generation_id=//p' "$state/index.untrusted")"
+          current_base="$(sed -n 's/^release_base=//p' "$state/index.untrusted")"
+          test -n "$current_id"
+          test "$current_base" = "https://humtr.github.io/codex/${current_id}/"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$state/update-public-key.pem" \
+            "https://github.com/humtr/codex/releases/download/${current_id}/update-public-key.pem"
+          test "$(sha256sum "$state/update-public-key.pem" | awk '{print $1}')" = \
+            "$WRAPPER_PUBLIC_KEY_SHA256"
+          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
+            -in "$state/update-index-v1" -sigfile "$state/update-index-v1.sig"
+          python3 source/.github/scripts/rald3_preflight.py \
+            index "$state/update-index-v1" > "$state/index.authenticated"
+          cmp "$state/index.untrusted" "$state/index.authenticated"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+            --output "$state/release.manifest" "${current_base}release.manifest"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
+            --output "$state/release.sig" "${current_base}release.sig"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 65536 \
+            --output "$state/generation.meta" "${current_base}generation.meta"
+          test "$(wc -c < "$state/release.sig")" -eq 64
+          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
+            -in "$state/release.manifest" -sigfile "$state/release.sig"
+
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$state/release.manifest" generation.meta > "$state/manifest-entry"
+          test "$(sed -n 's/^generation_id=//p' "$state/manifest-entry")" = "$current_id"
+          test "$(sed -n 's/^mode=//p' "$state/manifest-entry")" = '0644'
+          test "$(sha256sum "$state/generation.meta" | awk '{print $1}')" = \
+            "$(sed -n 's/^sha256=//p' "$state/manifest-entry")"
+          python3 source/.github/scripts/rald3_preflight.py descriptor \
+            "$state/generation.meta" > "$state/descriptor"
+          test "$(sed -n 's/^generation_id=//p' "$state/descriptor")" = "$current_id"
+          current_version="$(sed -n 's/^version=//p' "$state/descriptor")"
+          current_sequence="$(sed -n 's/^release_sequence=//p' "$state/manifest-entry")"
+          test -n "$current_version"
+          test -n "$current_sequence"
+          python3 source/.github/scripts/rald3_preflight.py next-sequence \
+            "$current_sequence" > "$state/next-sequence"
+          release_sequence="$(sed -n 's/^release_sequence=//p' "$state/next-sequence")"
+          test -n "$release_sequence"
+          printf 'current_version=%s\n' "$current_version" >> "$GITHUB_OUTPUT"
+          printf 'current_archive_sha256=%s\n' "$(sed -n 's/^source_sha256=//p' "$state/descriptor")" >> "$GITHUB_OUTPUT"
+          printf 'expected_main_sha=%s\n' "$expected_main_sha" >> "$GITHUB_OUTPUT"
+          printf 'current_generation=%s\n' "$current_id" >> "$GITHUB_OUTPUT"
+          printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
+          printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve official upstream stable
+        id: decision
+        shell: bash
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          REBUILD_CURRENT: ${{ inputs.rebuild_current }}
+          CURRENT_VERSION: ${{ steps.stable.outputs.current_version }}
+          RELEASE_SEQUENCE: ${{ steps.stable.outputs.release_sequence }}
+          CURRENT_ARCHIVE_SHA256: ${{ steps.stable.outputs.current_archive_sha256 }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/upstream"
+          mkdir -p "$state"
+          if test "$REBUILD_CURRENT" = true; then
+            if test "$BASE_ONLY" = true; then
+              upstream_version="$CURRENT_VERSION"
+              archive_sha256="$CURRENT_ARCHIVE_SHA256"
+            else
+              test "$GITHUB_EVENT_NAME" = workflow_dispatch
+              test "$GITHUB_REF" = refs/heads/main
+              test "$CURRENT_VERSION" = "$MANAGER_TUI_VERSION"
+              upstream_version="$MANAGER_TUI_VERSION"
+              archive_sha256="$MANAGER_TUI_ARCHIVE_SHA256"
+            fi
+          else
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+              --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
+            python3 source/.github/scripts/rald3_preflight.py upstream \
+              "$state/latest.json" > "$state/upstream"
+            upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
+            archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
+          fi
+          qualification_args=()
+          if test "$BASE_ONLY" != true; then
+            qualification_args=(--qualified "$MANAGER_TUI_VERSION"
+                                --qualified-archive "$MANAGER_TUI_ARCHIVE_SHA256")
+          fi
+          python3 source/.github/scripts/release_decision.py \
+            --current "$CURRENT_VERSION" --upstream "$upstream_version" \
+            --archive "$archive_sha256" "${qualification_args[@]}" \
+            --source "$CODEX_SOURCE_SHA" --sequence "$RELEASE_SEQUENCE" \
+            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" \
+            --publish "$PUBLISH" --rebuild-current "$REBUILD_CURRENT" \
+            --base-only "$BASE_ONLY" >> "$GITHUB_OUTPUT"
+
+      - name: Acquire successful qualified Manager TUI input
+        if: steps.decision.outputs.candidate == 'true' && !inputs.base_only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/manager-tui-input"
+          mkdir "$work"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 180 --max-filesize 536870912 \
+            --output "$work/input.tar.gz" "$MANAGER_TUI_INPUT_URL"
+          test "$(sha256sum "$work/input.tar.gz" | awk '{print $1}')" = "$MANAGER_TUI_INPUT_SHA256"
+          # Only the exact qualified archive is extracted into a new owned root.
+          tar -xzf "$work/input.tar.gz" --no-same-owner -C "$work"
+          gh api "repos/humtr/codex/actions/runs/$MANAGER_TUI_RUN_ID" > "$work/run.json"
+          git -C source fetch --no-tags --depth=1 origin "$MANAGER_TUI_SOURCE_SHA"
+          python3 source/.github/scripts/manager_tui_artifact.py \
+            --source source --source-sha "$MANAGER_TUI_SOURCE_SHA" \
+            --run-json "$work/run.json" --run-id "$MANAGER_TUI_RUN_ID" \
+            --version "$MANAGER_TUI_VERSION" --sha256 "$MANAGER_TUI_SHA256" \
+            --artifact "$work/artifact" --proof "$work/proof"
+
+      - name: Restore compiler inputs
+        if: steps.decision.outputs.candidate == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            source/target
+          key: producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-${{ inputs.source_sha }}
+          restore-keys: |
+            producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-
+
+      - name: Cross-build Core and Manager
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android${ANDROID_API}-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          cd source
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          products=(-p codex)
+          if test "$BASE_ONLY" != true; then products+=(-p codex-manager); fi
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-linux-android \
+            "${products[@]}"
+          cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
+
+      - name: Fetch, adapt, and qualify unsigned candidate
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-candidate"
+          rm -rf "$work"
+          mkdir -p "$work"
+          builder="$GITHUB_WORKSPACE/source/target/release/codex-release-builder"
+          core="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex"
+          manager="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex-manager"
+          upstream_version='${{ steps.decision.outputs.upstream_version }}'
+          archive_sha256='${{ steps.decision.outputs.archive_sha256 }}'
+          generation_id='${{ steps.decision.outputs.generation_id }}'
+          # The signed R10 activation bridge signal is required on every public
+          # stable candidate until the compatibility floor moves past retained R10.
+          transition_args=(--legacy-activation-doctor-unsupported)
+          fetch_output="$($builder fetch \
+            --version "$upstream_version" \
+            --curl /usr/bin/curl \
+            --openssl /usr/bin/openssl \
+            --output "$work/upstream.tar.gz")"
+          fetched_sha256="$(printf '%s\n' "$fetch_output" | awk -F '\t' '$1=="archive_sha256"{print $2}')"
+          test "$fetched_sha256" = "$archive_sha256"
+
+          frontend_args=()
+          manager_args=()
+          if test "${BASE_ONLY:-false}" != true; then
+            test "$upstream_version" = "$MANAGER_TUI_VERSION"
+            frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
+                           --manager-tui-version "$MANAGER_TUI_VERSION")
+            manager_args=(--manager "$manager" --defer-manager-probe)
+          fi
+          "$builder" build \
+            --version "$upstream_version" \
+            --archive "$work/upstream.tar.gz" \
+            --archive-sha256 "$archive_sha256" \
+            --generation-id "$generation_id" \
+            --core "$core" \
+            "${manager_args[@]}" \
+            "${frontend_args[@]}" \
+            "${transition_args[@]}" \
+            --creation-metadata r10-browser-helper-bridge-v1 \
+            --gzip /usr/bin/gzip \
+            --openssl /usr/bin/openssl \
+            --output "$work/candidate"
+
+          # Candidate inventory qualification begins here.
+          mode=candidate
+          if test "$BASE_ONLY" = true; then mode=base-candidate; fi
+          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+            "$work/candidate" "$upstream_version"
+          test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' "$work/candidate/generation.meta")" = r10-browser-helper-bridge-v1
+          doctor_capability="$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$work/candidate/generation.meta")"
+          test "$doctor_capability" = unsupported
+          if test "$BASE_ONLY" = true; then exit 0; fi
+          find "$work/candidate" -type f -printf '%P\n' | LC_ALL=C sort > "$work/actual-files"
+          cat > "$work/expected-files" <<'EOF'
+          .manager-probe-deferred
+          codex-code-mode-host
+          core
+          generation.meta
+          helpers/0
+          helpers/1
+          helpers/2
+          manager
+          runtime
+          EOF
+          executables=(codex-code-mode-host core helpers/0 helpers/1 helpers/2 manager runtime)
+          LC_ALL=C sort -o "$work/expected-files" "$work/expected-files"
+          diff -u "$work/expected-files" "$work/actual-files"
+          for executable in "${executables[@]}"; do
+            test -f "$work/candidate/$executable"
+            test ! -L "$work/candidate/$executable"
+            test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
+          done
+
+      - name: Package admitted unsigned candidate
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-candidate"
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -cf "$work/candidate.tar" -C "$work" candidate
+          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
+
+      - name: Upload unsigned candidate only
+        if: steps.decision.outputs.candidate == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.decision.outputs.artifact_name }}
+          path: ${{ runner.temp }}/rald3-candidate/candidate.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Record exact-current dry-run
+        if: steps.decision.outputs.candidate == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'upstream=%s decision=%s; current generation retained\n' \
+            '${{ steps.decision.outputs.upstream_version }}' \
+            '${{ steps.decision.outputs.decision_reason }}'
+
+  smoke:
+    name: Android/AArch64 executable smoke
+    needs: producer
+    if: needs.producer.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          rm -rf source
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+
+      - name: Download unsigned candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: ${{ runner.temp }}/rald3-download
+
+      - name: Reverify candidate before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-smoke"
+          rm -rf "$work"
+          mkdir -p "$work"
+          tar -xf "$RUNNER_TEMP/rald3-download/candidate.tar" -C "$work"
+          mode=candidate
+          if test "$BASE_ONLY" = true; then mode=base-candidate; fi
+          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+            "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
+
+      - name: Provision pinned Android ARM64 bionic userspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          test "$(uname -m)" = aarch64
+          root="$RUNNER_TEMP/rald4-bionic"
+          rm -rf "$root"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          apex_mirror_url="https://raw.githubusercontent.com/msft-mirror-aosp/platform.prebuilts.runtime/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex"
+          if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+            --output "$root/runtime.apex.b64" "$apex_url"; then
+            base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+            rm "$root/runtime.apex.b64"
+          else
+            rm -f "$root/runtime.apex.b64"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+              --output "$root/runtime.apex" "$apex_mirror_url"
+          fi
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = \
+            "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library" \
+              "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          for path in \
+            "$root/bin/linker64" \
+            "$root/lib64/bionic/libc.so" \
+            "$root/lib64/bionic/libdl.so" \
+            "$root/lib64/bionic/libm.so"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+          chmod 0755 "$root/bin/linker64"
+          file "$root/bin/linker64" | grep -F 'ARM aarch64'
+          readelf -h "$root/bin/linker64" | grep -Eq 'Machine:[[:space:]]+AArch64'
+          rm "$root/runtime.apex" "$root/apex_payload.img"
+
+      - name: Run exact Manager, Core, and runtime smoke natively
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/rald3-smoke/candidate"
+          linker="$RUNNER_TEMP/rald4-bionic/bin/linker64"
+          libdir="$RUNNER_TEMP/rald4-bionic/lib64/bionic"
+          test -x "$linker"
+          test "$(uname -m)" = aarch64
+
+          set +e
+          manager_rc=0
+          if test "$BASE_ONLY" != true; then
+            env -i CODEX_MANAGER_ARTIFACT_PROBE=1 LD_LIBRARY_PATH="$libdir" \
+              "$linker" "$candidate/manager" --artifact-probe \
+              > "$RUNNER_TEMP/manager.out" 2> "$RUNNER_TEMP/manager.err"
+            manager_rc=$?
+          fi
+          env -i LD_LIBRARY_PATH="$libdir" \
+            "$linker" "$candidate/core" update --help \
+            > "$RUNNER_TEMP/core.out" 2> "$RUNNER_TEMP/core.err"
+          core_rc=$?
+          env -i "$candidate/runtime" --version \
+            > "$RUNNER_TEMP/runtime.out" 2> "$RUNNER_TEMP/runtime.err"
+          runtime_rc=$?
+          set -e
+
+          printf 'manager_rc=%s core_rc=%s runtime_rc=%s\n' \
+            "$manager_rc" "$core_rc" "$runtime_rc" >&2
+          if test "$manager_rc" -ne 0 || test "$core_rc" -ne 0 || test "$runtime_rc" -ne 0; then
+            for name in manager core runtime; do
+              printf '%s stderr:\n' "$name" >&2
+              cat "$RUNNER_TEMP/$name.err" >&2
+            done
+            exit 1
+          fi
+
+          verify_failed=0
+          printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
+          cat > "$RUNNER_TEMP/linker.stderr.expected" <<'EOF'
+          linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          EOF
+          if test "$BASE_ONLY" != true && ! cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"; then
+            verify_failed=1
+          fi
+          if test "$BASE_ONLY" != true && ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/manager.err"; then
+            verify_failed=1
+          fi
+          if ! grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
+            "$RUNNER_TEMP/core.out"; then
+            verify_failed=1
+          fi
+          if ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/core.err"; then
+            verify_failed=1
+          fi
+          if test ! -s "$RUNNER_TEMP/runtime.out" || \
+             test "$(wc -c < "$RUNNER_TEMP/runtime.out")" -gt 512; then
+            verify_failed=1
+          fi
+          if test -s "$RUNNER_TEMP/runtime.err"; then
+            verify_failed=1
+          fi
+          if test "$verify_failed" != 0; then
+            for name in manager core runtime; do
+              printf '%s stdout (first 4096 bytes):\n' "$name" >&2
+              head -c 4096 "$RUNNER_TEMP/$name.out" >&2 || true
+              printf '\n%s stderr (first 4096 bytes):\n' "$name" >&2
+              head -c 4096 "$RUNNER_TEMP/$name.err" >&2 || true
+              printf '\n' >&2
+            done
+            exit 1
+          fi
+
+          if test "$BASE_ONLY" = true; then
+            printf 'codex-cli %s\n' '${{ needs.producer.outputs.upstream_version }}' > "$RUNNER_TEMP/runtime.expected"
+            cmp "$RUNNER_TEMP/runtime.expected" "$RUNNER_TEMP/runtime.out"
+            printf 'unsigned base Core/runtime passed Android/AArch64 smoke; not publishable\n'
+            exit 0
+          fi
+          test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION"
+            timeout 20 env -i "$candidate/helpers/2" --version \
+              > "$RUNNER_TEMP/frontend.out" 2> "$RUNNER_TEMP/frontend.err"
+            printf 'codex-cli %s\n' "$MANAGER_TUI_VERSION" > "$RUNNER_TEMP/frontend.expected"
+            cmp "$RUNNER_TEMP/frontend.expected" "$RUNNER_TEMP/frontend.out"
+            test ! -s "$RUNNER_TEMP/frontend.err"
+
+          rm "$candidate/.manager-probe-deferred"
+          test ! -e "$candidate/.manager-probe-deferred"
+          printf 'unsigned candidate passed native Android/AArch64 pre-sign smoke\n'
+
+      - name: Package qualified unsigned candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/rald3-smoke/candidate"
+          mode=qualified-candidate
+          if test "$BASE_ONLY" = true; then mode=base-candidate; fi
+          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+            "$candidate" '${{ needs.producer.outputs.upstream_version }}'
+          tar -cf "$RUNNER_TEMP/rald4-qualified.tar" \
+            -C "$RUNNER_TEMP/rald3-smoke" candidate
+          test "$(stat -c '%s' "$RUNNER_TEMP/rald4-qualified.tar")" -lt 1073741824
+
+      - name: Upload qualified unsigned candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.producer.outputs.qualified_artifact_name }}
+          path: ${{ runner.temp }}/rald4-qualified.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

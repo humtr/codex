@@ -90,7 +90,7 @@ update authority is maintained.
   pair is ineligible for public production and leaves LKG unchanged; historical
   explicitly bounded acceptance fixtures retain their historical construction.
   An explicitly authorized manual rebuild may publish the authenticated current
-  qualified backend at the next sequence. All new candidates require the paired
+  qualified backend at the next sequence. All new public candidates require the paired
   frontend. Scheduled production requires a strictly newer qualified backend;
   unsupported versions leave LKG unchanged. Failed staging cannot replace any
   published assets or promote stable.
@@ -150,6 +150,34 @@ update authority is maintained.
 
 Admission requires real public-path install/update/rollback/fault proof; device
 observations are reported separately from automated qualification.
+
+### Independent unsigned base qualification
+
+The reusable producer also has an explicit `base_only` qualification mode. It
+constructs only the qualified upstream runtime, Core, Code Mode host and browser
+helpers through the existing release-builder. Manager and Manager TUI are absent;
+their compilation, downloads and qualification do not gate this mode. Complete
+base inventory, digest/mode checks and actual Android/AArch64 Core/runtime smoke
+remain required. A base result is not an integrated product qualification.
+
+This mode is read-only with respect to publication. It refuses `publish=true`
+before artifact acquisition; signing, Release/Pages staging, stable promotion and
+device activation are never reachable. Its unsigned CI artifacts have distinct
+base-qualification identities and cannot replace an integrated candidate. It
+adds no update channel, installed pointer, runtime mode or public CLI command.
+The main publication path still requires the complete qualified backend/frontend
+pair and retains the current generation on an unsupported update.
+
+Base qualification may run from an exact rewrite/rust-core push or manual dispatch
+with read-only repository permissions. Source must equal the event's immutable
+commit. `rebuild_current` selects the version and source archive digest from the
+authenticated stable descriptor independently of Manager TUI pins; otherwise the
+ordinary official upstream discovery is used. An unsupported upstream artifact
+still fails existing builder qualification, rather than weakening patch admission.
+Skipped integrated construction distinguishes a non-newer release from missing
+frontend qualification or an archive mismatch; it must not report all three as
+already up to date. Feature-preserving default-update independence remains a later
+responsibility-alignment step, not a claim made by this qualification mode.
 
 ## Native /switch behavior
 

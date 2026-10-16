@@ -1,0 +1,33 @@
+name: Independent Core/runtime qualification
+
+on:
+  push:
+    branches: [rewrite/rust-core]
+    paths:
+      - '.github/workflows/core-runtime-qualification.yml'
+      - '.github/workflows/qualify-termux-runtime.yml'
+      - '.github/scripts/rald3_preflight.py'
+      - '.github/scripts/release_decision.py'
+      - 'crates/core/**'
+      - 'crates/release-builder/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+    inputs:
+      rebuild_current:
+        description: Qualify authenticated current runtime; false discovers latest upstream
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify:
+    uses: ./.github/workflows/qualify-termux-runtime.yml
+    with:
+      source_sha: ${{ github.sha }}
+      base_only: true
+      publish: false
+      rebuild_current: ${{ github.event_name == 'push' || inputs.rebuild_current }}

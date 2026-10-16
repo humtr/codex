@@ -11,7 +11,7 @@ class ReleaseDecisionTests(unittest.TestCase):
         args={'current':'0.161.0','upstream':'0.161.0','qualified':'0.161.0','archive':'a'*64,
               'qualified-archive':'a'*64,'source':'b'*40,'sequence':'44','event':'workflow_dispatch',
               'ref':'refs/heads/main','publish':'false','rebuild-current':'false',**changes}
-        return subprocess.run([sys.executable,str(SCRIPT),*[v for k,x in args.items() for v in ('--'+k,x)]],text=True,capture_output=True)
+        return subprocess.run([sys.executable,str(SCRIPT),*[v for k,x in args.items() if x is not None for v in ('--'+k,x)]],text=True,capture_output=True)
 
     def test_real_decision_matrix(self):
         cases=[({},False),({'rebuild-current':'true'},True),
@@ -36,6 +36,34 @@ class ReleaseDecisionTests(unittest.TestCase):
         for changes in cases:
             with self.subTest(changes=changes):
                 r=self.run_decision(**changes);self.assertNotEqual(r.returncode,0);self.assertEqual(r.stdout,'')
+
+
+    def test_base_qualification_does_not_depend_on_frontend_pins(self):
+        for event in ('push','workflow_dispatch'):
+            r=self.run_decision(**{'base-only':'true','ref':'refs/heads/rewrite/rust-core',
+                                  'event':event,'rebuild-current':'true',
+                                  'qualified':None,'qualified-archive':None})
+            self.assertEqual(r.returncode,0,r.stderr)
+            output=dict(line.split('=',1) for line in r.stdout.splitlines())
+            self.assertEqual(output['candidate'],'true')
+            self.assertEqual(output['decision_reason'],'base-qualification')
+            self.assertTrue(output['generation_id'].startswith('base-qualification-'))
+            self.assertTrue(output['qualified_artifact_name'].startswith('base-qualified-'))
+
+    def test_base_cannot_publish_or_impersonate_a_public_caller(self):
+        base={'base-only':'true','ref':'refs/heads/rewrite/rust-core','event':'push'}
+        for bad in ({'publish':'true'},{'event':'schedule'},{'ref':'refs/heads/main'},
+                    {'source':'main'},{'rebuild-current':'true','upstream':'0.162.0'}):
+            r=self.run_decision(**{**base,**bad})
+            self.assertNotEqual(r.returncode,0,r.stdout)
+            self.assertEqual(r.stdout,'')
+
+    def test_unqualified_newer_version_is_not_reported_as_up_to_date(self):
+        for change,reason in (({'upstream':'0.162.0'},'frontend-unqualified'),
+                              ({'current':'0.160.0','archive':'c'*64},'archive-unqualified'),
+                              ({},'upstream-not-newer')):
+            r=self.run_decision(**change);self.assertEqual(r.returncode,0,r.stderr)
+            self.assertIn('decision_reason='+reason,r.stdout)
 
 
 if __name__=='__main__':unittest.main()

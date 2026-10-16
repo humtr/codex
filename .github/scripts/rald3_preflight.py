@@ -228,7 +228,8 @@ def parse_descriptor(path: Path) -> dict[str, str]:
 
 
 def verify_candidate_payload(
-    root: Path, expected_version: str, *, deferred_manager_probe: bool
+    root: Path, expected_version: str, *, deferred_manager_probe: bool,
+    require_manager: bool = True,
 ) -> dict[str, str]:
     stable_version(expected_version)
     if not root.is_dir() or root.is_symlink():
@@ -254,13 +255,16 @@ def verify_candidate_payload(
     descriptor = parse_descriptor(root / "generation.meta")
     if descriptor["upstream_package_version"] != expected_version:
         fail("candidate upstream version does not match")
-    if descriptor["manager_artifact_digest"] == "-":
+    if require_manager and descriptor["manager_artifact_digest"] == "-":
         fail("hosted candidate is missing Manager binding")
+    if not require_manager and descriptor["manager_artifact_digest"] != "-":
+        fail("base candidate must not declare Manager")
     expected_files = {
         "runtime": descriptor["runtime_digest"],
         "core": descriptor["core_artifact_digest"],
-        "manager": descriptor["manager_artifact_digest"],
     }
+    if require_manager:
+        expected_files["manager"] = descriptor["manager_artifact_digest"]
     for name, expected_digest in expected_files.items():
         path = root / name
         try:
@@ -280,6 +284,45 @@ def verify_candidate(root: Path, expected_version: str) -> dict[str, str]:
 
 def verify_qualified_candidate(root: Path, expected_version: str) -> dict[str, str]:
     return verify_candidate_payload(root, expected_version, deferred_manager_probe=False)
+
+
+def verify_base_candidate(root: Path, expected_version: str) -> dict[str, str]:
+    """Strict unsigned base inventory; never admits an integrated release."""
+    descriptor = verify_candidate_payload(
+        root, expected_version, deferred_manager_probe=False, require_manager=False
+    )
+    if descriptor["helper_count"] != "2" or descriptor["creation_metadata"] != R10_METADATA:
+        fail("base candidate requires the exact two-helper layout")
+    helper_keys = {key for key in descriptor if key.startswith("helper:")}
+    names = ("termux-browser-open-v1", "termux-browser-manual-v1")
+    if helper_keys != {"helper:" + name for name in names}:
+        fail("base candidate helper declarations differ")
+    if {p.name for p in root.iterdir()} != {
+        "runtime", "core", "codex-code-mode-host", "generation.meta", "helpers"
+    }:
+        fail("base candidate inventory differs")
+    helpers = root / "helpers"
+    if helpers.is_symlink() or not helpers.is_dir() or {p.name for p in helpers.iterdir()} != {"0", "1"}:
+        fail("base candidate helper inventory differs")
+    fields = {}
+    for field in descriptor.get("patch_report", "").split(";")[1:]:
+        key, sep, value = field.partition("=")
+        if not sep or key in fields:
+            fail("base candidate patch report is invalid")
+        fields[key] = value
+    expected = {"codex-code-mode-host": lower_sha256(
+        fields.get("code_mode_host_sha256", ""), "Code Mode host digest"
+    )}
+    expected.update({"helpers/" + str(i): lower_sha256(descriptor["helper:" + name], name)
+                     for i, name in enumerate(names)})
+    for name, digest in expected.items():
+        path = root / name
+        st = path.lstat()
+        if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o755 or sha256_file(path) != digest:
+            fail("base candidate asset binding differs: " + name)
+    if stat.S_IMODE((root / "generation.meta").lstat().st_mode) != 0o644:
+        fail("base candidate descriptor mode differs")
+    return descriptor
 
 
 def next_release_sequence(value: str) -> int:
@@ -359,6 +402,9 @@ def main(argv: list[str] | None = None) -> int:
     p = subs.add_parser("qualified-candidate")
     p.add_argument("root", type=Path)
     p.add_argument("expected_version")
+    p = subs.add_parser("base-candidate")
+    p.add_argument("root", type=Path)
+    p.add_argument("expected_version")
     p = subs.add_parser("next-sequence")
     p.add_argument("current")
     args = parser.parse_args(argv)
@@ -386,6 +432,9 @@ def main(argv: list[str] | None = None) -> int:
             print_kv(generation_id=d["generation_id"], version=d["upstream_package_version"])
         elif args.command == "qualified-candidate":
             d = verify_qualified_candidate(args.root, args.expected_version)
+            print_kv(generation_id=d["generation_id"], version=d["upstream_package_version"])
+        elif args.command == "base-candidate":
+            d = verify_base_candidate(args.root, args.expected_version)
             print_kv(generation_id=d["generation_id"], version=d["upstream_package_version"])
         elif args.command == "next-sequence":
             print_kv(release_sequence=next_release_sequence(args.current))

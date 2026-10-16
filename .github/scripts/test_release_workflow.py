@@ -29,20 +29,29 @@ class WorkflowTests(unittest.TestCase):
     def test_single_source_and_no_unsigned_public_authority(self):
         text=(ROOT/'.github/workflows/auto-release-termux.yml').read_text()
         header,body=text.split('\njobs:\n',1)
-        producer=body.split('\n  smoke:',1)[0]
-        smoke=body.split('\n  smoke:',1)[1].split('\n  sign:',1)[0]
+        producer=body.split('\n  sign:',1)[0]
+        qualification=(ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
         sign=body.split('\n  sign:',1)[1].split('\n  stage_release:',1)[0]
         self.assertIn('workflow_call:',header)
         self.assertNotIn('workflow_dispatch:',header)
         self.assertIn('CODEX_SOURCE_SHA: ${{ inputs.source_sha }}',header)
         self.assertNotIn('RALD5_SOURCE_SHA',text)
         self.assertIn('publication_source_sha: ${{ inputs.source_sha }}',text)
-        for job in (producer,smoke,sign):
+        for job in (producer,qualification,sign):
             for forbidden in ('contents: write','pages: write','gh release','git push','deploy-pages'):
                 self.assertNotIn(forbidden,job)
-        self.assertNotIn('secrets.',producer+smoke)
+        self.assertNotIn('secrets.',producer+qualification)
         self.assertEqual(text.count('${{ secrets.CODEX_RELEASE_SIGNING_KEY }}'),1)
-        self.assertIn("needs.smoke.result == 'success' && inputs.publish",sign)
+        self.assertIn("needs.producer.result == 'success' && inputs.publish",sign)
+        self.assertIn('uses: ./.github/workflows/qualify-termux-runtime.yml',producer)
+        self.assertIn('base_only: false',producer)
+        self.assertNotIn('base_only:',header)
+        self.assertIn('      actions: read',producer)
+        self.assertNotIn('secrets:',qualification)
+        base=(ROOT/'.github/workflows/core-runtime-qualification.yml').read_text()
+        self.assertIn('base_only: true',base)
+        self.assertIn('publish: false',base)
+        self.assertNotIn('write',base.replace('rewrite/rust-core','source-branch'))
         for key in ('stage_release','pages','verify_public','promote'):
             job=re.split(r'\n  [a-z_]+:',body.split('\n  '+key+':',1)[1],maxsplit=1)[0]
             self.assertIn('&& inputs.publish',job)
