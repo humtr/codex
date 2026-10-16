@@ -11,11 +11,11 @@ acceptance cache. No external workflow skill or separate task ledger is required
 - Public/device Core and frontend: signed stable53, CLI0.163.0, source36bfeed.
   Release38904810656 and source/native/device qualification pass on the production
   branch. Actual version and Core/Manager doctor confirm device selection; stable52
-  is retained for rollback. Earlier live provider inference below used stable52;
-  production upgrade proof is not a new Chat-provider inference qualification.
-- Installed opt-in Chat provider:9014deaf810ff40a583d, sourcee27ab09,
-  `returnTransport=local`,590 verified payload files. Prior d7513cc7785f3d5dbcef
-  and561-file recovery payloads are retained.
+  is retained for rollback. Production upgrade proof and Chat inference acceptance
+  remain separate; the new narrow stable53 live proof is described below.
+- Installed opt-in Chat provider:9dd2881029f69124a63a, source0ee0f59,
+  `returnTransport=local`,595 installed files verified including its manifest.
+  Prior9014deaf810ff40a583d and older recovery payloads are retained.
   This provider is experimental; Core stable publication does not make it a fully
   qualified public Chat provider. No later source edit is implicitly installed.
 - Earlier installed signed-app + stable51 Core proof: one Chat user message,
@@ -23,7 +23,7 @@ acceptance cache. No external workflow skill or separate task ledger is required
   final reports, canonical persistence and cold Core/TUI restore pass. Fresh
   cold bootstrap also passes. Chat allowance deduction remains unknown.
   First cold-start failure preceded dispatch; its original cause is unconfirmed.
-- New installed signed-app + stable52 Core proof passes actual tool search, exact
+- Retained9014deaf signed-app + stable52 Core proof passes actual tool search, exact
   underscore-prefixed discovered MCP tool admission, automatic approval review,
   one real isolated stdio MCP read, original-call result return, final marker,
   all three report phases and cold Core/TUI restore. GPT-6 Instant,26.071s total,
@@ -34,6 +34,18 @@ acceptance cache. No external workflow skill or separate task ledger is required
   existing process identities. All590 payload hashes verify. Trial start budget
   was removed; the ordinary installed provider is ready. Proofs:
   chat-owned-mcp-installed-live.json and chat-tool-recovery-operating-final.json.
+- Installed9dd288 + actual signed-app + stable53 Core passes the live malformed-
+  argument recovery trial in33.035s on GPT-6 Instant (gpt-6/thinkingEffort=null).
+  One raw malformed function call and its correlated actual Core error persist;
+  the model corrects it, executes exactly one write/one read and completes. Initial,
+  intermediate and final reports render in actual native TUI and survive cold Core
+  restart without another model request. Observed1 user message,3 tool-role returns,
+  4 model starts,0 reviewer/Pro/retry. This is not a Chat-limit-debit measurement.
+  Endpoint/capability and12 existing auth/config files plus13 existing process
+  identities are unchanged. The bounded isolated adapter used installed product
+  bytes and is stopped/removed; ordinary operating bootstrap is ready without
+  a trial budget. No existing task was stopped. Private evidence directory:
+  chat-tool-recovery-operating-next/{live-result,live-adapter-proof,operating-final}.json.
 - Ordinary GPT-6 Instant/Medium/High/Extra High tool loops passed on the earlier
   internal transport. This is useful historical proof, not blanket qualification
   of the newly installed local-return lifecycle, MCP or long-context combinations.
@@ -58,7 +70,7 @@ work on tool input/admission and recovery, followed by native development covera
 | Order | Work | Acceptance / current gap |
 | --- | --- | --- |
 | 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. New ordinary-function raw-input recovery is source/offline-qualified below; installed/live coverage of the complete tool contract remains. |
-| 2 | Failure recovery | Ordinary malformed/non-object arguments now reach Core unchanged, and its exact error returns on the original app call. Source/offline proof passes; operating activation/live acceptance and other error paths remain. Completed pre-dispatch rejections require genuine new input; unknown delivery remains blocked, with no work replay. |
+| 2 | Failure recovery | Installed local transport passes actual signed-app/stable53 malformed JSON→Core error→model correction with one user message. Arrays/whitespace and other recovery cases pass offline; further live error surfaces remain. Completed pre-dispatch rejections require genuine new input; unknown delivery stays blocked without work replay. |
 | 3 | Complete native development surface | Qualify MCP search/call/result, custom/freeform tools, parallel batches, background terminals, approvals/reviewer and user questions on the installed path. Two shell commands are insufficient. |
 | 4 | Long context and switching | Preserve canonical requirements/results through automatic/fault compaction, native-to-Chat/Chat-to-native switching, restart and cold resume. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
@@ -175,12 +187,15 @@ correctly failed report-count acceptance because its fixture emitted two identic
 intermediate markers; the corrected fixture emits one and all gates pass. This was
 an observer/fixture defect, not accepted product proof.
 
-Installed provider remains9014deaf/sourcee27ab09. No operating provider activation,
-real signed-app inference, Pro use, native config/auth changes or remote chat deletion
-occurred. Next: activate this concrete candidate when appropriate, then a bounded
-GPT-6 Instant error/correction proof (explain expected submissions first), followed
-by the full native development surface and long-development evaluation. Source
-proof must not be described as installed/live Chat acceptance or a Chat-limit saving.
+The repair is now installed as9dd288/source0ee0f59 and its actual signed-app/
+stable53 error/correction path passes as described above. The proof explicitly
+counts persisted malformed calls and matching Core errors before accepting the
+successful corrected commands. The new test driver does not change installed
+product bytes. Provider Python42 tests pass after that driver addition. No Pro,
+automatic generation retry, native config/auth rewrite or remote chat deletion was
+performed. Next is full native development-surface qualification (MCP, custom/
+freeform, parallel/background tools, reviewer and user input), then long-development
+and context/lifecycle evaluation. Same-Chat reload/performance follows correctness.
 
 ### Deferred and conditional scope
 

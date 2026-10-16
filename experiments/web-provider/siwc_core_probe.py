@@ -216,6 +216,21 @@ stream_max_retries = 0
                 task=f'First say LOCAL_INITIAL_REPORT. Run exactly one shell command with yield_time_ms 30000: printf %s {marker} > proof.txt; echo $$ > command.pid; sleep 45; printf MUTATION_REPLAYED >> proof.txt. Wait for its result. Final answer exactly {marker}. Do no other work.'
             if getattr(args,'mcp_discovery',False):
                 task='First say LOCAL_INITIAL_REPORT in commentary. Use tool_search to discover the owned_catalog MCP server tool _read_marker. After discovery say LOCAL_INTERMEDIATE_REPORT in commentary, then call the exact discovered namespaced _read_marker tool once with empty arguments. Reply with exactly the marker returned by that tool. Do not use shell, read files directly, or do other work.'
+            if getattr(args,'input_error_trial',False):
+                assert desktop and not(args.compact or args.cancel_resume or getattr(args,'interrupt_tool',False) or getattr(args,'reject_tool',False) or getattr(args,'mcp_discovery',False))
+                task=(f'Owned negative argument-validation trial in this disposable directory only. '
+                    'First say LOCAL_INITIAL_REPORT in your first gateway tool report. '
+                    'For the FIRST native call, choose the exact advertised ordinary JSON exec_command tool '
+                    'and deliberately give the local gateway input field the literal string {"cmd": '
+                    '(the seven characters ending with colon; no value or closing brace). '
+                    'This intentionally malformed input must reach the real Core parser unchanged. '
+                    'Do not repair it before sending, fabricate an error, or use a custom/freeform tool. '
+                    'Wait for the actual Core argument error, then issue a NEW corrected exec_command call '
+                    f'to write exactly {marker} to proof.txt. After its actual result, say '
+                    'LOCAL_INTERMEDIATE_REPORT once in commentary and issue one separate shell call '
+                    f'to read proof.txt. Final answer exactly {marker}. '
+                    'Exactly one malformed attempt, one successful write and one read; no other work. '
+                    'Do not repeat a completed write. If the ordinary JSON tool is absent, stop and explain.')
             if args.compact:
                 seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
                 (workspace/'seed.txt').write_text(seed_text)
@@ -382,6 +397,16 @@ stream_max_retries = 0
                 report['nativeReports']=evidence
                 report['persistedReportCheck']=all(sum(item[k] for item in evidence)==1 for k in ['initial','intermediate','final'])
                 report['persistedNativeCommands']=sum(item.get('type')=='commandExecution' and item.get('status')=='completed' for item in items)
+                if getattr(args,'input_error_trial',False):
+                    payloads=[row.get('payload',{}) for path in (home/'.codex/sessions').rglob('*.jsonl')
+                        for line in path.read_text().splitlines() if line.strip()
+                        for row in [json.loads(line)] if row.get('type')=='response_item']
+                    invalid=[p for p in payloads if p.get('type')=='function_call' and p.get('arguments')=='{"cmd":']
+                    report['persistedMalformedCalls']=len(invalid)
+                    report['persistedCoreArgumentErrors']=sum(p.get('type')=='function_call_output'
+                        and p.get('call_id') in {call.get('call_id') for call in invalid}
+                        and re.search(r'failed to parse|invalid|error',str(p.get('output','')),re.I) is not None for p in payloads)
+                    report['realCoreToolLoopAccepted'] &= report['persistedMalformedCalls']==1 and report['persistedCoreArgumentErrors']==1 and report['successfulShellCalls']==2 and report['persistedNativeCommands']==2
                 if getattr(args,'mcp_discovery',False):
                     report['persistedMcpCalls']=sum(item.get('type')=='mcpToolCall' for item in items)
                     report['persistedToolSearches']=sum(item.get('type')=='toolSearch' for item in items)

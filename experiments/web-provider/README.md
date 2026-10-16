@@ -20,8 +20,8 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `9014deaf810ff40a583d` uses sourcee27ab09 and the6.1.5 bridge
-commit above. The6.1.8 browser candidate and6.1.9 research are separate inputs;
+Installed payload `9dd2881029f69124a63a` uses source0ee0f59 and the6.1.5 bridge
+commit above. Previous payload9014deaf/sourcee27ab09 remains available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
 neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
 Current acceptance and unresolved work belong to CURRENT.md.
@@ -47,7 +47,11 @@ arguments through the unchanged dependency parser. No command is retried by the
 adapter and no guessed input or synthetic tool result is substituted. Empty JSON
 input, unknown tools and invalid search/gateway envelopes remain pre-dispatch
 rejections with new-input recovery after completed cleanup; unknown delivery stays
-blocked. This source change is not yet the installed provider.
+blocked. This repair is installed as9dd288/source0ee0f59. Actual GPT-6 Instant
+with signed app + stable53 Core passes malformed input→actual Core error→corrected
+write/read→final answer in33.035s, with persisted/rendered/cold-restored reports.
+Observed1 user message,3 tool returns and4 model starts; no Pro or retry. This
+measures submissions, not Chat-plan allowance deductions.
 
 Offline real-Core recovery proof, without a Chat request:
 
@@ -66,8 +70,8 @@ with `--invalid-input array` or `--invalid-input whitespace` for those negative 
 a deterministic host and zero Chat: one write, rejection, explicit user resume,
 one read, unchanged file and cold transcript/TUI restoration. This flag refuses
 all live-session/bounded-runtime combinations. Earlier canonical-name and completed-
-sample corrections are installed as9014deaf810ff40a583d; the raw-argument repair
-above remains source/offline-qualified. Actual GPT-6 Instant
+sample corrections were installed as9014deaf810ff40a583d and are retained by9dd288.
+Their earlier actual GPT-6 Instant
 acceptance additionally passes search, automatic review, a private native MCP
 read, final response and cold TUI restore; this does not qualify the alternative
 remote MCP return transport. The temporary four-start trial limit is removed.
