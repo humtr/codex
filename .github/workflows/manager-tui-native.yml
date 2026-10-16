@@ -189,6 +189,13 @@ jobs:
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
           printf 'codex-cli 0.161.0\n' > "$root/version.expected"
           cmp "$root/version.expected" "$root/artifact/version.txt"
+          printf 'codex-termux-resolved-startup-v1\n' > "$root/capability.expected"
+          # Invalid user configuration must not be loaded by the static query.
+          printf 'not valid toml = [\n' > "$root/home/.codex/config.toml"
+          env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin TERM=xterm-256color "$binary" --termux-backend-capabilities > "$root/capability.actual"
+          cmp "$root/capability.expected" "$root/capability.actual"
+          test ! -e "$root/home/.codex/state_5.sqlite"
+          rm "$root/home/.codex/config.toml"
           cp "$binary" "$root/artifact/codex"
           cp "$RUNNER_TEMP/profile-tui-lock-audit.json" "$root/artifact/lock-audit.json"
           cp "$RUNNER_TEMP/profile-tui-formatted.patch" "$root/artifact/native.patch"

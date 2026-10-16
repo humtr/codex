@@ -2,11 +2,84 @@
 use super::{GenerationManifest, LocalProductError, RuntimeFdSources, TermuxBaseEnvPlan};
 use std::ffi::{OsStr, OsString};
 use std::io;
+use std::io::Read;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub(super) const PREFIX: &str = "termux-manager-tui-v1:";
+const STARTUP_CAPABILITY: &[u8] = b"codex-termux-resolved-startup-v1\n";
+const STARTUP_ENV: &str = "CODEX_TERMUX_BACKEND_STARTUP";
+
+pub(super) fn resolved_startup(
+    frontend: &OsStr,
+    resolver: &Path,
+    config: &Path,
+    plan: &TermuxBaseEnvPlan,
+) -> bool {
+    let prepare = || -> io::Result<_> {
+        let fds = RuntimeFdSources::open(resolver, config)?;
+        let mut command = Command::new(frontend);
+        command.arg("--termux-backend-capabilities");
+        super::apply_child_env_plan_and_fence(&mut command, Some(plan));
+        fds.configure(&mut command);
+        query_startup(command, Duration::from_secs(2))
+    };
+    prepare().unwrap_or(false)
+}
+
+fn query_startup(mut command: Command, deadline: Duration) -> io::Result<bool> {
+    let (mut reader, writer) = UnixStream::pair()?;
+    reader.set_nonblocking(true)?;
+    let mut child = command
+        .env_remove(STARTUP_ENV)
+        .env("TERM", "xterm-256color")
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::null())
+        .spawn()?;
+    // Command retains its configured stdout handle after spawn; close our copy
+    // so the reader can observe the child's EOF.
+    drop(command);
+    let started = Instant::now();
+    let result = (|| {
+        let mut bytes = Vec::new();
+        loop {
+            let mut buffer = [0; 64];
+            let eof = match reader.read(&mut buffer) {
+                Ok(0) => true,
+                Ok(n) => {
+                    bytes.extend_from_slice(&buffer[..n]);
+                    if bytes.len() > STARTUP_CAPABILITY.len() {
+                        return Ok(false);
+                    }
+                    false
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => false,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            if let Some(status) = child.try_wait()? {
+                if !status.success() {
+                    return Ok(false);
+                }
+                if eof {
+                    return Ok(bytes == STARTUP_CAPABILITY);
+                }
+            }
+            if started.elapsed() >= deadline {
+                return Ok(false);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
 
 pub(super) fn index(manifest: &GenerationManifest) -> Result<Option<usize>, LocalProductError> {
     let matches: Vec<_> = manifest
@@ -89,9 +162,14 @@ fn native_args(socket: &Path, original: &[OsString]) -> io::Result<Vec<OsString>
     Ok(args)
 }
 
+pub(super) struct BackendStartup {
+    pub socket: PathBuf,
+    pub resolved: bool,
+}
+
 pub(super) fn launch(
     frontend: &OsStr,
-    socket: &Path,
+    startup: &BackendStartup,
     profile: &Path,
     original: &[OsString],
     resolver: &Path,
@@ -103,9 +181,13 @@ pub(super) fn launch(
         let fds = RuntimeFdSources::open(resolver, config)?;
         let mut command = Command::new(frontend);
         command
-            .args(native_args(socket, original)?)
+            .args(native_args(&startup.socket, original)?)
             .env("CODEX_HOME", profile)
-            .env("CODEX_PROFILE_CORE", core);
+            .env("CODEX_PROFILE_CORE", core)
+            .env_remove(STARTUP_ENV);
+        if startup.resolved {
+            command.env(STARTUP_ENV, "resolved-v1");
+        }
         super::apply_child_env_plan_and_fence(&mut command, Some(plan));
         fds.configure(&mut command);
         Ok((command, fds))
@@ -148,6 +230,37 @@ mod tests {
             persistent_schema_identity: "owned".into(),
             creation_metadata: "owned".into(),
         }
+    }
+
+    #[test]
+    fn resolved_startup_requires_exact_success_and_reaps_bounded_probe() {
+        let root = crate::tests::temp_root("frontend-startup");
+        let program = root.join("frontend");
+        let shell = crate::tests::resolve_test_tool("sh").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        for (body, expected) in [
+            ("printf 'codex-termux-resolved-startup-v1\\n'", true),
+            (
+                "printf 'codex-termux-resolved-startup-v1\\n'; exit 2",
+                false,
+            ),
+            ("exit 2", false),
+            ("printf 'codex-termux-resolved-startup-v2\\n'", false),
+            ("printf 'codex-termux-resolved-startup-v1\\nextra'", false),
+            ("while :; do printf xxxxxxxxxxxxxxxxxxxxxxxxx; done", false),
+            ("exec sleep 5", false),
+        ] {
+            std::fs::write(&program, format!("#!{}\n{body}\n", shell.display())).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let start = Instant::now();
+            assert_eq!(
+                query_startup(Command::new(&program), Duration::from_millis(150)).unwrap(),
+                expected,
+                "{body}"
+            );
+            assert!(start.elapsed() < Duration::from_secs(2));
+        }
+        crate::tests::remove_temp_root(root);
     }
 
     #[test]

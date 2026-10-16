@@ -108,7 +108,19 @@ update authority is maintained.
   preparatory release; a transient Pages bridge URL is not durable migration.
 - Ordinary eligible interactive Core launch selects this frontend only when its
   signed helper and same-generation Manager are usable. Core supplies its existing
-  qualified local-server socket and exact Core entrypoint. Unsupported explicit
+  qualified local-server socket address and exact Core entrypoint. A bounded,
+  noninteractive query of that exact signed helper may advertise
+  `codex-termux-resolved-startup-v1`. The hidden frontend-only
+  `--termux-backend-capabilities` query returns that exact line before configuration,
+  terminal initialization or server connection; it performs no work or inference.
+  Only an exact successful response within two seconds enables deferred startup.
+  Core then passes `CODEX_TERMUX_BACKEND_STARTUP=resolved-v1` and the planned native
+  socket address without creating a server. The frontend loads upstream
+  configuration and requests exactly its resolved catalog or the native/default
+  server before connecting. Older/unknown helpers keep the original eager startup;
+  absent Manager, Core-only and explicit remote/embedded routes retain their paths.
+  No capability file, persistent probe cache or generation-format change is added.
+  Unsupported explicit
   upstream modes/options retain the official runtime path and original argv.
   Core owns no picker, account transition, title composition or terminal controller.
   Missing or changed optional frontend/Manager on an installed generation disables
@@ -3225,6 +3237,13 @@ user embedded/remote/configuration selections retain their upstream semantics.
 
 A qualified local Manager frontend may submit its upstream-resolved model catalog
 to Core's private `__app-server-catalog-v1` operation on stdin (at most4 MiB).
+For deferred startup without a resolved catalog, the frontend requests the same
+native server through private no-argument `__app-server-default-v1`. This operation
+does not consume stdin or interpret frontend configuration. Both operations return
+only a validated socket and share the existing coordinator. Failure after deferred
+selection is explicit; it never retries through an embedded executor or starts a
+second native server. A catalog request remains distinct from an absent catalog;
+an empty/invalid catalog is not a request for native/default behavior.
 Core returns only the exact qualified server socket, and uses the existing server
 coordinator, environment, descriptor and retirement path. Catalog bytes, profile
 home and runtime jointly identify reuse; a changed catalog at the same source

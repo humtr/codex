@@ -123,6 +123,19 @@ fn read_record(path: &Path) -> io::Result<Vec<u8>> {
 }
 
 pub(super) const CATALOG_COMMAND: &str = "__app-server-catalog-v1";
+pub(super) const DEFAULT_COMMAND: &str = "__app-server-default-v1";
+
+/// Compute the existing native rendezvous without preparing state or a process.
+pub(super) fn native_socket(program: &OsStr, profile: &Path, state: &Path) -> io::Result<PathBuf> {
+    let socket = state
+        .join("servers")
+        .join(catalog_namespace(profile, program, None))
+        .join("s");
+    if !socket.is_absolute() || socket.as_os_str().as_bytes().len() > 107 {
+        return Err(invalid());
+    }
+    Ok(socket)
+}
 
 pub(super) fn read_catalog(input: impl Read) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -745,7 +758,12 @@ fn main() {
             )
             .unwrap()
         };
+        let planned = native_socket(program.as_os_str(), &profile, &state).unwrap();
+        assert!(!planned.exists());
+        assert!(!state.join("servers").exists());
+        assert!(native_socket(program.as_os_str(), &profile, Path::new("relative")).is_err());
         let native = start(None);
+        assert_eq!(native, planned);
         let native_pid = read_record(&native.parent().unwrap().join("pid")).unwrap();
         let one = start(Some(br#"{"models":[{"slug":"first"}]}"#));
         let one_pid = read_record(&one.parent().unwrap().join("pid")).unwrap();

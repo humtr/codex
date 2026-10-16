@@ -298,6 +298,16 @@ ownership and policy placement, not the startup/re-entry follow-ups above.
 
 ### Server/catalog audit and 0.163 admission
 
+In qualification: the signed frontend advertises resolved-startup-v1 through a
+hidden static query. Core defers server creation only on the exact successful
+bounded response. Upstream config loading remains in the frontend; it requests
+the catalog-bound or native/default server through the existing coordinator.
+Old helpers retain eager startup and new helpers on old Core retain the supplied
+socket contract. Generation format, helper identity and publication inventory
+are unchanged. Required proof covers one namespace on fresh/cold/side execution,
+permissions/reviewer preservation, old/new combinations and retained siblings.
+No public release or live activation is part of this slice.
+
 The execution-record duplication is now extracted into the dependency-free
 codex-runtime-binding source library. Core produces and retires its existing
 records through the same codec Manager consumes for task discovery. Only owner

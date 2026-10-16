@@ -120,7 +120,7 @@ def fixture(root, core, frontend, manager=None):
         TERM='xterm-256color', LANG='C.UTF-8', SHELL=str(host_prefix / 'bin/bash'),
         SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'))
     for name in ['OPENAI_API_KEY', 'CODEX_ACCESS_TOKEN', 'ACCESS_TOKEN', 'CODEX_SQLITE_HOME',
-        'CODEX_PROFILE_CORE', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL',
+        'CODEX_PROFILE_CORE', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL', 'CODEX_TERMUX_BACKEND_STARTUP',
         'TERMUX_SESSION_ID', 'CODEX_TERMUX_WINDOW_TOKEN', 'CODEX_TERMUX_WINDOW_READY', 'CODEX_TERMUX_SESSION_ORIGIN']:
         env.pop(name, None)
     # Built-in providers cannot be redefined; upstream supports these env overrides.
@@ -248,6 +248,8 @@ def probe(args):
         env['OPENAI_BASE_URL']=f'http://127.0.0.1:{model.server_port}/v1'
         config=home/'.codex/config.toml'
         old=config.read_text()
+        if args.native_catalog:
+            old=re.sub(r'^model_catalog_json = .*\n','',old,flags=re.M)
         old=re.sub(r'^sandbox_mode = .*\n','',old,flags=re.M)
         old=old.replace('approval_policy = "never"','approval_policy = "on-request"').replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
         old=old.replace('[features]\n','[features]\nguardian_approval = true\nplugins = false\n')
@@ -301,6 +303,15 @@ def probe(args):
             try:return rpc(home,'thread/loaded/list',{})['data']
             except (OSError,TimeoutError):return []
 
+        def single_backend():
+            if not args.expect_single_backend:return
+            paths=server_paths(home)
+            assert len(paths)==1, 'one resolved backend required: '+str(paths)
+            expected='servers' if args.native_catalog else 'catalogs'
+            assert paths[0].parent.parent.name==expected,paths
+            other='catalogs' if args.native_catalog else 'servers'
+            assert not list((home/'.local/share/codex/core'/other).glob('*/pid')), 'unexpected backend started'
+
         def snapshot(thread):
             d=rpc(home,'thread/resume',{'threadId':thread})
             return {k:d.get(k) for k in ['sandbox','approvalPolicy','approvalsReviewer','activePermissionProfile']}
@@ -313,6 +324,7 @@ def probe(args):
             process,master=start()
             wait(master,lambda:bool(server_paths(home)))
             wait(master,lambda:len(loaded())==1)
+            single_backend()
             ids=loaded();assert len(ids)==1,ids;thread=ids[0]
             rpc(home,'turn/start',{'threadId':thread,'input':[{'type':'text','text':'PL_MAIN','text_elements':[]}]})
             wait(master,lambda:(work/'PL_MAIN').is_file() and counts['nativeResults']>=1)
@@ -336,6 +348,7 @@ def probe(args):
             wait(master,lambda:(work/'PL_RESUME').is_file() and counts['nativeResults']>=2)
             wait(master,lambda:idle(thread))
             before_side=set(loaded())
+            single_backend()
             for character in b'/btw':os.write(master,bytes([character]));drain(master,.1)
             drain(master,.4);os.write(master,b'\r')
             wait(master,lambda:bool(set(loaded())-before_side))
@@ -362,8 +375,9 @@ def probe(args):
             rpc(home,'turn/start',{'threadId':child,'input':[{'type':'text','text':'PL_SIDE','text_elements':[]}]})
             wait(master,lambda:(work/'PL_SIDE').is_file() and counts['nativeResults']>=3)
             assert counts['guardian']>=3,counts
+            single_backend()
             assert 'error building bubblewrap command' not in screen
-            return {'accepted':True,'namedPermission':args.named_permission,'actualAndroidCommands':3,'guardianRequests':counts['guardian'],'nativeResults':counts['nativeResults'],'initial':first,'seeded':stale,'resumed':restored,'side':side,'realModelInference':False,'productionChanged':False}
+            return {'accepted':True,'namedPermission':args.named_permission,'nativeCatalog':args.native_catalog,'singleBackendAccepted':args.expect_single_backend,'actualAndroidCommands':3,'guardianRequests':counts['guardian'],'nativeResults':counts['nativeResults'],'initial':first,'seeded':stale,'resumed':restored,'side':side,'realModelInference':False,'productionChanged':False}
         finally:
             for process in processes:
                 if process.poll() is None:
@@ -390,5 +404,5 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))

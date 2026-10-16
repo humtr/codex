@@ -1424,9 +1424,15 @@ where
         return RuntimeLaunchError::Config(error);
     }
     use std::io::IsTerminal as _;
-    if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)] {
+    if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)]
+        || options.planned_args == [OsStr::new(shared_server::DEFAULT_COMMAND)]
+    {
         let prepare = || -> std::io::Result<_> {
-            let catalog = shared_server::read_catalog(std::io::stdin().lock())?;
+            let catalog = if options.planned_args[0] == shared_server::CATALOG_COMMAND {
+                Some(shared_server::read_catalog(std::io::stdin().lock())?)
+            } else {
+                None
+            };
             let home = std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
                 .ok_or_else(|| std::io::Error::other("catalog server requires HOME"))?;
@@ -1437,7 +1443,7 @@ where
                 resolver_path.as_ref(),
                 config_dir.as_ref(),
                 &env_plan,
-                Some(&catalog),
+                catalog.as_deref(),
             )
         };
         match prepare() {
@@ -1459,34 +1465,48 @@ where
         if let Some(home) = home {
             let profile = upstream_execution_home(&home);
             let state = home.join(".local/share/codex/core");
-            match shared_server::ensure(
-                selection.runtime.program_path,
-                &profile,
-                &state,
-                resolver_path.as_ref(),
-                config_dir.as_ref(),
-                &env_plan,
-            ) {
-                Ok(_socket) => {
-                    if matches!(options.manager, ManagerArtifact::Available(_))
-                        && options.manager_tui_available
-                        && manager_tui::supported(options.planned_args)
-                    {
-                        if let Some(frontend) = selection
-                            .helpers
-                            .iter()
-                            .find(|helper| helper.identity.starts_with(manager_tui::PREFIX))
-                        {
-                            return RuntimeLaunchError::Exec(manager_tui::launch(
-                                frontend.asset_path,
-                                &_socket,
-                                &profile,
-                                options.planned_args,
-                                resolver_path.as_ref(),
-                                config_dir.as_ref(),
-                                &env_plan,
-                            ));
-                        }
+            let frontend = (matches!(options.manager, ManagerArtifact::Available(_))
+                && options.manager_tui_available
+                && manager_tui::supported(options.planned_args))
+            .then(|| {
+                selection
+                    .helpers
+                    .iter()
+                    .find(|helper| helper.identity.starts_with(manager_tui::PREFIX))
+            })
+            .flatten();
+            let resolved = frontend.is_some_and(|frontend| {
+                manager_tui::resolved_startup(
+                    frontend.asset_path,
+                    resolver_path.as_ref(),
+                    config_dir.as_ref(),
+                    &env_plan,
+                )
+            });
+            let socket = if resolved {
+                shared_server::native_socket(selection.runtime.program_path, &profile, &state)
+            } else {
+                shared_server::ensure(
+                    selection.runtime.program_path,
+                    &profile,
+                    &state,
+                    resolver_path.as_ref(),
+                    config_dir.as_ref(),
+                    &env_plan,
+                )
+            };
+            match socket {
+                Ok(socket) => {
+                    if let Some(frontend) = frontend {
+                        return RuntimeLaunchError::Exec(manager_tui::launch(
+                            frontend.asset_path,
+                            &manager_tui::BackendStartup { socket, resolved },
+                            &profile,
+                            options.planned_args,
+                            resolver_path.as_ref(),
+                            config_dir.as_ref(),
+                            &env_plan,
+                        ));
                     }
                 }
                 Err(error) => return RuntimeLaunchError::Config(error),
