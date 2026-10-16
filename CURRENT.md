@@ -30,8 +30,8 @@ This repository carries no external workflow skill or model configuration.
   p-key pin/unpin, CodeMode helpers, Retry-After, patch line endings, retained
   history and old/new Core update/rollback. Detailed evidence and scope are below.
   No real Chat inference or account credentials are used by this upgrade.
-- Installed opt-in ChatGPT provider:85e8f9127b98b12bb311/source7b8e541,
-  durable `returnTransport=local`; all599 files verify. Prior9dd288/source0ee0f59
+- Installed opt-in ChatGPT provider:3293607105766a583c42/source33cb3e1,
+  durable `returnTransport=local`; all527 files verify. Prior0eb431a/sourceef2a15a
   and earlier payloads remain available. Authorized activation prebuilt the new
   payload and rechecked zero lifetime requests/arrivals before normally stopping
   only the idle old adapter. Endpoint/capability,12 base auth/config hashes and
@@ -105,14 +105,34 @@ Actual signed-app/stable53 automatic and interrupted compaction both pass throug
 continued real development and cold Core inference; two concurrent account homes
 with independent guardian also pass. Autonomous ai-copy improvements pass full
 repository verification, with an explicitly corrected report-count observer and
-an exact-input evidence limitation. Source2245164 records complete proof and gaps.
+an exact-input evidence limitation. Source2245164 records that earlier proof and gaps. Current source33cb3e1 hides
+preceding user-scoped environment/history context in the app without XML guessing
+or changing the final user request. Actual short app-generation recovery passes:
+4 user-message objects,2 tool returns,4 model starts,0 Pro/retry; the cold model
+remembers the completed result without tools or file rewrites, and native reports
+persist/render. Reinstall/rollback/restore plus six bootstrap clients preserve
+all527 files,12 account auth/config hashes, the signed app and endpoint,0 Chat.
+The combined mid-turn/app-restart case remains recorded as FAIL; its retiring-
+controller race is fixed and separately regression/short-live qualified. Physical
+user-window observation and the experiment's other backlog remain open.
 
 Updated Manager system-fragment defaults pass actual Android fresh/resume/btw
 execution in legacy and named permissions: six commands/six guardian reviews,
 dangerFullAccess/auto_review retained. Explicit user reviewer and Full Access
 choices also pass without any model turn. These use stable53's frontend plus the
-new Manager; native same-Chat TUI selection still awaits build38971985065/device
-proof. Source acceptance38971986448 passes. Private cache:
+new Manager. Actual Android no-op/model/effort selection with source90781cd
+passes without frontend exec or inference, including shared --profile fallback.
+Source acceptance38971986448 and38975807272 pass. Native runs38971985065 and
+38975807254 each pass42/43 focused tests and are not release authority. The first
+new test lacked an explicit Termux child environment; the second initialized only
+stored defaults while the picker reads the active collaboration mask. The test
+now uses actual set_model/set_reasoning_effort setters and asserts effective state
+before checking actions. The same test covers Default and Plan for all four
+no-op/model/effort combinations, applies the emitted native setters and checks the
+effective result plus inactive-mode preservation. Plan effort now uses the existing
+UpdatePlanModeReasoningEffort event rather than the Default-only event; no account
+preference is persisted. The required43-test native/94-feature/lint gate and signed
+stable54 publication remain pending; no failing gate is waived. Private cache:
 chat-manager-default{,-named}-lifecycle.json and chat-manager-explicit-{user-3,full}.json.
 
 ## Final Core / Manager responsibility boundary

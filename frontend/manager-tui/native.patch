@@ -505,7 +505,7 @@ index aa5de8b..f7f7c14 100644
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -294,6 +299,41 @@ impl ChatWidget {
+@@ -294,6 +299,46 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -530,6 +530,7 @@ index aa5de8b..f7f7c14 100644
 +        {
 +            let model_changed = model_for_action != self.current_model();
 +            let effort_changed = effort_for_action != self.effective_reasoning_effort();
++            let plan_mode = self.active_mode_kind() == ModeKind::Plan;
 +            if !model_changed && !effort_changed {
 +                return Vec::new();
 +            }
@@ -540,14 +541,18 @@ index aa5de8b..f7f7c14 100644
 +                    tx.send(AppEvent::UpdateModel(model_for_action.clone()));
 +                }
 +                if effort_changed {
-+                    tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
++                    if plan_mode {
++                        tx.send(AppEvent::UpdatePlanModeReasoningEffort(effort_for_action.clone()));
++                    } else {
++                        tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
++                    }
 +                }
 +            })];
 +        }
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
-@@ -774,3 +814,7 @@ impl ChatWidget {
+@@ -774,3 +819,7 @@ impl ChatWidget {
          }
      }
  }

@@ -50,6 +50,9 @@ update authority is maintained.
   Model/effort changes within the selected Chat provider use upstream session
   updates, preserving the frontend and compatible owned remote conversation.
   An exact no-op submits nothing; a pending native call retains its original route.
+  Reasoning changes target the active collaboration mode, including Plan, through
+  its upstream session event; they do not persist account defaults or change the
+  inactive mode's reasoning preference.
   Core's existing private config directory may contain `profiles/NAME.config.toml`.
   Manager launch preparation projects missing upstream filenames into an owned execution home with
   atomic no-replace symlinks; existing local overrides win. Shared profile sources
