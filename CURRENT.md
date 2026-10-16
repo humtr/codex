@@ -13,11 +13,12 @@ This repository carries no external workflow skill or model configuration.
   main caller b2622ce pins that exact source; promotion df443eb changes only the
   signed index. Independent HTTPS readback verifies its signature and exact
   candidate bytes. Production release and source proofs are linked below.
-- Device remains stable52/CLI0.161.0; stable51 is its retained rollback generation.
-  This upgrade has not activated a live generation or restarted existing clients.
-  Ordinary `codex update` can activate stable53. Running clients retain their
-  loaded images until normal restart or frontend re-entry. Do not describe a
-  published candidate or an isolated fixture as physical activation.
+- Device activation state now selects stable53/CLI0.163.0, retaining stable52 for
+  rollback. Actual `codex --version` reports0.163.0; Core/Manager doctor is healthy
+  with zero failures. Upstream doctor reports two existing title/thread-index
+  warnings and zero failures. No user title/history is rewritten to hide them.
+  Existing clients may retain older loaded images until normal restart/re-entry;
+  this observation does not prove every running process has restarted.
 - Source36bfeed has full hosted acceptance38904327519, including the event's
   Android Core proof, workspace tests, fmt and Clippy. Native38898455640 passes
   42 maintained TUI regressions and94 executed retained-upstream feature tests,
@@ -60,15 +61,15 @@ failure is reproduced at the adapter admission boundary. Canonical catalog,
 old-round observation and completed-sample recovery fixes are now installed in
 the opt-in provider, with native MCP live proof above. This remains experimental,
 not a public stable Chat-provider promotion or full lifecycle qualification.
-Installed stable52 retains its qualified provider baseline; stable53 Core admission
+The provider retains its stable52 live-inference proof; stable53 Core admission
 and unrelated update/doctor maintenance are separate from Chat acceptance.
 
 ## Final Core / Manager responsibility boundary
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
 responsibility extraction and independent execution are complete. The separately
-qualified0.163 upgrade is now public stable53; live device activation and optional
-provider improvements remain separate. Device baseline stays stable52/0.161.0.
+qualified0.163 upgrade is now public/device stable53; optional provider improvements
+remain separate. Provider live-inference qualification on stable53 is still pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
 ### Accepted0.163 upgrade
@@ -76,7 +77,7 @@ No actual Chat inference is part of this boundary/upgrade qualification.
 User authorized the0.161→0.163 upgrade after boundary finalization, including
 0.162's added features. Target: official0.163.0/source83086188ae0614bd882818ff1aa23f3194962012,
 archive9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb.
-Public stable53 is accepted; installed stable52 remains unchanged.
+Public/device stable53 is selected; actual version/doctor checks pass.
 Temporary source/generations use TMPDIR;
 compiler and private evidence use ~/.cache/codex/upstream-0.163.0. No actual ChatGPT
 messages or real account credentials are used by this qualification.
@@ -110,8 +111,8 @@ bytes bind the actual Android proofs below (frontend-byte-identity.json).
 Device cases above use isolated roots, which are removed after their probes.
 The six owned temporary input/source/publication roots and private fixture keys
 are removed after checking that no live process references them (fixture-cleanup.json).
-Useful evidence remains in the XDG cache. Device activation and new physical
-notification taps have not occurred. The0.163 native
+Useful evidence remains in the XDG cache. Later read-only checks confirm device
+activation to stable53; new physical notification taps have not been tested. The0.163 native
 policy is termux-fd-remap-v5:433 adaptation bytes plus54 resolver/system-config FD
 bytes. It additionally forwards supported current local-resume permissions, fixing
 the reproduced stale workspace selection; reviewer/approval remain independent.
@@ -123,7 +124,7 @@ pins this successful run/source/executable/archive pair. Source36bfeed passes fu
 hosted acceptance38904327519. Independent main caller b2622ce pins it without
 merging histories; public release38904810656 passes every stage, including complete
 signed public readback/disposable update and non-forced promotion df443eb. There
-are no remaining public-release gates; live device activation remains separate.
+are no remaining public-release gates; device version and Core/Manager doctor pass.
 All retained162 feature topics have actual PASS evidence; zero/failed/missing proof
 refuses admission. Windows installer
 changes and Linux sandbox enforcement are not Termux acceptance targets.
