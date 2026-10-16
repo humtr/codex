@@ -1089,5 +1089,55 @@
       }
     },
     "decision": "Hide preceding canonical context by its position; never infer user authority or context origin from XML text."
+  },
+  "contextProjectionActivation": {
+    "accepted": true,
+    "installation": "3293607105766a583c42",
+    "sourceBase": "33cb3e113ada5eda9b31bedc82d49f6f1db07640",
+    "priorInstallation": "0eb431a078aab6c1ad6b",
+    "filesVerified": 527,
+    "qualifiedRuntimeInputsMatch": true,
+    "protectedAuthConfigFiles": 12,
+    "signedDesktopIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "authenticatedModels": 5,
+    "onlyUnusedAdapterStopped": true,
+    "actualChatSubmissions": 0
+  },
+  "contextProjectionInstallCycle": {
+    "accepted": true,
+    "steps": [
+      {
+        "step": "reinstall",
+        "installation": "3293607105766a583c42",
+        "filesVerified": 527
+      },
+      {
+        "step": "rollback",
+        "installation": "0eb431a078aab6c1ad6b",
+        "filesVerified": 527
+      },
+      {
+        "step": "restore",
+        "installation": "3293607105766a583c42",
+        "filesVerified": 527
+      }
+    ],
+    "concurrentBootstrapClients": 6,
+    "bootstrapResults": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "protectedAuthConfigFiles": 12,
+    "signedDesktopIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "onlyUnusedAdaptersStopped": true,
+    "actualChatSubmissions": 0,
+    "finalInstallation": "3293607105766a583c42",
+    "priorInstallationRetained": true
   }
 }

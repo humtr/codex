@@ -103,7 +103,9 @@ remains visible. Cold archived tool history remains a lossless hidden envelope,
 never executable app tool calls. This removes UI clutter without input compression,
 extra setup generations, or a claim about Chat allowance savings. Count every
 submitted user object, including hidden context. Existing remote chats are retained.
-This change is not implicitly installed; CURRENT.md identifies operating bytes.
+This is installed as329360/source33cb3e1; CURRENT.md owns operating state.
+Reinstall/rollback/restore preserves all527 hashes,12 auth/config files, the app
+identity and endpoint; six bootstrap clients pass with0 Chat submissions.
 
 Offline real-Core recovery proof, without a Chat request:
 
