@@ -25,7 +25,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / '.github/scripts'))
 from rald3_preflight import parse_descriptor
 from rald5_publication import parse_manifest
-from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
+from qualify_tasks import Ws, fixture_activation_state
 
 
 
@@ -34,17 +34,34 @@ def sha(path):
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def fixture(root, core, frontend, manager=None):
-    real_home = Path.home()
-    activation = dict(line.split('=', 1) for line in
-        (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
-    installed = real_home / '.local/lib/codex/core/generations' / activation['current']
+def fixture(root, core, frontend, manager=None, generation=None):
+    if generation is None:
+        real_home = Path.home()
+        activation = dict(line.split('=', 1) for line in
+            (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
+        installed = real_home / '.local/lib/codex/core/generations' / activation['current']
+    else:
+        installed = generation.resolve(strict=True)
     fields = parse_descriptor(installed / 'generation.meta')
-    _, inventory = parse_manifest(installed / 'release.manifest')
-    assert fields['upstream_package_version'] == '0.161.0'
-    assert all(sha(installed / name) == digest for name, digest, _ in inventory)
+    assert fields['upstream_package_version'] in ['0.161.0', '0.163.0']
+    # Explicit base fixtures are private signer inputs, not public release admission.
+    # The actual Core verifies the resulting signature/inventory before execution.
+    if frontend is None:
+        assert generation is not None and fields['helper_count'] == '2'
+        records = [line.split('\t') for line in (installed / 'release.manifest').read_text().splitlines() if line.startswith('file\t')]
+        expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta',
+                    'browser/open/curl', 'browser/manual/curl'}
+        assert len(records) == len(expected) and {row[1] for row in records} == expected
+        inventory = [(row[1], row[2], row[3]) for row in records]
+    else:
+        _, inventory = parse_manifest(installed / 'release.manifest')
+    assert all((installed / name).is_file() and not (installed / name).is_symlink()
+               and sha(installed / name) == digest for name, digest, _ in inventory)
     generation = root / 'local-permission-fixture'
-    materialize_signed_generation(installed, generation)
+    for name in [row[0] for row in inventory] + ['release.manifest', 'release.sig']:
+        target = generation / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(installed / name, target)
     core_mode = (generation / 'core').stat().st_mode & 0o777
     shutil.copy2(core, generation / 'core')
     (generation / 'core').chmod(core_mode)
@@ -52,21 +69,22 @@ def fixture(root, core, frontend, manager=None):
         manager_mode = (generation / 'manager').stat().st_mode & 0o777
         shutil.copy2(manager, generation / 'manager')
         (generation / 'manager').chmod(manager_mode)
-    raw = frontend.read_bytes()
-    changed = 0
-    for old, new, count in [
-        (b'/etc/resolv.conf', b'/proc/self/fd/33', 2),
-        (b'/etc/codex/config.toml', b'/dev/fd/34/config.toml', 1),
-        (b'/etc/codex/requirements.toml', b'/dev/fd/34/requirements.toml', 1),
-        (b'/etc/codex/managed_config.toml', b'/dev/fd/34/managed_config.toml', 1),
-    ]:
-        assert len(old) == len(new) and raw.count(old) == count and not raw.count(new)
-        changed += sum(a != b for a, b in zip(old, new)) * count
-        raw = raw.replace(old, new)
-    assert changed == 54
-    frontend_mode = (generation / 'helpers/2').stat().st_mode & 0o777
-    (generation / 'helpers/2').write_bytes(raw)
-    (generation / 'helpers/2').chmod(frontend_mode)
+    if frontend is not None:
+        raw = frontend.read_bytes()
+        changed = 0
+        for old, new, count in [
+            (b'/etc/resolv.conf', b'/proc/self/fd/33', 2),
+            (b'/etc/codex/config.toml', b'/dev/fd/34/config.toml', 1),
+            (b'/etc/codex/requirements.toml', b'/dev/fd/34/requirements.toml', 1),
+            (b'/etc/codex/managed_config.toml', b'/dev/fd/34/managed_config.toml', 1),
+        ]:
+            assert len(old) == len(new) and raw.count(old) == count and not raw.count(new)
+            changed += sum(a != b for a, b in zip(old, new)) * count
+            raw = raw.replace(old, new)
+        assert changed == 54
+        frontend_mode = (generation / 'helpers/2').stat().st_mode & 0o777
+        (generation / 'helpers/2').write_bytes(raw)
+        (generation / 'helpers/2').chmod(frontend_mode)
     text = (generation / 'generation.meta').read_text()
     text = text.replace(fields['generation_id'], generation.name)
     lines = []
@@ -76,7 +94,7 @@ def fixture(root, core, frontend, manager=None):
         elif manager is not None and line.startswith('manager_artifact_digest\t'):
             line = 'manager_artifact_digest\t' + sha(generation / 'manager')
         elif line.startswith('helper\ttermux-manager-tui-v1:'):
-            line = 'helper\ttermux-manager-tui-v1:0.161.0\t' + sha(generation / 'helpers/2')
+            line = 'helper\ttermux-manager-tui-v1:' + fields['upstream_package_version'] + '\t' + sha(generation / 'helpers/2')
         lines.append(line)
     (generation / 'generation.meta').write_text('\n'.join(lines) + '\n')
     key, public = root / 'fixture-key.pem', root / 'fixture-public.pem'
@@ -94,7 +112,7 @@ def fixture(root, core, frontend, manager=None):
     home, prefix = root / 'h', root / 'p'
     for path in [home / '.codex', home / '.local/share/codex/core/config', prefix / 'bin', prefix / 'etc/tls', root / 't', root / 'w']:
         path.mkdir(parents=True, mode=0o700)
-    materialize_signed_generation(generation, home / '.local/lib/codex/core/generations' / generation.name)
+    shutil.copytree(generation, home / '.local/lib/codex/core/generations' / generation.name)
     shutil.copy2(core, prefix / 'bin/codex')
     (home / '.local/share/codex/core/activation-state').write_text(fixture_activation_state(generation.name, public))
     host_prefix = Path(os.environ['PREFIX'])
@@ -175,7 +193,7 @@ def schema_value(schema):
 def probe(args):
     with tempfile.TemporaryDirectory(prefix='pl-',dir=os.environ['TMPDIR']) as tmp:
         root=Path(tmp)
-        home,prefix,env=fixture(root,args.core,args.frontend,args.manager)
+        home,prefix,env=fixture(root,args.core,args.frontend,args.manager,args.generation)
         # Deterministic Responses fixture uses the public v1 tool wire format.
         # Production model metadata is never changed.
         for name in ['native-models.json','models_cache.json']:
@@ -430,5 +448,6 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path,required=True);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path);p.add_argument('--generation',type=Path);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    if a.frontend is None and a.generation is None:p.error('--frontend or explicit Core-only --generation is required')
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))

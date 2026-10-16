@@ -30,6 +30,7 @@ pub(crate) fn capabilities(requested: bool) -> Option<crate::AppExitInfo> {
 pub(crate) async fn bind(
     target: &mut crate::AppServerTarget,
     config: &crate::legacy_core::config::Config,
+    cli_kv_overrides: &[(String, toml::Value)],
 ) -> color_eyre::Result<()> {
     if crate::termux_permissions::enabled()
         && matches!(target, crate::AppServerTarget::LocalDaemon { .. })
@@ -57,7 +58,7 @@ pub(crate) async fn bind(
         // resolved backend, without offering an installer/restart/embedded path.
         if crate::profile_transport::core_owned(target, true)
             && let Some(warning) =
-                crate::daemon_startup::compatibility_warning(target, config).await?
+                crate::daemon_startup::compatibility_warning(target, config, cli_kv_overrides).await?
         {
             color_eyre::eyre::bail!("qualified backend is incompatible: {warning}");
         }

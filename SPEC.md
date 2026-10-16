@@ -6,6 +6,18 @@ Active implementation branch: `rewrite/rust-core`
 
 ## Generation-bound Manager TUI admission (2026-10-10)
 
+The0.163 adaptation is termux-fd-remap-v5, bound to official package SHA256
+9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb and raw CLI
+8a96f66d059d653e68bfd5f3c79337e6f1d7d170d80bf705eb7d0249b34c0ece.
+It retains FD33/34 remaps and exact protected FD35/permission-menu adaptation,
+including no Read Only choice and distinct Ask/Auto-review/Full access policies.
+The adapted native local TUI resume forwards the current permission configuration
+rather than restoring an obsolete Linux sandbox; remote requests, preserve-existing
+reads and saved approval/reviewer choices retain upstream semantics. This is a
+Termux frontend compatibility correction, not a change to the upstream engine.
+Existing v2/v3/v4 retained-generation admission remains valid. Passing construction
+alone does not qualify Android tools, reviewer, cold resume or side conversations.
+
 Upgrade qualification target: official0.163.0 source
 83086188ae0614bd882818ff1aa23f3194962012, with the same Rust1.95.0 source
 build toolchain and unchanged external dependency bindings. This source candidate

@@ -698,7 +698,7 @@ index a3fb544..35275d4 100644
      embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
  ) -> color_eyre::Result<AppServerClient> {
 +    #[cfg(unix)]
-+    termux_backend_catalog::bind(target, &config).await?;
++    termux_backend_catalog::bind(target, &config, &cli_kv_overrides).await?;
      let connection = if matches!(target, AppServerTarget::Embedded) {
          None
      } else {

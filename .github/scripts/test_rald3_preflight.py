@@ -88,15 +88,17 @@ class PreflightTests(unittest.TestCase):
             (root / "generation.meta").write_text(descriptor)
             self.assertEqual(M.verify_candidate(root, "0.155.0")["generation_id"], "gen-1")
             # Admission recognizes the new policy without dropping rollback policies.
-            for policy in ["termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3", "termux-fd-remap-v4"]:
-                version = {"termux-fd-remap-v1": "0.155.0", "termux-fd-remap-v4": "0.161.0"}.get(policy, "0.160.0")
+            for policy in ["termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3", "termux-fd-remap-v4", "termux-fd-remap-v5"]:
+                version = {"termux-fd-remap-v1": "0.155.0", "termux-fd-remap-v4": "0.161.0", "termux-fd-remap-v5": "0.163.0"}.get(policy, "0.160.0")
                 candidate = descriptor.replace("termux-fd-remap-v1", policy).replace("0.155.0", version)
-                if policy == "termux-fd-remap-v4":
-                    candidate = candidate.replace("source_artifact_digest\t" + "a" * 64, "source_artifact_digest\t3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8")
+                archives = {"termux-fd-remap-v4": "3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8",
+                            "termux-fd-remap-v5": "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb"}
+                if policy in archives:
+                    candidate = candidate.replace("source_artifact_digest\t" + "a" * 64, "source_artifact_digest\t" + archives[policy])
                 (root / "generation.meta").write_text(candidate)
                 self.assertEqual(M.verify_candidate(root, version)["patch_policy_id"], policy)
-                if policy == "termux-fd-remap-v4":
-                    (root / "generation.meta").write_text(candidate.replace("3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8", "a" * 64))
+                if policy in archives:
+                    (root / "generation.meta").write_text(candidate.replace(archives[policy], "a" * 64))
                     with self.assertRaises(M.PreflightError):
                         M.verify_candidate(root, version)
                     (root / "generation.meta").write_text(candidate)

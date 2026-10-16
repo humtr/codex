@@ -123,9 +123,12 @@ fn picker(view: Profiles, keymap: &ListKeymap) -> SelectionViewParams {
             let selected = id.clone();
             SelectionItem {
                 is_current,
-                is_default: view.saved_default == id,
                 search_value: Some(id.clone()),
-                name: id,
+                name: if view.saved_default == id && !is_current {
+                    format!("{id} (default)")
+                } else {
+                    id
+                },
                 actions: if is_current {
                     Vec::new()
                 } else {
