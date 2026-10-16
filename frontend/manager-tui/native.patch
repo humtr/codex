@@ -483,7 +483,7 @@ index 2f74f84..f88e189 100644
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index aa5de8b..9b03f35 100644
+index aa5de8b..f7f7c14 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
@@ -505,7 +505,7 @@ index aa5de8b..9b03f35 100644
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -294,6 +299,20 @@ impl ChatWidget {
+@@ -294,6 +299,41 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -523,9 +523,38 @@ index aa5de8b..9b03f35 100644
 +                })
 +            })];
 +        }
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled()
++            && self.config.model_provider_id == crate::termux_chat_models::PROVIDER
++            && model_for_action.starts_with("chatgpt-desktop/")
++        {
++            let model_changed = model_for_action != self.current_model();
++            let effort_changed = effort_for_action != self.effective_reasoning_effort();
++            if !model_changed && !effort_changed {
++                return Vec::new();
++            }
++            // The selected account/config profile is not a Chat default. Use
++            // upstream session actions without persisting a Chat slug into it.
++            return vec![Box::new(move |tx| {
++                if model_changed {
++                    tx.send(AppEvent::UpdateModel(model_for_action.clone()));
++                }
++                if effort_changed {
++                    tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
++                }
++            })];
++        }
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
+@@ -774,3 +814,7 @@ impl ChatWidget {
+         }
+     }
+ }
++
++#[cfg(test)]
++#[path = "termux_chat_model_selection_tests.rs"]
++mod termux_chat_model_selection_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
 index 62877cf..3d2730b 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
@@ -722,7 +751,7 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index a3fb544..35275d4 100644
+index a3fb544..b34f83a 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,11 @@ mod experimental_features;

@@ -40,13 +40,16 @@ update authority is maintained.
   noninteractive routes retain the official runtime path. Optional frontend
   absence never makes Core unavailable.
   An opt-in installed Chat model catalog augments `/model`; its marked private
-  config owns command-backed, nonsecret routing references. Model/provider changes
-  re-enter Core with the same home, durable thread, permissions/reviewer and
+  config owns command-backed, nonsecret routing references. Changes across the
+  native/Chat provider boundary re-enter Core with the same home, durable thread, permissions/reviewer and
   terminal. Active work, pending input/tools or side conversations refuse the
   transition. Selected config profiles survive; no Chat slug is persisted into
   an ordinary default. `--profile chatgpt` remains an upstream config fallback,
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
   proof; deferred families and unexecuted Pro choices are labelled accordingly.
+  Model/effort changes within the selected Chat provider use upstream session
+  updates, preserving the frontend and compatible owned remote conversation.
+  An exact no-op submits nothing; a pending native call retains its original route.
   Core's existing private config directory may contain `profiles/NAME.config.toml`.
   Manager launch preparation projects missing upstream filenames into an owned execution home with
   atomic no-replace symlinks; existing local overrides win. Shared profile sources
@@ -1148,6 +1151,11 @@ and configuration precedence. No account config.toml or credential is rewritten.
 Manager reads its own notification policy and renders the same existing native
 completion callback and hook matchers. Missing configuration enables no automatic
 hooks; malformed configuration does not become default notification enrollment.
+Its system-layer fragment also supplies `approval_policy = "on-request"` and
+`approvals_reviewer = "auto_review"` as convenience defaults. Upstream precedence
+keeps account/project/config-profile/CLI choices authoritative, including explicit
+user review or full access. Core neither selects this reviewer nor interprets
+these fields; without Manager, ordinary upstream approval defaults remain usable.
 The same preparation owns optional shared `*.config.toml` projection from the
 private CONFIG_DIRECTORY/profiles registry into the selected upstream home.
 Existing local files and dangling links take precedence, and projection does not

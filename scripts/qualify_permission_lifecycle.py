@@ -275,6 +275,8 @@ def probe(args):
             layer.write_text(catalog_override);layer.chmod(0o600)
         old=re.sub(r'^sandbox_mode = .*\n','',old,flags=re.M)
         old=old.replace('approval_policy = "never"','approval_policy = "on-request"').replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
+        if getattr(args,'manager_default_reviewer',False):
+            old=re.sub(r'^(approval_policy|approvals_reviewer) = .*\n','',old,flags=re.M)
         old=old.replace('[features]\n','[features]\nguardian_approval = true\nplugins = false\n')
         old += "\n[projects."+json.dumps(str(work))+"]\ntrust_level = \"trusted\"\n"
         old = 'model_provider = "owned"\n' + old
@@ -448,6 +450,6 @@ def probe(args):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path);p.add_argument('--generation',type=Path);p.add_argument('--manager',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,required=True);p.add_argument('--frontend',type=Path);p.add_argument('--generation',type=Path);p.add_argument('--manager',type=Path);p.add_argument('--manager-default-reviewer',action='store_true');p.add_argument('--report',type=Path,required=True);p.add_argument('--named-permission',action='store_true');p.add_argument('--native-catalog',action='store_true');p.add_argument('--catalog-layer',choices=['user','cli','project','profile'],default='user');p.add_argument('--expect-single-backend',action='store_true');p.add_argument('--expect-stale-resume',action='store_true');a=p.parse_args()
     if a.frontend is None and a.generation is None:p.error('--frontend or explicit Core-only --generation is required')
     result=probe(a);a.report.write_text(json.dumps(result)+'\n');a.report.chmod(0o600);print(json.dumps(result))

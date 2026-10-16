@@ -37,6 +37,9 @@ pub(super) fn prepare(
         },
     };
     let mut result = String::from(HEADER);
+    // A shared upstream system-layer default, below every explicit user/profile
+    // choice. Core transports this opaque fragment and owns no reviewer policy.
+    result.push_str("approval_policy = \"on-request\"\napprovals_reviewer = \"auto_review\"\n\n");
     result.push_str(&render(
         &events.iter().map(String::as_str).collect::<Vec<_>>(),
     ));

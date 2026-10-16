@@ -93,6 +93,15 @@ proof. No existing user task was stopped. Next: automatic/fault compaction and
 provider/app lifecycle, then longer development/concurrent-owner qualification.
 The experiment's current-state document owns remaining scope and exclusions.
 
+Whole-backlog work is authorized and in progress. Source changes now keep same-Chat
+model/effort changes on upstream session actions without persisting a Chat slug
+into an ordinary account profile. Manager supplies default on-request/auto_review
+in its existing system-layer fragment; explicit upstream user/profile/CLI choices
+win. Core owns neither default reviewer policy nor provider behavior. These
+changes still require native/device qualification and normal signed publication.
+The autonomous real-repository retry exposed a missing optional progress-report
+field as a provider abort; the experiment owns that repair and further proof.
+
 ## Final Core / Manager responsibility boundary
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The

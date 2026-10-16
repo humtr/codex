@@ -107,7 +107,7 @@ fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_w
     };
     let empty = query();
     assert!(empty.status.success(), "{empty:?}");
-    assert_eq!(empty.stdout, b"codex-manager-runtime-config-v1\n");
+    assert_eq!(empty.stdout, b"codex-manager-runtime-config-v1\napproval_policy = \"on-request\"\napprovals_reviewer = \"auto_review\"\n\n");
     assert!(empty.stderr.is_empty());
     assert!(!home.join(".local").exists());
 
@@ -133,7 +133,7 @@ fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_w
     let prepared = query();
     assert!(prepared.status.success(), "{prepared:?}");
     let text = String::from_utf8(prepared.stdout).unwrap();
-    assert!(text.starts_with("codex-manager-runtime-config-v1\nnotify = "));
+    assert!(text.starts_with("codex-manager-runtime-config-v1\napproval_policy = \"on-request\"\napprovals_reviewer = \"auto_review\"\n\nnotify = "));
     assert!(text.contains("[[hooks.SessionStart]]"));
     assert!(text.contains("matcher = \"^(functions\\\\.)?request_user_input(_async)?$\""));
     assert!(!text.contains("hooks.Stop"));

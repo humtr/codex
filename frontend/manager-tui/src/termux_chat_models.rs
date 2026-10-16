@@ -51,7 +51,7 @@ pub(crate) fn valid_chat(model: &str, effort: &ReasoningEffort) -> bool {
 }
 
 pub(crate) fn needs_reentry(provider: &str, model: &str) -> bool {
-    provider == PROVIDER || model.starts_with("chatgpt-desktop/")
+    (provider == PROVIDER) != model.starts_with("chatgpt-desktop/")
 }
 
 /// Provider routing is planned without App/chatwidget or server lifecycle access.
@@ -515,7 +515,8 @@ args = ["-B", "/owned/desktop_lifecycle.py", "token", "--runtime", "/owned/runti
         ));
         assert!(needs_reentry("openai", "chatgpt-desktop/gpt-6"));
         assert!(needs_reentry(PROVIDER, "gpt-6.1-sol"));
-        assert!(needs_reentry(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
+        assert!(!needs_reentry(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
+        assert!(!needs_reentry(PROVIDER, "chatgpt-desktop/gpt-6"));
         assert!(!needs_reentry("openai", "gpt-6.1-sol"));
     }
     #[test]
