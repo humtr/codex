@@ -12,6 +12,8 @@ on:
       - 'frontend/manager-tui/test_normalize_lock.py'
       - 'frontend/manager-tui/check_command_boundary.py'
       - 'frontend/manager-tui/test_command_boundary.py'
+      - 'frontend/manager-tui/check_upstream_features.py'
+      - 'frontend/manager-tui/test_upstream_features.py'
 permissions:
   contents: read
 concurrency:
@@ -230,6 +232,11 @@ jobs:
           cd upstream
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Qualify retained upstream 0.162 features
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 experiment/frontend/manager-tui/check_upstream_features.py --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
         shell: bash
         run: |
@@ -271,6 +278,7 @@ jobs:
           name: manager-tui-native-proof
           path: |
             ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-linted.patch
             upstream/codex-rs/tui/src/app/snapshots/*profile_manager*.snap*

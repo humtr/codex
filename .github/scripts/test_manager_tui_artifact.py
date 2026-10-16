@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 import manager_tui_artifact as qualifier
+from check_upstream_features import SUITES
 
 TOOL = Path(__file__).with_name("manager_tui_artifact.py")
 
@@ -50,6 +51,10 @@ class NativeArtifactTests(unittest.TestCase):
         proof = root / "proof" / "_temp"
         proof.mkdir(parents=True)
         (proof / "profile-tui-focused.log").write_text("Summary [3s] 42 tests run: 42 passed, 5632 skipped\n")
+        for suite, (package, _, topics) in SUITES.items():
+            (proof / f"profile-tui-upstream-{suite}.log").write_text(
+                "".join(f"PASS [0.01s] {package} {name}\n" for name in topics.values()) +
+                f"Summary [3s] {len(topics)} tests run: {len(topics)} passed\n")
         for name in ("profile-tui-formatted.patch", "profile-tui-linted.patch"):
             (proof / name).write_bytes(patch)
         run = {"id": 123, "path": qualifier.INPUTS[0], "event": "push",
@@ -71,7 +76,7 @@ class NativeArtifactTests(unittest.TestCase):
 
     def test_actual_cli_accepts_only_successful_same_input_version_digest_and_native_proof(self):
         cases = [None, "backend", "pin", "source-input", "owned-source", "raw", "checksum",
-                 "source", "version", "lock", "zero", "failed-tests", "old-tests", "lint", "patch"]
+                 "source", "version", "lock", "zero", "failed-tests", "old-tests", "lint", "patch", "upstream-proof"]
         cases += ["run-" + key for key in ("id", "path", "event", "head_branch",
                                            "head_sha", "status", "conclusion", "repository")]
         for fault in cases:
@@ -104,6 +109,7 @@ class NativeArtifactTests(unittest.TestCase):
                         else "Summary [3s] 41 tests run: 41 passed\n" if fault == "old-tests"
                         else "Summary [3s] 42 tests run: 41 passed, 1 failed\n")
                 elif fault == "lint": (proof / "profile-tui-linted.patch").write_bytes(b"changed\n")
+                elif fault == "upstream-proof": (proof / "profile-tui-upstream-engine.log").unlink()
                 result = self.invoke(fixture, version, digest)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr)
                 if fault is None:

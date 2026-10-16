@@ -91,6 +91,28 @@ The changed native permission/resume, /config and managed-server restart surface
 must be examined before carrying forward old UI hooks. Optional Manager reuse is
 verified independently; provider transport/inference is outside this upgrade.
 
+The0.161→0.163 upgrade must also qualify0.162's added features; source inclusion
+alone is not acceptance. The native producer now requires executed upstream
+tests for trusted managed-worktree creation/list/restart, shared task pinning,
+/copy and copy shortcuts, mouse-scroll scaling, terminal hyperlinks, fresh model/
+reasoning defaults, custom provider capabilities/remote compaction, CodeMode
+settlement and ranked search, Retry-After, and CRLF/mixed-line patch preservation.
+Each topic must execute successfully; zero/failed/missing topic proof refuses the
+frontend artifact. These additional gates are pending, not previous green proof.
+Mocks use loopback/dummy auth and do not submit real ChatGPT messages. Windows
+installer changes and Linux sandbox enforcement are not Termux acceptance targets.
+Actual Core-only0.163 legacy/named/config-profile permission menus and shortcuts
+pass without model turns; fresh/cold-resume/btw commands each pass real guardian
+reviews in legacy and named modes. Independent hosted0.163 base qualification
+38888089254 and full source38887974456 pass; integrated frontend/public promotion
+remain unfinished and stable52 stays installed.
+The final433-byte adaptation also passes five actual Android patch invocations:
+CRLF edits, append after trailing blank, repeated context, mixed untouched endings
+and adding a trailing newline. Each output matches expected bytes, the owned
+fixture is removed, and no account/network is used. Private proof:
+upstream-0.163.0/android-line-endings.json. This is engine proof, separate from
+the maintained frontend's still-pending copy/scroll/link interaction tests.
+
 ### Owners and retained execution necessities
 
 | Owner | Responsibility | Excluded responsibility |

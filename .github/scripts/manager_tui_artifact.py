@@ -11,6 +11,7 @@ import sys
 from rald3_preflight import bounded_read, no_duplicate_object
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/manager-tui"))
 from check_command_boundary import nonzero_tests
+from check_upstream_features import verify as verify_upstream_features
 
 UPSTREAM = "83086188ae0614bd882818ff1aa23f3194962012"
 VERSION = "0.163.0"
@@ -24,6 +25,8 @@ INPUTS = (
     "frontend/manager-tui/test_normalize_lock.py",
     "frontend/manager-tui/check_command_boundary.py",
     "frontend/manager-tui/test_command_boundary.py",
+    "frontend/manager-tui/check_upstream_features.py",
+    "frontend/manager-tui/test_upstream_features.py",
 )
 FILES = {"codex", "source.txt", "version.txt", "help.txt", "sha256.txt",
          "lock-audit.json", "native.patch"}
@@ -90,6 +93,7 @@ def verify(args):
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
     if nonzero_tests(log) != 42:
         raise ValueError("actual native regression set is not qualified")
+    verify_upstream_features(proof)
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")
     linted = bounded_read(proof / "profile-tui-linted.patch", 1024 * 1024, "linted native patch")
     if formatted != linted or formatted != bounded_read(args.artifact / "native.patch", 1024 * 1024, "native patch"):
