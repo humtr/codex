@@ -54,6 +54,11 @@ wire_api = "responses"
 requires_openai_auth = false
 '''
         (home / ".codex/config.toml").write_text(config)
+        registry = home / ".local/share/codex/core/config/profiles"
+        registry.mkdir(mode=0o700)
+        shared_profile = registry / "shared-proof.config.toml"
+        shared_profile.write_text('model = "owned-model"\n')
+        shared_profile.chmod(0o600)
         profiles = home / ".local/share/codex/manager/profiles"
         clients, servers = [], set()
 
@@ -120,14 +125,50 @@ requires_openai_auth = false
                 if (path / "pid").exists():
                     servers.add(int((path / "pid").read_text()))
             for pid in servers:
-                for sig in [signal.SIGTERM, signal.SIGKILL]:
-                    if Path(f"/proc/{pid}/exe").resolve() != native / "runtime":
-                        break
-                    os.kill(pid, sig)
+                if Path(f"/proc/{pid}/exe").resolve() == native / "runtime":
+                    # Core creates a private session for this exact fixture
+                    # server. Native shell discovery can still own FD36 after
+                    # its parent exits; terminate the whole owned test group.
+                    assert os.getpgid(pid) == pid, "fixture server lacks private process group"
+                    os.killpg(pid, signal.SIGKILL)
                     deadline = time.monotonic() + 3
                     while Path(f"/proc/{pid}/exe").resolve() == native / "runtime" and time.monotonic() < deadline:
                         time.sleep(.025)
                 assert Path(f"/proc/{pid}/exe").resolve() != native / "runtime", "owned server remained alive"
+            # Native shell-environment discovery may create its own group.
+            # Only descendants retaining this fixture's exact home inode on the
+            # Core lease FD qualify; do not identify unrelated shells by name.
+            homes = {(p.stat().st_dev, p.stat().st_ino)
+                     for p in profiles.glob("*/home") if p.is_dir()}
+            remaining = []
+            for path in Path("/proc").iterdir():
+                if not path.name.isdigit() or int(path.name) == os.getpid():
+                    continue
+                try:
+                    if path.stat().st_uid != os.getuid():
+                        continue
+                    lease = (path / "fd/36").stat()
+                    if (lease.st_dev, lease.st_ino) not in homes:
+                        continue
+                    start = (path / "stat").read_text().rsplit(") ", 1)[1].split()[19]
+                    # Revalidate the exact lease just before signaling.
+                    if (path / "fd/36").stat() != lease:
+                        continue
+                    os.kill(int(path.name), signal.SIGKILL)
+                    remaining.append((path, start))
+                except (OSError, ValueError):
+                    continue
+            deadline = time.monotonic() + 3
+            for path, start in remaining:
+                while True:
+                    try:
+                        fields = (path / "stat").read_text().rsplit(") ", 1)[1].split()
+                    except FileNotFoundError:
+                        break
+                    if fields[19] != start or fields[0] in ["Z", "X"]:
+                        break
+                    assert time.monotonic() < deadline, "owned lease helper remained alive"
+                    time.sleep(.025)
 
         try:
             for name in ["work", "override", "idle"]:
@@ -135,10 +176,15 @@ requires_openai_auth = false
                 (profiles / name / "home/config.toml").write_text(config)
             account = profiles / "work/home"
             override = profiles / "override/home"
+            local_profile = override / "shared-proof.config.toml"
+            local_profile.write_text('# local override\nmodel = "owned-model"\n')
             assert profile("default", "work").stdout == b"default: work\n"
             assert profile("current").stdout == b"current: work\nsource: saved\n"
             assert run("--version").stdout == expected_version
             assert (account / "sessions").is_symlink(), "actual Core must prepare selected home"
+            assert (account / shared_profile.name).is_symlink()
+            assert (account / shared_profile.name).read_bytes() == shared_profile.read_bytes()
+            run("--profile", "shared-proof", "mcp", "list")
             process, master = launch()
             pid = bind(account, process, master)
             assert Path(f"/proc/{pid}/fd/36").stat().st_ino == account.stat().st_ino
@@ -164,6 +210,8 @@ requires_openai_auth = false
             override_pid = bind(override, second, second_master)
             assert override_pid != pid
             assert profile("current", account=override).stdout == b"current: override\nsource: inherited\n"
+            assert not local_profile.is_symlink()
+            assert local_profile.read_text().startswith('# local override\n')
             print("PASS native saved default, inherited priority, FD36 server lease and active/idle profile separation")
             process.terminate()
             process.wait(timeout=5)
@@ -199,13 +247,16 @@ requires_openai_auth = false
             assert profile("default", success=False).returncode == 1
             assert preference.read_bytes() == b"invalid-owned-preference"
             preference.write_bytes(b"codex-manager-default-profile-v1\nprofile\tdefault\n")
+            assert (home / ".codex" / shared_profile.name).is_symlink()
             manager = native / "manager"
             manager.rename(native / "manager.unavailable")
             try:
                 assert run("--version").stdout == expected_version
+                run("--profile", "shared-proof", "mcp", "list")
             finally:
                 (native / "manager.unavailable").rename(manager)
             print("PASS native malformed preference and optional Manager absence preserve ordinary launch")
+            print("PASS Manager shared profile projection, local override and native profile use without Manager")
         finally:
             stop_owned()
 
@@ -214,6 +265,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-key", required=True, type=Path)
     parser.add_argument("--generation", required=True, type=Path)
-    parser.add_argument("--workdir", required=True, type=Path)
+    parser.add_argument("--workdir", required=True, type=Path, help="Short temporary parent; use Termux TMPDIR for native Android socket names")
     options = parser.parse_args()
     qualify(options.generation.resolve(), options.workdir.resolve(), options.public_key.resolve())

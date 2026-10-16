@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
 from rald3_preflight import parse_descriptor
+from qualify_tasks import fixture_activation_state, materialize_signed_generation
 
 
 class Rpc:
@@ -71,7 +72,7 @@ class Rpc:
         raise AssertionError(description)
 
 
-def qualify(core, generation, parent):
+def qualify(core, generation, parent, public_key):
     with tempfile.TemporaryDirectory(prefix="nq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
@@ -79,14 +80,17 @@ def qualify(core, generation, parent):
         identity = fields["generation_id"]
         assert ";permission_policy=" in fields["patch_report"]
         installed = home / ".local/lib/codex/core/generations" / identity
-        shutil.copytree(generation, installed)
+        materialize_signed_generation(generation, installed)
         assert (installed / "manager").is_file()
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex", home / ".local/share/codex/core/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
+        openssl = shutil.which("openssl")
+        assert openssl is not None, "OpenSSL is required for signed native proof"
+        (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
-        (home / ".local/share/codex/core/activation-state").write_text(f"format=codex-activation-state-v3\nupdate_key={'11' * 32}\ncurrent={identity}\ncurrent_key={'11' * 32}\nprevious_present=0\nprevious=\nprevious_key=\n")
+        (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
         real_bin = Path(shutil.which("sh")).parent
         calls = root / "calls.jsonl"
         provider = prefix / "bin/termux-notification"
@@ -223,6 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--core", type=Path, required=True)
     parser.add_argument("--generation", type=Path, required=True)
     parser.add_argument("--temp-parent", type=Path, required=True)
+    parser.add_argument("--public-key", type=Path, required=True)
     args = parser.parse_args()
-    assert all(path.is_absolute() for path in [args.core, args.generation, args.temp_parent])
-    qualify(args.core, args.generation, args.temp_parent)
+    assert all(path.is_absolute() for path in [args.core, args.generation, args.temp_parent, args.public_key])
+    qualify(args.core, args.generation, args.temp_parent, args.public_key)

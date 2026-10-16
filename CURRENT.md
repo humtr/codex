@@ -148,16 +148,38 @@ slice. Existing filesystem layout, public entrypoints, notification delivery and
 window/title handling stay in place. No installed runtime or account state has
 been edited. Core and Manager have no new compile-time dependency on each other.
 
-Qualification in progress: native Android ordinary completion/memory exclusion
-passes with a loopback Responses fixture and no real Chat inference. Full local
-and exact-source hosted acceptance are not yet recorded as complete. The first
-Core test run exposed a libtest stderr buffer lost at exec; --nocapture fixes the
-observer and the failed case now passes. Existing notification descendant cleanup
-asserted immediately after asynchronous SIGKILL; the observer now waits a bounded
-second for disappearance/death, retaining the actual survival failure. Native
-profile qualification also lacked OpenSSL in its synthetic PREFIX; provision the
-real verifier there before signed admission. These are test-harness corrections,
-not evidence of a production callback, process cleanup or trust failure.
+Implementation01e2f50 and test-lint correction6e4f419 pass exact-source hosted
+acceptance38845552319. Independent base qualification38845156837 also passes;
+its Core/runtime inputs are unchanged by the test-only lint correction. Local
+workspace tests pass Core196/one pre-existing ignored, Manager46+58+three path
+gates, builder25 and Python18+66. Final focused cleanup observation, fmt and Clippy
+pass after the lint correction. Native Android signed fixtures reuse the accepted
+frontend bytes with the new Core/Manager: saved/inherited account identity, live
+FD36 protection, rename inode retention, delete without shared-history changes,
+Manager absence and native --profile/mcp-list loading all pass. Shared profiles
+are created by Manager, local overrides win, and existing registrations still
+load without Manager. Signed ordinary/memory notification qualification also
+passes using only a loopback Responses fixture; actual Chat inference is zero.
+Physical notification tapping/window return was not re-exercised by this slice;
+the delivery and window/title implementations are unchanged.
+
+Failed observers are retained, not counted as product passes: libtest buffered
+stderr disappeared at exec (--nocapture fixes it); descendant SIGKILL observation
+needed a bounded wait; native fixture PREFIX lacked OpenSSL; a nested TMPDIR made
+Android socket names too long. Final native profile proof also found real retained
+FD36 owners: native shell-environment helpers can outlive the server in independent
+process groups. Deletion correctly refused. The fixture cleanup now verifies its
+exact home inode on FD36 before retiring only its own remaining helpers, while
+production mutation protection is unchanged. Both native qualifiers now use
+signed fixtures and the real verifier. These corrections improve proof quality;
+they do not authorize stopping user processes or relaxing profile protection.
+
+Private aggregate: responsibility-manager-qualified.json. Native proof logs:
+responsibility-manager-native-{profiles-final,notifications-signed}.log. The
+stable52 pointer and all eight installed payload hashes/modes remain unchanged;
+no publication, device activation or real credentials were used. Remaining work
+is the account/default delegation and managed-home policy/safety split, followed
+by server/catalog and frontend coupling reduction in the sequence below.
 
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
