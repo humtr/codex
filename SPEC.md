@@ -122,6 +122,9 @@ update authority is maintained.
   package/feature recovery paths, including before the resolved server exists.
   Only Core's coordinator may materialize that target; a missing socket is not
   permission to enter an upstream installation or embedded-execution path.
+  Upstream's read-only shared-feature compatibility check still runs against the
+  resolved server before connection admission; an incompatibility is explicit,
+  without an installer, restart prompt or embedded fallback.
   absent Manager, Core-only and explicit remote/embedded routes retain their paths.
   No capability file, persistent probe cache or generation-format change is added.
   Unsupported explicit

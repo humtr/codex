@@ -39,19 +39,28 @@ pub(crate) async fn bind(
             .as_ref()
             .map(serde_json::to_vec)
             .transpose()?;
-        if catalog.is_none()
-            && std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() != Ok("resolved-v1")
+        if catalog.is_some()
+            || std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() == Ok("resolved-v1")
         {
-            return Ok(());
+            let core = std::env::var_os("CODEX_PROFILE_CORE")
+                .map(std::path::PathBuf::from)
+                .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
+            let socket_path = prepare(&core, &config.codex_home, catalog.as_deref()).await?;
+            *target = crate::AppServerTarget::LocalDaemon {
+                endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket {
+                    socket_path,
+                },
+                allow_embedded_fallback: false,
+            };
         }
-        let core = std::env::var_os("CODEX_PROFILE_CORE")
-            .map(std::path::PathBuf::from)
-            .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
-        let socket_path = prepare(&core, &config.codex_home, catalog.as_deref()).await?;
-        *target = crate::AppServerTarget::LocalDaemon {
-            endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket { socket_path },
-            allow_embedded_fallback: false,
-        };
+        // Preserve upstream's read-only feature admission against the actual
+        // resolved backend, without offering an installer/restart/embedded path.
+        if crate::profile_transport::core_owned(target, true)
+            && let Some(warning) =
+                crate::daemon_startup::compatibility_warning(target, config).await?
+        {
+            color_eyre::eyre::bail!("qualified backend is incompatible: {warning}");
+        }
     }
     Ok(())
 }
