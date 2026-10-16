@@ -236,7 +236,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 experiment/frontend/manager-tui/check_upstream_features.py --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
+          cd upstream/codex-rs
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-code-mode-host --bin codex-code-mode-host
+          export CARGO_BIN_EXE_codex="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
+          export CARGO_BIN_EXE_codex_code_mode_host="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex-code-mode-host"
+          PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
         shell: bash
         run: |
