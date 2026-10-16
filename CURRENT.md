@@ -183,7 +183,7 @@ coupling reduction.
 
 ### Execution home and retained shared-state binding
 
-Implementation in qualification: execution_lease.rs replaces the registry-aware
+Implementation9d7e2ae: execution_lease.rs replaces the registry-aware
 profile lease. It locks every existing owned execution directory by its actual
 inode, including native default, isolated and declared external homes. The
 primitive contains no Manager path, account ID grammar, registration parser or
@@ -208,9 +208,41 @@ Descriptor-pressure proof also found that the generation-retention File could
 occupy36 before home binding. Its shared lock now lives above reserved descriptors
 33–36, retaining CLOEXEC behavior; pressure tests prove both independent locks
 remain held until their proper release. Focused inode/descendant/relative/alias
-and unsafe-home public-path tests pass. Full workspace, exact-source hosted and
-new signed native default/isolated/external proofs remain in qualification.
-No operating runtime or user state has been changed.
+and six unsafe-home public-path cases pass. Exact-source hosted full acceptance
+38848038718 and independent base qualification38848038902 pass. Local Python18+66,
+Core196/one existing ignored, Manager46+58+three path gates, builder25, fmt and
+Clippy pass across the full run and affected-component rerun.
+
+Native Android signed-fixture profile qualification passes with syscall tracing
+on lifecycle commands: saved/inherited identity, active/idle separation, persistent
+server and descendant leases, rename inode retention, shared-history preservation,
+Manager absence, native shared --profile use and Core-only default/isolated/external
+server FD36 bindings. The isolated home owns its SQLite DB; declared external homes
+use canonical shared history. Signed native ordinary/memory notification
+qualification also passes: two ordinary root turns deliver exactly one single-line
+notification each; real native memory consolidation adds no notification. The
+provider is a local deterministic fixture, not an Android tap/delivery observation.
+No live credentials or real Chat inference are used.
+
+Keep the negative evidence: the first local full run's old-runtime metadata test
+rejected rename after its child exited; focused and complete Manager reruns passed.
+Native profile attempts also transiently refused idle rename and post-stop rename;
+the fully traced attempt passed without a product change or retry suppression.
+Concurrent unrelated acceptance processes were visible on this device, but the
+exact rejection branch/cause remains unconfirmed. Do not count these failures as
+passes or weaken mutation protection. Before changing that guard, capture the
+specific lease/process-check rejection during a failing attempt, retaining only
+PID/start/check/errno and no environment payload. This remains a lifecycle
+diagnostic follow-up, not a proven lease regression or a completed busy-guard fix.
+
+Private proof logs: responsibility-home-full.log (includes the failed first gate),
+responsibility-home-manager-builder.log, responsibility-home-native-profiles.log
+and responsibility-home-native-profiles-diagnostic.log (failed attempts), and
+responsibility-home-native-profiles-traced.log (complete native pass), and
+responsibility-home-native-notifications.log. Aggregate:
+responsibility-home-qualified.json. Operating runtime, public release and user
+state are unchanged. Continue with slice5 server/catalog coupling; keep the
+lifecycle diagnostic follow-up visible rather than treating it as resolved.
 
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
@@ -225,7 +257,8 @@ upstream0.161.0. Relevant observed coupling:
 - At that baseline Core launch read Manager notification policy, generated
   event-specific hooks and projected shared configuration profiles; the slice
   above extracts those policies. It still recognizes managed profile paths and
-  prepares shared conversation layout; their policy/safety split remains open.
+  prepares shared conversation layout; the execution-home slice above resolves
+  that policy/safety split while retaining the one canonical compatibility binding.
 - shared_server.rs combines necessary signed-runtime/socket binding with catalog
   snapshots and reuse decisions needed by the enhanced frontend. Release-builder
   also maintains exact-version binary permission/UDS patches. Moving files between

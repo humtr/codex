@@ -2500,10 +2500,11 @@ that registry coordination; Core execution does not lock or parse the registry.
 For every existing owned upstream execution home, Core opens the actual directory
 and holds a shared kernel lock on its inode across native runtime and shared-server
 execution using FD36. The lease primitive knows no account ID, Manager path or
-registration format. Native aliases/relative paths bind the same actual inode;
-upstream still receives the original CODEX_HOME. A missing home is left to the
-existing execution preparation/upstream rules, and a foreign-owned home does not
-become a Manager-managed account through this optional lease.
+registration format. At the lease boundary, aliases/relative paths bind the same
+actual inode; upstream still receives the original CODEX_HOME. This does not
+broaden the existing shared-layout or server-path admission rules. A missing home
+is left to the existing execution preparation/upstream rules, and a foreign-owned
+home does not become a Manager-managed account through this optional lease.
 
 The existing declared Manager-home path contract still requires a real private
 owned home and safe ancestors before the generic lease is acquired; missing,

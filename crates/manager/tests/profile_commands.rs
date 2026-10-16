@@ -840,10 +840,10 @@ fn profile_prelease_runtime_metadata_rejects_home_cwd_and_open_handles() {
         assert!(child.try_wait().unwrap().is_none());
         child.kill().unwrap();
         child.wait().unwrap();
+        let released = run_manager(&root.0, &core, &["profile", "rename", "old", "new"], None);
         assert!(
-            run_manager(&root.0, &core, &["profile", "rename", "old", "new"], None)
-                .status
-                .success()
+            released.status.success(),
+            "released {mode} fixture: {released:?}"
         );
     }
 }
