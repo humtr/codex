@@ -197,8 +197,8 @@ ordinary official upstream discovery is used. An unsupported upstream artifact
 still fails existing builder qualification, rather than weakening patch admission.
 Skipped integrated construction distinguishes a non-newer release from missing
 frontend qualification or an archive mismatch; it must not report all three as
-already up to date. Feature-preserving default-update independence remains a later
-responsibility-alignment step, not a claim made by this qualification mode.
+already up to date. Independent base qualification and feature-preserving public
+promotion are different guarantees; section4.6 defines their final boundary.
 
 ## Native /switch behavior
 
@@ -872,9 +872,8 @@ Fresh candidate admission, staging and activation
 retain complete Manager verification whenever the candidate declares one. No
 generation metadata, signed inventory or user state is rewritten to express absence.
 
-TypeScript is the preferred Manager implementation language, but no Manager
-runtime or dependency may become a prerequisite for ordinary upstream launch,
-Core doctor, update, or rollback.
+Manager is a separate Rust executable. No Manager runtime or dependency may
+become a prerequisite for ordinary upstream launch, Core doctor, update, or rollback.
 
 ### 4.3 Shared contracts
 
@@ -970,6 +969,75 @@ contract is amended before its implementation changes. Profile preparation and
 effective identity are defined by profile contracts; notifications belong to
 Manager and recovery belongs to Core. These criteria authorize neither data migration nor
 an installed-runtime change.
+
+### 4.6 Final component boundary and Core independence
+
+The minimum product is the qualified upstream runtime plus Core's Termux
+compatibility and authenticated generation lifecycle. Manager, the maintained
+Manager TUI and any Chat provider are optional components, not successive mandatory
+launch stages. Manager can operate without the enhanced TUI; the provider exposes
+an upstream configuration route without requiring its model picker.
+
+| Component | Owns | Must not own |
+| --- | --- | --- |
+| Upstream | Authentication, inference, tools, reviewer/approval engine, conversation schemas, thread/turn state, compaction, resume and writer locks | Our generation trust or Android window identity |
+| Core and release-builder | Qualified executable/environment/FD/socket binding, unsupported-sandbox enforcement, generic execution-home lease, one physical shared-layout binding, signed inventory, activation/retention/update/rollback and base diagnosis | Account selection/registry, notification policy, model/provider catalog interpretation, Chat transport or TUI interaction |
+| Manager | Account/config-profile convenience policy, task discovery/handoff UX, notification hooks/delivery, native window registration/return, optional tmux and title forwarding | Runtime pointer/trust mutation, another updater/executor, conversation storage/schema or model inference |
+| Maintained frontend | Narrow upstream UI integration for /switch, supported permissions, /model catalog/routing and title callbacks; upstream renders canonical transcripts | Provider login/transport/lifetime, generation mutation or a second backend supervisor |
+| Optional provider | Provider catalog/capabilities, auth context, request/tool-return transport, retry and owned-host lifetime | Core runtime selection, canonical conversation DB/writer ownership or native tool execution |
+
+Core retains two deliberate bindings beyond Android syscall adaptation. The one
+physical shared-layout/SQLite preparation preserves the accepted sharing policy
+for the three supported homes, including a first direct launch without Manager;
+arbitrary homes stay isolated. The one signed-server coordinator enforces the
+runtime/home/environment identity, safe endpoint, current-client retention and
+opaque configuration-byte binding. Native server protocol/turns remain upstream
+owned. The qualified native model/list API cannot replace a server's startup
+catalog, so frontend resolution precedes that bounded Core request. Neither
+binding authorizes account selection or model-schema interpretation in Core.
+
+codex-runtime-binding is dependency-free shared **source**, statically compiled
+into its callers, for the existing bounded execution-record codec. Core depends
+on release-builder and this primitive, not on Manager, frontend or provider.
+It creates no installed shared library, service, registry or optional-component
+runtime prerequisite. Core configuration queries remain bounded and optional;
+failure skips conveniences while preserving independent execution.
+
+Independence has distinct observable levels:
+
+- **Build and qualification:** Core/base construction and Android execution do not
+  compile, acquire or qualify Manager, enhanced TUI or provider. Unsupported native
+  runtime revisions still require their own Termux qualification.
+- **Installed execution and lifecycle:** a valid Core-only generation supports
+  ordinary upstream execution and Core doctor/update/rollback. Unavailable optional
+  assets in an already-installed generation do not disable those operations.
+  Doctor may separately report missing authentication or conveniences. Fresh
+  candidate admission still rejects every missing/changed declared asset.
+- **Component reuse:** the builder accepts an independently admitted Manager;
+  local reconstruction already carries forward its bytes after the Core-API
+  probe. A compatible unchanged Manager need not be rebuilt to change Core.
+  The integrated CI build may still compile both; that is not a Core dependency.
+- **Feature-preserving public updates:** stable remains one signed combination.
+  Preserving /switch and the enhanced /model/permission UI requires its frontend
+  to pass the qualified backend protocol/behavior gate. Exact backend-version
+  admission remains until a broader pair is actually proven. Failure retains the
+  accepted generation; base qualification alone never silently removes features.
+  There is no new automatic base-mode downgrade or second public update channel.
+
+The retained TUI patch contains only upstream call sites/types, supported-permission
+integration, startup compatibility and actual test access; standalone policy lives
+under frontend/manager-tui/src. Upstream lacks a qualified general extension API
+for these UI hooks. Moving them into Core or a separate launcher would not remove
+revision maintenance. The official-runtime binary adaptation remains exact-digest
+and version-bound for FD/socket/config paths and no-sandbox permission choices;
+the source-built frontend's FD remap is separately qualified. Never remove either
+gate merely to admit a newer upstream version.
+
+Responsibility realignment is complete when these ownership and independent
+execution/lifecycle guarantees pass. It does not claim that future upstream
+compatibility, public integration/promotion, same-provider in-place selection or
+provider feature acceptance is already complete. Those changes belong to their
+respective components and require affected-path proof.
 
 ## 5. Termux runtime contract
 

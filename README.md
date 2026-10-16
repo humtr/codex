@@ -191,6 +191,14 @@ and running clients are preserved. The temporary download is always cleaned.
 
 ## Development
 
+The minimum installation is the qualified upstream runtime plus Core. Core owns
+Termux execution compatibility and signed install/update/rollback; it does not
+depend on Manager, the enhanced TUI or a Chat provider. Manager adds account/task/
+notification/window conveniences; its TUI integrates `/switch` and provider model
+selection. The provider owns its transport and host lifetime. The small shared
+runtime-binding crate is compiled source, not another installed dependency.
+See [the component boundary](SPEC.md#46-final-component-boundary-and-core-independence).
+
 Core/runtime qualification can run without Manager or the modified TUI through
 the source branch's **Independent Core/runtime qualification** workflow. Pushes
 qualify the authenticated current runtime; manual dispatch can discover latest
@@ -198,6 +206,11 @@ upstream instead. Unsupported versions still fail the existing compatibility gat
 This read-only workflow produces unsigned test artifacts only. The regular release
 workflow uses the same qualification implementation in integrated mode and retains
 its full frontend, signing, readback and stable-promotion requirements.
+Independent base qualification does not silently strip features from a public
+update: an incompatible enhanced frontend leaves the accepted generation active.
+Actual standalone lifecycle proof is reproducible with
+`scripts/qualify_core_independence.py --help`, using disposable roots and a fresh
+fixture signing key, with no real account or Chat request.
 
 The repository owns its development rules in `AGENTS.md`, optimized for
 GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.

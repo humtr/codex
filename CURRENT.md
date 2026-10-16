@@ -69,537 +69,199 @@ not a public stable Chat-provider promotion or full lifecycle qualification.
 Core stable52 remains independently accepted; unrelated upstream/update/doctor
 maintenance is separate from Chat acceptance.
 
-## Core / Manager responsibility and update plan
+## Final Core / Manager responsibility boundary
 
-Requested2026-10-16. This is a proposed implementation sequence, not an amendment
-of SPEC, a new public command contract, or permission to silently remove existing
-features. No runtime, generation, account or conversation has been changed by
-writing this plan. Amend the affected SPEC sections before each implementation.
+Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
+responsibility extraction and current-version independent execution are complete;
+next-upstream qualification, integrated public promotion and provider improvements
+remain separate work. Public/device baseline stays stable52/0.161.0. No0.163
+admission, live activation or actual Chat inference is part of this finalization.
+These finalized boundaries describe the qualified source; they have not replaced
+the installed stable52 implementation.
 
-Priority confirmed2026-10-16: responsibility realignment precedes the other
-feature/failure improvements. Complete the ownership/interface and relevant
-implementation separation first, preserving the accepted baseline; a document-only
-rename does not satisfy this priority. Do not grow the current coupling by first
-adding provider setup tools, retention machinery, selection fixes or error recovery
-to components that will relinquish that responsibility. Within a separation slice,
-make only the behavior changes needed to preserve its existing public contract.
-Then implement the deferred improvements in their established owners. The
-experiment CURRENT owns that follow-up backlog and the new live failure evidence;
-do not lose those tasks or treat their deferral as completion.
+### Owners and retained execution necessities
 
-### Outcome and observed coupling
-
-Core must support qualified upstream execution and updates without depending on
-optional convenience development. Manager must retain account, task and Android
-conveniences. The opt-in Chat provider must evolve without adding Chat-specific
-branches to Core. Keep one public entrypoint and one signed activation/rollback
-authority; no second updater, supervisor, conversation database or plugin framework.
-
-First implementation slice separates qualification from publication. The read-only
-qualify-termux-runtime.yml owns existing unsigned construction and Android smoke;
-auto-release-termux.yml calls it only in integrated mode before signing. The new
-core-runtime-qualification.yml requests base-only mode with no publication secrets
-or write permissions. It defaults to the authenticated current upstream archive;
-manual latest discovery still requires the existing exact runtime qualification.
-Base construction skips Manager compilation and frontend acquisition/pins, validates
-all six base assets, and cannot enter the integrated signing/promotion path.
-The normal feature-preserving stable admission is unchanged. This is independent
-qualification, not completion of Core policy extraction or independent default
-upgrades. Main's published caller and device remain stable52 until an accepted
-source is separately pinned and activated. Manager configuration extraction follows
-below; account/default routing, managed-home safety and server/catalog ownership
-still require their remaining alignment slices.
-
-Local acceptance for this slice passes full workspace checks: Core198 with one
-pre-existing ignored case, Manager42+56+three path gates, builder25, Python18+66,
-fmt/Clippy and actionlint1.7.7. Final Python acceptance also passes after the
-optional-frontend decision arguments were removed from base mode. Real Android
-Core-only construction from the exact official0.161 archive passes all six base
-asset checks, --version and exec --help; Manager is absent and unsupported sandbox
-argv still exits2. Doctor reports healthy Core/runtime/Code Mode host and Manager
-unavailable; its overall failure is the deliberately credential-free fixture's
-auth check. No user credential was imported to make that probe green. An initial
-fixture helper correctly rejected the base-only identity through its integrated
-publication validator; the disposable device fixture uses its own signing key
-and does not relax that validator. Proof/logs: responsibility-base-{device.json,
-full.log,python.log} in the private acceptance cache. Exact-source implementation
-80b9562 also passes hosted source acceptance38839831045 (workflow/diff, full
-workspace and Android focused proofs) and independent base qualification38839831198
-(unsigned Android/AArch64 construction and executable smoke). These hosted results
-are separate from the physical-device proof above. No public release or device
-activation has been performed by this slice.
-
-### Manager configuration preparation slice
-
-Core no longer reads notification/config-v1, names notification events, renders
-hook policy or walks the shared configuration-profile registry. The admitted
-Manager's private __runtime-config-v1 endpoint renders existing native callbacks
-and matchers and owns no-replace shared profile projection. Core retains only a
-bounded local envelope exchange and atomic publication after its execution
-defaults; shared-server snapshots consume those same bytes. The response limit
-is8 KiB within the existing16-KiB snapshot bound, deadline2s, no inherited stdin or
-stderr, no inference, workload arguments or alternate execution. Failed responses
-warn once and leave the base runtime usable; absent Manager needs no query.
-Previously registered/native local profiles remain usable without Manager.
-
-Managed-home mutation leases, shared conversation layout, default-account routing,
-frontend/server selection and catalog decisions have not been extracted by this
-slice. Existing filesystem layout, public entrypoints, notification delivery and
-window/title handling stay in place. No installed runtime or account state has
-been edited. Core and Manager have no new compile-time dependency on each other.
-
-Implementation01e2f50 and test-lint correction6e4f419 pass exact-source hosted
-acceptance38845552319. Independent base qualification38845156837 also passes;
-its Core/runtime inputs are unchanged by the test-only lint correction. Local
-workspace tests pass Core196/one pre-existing ignored, Manager46+58+three path
-gates, builder25 and Python18+66. Final focused cleanup observation, fmt and Clippy
-pass after the lint correction. Native Android signed fixtures reuse the accepted
-frontend bytes with the new Core/Manager: saved/inherited account identity, live
-FD36 protection, rename inode retention, delete without shared-history changes,
-Manager absence and native --profile/mcp-list loading all pass. Shared profiles
-are created by Manager, local overrides win, and existing registrations still
-load without Manager. Signed ordinary/memory notification qualification also
-passes using only a loopback Responses fixture; actual Chat inference is zero.
-Physical notification tapping/window return was not re-exercised by this slice;
-the delivery and window/title implementations are unchanged.
-
-Failed observers are retained, not counted as product passes: libtest buffered
-stderr disappeared at exec (--nocapture fixes it); descendant SIGKILL observation
-needed a bounded wait; native fixture PREFIX lacked OpenSSL; a nested TMPDIR made
-Android socket names too long. Final native profile proof also found real retained
-FD36 owners: native shell-environment helpers can outlive the server in independent
-process groups. Deletion correctly refused. The fixture cleanup now verifies its
-exact home inode on FD36 before retiring only its own remaining helpers, while
-production mutation protection is unchanged. Both native qualifiers now use
-signed fixtures and the real verifier. These corrections improve proof quality;
-they do not authorize stopping user processes or relaxing profile protection.
-
-Private aggregate: responsibility-manager-qualified.json. Native proof logs:
-responsibility-manager-native-{profiles-final,notifications-signed}.log. The
-stable52 pointer and all eight installed payload hashes/modes remain unchanged;
-no publication, device activation or real credentials were used. Remaining work
-continues with the execution-home split below, then server/catalog and frontend
-coupling reduction.
-
-### Execution home and retained shared-state binding
-
-Implementation9d7e2ae: execution_lease.rs replaces the registry-aware
-profile lease. It locks every existing owned execution directory by its actual
-inode, including native default, isolated and declared external homes. The
-primitive contains no Manager path, account ID grammar, registration parser or
-registry lock. It preserves native relative/alias path interpretation and the
-original CODEX_HOME; FD36 still protects loaded runtimes and descendants. The
-public managed-home guard stays read-only in shared_layout.rs and refuses missing,
-unsafe or substituted registered homes before the generic lease is acquired.
-
-Disposition after reviewing the real bare path: KEEP the Core compatibility
-binding for the three already-supported shared-home layouts and their required
-SQLite settings. Moving all preparation to optional Manager would strand direct
-first launches and risk a split conversation store when Manager is absent.
-An extra persistent binding registry/migration or a second preparation path would
-add debt without reducing the upstream execution obligation. Core still owns the
-one physical layout preparation; Manager owns account registration/default
-selection/lifecycle and shared configuration-profile policy, and upstream owns
-all record schemas and writer locks. Core's existing default-preference presence
-hint delegates selection to Manager; it neither parses the preference nor chooses
-an account. Retain that narrow bridge rather than add another launch protocol.
-
-Descriptor-pressure proof also found that the generation-retention File could
-occupy36 before home binding. Its shared lock now lives above reserved descriptors
-33–36, retaining CLOEXEC behavior; pressure tests prove both independent locks
-remain held until their proper release. Focused inode/descendant/relative/alias
-and six unsafe-home public-path cases pass. Exact-source hosted full acceptance
-38848038718 and independent base qualification38848038902 pass. Local Python18+66,
-Core196/one existing ignored, Manager46+58+three path gates, builder25, fmt and
-Clippy pass across the full run and affected-component rerun.
-
-Native Android signed-fixture profile qualification passes with syscall tracing
-on lifecycle commands: saved/inherited identity, active/idle separation, persistent
-server and descendant leases, rename inode retention, shared-history preservation,
-Manager absence, native shared --profile use and Core-only default/isolated/external
-server FD36 bindings. The isolated home owns its SQLite DB; declared external homes
-use canonical shared history. Signed native ordinary/memory notification
-qualification also passes: two ordinary root turns deliver exactly one single-line
-notification each; real native memory consolidation adds no notification. The
-provider is a local deterministic fixture, not an Android tap/delivery observation.
-No live credentials or real Chat inference are used.
-
-Keep the negative evidence: the first local full run's old-runtime metadata test
-rejected rename after its child exited; focused and complete Manager reruns passed.
-Native profile attempts also transiently refused idle rename and post-stop rename;
-the fully traced attempt passed without a product change or retry suppression.
-Concurrent unrelated acceptance processes were visible on this device, but the
-exact rejection branch/cause remains unconfirmed. Do not count these failures as
-passes or weaken mutation protection. Before changing that guard, capture the
-specific lease/process-check rejection during a failing attempt, retaining only
-PID/start/check/errno and no environment payload. This remains a lifecycle
-diagnostic follow-up, not a proven lease regression or a completed busy-guard fix.
-
-Private proof logs: responsibility-home-full.log (includes the failed first gate),
-responsibility-home-manager-builder.log, responsibility-home-native-profiles.log
-and responsibility-home-native-profiles-diagnostic.log (failed attempts), and
-responsibility-home-native-profiles-traced.log (complete native pass), and
-responsibility-home-native-notifications.log. Aggregate:
-responsibility-home-qualified.json. Operating runtime, public release and user
-state are unchanged. The server/catalog audit below determines the next change;
-keep the lifecycle diagnostic follow-up visible rather than treating it as resolved.
-
-### Frontend source and policy ownership
-
-Implementation2cd07e2/7c19799: fifteen standalone Manager TUI files move out of native.patch
-to frontend/manager-tui/src. apply.py is the one production assembler: preflight
-owned-source collisions/unsafe paths and patch applicability, patch existing
-upstream files, then create only absent owned files. The hosted build and producer
-source attestation include the assembler/tests and exact owned-source Git tree;
-the retained artifact still includes the complete assembled/formatted/linted diff.
-No external package or installed runtime file is added.
-
-The source extraction alone was proven byte-identical across all2494 TUI files
-against e740925 on pristine official0.161. After that proof, local startup/catalog
-selection moves from upstream lib.rs into termux_backend_catalog::bind, and
-provider/profile/permission argument composition moves from the App hook into
-termux_chat_models::reentry_route. The App hook still owns idle/draft/tool/side
-guards, exact home/cwd/thread re-entry and persistence; it does not select routing
-profiles or name providers. Existing route-admission, permission/reviewer and
-session-flag semantics remain unchanged. The actual Config-based catalog test
-also verifies entering/leaving provider argument construction without auth or
-server execution. Source assembly/collision checks and native41-test qualification
-remain required; no zero-test or source-only result substitutes for that gate.
-
-This reduces the upstream integration patch from3317 to811 lines across21 existing
-upstream files (previously36 including owned additions), not the
-number of existing supported behaviors or a promise of zero rebase work. The
-same-Chat re-entry remains a separate known follow-up; resolved startup is qualified
-in the next slice below rather than silently changed by this ownership split. Installed
-stable52, publication main and the optional provider remain unchanged.
-
-Exact-source hosted acceptance38859936580 and native qualification38859936584
-pass at7c19799. Native build/version/smoke, all41 actual TUI regressions, lint,
-pristine upstream Core and unchanged external dependencies pass. Production
-artifact verification binds the successful run, exact owned-source tree and
-assembler inputs, raw executable75f650eb and identical formatted/linted/artifact
-source. Local Python18+66 and frontend10 tests pass; the artifact tests also reject
-an owned-source change. The earlier native run38859873904 was cancelled in favor
-of the final formatting commit and is not acceptance evidence.
-
-Signed disposable Android fixtures combine the current Core36ed6f88 and
-Manager11beaef4 with that new frontend. Both legacy and named permission paths
-pass fresh launch, obsolete-workspace saved-state cold resume and /btw: six actual
-commands and six guardian reviews retain danger-full-access/on-request/auto_review
-and the named selection where applicable. The fixture helper now accepts an
-explicit candidate Manager and signs its digest rather than implicitly testing
-only the installed Manager. No real Chat inference, credentials or live state
-changes are used. Physical notification taps/window return were not repeated;
-their implementation is unchanged. Stable52 activation bytes, signature and all
-eight payload hashes/modes remain intact. Private aggregate:
-responsibility-frontend-qualified.json; native logs/source proof and both device
-reports are retained under the private acceptance cache. This completes source
-ownership and policy placement, not the startup/re-entry follow-ups above.
-
-### Server/catalog audit and 0.163 admission
-
-Implementation13b457d with frontend correctionsfde1d66/3efa26a: the signed
-helper advertises resolved-startup-v1 through a hidden static query. Core defers
-server creation only on the exact successful bounded response and passes the
-planned native socket. Upstream configuration loading remains in the frontend;
-it requests the catalog-bound or native/default server through Core's existing
-coordinator. Old helpers retain eager startup and new helpers on old Core retain
-the supplied-socket contract. Generation format, helper identity and publication
-inventory are unchanged. The two-second query adds one local helper invocation,
-not network discovery, a persistent capability cache or another supervisor.
-
-The first device candidate correctly failed: without the eager socket, upstream
-DaemonAutoStart tried its package lifecycle before the catalog adapter ran. The
-corrected frontend bypasses upstream auto-start/recovery only for Core-owned local
-targets and retains upstream's read-only feature admission against the resolved
-backend. An incompatibility stays explicit; no installer, restart or embedded
-fallback is offered. Native run38864933871 and intermediate38867289528 were
-cancelled in favor of corrected source; their artifacts are not accepted inputs.
-Final3efa26a passes full source acceptance38867441854 and native38867442090:
-actual build/version/static query with invalid config, all41 TUI tests, lint and
-pristine upstream Core/dependency proof. The artifact verifier admits exact raw
-frontendcdd14952 and identical assembled/formatted/linted sources. Independent
-Core qualification38864934161 passes unchanged Core inputs at13b457d. Local full
-checks pass Python18+66+frontend10, Core197/one existing ignored, Manager46+58+3,
-builder25, codec3, fmt, Clippy and actionlint.
-
-Signed Android fixtures pass one backend across fresh launch, cold resume and /btw
-for user, CLI, project and --profile catalogs, and the native/default path.
-These five runs execute15 real Android commands and15 guardian reviews, retaining
-danger-full-access/on-request/auto_review and named permissions where selected.
-New-Core/old-frontend and old-Core/new-frontend each pass three commands/reviews
-on the retained eager path. /resume opens the actual picker; /switch preserves
-frontend PID and thread, creates one catalog server per home, preserves the
-original server PID and creates no native/default server or packages tree.
-The native/default endpoint responds with stdin still open, reuses its PID/socket,
-and preserves a connected native sibling when a catalog server is requested.
-Actual incompatible structured code-mode-host settings refuse before a thread
-starts, retaining only the resolved catalog server with no installer/embedded
-fallback. Final profile/catalog lifecycle proof also passes home-inode leases,
-rename/delete/history preservation, changed-catalog isolation, Manager writer
-discovery and default/isolated/external launches with Manager physically absent.
-No real Chat inference, user credentials, public publication or device activation
-is used. Physical notification taps/window return are not re-exercised.
-
-Qualification observation now attaches syscall tracing to the exact server only
-after cold resume, before /btw; tracing bundled-file extraction during startup
-caused false deadlines. The corrected old-frontend full rerun passes. Menu proof
-waits for a deterministic loopback response before sending commands and declares
-an explicit local provider, rather than assuming builtin provider environment
-settings fence transport. Initial inert-key attempts were rejected401 and used
-no real account/inference. Failed observers/candidates remain in private logs.
-Private proof: responsibility-startup-qualified.json and responsibility-startup-*
-under the acceptance cache. The aggregate binds21 actual commands/reviews, both
-compatibility directions, menu/feature/Core-only proof and owned-fixture cleanup.
-Installed stable52 activation bytes, manifest signature and all eight payload
-hashes/modes remain unchanged; main is not advanced. No temporary private signing
-keys or running fixture workers are retained after qualification.
-
-The execution-record duplication is now extracted into the dependency-free
-codex-runtime-binding source library. Core produces and retires its existing
-records through the same codec Manager consumes for task discovery. Only owner
-fields, family/namespace binding and bounded opaque catalog bytes are shared;
-Core retains server startup/reuse/retirement and generation authority, Manager
-retains task/account UX, and each retains its existing filesystem/process checks.
-There is no installed library, Core-to-Manager dependency, new format or RPC.
-Local full acceptance passes Python18+66, Core196/one existing ignored,
-Manager46+58+three path gates, builder25, codec3, fmt and Clippy. The codec tests
-pin published namespace bytes and reject mismatched family/owner/content/version,
-oversize records and reader errors, preserving non-UTF8 paths and opaque payloads.
-Implementation852be4c passes exact-source hosted full acceptance38857467932 and
-independent Core/runtime qualification38857467984. Core's normal dependency tree
-contains only release-builder and runtime-binding, not Manager; the Android
-binary adds no dynamic-library requirement for the shared source code.
-
-Signed native Android profile/catalog proof passes: actual model/list uses the
-submitted catalog; identical bytes reuse the same socket, changed bytes select
-another namespace, the native sibling and original writer remain available, and
-Manager observes the writer under the correct account. Profile inode/history
-preservation and Core-only default/isolated/external execution also pass with
-Manager physically unavailable. Native task proof passes running-disconnect owner
-discovery, original-owner reconnect, cross-account writer rejection, confirmed
-cancellation, retained-subscriber refusal, PID-stable explicit force scope and
-ordinary same-UUID transfer to the saved-default account. Only the local model
-fixture is used; real Chat submissions are zero.
-
-Retain the failed first profile observer: an already-signalled owned helper exited
-between /proc lookup and stat read with ESRCH. Treat that exact process-exit result
-like ENOENT; no runtime guard or user-process handling changed. The complete native
-profile rerun passes. The task fixture now provisions the real OpenSSL verifier
-under its disposable PREFIX, as the profile fixture already does. Logs:
-responsibility-binding-full.log, responsibility-binding-native-profiles.log
-(failed cleanup observer), responsibility-binding-native-profiles-final.log and
-responsibility-binding-native-tasks.log. Aggregate: responsibility-binding-qualified.json
-under the private acceptance cache. No public release, device activation or user
-state change was performed. This completes the record-codec consolidation, not
-the deferred frontend startup/model-selection work below. Upstream admission
-remains deferred at the user's request while responsibility work continues.
-
-Source audit at f380695: retain the single Core coordinator. The pinned pristine
-0.161 source979011409de0a60b52f179721948e65531d26144 retains the server-startup
-Config/ModelsManager for model/list; ModelListParams contains only pagination and
-include_hidden, with no caller catalog replacement. The same inspected surfaces
-in upstream0.163 source83086188ae0614bd882818ff1aa23f3194962012 retain this boundary.
-This source comparison is not executable compatibility qualification. Local
-reference proof: acceptance/server-boundary-163/source-proof.json under XDG cache.
-
-Core already receives bounded opaque resolved bytes, does not parse model schemas
-or select providers, and binds reuse to home/runtime/exact bytes. Moving these
-operations into optional Manager would still require a Core-only execution path,
-duplicating qualified execution and splitting its process records from Core
-retention; it would not eliminate a model-selection policy from Core. Preserve
-peer/PID/runtime checks, inherited descriptors, native/default
-rendezvous isolation, both record families and current-client/writer protection.
-Manager/frontend owns catalog resolution; Core owns physical server admission.
-
-The published v1 frontend retains eager startup because it expects Core's socket
-to be ready. The source-qualified resolved-startup capability above removes the
-extra native/default server only when the exact signed helper advertises it.
-Core-only/old-helper behavior remains accepted; Core still does not infer model
-policy from profile TOML. Same-Chat model/effort frontend re-entry remains a
-separate provider/frontend improvement, not a result of this startup change.
-
-Upstream0.163 is released but not admitted: runtime_patch.rs::required explicitly
-rejects versions after0.161, and the qualified frontend/source pair remains0.161.
-The live public stable index still selects stable52/0.161 at this inspection.
-A green scheduled preflight is not evidence that0.163 was built or promoted.
-Next executable qualification must establish0.163 loader/FD/socket/permission
-compatibility before an integrated frontend upgrade; do not remove version or
-exact-digest admission merely to make the updater accept it. No update, provider
-change, actual Chat request or live-process mutation was performed by this audit.
-
-Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
-upstream0.161.0. Relevant observed coupling:
-
-- SPEC generation admission and auto-release-termux.yml require an exact paired
-  frontend for every new candidate. A frontend-bearing local generation cannot
-  construct an unpaired newer runtime. Core-only execution exists, but the normal
-  publication contract does not provide independent Core advancement.
-- frontend/manager-tui/native.patch touches36 upstream TUI files including tests,
-  snapshots and fixtures. It does not patch the upstream execution-engine source.
-  Its source APIs still require revision-specific maintenance and compilation.
-- At that baseline Core launch read Manager notification policy, generated
-  event-specific hooks and projected shared configuration profiles; the slice
-  above extracts those policies. It still recognizes managed profile paths and
-  prepares shared conversation layout; the execution-home slice above resolves
-  that policy/safety split while retaining the one canonical compatibility binding.
-- shared_server.rs combines necessary signed-runtime/socket binding with catalog
-  snapshots and reuse decisions needed by the enhanced frontend. Release-builder
-  also maintains exact-version binary permission/UDS patches. Moving files between
-  crates would not remove these maintenance costs.
-
-### Target responsibility matrix
-
-| Capability | Policy / state owner | Execution boundary and planned change |
+| Owner | Responsibility | Excluded responsibility |
 | --- | --- | --- |
-| Upstream inference, tools, approvals/reviewer, threads, resume, compaction and writer locks | Upstream | Use upstream commands/protocol; no local replacement or transcript parser in Core. |
-| Android loader, DNS, certificates, filesystem publication, browser opener and safe socket paths | Core; release-builder constructs artifacts | Apply to bare and Manager launches, including exec/resume/fork/side chat. Requalify actual upstream revisions. |
-| Sandbox availability | Core capability enforcement; upstream approval engine | Enforce unavailable sandbox consistently without changing reviewer/approval intent. Manager presents supported choices only. |
-| Artifact trust, generation retention, activation and rollback | Core; existing producer signs/publishes | One authenticated inventory and transaction. Manager/provider never select arbitrary runtime binaries or write pointers. |
-| Account create/rename/delete/default/select and /switch | Manager | Manager owns registry and handoff UX. Core receives the selected execution home; it does not select accounts or parse the registry. |
-| Profile mutation protection | Manager owns mutation; minimal execution lease protects live homes | Preserve protection through bare launches, exec replacement and persistent servers. Generalize the existing lease only after proving all entrypoints; never delete it merely to remove a Manager path reference. |
-| Installation-wide conversation sharing | Existing product contract selects sharing; Manager selects the account; upstream owns all records/DB/locks | Core retains the one compatibility layout/SQLite binding for the three supported shared-home layouts, including bare first launch without Manager. Arbitrary homes remain isolated. No second binding registry or preparation path. |
-| Shared --profile configurations | Manager owns convenience registration; upstream resolves settings | Move registry/projection policy out of Core. Preserve global chatgpt fallback, local overrides and native --profile meaning without copying credentials. |
-| Server process and connection | Upstream owns server/turn lifecycle; Core binds qualified runtime and compatible endpoints | Keep bounded signed-runtime spawn, necessary environment/FDs and peer validation. Manager requests optional configuration; never create a second executor or competing supervisor. |
-| Model catalog, provider selection and frontend server reuse requirements | Manager/frontend; provider owns its account catalog | Core accepts only bounded opaque startup input if the pinned upstream API cannot carry it. It must not know Chat model names, resolve provider auth or own model-selection policy. |
-| Notification preferences, event selection, question text and delivery | Manager | Move policy parsing/hook rendering out of Core. Use upstream hooks/config/events, retaining one question notification and exact existing-window return. |
-| Android window registration, identity, title forwarding and tmux | Manager; Termux app owns native handles; upstream composes /title | Core provides only optional delegation. Bare mode stays usable, tmux stays optional, titles never become route identity. |
-| ChatGPT request/return transport, login context, retries and host lifetime | Optional Chat provider | Expose qualified Responses behavior through upstream provider configuration. Core remains provider-neutral; native tools and canonical transcripts remain upstream-owned. |
-| Diagnosis | Each component owns its checks; Core composes bounded results | Distinguish base failure, optional feature unavailability and upstream warnings. No Manager repair authority or duplicated recovery engine. |
+| Upstream | Auth, inference/tools, reviewer/approval engine, records/DB schemas, turns/threads, compaction, resume and writer locks | Our signed generation lifecycle and Android window identity |
+| Core / release-builder | Termux loader/DNS/certs/FD/filesystem/socket compatibility, no-sandbox enforcement, generic home lease, one physical shared-layout binding, signed runtime/server binding, inventory/activation/retention/update/rollback and base diagnosis | Account/default selection, notification policy, model/provider interpretation, Chat transport or TUI interaction |
+| Manager | Account/default/config-profile selection and lifecycle, task ownership/handoff UX, hooks/notifications, Android window registration/return, optional tmux and title forwarding | Core trust/pointers, another updater/executor or canonical conversation storage |
+| Maintained frontend | /switch and /model integration, supported permission presentation, title callbacks and upstream transcript UI | Provider login/transport/lifetime or backend supervision |
+| Optional provider | Catalog/capabilities, auth context, request/tool-return transport, retry and owned-host lifetime | Runtime selection, native tool execution or canonical DB/writer authority |
 
-The minimal adapter is determined by the execution invariant, not just by whether
-the code is labelled Android-specific. Generic lease/config/FD validation may
-remain in Core where removing it would make direct launches unsafe. Conversely,
-bare-codex convenience does not justify embedding the convenience's policy there.
+The minimum is qualified upstream + Core. Optional components are not mandatory
+successive launch stages. Manager works without its TUI; an installed provider's
+upstream --profile configuration does not require the enhanced model picker.
 
-### Interfaces and functional improvements
+Keep the Core shared-layout/SQLite binding: three accepted shared-home layouts
+must work on a first bare launch with Manager absent. Arbitrary homes remain
+isolated. Manager owns registration/selection; upstream owns records and locks.
+Moving preparation exclusively into Manager would strand the bare path; a second
+binding registry would add authority rather than remove policy.
 
-1. **Launch boundary.** Keep codex termux and existing validated Core handoff.
-   Separate Manager preparation from Core environment/exec. Reuse current bounded
-   argv/FD/private-file contracts; do not add a universal launch-plan protocol.
-   An optional capability query must be local, bounded and free of inference,
-   credentials and update discovery. A failed query must not start work twice.
-2. **Configuration boundary.** Manager owns notification and convenience fragments;
-   upstream owns precedence and parsing. First verify the exact pinned upstream
-   loader/API can combine base requirements with Manager input. Do not invent a
-   config-file flag or solve this by editing account config.toml. If generic Core
-   projection is necessary, it validates/applies bounded input without recognizing
-   notification events, Manager registry formats or Chat model names. One effective
-   configuration must cover initial launch, resume, /switch and /btw.
-3. **State boundary.** Reuse current roots and inode/lock protections. Move code
-   ownership before considering physical data relocation. Registration/migration
-   establishes shared layout; launch verifies required bindings without repeatedly
-   repairing user state. Missing optional state is distinct from an unsafe declared
-   managed home, which must fail explicitly. Never reinterpret an unsafe managed
-   account as a fresh isolated account or reset its selected identity.
-4. **Server boundary.** First compare the pinned native server surface with the
-   custom coordinator. Remove custom reuse/retirement only if native behavior
-   preserves exact runtime/environment, account isolation and live-client retention.
-   Otherwise retain that minimum in Core. Move frontend/catalog policy to Manager;
-   a common runtime-binding primitive may remain, with opaque catalog input only
-   where required. Do not duplicate servers in Manager to make Core look smaller.
-5. **Frontend boundary.** Keep one upstream-derived UI with a narrow maintained
-   integration module. Consolidate /switch, window callbacks and provider catalog
-   access behind small call sites. Move domain logic out of upstream app/chatwidget
-   internals. Preserve upstream command inventory, selected permissions, drafts,
-   active-work guards, same-thread re-entry, /title and native transcript rendering.
-   Upstream has no proven general slash-extension hook in this source; an external
-   Manager alone cannot magically add /switch. Some TUI revision work remains.
-6. **Provider boundary.** Keep the existing working local-function return and its
-   independent MCP option outside Core. Provider capability/catalog changes must
-   not require a Core release. A generic frontend handoff may still be necessary
-   where upstream cannot change providers in place; do not promise reload removal
-   by moving code. App-free transport research is a separate provider task.
+Keep the single Core server coordinator: bind signed runtime/home/environment,
+peer/PID checks, safe socket namespace, inherited FDs and current-client/generation
+retention. Frontend resolves the catalog; Core receives bounded opaque bytes and
+does not parse model schemas, select providers or resolve credentials. Pristine
+0.161 model/list takes pagination/include_hidden, not replacement startup catalogs.
+The0.163 source comparison retains that limitation but is not executable admission.
+Moving the coordinator into optional Manager would duplicate the bare execution
+path and split retention/task records. It would not remove provider policy.
 
-   Fix same-provider selection separately from cross-provider re-entry. Current
-   needs_reentry returns true whenever the source is Chat or the target is a Chat
-   model, so even effort-only selections take the exec/resume path. The local
-   provider also closes its owned app conversation and resets projection/context
-   whenever the full route changes, including effort. Classify exact no-op,
-   same-provider model/effort change and actual provider/account/transport change.
-   Use upstream in-session model/effort updates for the second case and preserve
-   the owned conversation where the host supports the requested transition.
-   Changing only the frontend predicate is insufficient: catalog admission,
-   context-boundary handling and the provider reset must be qualified together.
-   Prove unchanged frontend PID/TTY/thread, actual next-request settings, retained
-   tool history and no inference on selection itself; reject pending-call changes.
+codex-runtime-binding is a dependency-free source codec statically compiled into
+Core and Manager. It adds no runtime library/service, new record format, registry
+or Core-to-Manager dependency. Core's normal dependency tree contains only that
+primitive and release-builder. Manager consumes the same bounded owner/family/
+namespace records while retaining its own UX and validation.
 
-### Update and release design
+### Completed implementation and proof
 
-- Separate qualification into base runtime/compatibility, Manager CLI, enhanced
-  frontend and optional provider. Each records exact inputs and applicable public
-  behavior. A base candidate does not wait for Chat inference or MCP-return trials.
-- Prefer reuse of an unchanged admitted Manager artifact with a newly qualified
-  runtime when its interface tests pass. Backend/frontend compatibility is established
-  by real protocol/behavior proof; do not simply delete the current version check.
-  An upstream-derived frontend still needs a new build when its own source changes.
-- Keep one signed generation inventory, stable index and atomic activation. A
-  qualified producer assembles compatible independently built inputs. No unsigned
-  Manager replacement, mutable external helper pointer or second stable channel.
-- Independently qualify a base candidate even while the enhanced UI is unfinished.
-  Publish/activate a base-only choice only through an explicit supported product
-  mode; do not silently remove /switch, window return or supported permissions from
-  the ordinary update path. This choice is not an existing public command.
-- Prefer an integrated update preserving all accepted functions. If no compatible
-  frontend exists, retain the current default generation and report precisely that
-  the base candidate passed but enhanced integration is blocked. The default-update
-  bottleneck is only fully removed when the integration works across the candidate
-  or an explicit base-mode downgrade policy is accepted. Honest separation of gates
-  alone is not a claim that all feature-preserving upgrades are independent.
-- Keep current trust, complete readback, Android execution, disposable update and
-  non-forced promotion. Capability checks narrow the affected tests; they do not
-  waive security, data or cross-version migration tests. Rollback restores the whole
-  admitted combination while existing processes retain their loaded images.
+- **Separate qualification:** read-only base-only construction omits Manager/TUI
+  compilation, acquisition and pins, checks all six base assets and runs actual
+  Android/AArch64 Core/runtime smoke. It cannot sign/publish/promote/activate.
+  Normal publication remains the complete feature-preserving combination.
+- **Manager policy extraction:** Core no longer parses notification/config-v1,
+  notification event names or the shared configuration-profile registry. Manager's
+  bounded __runtime-config-v1 response owns hook rendering and no-replace profile
+  projection. Core validates/applies opaque bytes; absent/failed Manager leaves
+  base execution usable. Existing local overrides and projected profiles survive.
+- **Execution safety:** execution_lease.rs locks the selected actual home inode,
+  including default, isolated and declared external homes, with no registry policy.
+  FD36 survives execution and server descendants; generation locks move above the
+  reserved descriptor range. The read-only shared-home guard still rejects unsafe
+  identities instead of silently creating a fresh account.
+- **Shared record codec:** one source codec pins published namespace bytes and
+  rejects incompatible/oversize/mismatched records while preserving non-UTF8 paths
+  and opaque catalog payloads. Core retains execution; Manager retains discovery.
+- **Frontend ownership:** fifteen owned files live under frontend/manager-tui/src,
+  assembled by one collision/unsafe-path-refusing apply.py. Upstream lib delegates
+  catalog binding; owned routing code constructs provider/profile/permission argv.
+  The App hook retains upstream idle/draft/tool/side guards and thread persistence.
+- **Resolved startup:** signed helper capability resolved-startup-v1 is queried
+  locally before config/TUI/network work, with an exact response and2s deadline.
+  New pairs create only the resolved native or catalog backend. Old/new combinations
+  retain the old eager contract. Core-owned targets bypass upstream auto-installer/
+  recovery but retain native read-only feature admission; mismatch fails explicitly.
+  No embedded fallback, second supervisor, persistent capability cache or new
+  inventory format is introduced.
 
-### Execution slices and acceptance
+Current implementation proof is bound to3efa26a/13b457d (documentation baseline
+36e6439): full hosted38867441854, native38867442090 and independent Core38864934161.
+The independent run's actual Core inputs are unchanged through finalization.
+Native acceptance includes all41 real TUI tests, lint, unchanged external locks,
+pristine upstream execution-engine source and identical formatted/linted/artifact
+patch. Raw frontend SHA256cdd1495292d84a3ab666f18c0de5d66dd4a78b4a2f692af406051be8e85b2ce8.
+Local full checks pass Python18+66+frontend10, Core197/one existing ignored,
+Manager46+58+3, builder25, codec3, fmt, Clippy and actionlint. This finalization
+changes documentation/qualification only; those product inputs are unchanged.
 
-| Order | Changes and source targets | Required evidence / exit condition |
+Actual signed Android fixtures prove21 real commands and21 guardian reviews:
+five fresh/cold-resume/btw paths (user/CLI/project/--profile catalog and native),
+plus old-Core/new-frontend and new-Core/old-frontend. Actual /resume opens its
+picker; /switch retains frontend PID/thread, one catalog server per home and the
+original server PID, with no accidental native server/packages tree. The native
+endpoint answers with stdin open and reuses its PID/socket. Incompatible feature
+settings refuse before a thread starts without installing or embedding a backend.
+
+Profile/catalog/task proof covers same-byte reuse, changed-byte isolation, native
+sibling retention, current-writer discovery/reconnect, cross-account writer refusal,
+confirmed cancellation, subscriber refusal, bounded force and same-UUID transfer.
+Home-inode leases, rename/delete with history retained and physically absent Manager
+on default/isolated/external homes pass. Real account credentials and Chat inference
+are not used. Unchanged physical notification/window code reuses earlier one-tap
+observations; those taps were not repeated for the responsibility extraction.
+
+Private aggregates in ~/.cache/codex/acceptance:
+responsibility-{base,manager,home,binding,frontend,startup}-qualified.json and
+responsibility-startup-* retain exact inputs, logs and cleanup evidence. Historical
+failed runs/observers are retained, not reclassified as passes. In particular:
+
+- An early resolved-startup candidate entered upstream DaemonAutoStart; corrected
+  source disables that path only for Core-owned targets and retains feature checks.
+- Startup-wide syscall tracing distorted extraction deadlines; final tracing attaches
+  to the exact backend after cold resume, before btw. Early inert-key builtin-provider
+  trials got401; final menu proof uses an explicit deterministic loopback provider.
+- Profile lifecycle observers saw transient idle/post-stop rename refusals. A fully
+  traced run passed, but the exact earlier rejection branch is unconfirmed. Preserve
+  mutation protection; capture only PID/start/check/errno on recurrence. This is a
+  diagnostic follow-up, not a known ownership defect or permission to relax guards.
+- An owned helper exited between /proc lookup/stat (ESRCH); qualifier cleanup handles
+  that exit like ENOENT. Exact inode/FD checks scope cleanup to owned workers only.
+
+### Independence and unavoidable update coupling
+
+| Guarantee | Current result | Limit |
 | --- | --- | --- |
-| 1. Establish contracts and a small baseline | Amend SPEC4/4.5, generation admission, Manager and9A sections in the relevant implementation slice. Record direct managed-home launch, UI and update behaviors using current public entrypoints. | Separate the three Core meanings: our launcher, upstream engine and modified frontend. Baseline covers absent Manager, isolated/managed home, /switch, /btw, notifications, writer ownership and failed updates. No live Chat use needed. |
-| 2. Split release qualification | auto-release-termux.yml, release_decision.py, manager_tui_artifact.py, producer/inventory tests and release-builder admission. | An optional frontend/provider failure does not prevent constructing and testing a base candidate. Complete candidate inventories still reject missing declared assets. An incompatible enhanced/default update preserves current pointer and user features; no incompatible helper is executed. |
-| 3. Extract Manager launch policy | Core main.rs notification/projection paths; Manager lib.rs/profile launch; shared_profiles.rs; existing handoff tests. | Manager chooses accounts/hooks/config; Core does not parse its policy records. Fresh/resume/switch/side-chat use the same effective permissions/config. Manager absence/failure cannot block a plain independent launch. Existing auth/config bytes stay unchanged. |
-| 4. Separate managed-home policy from execution safety | shared_layout.rs, execution_lease.rs, Manager profile lifecycle and shared-state transition scripts. | Generic inode leasing replaces registry-aware locking; the read-only managed-home guard and one Core shared-state binding preserve direct launch without Manager. Isolated homes remain isolated. Deletion/rename races, inherited FD lifetime, descriptor pressure and server retention preserve data. No second history index, binding registry or mandatory daemon. |
-| 5. Reduce server/catalog coupling | shared_server.rs, manager_tui.rs, Manager task discovery and frontend termux_backend_catalog integration. | Determine the native capability gap on the actual candidate; eliminate only duplicated behavior. Different identities/catalogs do not cross, changed catalog bytes cannot reuse stale state, current writers stay observable, old jobs survive updates, and no upstream unmanaged installer starts. |
-| 6. Minimize frontend and binary changes | native.patch, command-boundary checks, native workflow and release-builder/runtime_patch.rs. | Classify every hunk as compatibility, integration or obsolete. Remove duplicate/dead patches. Compare supported upstream config, small source patch and current binary adaptation by real build/rebase cost; keep the smallest qualified method. Preserve all supported approval modes without bwrap and all36-file-patch behaviors that remain required. |
-| 7. Qualify a real next-upstream candidate | Current producer/signing/readback/update scripts, Android fixtures and current-generation rollback. | Independently build base and integrated candidates; verify unaffected component reuse. Feature-preserving update, failed/missing optional asset, rollback, local reconstruction and retained running clients pass. Physical notification/window observations are reported separately. |
-| 8. Simplify after proof | Remove replaced branches, projections and obsolete assumptions; update SPEC/CURRENT/README. | One preparation owner per mutation, one installed entrypoint, no extra management service, no stranded user state. Publish only the proven scope; Chat provider acceptance remains independently tracked. |
+| Core source/build | No Manager/frontend/provider dependency; independent construction and Android smoke pass | Every new official runtime needs its own loader/FD/socket/permission qualification |
+| Core-only execution | Actual adapted upstream runs with optional binaries absent; default/isolated/shared homes retain their respective contract | Manager selection/notifications and enhanced UI are unavailable without their components |
+| Core lifecycle | Signed Core-only local install/update/rollback is independently exercisable; installed optional absence never invalidates required assets | Candidate-declared optional assets remain mandatory at admission; no automatic feature downgrade |
+| Manager reuse | Existing local reconstruction carries forward admitted Manager bytes after its Core-API probe; builder accepts the same separately qualified binary | Integrated CI still compiles Core+Manager; eliminating an unnecessary recompile is an optimization, not a missing runtime boundary |
+| Feature-preserving stable upgrade | One signed inventory/pointer; incompatible backend/frontend retains LKG | Exact pair is still required; no claim of unrestricted future backend/UI compatibility |
 
-Perform each slice as a reviewable change with its own relevant gate; do not hold
-all changes for a single rewrite. Release-admission changes and filesystem/process
-changes need full affected acceptance, including Android; documentation alone needs
-scripts/check.sh docs. Unchanged proof is reusable only for the same inputs/scope.
+The final reusable actual-device qualifier is scripts/qualify_core_independence.py.
+It builds base generations through the production builder, signs with a disposable
+fixture key, invokes real installer phases and public update/rollback, verifies
+unchanged Manager bytes when included, rejects an incomplete declared candidate,
+and preserves owned user-data sentinels. It neither relaxes the integrated public
+validator nor creates a public base-only mode.
 
-### Verification matrix and cost controls
+Final Android execution passes all30 process steps with the expected refusal
+codes: real base-only bootstrap/trust-pin/entrypoint installation, native version/
+exec-help/resume-help, signed local update, rollback in both directions, exact
+unchanged Manager assembly/admission, incomplete declared candidate rejection with
+the pointer unchanged, and rollback/ordinary launch with an installed Manager
+physically missing. User-data sentinel bytes remain unchanged; the owned fixture
+and private key are removed. Proof: responsibility-core-independent-final.json.
+This uses qualified0.161 bytes, not an unqualified cross-version upgrade or a real
+inference turn. The first fixture attempt passed a0700 compiler-cache binary to
+entrypoint publication, which correctly requires0755; final proof uses the signed
+builder-produced0755 Core. That failed setup is retained separately in
+responsibility-core-independent-first.json; no product check was relaxed.
 
-- Exercise base execution with Manager/frontend/provider absent, incompatible and
-  unavailable, offline and without optional Termux APIs. Check raw argv, cwd, exit,
-  signals, TTY and explicitly selected account/configuration; no hidden fallback.
-- Exercise managed/external homes, local overrides, shared --profile chatgpt,
-  /new, resume, /switch, /btw and cold restart. Check auth separation, canonical
-  history and current kernel writer ownership, never original message authorship.
-- Exercise Ask/Approve for me/Full Access with real native commands and deterministic
-  model/reviewer fixtures. No bwrap attempts, permissions escalation by fallback or
-  loss of selected approval/reviewer policy. Cover both frontend and upstream routes.
-- Exercise two independent Android windows with tmux off/on. One-tap notifications
-  select the correct existing window without extra sessions, nested tmux or replay;
-  /title and profile/model switches preserve route identity. Physical taps may need
-  the user only after automated checks pass.
-- Inject failed startup, malformed Manager input, update interruption, changed
-  optional inventory, old/new clients and rollback. Verify authenticated runtime
-  binding, no double dispatch and unchanged user files/process identities.
-- Measure version-specific binary sites and production TUI hunks separately from
-  tests; count required edits, build/qualification wall time, reused inputs and
-  blocking gates on a real upstream upgrade. Acceptance is reduced coupling with
-  preserved function, not a lower line count or a crate rename.
-- Initial investigation and deterministic tests consume no Chat messages. Explain
-  necessity and estimated submissions before any later real-provider test; do not
-  repeat live Chat tests for unchanged transport. Do not spend Pro usage.
+Final Python gate passes18+66+10 tests; docs/diff checks pass. Core/Manager bytes
+match the previous full native acceptance, so unchanged Rust/native gates are
+reused rather than rerun. responsibility-final-boundary.json records the normal
+Core dependency tree, platform-only libdl/libc dynamic dependencies and unchanged
+stable52 activation bytes, valid signature and all eight signed hashes/modes.
+No physical notification taps, public publication or live activation are claimed.
 
-First implement slices1/2; then3/4,5/6 and7/8. This scope does not restart broader
-Termux cleanup, introduce Manager repair, or move the Chat provider into Core.
-Provider feature expansion and broad autonomous-development requalification follow
-the responsibility realignment; the new invalid_tool_input failure is retained as
-a required recovery/regression task, not used to expand Core during this phase.
+Remaining upstream maintenance is explicit, not hidden in a proposed architecture:
+
+| Retained adaptation | Disposition and reason |
+| --- | --- |
+| Official runtime binary FD/config/socket and permission changes | KEEP exact-version/digest admission.0.161 changes432 bytes;0.160 changes430. Bare upstream /permissions must not reintroduce unavailable bwrap. Source-built TUI adaptation cannot replace this bare path. |
+| Frontend FD33/34 rewrite | KEEP separately qualified54-byte remap; independent of the official runtime policy. |
+| /switch enum/events/dispatch/re-entry and /model hooks | KEEP narrow upstream call sites; policy is owned source. No qualified upstream general slash/provider extension surface replaces them. |
+| Permission/session/rollout/menu hooks | KEEP to preserve no-sandbox + distinct Ask/Auto-review/Full modes on fresh/resume/btw; engine approval logic stays pristine. |
+| Startup/config/feature and title callbacks | KEEP resolved binding/explicit compatibility and upstream-composed title forwarding; no installer/controller in Core. |
+| Test access and integration regressions | KEEP cfg(test) access and actual behavior tests; they are separate from production policy. |
+
+Current native.patch is859 lines touching23 existing upstream files, down from
+3317 lines/36 files including additions. Fifteen standalone files are outside the
+patch; they remain part of exact source attestation and complete artifact diff.
+This is reduced integration surface, not zero future rebase work. No further
+obsolete mechanism was identified in the retained hooks; moving them between
+crates would not eliminate their qualified behavior obligation.
+
+### Deferred work after this boundary
+
+1. **Upstream qualification/public release:** user deferred0.163 until after this
+   work. required() still rejects after0.161. Qualify the actual next runtime, then
+   its integrated frontend and signed publication/readback/update/rollback. Main's
+   caller still pins stable52 source; no new native input pins or activation here.
+   Retaining LKG is intentional, not independent automatic default advancement.
+2. **Provider/frontend:** same-Chat model/effort currently re-enters the frontend.
+   Classify no-op, same-provider change and true provider/account/transport change;
+   qualify upstream in-session settings together with provider conversation/context
+   retention, pending-tool guards and actual next-request settings. Do not fix only
+   the predicate or grow Core policy. The experiment CURRENT owns all remaining
+   transport/tool recovery/compaction/retention/autonomous-development work.
+3. **Lifecycle diagnostic:** capture the exact transient rename refusal if it
+   recurs; do not convert an unconfirmed historical observer into a product diagnosis.
+
+These follow-ups do not reopen component ownership, invent a second update channel
+or move Chat into Core. Installed stable52 activation/signature/all eight payloads,
+credentials, accounts and ongoing user work remain unchanged.
 
 ## Termux permission resume correction
 
