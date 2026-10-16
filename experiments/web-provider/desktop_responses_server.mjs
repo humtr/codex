@@ -102,7 +102,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  void (async()=>{
   try{
    lane.resultCount=Math.max(lane.resultCount,parsed.context.messages.filter(m=>m.role==='toolResult').length);report.returnedNativeResults=[...lanes.values()].reduce((n,l)=>n+l.resultCount,0);const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
-   const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools,...returnTransport==='mcp'?{owner:{backend:statePath,thread:key,turn:identity.turnId}}:{}};
+   const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools,compaction:compact,...returnTransport==='mcp'?{owner:{backend:statePath,thread:key,turn:identity.turnId}}:{}};
    await ensureDesktop(abort.signal);
    const response=await transport.exchange(payload,abort.signal,event=>{recordDesktopSubmission(report,event,route);save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route,event=>queue.push(event));
    report.selectedControl=transport.selectedControl;

@@ -12,7 +12,7 @@ export function localToolSignature(name){
   {name:'name',required:false,type:{type:'string',description:'Singular call only: exact name in the native catalog, including namespace characters. Omit when using calls.'}},
   {name:'input',required:false,type:{type:'string',description:'Singular call only: JSON-encoded argument object, or exact custom/freeform source. Omit when using calls.'}},
   {name:'calls',required:false,type:{type:'string',description:'JSON-encoded array of 1–32 independent {name,input} objects. Each name is exact; each input is a STRING encoding JSON arguments or exact freeform source. All results return together. Never batch a step needing another entry’s result. Omit name/input when using calls.'}},
-  {name:'report',required:true,type:{type:'string',description:'Brief user-facing progress report before this tool, in the user language. Include the initial reply on the first call and useful intermediate findings later. Empty only when no useful update. Public prose only; never private reasoning.'}},
+  {name:'report',required:false,type:{type:'string',description:'Optional brief user-facing progress report before these tools, in the user language. Include the initial reply on the first call and useful intermediate findings later. Omit when no useful update. Public prose only; never private reasoning.'}},
  ]};
 }
 
@@ -23,6 +23,7 @@ export function localToolCalls(message,gateway,tools){
  if(typeof message.id!=='string'||!message.id)throw Error('desktop_native_call_invalid');
  let args;try{args=JSON.parse(message.content?.text);args=args.kwargs??args;}catch{throw Error('desktop_native_call_invalid');}
  if(!args||typeof args!=='object'||Array.isArray(args))throw Error('desktop_native_call_invalid');
+ if(!Object.hasOwn(args,'report'))args={...args,report:''};
  if(!Object.hasOwn(args,'calls'))return [localToolCall(message,gateway,tools)];
  if(typeof args.calls!=='string'||typeof args.report!=='string'||Object.hasOwn(args,'name')||Object.hasOwn(args,'input'))throw Error('desktop_native_call_invalid');
  let entries;try{entries=JSON.parse(args.calls);}catch{throw Error('desktop_native_call_invalid');}
@@ -38,6 +39,7 @@ export function localToolCalls(message,gateway,tools){
 export function localToolCall(message,gateway,tools){
  if(message.author?.role!=='assistant'||message.recipient!=='local.'+gateway||message.status!=='finished_successfully')return;
  let args;try{args=JSON.parse(message.content?.text);args=args.kwargs??args;}catch{throw Error('desktop_native_call_invalid');}
+ if(args&&typeof args==='object'&&!Array.isArray(args)&&!Object.hasOwn(args,'report'))args={...args,report:''};
  if(!args||typeof args!=='object'||Array.isArray(args)||typeof args.name!=='string'||typeof args.input!=='string'||typeof args.report!=='string')throw Error('desktop_native_call_invalid');
  const tool=requireAdvertisedTool(args.name,tools);
  let input=args.input;

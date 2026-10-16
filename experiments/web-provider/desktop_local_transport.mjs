@@ -6,6 +6,24 @@ import {DesktopToolSession,localToolSignature,localToolCatalog} from './desktop_
 
 const expression=(fn,...args)=>`(${fn.toString()})(${args.map(x=>JSON.stringify(x)??'undefined').join(',')},(${installLocalAppHooks.toString()}))`;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+// Core appends a transient summarization instruction for a compaction request;
+// it is not committed user history. Compare actual history for cancel recovery.
+function recoveryMessages(payload){
+ if(payload.compaction!==true)return payload.messages;
+ if(payload.messages.at(-1)?.role!=='user')throw Error('desktop_compaction_context_invalid');
+ return payload.messages.slice(0,-1);
+}
+function residentDelta(prepared,projection){
+ const messages=[...prepared.delta.messages];
+ if(prepared.mode!=='append')return messages;
+ while(messages[0]?.role==='assistant'){
+  const content=messages[0].content;
+  const text=typeof content==='string'?content:Array.isArray(content)&&content.every(p=>p.type==='text')?content.map(p=>p.text).join(''):undefined;
+  if(text===undefined||![...projection.messages.values()].some(m=>m.closed&&m.text===text))break;
+  messages.shift();
+ }
+ return messages;
+}
 export function pendingNativeContext(messages,batch){
  if(!batch.length)return [];
  const ids=new Set(batch.map(x=>x.call.id));
@@ -28,7 +46,8 @@ export async function invokeLocalOperation(lease,lane,method,data){
 export function installLocalAppHooks(s,shared){
    const client=s.scope.get(s.m.oMn),api=shared.$wt;
    if(typeof client?.startCompletionStream!=='function'||typeof api?.streamPost!=='function')throw Error('desktop_native_capability_unavailable');
-   const state=s.native={client,api,lanes:new Map(),saved:{},wrapped:{}};
+   const state=s.native={client,api,lanes:new Map(),saved:{},wrapped:{},active:true};
+   const hook=Symbol.for('codex.desktop.native.hook');
    const owner=request=>{
     const lanes=[...state.lanes.values()];
     const exact=lanes.find(l=>request?.conversation_id!=null&&[l.id,l.serverId].includes(request.conversation_id));
@@ -58,6 +77,7 @@ export function installLocalAppHooks(s,shared){
      const error=opts.onError;opts.onError=u=>{if(l.epoch===epoch)l.error='desktop_native_stream_failed';return error?.(u);};
      return state.saved[name].call(this,opts);
     };
+    state.wrapped[name][hook]={state,previous:state.saved[name]};
     client[name]=state.wrapped[name];
    }
    state.saved.streamPost=api.streamPost;
@@ -79,6 +99,7 @@ export function installLocalAppHooks(s,shared){
      l.userSubmissions+=roles.filter(r=>r==='user').length;l.toolSubmissions+=roles.filter(r=>r==='tool').length;
     }}});
    };
+   state.wrapped.streamPost[hook]={state,previous:state.saved.streamPost};
    api.streamPost=state.wrapped.streamPost;
 }
 
@@ -151,8 +172,14 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
  if(operation==='close'){
   l.controller?.abort();s.m.eHt(s.scope,l.id);state.lanes.delete(lane);
   if(!state.lanes.size){
-   for(const name of ['prepareCompletionStream','startCompletionStream'])if(state.client[name]===state.wrapped[name])state.client[name]=state.saved[name];
-   if(state.api.streamPost===state.wrapped.streamPost)state.api.streamPost=state.saved.streamPost;
+   state.active=false;
+   const previous=name=>{
+    let fn=state.saved[name],metadata;
+    while((metadata=fn?.[Symbol.for('codex.desktop.native.hook')])&&!metadata.state.active)fn=metadata.previous;
+    return fn;
+   };
+   for(const name of ['prepareCompletionStream','startCompletionStream'])if(state.client[name]===state.wrapped[name])state.client[name]=previous(name);
+   if(state.api.streamPost===state.wrapped.streamPost)state.api.streamPost=previous('streamPost');
    delete s.native;
   }
   return true;
@@ -188,29 +215,30 @@ export class DesktopLocalTransport{
   try{
    signal?.throwIfAborted();if(this.blocked)throw Error('desktop_native_delivery_unknown');await this.retiring;
    if(this.rejectedContext){
-    const current=payload.messages.map(({timestamp,...m})=>m),old=this.rejectedContext;
+    const current=recoveryMessages(payload).map(({timestamp,...m})=>m),old=this.rejectedContext;
     if(current.length<=old.length||old.some((m,i)=>JSON.stringify(m)!==JSON.stringify(current[i]))||!current.slice(old.length).some(m=>m.role==='user'))throw Error('desktop_native_recovery_requires_new_input');
    }
    const model=internalModel(route),identity=JSON.stringify(route);
    if(this.routeIdentity&&this.routeIdentity!==identity){
     if(this.projection.pending().length)throw Error('desktop_native_pending_route_change');
-    await this.close();this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();
    }
    if(!this.lease){
     await this.prepare();
    }
    const op=(method,data)=>this.invoke(this.lease,this.lane,method,data);
-   const boundary={route,generation:this.lease.client.generation};
+   // Family/power are per-request controls of the same Chat conversation, not
+   // a new execution owner or context prefix. Pending calls above remain pinned.
+   const boundary={transport:'signed-app-local',generation:this.lease.client.generation};
    prepared=this.context.prepare(payload,boundary);const batch=this.projection.results(payload.messages);
    const contextMessages=pendingNativeContext(prepared.delta.messages,batch);
    const instructions=[];
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
    if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (call the exact name; preserve schemas and custom input):\n'+JSON.stringify(localToolCatalog(payload.tools)));
-   if(!batch.length){
+   if(prepared.mode==='replay'){
     instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. For independent tools use calls: a JSON-encoded array of {name,input} pairs, omitting singular name/input. Core executes each separately and returns all results in one original tool response. Never batch dependent steps or guess results. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
-   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:this.projection.hostResults(batch),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
+   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:this.projection.hostResults(batch),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(residentDelta(prepared,this.projection))}});
    this.rejectedContext=undefined;
    if(batch.length)this.projection.returned(batch);
    let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=new Map();
@@ -263,8 +291,8 @@ export class DesktopLocalTransport{
    if(sent)this.blocked=true;
    if(sent||!this.routeIdentity){
     let closed=false;try{await this.close();closed=true;}catch{}
-    if(sent&&settled&&!published&&closed&&['unadvertised_tool','invalid_tool_input','invalid_tool_search','desktop_native_call_invalid'].includes(error.message)){
-     this.blocked=false;this.rejectedContext=prepared.current.messages;
+    if(sent&&!published&&closed&&(signal?.aborted||settled&&['unadvertised_tool','invalid_tool_input','invalid_tool_search','desktop_native_call_invalid'].includes(error.message))){
+     this.blocked=false;this.rejectedContext=recoveryMessages({...payload,messages:prepared.current.messages});
     }
     this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;
    }

@@ -1,0 +1,707 @@
+{
+  "scope": "Autonomous actual tracked ai source copy, optional-report regression and native automatic/fault compaction; source candidates, not installed updates",
+  "repository": {
+    "accepted": true,
+    "rawResultAccepted": false,
+    "observerCorrection": "Allow multiple useful intermediate reports; raw evidence retained unchanged",
+    "rawResultSha256": "2c2370ba1b198b29f8ab396786aaaa90ab4ab68711e53e7dc64d29c9d660a92c",
+    "sourceHead": "1f958e5e078b8076a350fa8fac9f7664cbec61f7",
+    "surface": {
+      "sourceHead": "1f958e5e078b8076a350fa8fac9f7664cbec61f7",
+      "baselineFullVerifyPassed": true,
+      "fullVerify": {
+        "exitCode": 0,
+        "accepted": true
+      },
+      "originalTrackedFilesUnchanged": true,
+      "completedCommands": 9,
+      "changedFiles": [
+        "lib/ai_cli.py",
+        "tests/test_cli_missing_values.py"
+      ],
+      "implementationChanged": true,
+      "modelRanRepositoryVerification": true,
+      "accepted": true
+    },
+    "actualChatUserSubmissions": 1,
+    "toolReturns": 19,
+    "modelStarts": 20,
+    "elapsedSeconds": 272.17,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "coldTranscriptRestored": true,
+    "productDigestLimitation": "This early driver read hashes after the run; transport was edited during this trial. Do not use it as exact-byte release admission. Later trials capture start hashes and assert unchanged inputs."
+  },
+  "automatic": {
+    "realService": true,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "model": "chatgpt-desktop/gpt-6",
+    "realCoreToolLoopAccepted": true,
+    "turnCompleted": true,
+    "shellToolCompleted": true,
+    "workspaceMarkerVerified": true,
+    "successfulShellCalls": 4,
+    "nativeReplyMatched": true,
+    "lastTokenUsage": {
+      "totalTokens": 8316,
+      "inputTokens": 8291,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 25,
+      "reasoningOutputTokens": 0
+    },
+    "observedContextEstimates": [
+      6448,
+      7171,
+      9500,
+      10134,
+      10429,
+      10429,
+      10429,
+      7814,
+      2575,
+      7366,
+      7366,
+      7654,
+      8031,
+      8178,
+      8316
+    ],
+    "lastTurnStatus": "completed",
+    "warmCompactionStarted": "01a146b8-9b46-7223-97b0-98c576a7df44",
+    "warmCompactionCompleted": "01a146b8-9b46-7223-97b0-98c576a7df44",
+    "nativeReports": [
+      {
+        "phase": "commentary",
+        "initial": true,
+        "intermediate": false,
+        "final": false,
+        "characters": 70
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 100
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 22
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": true,
+        "final": false,
+        "characters": 25
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 73
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      }
+    ],
+    "persistedReportCheck": true,
+    "persistedNativeCommands": 4,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "renderWithoutModelRequest": true,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "automaticThreshold": 10129,
+      "automaticTurnCompleted": true,
+      "noManualCompactionRequested": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "ownedCoreExited": true,
+    "actualSignedApp": true,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": true,
+    "productDigests": {
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "desktop_local_transport.mjs": "7b7ccf5551d8b3dc7c798983deb6ed48aad5e677560b241428aabe97bbe2dbaa"
+    },
+    "productInputsUnchanged": true,
+    "actualChatUserSubmissions": 5,
+    "observedUserSubmissions": 5,
+    "toolReturns": 6,
+    "modelStarts": 11,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "adapterError": null,
+    "batchSizes": [
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+    ],
+    "parallelBatchObserved": false,
+    "elapsedSeconds": 86.641,
+    "probeSha256": "c90abb6df515bcc3045f74ec12866ad7d29342ad3ef50dd86d23ac1207b337e6",
+    "fixtureSha256": "fd97ba87a6cfafed7de919efc17697ba7f9f7760f44d5b5b2658e763d3e6e01d",
+    "repositoryScenario": null,
+    "developmentScenario": true,
+    "compactionMode": "automatic",
+    "scenarioSha256": "f9297d54eceea1efccf7a8a446a5805dcd6f33bf4bef668349733545a70fce96",
+    "accepted": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true
+  },
+  "offlineFailedCompaction": {
+    "realService": false,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "model": "chatgpt-desktop/gpt-6",
+    "realCoreToolLoopAccepted": true,
+    "turnCompleted": true,
+    "shellToolCompleted": true,
+    "workspaceMarkerVerified": true,
+    "successfulShellCalls": 2,
+    "nativeReplyMatched": true,
+    "lastTokenUsage": {
+      "totalTokens": 7205,
+      "inputTokens": 7180,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 25,
+      "reasoningOutputTokens": 0
+    },
+    "observedContextEstimates": [
+      6391,
+      8627,
+      8797,
+      9054,
+      9054,
+      9054,
+      9054,
+      5699,
+      2042,
+      6791,
+      7067,
+      7205
+    ],
+    "lastTurnStatus": "completed",
+    "warmCompactionStarted": "01a146ba-5451-7462-bc14-05d0bf71873c",
+    "turnErrorCode": {
+      "httpConnectionFailed": {
+        "httpStatusCode": 401
+      }
+    },
+    "warmCompactionCompleted": "01a146ba-5451-7462-bc14-05d0bf71873c",
+    "nativeReports": [
+      {
+        "phase": "commentary",
+        "initial": true,
+        "intermediate": false,
+        "final": false,
+        "characters": 20
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 22
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": true,
+        "final": false,
+        "characters": 25
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      }
+    ],
+    "persistedReportCheck": true,
+    "persistedNativeCommands": 2,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "renderWithoutModelRequest": true,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "faultTurnObserved": true,
+      "faultCommittedNoSummary": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "ownedCoreExited": true,
+    "actualSignedApp": false,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": false,
+    "productDigests": {
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "desktop_local_transport.mjs": "7b7ccf5551d8b3dc7c798983deb6ed48aad5e677560b241428aabe97bbe2dbaa"
+    },
+    "productInputsUnchanged": true,
+    "actualChatUserSubmissions": 0,
+    "observedUserSubmissions": 4,
+    "toolReturns": 4,
+    "modelStarts": 8,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "adapterError": null,
+    "batchSizes": [
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0
+    ],
+    "parallelBatchObserved": false,
+    "elapsedSeconds": 9.143,
+    "probeSha256": "5e00fe1dbc6e347fd35ce1eb78bed08fe62c7fb91d5ad1cb2c2c844cb9e3c290",
+    "fixtureSha256": "4bc351718964b028209927a133a25b632c3da44dd31a503a2636a2cb1482c4c7",
+    "repositoryScenario": null,
+    "developmentScenario": true,
+    "compactionMode": "failed",
+    "scenarioSha256": "ff9e1ba537465217307a440aa0783bcdd3d2b7a816d874c988110d5f915a767b",
+    "accepted": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true
+  },
+  "offlineInterruptedCompaction": {
+    "realService": false,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "model": "chatgpt-desktop/gpt-6",
+    "realCoreToolLoopAccepted": true,
+    "turnCompleted": true,
+    "shellToolCompleted": true,
+    "workspaceMarkerVerified": true,
+    "successfulShellCalls": 2,
+    "nativeReplyMatched": true,
+    "lastTokenUsage": {
+      "totalTokens": 7283,
+      "inputTokens": 7258,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 25,
+      "reasoningOutputTokens": 0
+    },
+    "observedContextEstimates": [
+      6398,
+      8633,
+      8803,
+      9060,
+      9060,
+      9060,
+      9284,
+      9284,
+      5929,
+      2083,
+      6870,
+      7145,
+      7283
+    ],
+    "lastTurnStatus": "completed",
+    "warmCompactionStarted": "01a146bc-2afc-74c3-8ba6-e08aafa008cd",
+    "warmCompactionCompleted": "01a146bc-2afc-74c3-8ba6-e08aafa008cd",
+    "nativeReports": [
+      {
+        "phase": "commentary",
+        "initial": true,
+        "intermediate": false,
+        "final": false,
+        "characters": 20
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 22
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": true,
+        "final": false,
+        "characters": 25
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      }
+    ],
+    "persistedReportCheck": true,
+    "persistedNativeCommands": 2,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "renderWithoutModelRequest": true,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "faultTurnObserved": true,
+      "faultCommittedNoSummary": true,
+      "cancelSettled": true,
+      "cancelledCompactionHistoryRecovered": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "ownedCoreExited": true,
+    "actualSignedApp": false,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": false,
+    "productDigests": {
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "desktop_local_transport.mjs": "7ebaec884a97e919c778fe9b17a9c322a548797c18a16825a20862b06df787b9",
+      "desktop_responses_server.mjs": "6b51bd82c0b81f76e4de1ed9bf2a17110c69b3a68469fee60d2aa2ca41bbad70"
+    },
+    "productInputsUnchanged": true,
+    "actualChatUserSubmissions": 0,
+    "observedUserSubmissions": 6,
+    "toolReturns": 4,
+    "modelStarts": 10,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "adapterError": null,
+    "batchSizes": [
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+    ],
+    "parallelBatchObserved": false,
+    "elapsedSeconds": 9.294,
+    "probeSha256": "b621b1195ea0242218ba73cfd8f997b60fe7a3d623fc737d02288ebb18fb2bf7",
+    "fixtureSha256": "932668d6bfa8ea66313030fc2152d160f853b3aeb950f3150abce1cca6e0b10f",
+    "repositoryScenario": null,
+    "developmentScenario": true,
+    "compactionMode": "interrupted",
+    "scenarioSha256": "ff9e1ba537465217307a440aa0783bcdd3d2b7a816d874c988110d5f915a767b",
+    "accepted": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true
+  },
+  "usage": "Observed user submissions, tool results and model starts are distinct. Actual Chat allowance debits remain unmeasured.",
+  "excluded": [
+    "Hours-long development",
+    "Physical question UI",
+    "App or adapter restart",
+    "Native cross-provider checkpoints",
+    "Independent remote MCP return",
+    "Public provider release"
+  ],
+  "liveInterruptedCompaction": {
+    "realService": true,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "model": "chatgpt-desktop/gpt-6",
+    "realCoreToolLoopAccepted": true,
+    "turnCompleted": true,
+    "shellToolCompleted": true,
+    "workspaceMarkerVerified": true,
+    "successfulShellCalls": 4,
+    "nativeReplyMatched": true,
+    "lastTokenUsage": {
+      "totalTokens": 8313,
+      "inputTokens": 8288,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 25,
+      "reasoningOutputTokens": 0
+    },
+    "observedContextEstimates": [
+      6440,
+      7139,
+      9435,
+      9714,
+      9714,
+      9714,
+      9938,
+      9938,
+      7310,
+      2611,
+      7632,
+      8028,
+      8175,
+      8313
+    ],
+    "lastTurnStatus": "completed",
+    "warmCompactionStarted": "01a146bc-e4fd-7703-a08e-db1a578b4016",
+    "warmCompactionCompleted": "01a146bc-e4fd-7703-a08e-db1a578b4016",
+    "nativeReports": [
+      {
+        "phase": "commentary",
+        "initial": true,
+        "intermediate": false,
+        "final": false,
+        "characters": 77
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 79
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 22
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": true,
+        "final": false,
+        "characters": 59
+      },
+      {
+        "phase": "commentary",
+        "initial": false,
+        "intermediate": false,
+        "final": false,
+        "characters": 50
+      },
+      {
+        "phase": "final_answer",
+        "initial": false,
+        "intermediate": false,
+        "final": true,
+        "characters": 32
+      }
+    ],
+    "persistedReportCheck": true,
+    "persistedNativeCommands": 4,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "renderWithoutModelRequest": true,
+    "surface": {
+      "baselineTestFailed": true,
+      "regressionTestPassed": true,
+      "independentHoldoutPassed": true,
+      "faultTurnObserved": true,
+      "faultCommittedNoSummary": true,
+      "cancelSettled": true,
+      "cancelledCompactionHistoryRecovered": true,
+      "nativeCompactionCompleted": true,
+      "summaryRetainsToolOnlyToken": true,
+      "continuationRanTests": true,
+      "completedImplementationsNotRewritten": true,
+      "coldModelRemembersTokenWithoutTools": true,
+      "protectedTestsAndContractUnchanged": true,
+      "tokenFileAbsent": true,
+      "projectTokenRecovered": true,
+      "completedImplementationIdentityPreserved": true,
+      "accepted": true
+    },
+    "ownedCoreExited": true,
+    "actualSignedApp": true,
+    "installedPayload": "85e8f9127b98b12bb311",
+    "sourceCandidate": true,
+    "productDigests": {
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "desktop_local_transport.mjs": "7ebaec884a97e919c778fe9b17a9c322a548797c18a16825a20862b06df787b9",
+      "desktop_responses_server.mjs": "6b51bd82c0b81f76e4de1ed9bf2a17110c69b3a68469fee60d2aa2ca41bbad70"
+    },
+    "productInputsUnchanged": true,
+    "actualChatUserSubmissions": 6,
+    "observedUserSubmissions": 6,
+    "toolReturns": 5,
+    "modelStarts": 11,
+    "guardianRequests": 0,
+    "compactionSummaries": 1,
+    "appliedCheckpoints": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "adapterError": null,
+    "batchSizes": [
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+    ],
+    "parallelBatchObserved": false,
+    "elapsedSeconds": 78.279,
+    "probeSha256": "b621b1195ea0242218ba73cfd8f997b60fe7a3d623fc737d02288ebb18fb2bf7",
+    "fixtureSha256": "932668d6bfa8ea66313030fc2152d160f853b3aeb950f3150abce1cca6e0b10f",
+    "repositoryScenario": null,
+    "developmentScenario": true,
+    "compactionMode": "interrupted",
+    "scenarioSha256": "ff9e1ba537465217307a440aa0783bcdd3d2b7a816d874c988110d5f915a767b",
+    "accepted": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true
+  },
+  "concurrentLocalOwners": {
+    "actualAndroidNativeClients": 2,
+    "clients": [
+      {
+        "exit": 0,
+        "successfulNativeCommands": 2,
+        "exactReply": true,
+        "exactMarker": true,
+        "sharedProfileProjected": true,
+        "baseConfigUnchanged": true,
+        "completedItemTypes": [
+          "agent_message",
+          "command_execution"
+        ],
+        "turnCompleted": true
+      },
+      {
+        "exit": 0,
+        "successfulNativeCommands": 2,
+        "exactReply": true,
+        "exactMarker": true,
+        "sharedProfileProjected": true,
+        "baseConfigUnchanged": true,
+        "completedItemTypes": [
+          "agent_message",
+          "command_execution"
+        ],
+        "turnCompleted": true
+      }
+    ],
+    "maxConcurrentRequests": 2,
+    "transport": "signed-app-local",
+    "ownerConflicts": 0,
+    "guardianRequests": 2,
+    "guardianIndependentConversations": 1,
+    "adapterErrorCode": null,
+    "proInference": false,
+    "productionChanged": false,
+    "actualChatUserSubmissions": 3,
+    "toolReturns": 5,
+    "modelStarts": 8,
+    "automaticRetries": 0,
+    "productDigests": {
+      "desktop_local_transport.mjs": "7ebaec884a97e919c778fe9b17a9c322a548797c18a16825a20862b06df787b9",
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "desktop_responses_server.mjs": "6b51bd82c0b81f76e4de1ed9bf2a17110c69b3a68469fee60d2aa2ca41bbad70"
+    },
+    "productInputsUnchanged": true,
+    "accepted": true
+  }
+}

@@ -3341,6 +3341,14 @@ normal terminal and owned lane cleanup, a genuinely new user instruction with
 unchanged canonical history may establish a new remote context. An unchanged
 request, replaced history, uncertain terminal or failed cleanup cannot authorize
 replay. Explicit cancellation and observer loss remain separately classified.
+If an aborted native request published no new tool call and its owned app lane
+was successfully retired, a genuinely new user instruction may establish a fresh
+context from the preserved canonical prefix. Core's transient compaction request
+instruction is excluded from that prefix; it is not committed user history.
+Retrying unchanged input, including the same compaction request, still refuses.
+This does not certify termination of native background commands; Core
+owns their exact results and explicit termination. Unknown non-aborted delivery
+or failed cleanup remains blocked.
 Callbacks from older rounds and old message IDs cannot publish current work.
 
 The same gateway call may carry a model-authored public `report` alongside its
@@ -3349,6 +3357,9 @@ never pass it into native tool arguments or add a report-only model round. An
 empty report is allowed when there is no useful update. Adjacent identical public
 prose and gateway reports must not display twice. These reports are explicit
 public output, not extraction of private reasoning.
+The report field is optional presentation metadata. Its absence means no report;
+it must not reject an otherwise valid native invocation. A supplied value must
+still be text, and no progress text is invented by the adapter.
 Host terminal completion is required before returning a terminal sample. A
 finished sampling response carrying tool calls is not the end of Core's task.
 

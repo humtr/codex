@@ -109,6 +109,28 @@ test('the real API-start guard shares the trial budget across native owners',()=
  assert.throws(()=>denied.chatgptSse.onBeforeRequestStart({}),/trial_budget_exhausted/);
  assert.equal(b.userSubmissions,0);assert.equal(b.starts.size,0);
 });
+test('separate adapter scopes restore shared app methods in every owner exit order',async()=>{
+ for(const order of [['a','b','c'],['a','c','b'],['b','a','c'],['b','c','a'],['c','a','b'],['c','b','a']]){
+  const client={prepareCompletionStream:r=>r,startCompletionStream:o=>o},api={streamPost:(_p,o)=>o};
+  const original={...client,streamPost:api.streamPost},gate={},owners={};
+  for(const id of ['a','b','c']){
+   const s={scope:{get:n=>n===gate?true:client},m:{oMn:{},eHt(){}}};
+   installLocalAppHooks(s,{HAt:gate,$wt:api});owners[id]=s;
+   s.native.lanes.set(id,{id,signature:{name:id},marker:id,messages:new Map(),terminals:[]});
+  }
+  globalThis.window=owners;
+  try{
+   for(const id of order){
+    await localAppOperation(id,id,'close');
+    const foreign={conversation_id:'foreign'};
+    assert.equal(client.prepareCompletionStream(foreign),foreign);
+   }
+   assert.equal(client.prepareCompletionStream,original.prepareCompletionStream,order.join(''));
+   assert.equal(client.startCompletionStream,original.startCompletionStream,order.join(''));
+   assert.equal(api.streamPost,original.streamPost,order.join(''));
+  }finally{delete globalThis.window;}
+ }
+});
 test('batched app result publication uses tool messages, preserves IDs and excludes older conversation output',async()=>{
  const writes=[],mapping={old:{message:publicText('old','old final','final')}};
  const s={scope:{get:()=>mapping},m:{JRn:{},bRt:async(_s,data)=>{writes.push({kind:'single',data});return true;},yRt:async(_s,data)=>{writes.push({kind:'batch',data});return true;}}};
@@ -281,13 +303,57 @@ test('invalid later batch entry cannot leak a tool or cause automatic replay',as
  await assert.rejects(()=>f.exchange(),/recovery_requires_new_input/);assert.equal(f.submits.length,1);
 });
 
-test('cancellation after a batch return dispatch retires the lane and never replays siblings on resume',async()=>{
- const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{}'},{name:'patch',input:'source'}]}}],[publicText('final','late','final')]]);
+test('cancelled batch return requires genuine input after owned retirement, without sibling replay',async()=>{
+ const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{}'},{name:'patch',input:'source'}]}}],[publicText('final','late','final')],[publicText('resumed','resumed after cancellation','final')]]);
  const first=await f.exchange(),controller=new AbortController(),invoke=f.transport.invoke;
  const results=first.calls.map(c=>({role:'toolResult',toolCallId:c.id,toolName:c.name,content:'exact Core result'}));
  f.transport.invoke=async(...args)=>{const value=await invoke(...args);if(args[2]==='submit')controller.abort(Error('owned_cancel'));return value;};
  await assert.rejects(()=>f.transport.exchange({...task,messages:[...task.messages,...results]},controller.signal,undefined,undefined,undefined,route),/owned_cancel/);
  assert.equal(f.submits.length,2);assert.equal(f.submits[1].results.length,1);assert.equal(f.submits[1].results[0].id,'host-batch');assert.equal(f.releases(),1);
- await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,...results,{role:'user',content:'resume'}]}),/delivery_unknown/);
- assert.equal(f.submits.length,2);assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,2);
+ await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,...results]}),/recovery_requires_new_input/);
+ f.transport.invoke=invoke;
+ const final=await f.exchange({...task,messages:[...task.messages,...results,{role:'user',content:'resume'}]});assert.equal(final.text,'resumed after cancellation');
+ assert.equal(f.submits.length,3);assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,2);
+ await f.transport.close();
+});
+
+test('same Chat model/effort update retains the owned lane and sends only genuine new input',async()=>{
+ const f=fixture([[publicText('first','first answer','final')],[publicText('second','second answer','final')]]);
+ try{
+  await f.exchange();
+  const messages=[...task.messages,{role:'assistant',content:[{type:'text',text:'first answer'}]},{role:'user',content:'second question'}];
+  await f.transport.exchange({...task,messages},undefined,undefined,undefined,undefined,chatModelRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort:'medium'}}));
+  assert.equal(f.operations.filter(x=>x==='create').length,1);assert.equal(f.releases(),0);
+  assert.equal(f.submits[1].model.model,'gpt-6-thinking');assert.equal(f.submits[1].model.thinkingEffort,'standard');
+  assert.ok(!f.submits[1].prompt.includes('owned task'));assert.ok(!f.submits[1].prompt.includes('first answer'));
+  assert.equal(f.submits[1].developerInstructions.length,0);
+ }finally{await f.transport.close();}
+});
+test('warm deduplication preserves unseen assistant history; a cold lane replays the complete canonical history',async()=>{
+ const f=fixture([[publicText('first','known answer','final')],[publicText('next','new answer','final')],[publicText('cold','cold answer','final')]]);
+ const messages=[...task.messages,{role:'assistant',content:[{type:'text',text:'unseen canonical answer'}]},{role:'user',content:'next'}];
+ await f.exchange();await f.exchange({...task,messages});
+ assert.ok(f.submits[1].prompt.includes('unseen canonical answer'));
+ f.transport.retire();await f.transport.retiring;
+ await f.exchange({...task,messages});
+ assert.ok(f.submits[2].prompt.includes('owned task'));assert.ok(f.submits[2].prompt.includes('unseen canonical answer'));
+ assert.ok(f.submits[2].developerInstructions.length>0);
+ await f.transport.close();
+});
+test('cancelled compaction excludes its transient prompt, but cannot automatically retry itself',async()=>{
+ const f=fixture([[publicText('first','completed work','final')],[],[publicText('last','recovered','final')]]);
+ await f.exchange();
+ const history=[...task.messages,{role:'assistant',content:'completed work'}];
+ const compact={...task,compaction:true,messages:[...history,{role:'user',content:'Internal summarization instruction'}]};
+ const controller=new AbortController(),invoke=f.transport.invoke;
+ f.transport.invoke=async(...args)=>{const value=await invoke(...args);if(args[2]==='submit')controller.abort(Error('owned_cancel'));return value;};
+ await assert.rejects(()=>f.transport.exchange(compact,controller.signal,undefined,undefined,undefined,route),/owned_cancel/);
+ await assert.rejects(()=>f.exchange(compact),/recovery_requires_new_input/);
+ await assert.rejects(()=>f.exchange({...task,messages:history}),/recovery_requires_new_input/);
+ assert.equal(f.submits.length,2);
+ f.transport.invoke=invoke;
+ const result=await f.exchange({...task,messages:[...history,{role:'user',content:'Continue from completed work'}]});
+ assert.equal(result.text,'recovered');assert.equal(f.submits.length,3);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+ await f.transport.close();
 });

@@ -180,6 +180,8 @@ stream_max_retries = 0
             config = scenario.configure(config, root, home, workspace, marker)
         (home/'.codex/config.toml').write_text(config)
         env={'HOME':str(home),'PREFIX':str(prefix),'PATH':str(prefix/'bin')+':'+str(host_prefix/'bin'),'TMPDIR':str(root/'t'),'LANG':'C.UTF-8','CODEX_HOME':str(home/'.codex'),'ACCESS_TOKEN':token,'SSL_CERT_FILE':str(prefix/'etc/tls/cert.pem'),'TERM':'xterm-256color','SHELL':str(host_prefix/'bin/bash')}
+        if scenario and hasattr(scenario, 'environment'):
+            env.update(scenario.environment())
         process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
         def send(value):process.stdin.write(json.dumps(value)+'\n');process.stdin.flush()
         buffer='';pending={};events=[]
@@ -206,8 +208,19 @@ stream_max_retries = 0
                     if 'error' in row:raise RuntimeError('rpc_rejected_'+method.replace('/','_'))
                     return row['result']
                 if 'method' in row:events.append(row)
+        def restart_for_probe(overrides=None, access_token=None):
+            nonlocal process,buffer
+            os.killpg(process.pid,signal.SIGINT)
+            try:process.wait(timeout=8)
+            except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
+            process.stdin.close();process.stdout.close();process.stderr.close()
+            restart_env = {**env, 'ACCESS_TOKEN':access_token or env['ACCESS_TOKEN']}
+            process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=restart_env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+            buffer='';events.clear();rpc(20,'initialize',{'clientInfo':{'name':args.app_name,'version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline);send({'method':'initialized','params':{}})
+            resumed=rpc(21,'thread/resume',{'threadId':thread_id,'config':overrides or {},'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
+            assert resumed['thread']['id']==thread_id;events.clear()
         try:
-            deadline=time.monotonic()+(1200 if args.compact else 300 if desktop else 180)
+            deadline=time.monotonic()+getattr(scenario,'timeout_seconds',1200 if args.compact else 300 if desktop else 180)
             rpc(1,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
             send({'method':'initialized','params':{}})
             thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not(args.cancel_resume or args.compact or getattr(args,'transcript_check',False)),'config':{'model_auto_compact_token_limit':16300,'model_auto_compact_token_limit_scope':'total'} if args.mid_turn_compact else {}},deadline)
@@ -310,7 +323,8 @@ stream_max_retries = 0
                     if getattr(args,'mcp_discovery',False) and row.get('method')=='item/completed' and item.get('type')=='mcpToolCall':
                         report['ownedMcpStatus']=item.get('status');report['ownedMcpError']=item.get('error')
                     if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='agentMessage':
-                        report['nativeReplyMatched']|=row['params']['item'].get('text','').strip()==marker
+                        text=row['params']['item'].get('text','')
+                        report['nativeReplyMatched']|=scenario.reply_matches(text) if scenario and hasattr(scenario,'reply_matches') else text.strip()==marker
                     if row.get('method')=='turn/completed':
                         turn=row.get('params',{}).get('turn',{});report['turnCompleted']=turn.get('status')=='completed'
                         report['lastTurnStatus']=turn.get('status')
@@ -372,7 +386,8 @@ stream_max_retries = 0
                 rpc(42,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':f'Say LOCAL_INTERMEDIATE_REPORT. Read the current proof.txt with one shell call. Preserve the file; do not rerun the interrupted command. Final answer exactly {marker}. No other work.'}]},deadline)
             collect_turn()
             if scenario and hasattr(scenario, 'continue_work'):
-                scenario.continue_work(rpc, collect_turn, thread_id, deadline, workspace, home, report, events)
+                scenario.continue_work(rpc, collect_turn, thread_id, deadline, workspace, home, report, events, restart_for_probe, receive,
+                    lambda:json.loads(proxy_proof.read_text()))
             marker_file=workspace/'proof.txt'
             if getattr(args,'reject_tool',False):
                 rejected=json.loads(proxy_proof.read_text())
@@ -388,6 +403,8 @@ stream_max_retries = 0
                 report['recoveryPreservedExistingFile']=all(getattr(before,k)==getattr(after,k) for k in ['st_ino','st_mtime_ns','st_size'])
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
             report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=(1 if getattr(args,'interrupt_tool',False) else 2) and report['nativeReplyMatched']
+            if scenario and hasattr(scenario,'initial_acceptance'):
+                report['realCoreToolLoopAccepted']=scenario.initial_acceptance(report)
             if getattr(args,'mcp_discovery',False):
                 evidence=workspace/'mcp-evidence.json'
                 report['ownedMcpCalls']=json.loads(evidence.read_text()).get('actualCalls',0) if evidence.exists() else 0
@@ -402,11 +419,12 @@ stream_max_retries = 0
                 def report_evidence(values):
                     return [{'phase':item.get('phase'),'initial':'LOCAL_INITIAL_REPORT' in item.get('text',''),
                         'intermediate':'LOCAL_INTERMEDIATE_REPORT' in item.get('text',''),
-                        'final':item.get('text','').strip()==marker,'characters':len(item.get('text',''))}
+                        'final':(scenario.reply_matches(item.get('text','')) if scenario and hasattr(scenario,'reply_matches') else item.get('text','').strip()==marker),'characters':len(item.get('text',''))}
                         for item in values if item.get('type')=='agentMessage']
                 evidence=report_evidence(items)
                 report['nativeReports']=evidence
-                report['persistedReportCheck']=all(sum(item[k] for item in evidence)==1 for k in ['initial','intermediate','final'])
+                report['persistedReportCheck']=(scenario.reports_accepted(evidence) if scenario and hasattr(scenario,'reports_accepted')
+                    else all(sum(item[k] for item in evidence)==1 for k in ['initial','intermediate','final']))
                 report['persistedNativeCommands']=sum(item.get('type')=='commandExecution' and item.get('status')=='completed' for item in items)
                 if getattr(args,'input_error_trial',False):
                     payloads=[row.get('payload',{}) for path in (home/'.codex/sessions').rglob('*.jsonl')
@@ -443,7 +461,7 @@ stream_max_retries = 0
                 except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
                 # The fixture has no operating shared-server installation. The
                 # qualified launcher still provides the signed runtime's FDs.
-                report['renderedTranscript']=render_transcript(launcher,workspace,env,thread_id,marker,getattr(args,'tui_trace_path',None))
+                report['renderedTranscript']=render_transcript(launcher,workspace,env,thread_id,getattr(scenario,'render_marker',marker),getattr(args,'tui_trace_path',None))
                 report['renderWithoutModelRequest']=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']==before_requests
                 if scenario:
                     report['surface'] = scenario.verify(root, home, workspace, items, report)
@@ -459,16 +477,6 @@ stream_max_retries = 0
                     own.unlink()  # Only the two generated nonce fixtures, never user files.
                 def persisted_compactions():
                     return sum(json.loads(line).get('type')=='compacted' for rollout in (home/'.codex/sessions').rglob('*.jsonl') for line in rollout.read_text().splitlines() if line.strip())
-                def restart_for_probe(overrides=None):
-                    nonlocal process,buffer
-                    os.killpg(process.pid,signal.SIGINT)
-                    try:process.wait(timeout=8)
-                    except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
-                    process.stdin.close();process.stdout.close();process.stderr.close()
-                    process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
-                    buffer='';events.clear();rpc(20,'initialize',{'clientInfo':{'name':args.app_name,'version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline);send({'method':'initialized','params':{}})
-                    resumed=rpc(21,'thread/resume',{'threadId':thread_id,'config':overrides or {},'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
-                    assert resumed['thread']['id']==thread_id;events.clear()
                 if args.interrupt_compact or args.failed_compact:
                     committed_before=persisted_compactions()
                     before_submit=json.loads(proxy_proof.read_text()).get('submittedRequests',0)

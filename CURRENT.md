@@ -65,6 +65,49 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Active remaining work
 
+Current source candidate (not installed): optional tool `report` omission no longer
+rejects valid calls; malformed present metadata still refuses. Same-Chat route
+changes preserve the idle lane/context, and warm requests omit already-resident
+public replies and unchanged bootstrap instructions. Cancel recovery requires new
+canonical user input after successful owned retirement; transient Core compaction
+instructions are excluded from the history anchor. Unknown delivery stays blocked.
+Three separate adapter scopes restore shared app hooks in all six exit orders.
+
+Actual signed-app/stable53 automatic-compaction proof passes:86.641s,5 user
+submissions,6 tool returns,11 model starts,1 summary/checkpoint,0 Pro/retry. The model
+repairs real failures, native automatic compaction preserves a tool-only token,
+continuation does not rewrite completed source, cold Core inference recalls it,
+and initial/intermediate/final reports render and restore in native TUI. Owned
+source hashes are captured before execution and unchanged. This predates the
+later compaction-cancel/warm-resend fixes; it is not their live acceptance.
+
+Autonomous tracked ai repository copy trial found and fixed numeric CLI validation,
+added regression cases and passed independent full verification; original45 tracked
+files stay unchanged.272.170s,1 user submission,19 tool returns,20 model starts,
+0 Pro/retry. Raw overall FAIL was an observer requiring exactly one intermediate
+report; actual reports contain three useful updates and all native persistence/
+rendering checks pass. Corrected assessment preserves the raw result unchanged.
+Its early driver hashed inputs after execution while source was edited, so this
+trial proves behavior but is excluded from exact-byte release admission.
+
+Actual Core fault injection passes401 failed compaction with no committed summary,
+then successful checkpoint/continuation; interrupted compaction reproduces and
+now passes the transient-instruction recovery defect without mutation replay.
+These fault cases use a deterministic app port and consume no Chat messages.
+Later actual signed-app cancellation proof passes in78.279s:6 user submissions,
+5 tool returns,11 model starts,0 Pro/retry. Cancelled compaction commits no summary;
+new input recovers exact history, a successful checkpoint then preserves the token
+and completed implementations through continuation/cold Core. All native report
+phases persist/render. This includes the warm-resend fix and captures unchanged
+source inputs before execution. Two actual concurrent native clients in separate
+account homes also pass exact writes/reads/replies through one local adapter,
+shared profile fallback and an independent guardian conversation:3 user messages,
+5 tool returns,8 starts,0 owner conflicts/Pro/retry; both base configs unchanged.
+Provider suite94 Bun tests/42 Python tests pass; native TUI build/Android selection
+proof is in progress. Evidence:
+`experiments/web-provider/continuity-qualification.json` and private cache
+`chat-{automatic-core-live-1,repository-candidate-live-2,interrupted-compaction-offline-4,failed-compaction-offline-1}`.
+
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not
 HTTP success, a server counter or a cached tool listing. Responsibility realignment

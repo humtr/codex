@@ -18,6 +18,7 @@ SOURCE=Path(__file__).resolve().parent
 
 
 def run(args):
+    product_digests={n:hashlib.sha256((SOURCE/n).read_bytes()).hexdigest() for n in ['desktop_local_transport.mjs','desktop_tool_session.mjs','desktop_responses_server.mjs']}
     # Production credentials, activation, conversations and provider processes
     # are not imported or replaced. Only the signed app login is reused.
     sys.path.insert(0,str(args.fixture_source))
@@ -27,7 +28,8 @@ def run(args):
         root=Path(temporary);root.chmod(0o700)
         binding=root/'server.json'
         with (root/'server.log').open('w') as log:
-            server=subprocess.Popen([str(args.bun),str(SOURCE/'desktop_responses_server.mjs'),str(args.bridge),str(args.session),str(binding)],stdout=log,stderr=log,start_new_session=True)
+            server=subprocess.Popen([str(args.bun),str(SOURCE/'desktop_responses_server.mjs'),str(args.bridge),str(args.session),str(binding)],stdout=log,stderr=log,start_new_session=True,
+                env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'12'})
         try:
             for _ in range(100):
                 if binding.exists():break
@@ -77,8 +79,10 @@ def run(args):
                 return {'exit':child.returncode,'successfulNativeCommands':sum(c.get('exit_code')==0 for c in commands),'exactReply':reply,'exactMarker':(work/'proof.txt').is_file() and (work/'proof.txt').read_text().strip()==nonce,'sharedProfileProjected':alias.is_symlink() and alias.resolve()==(registry/'chatgpt.config.toml').resolve(),'baseConfigUnchanged':hashlib.sha256((account/'config.toml').read_bytes()).hexdigest()==before,'completedItemTypes':sorted({item.get('type','') for item in items}),'turnCompleted':any(r.get('type')=='turn.completed' for r in rows)}
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:clients=list(pool.map(invoke,range(2)))
             proof=json.loads(Path(str(binding)+'.proof').read_text())
-            result={'actualAndroidNativeClients':2,'clients':clients,'maxConcurrentRequests':proof['maxConcurrentRequests'],'transport':proof.get('selectedControl',{}).get('transport'),'ownerConflicts':proof['ownerConflicts'],'guardianRequests':proof['guardianRequests'],'guardianIndependentConversations':proof['guardianIndependentConversations'],'adapterErrorCode':proof.get('errorCode'),'proInference':False,'productionChanged':False}
-            result['accepted']=all(c['exit']==0 and c['successfulNativeCommands']>=2 and c['exactReply'] and c['exactMarker'] and c['sharedProfileProjected'] and c['baseConfigUnchanged'] for c in clients) and result['maxConcurrentRequests']>=2 and not result['ownerConflicts'] and result['transport']=='signed-app-internal'
+            result={'actualAndroidNativeClients':2,'clients':clients,'maxConcurrentRequests':proof['maxConcurrentRequests'],'transport':proof.get('selectedControl',{}).get('transport'),'ownerConflicts':proof['ownerConflicts'],'guardianRequests':proof['guardianRequests'],'guardianIndependentConversations':proof['guardianIndependentConversations'],'adapterErrorCode':proof.get('errorCode'),'proInference':False,'productionChanged':False,
+                'actualChatUserSubmissions':proof['observedChatSubmissions'],'toolReturns':proof['toolResultSubmissions'],'modelStarts':proof.get('observedNativeDispatches',0),'automaticRetries':proof['retryAttempts'],
+                'productDigests':product_digests,'productInputsUnchanged':all(hashlib.sha256((SOURCE/n).read_bytes()).hexdigest()==d for n,d in product_digests.items())}
+            result['accepted']=all(c['exit']==0 and c['successfulNativeCommands']>=2 and c['exactReply'] and c['exactMarker'] and c['sharedProfileProjected'] and c['baseConfigUnchanged'] for c in clients) and result['maxConcurrentRequests']>=2 and not result['ownerConflicts'] and result['transport']=='signed-app-local' and not result['adapterErrorCode'] and result['automaticRetries']==0
             if args.autoreview:result['accepted']=result['accepted'] and result['guardianRequests']>0 and result['guardianIndependentConversations']>0
             args.report.write_text(json.dumps(result));args.report.chmod(0o600);print(json.dumps(result));return result['accepted']
         finally:

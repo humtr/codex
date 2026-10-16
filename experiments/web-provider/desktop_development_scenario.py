@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 CATALOG = 'def normalize_names(values):\n    return sorted(set(str(v).lower() for v in values if v))\n'
 CLI = 'import json,sys\nfrom catalog import normalize_names\nprint(normalize_names(json.load(sys.stdin)))\n'
@@ -40,8 +41,9 @@ real failures, fix implementations and run tests again. No packages are required
 
 
 class Development:
-    def __init__(self, output):
+    def __init__(self, output, compaction='manual'):
         self.output = output
+        self.compaction = compaction
         self.commands = []
         self.continuity = {}
 
@@ -75,7 +77,12 @@ class Development:
     def respond(self, _row, _send):
         return False
 
-    def continue_work(self, rpc, collect, thread, deadline, workspace, home, report, events):
+    def reports_accepted(self, evidence):
+        return (sum(item['initial'] for item in evidence)==1
+            and sum(item['intermediate'] for item in evidence)==1
+            and sum(item['final'] for item in evidence)==(2 if self.compaction in ['automatic','interrupted'] else 1))
+
+    def continue_work(self, rpc, collect, thread, deadline, workspace, home, report, events, restart, receive, adapter_proof):
         assert report['turnCompleted'], 'development_stage_failed'
         self.continuity['baselineTestFailed'] = any(c['tests'] and c['exitCode'] not in [0, None] for c in self.commands)
         self.continuity['regressionTestPassed'] = any(c['tests'] and c['exitCode'] == 0 for c in self.commands)
@@ -95,8 +102,63 @@ class Development:
         token.unlink()
         before = len(self.commands)
         events.clear()
-        rpc(101, 'thread/compact/start', {'threadId': thread}, deadline)
+        if self.compaction in ['failed','interrupted']:
+            def summaries():
+                return sum(json.loads(line).get('type')=='compacted' for p in (home/'.codex/sessions').rglob('*.jsonl')
+                    for line in p.read_text().splitlines() if line.strip())
+            committed = summaries()
+            observed = adapter_proof()
+            if self.compaction=='failed':
+                restart(access_token='owned-rejected-local-proof-token')
+            rpc(104,'thread/compact/start',{'threadId':thread},deadline)
+            if self.compaction=='interrupted':
+                scan=0; turn=None
+                while time.monotonic()<deadline:
+                    if scan<len(events):row=events[scan];scan+=1
+                    else:
+                        row=receive(min(deadline,time.monotonic()+.1))
+                        if row:events.append(row);scan+=1
+                    if row:
+                        if row.get('method')=='turn/started':turn=row['params']['turn']['id']
+                        assert row.get('method')!='turn/completed','compaction_finished_before_interrupt'
+                    if turn and adapter_proof().get('observedNativeDispatches',0)>observed.get('observedNativeDispatches',0):break
+                assert turn, 'compact_turn_not_observed'
+                rpc(105,'turn/interrupt',{'threadId':thread,'turnId':turn},deadline)
+            collect()
+            self.continuity['faultTurnObserved']=report.get('lastTurnStatus')==('failed' if self.compaction=='failed' else 'interrupted')
+            self.continuity['faultCommittedNoSummary']=summaries()==committed
+            assert self.continuity['faultTurnObserved'] and self.continuity['faultCommittedNoSummary'],'compaction_fault_not_safe'
+            if self.compaction=='interrupted':
+                end=min(deadline,time.monotonic()+15)
+                while time.monotonic()<end and adapter_proof().get('cancelledRequests',0)<=observed.get('cancelledRequests',0):time.sleep(.1)
+                self.continuity['cancelSettled']=adapter_proof().get('cancelledRequests',0)>observed.get('cancelledRequests',0)
+                assert self.continuity['cancelSettled'],'cancel_not_settled'
+                restart();events.clear()
+                rpc(106,'turn/start',{'threadId':thread,'input':[{'type':'text','text':
+                    'Continue after cancelled compaction. Recall the synthetic project token from completed tool history. Reply with exactly the token, no tools and no repeated edits.'}]},deadline)
+                collect()
+                self.continuity['cancelledCompactionHistoryRecovered']=report['turnCompleted'] and report['nativeReplyMatched']
+                assert self.continuity['cancelledCompactionHistoryRecovered'],'cancelled_compaction_history_lost'
+            else:
+                restart()
+            events.clear()
+        if self.compaction=='automatic':
+            warm = report.get('lastTokenUsage', {}).get('totalTokens', 0)
+            assert warm>1000, 'missing_warm_context_estimate'
+            threshold=max(1000,warm-300)
+            self.continuity['automaticThreshold']=threshold
+            restart({'model_auto_compact_token_limit':threshold,'model_auto_compact_token_limit_scope':'total'})
+            rpc(101,'turn/start',{'threadId':thread,'input':[{'type':'text','text':
+                'Recall the synthetic project token from the completed tool history/checkpoint. Reply with exactly that token. Do not call tools or redo any work.'}]},deadline)
+        else:
+            rpc(101, 'thread/compact/start', {'threadId': thread}, deadline)
         collect()
+        if self.compaction=='automatic':
+            self.continuity['automaticTurnCompleted']=report['turnCompleted'] and report['nativeReplyMatched']
+            self.continuity['noManualCompactionRequested']=True
+            # Keep later continuation below the fresh checkpoint threshold so
+            # this case proves one automatic transition, not repeated trimming.
+            restart({'model_auto_compact_token_limit':1000000,'model_auto_compact_token_limit_scope':'total'})
         self.continuity['nativeCompactionCompleted'] = bool(report.get('warmCompactionStarted') and report.get('warmCompactionStarted') == report.get('warmCompactionCompleted'))
         summaries = [json.loads(line).get('payload', {}).get('message', '') for p in (home/'.codex/sessions').rglob('*.jsonl')
             for line in p.read_text().splitlines() if line.strip() and json.loads(line).get('type') == 'compacted']

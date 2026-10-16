@@ -156,3 +156,14 @@ test('several original host calls keep separate returns while batching only thei
  const returned=s.hostResults(batch);assert.deepEqual(returned.map(r=>r.id),['host-one','host-two','host-single']);
  assert.deepEqual(returned.slice(0,2).map(r=>r.result.results.length),[2,1]);assert.equal(returned[2].result.content,'host-single');
 });
+
+test('missing public report never rejects an otherwise exact single or batch invocation',()=>{
+ const host=args=>({id:'real-rejected',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{content_type:'code',text:JSON.stringify(args)}});
+ const single=localToolCalls(host({name:'patch',input:'exact patch source'}),'gateway',tools);
+ assert.equal(single[0].input,'exact patch source');assert.equal(single[0].report,'');
+ const batch=localToolCalls(host({calls:JSON.stringify([{name:'shell',input:'{}'},{name:'patch',input:'exact source'}])}),'gateway',tools);
+ assert.equal(batch.length,2);assert.ok(batch.every(c=>c.report===''));
+ for(const report of [null,17,{},[]])assert.throws(()=>localToolCalls(host({name:'shell',input:'{}',report}),'gateway',tools),/call_invalid/);
+ const session=new DesktopToolSession(),events=[];session.issue(single[0],tools,e=>events.push(e));
+ assert.equal(events.filter(e=>e.type==='text_delta').length,0);assert.equal(events.filter(e=>e.type==='tool_call_start').length,1);
+});
