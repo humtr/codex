@@ -1,0 +1,56 @@
+{
+  "schema": "codex-chat-native-surface-proof-v1",
+  "coreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+  "installedProvider": "9dd2881029f69124a63a",
+  "offlineOverall": "pass",
+  "liveOverall": "fail",
+  "features": {
+    "mcp_discovery_call_result": "pass",
+    "automatic_reviewer": "pass",
+    "custom_freeform_patch": "pass",
+    "background_start_poll_complete": "pass",
+    "structured_question_rpc_answer": "pass_with_deterministic_driver",
+    "initial_intermediate_final_reports": "pass",
+    "report_persistence_cold_restore_native_render": "pass",
+    "same_sampling_parallel_calls": "fail",
+    "actual_worker_overlap": "fail"
+  },
+  "observed": {
+    "chatUserMessages": 2,
+    "primaryUserMessages": 1,
+    "guardianUserMessages": 1,
+    "toolReturns": 8,
+    "modelStarts": 10,
+    "retries": 0,
+    "proStarts": 0,
+    "elapsedSeconds": 68.173,
+    "commandStartGapSeconds": 6.963578122
+  },
+  "offline": {
+    "modelStarts": 8,
+    "actualChatUserMessages": 0,
+    "startGapSeconds": 0.003708646,
+    "parallelBatches": true
+  },
+  "scopeLimits": [
+    "Physical Android/TUI question taps were not tested; the driver answered the native RPC.",
+    "One live sample serialized calls; host inability is not established.",
+    "Observed message submissions do not establish Chat allowance debits.",
+    "Complete native/long-context/lifetime qualification remains unfinished."
+  ],
+  "privateEvidenceDirectory": "~/.cache/codex/acceptance/chat-surface-live-1",
+  "privateEvidenceSha256": {
+    "adapter-proof.json": "21bc91316c51d697cfa98c07224b2daff506ca1f151e944b00e4df1972860cc0",
+    "adapter.log": "39b7bcb3b44bcc78f280fac8fc2114cf59b9830f8dcbdb40efcc40a290deb6c6",
+    "native-items.json": "9d10d006d9fea7257576b20c138ce7777bd9e15884713d722d205aa4270572be",
+    "native-tools.json": "911c2c8dd390ce50a709862f1266f776feb7a48126e3e025f3f148553a2fbb7f",
+    "preservation.json": "9d3470bfce02bf17964209df92dbba7a4b632df95eeefb3370303235a2b7fbc8",
+    "progress.jsonl": "6171ed1e90724754dc79bb81fe6969b19efe9c3d34c086fbd6193c3074f0a67b",
+    "public-trace.json": "82e82807d6933b1fcdfaefd7e2966e98c34e05b09bcda6147b620dfa0bc40ea9",
+    "result.json": "ac26292cf21d546207bc27406054dfb82e0b5e4013d03e8ca7c264cf373c3123",
+    "surface-batches.json": "57a7aea3c77f64e787af19ffc51d644fcf4ae8395a710d8afc61306889a85a0c",
+    "tui.txt": "c731c434d91704dda8b094d90932d78c7160cf712fd07282be46b7aa34fa342e"
+  },
+  "probeSha256": "ac65614db2111b7ae1f32daf193d1bff3971a136c9d19cc7b796a33f75e9fe03",
+  "fixtureSha256": "afbc1c4352fee8507e0daae8060502ccd35524a95922cf9542133f831dc44b08"
+}

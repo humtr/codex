@@ -80,6 +80,25 @@ stdio route offline with a deterministic guardian port and zero Chat. The
 installed-service live proof uses a separate bounded call; never silently make
 this fixture flag spend Chat or treat fake review as real model judgment.
 
+The reusable development-surface test writes an owned evidence directory and
+returns failure unless every required topic passes:
+
+```sh
+CODEX_CHAT_CORE_PROOF_SOURCE="$HOME/prj/codex" python -B \
+  experiments/web-provider/desktop_surface_probe.py \
+  --output "$HOME/.cache/codex/acceptance/surface-new-offline"
+```
+
+Add `--live` only for an explicitly authorized GPT-6 Instant trial; it can start
+up to20 model generations including separate guardian requests, with no automatic
+retry or Pro. A live app must already be ready. Each run requires a new output
+directory; prior evidence is never overwritten. Native question responses come
+from the deterministic driver, not a physical user. The first actual trial passes
+all checked topics except parallel sampling/execution, so overall qualification
+**fails**. See `surface-qualification.json` and CURRENT.md for exact counters,
+checksums, known limits and follow-up. Test projects live in TMPDIR and are removed;
+private raw traces stay in the selected evidence directory, never in public Git.
+
 The current development target has two return transports sharing one Core tool
 and transcript path: signed-app local functions (`local`) and retained remote
 MCP settlement (`mcp`). The local-function 2/4/8-return probes are passed wire

@@ -74,6 +74,7 @@ def render_transcript(launcher, workspace, env, thread_id, marker, trace_path=No
 
 
 def probe(args):
+    scenario = getattr(args, 'scenario', None)
     real_home=Path.home();host_prefix=Path(os.environ['PREFIX'])
     desktop=None
     if args.desktop_server:
@@ -175,6 +176,8 @@ stream_max_retries = 0
             assert desktop and not(args.compact or args.cancel_resume or getattr(args,'interrupt_tool',False) or getattr(args,'reject_tool',False))
             (workspace/'proof.txt').write_text(marker)
             config+='\n[mcp_servers.owned_catalog]\ncommand = '+json.dumps(str(host_prefix/'bin/python'))+'\nargs = '+json.dumps(['-B',str(SOURCE/'owned_catalog_mcp.py'),str(workspace/'proof.txt'),str(workspace/'mcp-evidence.json')])+'\n'
+        if scenario:
+            config = scenario.configure(config, root, home, workspace, marker)
         (home/'.codex/config.toml').write_text(config)
         env={'HOME':str(home),'PREFIX':str(prefix),'PATH':str(prefix/'bin')+':'+str(host_prefix/'bin'),'TMPDIR':str(root/'t'),'LANG':'C.UTF-8','CODEX_HOME':str(home/'.codex'),'ACCESS_TOKEN':token,'SSL_CERT_FILE':str(prefix/'etc/tls/cert.pem'),'TERM':'xterm-256color','SHELL':str(host_prefix/'bin/bash')}
         process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
@@ -235,6 +238,8 @@ stream_max_retries = 0
                 seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
                 (workspace/'seed.txt').write_text(seed_text)
                 task='Read all of seed.txt in one native shell call. Its first line is PROOF_SECRET; the remaining lines are reference only. Remember only the first line as PROOF_SECRET without rereading the seed. In a separate second native shell call write that exact value to proof.txt. Final reply must be exactly that value. No other work.'
+            if scenario:
+                task = scenario.task(marker)
             initial_submitted=0;initial_cancelled=0
             proxy_proof=Path(str(args.desktop_server)+'.proof') if desktop else None
             if desktop and not proxy_proof.exists():
@@ -291,6 +296,8 @@ stream_max_retries = 0
                     row=events.pop(0) if events else receive(deadline)
                     if row is None:break
                     item=row.get('params',{}).get('item',{})
+                    if scenario:
+                        scenario.observe(row)
                     if item.get('type')=='contextCompaction':
                         key='warmCompactionStarted' if row.get('method')=='item/started' else 'warmCompactionCompleted' if row.get('method')=='item/completed' else None
                         if key:report[key]=item.get('id')
@@ -311,6 +318,8 @@ stream_max_retries = 0
                         if error:report['turnErrorCode']=error.get('codexErrorInfo','unclassified')
                         break
                     if 'id' in row and 'method' in row:
+                        if scenario and scenario.respond(row, send):
+                            continue
                         # Unexpected permission/tool requests are not auto-approved by this driver.
                         send({'id':row['id'],'error':{'code':-32601,'message':'Unexpected request in owned proof'}})
                         report['unexpectedServerRequest']=True
@@ -431,6 +440,9 @@ stream_max_retries = 0
                 # qualified launcher still provides the signed runtime's FDs.
                 report['renderedTranscript']=render_transcript(launcher,workspace,env,thread_id,marker,getattr(args,'tui_trace_path',None))
                 report['renderWithoutModelRequest']=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']==before_requests
+                if scenario:
+                    report['surface'] = scenario.verify(root, home, workspace, items, report)
+                    report['realCoreToolLoopAccepted'] &= report['surface']['accepted']
             if args.cancel_resume:
                 report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['cancelAfterActualSubmit','nativeCancelAccepted','noToolBeforeCancel','desktopCancelSettled','nativeResumeAccepted','firstCoreStoppedBeforeResume'])
             if args.compact and report['realCoreToolLoopAccepted']:
