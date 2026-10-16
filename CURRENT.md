@@ -121,9 +121,12 @@ auth check. No user credential was imported to make that probe green. An initial
 fixture helper correctly rejected the base-only identity through its integrated
 publication validator; the disposable device fixture uses its own signing key
 and does not relax that validator. Proof/logs: responsibility-base-{device.json,
-full.log,python.log} in the private acceptance cache. Hosted exact-source checks
-remain separate from these local results; no public release or device activation
-has been performed by this slice.
+full.log,python.log} in the private acceptance cache. Exact-source implementation
+80b9562 also passes hosted source acceptance38839831045 (workflow/diff, full
+workspace and Android focused proofs) and independent base qualification38839831198
+(unsigned Android/AArch64 construction and executable smoke). These hosted results
+are separate from the physical-device proof above. No public release or device
+activation has been performed by this slice.
 
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
