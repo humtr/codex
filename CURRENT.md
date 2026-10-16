@@ -87,10 +87,27 @@ Observed primary1 + guardian1 user submissions,8 tool returns,10 model starts,
 ~/.cache/codex/acceptance/chat-surface-live-1; public sanitized evidence and scripts
 are on experiment/web-termux. Twelve existing auth/config files and595 installed
 payload files remain unchanged; owned test roots/adapters/workers are removed.
-Next is inspecting actual parallel request/response controls without inference,
-then an explicit gateway batch if necessary, followed by long development/context/
-lifecycle acceptance. Physical question taps remain untested. Detailed scope and
-remaining exclusions stay in the experiment's current-state document.
+Follow-up candidate7b8e541 adds explicit gateway batching and passes actual GPT-6
+Instant + signed app + stable53 Core. Static app request-builder inspection found
+no ordinary Chat local-function parallel switch; the parallel field belongs to the
+Codex MCP configuration schema. One original host call now carries independent
+native tools with separate stable Core IDs, approvals/execution/history and one
+aggregate exact result return. No Core change or second executor is added.
+The live candidate overlaps two workers (start gap0.048s), with native MCP/search,
+real guardian, freeform patch, background polling, question RPC/driver answer and
+initial/intermediate/final report persistence/cold restore/native TUI all passing.
+Observed model starts10→8 and host tool returns8→6 versus the earlier serial sample;
+user messages remain2 (primary + guardian). Total66.790s versus68.173s is not a
+significant-speedup claim or a Chat-limit-debit measurement.0 Pro/retry.52 Node,
+37 additional Bun and42 provider Python tests pass. Exact child call/result IDs
+match canonical history. Public sanitized batch-qualification.json and private
+~/.cache/codex/acceptance/chat-batch-live-1 retain evidence and source/trace hashes.
+Operating9dd288/source0ee0f59 remains unchanged and ready; all595 installed files
+and13 protected auth/config/runtime descriptors verify. Candidate activation must
+respect the installer's live-adapter refusal. No existing task was stopped.
+Next: provider activation when safe and long development/context/lifecycle gates;
+physical question taps remain untested. Detailed scope and remaining exclusions
+stay in the experiment's current-state document.
 
 ## Final Core / Manager responsibility boundary
 
