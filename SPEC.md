@@ -185,6 +185,22 @@ responsibility-alignment step, not a claim made by this qualification mode.
 
 Manager owns execution-profile selection within the upstream conversation UI.
 
+The native frontend source has two owners: pristine upstream files receive only
+the maintained integration patch; standalone Manager TUI implementations live as
+ordinary source under frontend/manager-tui/src. The single maintained source
+assembler preflights the patch and refuses to overwrite any upstream file with
+an owned source file. Qualification binds both inputs, the assembler and tests
+to the exact successful source. Final build inputs and artifact proof still
+include the complete assembled TUI diff; no source is downloaded or modified at
+device launch. This source organization does not change public behavior or relax
+the upstream-Core/dependency, executable, lint or native behavior gates.
+The upstream start function delegates resolved-catalog binding to the owned
+frontend adapter. The App provider-transition hook owns active-work guards,
+thread persistence and same-terminal re-entry; provider/profile routing and
+configuration composition live in the owned model module without App or server
+lifecycle access. Existing permission/reviewer inheritance, local profile
+precedence, installed-route validation and model admission remain unchanged.
+
 - The sole added public slash name is `/switch`, for Manager execution-home
   selection; `/profile` is not an alias. Upstream `--profile`/`-p` configuration
   layers, `/resume`, `/agents`, `/permissions` and every existing slash name/alias

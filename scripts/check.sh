@@ -14,6 +14,7 @@ fi
 if [ "$scope" = python ] || [ "$scope" = full ]; then
   python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py scripts/test_check.py scripts/test_ci_scope.py
   python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+  python3 -m unittest discover -s frontend/manager-tui -p 'test_*.py'
 fi
 if [ "$scope" = rust ] || [ "$scope" = full ]; then
   # /proc reference tests must not observe unrelated parallel test processes.

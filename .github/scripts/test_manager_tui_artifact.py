@@ -23,6 +23,8 @@ class NativeArtifactTests(unittest.TestCase):
         git("init")
         for relative in qualifier.INPUTS:
             path = source / relative
+            if relative == "frontend/manager-tui/src":
+                path = path / "owned.rs"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("owned native source input\n")
         git("add", ".")
@@ -68,7 +70,7 @@ class NativeArtifactTests(unittest.TestCase):
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, timeout=15)
 
     def test_actual_cli_accepts_only_successful_same_input_version_digest_and_native_proof(self):
-        cases = [None, "backend", "pin", "source-input", "raw", "checksum",
+        cases = [None, "backend", "pin", "source-input", "owned-source", "raw", "checksum",
                  "source", "version", "lock", "zero", "failed-tests", "old-tests", "lint", "patch"]
         cases += ["run-" + key for key in ("id", "path", "event", "head_branch",
                                            "head_sha", "status", "conclusion", "repository")]
@@ -83,8 +85,9 @@ class NativeArtifactTests(unittest.TestCase):
                     run_file.write_text(json.dumps(run))
                 elif fault == "backend": version = "0.162.0"
                 elif fault == "pin": digest = "a" * 64
-                elif fault == "source-input":
-                    path = source / qualifier.INPUTS[1]
+                elif fault in ("source-input", "owned-source"):
+                    path = source / ("frontend/manager-tui/src/owned.rs"
+                                     if fault == "owned-source" else qualifier.INPUTS[1])
                     path.write_text("different native source\n")
                     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
                     subprocess.run(["git", "-C", str(source), "-c", "user.name=Owned",

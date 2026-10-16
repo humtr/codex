@@ -244,6 +244,34 @@ responsibility-home-qualified.json. Operating runtime, public release and user
 state are unchanged. The server/catalog audit below determines the next change;
 keep the lifecycle diagnostic follow-up visible rather than treating it as resolved.
 
+### Frontend source and policy ownership
+
+In qualification: fifteen standalone Manager TUI files move out of native.patch
+to frontend/manager-tui/src. apply.py is the one production assembler: preflight
+owned-source collisions/unsafe paths and patch applicability, patch existing
+upstream files, then create only absent owned files. The hosted build and producer
+source attestation include the assembler/tests and exact owned-source Git tree;
+the retained artifact still includes the complete assembled/formatted/linted diff.
+No external package or installed runtime file is added.
+
+The source extraction alone was proven byte-identical across all2494 TUI files
+against e740925 on pristine official0.161. After that proof, local startup/catalog
+selection moves from upstream lib.rs into termux_backend_catalog::bind, and
+provider/profile/permission argument composition moves from the App hook into
+termux_chat_models::reentry_route. The App hook still owns idle/draft/tool/side
+guards, exact home/cwd/thread re-entry and persistence; it does not select routing
+profiles or name providers. Existing route-admission, permission/reviewer and
+session-flag semantics remain unchanged. The actual Config-based catalog test
+also verifies entering/leaving provider argument construction without auth or
+server execution. Source assembly/collision checks and native41-test qualification
+remain required; no zero-test or source-only result substitutes for that gate.
+
+This reduces the upstream integration patch from3317 to about800 lines, not the
+number of existing supported behaviors or a promise of zero rebase work. The
+original eager/default server start and same-Chat re-entry remain separate known
+follow-ups; neither is silently changed by this ownership split. Installed
+stable52, publication main and the optional provider remain unchanged.
+
 ### Server/catalog audit and 0.163 admission
 
 The execution-record duplication is now extracted into the dependency-free

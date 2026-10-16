@@ -17,6 +17,9 @@ VERSION = "0.161.0"
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
     "frontend/manager-tui/native.patch",
+    "frontend/manager-tui/src",
+    "frontend/manager-tui/apply.py",
+    "frontend/manager-tui/test_apply.py",
     "frontend/manager-tui/normalize_lock.py",
     "frontend/manager-tui/test_normalize_lock.py",
     "frontend/manager-tui/check_command_boundary.py",

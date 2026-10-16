@@ -1,0 +1,15 @@
+---
+source: tui/src/app/profile_manager_tests.rs
+expression: render(&view)
+---
+
+  Profiles
+  Current: external home · Default: work
+
+  Find a profile
+
+› default
+  external
+  work (default)
+
+  Press enter to switch or esc to go back

@@ -6,6 +6,20 @@ upstream retains every existing command and owns conversation UI/title compositi
 Manager owns execution profiles and foreground identity. Official runtime remains
 the sole execution backend.
 
+`native.patch` contains integration changes to existing upstream files. The
+standalone Manager TUI implementation is ordinary source under `src/`, including
+profile/task views, model routing, permission adaptation and Android window
+callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable
+pristine checkout; it preflights collisions and patch applicability before writing.
+Do not apply the patch alone. Qualification binds the complete owned source tree
+and assembler as well as the patch, and retains the assembled diff as evidence.
+
+`termux_backend_catalog::bind` owns catalog startup selection after upstream loads
+configuration. `termux_chat_models::reentry_route` plans provider/profile arguments;
+the App hook retains only work-state admission, persistence and re-entry. These
+remain optional frontend code; Core has no dependency on these sources. The
+existing startup order and provider re-entry behavior are unchanged by this split.
+
 The maintained hosted workflow checks pristine command collisions, unchanged
 external dependencies, exact executable version, actual native tests and lint.
 The release builder owns FD adaptation and signed generation publication. This
