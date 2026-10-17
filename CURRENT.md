@@ -27,7 +27,9 @@ This repository carries no external workflow skill or model configuration.
   on-request/auto_review convenience defaults; explicit user choices still win.
   Installed54 fresh/resume/btw paths pass six commands/six guardian reviews across
   legacy/named permissions, all dangerFullAccess/auto_review. No real Chat is used.
-  Doctor has0 failures; existing upstream title/index warnings remain separate.
+  Doctor has0 failures; the active wrlab upstream index reports3 thread issues.
+  Its degraded warning is separate from healthy Core/Manager and is not repaired
+  by editing user titles/history or silently deleting records.
 - Installed opt-in Chat provider:3a9d8b4398c038db34ba/source9f9d015,
   `returnTransport=local`; all527 files and25 live-qualified runtime inputs match.
   Reinstall→rollback329360→restore plus six concurrent bootstrap clients pass,
