@@ -1476,5 +1476,53 @@
     "automaticRetries": 0,
     "proStarts": 0,
     "failedPreflightActualSubmissions": 0
+  },
+  "latencyRuntimeActivation": {
+    "accepted": true,
+    "installation": "3a9d8b4398c038db34ba",
+    "source": "9f9d0156d7c9cdca5bd99ae38ad5d39a7ca0b2bc",
+    "filesVerified": 527,
+    "protectedAuthConfigFiles": 12,
+    "appIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "qualifiedRuntimeInputsMatched": 25,
+    "actualChatSubmissions": 0,
+    "previousInstallation": "3293607105766a583c42"
+  },
+  "latencyRuntimeInstallCycle": {
+    "accepted": true,
+    "steps": [
+      {
+        "step": "reinstall",
+        "installation": "3a9d8b4398c038db34ba",
+        "filesVerified": 527
+      },
+      {
+        "step": "rollback",
+        "installation": "3293607105766a583c42",
+        "filesVerified": 527
+      },
+      {
+        "step": "restore",
+        "installation": "3a9d8b4398c038db34ba",
+        "filesVerified": 527
+      }
+    ],
+    "concurrentBootstrapClients": 6,
+    "bootstrapResults": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "protectedAuthConfigFiles": 12,
+    "signedDesktopIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "onlyUnusedAdaptersStopped": true,
+    "actualChatSubmissions": 0,
+    "finalInstallation": "3a9d8b4398c038db34ba",
+    "priorInstallationRetained": true
   }
 }

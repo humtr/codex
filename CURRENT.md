@@ -163,9 +163,13 @@ are local observation intervals, not remote compute/quota measurements or a
 representative performance comparison. Source inputs captured before execution
 remain unchanged. All reports persist/cold-restore/render. The initial stale-app
 preflight failed before dispatch,0 Chat; normal bootstrap then succeeded. The
-measurement changes are source-qualified; activation follows separately.
+measurement changes are activated as3a9d8b4398c038db34ba/source9f9d015: all527
+files and25 live-qualified inputs match,12 account auth/config files and the signed
+app/endpoint/capability are preserved. Reinstall→rollback329360→restore plus six
+concurrent bootstrap clients pass with0 Chat submissions.
 
-The527-file source33cb3e1 provider is now activated. All25 qualified runtime
+The527-file source33cb3e1 context projection was activated as329360; current
+3a9d8b4398c038db34ba/source9f9d015 adds the qualified timing diagnostics. All25 qualified runtime
 inputs match; endpoint/capability,12 account auth/config files and the signed app
 identity are preserved. Reinstall/rollback/restore and six simultaneous bootstrap
 clients pass with0 Chat submissions. Old remote test chats are not rewritten or
