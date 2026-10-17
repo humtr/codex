@@ -18,13 +18,16 @@ This repository carries no external workflow skill or model configuration.
   TUI regressions,94 retained upstream features and lint. Previous full59/sourceb18
   remains published; its base/full display correction is retained in base58.
   Actual device public57→60/no-op/rollback/forward and published-Manager quota
-  handoff pass; user installation57 is unchanged. See quota-release-public-full-
+  handoff pass. The user subsequently updated the operating installation to60;
+  previous57 remains available. See quota-release-public-full-
   device.json and quota-public-published-manager-ui.json in the private cache.
-- User has updated to full57; previous54 remains the rollback target. Actual
-  user-full57-update-check.json verifies all8 signed payload hashes/modes, the
+- User has updated to full60; previous57 is the rollback target. The earlier
+  user-full57-update-check.json verified all8 signed payload hashes/modes, the
   launcher/Core identity and unchanged activation state. `codex --version` reports
   0.163.0, Manager help works and `doctor --json` exits0 with healthy summary.
-  Inspection submits0 model requests and makes no activation/configuration edits.
+  That inspection submitted0 model requests and made no activation/configuration edits.
+  Current `chat-full60-operating-diagnosis.json` verifies Full60's signature/all8
+  payload hashes/modes and all527 installed provider files; activation is unchanged.
 - Retained54 proof: `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
   accepted sourcec0856171e77870b3682f1b841e37e5314636c652. Release38985595917
   passes build, Android execution, signing, immutable Release, Pages retaining
@@ -88,6 +91,19 @@ This repository carries no external workflow skill or model configuration.
   The experiment owns the detailed remaining scope and useful/negative evidence.
 
 ## Chat provider work ownership
+
+Current operating blocker,2026-10-17: continuing a long native conversation after
+switching to Chat GPT-6 onFull60 fails400 `unsupported_desktop_route`. Read-only
+native traces confirm pre-turn ModelDownshift compaction requests the previous
+`gpt-6.1-sol` model through the newly selected Chat endpoint. The unchanged optional
+provider45072d rejects both observed requests before Chat submission (2 arrivals,
+0 admitted/Chat requests). The saved transition snapshot additionally contains
+an opaque native checkpoint; model-name substitution alone does not solve context
+transfer. Exact failed wire body was not captured. The experiment owns the
+readable-history handoff repair and its real-inference acceptance; menu-only and
+quota-switch proof do not qualify it. Device diagnosis changes no runtime,
+profile, authentication or conversation. See experimental CURRENT's current
+operating blocker and `chat-full60-cross-provider-admission.json` in private cache.
 
 The [experiment current state and complete backlog](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#active-remaining-work)
 owns the twelve remaining Chat-provider work areas and their acceptance limits.
