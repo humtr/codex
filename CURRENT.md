@@ -251,7 +251,16 @@ registered profiles preserves all19 existing Codex process identities and both
 activation/rotation policy records; it performs0 inference. Source16f3a71 adds a
 PID-bound native resolved-permission comparison: incompatible account definitions
 must stop before a continuation, without copying either account's configuration.
-Its real positive/named/negative device trials await the final native artifact.
+The final1c413cf Android frontend now passes the real menu/off-on controls,
+PID-bound visible account notice, same-thread continuation and exactly-once
+command effects. The proof gives the destination different effort/reviewer/
+approval defaults and verifies that the source choices still win. Named-profile
+and incompatible-permission proofs also pass; incompatible permissions stop
+before destination inference. Notices are verified from rendered PTY text with
+cursor/spacing controls normalized, not from a server acknowledgment.
+Proofs: quota-native-qualified-ui.json and quota-native-final48-{named,
+incompatible}.json. Final repeat with the rebuilt exact Manager and normal
+fresh/resume/btw permission proof remain in progress.
 Local full acceptance passes135 Python and353 Rust tests, fmt and Clippy; the
 48-test final native input remains subject to its independent build/feature/lint
 gates. The final UI also replaces the existing quota picker during asynchronous

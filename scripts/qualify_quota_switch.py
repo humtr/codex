@@ -90,6 +90,7 @@ def probe(args):
                             if tool.get('type')=='namespace':item['namespace']=tool['name']
                         else:
                             counts['destinationSamples']+=1
+                            assert body['model']=='gpt-6.1-sol' and body.get('reasoning',{}).get('effort')=='high','resolved model/effort changed across accounts'
                             assert has_result,'saved completed tool result missing after account handoff'
                             users=[entry for entry in body.get('input',[]) if entry.get('role')=='user']
                             assert 'checkpoint' in json.dumps(users[-1:]), 'checkpoint continuation missing'
@@ -128,6 +129,8 @@ def probe(args):
                 selected_config=selected_config.replace('sandbox_mode = \"danger-full-access\"\n','default_permissions = \"selected\"\n')
                 if account=='fixture-source' or not args.incompatible_permission:selected_config+='\n[permissions.parent.filesystem]\n\":root\" = \"write\"\n[permissions.parent.network]\nenabled = true\n[permissions.selected]\nextends = \"parent\"\n'
                 else:selected_config+='\n[permissions.selected.filesystem]\n\":root\" = \"read\"\n[permissions.selected.network]\nenabled = false\n'
+            if account=='fixture-destination':
+                selected_config=selected_config.replace('model_reasoning_effort = \"high\"','model_reasoning_effort = \"low\"').replace('approval_policy = \"never\"','approval_policy = \"on-request\"').replace('approvals_reviewer = \"user\"','approvals_reviewer = \"auto_review\"')
             (directory/'config.toml').write_text(selected_config);(directory/'config.toml').chmod(0o600)
             jwt=token(account)
             (directory/'auth.json').write_text(json.dumps({'auth_mode':'chatgpt','OPENAI_API_KEY':None,'tokens':{'id_token':jwt,'access_token':jwt,'refresh_token':'owned-fixture','account_id':account},'last_refresh':datetime.datetime.now(datetime.timezone.utc).isoformat()}));(directory/'auth.json').chmod(0o600)
@@ -222,7 +225,19 @@ def probe(args):
                 return {'accepted':True,'nativeCommandEffects':1,'terminalQuotaResponse':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
             wait(lambda:'QUOTA_SWITCH_COMPLETE' in screen,90)
             if args.ui_proof:
-                wait(lambda:'Account switched: default -> next' in screen)
+                selected={}
+                for entry in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0'):
+                    key,_,value=entry.partition(b'=')
+                    if key==b'CODEX_QUOTA_SWITCH_NOTICE':selected[key.decode()]=value.decode()
+                diagnostic=args.report.with_suffix('.notice.json')
+                diagnostic.write_text(json.dumps({'pid':process.pid,'environment':selected}));diagnostic.chmod(0o600)
+                # Ratatui leaves blank cells untouched and advances the cursor;
+                # raw PTY output need not contain the rendered spaces. Match the
+                # actual emitted UI text after removing cursor/spacing controls.
+                def notice_visible():
+                    clean=re.sub(r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]','',screen)
+                    return 'Accountswitched:default->next.' in re.sub(r'\s+','',clean)
+                wait(notice_visible)
             assert counter.read_text().splitlines()==['effect'],'completed command ran more than once'
             assert counts['sourceSamples']==2 and counts['destinationSamples']==1,counts
             assert thread in loaded(),'conversation UUID changed'
@@ -239,6 +254,8 @@ def probe(args):
             assert not failures,failures
             return {'accepted':True,'namedPermissionsPreserved':args.named_permission,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'visibleSwitchNotice':args.ui_proof,'nativeMenuAndToggle':args.ui_proof,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
         finally:
+            evidence=args.report.with_suffix('.screen.txt')
+            evidence.write_text(screen);evidence.chmod(0o600)
             if process and process.poll() is None:
                 os.killpg(process.pid,signal.SIGTERM)
                 try:process.wait(timeout=5)
