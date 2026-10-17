@@ -278,7 +278,10 @@ distinct visible outcomes. Attempts and per-thread handoffs are bounded and
 serialized; exhausted destinations cool down and never ping-pong in a retry loop.
 The new frontend uses private __profile-resume-v2 with bounded serialized native
 session flags to preserve model/effort, configuration profile, permissions/reviewer
-and explicit session options. Retained v1 callers remain supported unchanged.
+and explicit session options. A PID-bound comparison of the native resolved
+permissions rejects incompatible destination definitions before a continuation;
+account configuration and managed requirements are never copied or weakened.
+Retained v1 callers remain supported unchanged.
 Quota-failed continuation is one explicitly consented checkpoint-continuation
 turn, not resubmission of the original prompt or retry of completed tools.
 Proactive idle switches submit no prompt. A durable attempt claim precedes exec;

@@ -198,6 +198,7 @@ pub(crate) struct ProfileReentry {
     flags: Vec<String>,
     handoff: Option<String>,
     session_off: bool,
+    permissions: Option<codex_protocol::models::PermissionProfile>,
 }
 
 impl ProfileReentry {
@@ -208,6 +209,13 @@ impl ProfileReentry {
     fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.core);
         command.env_remove("CODEX_QUOTA_SWITCH_NOTICE");
+        command.env_remove("CODEX_PROFILE_PERMISSION_SNAPSHOT");
+        if let Some(profile) = &self.permissions {
+            command.env(
+                "CODEX_PROFILE_PERMISSION_SNAPSHOT",
+                serde_json::json!({"pid":std::process::id(),"profile":profile}).to_string(),
+            );
+        }
         if let Some(handoff) = &self.handoff {
             command.args(["termux", "__quota-handoff-v1", handoff]);
         } else {
@@ -280,6 +288,12 @@ pub(super) async fn prepare(
         flags: preserved_flags(app.chat_widget.config_ref())?,
         handoff: None,
         session_off: super::quota_switch::session_off(app),
+        permissions: Some(
+            app.chat_widget
+                .config_ref()
+                .permissions
+                .effective_permission_profile(),
+        ),
     })
 }
 

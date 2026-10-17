@@ -123,7 +123,12 @@ def probe(args):
         run('termux','profile','create','next')
         destination=home/'.local/share/codex/manager/profiles/next/home'
         for directory,account in [(home/'.codex','fixture-source'),(destination,'fixture-destination')]:
-            (directory/'config.toml').write_text(config);(directory/'config.toml').chmod(0o600)
+            selected_config=config
+            if args.named_permission:
+                selected_config=selected_config.replace('sandbox_mode = \"danger-full-access\"\n','default_permissions = \"selected\"\n')
+                if account=='fixture-source' or not args.incompatible_permission:selected_config+='\n[permissions.parent.filesystem]\n\":root\" = \"write\"\n[permissions.parent.network]\nenabled = true\n[permissions.selected]\nextends = \"parent\"\n'
+                else:selected_config+='\n[permissions.selected.filesystem]\n\":root\" = \"read\"\n[permissions.selected.network]\nenabled = false\n'
+            (directory/'config.toml').write_text(selected_config);(directory/'config.toml').chmod(0o600)
             jwt=token(account)
             (directory/'auth.json').write_text(json.dumps({'auth_mode':'chatgpt','OPENAI_API_KEY':None,'tokens':{'id_token':jwt,'access_token':jwt,'refresh_token':'owned-fixture','account_id':account},'last_refresh':datetime.datetime.now(datetime.timezone.utc).isoformat()}));(directory/'auth.json').chmod(0o600)
         process=None;master=None;screen=''
@@ -187,7 +192,12 @@ def probe(args):
             wait(lambda:len(loaded())==1)
             thread=loaded()[0]
             if args.ui_proof:
-                os.write(master,b'/switch');time.sleep(.3);os.write(master,b'\r')
+                wait(lambda:'Ask Codex to do anything' in screen and 'Tip:' in screen)
+                for byte in b'/switch':
+                    os.write(master,bytes([byte]));drain();drain()
+                end=time.monotonic()+.5
+                while time.monotonic()<end:drain()
+                os.write(master,b'\r')
                 wait(lambda:'Profiles' in screen and 'Automatic switching' in screen)
                 wait(lambda:'weekly' in screen and '5h' in screen)
                 end=time.monotonic()+1
@@ -202,6 +212,10 @@ def probe(args):
                 end=time.monotonic()+.5
                 while time.monotonic()<end:drain()
             rpc(home,'turn/start',{'threadId':thread,'input':[{'type':'text','text':'QUOTA_REQUEST: execute the owned command once, then finish.','text_elements':[]}]})
+            if args.incompatible_permission:
+                wait(lambda:'destination permissions differ' in screen,90)
+                assert counter.read_text().splitlines()==['effect'] and counts['destinationSamples']==0,counts
+                return {'accepted':True,'incompatiblePermissionsPausedBeforeInference':True,'nativeCommandEffects':1,'counts':counts,'realModelRequests':0,'productionChanged':False}
             if args.source_only:
                 wait(lambda:state['exhausted'],60)
                 assert counter.read_text().splitlines()==['effect']
@@ -221,8 +235,9 @@ def probe(args):
             assert sum('checkpoint' in p for p in prompts)==1,prompts
             settings=rpc(home,'thread/resume',{'threadId':thread})
             assert settings['sandbox']['type']=='dangerFullAccess' and settings['approvalPolicy']=='never' and settings['approvalsReviewer']=='user',settings
+            if args.named_permission:assert settings['activePermissionProfile']['id']=='selected',settings
             assert not failures,failures
-            return {'accepted':True,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'visibleSwitchNotice':args.ui_proof,'nativeMenuAndToggle':args.ui_proof,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
+            return {'accepted':True,'namedPermissionsPreserved':args.named_permission,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'visibleSwitchNotice':args.ui_proof,'nativeMenuAndToggle':args.ui_proof,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
         finally:
             if process and process.poll() is None:
                 os.killpg(process.pid,signal.SIGTERM)
@@ -243,6 +258,8 @@ if __name__=='__main__':
     parser.add_argument('--prepare-only',action='store_true')
     parser.add_argument('--source-only',action='store_true')
     parser.add_argument('--ui-proof',action='store_true')
+    parser.add_argument('--named-permission',action='store_true')
+    parser.add_argument('--incompatible-permission',action='store_true')
     args=parser.parse_args()
     try:result=probe(args)
     except Exception as error:

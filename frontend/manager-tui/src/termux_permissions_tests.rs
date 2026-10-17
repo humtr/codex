@@ -103,3 +103,15 @@ fn termux_permissions_unselected_upstream_and_custom_presets_are_preserved() {
     );
     assert_eq!(adapted[0].description, custom.description);
 }
+
+#[test]
+fn termux_permissions_account_reentry_rejects_same_name_different_effective_policy() {
+    let value = serde_json::json!({"pid":123,"profile":PermissionProfile::Disabled}).to_string();
+    assert!(check_reentry(&PermissionProfile::Disabled, &value, 123).is_ok());
+    let error = check_reentry(&PermissionProfile::read_only(), &value, 123)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("permissions differ"));
+    assert!(check_reentry(&PermissionProfile::read_only(), &value, 124).is_ok());
+    assert!(check_reentry(&PermissionProfile::Disabled, "broken snapshot", 123).is_err());
+}

@@ -24,9 +24,37 @@ fn supported(profile: &PermissionProfile) -> bool {
 }
 
 pub(crate) fn validate(profile: &PermissionProfile, termux: bool) -> color_eyre::Result<()> {
+    static REENTRY_VALIDATED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if REENTRY_VALIDATED.get().is_none()
+        && let Ok(expected) = std::env::var("CODEX_PROFILE_PERMISSION_SNAPSHOT")
+    {
+        check_reentry(profile, &expected, std::process::id())?;
+        // This guards initial re-entry, not later explicit /permissions changes.
+        let _ = REENTRY_VALIDATED.set(());
+    }
     if termux && !supported(profile) {
         color_eyre::eyre::bail!(
             "Termux cannot enforce Linux filesystem/network sandbox permissions. Select Ask for approval, Approve for me or Full Access in /permissions; no sandbox policy has been weakened."
+        );
+    }
+    Ok(())
+}
+
+// An account can define the same permission name differently. Compare native
+// resolved permissions before any continuation; never copy account config or
+// silently weaken/replace the destination's managed requirements.
+fn check_reentry(profile: &PermissionProfile, expected: &str, pid: u32) -> color_eyre::Result<()> {
+    if expected.len() > 65536 {
+        color_eyre::eyre::bail!(
+            "Account switch paused: permission snapshot exceeds its bound; work remains saved."
+        );
+    }
+    let value: serde_json::Value = serde_json::from_str(expected)?;
+    if value["pid"].as_u64() == Some(pid as u64)
+        && value["profile"] != serde_json::to_value(profile)?
+    {
+        color_eyre::eyre::bail!(
+            "Account switch paused: destination permissions differ from the saved source selection; align the account permission definitions before resuming. Work remains saved."
         );
     }
     Ok(())
