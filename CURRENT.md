@@ -29,6 +29,10 @@ acceptance cache. No external workflow skill or separate task ledger is required
   acceptance. Chat allowance deduction remains unknown.
   This provider is experimental; Core stable publication does not make it a fully
   qualified public Chat provider. No later source edit is implicitly installed.
+- Physical user observation now confirms that the stable54 notification opens a
+  new tmux-free Codex window and same-Chat model/effort selection works without
+  blanking/restart. No automatic prompt is submitted. This does not qualify the
+  separate native question/answer interaction.
 - Current remote history behavior is retained ordinary Chat in adapter-created
   task lanes. Warm calls/model changes reuse that lane; compaction, recovery or app/
   adapter replacement can create another retained conversation. Closing a lane
@@ -194,6 +198,22 @@ Core publication is separate and in progress. Evidence:
 `experiments/web-provider/continuity-qualification.json` and private cache
 `chat-{automatic-core-live-1,repository-candidate-live-2,interrupted-compaction-offline-4,failed-compaction-offline-1}`.
 
+Current independent-MCP boundary is verified with0 model starts: the signed app
+still advertises six legacy tools. A stopped, separately owned trial tunnel can
+poll successfully with the independent endpoint; catalog-only metadata does not
+send tools/list. Forcing the known legacy inventory metadata call reaches the new
+server and negotiates2025-11-25, but the host still sends the stored old tool name,
+not tools/list; it retries that metadata request once and returns400. This is not
+fresh independent-catalog acceptance. Both requests are non-executing with an
+invalid synthetic token; all tunnel profiles and Tdev remain unchanged, and the
+trial tunnel is stopped/removed. The next prerequisite is a host registration/
+metadata refresh that actually reads native_catalog/native_tool; do not spend a
+Chat generation on the stale catalog or disguise old names as new tools. The
+probe can reuse an idle ready app without stopping it, and refuses an operating
+adapter with activity. Public Plugins-page inspection changed no connector or
+account setting; its temporary search filter was cleared and Back restored the
+previous view. Physical model-selection confirmation is independent of this gap.
+
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not
 HTTP success, a server counter or a cached tool listing. Responsibility realignment
@@ -230,7 +250,9 @@ operating provider changes; do not stop existing tasks.
   Separate real provider/account changes from these updates. Current frontend
   predicate is corrected on production source90781cd/4b349a9; same-Chat route
   preservation is installed. Actual Android no-op/model/effort selection passes
-  without frontend exec or inference; new43-test native CI/release remains pending.
+  without frontend exec or inference;43-test native qualification and stable54
+  signed publication/device activation now pass. The user also confirms actual
+  tmux-free window opening and model/effort selection without reloading.
 - Context projection: remove redundant prior-assistant replay and the user-visible
   JSON context envelope. Preserve roles and original instruction authority. Consider
   minimal bootstrap plus instruction/tool discovery over existing result channels,

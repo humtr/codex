@@ -1,5 +1,6 @@
 """Bounded metadata proof; no execution. --ordinary-model permits one Chat start."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -27,6 +28,22 @@ def qualify_independent_discovery(result, connector_name):
     return bool(all(result.get(k) for k in ['localReady','actualControlPlanePoll','ownedTunnelStopped','protectedProfilesUnchanged','freshIndependentCatalog','independentCatalogWire']) and result.get('appExitCode')==0 and result.get('metadataCalls')==0 and app.get('modelStarts')==0 and app.get('blockedAttempts')==0)
 
 
+@contextmanager
+def metadata_app(runtime_path):
+    """Reuse an idle ready desktop for metadata only; never stop an existing app."""
+    from desktop_lifecycle import live,desktop_ready
+    runtime=json.loads(runtime_path.read_text());session=Path(runtime['session'])
+    existing=live(session)
+    if not existing:
+        with bounded_app(runtime_path) as started:yield started
+        return
+    assert desktop_ready(session),'existing_desktop_not_ready'
+    proof=json.loads(Path(runtime['binding']+'.proof').read_text())
+    assert proof['requests']==proof['arrivals']==0,'operating_adapter_in_use_do_not_inspect'
+    try:yield runtime
+    finally:assert live(session)==existing,'existing_desktop_identity_changed'
+
+
 def run(args):
     assert hashlib.sha256(args.binary.read_bytes()).hexdigest()==TUNNEL_SHA
     protected=[args.profile,*list((Path.home()/'.config/tunnel-client').glob('*.yaml'))]
@@ -44,7 +61,9 @@ def run(args):
     ordinary=getattr(args,'ordinary_model',False)
     independent=getattr(args,'independent_discovery',False)
     assert not(ordinary and independent),'choose_one_probe_mode'
-    result={'qualification':'ordinary-model-negative-delivery-only' if ordinary else 'metadata-negative-delivery-only','ordinaryChatModel':ordinary,'modelStarts':None if ordinary else 0,'nativeToolExecutionsPermitted':False,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
+    wakeup=getattr(args,'independent_metadata_call',False)
+    assert not wakeup or independent,'metadata_wakeup_requires_independent_endpoint'
+    result={'qualification':'ordinary-model-negative-delivery-only' if ordinary else 'metadata-negative-delivery-only','ordinaryChatModel':ordinary,'diagnosticOnly':wakeup,'modelStarts':None if ordinary else 0,'nativeToolExecutionsPermitted':False,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
     with tempfile.TemporaryDirectory(prefix='mcp-channel-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary);root.chmod(0o700)
         profiles=root/'profiles';profiles.mkdir(mode=0o700)
@@ -52,9 +71,10 @@ def run(args):
         config=yaml.safe_load(args.profile.read_text());assert len(config['mcp']['commands'])==1
         original=shlex.split(config['mcp']['commands'][0]['command'])
         result['targetArgvSha256']=hashlib.sha256(json.dumps(original).encode()).hexdigest()
-        assert '--broker-socket' in original,'explicit_unbound_broker_required'
-        assert not Path(original[original.index('--broker-socket')+1]).exists(),'existing_broker_must_be_preserved'
-        result['targetBrokerAbsent']=True
+        if not independent:
+            assert '--broker-socket' in original,'explicit_unbound_broker_required'
+            assert not Path(original[original.index('--broker-socket')+1]).exists(),'existing_broker_must_be_preserved'
+            result['targetBrokerAbsent']=True
         if independent:
             runtime=json.loads(args.runtime.read_text())
             original=[runtime['bun'],str(SOURCE/'desktop_mcp_stdio.mjs'),str(root/'unbound-socket')]
@@ -86,11 +106,11 @@ def run(args):
                     if found and float(found[1])>0:result['actualControlPlanePoll']=True;break
                     time.sleep(.2)
                 assert result.get('actualControlPlanePoll'),'actual_poll_required'
-                with bounded_app(args.runtime) as runtime:
+                with (metadata_app(args.runtime) if independent else bounded_app(args.runtime)) as runtime:
                     command=[runtime['bun'],str(SOURCE/('desktop_mcp_model_probe.mjs' if ordinary else 'desktop_mcp_inspect.mjs')),str(args.runtime),str(root/'app.json'),args.connector_name]
                     if not ordinary:
                         command+=['--tools-from-cache']
-                        if not independent:command+=['--channel-inventory']
+                        if not independent or wakeup:command+=['--channel-inventory']
                     proc=subprocess.run(command,capture_output=True,timeout=125)
                     result['appExitCode']=proc.returncode
             except Exception as error:
@@ -136,7 +156,8 @@ if __name__=='__main__':
     for name in ['binary','profile','runtime','report']:parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--connector-name',required=True)
     parser.add_argument('--ordinary-model',action='store_true',help='Explicit live ordinary-Chat test, at most one app request start; no Pro/retry/native execution')
-    parser.add_argument('--independent-discovery',action='store_true',help='Zero-inference catalog read against our unbound independent endpoint; no tools/call')
+    parser.add_argument('--independent-discovery',action='store_true',help='Zero-inference catalog read against our unbound independent endpoint')
+    parser.add_argument('--independent-metadata-call',action='store_true',help='With independent discovery, send only the known legacy inventory request with an invalid synthetic token; no execution')
     args=parser.parse_args()
     report=run(args);args.report.write_text(json.dumps(report,indent=2)+'\n');args.report.chmod(0o600)
     print(json.dumps(report));raise SystemExit(0 if report['accepted'] else 1)

@@ -1524,5 +1524,214 @@
     "actualChatSubmissions": 0,
     "finalInstallation": "3a9d8b4398c038db34ba",
     "priorInstallationRetained": true
+  },
+  "physicalNativeModelSelection": {
+    "notificationSubmitted": true,
+    "profile": "wrlab",
+    "upstreamProfile": "chatgpt",
+    "tmux": false,
+    "autoPrompt": false,
+    "generation": "local-hosted-0-163-0-c0856171e778-s54",
+    "physicalTapObserved": true,
+    "userConfirmedWindowAndSameChatModelEffortTransition": true,
+    "userObservation": "정상으로 열리고 전환됨",
+    "physicalQuestionUiQualified": false
+  },
+  "currentHostCatalog": {
+    "queryClientFound": true,
+    "modelStarts": 0,
+    "blockedAttempts": 0,
+    "knownAppIds": 1,
+    "apps": [
+      {
+        "name": "Codex Native2",
+        "toolCount": 6,
+        "toolNames": [
+          "codex_exec",
+          "codex_write_stdin",
+          "codex_apply_patch",
+          "codex_view_image",
+          "codex_tool_inventory",
+          "codex_tool_call"
+        ]
+      }
+    ]
+  },
+  "independentHostDiscovery": {
+    "qualification": "independent-catalog-discovery-only",
+    "ordinaryChatModel": false,
+    "modelStarts": 0,
+    "nativeToolExecutionsPermitted": false,
+    "operatingProviderChanged": false,
+    "profileSha256": "34d80ff4052e6fd1992b5972f6e5d46092539fd2ab05cd59e700a2f348339b82",
+    "tunnelBinarySha256": "65b1517bed8828de7a81c825a3a223cd400960b793099b8109cba06e2dcc1eb5",
+    "targetArgvSha256": "83f05682657fd9bf526864372f01e06a64bf04ed74b3d90c7563ad935ae66467",
+    "independentEndpoint": true,
+    "localReady": true,
+    "actualControlPlanePoll": true,
+    "appExitCode": 0,
+    "tunnelExitBeforeCleanup": null,
+    "ownedTunnelStopped": true,
+    "app": {
+      "queryClientFound": true,
+      "modelStarts": 0,
+      "blockedAttempts": 0,
+      "knownAppIds": 1,
+      "apps": [
+        {
+          "name": "Codex Native2",
+          "toolCount": 6,
+          "toolNames": [
+            "codex_exec",
+            "codex_write_stdin",
+            "codex_apply_patch",
+            "codex_view_image",
+            "codex_tool_inventory",
+            "codex_tool_call"
+          ]
+        }
+      ]
+    },
+    "wire": [],
+    "actualChannelInitialized": false,
+    "metadataCalls": 0,
+    "metadataRequestValidated": false,
+    "actualMetadataRefusalReturned": false,
+    "tunnelDiagnostics": {
+      "authFailure": false,
+      "dnsFailure": false,
+      "fileFailure": false
+    },
+    "protectedProfilesUnchanged": true,
+    "wireAccepted": false,
+    "freshIndependentCatalog": false,
+    "independentCatalogWire": false,
+    "accepted": false
+  },
+  "independentHostWakeup": {
+    "qualification": "independent-catalog-discovery-only",
+    "ordinaryChatModel": false,
+    "modelStarts": 0,
+    "nativeToolExecutionsPermitted": false,
+    "operatingProviderChanged": false,
+    "profileSha256": "34d80ff4052e6fd1992b5972f6e5d46092539fd2ab05cd59e700a2f348339b82",
+    "tunnelBinarySha256": "65b1517bed8828de7a81c825a3a223cd400960b793099b8109cba06e2dcc1eb5",
+    "targetArgvSha256": "76a0f08b7be5f434bbe20721adbaf1adc99b080196e8569e254cf112ba5a38ad",
+    "independentEndpoint": true,
+    "localReady": true,
+    "actualControlPlanePoll": true,
+    "appExitCode": 1,
+    "tunnelExitBeforeCleanup": null,
+    "ownedTunnelStopped": true,
+    "app": {
+      "failed": true,
+      "metadataCall": true,
+      "status": 400,
+      "errorName": "Error",
+      "errorFlags": {
+        "schema": false,
+        "unbound": false,
+        "aborted": false,
+        "method": false
+      },
+      "modelStarts": 0,
+      "blockedAttempts": 0
+    },
+    "wire": [
+      {
+        "direction": "request",
+        "method": "initialize",
+        "id": "6b86b273ff34fce1",
+        "requestProtocolVersion": null,
+        "protocolVersion": "2025-11-25",
+        "capabilities": [
+          "experimental",
+          "extensions"
+        ]
+      },
+      {
+        "direction": "response",
+        "method": "initialize",
+        "id": "6b86b273ff34fce1",
+        "errorCode": null,
+        "isError": false,
+        "protocolVersion": "2025-11-25",
+        "capabilities": [
+          "tools"
+        ]
+      },
+      {
+        "direction": "request",
+        "method": "tools/call",
+        "id": "5feceb66ffc86f38",
+        "requestProtocolVersion": null,
+        "metadataProbe": true,
+        "turnTokenSha256": "281093cff982c0e9ca028cac082363e414623716e2fd16c41d7bf4fdd81235e0"
+      },
+      {
+        "direction": "response",
+        "method": "tools/call",
+        "id": "5feceb66ffc86f38",
+        "errorCode": -32000,
+        "isError": false
+      },
+      {
+        "direction": "request",
+        "method": "initialize",
+        "id": "5feceb66ffc86f38",
+        "requestProtocolVersion": null,
+        "protocolVersion": "2025-11-25",
+        "capabilities": [
+          "experimental",
+          "extensions"
+        ]
+      },
+      {
+        "direction": "response",
+        "method": "initialize",
+        "id": "5feceb66ffc86f38",
+        "errorCode": null,
+        "isError": false,
+        "protocolVersion": "2025-11-25",
+        "capabilities": [
+          "tools"
+        ]
+      },
+      {
+        "direction": "request",
+        "method": "notifications/initialized",
+        "id": null,
+        "requestProtocolVersion": null
+      },
+      {
+        "direction": "request",
+        "method": "tools/call",
+        "id": "6b86b273ff34fce1",
+        "requestProtocolVersion": null,
+        "metadataProbe": true,
+        "turnTokenSha256": "281093cff982c0e9ca028cac082363e414623716e2fd16c41d7bf4fdd81235e0"
+      },
+      {
+        "direction": "response",
+        "method": "tools/call",
+        "id": "6b86b273ff34fce1",
+        "errorCode": -32000,
+        "isError": false
+      }
+    ],
+    "actualChannelInitialized": true,
+    "metadataCalls": 2,
+    "metadataRequestValidated": false,
+    "actualMetadataRefusalReturned": false,
+    "tunnelDiagnostics": {
+      "authFailure": false,
+      "dnsFailure": false,
+      "fileFailure": false
+    },
+    "protectedProfilesUnchanged": true,
+    "wireAccepted": false,
+    "freshIndependentCatalog": false,
+    "independentCatalogWire": false,
+    "accepted": false
   }
 }
