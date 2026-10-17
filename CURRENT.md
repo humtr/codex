@@ -275,6 +275,17 @@ operating provider changes; do not stop existing tasks.
 
 ### Deferred functional improvements and current evaluation
 
+- Responsibility recheck2026-10-17: the latest provider changes do not modify
+  Core/Manager/frontend. Provider owns app discovery, transport and host-control
+  classification; upstream remains the native execution/approval/history owner.
+  Keep any future host-confirmation acknowledgment exact-connector/call-bound in
+  the provider; do not change native approval or permanent connector permissions.
+  Remaining UI debt: frontend/manager-tui's termux_chat_models.rs still duplicates
+  Chat family/effort/provider/profile knowledge alongside this provider's catalog.
+  Prefer the existing catalog/config as capability authority, with generic TUI
+  selection/routing. This is a follow-up, not qualification of arbitrary models.
+  Independent Core qualification exists, but normal feature-complete publication
+  still depends on matching maintained TUI acceptance; see production CURRENT.
 - Same-Chat /model changes: exact no-op does nothing; model/effort-only selection
   uses native session updates, retaining the UI and compatible owned Chat context.
   Separate real provider/account changes from these updates. Current frontend
