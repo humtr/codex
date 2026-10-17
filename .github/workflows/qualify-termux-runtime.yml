@@ -57,7 +57,7 @@ env:
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
   PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
-  UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
+  UPSTREAM_LATEST_URL: 'https://api.github.com/repos/openai/codex/releases/latest'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -169,8 +169,11 @@ jobs:
             if test "$upstream_version" != "$CURRENT_VERSION"; then REBUILD_CURRENT=false; fi
           else
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-              --connect-timeout 15 --max-time 60 --max-filesize 131072 \
-              --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
+              --connect-timeout 15 --max-time 60 --max-filesize 4194304 \
+              --output "$state/latest-complete.json" "$UPSTREAM_LATEST_URL"
+            jq '{tag_name,draft,prerelease,assets:[.assets[] | select(.name=="codex-package-aarch64-unknown-linux-musl.tar.gz") | {name,digest}]}' \
+              "$state/latest-complete.json" > "$state/latest.json"
+            jq -e '.draft==false and .prerelease==false' "$state/latest.json"
             python3 source/.github/scripts/rald3_preflight.py upstream \
               "$state/latest.json" > "$state/upstream"
             upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
@@ -189,6 +192,21 @@ jobs:
             --publish "$PUBLISH" --rebuild-current "$REBUILD_CURRENT" \
             --base-only '${{ inputs.base_only }}' --variant '${{ inputs.release_variant }}' \
             --bootstrap-base '${{ steps.stable.outputs.bootstrap_base }}' >> "$GITHUB_OUTPUT"
+
+      - name: Acquire exact qualified shared base
+        id: shared_base
+        if: steps.decision.outputs.candidate == 'true' && !inputs.base_only && inputs.release_variant == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/release_components.py acquire-base \
+            --source source --heads "$RUNNER_TEMP/rald3-stable/heads" \
+            --authority "$RUNNER_TEMP/rald3-stable/update-public-key.pem" \
+            --output "$RUNNER_TEMP/base-input" | tee "$RUNNER_TEMP/base-input.env" >> "$GITHUB_OUTPUT"
+          if ! grep -Fqx reuse_base=true "$RUNNER_TEMP/base-input.env"; then
+            echo 'Full assembly requires porting add-ons to the latest authenticated base; previous full remains served.' >&2
+            exit 1
+          fi
 
       - name: Acquire successful qualified Manager TUI input
         if: steps.decision.outputs.candidate == 'true' && !inputs.base_only && inputs.release_variant == 'full'
@@ -240,10 +258,12 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
           export CC_aarch64_linux_android="$linker"
           export AR_aarch64_linux_android="$toolchain/llvm-ar"
-          products=(-p codex)
+          products=()
+          if test '${{ steps.shared_base.outputs.reuse_base }}' != true; then products+=(-p codex); fi
           if test "$BASE_ONLY" != true; then products+=(-p codex-manager); fi
-          cargo "+$RUST_VERSION" build --release --locked --target aarch64-linux-android \
-            "${products[@]}"
+          if test "${#products[@]}" -gt 0; then
+            cargo "+$RUST_VERSION" build --release --locked --target aarch64-linux-android "${products[@]}"
+          fi
           cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
 
       - name: Fetch, adapt, and qualify unsigned candidate
@@ -267,6 +287,12 @@ jobs:
           # A selected transform still requires the real Android gates below.
           "$builder" prepare --version "$upstream_version" --archive-sha256 "$archive_sha256" \
             | tee "$work/preparation.txt"
+          if test '${{ steps.shared_base.outputs.reuse_base }}' = true; then
+            python3 source/.github/scripts/release_components.py candidate \
+              --base "$RUNNER_TEMP/base-input" --manager "$manager" \
+              --frontend "$RUNNER_TEMP/manager-tui-input/artifact/codex" --builder "$builder" \
+              --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
+          else
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \
@@ -296,6 +322,8 @@ jobs:
             --gzip /usr/bin/gzip \
             --openssl /usr/bin/openssl \
             --output "$work/candidate"
+
+          fi
 
           # Candidate inventory qualification begins here.
           mode=candidate

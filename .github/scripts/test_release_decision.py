@@ -12,7 +12,7 @@ class ReleaseDecisionTests(unittest.TestCase):
         accepted=self.run_decision(**base)
         self.assertEqual(accepted.returncode,0,accepted.stderr)
         self.assertIn('candidate=true',accepted.stdout)
-        self.assertIn('generation_id=local-base-hosted-',accepted.stdout)
+        self.assertIn('generation_id=local-base-relay-hosted-',accepted.stdout)
         for change in [{'event':'push'},{'ref':'refs/heads/rewrite/rust-core'},
                        {'event':'schedule'},{'rebuild-current':'true'},
                        {'base-only':'true','publish':'true'}]:

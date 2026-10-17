@@ -336,7 +336,7 @@ jobs:
 
   notify_acceptance:
     needs: upstream-baseline
-    if: always() && needs.upstream-baseline.result == 'success'
+    if: always()
     permissions:
       contents: read
       actions: write

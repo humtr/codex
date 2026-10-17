@@ -89,6 +89,9 @@ def safe_generation(value: str) -> str:
 
 
 def canonical_release_base(generation: str) -> str:
+    safe_generation(generation)
+    if generation.startswith(("local-relay-hosted-", "local-base-relay-hosted-")):
+        return f"https://codex-releases.humtr.workers.dev/{generation}/"
     return f"https://humtr.github.io/codex/{generation}/"
 
 
@@ -349,6 +352,7 @@ def prepare_assets(args: argparse.Namespace) -> None:
     generation = safe_generation(args.generation)
     if output.exists():
         fail("publication asset output already exists")
+    component_names = {"component-input-v1", "component-input-v1.sig"} if generation.startswith(("local-relay-hosted-", "local-base-relay-hosted-")) else set()
     exact_entries(
         signed_root,
         {
@@ -357,7 +361,7 @@ def prepare_assets(args: argparse.Namespace) -> None:
             "update-index-v1.sig",
             DOWNLOAD_SIZE_ASSET,
             DOWNLOAD_SIZE_SIGNATURE_ASSET,
-        },
+        } | component_names,
     )
     exact_entries(signed_root / "releases", {generation})
     scratch = signed_root / ".rald5-publication-scratch"
@@ -398,7 +402,12 @@ def prepare_assets(args: argparse.Namespace) -> None:
         shutil.copyfile(signed_root / "update-index-v1", output / "candidate-update-index-v1")
         shutil.copyfile(signed_root / "update-index-v1.sig", output / "candidate-update-index-v1.sig")
         shutil.copyfile(public_key, output / "update-public-key.pem")
-        exact_entries(output, {FLAT_ASSETS[rel] for rel, _, _ in files} | {
+        for name in component_names:
+            shutil.copyfile(signed_root / name, output / name)
+        if component_names:
+            from release_components import component
+            component(output, generation, public_key, args.openssl)
+        exact_entries(output, {FLAT_ASSETS[rel] for rel, _, _ in files} | component_names | {
             "release.manifest",
             "release.sig",
             DOWNLOAD_SIZE_ASSET,
@@ -503,6 +512,8 @@ def verify_public(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+    origin = sub.add_parser("release-base")
+    origin.add_argument("--generation", required=True)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--generation", required=True)
     common.add_argument("--release-sequence", required=True)
@@ -524,7 +535,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        if args.command == "prepare-assets":
+        if args.command == "release-base":
+            print(canonical_release_base(args.generation))
+        elif args.command == "prepare-assets":
             prepare_assets(args)
         elif args.command == "restore-assets":
             restore_assets(args)

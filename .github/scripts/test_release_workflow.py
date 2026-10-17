@@ -36,7 +36,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('workflow_dispatch:',header)
         self.assertIn('CODEX_SOURCE_SHA: ${{ inputs.source_sha }}',header)
         self.assertNotIn('RALD5_SOURCE_SHA',text)
-        self.assertIn('publication_source_sha: ${{ inputs.source_sha }}',text)
+        self.assertIn('test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"',text)
+        self.assertNotIn('publish-termux-update-pages.yml',text)
         for job in (producer,qualification,sign):
             for forbidden in ('contents: write','pages: write','gh release','git push','deploy-pages'):
                 self.assertNotIn(forbidden,job)
@@ -53,12 +54,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('publish: false',base)
         self.assertNotIn('write',base.split('\n  notify_acceptance:',1)[0].replace('rewrite/rust-core','source-branch'))
         self.assertIn('actions: write',base.split('\n  notify_acceptance:',1)[1])
-        for key in ('stage_release','pages','verify_public','promote'):
+        for key in ('stage_release','verify_public','promote'):
             job=re.split(r'\n  [a-z_]+:',body.split('\n  '+key+':',1)[1],maxsplit=1)[0]
             self.assertIn('&& inputs.publish',job)
         self.assertIn('force:false',text)
         self.assertNotIn('force:true',text)
-        self.assertIn('Bootstrap protected source state and update through staged Pages',text)
+        self.assertIn('Bootstrap protected source state and update through immutable composition',text)
         self.assertIn('Prepare manifest-owned current generation bootstrap fixture',text)
         self.assertIn('rald5-after-noop',text)
         self.assertNotIn('same_version_acceptance',text)

@@ -38,7 +38,7 @@ jobs:
 
   notify_acceptance:
     needs: qualify
-    if: always() && needs.qualify.result == 'success'
+    if: always()
     permissions:
       contents: read
       actions: write

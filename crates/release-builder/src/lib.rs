@@ -2081,8 +2081,16 @@ fn snapshot_manager_tui_artifact(
     let Some(frontend) = request.manager_tui.as_ref() else {
         return Ok(None);
     };
+    snapshot_manager_tui_source(&frontend.path, &request.openssl, staging)
+}
+
+fn snapshot_manager_tui_source(
+    artifact: &Path,
+    openssl: &Path,
+    staging: &Path,
+) -> Result<Option<String>, BuilderError> {
     let source_metadata = ensure_regular_file(
-        &frontend.path,
+        artifact,
         "inspect Manager frontend",
         "Manager frontend is not a regular file",
     )?;
@@ -2094,7 +2102,7 @@ fn snapshot_manager_tui_artifact(
         ));
     }
     let mut source =
-        File::open(&frontend.path).map_err(|source| io_error("open Manager frontend", source))?;
+        File::open(artifact).map_err(|source| io_error("open Manager frontend", source))?;
     let snapshot_path = staging.join(".manager-tui-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
     let copied = io::copy(
@@ -2128,7 +2136,7 @@ fn snapshot_manager_tui_artifact(
     File::open(&snapshot_path)
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync adapted Manager frontend", source))?;
-    Ok(Some(openssl_sha256(&request.openssl, &snapshot_path)?))
+    Ok(Some(openssl_sha256(openssl, &snapshot_path)?))
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -3890,6 +3898,41 @@ pub fn publish_generation(
     .map_err(|error| error.to_string())
 }
 
+fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
+    if args.len() != 7 {
+        return Err(BuilderError::Usage);
+    }
+    let mut paths = std::collections::BTreeMap::new();
+    for pair in args[1..].as_chunks::<2>().0 {
+        let flag = pair[0].to_str().ok_or(BuilderError::Usage)?;
+        if !matches!(flag, "--artifact" | "--openssl" | "--output")
+            || paths.insert(flag, PathBuf::from(&pair[1])).is_some()
+        {
+            return Err(BuilderError::Usage);
+        }
+    }
+    let artifact = paths.get("--artifact").ok_or(BuilderError::Usage)?;
+    let openssl = paths.get("--openssl").ok_or(BuilderError::Usage)?;
+    let output = paths.get("--output").ok_or(BuilderError::Usage)?;
+    if !paths.values().all(|path| canonical_absolute_path(path)) || output.exists() {
+        return Err(BuilderError::Invalid(
+            "frontend adaptation paths are invalid",
+        ));
+    }
+    ensure_executable(openssl, "OpenSSL is not an executable regular file")?;
+    let staging = create_staging(output)?;
+    let result = (|| {
+        snapshot_manager_tui_source(artifact, openssl, &staging)?;
+        rename_noreplace(&staging.join(".manager-tui-artifact"), output)?;
+        sync_directory(
+            output.parent().ok_or(BuilderError::Usage)?,
+            "sync adapted frontend parent",
+        )
+    })();
+    cleanup_staging(&staging)?;
+    result
+}
+
 pub fn run_from_args<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -3897,6 +3940,13 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
+        Some("adapt-manager-tui") => match adapt_frontend(&args) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("codex-release-builder: {error}");
+                1
+            }
+        },
         Some("prepare") => match prepare_policy(&args) {
             Ok(policy) => {
                 println!("patch_policy_id\t{policy}");
@@ -5173,6 +5223,46 @@ fi
             .output
             .join(".manager-tui-artifact")
             .exists());
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn standalone_frontend_adaptation_matches_full_build_and_preserves_inputs() {
+        let mut fixture = fixture("frontend-component", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        write_valid_manager_probe(&manager);
+        fixture.request.manager = Some(manager);
+        let frontend = fixture.root.join("frontend-source");
+        let raw = fake_runtime();
+        std::fs::write(&frontend, &raw).unwrap();
+        set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
+        fixture.request.manager_tui = Some(ManagerTuiArtifact {
+            path: frontend.clone(),
+            version: fixture.request.version.clone(),
+        });
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let output = fixture.root.join("adapted-frontend");
+        let args = vec![
+            OsString::from("adapt-manager-tui"),
+            OsString::from("--artifact"),
+            frontend.clone().into_os_string(),
+            OsString::from("--openssl"),
+            fixture.request.openssl.clone().into_os_string(),
+            OsString::from("--output"),
+            output.clone().into_os_string(),
+        ];
+        assert_eq!(run_from_args(args.clone()), 0);
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            std::fs::read(fixture.request.output.join("helpers/2")).unwrap()
+        );
+        assert_eq!(std::fs::read(&frontend).unwrap(), raw);
+        assert_ne!(run_from_args(args.clone()), 0); // Never replace an occupied destination.
+        std::fs::remove_file(&output).unwrap();
+        std::fs::write(&frontend, b"not a qualified ELF").unwrap();
+        assert_ne!(run_from_args(args), 0);
+        assert!(!output.exists());
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }

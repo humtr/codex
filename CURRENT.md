@@ -147,6 +147,29 @@ account login/token refresh or usage-exhaustion experiment was performed.
 
 Required implementation shape:
 
+- Serving fallback and repair target are distinct. If baseN succeeds but fullN
+  fails, baseN remains independently stable and the old qualified full remains
+  served. Add-on repair/rebuild targets the latest authenticated successful baseN,
+  not that old serving full's base. Pin the target for each attempt; recheck the
+  base head before promotion. If baseN+1 appeared, preserve completed proof but
+  enqueue qualification againstN+1 instead of silently rebasing the running build
+  or promoting an obsolete composition. Notifications identify both serving full
+  and intended latest-base repair target. Never automatically roll base back to
+  make optional integration pass.
+- Final unexpected failures in discovery, qualification, assembly, signing,
+  publication/readback or promotion must call the user through a deduplicated
+  GitHub attention issue/notification, with stage, logs, retained stable heads,
+  latest repair base and next action. Expected negative tests are not alerts.
+  Delivery uses the existing GitHub account notification settings, no device
+  daemon or extra credential. A periodic reconciliation covers missed completion
+  signals; the notifier never retries workloads or mutates signing/runtime state.
+
+- User clarification: newly released upstream stable must drive automatic input
+  discovery/update and independent base qualification/publication. Do not stop at
+  a manually pinned version recipe or wait for enhanced TUI. Unsupported semantic
+  ports still fail without advancing stable; keep diagnostic evidence. The current
+  controller lacks version/source/archive discovery, so this is required work.
+
 - Pin an exact compatible immutable base and its input/manifest identity in each
   full composition. Never follow a mutable "latest base" or overlay files onto
   an installed generation. Full-only publication neither advances the base head

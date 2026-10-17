@@ -8,8 +8,6 @@ def caller(sha):
     if not re.fullmatch('[0-9a-f]{40}',sha):raise ValueError('expected immutable source SHA')
     header = """name: Termux Hosted Release Preflight
 on:
-  schedule:
-    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       publish:
@@ -60,8 +58,6 @@ jobs:
     permissions:
       contents: write
       actions: read
-      pages: write
-      id-token: write
     uses: humtr/codex/.github/workflows/auto-release-termux.yml@{sha}
     with:
       source_sha: ${{{{ needs.source.outputs.sha }}}}
@@ -73,7 +69,7 @@ jobs:
 """)
     signal = """  notify_acceptance:
     needs: [source, base, release]
-    if: always() && needs.source.result == 'success'
+    if: always()
     permissions:
       contents: read
       actions: write

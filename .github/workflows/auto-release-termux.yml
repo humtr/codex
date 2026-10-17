@@ -137,7 +137,7 @@ jobs:
           CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          release_base='https://humtr.github.io/codex/${{ needs.producer.outputs.generation_id }}/'
+          release_base="$(python3 source/.github/scripts/rald5_publication.py release-base --generation '${{ needs.producer.outputs.generation_id }}')"
           python3 source/.github/scripts/rald4_signing.py \
             --candidate "$RUNNER_TEMP/rald4-sign/candidate" \
             --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
@@ -146,7 +146,8 @@ jobs:
             --builder "$GITHUB_WORKSPACE/source/target/release/codex-release-builder" \
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
-            --output "$RUNNER_TEMP/rald4-sign/signed-output"
+            --output "$RUNNER_TEMP/rald4-sign/signed-output" \
+            --component-source "$GITHUB_WORKSPACE/source"
 
       - name: Independently verify signed candidate
         shell: bash
@@ -175,7 +176,7 @@ jobs:
           test "$(sed -n 's/^generation_id\t//p' "$manifest")" = "$generation"
           test "$(sed -n 's/^generation_id\t//p' "$index")" = "$generation"
           actual_release_base="$(sed -n 's/^release_base\t//p' "$index")"
-          test "$actual_release_base" = "https://humtr.github.io/codex/$generation/"
+          test "$actual_release_base" = "$(python3 source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
           test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
 
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
@@ -241,7 +242,7 @@ jobs:
           generation='${{ needs.producer.outputs.generation_id }}'
           sequence='${{ needs.producer.outputs.release_sequence }}'
           current='${{ needs.producer.outputs.current_generation }}'
-          release_base="https://humtr.github.io/codex/$generation/"
+          release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
           authority="$work/update-public-key.pem"
           assets="$work/release-assets"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -256,6 +257,20 @@ jobs:
             --generation "$generation" \
             --release-sequence "$sequence" \
             --release-base "$release_base"
+
+          composition_args=()
+          if test '${{ inputs.release_variant }}' = full; then
+            python3 publication-source/.github/scripts/release_heads.py \
+              --main-sha "$expected_main" --variant full --public-key "$authority" \
+              --output "$work/heads" > "$work/heads.env"
+            python3 publication-source/.github/scripts/release_components.py match-base \
+              --source publication-source --heads "$work/heads" --authority "$authority" \
+              --output "$work/base" > "$work/base.env"
+            test "$(sed -n 's/^reuse_base=//p' "$work/base.env")" = true
+            composition_args=(--base "$work/base")
+          fi
+          python3 publication-source/.github/scripts/release_components.py compose \
+            --assets "$assets" --authority "$authority" "${composition_args[@]}"
 
           # prepare-assets has already verified this exact signed set.
           find "$assets" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$work/expected-assets"
@@ -325,27 +340,10 @@ jobs:
           done < "$work/public-assets"
           printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
 
-  pages:
-    name: Deploy candidate Pages while retaining LKG
-    needs: [producer, stage_release]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && inputs.publish
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    uses: ./.github/workflows/publish-termux-update-pages.yml
-    with:
-      generation_id: ${{ needs.producer.outputs.generation_id }}
-      release_sequence: ${{ needs.producer.outputs.release_sequence }}
-      current_generation: ${{ needs.producer.outputs.current_generation }}
-      expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
-      release_variant: ${{ inputs.release_variant }}
-      publication_source_sha: ${{ inputs.source_sha }}
-
   verify_public:
     name: Public readback and disposable update proof
-    needs: [producer, stage_release, pages]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && inputs.publish
+    needs: [producer, stage_release]
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && inputs.publish
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     permissions:
@@ -388,7 +386,7 @@ jobs:
             local generation="$1"
             local index_url="$2"
             local require_download_size="${3:-false}"
-            local release_base="https://humtr.github.io/codex/$generation/"
+            local release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
             local destination="$root/$generation"
             mkdir -p "$destination/helpers"
             for rel in release.manifest release.sig; do
@@ -464,14 +462,15 @@ jobs:
             --root "$root" --public-key "$authority" \
             --generation "$current" \
             --release-sequence '${{ needs.producer.outputs.current_release_sequence }}' \
-            --release-base "https://humtr.github.io/codex/$current/"
+            --release-base "$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$current")"
 
-          candidate_index="https://humtr.github.io/codex/$candidate/update-index-v1"
+          candidate_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$candidate")"
+          candidate_index="${candidate_base}update-index-v1"
           ready=false
           for attempt in $(seq 1 20); do
             if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$root/candidate-probe" \
-              "https://humtr.github.io/codex/$candidate/release.manifest" && \
+              "${candidate_base}release.manifest" && \
               test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/candidate-probe")" = "$candidate"; then
               ready=true
               break
@@ -484,12 +483,18 @@ jobs:
           release_readback="$root/release-readback"
           mkdir -p "$release_readback"
           release_url="https://github.com/humtr/codex/releases/download/$candidate"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$root/asset-map-v1.json" "$release_url/asset-map-v1.json"
           compare_release_asset() {
             local asset="$1"
             local relative="$2"
+            local target_url
+            target_url="$(python3 publication-source/.github/scripts/release_components.py target \
+              --map "$root/asset-map-v1.json" --generation "$candidate" --path "$relative")"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 600 \
-              --output "$release_readback/$asset" "$release_url/$asset"
+              --output "$release_readback/$asset" "$target_url"
             cmp "$release_readback/$asset" "$root/$candidate/$relative"
           }
           compare_release_asset release.manifest release.manifest
@@ -515,7 +520,7 @@ jobs:
             --generation "$candidate" \
               --require-download-size \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
-            --release-base "https://humtr.github.io/codex/$candidate/"
+            --release-base "$candidate_base"
 
       - name: Provision ephemeral Android bionic interpreter path
         shell: bash
@@ -636,7 +641,7 @@ jobs:
           PYBOOT
           test ! -e "$destination/compat"
 
-      - name: Bootstrap protected source state and update through staged Pages
+      - name: Bootstrap protected source state and update through immutable composition
         shell: bash
         run: |
           set -euo pipefail
@@ -664,7 +669,8 @@ jobs:
             "$bootstrap_current/core" "$bootstrap_current" "$root/update-public-key.pem"
           test -x "$PREFIX/bin/codex"
 
-          export CODEX_TERMUX_UPDATE_INDEX_URL="https://humtr.github.io/codex/$candidate/update-index-v1"
+          candidate_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$candidate")"
+          export CODEX_TERMUX_UPDATE_INDEX_URL="${candidate_base}update-index-v1"
           pre_version="$("$PREFIX/bin/codex" --version | sed -n 's/^codex-cli //p')"
           test -n "$pre_version"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
@@ -825,7 +831,8 @@ jobs:
           work="$RUNNER_TEMP/rald5-promote"
           rm -rf "$work"
           mkdir -p "$work"
-          index_url="https://humtr.github.io/codex/$generation/update-index-v1"
+          release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
+          index_url="${release_base}update-index-v1"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --output "$work/update-index-v1" "$index_url"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -838,7 +845,7 @@ jobs:
             -in "$work/update-index-v1" -sigfile "$work/update-index-v1.sig"
           test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$work/update-index-v1")" = "$generation"
           test "$(awk -F '\t' '$1=="release_base"{print $2}' "$work/update-index-v1")" = \
-            "https://humtr.github.io/codex/$generation/"
+            "$release_base"
 
           before="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
           test "$before" = "$expected"

@@ -40,13 +40,13 @@ def decide(a):
         candidate=upstream>current or a.rebuild_current=='true' or bootstrap and upstream==current
         suffix=a.upstream.replace('.','-')+'-'+a.source[:12]+'-s'+a.sequence
         return {'candidate':str(candidate).lower(),'decision_reason':'base-candidate' if candidate else 'upstream-not-newer',
-                'generation_id':'local-base-hosted-'+suffix,'upstream_version':a.upstream,
+                'generation_id':'local-base-relay-hosted-'+suffix,'upstream_version':a.upstream,
                 'archive_sha256':a.archive,'artifact_name':'base-candidate-'+suffix,
                 'qualified_artifact_name':'base-qualified-'+suffix,'signed_artifact_name':'base-signed-'+suffix}
     if not a.qualified or not a.qualified_archive:
         suffix=a.upstream.replace('.','-')+'-'+a.source[:12]+'-s'+a.sequence
         return {'candidate':'false','decision_reason':'frontend-unqualified',
-                'generation_id':'local-hosted-'+suffix,'upstream_version':a.upstream,
+                'generation_id':'local-relay-hosted-'+suffix,'upstream_version':a.upstream,
                 'archive_sha256':a.archive,'artifact_name':'candidate-'+suffix,
                 'qualified_artifact_name':'qualified-'+suffix,'signed_artifact_name':'signed-'+suffix}
     qualified=stable_version(a.qualified)
@@ -60,7 +60,7 @@ def decide(a):
     reason=('integrated-candidate' if candidate else 'upstream-not-newer' if upstream<=current
             else 'frontend-unqualified' if upstream!=qualified else 'archive-unqualified')
     suffix=a.upstream.replace('.','-')+'-'+a.source[:12]+'-s'+a.sequence
-    return {'candidate':str(candidate).lower(),'decision_reason':reason,'generation_id':'local-hosted-'+suffix,
+    return {'candidate':str(candidate).lower(),'decision_reason':reason,'generation_id':'local-relay-hosted-'+suffix,
             'upstream_version':a.upstream,'archive_sha256':a.archive,
             'artifact_name':'candidate-'+suffix,'qualified_artifact_name':'qualified-'+suffix,
             'signed_artifact_name':'signed-'+suffix}

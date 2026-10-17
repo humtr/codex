@@ -8984,6 +8984,97 @@ fn authenticated_remote_generation_version(
     Ok(descriptor_field(lines.next(), "upstream_package_version")?.to_owned())
 }
 
+#[cfg(all(
+    any(target_os = "android", target_os = "linux"),
+    any(target_arch = "aarch64", target_arch = "x86_64")
+))]
+fn reuse_remote_release_file(
+    roots: &LocalCoreRoots,
+    acquisition_root: &std::path::Path,
+    current: &LocalReleaseManifest,
+    file: &ReleaseFileEntry,
+    expected_size: u64,
+) -> Result<Option<u64>, LocalProductError> {
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    if !current.files.iter().any(|entry| entry == file)
+        || expected_size > REMOTE_RELEASE_FILE_MAX_BYTES
+    {
+        return Ok(None);
+    }
+    let source_root = roots.generation_root.join(&current.generation_id);
+    let mut parent = source_root.clone();
+    if !std::fs::symlink_metadata(&parent)
+        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+    {
+        return Ok(None);
+    }
+    if let Some(relative_parent) = std::path::Path::new(&file.relative_path).parent() {
+        for part in relative_parent.components() {
+            parent.push(part);
+            if !std::fs::symlink_metadata(&parent)
+                .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            {
+                return Ok(None);
+            }
+        }
+    }
+    // Linux/Android encode O_NOFOLLOW differently on ARM and x86.
+    #[cfg(target_arch = "aarch64")]
+    const NOFOLLOW: i32 = 0x8000;
+    #[cfg(not(target_arch = "aarch64"))]
+    const NOFOLLOW: i32 = 0x20000;
+    // O_NONBLOCK also prevents a special-file substitution from blocking.
+    let Ok(mut input) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(NOFOLLOW | 0x800)
+        .open(source_root.join(&file.relative_path))
+    else {
+        return Ok(None);
+    };
+    let Ok(metadata) = input.metadata() else {
+        return Ok(None);
+    };
+    // SAFETY: geteuid has no parameters and only reads the process identity.
+    let uid = unsafe { geteuid() };
+    if !metadata.is_file()
+        || metadata.uid() != uid
+        || metadata.len() != expected_size
+        || metadata.mode() & 0o7777 != file.mode
+    {
+        return Ok(None);
+    }
+    ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
+    let destination = acquisition_root.join(&file.relative_path);
+    let mut output = create_remote_output(&destination)?;
+    let result = copy_bounded_file_contents(
+        &mut input,
+        &mut output,
+        expected_size,
+        "copy retained signed payload",
+        "retained signed payload exceeds size",
+    );
+    drop(output);
+    if result.is_ok()
+        && std::fs::metadata(&destination).is_ok_and(|metadata| metadata.len() == expected_size)
+        && openssl_sha256(&roots.openssl, &destination).is_ok_and(|digest| digest == file.sha256)
+    {
+        std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(file.mode))
+            .map_err(|source| LocalProductError::Io {
+                operation: "apply reused signed payload mode",
+                source,
+            })?;
+        return Ok(Some(expected_size));
+    }
+    std::fs::remove_file(&destination).map_err(|source| LocalProductError::Io {
+        operation: "remove invalid owned reuse copy",
+        source,
+    })?;
+    Ok(None)
+}
+
 #[cfg(unix)]
 fn acquire_remote_release_source(
     roots: &LocalCoreRoots,
@@ -9092,6 +9183,27 @@ fn acquire_remote_release_source(
         }
         if let Some(sizes) = download_sizes.as_ref() {
             let expected_size = sizes.file_sizes[index];
+            #[cfg(all(
+                any(target_os = "android", target_os = "linux"),
+                any(target_arch = "aarch64", target_arch = "x86_64")
+            ))]
+            if let Some(reused) = reuse_remote_release_file(
+                roots,
+                acquisition_root,
+                current_release,
+                file,
+                expected_size,
+            )? {
+                payload_downloaded = payload_downloaded
+                    .checked_add(reused)
+                    .ok_or(LocalProductError::RemoteResponseTooLarge)?;
+                if updating {
+                    if let Some(presentation) = presentation.as_deref_mut() {
+                        presentation.download_progress(payload_downloaded, sizes.total_bytes);
+                    }
+                }
+                continue;
+            }
             let completed_before = payload_downloaded;
             let total_bytes = sizes.total_bytes;
             let mut report = |current_file_bytes: u64| {
@@ -23638,6 +23750,88 @@ exit 2
             render_update_download_progress(512, 1000),
             "Downloading signed Termux release... 512 / 1000 bytes"
         );
+    }
+
+    #[cfg(all(
+        any(target_os = "android", target_os = "linux"),
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
+    #[test]
+    fn signed_remote_update_reuses_verified_files_and_downloads_corrupt_or_missing_ones() {
+        for fault in ["none", "corrupt", "missing", "symlink", "mode"] {
+            use std::os::unix::fs::{symlink, PermissionsExt as _};
+            let fixture = b5_channel_fixture("signed-reuse", "signed-reuse-next");
+            b4_write_download_size_sidecar(
+                &fixture.release,
+                &fixture.openssl,
+                &fixture.private_key,
+            );
+            let current = fixture
+                .home
+                .join(".local/lib/codex/core/generations")
+                .join(&fixture.current_id);
+            let (_, verified_current) = read_local_release_manifest(&current).unwrap();
+            let file = current.join("runtime");
+            match fault {
+                "corrupt" => std::fs::write(&file, b"bad retained runtime").unwrap(),
+                "missing" => std::fs::remove_file(&file).unwrap(),
+                "symlink" => {
+                    std::fs::remove_file(&file).unwrap();
+                    symlink(fixture.release.join("runtime"), &file).unwrap();
+                }
+                "mode" => {
+                    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap()
+                }
+                _ => {}
+            }
+            let installed = if fault == "none" {
+                let output = b5_run_public_channel_update(
+                    &fixture.index_url,
+                    &fixture.home,
+                    &fixture.prefix,
+                    &fixture.tmp,
+                );
+                assert!(output.status.success(), "stderr={:?}", output.stderr);
+                fixture
+                    .home
+                    .join(".local/lib/codex/core/generations/signed-reuse-next/runtime")
+            } else {
+                // Damage after authenticating the baseline must not poison reuse.
+                // Ordinary pre-existing baseline corruption still fails its original gate.
+                let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+                let acquisition = fixture.root.join("owned-acquisition");
+                std::fs::create_dir(&acquisition).unwrap();
+                let base = RemoteReleaseBase::parse(std::ffi::OsStr::new(&fixture.base)).unwrap();
+                let key = release_public_key_from_pem(
+                    &fixture.openssl,
+                    &fixture.root.join("keys/public.pem"),
+                )
+                .unwrap();
+                acquire_remote_release_source(
+                    &roots,
+                    &base,
+                    &acquisition,
+                    key,
+                    &verified_current,
+                    "9.9.9",
+                    None,
+                )
+                .unwrap();
+                acquisition.join("runtime")
+            };
+            let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            let remote_runtime = format!("{}runtime", fixture.base);
+            assert_eq!(
+                calls.contains(&remote_runtime),
+                fault != "none",
+                "fault={fault} calls={calls}"
+            );
+            assert_eq!(
+                std::fs::read(installed).unwrap(),
+                std::fs::read(fixture.release.join("runtime")).unwrap()
+            );
+            remove_temp_root(fixture.root);
+        }
     }
 
     #[cfg(unix)]

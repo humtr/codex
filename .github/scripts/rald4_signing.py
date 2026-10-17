@@ -328,6 +328,9 @@ def sign(args: argparse.Namespace) -> str:
             accepted_public_key,
             openssl,
         )
+        if getattr(args, "component_source", None) is not None:
+            from release_components import sign_component
+            sign_component(args.component_source, output, generation, key_path, openssl)
     finally:
         if key_dir is not None:
             shutil.rmtree(key_dir, ignore_errors=False)
@@ -344,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--openssl", type=Path, required=True)
     parser.add_argument("--runner-temp", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--component-source", type=Path)
     args = parser.parse_args(argv)
     try:
         generation = sign(args)

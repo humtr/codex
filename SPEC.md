@@ -1038,7 +1038,15 @@ binding authorizes account selection or model-schema interpretation in Core.
 
 Upstream handling must resolve one exact official version/archive/source tuple,
 prepare its Termux compatibility inputs, and drive separate base and full release
-lanes automatically. Base contains Core plus the adapted upstream default UI;
+lanes automatically. A scheduled discovery controller resolves a newly published
+stable upstream version, exact source and official archive digest, updates the
+single input authority without force, and explicitly starts its read-only proofs.
+Qualified base publication must not wait for Manager/enhanced-TUI porting or proof.
+Unsupported transformations stop with actionable evidence and keep the last known
+good head; source edits are never invented by a publishing script. Failed optional
+frontend work cannot block source/Core qualification or basic publication. Device
+activation follows its existing user/update policy, not a forced running-session
+replacement. Base contains Core plus the adapted upstream default UI;
 full adds admitted Manager and enhanced TUI. The opt-in Chat provider remains
 independent. Both lanes require actual Android execution, affected behavior proof,
 signing, immutable assets, complete public readback, disposable update/rollback
@@ -1469,6 +1477,17 @@ is no device overlay, second updater, mutable latest-base dependency or componen
 selection policy in Core. Manager/TUI-only changes must not advance the base head
 or rebuild unchanged base executables; full-combination Android/runtime proof is
 still required. Core/shared input changes invalidate base reuse.
+If new base publication succeeds while full integration fails, the new base stays
+stable and users retain the previous qualified full combination. This serving
+fallback never becomes the automatic repair target: repair/rebuild of add-ons
+always targets the latest authenticated successful base. Each build pins that
+base immutably; promotion rechecks the base head and requeues a superseded target
+for qualification rather than modifying the in-flight composition or automatically
+publishing against an older base. Base is never rolled back to satisfy optional UI.
+Final unexpected automation failures produce one deduplicated user attention
+notification identifying failed stage/logs, retained base/full and latest repair
+target; expected negative qualification cases are not failures. The notification
+path cannot execute repair, weaken proof or modify installed state.
 
 An exact-input component sidecar is signed with the existing production key and
 binds generation, manifest digest, full source SHA and the base build-input

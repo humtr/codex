@@ -18,6 +18,7 @@ import tempfile
 
 from manager_tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load, build_recipe
+from release_components import base_fingerprint, verified_published_base
 
 REPO = 'humtr/codex'
 SOURCE_BRANCH = 'rewrite/rust-core'
@@ -238,6 +239,12 @@ def frontend_registration_needed(source):
 def release_lane(source, previous, current, main):
     # A newly admitted frontend need not republish an already proven base.
     # Any recipe/code change or missing/older base keeps both real lanes.
+    try:
+        if base_fingerprint(source,previous)==base_fingerprint(source,current):
+            if verified_published_base(source,main) is not None:
+                return 'full'
+    except (ValueError,OSError,KeyError,subprocess.CalledProcessError):
+        pass  # Unknown or unauthenticated input state requires both real lanes.
     changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only',previous,current],text=True).splitlines()
     if changed != ['release/upstream.json']:
         return 'both'
@@ -256,6 +263,26 @@ def release_lane(source, previous, current, main):
     except (ValueError,OSError,KeyError,subprocess.CalledProcessError):
         pass
     return 'both'
+
+
+def caller_compatible(source, main):
+    """Never run a new publication protocol through an older immutable caller."""
+    try:
+        content=api('contents/.github/workflows/auto-release-termux.yml?ref='+main)['content']
+        text=base64.b64decode(content).decode()
+        pins=re.findall(r'uses: humtr/codex/\.github/workflows/auto-release-termux\.yml@([0-9a-f]{40})',text)
+        if len(pins)!=2 or len(set(pins))!=1:return False
+        subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',pins[0]],check=True,capture_output=True)
+        for name in ['.github/workflows/auto-release-termux.yml','.github/workflows/qualify-termux-runtime.yml','scripts/pin_release.py']:
+            identities=[subprocess.check_output(['git','-C',str(source),'rev-parse',revision+':'+name],stderr=subprocess.DEVNULL) for revision in ['HEAD',pins[0]]]
+            if identities[0]!=identities[1]:return False
+        return True
+    except (ValueError,TypeError,OSError,KeyError,subprocess.CalledProcessError):
+        return False
+
+
+def git_head(source):
+    return subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
 
 
 def run(source):
@@ -288,6 +315,8 @@ def run(source):
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
     if any(run['status'] != 'completed' for run in public_runs):
         return {'state':'awaiting-publication','source':current}
+    if not caller_compatible(source,main):
+        return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
     variant=release_lane(source,previous,current,main)
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])

@@ -80,7 +80,7 @@ class ReleaseControlTests(unittest.TestCase):
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=False),\
              patch.object(control,'successful_run',return_value=({'id':1},[])),\
-             patch.object(control,'ensure_frontend',return_value=None),\
+             patch.object(control,'ensure_frontend',return_value=None),patch.object(control,'caller_compatible',return_value=True),\
              patch.object(control,'commit_files',return_value='d'*40) as commit,patch.object(control,'dispatch') as dispatch:
             result=control.run(root)
             self.assertEqual(result['state'],'accepted-product-pinned-public-proof-started')
@@ -133,6 +133,22 @@ class ReleaseControlTests(unittest.TestCase):
             with patch.object(control,'api',return_value=content(base)):
                 self.assertEqual(control.release_lane(root,base,current,'a'*40),'both')
 
+    def test_manager_source_changes_select_only_full_when_exact_base_inputs_are_public(self):
+        source=Path('.')
+        with patch.object(control,'base_fingerprint',return_value='a'*64), \
+             patch.object(control,'verified_published_base',return_value='local-base-relay-hosted-owned-s60'), \
+             patch.object(control.subprocess,'check_output',return_value='crates/manager/src/profile.rs\n'):
+            self.assertEqual(control.release_lane(source,'b'*40,'c'*40,'d'*40),'full')
+        with patch.object(control,'base_fingerprint',side_effect=['a'*64,'e'*64]), \
+             patch.object(control,'verified_published_base') as verify, \
+             patch.object(control.subprocess,'check_output',return_value='crates/core/src/main.rs\n'):
+            self.assertEqual(control.release_lane(source,'b'*40,'c'*40,'d'*40),'both')
+            verify.assert_not_called()
+        with patch.object(control,'base_fingerprint',return_value='a'*64), \
+             patch.object(control,'verified_published_base',return_value=None), \
+             patch.object(control.subprocess,'check_output',return_value='crates/manager/src/profile.rs\n'):
+            self.assertEqual(control.release_lane(source,'b'*40,'c'*40,'d'*40),'both')
+
     def test_inflight_publication_delays_pointer_write_until_its_completion_event(self):
         root=Path(__file__).resolve().parents[2];sha='a'*40
         def api(path,**kwargs):
@@ -144,7 +160,7 @@ class ReleaseControlTests(unittest.TestCase):
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=False),\
              patch.object(control,'successful_run',return_value=({'id':1},[])),\
-             patch.object(control,'ensure_frontend',return_value=None),\
+             patch.object(control,'ensure_frontend',return_value=None),patch.object(control,'caller_compatible',return_value=True),\
              patch.object(control,'commit_files') as commit,patch.object(control,'dispatch') as dispatch:
             self.assertEqual(control.run(root)['state'],'awaiting-publication')
             commit.assert_not_called();dispatch.assert_not_called()

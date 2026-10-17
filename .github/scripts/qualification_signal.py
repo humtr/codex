@@ -2,13 +2,14 @@
 import re
 
 
-def signal_job(dependency):
+def signal_job(dependency, legacy=False):
     if dependency not in {'accepted', 'qualify', 'upstream-baseline'}:
         raise ValueError('unknown qualification dependency')
+    condition=f"always() && needs.{dependency}.result == 'success'" if legacy else 'always()'
     return f'''
   notify_acceptance:
     needs: {dependency}
-    if: always() && needs.{dependency}.result == 'success'
+    if: {condition}
     permissions:
       contents: read
       actions: write
@@ -28,9 +29,11 @@ def signal_job(dependency):
 def native_recipe(workflow):
     # Only this exact, isolated trailing notification job is outside the build
     # recipe. Global settings and every build/test step remain byte-bound.
-    tail = signal_job('upstream-baseline')
-    if workflow.endswith(tail):
-        workflow = workflow[:-len(tail)]
+    for legacy in (False, True):
+        tail = signal_job('upstream-baseline', legacy=legacy)
+        if workflow.endswith(tail):
+            workflow = workflow[:-len(tail)]
+            break
     # Subscription syntax is metadata only when no build/test command consumes
     # event/dispatch input. Future input-dependent recipes retain the whole file.
     match = re.search(r'(?m)^on:\n(?:[ \t].*\n|\n)*?(?=^permissions:)', workflow)

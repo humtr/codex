@@ -341,7 +341,7 @@ jobs:
 
   notify_acceptance:
     needs: accepted
-    if: always() && needs.accepted.result == 'success'
+    if: always()
     permissions:
       contents: read
       actions: write
