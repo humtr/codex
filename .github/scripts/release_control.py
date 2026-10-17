@@ -39,12 +39,16 @@ def api(path, *, payload=None, method=None):
     return json.loads(value) if value else None
 
 
+def owned_run(run, workflow, sha):
+    expected={'path':'.github/workflows/'+workflow,'head_sha':sha,'head_branch':SOURCE_BRANCH}
+    return (all(run.get(k)==value for k,value in expected.items())
+            and run.get('event') in ['push','workflow_dispatch']
+            and run.get('repository',{}).get('full_name')==REPO)
+
+
 def accepted_run(run, workflow, sha):
-    expected = {'path': '.github/workflows/'+workflow, 'head_sha': sha,
-                'head_branch': SOURCE_BRANCH, 'status': 'completed', 'conclusion': 'success'}
-    return (all(run.get(k) == value for k, value in expected.items())
-            and run.get('event') in ['push', 'workflow_dispatch']
-            and run.get('repository', {}).get('full_name') == REPO)
+    return (owned_run(run,workflow,sha) and run.get('status')=='completed'
+            and run.get('conclusion')=='success')
 
 
 def successful_run(workflow, sha):
@@ -88,6 +92,23 @@ def bundle_inputs(artifact, proof):
     return output.getvalue()
 
 
+def frontend_recipe_matches(source, sha):
+    if re.fullmatch('[0-9a-f]{40}',sha) is None:
+        return False
+    try:
+        subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',sha],check=True,capture_output=True)
+        verify_recipe(source,sha)
+        return True
+    except (ValueError,OSError,subprocess.CalledProcessError):
+        return False
+
+
+def native_build_inflight(source, runs):
+    return any(owned_run(run,'manager-tui-native.yml',run['head_sha'])
+               and run.get('status') in ['queued','pending','in_progress','waiting','requested']
+               and frontend_recipe_matches(source,run['head_sha']) for run in runs)
+
+
 def ensure_frontend(source, current, root):
     value = load(source/'release/upstream.json')
     pinned = value['frontend']
@@ -106,10 +127,7 @@ def ensure_frontend(source, current, root):
                 and all(run['id'] != candidate['id'] for candidate in candidates)):
             candidates.append(run)
     for index, run in enumerate(candidates):
-        try:
-            subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',run['head_sha']],check=True,capture_output=True)
-            verify_recipe(source, run['head_sha'])
-        except (ValueError,OSError,subprocess.CalledProcessError):
+        if not frontend_recipe_matches(source,run['head_sha']):
             continue  # Reject stale recipes before downloading large outputs.
         directory=root/str(index);directory.mkdir()
         artifact, proof = directory/'artifact', directory/'proof'
@@ -172,7 +190,7 @@ def ensure_frontend(source, current, root):
     # Do not pretend stale frontend references qualify a changed recipe. Start
     # its independent actual build, while allowing the accepted Core/base ahead.
     _, runs = successful_run('manager-tui-native.yml', current)
-    if not runs:
+    if not runs and not native_build_inflight(source,recent):
         dispatch('manager-tui-native.yml', SOURCE_BRANCH)
     value['frontend'] = None
     return value
@@ -194,17 +212,10 @@ def same_product_inputs(source, previous, current):
 
 def frontend_registration_needed(source):
     pinned=load(source/'release/upstream.json')['frontend']
-    def matches(sha):
-        try:
-            subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',sha],check=True,capture_output=True)
-            verify_recipe(source,sha)
-            return True
-        except (ValueError,OSError,subprocess.CalledProcessError):
-            return False
-    if pinned and matches(pinned['source']):
+    if pinned and frontend_recipe_matches(source,pinned['source']):
         return False
     recent=api('actions/workflows/manager-tui-native.yml/runs?branch='+SOURCE_BRANCH+'&per_page=20')['workflow_runs']
-    return any(accepted_run(run,'manager-tui-native.yml',run['head_sha']) and matches(run['head_sha'])
+    return any(accepted_run(run,'manager-tui-native.yml',run['head_sha']) and frontend_recipe_matches(source,run['head_sha'])
                for run in recent)
 
 

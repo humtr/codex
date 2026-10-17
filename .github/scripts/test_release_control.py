@@ -84,6 +84,18 @@ class ReleaseControlTests(unittest.TestCase):
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
 
+    def test_matching_inflight_native_build_is_reused_without_duplicate_dispatch(self):
+        run={'path':'.github/workflows/manager-tui-native.yml','head_sha':'a'*40,
+             'head_branch':'rewrite/rust-core','event':'push','status':'in_progress',
+             'conclusion':None,'repository':{'full_name':'humtr/codex'}}
+        with patch.object(control,'frontend_recipe_matches',return_value=True):
+            self.assertTrue(control.native_build_inflight(Path('.'),[run]))
+            for field,bad in [('status','completed'),('event','pull_request'),
+                              ('repository',{'full_name':'foreign/repo'}),('head_branch','main')]:
+                self.assertFalse(control.native_build_inflight(Path('.'),[{**run,field:bad}]))
+        with patch.object(control,'frontend_recipe_matches',return_value=False):
+            self.assertFalse(control.native_build_inflight(Path('.'),[run]))
+
     def test_frontend_registration_only_releases_full_after_matching_base_is_public(self):
         root_source=Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as tmp:
