@@ -5,25 +5,68 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the qualified candidate after smoke; defaults to unsigned build only
+        description: Publish after all real execution/readback gates
         type: boolean
         default: false
       rebuild_current:
-        description: Manually rebuild the authenticated qualified current backend at next sequence
+        description: Rebuild the authenticated selected backend at the next sequence
         type: boolean
         default: false
+      variant:
+        description: Independent publication lane (both runs base then full)
+        type: choice
+        options: [both, base, full]
+        default: both
 permissions:
   contents: read
+  actions: read
 jobs:
-  release:
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Resolve exact accepted product source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/humtr/codex/contents/release-source-v1?ref=${{ github.sha }} --jq '.content' | base64 -d)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
+            gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/runs.json"
+            jq -e --arg sha "$sha" --arg path ".github/workflows/$workflow"               '.workflow_runs | any(.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch") and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/runs.json"
+          done
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+  base:
+    needs: source
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'full') && needs.source.result == 'success' }}
     permissions:
       contents: write
       actions: read
       pages: write
       id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@c0856171e77870b3682f1b841e37e5314636c652
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@cc4286599665a2143ead48e21c002123b6c40b02
     with:
-      source_sha: c0856171e77870b3682f1b841e37e5314636c652
+      source_sha: ${{ needs.source.outputs.sha }}
+      release_variant: base
+      publish: ${{ github.event_name == 'schedule' || inputs.publish }}
+      rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
+    secrets:
+      CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+  release:
+    needs: [source, base]
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'base') && needs.source.result == 'success' }}
+    permissions:
+      contents: write
+      actions: read
+      pages: write
+      id-token: write
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@cc4286599665a2143ead48e21c002123b6c40b02
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      release_variant: full
       publish: ${{ github.event_name == 'schedule' || inputs.publish }}
       rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
     secrets:
