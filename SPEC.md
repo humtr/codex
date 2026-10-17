@@ -1031,7 +1031,7 @@ an upstream configuration route without requiring its model picker.
 | Component | Owns | Must not own |
 | --- | --- | --- |
 | Upstream | Authentication, inference, tools, reviewer/approval engine, conversation schemas, thread/turn state, compaction, resume and writer locks | Our generation trust or Android window identity |
-| Core and release-builder | Qualified executable/environment/FD/socket binding, unsupported-sandbox enforcement, generic execution-home lease, one physical shared-layout binding, signed inventory, activation/retention/update/rollback and base diagnosis | Account selection/registry, notification policy, model/provider catalog interpretation, Chat transport or TUI interaction |
+| Core and release-builder | Qualified executable/environment/FD/socket binding, unsupported-sandbox enforcement, generic execution-home lease, one physical shared-layout binding, signed inventory, activation/retention/update/rollback, authenticated release identification and base diagnosis | Account selection/registry, notification policy, model/provider catalog interpretation, Chat transport or TUI interaction |
 | Manager | Account/config-profile convenience policy, task discovery/handoff UX, notification hooks/delivery, native window registration/return, optional tmux and title forwarding | Runtime pointer/trust mutation, another updater/executor, conversation storage/schema or model inference |
 | Maintained frontend | Narrow upstream UI integration for /switch, supported permissions, /model catalog/routing and title callbacks; upstream renders canonical transcripts | Provider login/transport/lifetime, generation mutation or a second backend supervisor |
 | Optional provider | Provider catalog/capabilities, auth context, request/tool-return transport, retry and owned-host lifetime | Core runtime selection, canonical conversation DB/writer ownership or native tool execution |
@@ -1045,6 +1045,14 @@ opaque configuration-byte binding. Native server protocol/turns remain upstream
 owned. The qualified native model/list API cannot replace a server's startup
 catalog, so frontend resolution precedes that bounded Core request. Neither
 binding authorizes account selection or model-schema interpretation in Core.
+
+Release identification follows that existing lifecycle boundary. The producer
+owns signed edition/base/date provenance; Core's updater validates and renders
+it alongside its update result. This path requires no Manager executable, RPC,
+configuration or source dependency. A base installation can identify its release
+without Manager. A full installation with unavailable optional Manager still
+identifies as full from its authenticated manifest, not from executable presence.
+Display metadata is informational and never selects components or relaxes admission.
 
 ### Automated upstream preparation and base/full publication
 

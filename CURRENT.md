@@ -6,14 +6,16 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public full57: `local-relay-hosted-0-163-0-3acfbbe284bd-s57`, CLI0.163.0,
-  accepted product source3acfbbe284bd20d034e5a5c67fc908c5e6c42e53. Full publication
-  39007737286 passes build, Android smoke, signing, immutable Release, complete
-  public readback/disposable update and non-forced promotion. It pins and reuses
-  public base56 `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`; full repair did
-  not rebuild or advance that base. Source39007614396 and independent Core/Android
-  39007614483 pass. Ordinary installed full `codex update` now selects57 and retains
-  its previous generation for rollback; public publication does not activate it.
+- Public full59: `local-relay-hosted-0-163-0-b18cc2a2f5f4-s59`, CLI0.163.0,
+  accepted product sourceb18cc2a2f5f4eda67bff1197ce607bddbed96d4a. It pins public
+  base58 `local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58`. Accepted main caller
+  a086145 pins the same implementation/source. Publication39015294386 passes both
+  lanes' builds, Android execution, signing, immutable Release staging, complete
+  public readback/disposable update and non-forced promotion. Source acceptance
+  39015035450 and independent Core/Android39015035471 pass. Signed release date is
+  2026-10-17 UTC; GitHub full59 published_at is2026-10-17T08:00:23Z. New Core update
+  output identifies edition/sequence, full's exact base and signed release date.
+  Ordinary full `codex update` selects59; public publication does not activate it.
 - User has updated to full57; previous54 remains the rollback target. Actual
   user-full57-update-check.json verifies all8 signed payload hashes/modes, the
   launcher/Core identity and unchanged activation state. `codex --version` reports
@@ -23,8 +25,8 @@ This repository carries no external workflow skill or model configuration.
   accepted sourcec0856171e77870b3682f1b841e37e5314636c652. Release38985595917
   passes build, Android execution, signing, immutable Release, Pages retaining
   stable53, complete public readback/disposable update and non-forced promotion.
-  Its historical caller87adee8 and promotion41a4026 qualified54; current caller
-  94e09e0 uses implementationeba60a7 and product pointer3acfbbe.
+  Its historical caller87adee8 and promotion41a4026 qualified54. The current
+  accepted source/caller and public heads are recorded above and below.
   That historical activation retained53 and verified all eight signed files,
   preserving14 configuration files and10 process identities. Existing clients
   keep loaded images until normal restart.
@@ -111,152 +113,67 @@ is introduced to make a test pass. The default local return path remains usable.
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
 responsibility extraction and independent execution are complete. The separately
-qualified0.163 upgrade is installed as54; public editions are base56/full57. Optional provider improvements
-remain separate. Complete Chat-provider lifecycle qualification remains pending.
+qualified0.163 upgrade is installed as57. The operating baseline records current
+public editions; optional provider improvements remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
-### Automated publication: approved shared base/add-ons design
+### Automated publication: shared base and add-ons
 
-Status2026-10-17: shared-base implementation is pushed through eba60a7;
-exact-source acceptance39006354535 and independent Core/Android39006354537 pass.
-Actual native inputb7c9daa/run38996725433 passes43 maintained regressions and94
-retained upstream feature checks. Main caller94e09e0 pins accepted implementation
-eba60a7. Publication39006677326 passes base build, Android smoke, signing, immutable
-Release, complete public readback/disposable update and non-forced promotion:
-public base56 is `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`.
-Public/device full57 is selected; provider remains unchanged.
-The first full attempt stopped before compilation when urllib's default user agent received HTTP403
-(Cloudflare1010) reading base56. Explicit qualification-client identification
-returns200 for the same signed assets. Repair3acfbbe changes publication transport
-only; its authenticated base fingerprint is unchanged. Automatic controller
-39007706843 selects full only. Full39007737286 passes every publication gate
-against base56, without rebuilding/republishing it; base job is skipped. Five
-common payload digests/modes match base56 in the actual installed disposable full.
-Failure reporting actually created owner attention issue21; physical notification
-delivery is not observed. Actual receiver/discovery39008048497 passes with no
-newer upstream and no product change. Both public lanes and device consumer proofs
-now pass; device activation remains separate.
+The approved shared-base release path is implemented. GitHub Releases retain
+immutable assets; the bounded HTTPS redirect adapter serves the existing Core
+protocol without signing authority. Legacy Pages assets/URLs remain available.
+"Diff" means additional/replaced component files, not binary patches. Base owns
+Core, the adapted official runtime/default UI, code-mode host and browser helpers.
+Full adds Manager and enhanced TUI, pinning one authenticated exact base. The opt-in
+Chat provider remains independently installed and qualified.
 
-Publication39001602662 built, Android-smoked, signed and immutably staged both
-sequence56 candidates. Both failed Pages preparation at its existing1GiB guard;
-neither deployed a site or promoted a stable head. Keeping both live heads plus
-a candidate exceeds that bound. Removing LKG, raising the guard, dropping actual
-proof or treating a staged Release as a promoted release is not a solution.
+Publication owns composition; consumers receive one complete signed inventory and
+one atomic current/previous lifecycle. Five common payloads are stored once and
+resolved through a bounded immutable file map. Core may copy retained files into
+private staging only after matching signed hash/size/mode; missing/corrupt content
+falls back to download. Composition adds no hardlinks, live overlays, extra updater/runtime
+pointer or background service. Source fingerprints include actual base dependency
+closures and exact upstream/toolchain inputs, excluding Manager/TUI-only policy.
+Full-only production reuses authenticated base bytes; independent source CI may
+still compile Core. Changed shared inputs require a separately qualified base.
 
-Approved scope: shared immutable base + versioned add-ons,
-GitHub Release-backed payload delivery, reference-aware retention, and subsequent
-quota-aware /switch development after both publication lanes pass. Implement the
-contract below; public proof and user-device activation remain separate. Never delete historical
-public assets as incidental cleanup. No recurring housekeeping service is added.
+Official stable discovery automatically prepares exact upstream inputs and starts
+independent base qualification/publication. Base success remains stable even when
+optional full integration fails; the old qualified full continues serving. A repair
+pins the latest authenticated successful base for its attempt, rather than the
+old serving full's base. Serialized publication and exact-main compare-and-swap
+reject stale candidates; no force, silent running-build rebase or blind retry loop.
+Unsupported semantic ports retain existing heads and need developer intervention.
+Every final unexpected failure produces a deduplicated GitHub owner attention
+issue with retained heads, repair target, logs and action. Existing account
+notification settings control delivery; physical notification delivery is unproven.
 
-| Approach | Benefit | Cost / limit |
-| --- | --- | --- |
-| Independent base/full payloads on Pages | Existing transport | Current candidate+two-head capacity fails; no durable solution |
-| Independent base/full payloads on immutable Releases with bounded HTTPS path redirects | Fastest capacity fix; old Core protocol stays usable | Common assets/builds/downloads remain duplicated; redirect availability is another transport dependency |
-| Shared immutable base assets + versioned add-ons, composed as one signed full generation, on Release-backed transport | Reduces common publication/build/download work; Manager-only updates can leave base untouched | One-time producer/transport/installer changes; generic Core acquisition reuse needs qualification for bandwidth savings |
+Initial shared-base acceptance39006354535/Core39006354537 passes. Qualified native
+inputb7c9daa/run38996725433 passes43 maintained regressions and94 retained upstream
+feature checks. Base56 publication39006677326 passes every gate. Full57 publication
+39007737286 passes against the unchanged base56 with its base job skipped and all
+five common hashes/modes identical. The earlier full403 failed before compilation;
+explicit first-party client identification fixed that transport issue. Attention
+issue21 was actually created and closed after repair. Receiver39008048497 proves
+the no-newer-upstream/no-product-change case. This resolves the former1GiB Pages
+capacity failure without deleting LKG or raising its guard.
 
-Approved: the third approach, with the second approach's Release-backed transport
-as a compatible delivery mechanism rather than a separate temporary architecture.
-"Diff" means additional/replaced component files, not a binary delta patch.
-Base contains Core, adapted upstream runtime/default UI, code-mode host and the
-two browser helpers. Full adds Manager and enhanced TUI; generation metadata and
-signatures are specific to each resulting complete combination. The optional
-Chat provider remains separately installed/qualified and is not folded into base.
+Android private proofs in ~/.cache/codex/acceptance:
 
-Evidence: the two signed staged56 inventories from the same exact b6488df source
-have identical SHA256/mode for Core, runtime, code-mode host and helpers/0..1:
-326,561,593 common bytes. Base payload326,563,030 bytes; full441,584,814;
-full-only/replaced payload115,023,221. Independent pair768,147,844 bytes versus
-441,586,251 with common files stored once, excluding small transport metadata.
-These are signed-inventory identities, not an inference from similar versions.
-Proof: private cache acceptance/base-full-composition-review.json. No inference,
-account login/token refresh or usage-exhaustion experiment was performed.
+- shared-components-device-core.json:20 Core lifecycle steps;
+  shared-components-device-composition.json:9 base/full assembly, execution,
+  validation and signing steps.
+- shared-components-public-{base,full}-device.json: online fresh install, actual
+  versions/Manager and default-head no-op. Matching -lifecycle.json proves55→56
+  and54→57 updates, no-op and offline rollback/forward.
+- latest-base-repair-target.json separates serving full54 from repair base56;
+  upstream-automation-status.json authenticates both final heads and full57→base56.
 
-Required implementation shape:
-
-- Serving fallback and repair target are distinct. If baseN succeeds but fullN
-  fails, baseN remains independently stable and the old qualified full remains
-  served. Add-on repair/rebuild targets the latest authenticated successful baseN,
-  not that old serving full's base. Pin the target for each attempt; recheck the
-  exact main snapshot before promotion. Automatic publishers are serialized; if
-  an external change advances baseN+1, reject the obsolete snapshot and resolve
-  N+1 on the next qualification. Never silently rebase a running build or loop
-  failed rebuilds. Notifications identify both serving full
-  and intended latest-base repair target. Never automatically roll base back to
-  make optional integration pass.
-- Final unexpected failures in discovery, qualification, assembly, signing,
-  publication/readback or promotion must call the user through a deduplicated
-  GitHub attention issue/notification, with stage, logs, retained stable heads,
-  latest repair base and next action. Expected negative tests are not alerts.
-  Delivery uses the existing GitHub account notification settings, no device
-  daemon or extra credential. A periodic reconciliation covers missed completion
-  signals; the notifier never retries workloads or mutates signing/runtime state.
-
-- User clarification: newly released upstream stable must drive automatic input
-  discovery/update and independent base qualification/publication. Do not stop at
-  a manually pinned version recipe or wait for enhanced TUI. Unsupported semantic
-  ports still fail without advancing stable; keep diagnostic evidence. The current
-  controller implements official GitHub release/source/archive/toolchain discovery.
-  A read-only check confirms the pinned0.163.0 is current; a genuinely new upstream
-  port is not claimed proven until its actual candidate passes.
-
-- Pin an exact compatible immutable base and its input/manifest identity in each
-  full composition. Never follow a mutable "latest base" or overlay files onto
-  an installed generation. Full-only publication neither advances the base head
-  nor discards its qualification. An independently newer base may publish while
-  full remains pinned to its previously qualified base.
-- Keep one complete signed v4 full inventory and one atomic current/previous
-  generation lifecycle. Publication reconstructs and verifies the entire full
-  image from pinned common files plus add-ons; consumers activate only the complete
-  verified result. No second runtime pointer, updater, daemon or dependency solver.
-- Prefer a bounded transport file map in the full immutable Release, directing
-  common logical paths to the exact base's Release assets and add-on paths to the
-  full Release. The optional fixed HTTPS redirect adapter has no signing authority
-  or device role. It must allow only fixed owned-repository assets, validate map
-  bounds/identity/paths, prevent cycles/open redirects and preserve HTTPS. Verify
-  current-client compatibility before selecting this design; do not assume it.
-- Preserve old Pages generations/URLs. Deduplication alone does not remove a static
-  site's cumulative size cap. Release-backed payloads address capacity; component
-  reuse addresses duplication. Neither promises unlimited storage or availability.
-- Core currently downloads every declared payload when acquiring a different
-  signed release (acquire_remote_release_source). Storage dedup alone therefore
-  does not save device bandwidth. Add at most one generic hash/size/mode-verified
-  reuse path from owned retained files into private staging, then ordinary full
-  verification/activation. Copy/rename without hardlinks; corruption/missing data
-  falls back to authenticated download. A fresh full install resolves both parts;
-  an old Core may download all files but must still install correctly. Failure,
-  offline rollback and uninstall/retention must not orphan pinned common assets.
-- Release-builder/CI own component composition, input closures and compatibility
-  proof. The base fingerprint includes actual Core/builder/binding/compatibility
-  sources, transitive lock/build inputs and exact upstream/toolchain tuple; excludes
-  Manager/TUI-only policy. Add-on identity binds its own sources and exact supported
-  base/protocol. Reuse green proof only for identical qualified inputs. Whole-tree
-  SHA changes alone must not rebuild/republish an identical base.
-- release_control.release_lane now selects full only for matching signed public
-  base input closures, including ordinary Manager/TUI changes. Production full
-  composition reuses authenticated base executables; independent source-acceptance
-  CI may still compile/test Core. Verify published base hashes/head and production
-  build selection on the next Manager-only release; changed shared inputs invalidate reuse.
-- Keep real Android smoke, complete public readback, disposable full/base fresh
-  install/update/no-op/rollback, compatibility negatives, and non-forced promotion.
-  Publishing only add-on bytes does not waive full-combination execution proof.
-
-Local proof: shared-components-device-core.json records20 actual Android Core
-lifecycle steps; shared-components-device-composition.json records9 real Android
-base/full assembly, Manager/frontend execution, validation and signing steps.
-Both use disposable roots, remove them afterwards, submit0 real chats and preserve
-the user installation. latest-base-repair-target.json authenticates serving full54
-and newer repair base56 independently during the failed-full interval. Redirect
-deployment source identity is verified. Actual Android public consumer proofs:
-shared-components-public-{base,full}-device.json verify online fresh installs,
-actual versions/Manager and default-head no-op; corresponding -lifecycle.json
-proofs verify55->56 and54->57 updates, no-op, offline rollback/forward. The full
-upgrade trial explicitly selected the signed public candidate index; fresh full
-installation/default update subsequently selects promoted57 normally. All roots
-were removed while user-installed54 was unchanged, before the user's own57 update.
-All tests submit0 real chats.
-upstream-automation-status.json authenticates both final heads and signed full
-provenance/map: full57 pins exactly base56, not the former full's older base.
+All these fixtures were removed, submitted0 chats and preserved the live install.
+Device activation is separate. Keep real Android smoke, complete public readback,
+disposable update/no-op/rollback and non-forced promotion for every new release.
+Reference-aware retention must preserve both heads, their exact referenced bases
+and last-known-good assets; historical public assets are not incidental cleanup.
 
 ### Release identification and next work
 
@@ -270,7 +187,31 @@ service, Core dependency or Manager/account policy is introduced. Explicit updat
 alone fetches bounded optional display data; unavailable or invalid data remains
 unavailable without changing release admission. New publication must verify these
 fields against actual base provenance and read them back through both public paths.
-Publication/runtime qualification of this correction remains pending.
+The producer owns signed provenance, and the existing Core updater owns its
+verification and presentation. Manager owns none of this path; no Manager RPC,
+configuration or executable is required, even to identify an installed full release.
+Exact-source acceptance39015035450 and independent Core/Android39015035471 pass
+for b18cc2a. Accepted callera086145 pins that source; publication39015294386 is green
+for public base58/full59. Actual Android proofs for both editions pass signed
+public update, exact-current display, version and offline rollback/forward. Base58
+contains no Manager; full59 still prints the exact same full/base/date with its
+Manager file physically removed. No-op launcher/activation state is unchanged.
+Both owned fixtures are removed,0 chats submitted, live installation57 unchanged.
+Evidence: release-display-public-{base,full}-device.json. The reproducible device
+probe is release-display-public-device-proof.py in the same private cache.
+
+The old57 Core cannot retrospectively render new fields during its own upgrade.
+After activating59, the next ordinary no-op `codex update` shows:
+
+```text
+Codex 0.163.0 is already up to date.
+Termux release: Full #59 · Base #58 · Release date: 2026-10-17 (UTC)
+```
+
+First-update acceptance admits the exact legacy output from old clients; candidate
+Core's subsequent no-op must show the exact authenticated new line, without ANSI,
+staging, runtime probes or activation-state changes. Older releases with no signed
+display fields report unavailable rather than inventing a date or base.
 
 After this correction and document cleanup, report the approved quota-aware
 /switch sequence below. This request does not start account rotation or provider
@@ -420,18 +361,17 @@ The pre-automation review identified two coupling debts:
   require a frontend rebuild. Prefer the existing installed catalog/config as the
   capability authority and keep TUI work to generic selection/routing; do not move
   that interpretation into Core or create a second registry.
-- The then qualification-only base path has since gained independent signed
-  publication (public base55). Publication/storage coupling is still unfinished:
-  Pages capacity blocks the next pair and ordinary Manager/TUI changes still select
-  both lanes. The pending composition/component-selection work above owns this
-  debt. Full frontend/backend compatibility proof remains necessary by design.
+- Publication/storage coupling identified then is resolved by the shared-base
+  Release-backed path above. Full-only production leaves an identical base
+  unchanged; full frontend/backend compatibility proof remains necessary.
 
 ### Accepted0.163 upgrade
 
 User authorized the0.161→0.163 upgrade after boundary finalization, including
 0.162's added features. Target: official0.163.0/source83086188ae0614bd882818ff1aa23f3194962012,
 archive9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb.
-Public/device stable53 is selected; actual version/doctor checks pass.
+That qualification initially selected stable53; the operating baseline above records
+the newer public/device generations. Actual version/doctor checks pass.
 Temporary source/generations use TMPDIR;
 compiler and private evidence use ~/.cache/codex/upstream-0.163.0. No actual ChatGPT
 messages or real account credentials are used by this qualification.
