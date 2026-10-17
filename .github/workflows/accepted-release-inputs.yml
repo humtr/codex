@@ -1,7 +1,13 @@
 name: Advance accepted release inputs
 on:
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
+      discover_upstream:
+        description: Resolve newly published official stable before qualification
+        type: boolean
+        default: false
       completed_run:
         description: Optional completion handshake; it grants no proof authority
         type: string
@@ -9,6 +15,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write
 concurrency:
   group: accepted-termux-release-inputs
   cancel-in-progress: false
@@ -47,11 +54,65 @@ jobs:
           if jq -e --arg sha "$sha" '.workflow_runs | any(.head_sha==$sha and .path==".github/workflows/rald7-full-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and (.event=="push" or .event=="workflow_dispatch") and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/source-runs.json"; then
             echo 'accepted=true' >> "$GITHUB_OUTPUT"
           fi
-      - name: Require real proofs and advance exact non-forced inputs
-        if: steps.source.outputs.accepted == 'true'
+      - name: Fetch accepted controller for discovery and failure reporting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main="$(gh api repos/humtr/codex/git/ref/heads/main --jq '.object.sha')"
+          accepted="$(gh api "repos/humtr/codex/contents/release-source-v1?ref=$main" --jq '.content' | base64 -d)"
+          [[ "$accepted" =~ ^[0-9a-f]{40}$ ]]
+          for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
+            gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$accepted&per_page=100" \
+              --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and .repository.full_name=="humtr/codex" and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch"))' | grep -Fqx true
+          done
+          git init accepted-controller
+          git -C accepted-controller remote add origin https://github.com/humtr/codex.git
+          git -C accepted-controller fetch --no-tags --depth=1 origin "$accepted"
+          git -C accepted-controller checkout --detach FETCH_HEAD
+          test "$(git -C accepted-controller rev-parse HEAD)" = "$accepted"
+
+      - name: Notify owner of completed failure
+        if: inputs.completed_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPLETED_RUN: ${{ inputs.completed_run }}
+        run: |
+          set -euo pipefail
+          python3 accepted-controller/.github/scripts/release_attention.py --run-id "$COMPLETED_RUN"
+
+      - name: Reconcile missed completion signals
+        if: github.event_name == 'schedule' || inputs.discover_upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 accepted-controller/.github/scripts/release_attention.py --reconcile
+
+      - name: Discover official stable and submit independent base inputs
+        id: discovery
+        if: steps.source.outputs.accepted == 'true' && (github.event_name == 'schedule' || inputs.discover_upstream)
         env:
           GH_TOKEN: ${{ github.token }}
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/release_control.py --source "$GITHUB_WORKSPACE/source"
+          python3 accepted-controller/.github/scripts/upstream_discovery.py --source "$GITHUB_WORKSPACE/source" > "$RUNNER_TEMP/discovery.json"
+          cat "$RUNNER_TEMP/discovery.json"
+          if jq -e '.state=="new-upstream-awaiting-real-proof"' "$RUNNER_TEMP/discovery.json"; then
+            echo 'updated=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require real proofs and advance exact non-forced inputs
+        if: steps.source.outputs.accepted == 'true' && steps.discovery.outputs.updated != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/release_control.py --source "$GITHUB_WORKSPACE/source" > "$RUNNER_TEMP/advance.json"
+          cat "$RUNNER_TEMP/advance.json"
+          if jq -e '.state=="awaiting-accepted-caller-repin"' "$RUNNER_TEMP/advance.json"; then
+            echo 'Accepted workflow implementation requires an owner-authorized exact main caller repin before publication.' >&2
+            exit 1
+          fi

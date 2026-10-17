@@ -1,7 +1,5 @@
 name: Termux Hosted Release Preflight
 on:
-  schedule:
-    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       publish:
@@ -45,9 +43,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-      pages: write
-      id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d58a834e182b23ad1011491f3582ef49529fe1e1
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@eba60a7a72cacc9f6be126606ee992c00e662f5d
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: base
@@ -61,9 +57,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-      pages: write
-      id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d58a834e182b23ad1011491f3582ef49529fe1e1
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@eba60a7a72cacc9f6be126606ee992c00e662f5d
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: full
@@ -73,7 +67,7 @@ jobs:
       CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
   notify_acceptance:
     needs: [source, base, release]
-    if: always() && needs.source.result == 'success'
+    if: always()
     permissions:
       contents: read
       actions: write
