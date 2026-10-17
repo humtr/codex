@@ -160,9 +160,10 @@ Required implementation shape:
   fails, baseN remains independently stable and the old qualified full remains
   served. Add-on repair/rebuild targets the latest authenticated successful baseN,
   not that old serving full's base. Pin the target for each attempt; recheck the
-  base head before promotion. If baseN+1 appeared, preserve completed proof but
-  enqueue qualification againstN+1 instead of silently rebasing the running build
-  or promoting an obsolete composition. Notifications identify both serving full
+  exact main snapshot before promotion. Automatic publishers are serialized; if
+  an external change advances baseN+1, reject the obsolete snapshot and resolve
+  N+1 on the next qualification. Never silently rebase a running build or loop
+  failed rebuilds. Notifications identify both serving full
   and intended latest-base repair target. Never automatically roll base back to
   make optional integration pass.
 - Final unexpected failures in discovery, qualification, assembly, signing,

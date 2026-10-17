@@ -1107,7 +1107,8 @@ Independence has distinct observable levels:
   to pass the qualified backend protocol/behavior gate. Exact backend-version
   admission remains until a broader pair is actually proven. Failure retains the
   accepted generation; base qualification alone never silently removes features.
-  There is no new automatic base-mode downgrade or second public update channel.
+  There is no automatic downgrade from full to base; each edition follows its
+  own signed public head.
 
 The retained TUI patch contains only upstream call sites/types, supported-permission
 integration, startup compatibility and actual test access; standalone policy lives
@@ -1481,9 +1482,12 @@ If new base publication succeeds while full integration fails, the new base stay
 stable and users retain the previous qualified full combination. This serving
 fallback never becomes the automatic repair target: repair/rebuild of add-ons
 always targets the latest authenticated successful base. Each build pins that
-base immutably; promotion rechecks the base head and requeues a superseded target
-for qualification rather than modifying the in-flight composition or automatically
-publishing against an older base. Base is never rolled back to satisfy optional UI.
+base immutably. Automatic publishers are serialized; promotion rechecks its exact
+main snapshot, including the base head. A superseded snapshot cannot promote:
+the next qualification resolves the latest successful base afresh, rather than
+modifying the in-flight composition or automatically publishing against an older
+base. A failed job calls the owner rather than entering a blind rebuild loop.
+Base is never rolled back to satisfy optional UI.
 Final unexpected automation failures produce one deduplicated user attention
 notification identifying failed stage/logs, retained base/full and latest repair
 target; expected negative qualification cases are not failures. The notification
