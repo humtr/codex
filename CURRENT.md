@@ -6,15 +6,24 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public/device stable54: `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
+- Public full57: `local-relay-hosted-0-163-0-3acfbbe284bd-s57`, CLI0.163.0,
+  accepted product source3acfbbe284bd20d034e5a5c67fc908c5e6c42e53. Full publication
+  39007737286 passes build, Android smoke, signing, immutable Release, complete
+  public readback/disposable update and non-forced promotion. It pins and reuses
+  public base56 `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`; full repair did
+  not rebuild or advance that base. Source39007614396 and independent Core/Android
+  39007614483 pass. Ordinary installed full `codex update` now selects57 and retains
+  its previous generation for rollback; public publication does not activate it.
+- User-installed full54 remains `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
   accepted sourcec0856171e77870b3682f1b841e37e5314636c652. Release38985595917
   passes build, Android execution, signing, immutable Release, Pages retaining
   stable53, complete public readback/disposable update and non-forced promotion.
-  Main caller87adee8 pins that source; promotion41a4026 changes the signed index.
-  Ordinary `codex update` activates54 and retains53 for rollback. All eight signed
+  Its historical caller87adee8 and promotion41a4026 qualified54; current caller
+  94e09e0 uses implementationeba60a7 and product pointer3acfbbe.
+  Installed previous53 remains available. All eight installed signed
   hashes/modes/signature verify;14 configuration files and10 process identities
   remain unchanged. Existing clients keep loaded images until normal restart.
-- Source acceptance38985256219 passes all required gates, including the event's
+- Installed54 source acceptance38985256219 passes all required gates, including the event's
   Android Core proof, workspace tests, fmt and Clippy. Independent Core build/
   Android qualification38985256222 also passes. Native sourcef348df3/run38979482916
   passes43 maintained TUI tests,94 retained upstream features and lint. Immutable
@@ -97,7 +106,7 @@ is introduced to make a test pass. The default local return path remains usable.
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
 responsibility extraction and independent execution are complete. The separately
-qualified0.163 upgrade and later fixes are now public/device stable54; optional provider improvements
+qualified0.163 upgrade is installed as54; public editions are base56/full57. Optional provider improvements
 remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
@@ -110,14 +119,18 @@ retained upstream feature checks. Main caller94e09e0 pins accepted implementatio
 eba60a7. Publication39006677326 passes base build, Android smoke, signing, immutable
 Release, complete public readback/disposable update and non-forced promotion:
 public base56 is `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`.
-Public/device full54 remains selected; no installed user runtime or provider changed.
-Full stopped before compilation when urllib's default user agent received HTTP403
+Public full57 is selected; user-installed full54 and provider remain unchanged.
+The first full attempt stopped before compilation when urllib's default user agent received HTTP403
 (Cloudflare1010) reading base56. Explicit qualification-client identification
-returns200 for the same signed assets. Repair changes publication transport only;
-the authenticated base fingerprint is unchanged. Retry full against base56,
-without rebuilding/republishing base. Failure reporting actually created owner
-attention issue21; physical notification delivery is not observed.
-Automation is not complete until the full lane and device public consumer proofs pass.
+returns200 for the same signed assets. Repair3acfbbe changes publication transport
+only; its authenticated base fingerprint is unchanged. Automatic controller
+39007706843 selects full only. Full39007737286 passes every publication gate
+against base56, without rebuilding/republishing it; base job is skipped. Five
+common payload digests/modes match base56 in the actual installed disposable full.
+Failure reporting actually created owner attention issue21; physical notification
+delivery is not observed. Actual receiver/discovery39008048497 passes with no
+newer upstream and no product change. Both public lanes and device consumer proofs
+now pass; device activation remains separate.
 
 Publication39001602662 built, Android-smoked, signed and immutably staged both
 sequence56 candidates. Both failed Pages preparation at its existing1GiB guard;
@@ -128,7 +141,7 @@ proof or treating a staged Release as a promoted release is not a solution.
 Approved scope: shared immutable base + versioned add-ons,
 GitHub Release-backed payload delivery, reference-aware retention, and subsequent
 quota-aware /switch development after both publication lanes pass. Implement the
-contract below; remaining public/device proof and activation remain separate. Never delete historical
+contract below; public proof and user-device activation remain separate. Never delete historical
 public assets as incidental cleanup. No recurring housekeeping service is added.
 
 | Approach | Benefit | Cost / limit |
@@ -228,9 +241,16 @@ lifecycle steps; shared-components-device-composition.json records9 real Android
 base/full assembly, Manager/frontend execution, validation and signing steps.
 Both use disposable roots, remove them afterwards, submit0 real chats and preserve
 the user installation. latest-base-repair-target.json authenticates serving full54
-and newer repair base56 independently. Redirect deployment source identity is
-verified, and public base56 logical manifest returns200. Public full composition
-and its real-device consumer lifecycle remain pending.
+and newer repair base56 independently during the failed-full interval. Redirect
+deployment source identity is verified. Actual Android public consumer proofs:
+shared-components-public-{base,full}-device.json verify online fresh installs,
+actual versions/Manager and default-head no-op; corresponding -lifecycle.json
+proofs verify55->56 and54->57 updates, no-op, offline rollback/forward. The full
+upgrade trial explicitly selected the signed public candidate index; fresh full
+installation/default update subsequently selects promoted57 normally. All roots
+are removed and user-installed54 is unchanged. All tests submit0 real chats.
+upstream-automation-status.json authenticates both final heads and signed full
+provenance/map: full57 pins exactly base56, not the former full's older base.
 
 ### Deferred development: quota-aware /switch
 
