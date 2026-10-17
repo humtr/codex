@@ -101,22 +101,215 @@ qualified0.163 upgrade and later fixes are now public/device stable54; optional 
 remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
-### Active automated upstream release work
+### Automated publication: approved shared base/add-ons design
 
-User authorizes automated Core preparation and independently qualified base/full
-publication while preserving actual proof. Implement one version/source/toolchain/
-frontend-input authority, then source preparation and qualification orchestration,
-then base-aware signing/readback/Pages/non-forced dual-head promotion and accepted-
-source caller updates. Existing stable54/full and installed optional provider stay
-selected until the corresponding complete gates pass. Base is Core+upstream UI;
-full adds Manager/enhanced TUI; Chat provider remains opt-in. Do not conflate a
-qualification-only base build with a publishable base release. End-to-end Android
-and disposable update/rollback proof remain required for both lanes. This work is
-in progress, not installed or operational merely because configuration exists.
+Status2026-10-17: implementation/source automation is pushed through b6488df;
+source acceptance39001269896 and independent Core/Android39001375960 pass.
+Actual native inputb7c9daa/run38996725433 passes43 maintained regressions and94
+retained upstream feature checks. Public base55 is operational; public/device
+full54 remains selected. No installed user runtime or optional provider is changed
+by the review below. Automation is not complete until both public lanes pass.
 
-### Responsibility recheck2026-10-17
+Publication39001602662 built, Android-smoked, signed and immutably staged both
+sequence56 candidates. Both failed Pages preparation at its existing1GiB guard;
+neither deployed a site or promoted a stable head. Keeping both live heads plus
+a candidate exceeds that bound. Removing LKG, raising the guard, dropping actual
+proof or treating a staged Release as a promoted release is not a solution.
 
-Current Core/Manager/frontend/build inputs are unchanged from accepted source
+User approved the recommended shared immutable base + versioned add-ons design,
+GitHub Release-backed payload delivery, reference-aware retention, and subsequent
+quota-aware /switch development after both publication lanes pass. Implement the
+contract below; public/device activation remains separate. Never delete historical
+public assets as incidental cleanup. No recurring housekeeping service is added.
+
+| Approach | Benefit | Cost / limit |
+| --- | --- | --- |
+| Independent base/full payloads on Pages | Existing transport | Current candidate+two-head capacity fails; no durable solution |
+| Independent base/full payloads on immutable Releases with bounded HTTPS path redirects | Fastest capacity fix; old Core protocol stays usable | Common assets/builds/downloads remain duplicated; redirect availability is another transport dependency |
+| Shared immutable base assets + versioned add-ons, composed as one signed full generation, on Release-backed transport | Reduces common publication/build/download work; Manager-only updates can leave base untouched | One-time producer/transport/installer changes; generic Core acquisition reuse needs qualification for bandwidth savings |
+
+Approved: the third approach, with the second approach's Release-backed transport
+as a compatible delivery mechanism rather than a separate temporary architecture.
+"Diff" means additional/replaced component files, not a binary delta patch.
+Base contains Core, adapted upstream runtime/default UI, code-mode host and the
+two browser helpers. Full adds Manager and enhanced TUI; generation metadata and
+signatures are specific to each resulting complete combination. The optional
+Chat provider remains separately installed/qualified and is not folded into base.
+
+Evidence: the two signed staged56 inventories from the same exact b6488df source
+have identical SHA256/mode for Core, runtime, code-mode host and helpers/0..1:
+326,561,593 common bytes. Base payload326,563,030 bytes; full441,584,814;
+full-only/replaced payload115,023,221. Independent pair768,147,844 bytes versus
+441,586,251 with common files stored once, excluding small transport metadata.
+These are signed-inventory identities, not an inference from similar versions.
+Proof: private cache acceptance/base-full-composition-review.json. No inference,
+account login/token refresh or usage-exhaustion experiment was performed.
+
+Required implementation shape:
+
+- Pin an exact compatible immutable base and its input/manifest identity in each
+  full composition. Never follow a mutable "latest base" or overlay files onto
+  an installed generation. Full-only publication neither advances the base head
+  nor discards its qualification. An independently newer base may publish while
+  full remains pinned to its previously qualified base.
+- Keep one complete signed v4 full inventory and one atomic current/previous
+  generation lifecycle. Publication reconstructs and verifies the entire full
+  image from pinned common files plus add-ons; consumers activate only the complete
+  verified result. No second runtime pointer, updater, daemon or dependency solver.
+- Prefer a bounded transport file map in the full immutable Release, directing
+  common logical paths to the exact base's Release assets and add-on paths to the
+  full Release. The optional fixed HTTPS redirect adapter has no signing authority
+  or device role. It must allow only fixed owned-repository assets, validate map
+  bounds/identity/paths, prevent cycles/open redirects and preserve HTTPS. Verify
+  current-client compatibility before selecting this design; do not assume it.
+- Preserve old Pages generations/URLs. Deduplication alone does not remove a static
+  site's cumulative size cap. Release-backed payloads address capacity; component
+  reuse addresses duplication. Neither promises unlimited storage or availability.
+- Core currently downloads every declared payload when acquiring a different
+  signed release (acquire_remote_release_source). Storage dedup alone therefore
+  does not save device bandwidth. Add at most one generic hash/size/mode-verified
+  reuse path from owned retained files into private staging, then ordinary full
+  verification/activation. Copy/rename without hardlinks; corruption/missing data
+  falls back to authenticated download. A fresh full install resolves both parts;
+  an old Core may download all files but must still install correctly. Failure,
+  offline rollback and uninstall/retention must not orphan pinned common assets.
+- Release-builder/CI own component composition, input closures and compatibility
+  proof. The base fingerprint includes actual Core/builder/binding/compatibility
+  sources, transitive lock/build inputs and exact upstream/toolchain tuple; excludes
+  Manager/TUI-only policy. Add-on identity binds its own sources and exact supported
+  base/protocol. Reuse green proof only for identical qualified inputs. Whole-tree
+  SHA changes alone must not rebuild/republish an identical base.
+- Current release_control.release_lane only narrows a frontend-output-reference
+  update; ordinary Manager/TUI source changes still select both lanes. That is
+  unfinished release coupling. Replace it with input-bound component selection,
+  and prove that a /switch-only change preserves base artifact hashes, base head,
+  recipe and base build count while a changed Core/shared input invalidates reuse.
+- Keep real Android smoke, complete public readback, disposable full/base fresh
+  install/update/no-op/rollback, compatibility negatives, and non-forced promotion.
+  Publishing only add-on bytes does not waive full-combination execution proof.
+
+### Deferred development: quota-aware /switch
+
+Schedule: after the currently authorized work and the selected base/full
+publication path are complete. User approved this development scope;
+this entry is a development target, not implemented or enabled behavior.
+
+Existing implementation: Manager profile_view snapshots registered profile IDs,
+current and saved default. Enhanced TUI app/profile_manager renders selection and
+requires an idle primary chat without queued input or pending tools; Manager
+profile_resume validates destination/source, registry identity and writer release
+before ordinary same-thread resume. No quota display, rotation policy or automatic
+quota handoff exists. Core forwards Manager commands without interpreting them.
+
+Pinned upstream0.163 source83086188 already exposes account/rateLimits/read and
+account/rateLimits/updated. Its account protocol includes windowDurationMins,
+usedPercent, resetsAt, multiple limit IDs, account_id and ordinary_usage_allowed;
+null permission is explicitly unknown and percentages/reset times cannot establish
+recovery. Typed UsageLimitExceeded and RateLimitExceeded are distinct. This review
+checked source, not live account responses. Official reference:
+https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt
+
+Ownership and required behavior:
+
+- Upstream owns authentication/refresh, actual quota/error facts, inference,
+  durable transcript/turn state, tools/reviewer and writer locks. Manager owns
+  registered-account usage projection/cache, eligibility, chosen pool, ranking,
+  rotation settings and handoff decision. Enhanced TUI owns /switch rows/settings,
+  event forwarding and a narrow existing lifecycle re-entry hook. Core retains
+  generic execution-home/lease/verified lifecycle only; provider quota facts stay
+  in the provider. No account policy or new supervision layer enters Core.
+- Use each profile's existing qualified account-scoped upstream interface; reuse
+  an existing endpoint or a bounded native client through Core, never copy tokens
+  into a cross-account client or log secrets. Prove inactive-account reads do not
+  infer, hydrate conversations, seize a writer, restart a running job or sign out
+  another account. Manager's launch-preparation config hook remains bounded and
+  network-free; quota acquisition must not move into ordinary Core startup. Keep
+  private snapshots in the existing XDG cache, separated by bound account/workspace/
+  bucket identity; cache is never authentication authority. Expose the same Manager
+  data/policy through text/JSON usage and selection-preview views for testing without
+  TUI. Preserve the strict existing __profile-snapshot-v1 schema; introduce a
+  versioned richer view instead of unknown fields that break retained clients.
+- Show each account's remaining5h/weekly percentage and reset countdown/time,
+  freshness and login/error/unknown state. Derive labels from actual duration
+  (300/10080 minutes only when supplied), not primary/secondary position. Keep
+  model/limit IDs distinct, merge sparse updates correctly, and never display an
+  absent/expired value as100% or treat a past reset timestamp as confirmed recovery.
+  Show cached rows immediately with bounded asynchronous refresh, one refresh
+  action, timeout/backoff and concurrent-read dedup; avoid permanent polling.
+- Distinguish execution profiles from actual account/workspace identities. Two
+  homes sharing one metered account/bucket do not create two pools of allowance.
+  Respect model access and shared workspace limits; an API-key/billed route or the
+  experimental Chat model route is not an automatic Codex-quota fallback. Provider
+  data remains a separately labelled future capability, never fabricated from
+  Codex limits. Initial live proof must establish account/bucket mapping.
+- Add a persistent automatic-switch toggle, off by default, with an explicit
+  allowlist of eligible registered accounts. New profiles are excluded by default;
+  removal/rename/login replacement must not silently enroll a new identity. Allow
+  user ordering, temporary exclusion/cooldown and a session-level off override.
+  Do not alter the saved default account or explicit permission/reviewer/model/
+  effort choice merely because a running conversation rotates accounts.
+- Offer earliest5h reset, earliest weekly reset, combined and remaining-capacity
+  policies plus declarative custom priorities/weights/reserve thresholds. First
+  establish usable authentication, same provider/model entitlement, fresh quota
+  facts and no blocking quota/spend state for every applicable window. An account
+  with weekly allowance exhausted is ineligible despite a near5h reset. Earliest
+  reset ranks usable accounts; it does not wait for or assume the reset. Remaining
+  percentage is not an absolute cross-plan work-capacity measurement. The combined
+  policy must consider both blocking windows and minimum reserves before reset
+  urgency; never simply add5h/weekly percentages. Show a deterministic selection
+  reason/preview; freeze tie-breaks for reproducibility. Custom settings are data,
+  not arbitrary shell execution.
+- Trigger only from confirmed applicable quota exhaustion or an explicitly chosen
+  proactive threshold at a safe turn boundary, not every429, network disconnect,
+  slow response or cosmetic100% rounding. Revalidate the destination immediately
+  before handoff. Use structured exhaustion/permission facts where supported;
+  ambiguous/unknown state remains visible and never rotates in a retry loop.
+- Preserve UUID, CWD, original Android terminal identity/title behavior, durable
+  completed tools/reports, queued/unsent input, permission/reviewer and model/effort.
+  Wait for actual turn/tool quiescence and native writer release. A shared-source
+  continuation requires a proven resumable conversation in the destination; never
+  fork/copy a transcript or force/kill an unrelated owner as automatic fallback.
+  Switching and successful continuation are distinct states in the UI.
+- Qualify upstream retry/continuation semantics for a quota-failed partial turn.
+  Automatic continuation must continue from the persisted checkpoint, without
+  replaying completed commands or submitting the original request twice. Pending
+  tool/reviewer/question/uncertain execution outcomes cannot be silently replayed.
+  If that guarantee cannot be established, stop with the saved state and precise
+  reason; do not label account selection as seamless recovery. This is the main
+  technical precondition for publishing automatic work continuation.
+- Bound candidate attempts, serialize per-thread handoffs, cool down rejected or
+  exhausted accounts, suppress ping-pong and reconcile with concurrent sessions
+  spending the same quota. If no destination qualifies, preserve work and show the
+  limiting window/reset/unknown reason plus manual alternatives. Emit one useful
+  notification/transcript status for a switch or pause, not duplicate input alarms.
+
+Approved execution order:
+
+1. Complete chosen composition/transport, component selection and both public-lane
+   proofs; retain full54/device and base55 until their replacement gates pass.
+2. Implement read-only quota rows, freshness/error states and manual /switch;
+   qualify account identity, window mapping and inactive-account query behavior.
+3. Implement pool/toggle/ranking and deterministic preview; fixture-test missing
+   windows, multiple buckets, policy/ties, duplicate accounts, stale data and races.
+4. Implement structured exhaustion -> durable idle checkpoint -> destination
+   revalidation -> writer release -> same-thread resume -> safe continuation;
+   qualify repeated failures, cancellation, conflicting writers, pending tools,
+   partial streams and process restarts without duplicated side effects.
+5. Real Android notification/window/title/manual/automatic handoff proof, then
+   full/add-on publication only. Assert base hashes/head unchanged. Use simulated
+   quota exhaustion; no need to spend accounts down to zero. Explain any necessary
+   real inference and its expected budget before such a trial.
+
+Acceptance is observable: immediate readable quota rows, understandable ranking,
+explicit selected pool/toggle, preserved conversation/window/input/permissions,
+exactly-once completed-tool effects after rotation, bounded failure behavior, and
+no base publication or Core-byte change for a /switch-only feature. If development
+reveals a genuinely generic Core protocol/lifecycle gap, report it as a separate
+base change with its own proof; never hide switch policy there to bypass a boundary.
+
+### Responsibility recheck2026-10-17 (before publication automation)
+
+At that review, Core/Manager/frontend/build inputs were unchanged from accepted source
 c085617; only documentation changed on rewrite/rust-core. Read-only installed
 verification matches all8 Core generation assets and the optional provider's527-
 file content-bound installation, including26 runtime source/assets matching
@@ -131,19 +324,18 @@ convenience defaults and generic shared-profile projection; upstream owns actual
 tool execution/reviewer/records. Provider host confirmation stays in provider
 transport and cannot silently become Core policy or native approval bypass.
 
-Two real coupling debts remain; do not call the architecture fully decoupled:
+The pre-automation review identified two coupling debts:
 
 - The enhanced TUI hardcodes Chat model families/efforts/provider/profile format
   in addition to reading the provider's catalog. New supported families can still
   require a frontend rebuild. Prefer the existing installed catalog/config as the
   capability authority and keep TUI work to generic selection/routing; do not move
   that interpretation into Core or create a second registry.
-- Independent Core build/Android qualification is base-only and cannot publish.
-  Normal feature-complete signed publication still requires a matching enhanced
-  TUI and its upstream API/patch acceptance. Thus Core source/runtime independence
-  does not guarantee independent feature-complete publication. Keep this tradeoff
-  explicit; a future Core-only publication option would be release-contract work,
-  with capability disclosure and retained optional assets, not silent downgrading.
+- The then qualification-only base path has since gained independent signed
+  publication (public base55). Publication/storage coupling is still unfinished:
+  Pages capacity blocks the next pair and ordinary Manager/TUI changes still select
+  both lanes. The pending composition/component-selection work above owns this
+  debt. Full frontend/backend compatibility proof remains necessary by design.
 
 ### Accepted0.163 upgrade
 

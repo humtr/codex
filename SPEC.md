@@ -130,13 +130,13 @@ update authority is maintained.
   pair is ineligible for public production and leaves LKG unchanged; historical
   explicitly bounded acceptance fixtures retain their historical construction.
   An explicitly authorized manual rebuild may publish the authenticated current
-  qualified backend at the next sequence. All new public candidates require the paired
-  frontend. Scheduled production requires a strictly newer qualified backend;
+  qualified backend at the next sequence. Full public candidates require the paired
+  frontend; the independent base lane does not. Scheduled production requires a strictly newer qualified backend;
   unsupported versions leave LKG unchanged. Failed staging cannot replace any
   published assets or promote stable.
   The migration bridge remains available as immutable GitHub Release assets.
-  Pages retains only candidate/LKG within the existing1GiB site bound: a third
-  complete payload would exceed this bound on the next paired update. Offline
+  Historical Pages remains within its existing1GiB bound. New shared base/add-on
+  payloads use immutable Release-backed transport; see the publication contract. Offline
   intervening strict-Core clients materialize the exact nine bridge Release files
   in a disposable TMPDIR root, restore numbered helper names/executable modes,
   and use the existing authenticated `codex update --local` path once before
@@ -1066,7 +1066,8 @@ remains the full head for compatibility; the base head is update-index-base-v1.
 The default update head follows the authenticated public baseline of the selected
 generation, including a local-derived generation; an explicit update URL remains
 an operator override. Full users must never be silently downgraded when only base qualifies. Both public
-heads and their retained last-known-good assets survive Pages reconstruction.
+heads and retained last-known-good assets stay available in their immutable
+publication origins; current releases do not replace the legacy Pages site.
 Promotion coordinates both heads with non-forced compare-and-swap and increasing
 release sequence; a stale concurrent run re-evaluates rather than overwriting
 another lane. No device activation or user-profile/provider mutation is implied
@@ -1438,7 +1439,7 @@ official upstream stable is strictly newer and its frontend/backend pair is
 qualified. Equality is a no-op; older/malformed/unavailable or unqualified inputs
 cannot publish. Manual publication requires its explicit authorization input.
 Scheduled and authorized manual releases share qualification, production-key
-signing, immutable staging, LKG-preserving Pages, complete HTTPS readback,
+signing, immutable Release staging, complete HTTPS readback,
 disposable update/runtime/doctor/no-op proof and non-forced exact-parent CAS.
 
 When such a producer is authorized to publish, its complete official candidate
@@ -1453,30 +1454,54 @@ any authenticated release file contains a `/` path component, the automated
 Release-asset publisher must fail closed before creating a release or advancing
 the index.
 
-An explicitly authorized nested-path publication uses the repository's fixed
-GitHub Pages workflow instead of changing signed release paths or Core fetch
-semantics. A GitHub Release tagged by the generation identity is staging only:
-top-level signed files keep their basename, while the exact R10 browser helpers
-and optional admitted frontend use unambiguous staging names. The workflow accepts
-only
-a stable `codex-release-v4` whose trusted public-key identity is the pinned
-wrapper key, verifies `release.sig`, requires exact
-`creation_metadata = "r10-browser-helper-bridge-v1"`, exact helper identities
-and `helpers/0`, `helpers/1` signed inventory, verifies every signed file digest,
-and reconstructs the exact signed release tree under
-`<generation_id>/`. Because a Pages deployment replaces the whole site, the
-workflow must first verify the currently signed stable index and current stable
-release, then reconstruct both that current generation and the candidate in the
-same Pages artifact. Staging names are never release authority and never appear
-in a signed manifest. The candidate signed `release_base` is exactly
-`https://humtr.github.io/codex/<generation_id>/`. The combined current-plus-
-candidate site must remain below the GitHub Pages one-gibibyte site bound. Every
-preserved-current signed payload is digest-verified during reconstruction, and
-complete candidate HTTPS readback of the manifest, signature, signed index, index
-signature, and every signed file must byte-match the local signed publication
-before stable promotion. The fixed workflow file itself may be mirrored to
-`main` through the Contents API; generation bytes must not be sent through the
-Contents API.
+New nested-path publication uses immutable GitHub Release assets behind the fixed
+`https://codex-releases.humtr.workers.dev/<generation_id>/` logical file origin
+for `local-relay-hosted-*` and `local-base-relay-hosted-*` generations. Historical
+signed Pages URLs and existing assets remain unchanged. The publication validator
+chooses canonical origin by namespace. New publication never redeploys the legacy
+Pages site, raises its size guard, or evicts a retained public generation.
+
+Base owns Core, adapted upstream runtime/default UI, code-mode host and the two
+browser helpers. Full pins one exact authenticated base and adds Manager/enhanced
+TUI plus its own descriptor and signatures. Each full result retains one complete
+signed v4 inventory and one atomic current/previous activation lifecycle. There
+is no device overlay, second updater, mutable latest-base dependency or component
+selection policy in Core. Manager/TUI-only changes must not advance the base head
+or rebuild unchanged base executables; full-combination Android/runtime proof is
+still required. Core/shared input changes invalidate base reuse.
+
+An exact-input component sidecar is signed with the existing production key and
+binds generation, manifest digest, full source SHA and the base build-input
+fingerprint. The fingerprint covers Core/builder/binding sources, relevant build/
+lock dependencies, upstream/archive and Core toolchain, not Manager/TUI policy.
+The producer verifies both the sidecar and base file inventory before reuse;
+version equality or a successful unowned workflow alone never permits reuse.
+
+The full Release contains only its additional/replaced files and a bounded
+`asset-map-v1.json` pointing common files to that exact base Release. The transport
+map is not trust authority; the complete signed inventory authenticates every
+logical file. The redirect adapter accepts only GET/HEAD, canonical bounded local
+generations, fixed humtr/codex Release assets and exact admitted paths. It rejects
+encoded/unsafe paths, queries, missing/foreign maps and cycles. It never proxies
+payloads, chooses stable, handles credentials or controls device state. It needs
+no secret/binding/storage or per-generation deployment. Administrative deployment
+uses existing account credentials locally, never grants CI another credential.
+Verify deployed source identity and public negative/positive requests before use.
+
+Release CI stages immutable assets, verifies exact composition and complete public
+HTTPS readback through the logical origin, runs disposable Android fresh install/
+update/no-op/rollback proof, then non-forced stable promotion. Old clients retain
+their ordinary HTTPS fetch and signature validation; they may download common
+files again. Core's generic acquisition may instead copy a hash/size/mode-verified
+owned retained file into private staging without hardlinks, then apply unchanged
+complete-candidate admission. Unavailable/corrupt files fall back to authenticated
+download. This optimization never interprets account, UI or rotation policy.
+
+Both current lane heads, rollback/compatibility targets and every base referenced
+by a retained full release must be preserved. Deleting an unreferenced retired
+release requires explicit retention scope and a reference check; no date-only
+cleanup, published-asset overwrite or silent deletion is authorized. Immutable
+Release delivery avoids the Pages aggregate-image cap, not all hosting limits.
 
 Until the stable compatibility floor is newer than R10, the public stable target
 must itself use the exact R10 browser-helper bridge layout even when its Core is
