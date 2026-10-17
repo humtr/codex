@@ -74,6 +74,32 @@ jobs:
     return header + ''.join(jobs)
 
 
+def source_workflow_registrations():
+    # workflow_run subscriptions need these source workflow identities on the
+    # default branch. Actual dispatch uses the source branch's implementation;
+    # accidental main execution fails instead of becoming a second proof path.
+    workflows={'rald7-full-acceptance.yml':'Source acceptance',
+               'core-runtime-qualification.yml':'Independent Core/runtime qualification',
+               'manager-tui-native.yml':'Manager TUI native qualification'}
+    result={}
+    for name,label in workflows.items():
+        inputs=('    inputs:\n      rebuild_current:\n        type: boolean\n        default: true\n' if name.startswith('core-') else '')
+        result[name]=f"""name: {label}
+on:
+  workflow_dispatch:
+{inputs}permissions:
+  contents: read
+jobs:
+  source_branch_required:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Dispatch qualification on rewrite/rust-core; main has no implementation.' >&2
+          exit 1
+"""
+    return result
+
+
 
 if __name__=='__main__':
     if len(sys.argv)!=2:raise SystemExit('usage: scripts/pin_release.py ACCEPTED_SOURCE_SHA')

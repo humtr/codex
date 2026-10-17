@@ -7,7 +7,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'scripts'))
-from pin_release import caller
+from pin_release import caller, source_workflow_registrations
 
 
 class WorkflowTests(unittest.TestCase):
@@ -72,6 +72,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("RUST_VERSION: '1.",text)
         self.assertIn('product/release/upstream.json --component core',text)
         self.assertIn('source/release/upstream.json --component core',text)
+
+    def test_default_branch_registrations_have_no_second_proof_or_publication_path(self):
+        entries=source_workflow_registrations()
+        self.assertEqual(len(entries),3)
+        for name,text in entries.items():
+            self.assertIn('workflow_dispatch:',text)
+            self.assertIn('exit 1',text)
+            self.assertNotIn('secrets.',text)
+            self.assertNotIn('write',text.replace('rewrite/rust-core','source'))
+            self.assertIn(text.splitlines()[0],(ROOT/'.github/workflows'/name).read_text())
 
     def test_main_caller_pins_both_inputs_and_default_dry_run(self):
         sha='a'*40; text=caller(sha)

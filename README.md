@@ -229,8 +229,9 @@ after the source and independent Android gates succeed; frontend registration
 requires its own exact build/execution proof. Workflow implementation changes need
 an accepted caller repin; recipe/output updates do not. The controller explicitly
 dispatches the existing proof workflows on `rewrite/rust-core`; GitHub token commits
-are not assumed to trigger push workflows. No duplicate proof entrypoints on
-`main` are needed.
+are not assumed to trigger push workflows. Default-branch workflow registrations
+make completion subscriptions work; they reject execution on `main` and contain
+no implementation or publication authority. Actual proofs run on the source branch.
 
 Scheduled publication checks newer official backends. Manual `rebuild_current`
 qualifies the accepted source recipe even when its version has not changed;
