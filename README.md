@@ -227,9 +227,10 @@ Implementation and reusable release logic live on `rewrite/rust-core`. The small
 product SHA from `release-source-v1`. Its controller advances that pointer only
 after the source and independent Android gates succeed; frontend registration
 requires its own exact build/execution proof. Workflow implementation changes need
-an accepted caller repin; recipe/output updates do not. Default-branch proof
-workflow files only register dispatch names and reject execution on `main`; the
-controller explicitly dispatches the real implementations on `rewrite/rust-core`.
+an accepted caller repin; recipe/output updates do not. The controller explicitly
+dispatches the existing proof workflows on `rewrite/rust-core`; GitHub token commits
+are not assumed to trigger push workflows. No duplicate proof entrypoints on
+`main` are needed.
 
 Scheduled publication checks newer official backends. Manual `rebuild_current`
 qualifies the accepted source recipe even when its version has not changed;

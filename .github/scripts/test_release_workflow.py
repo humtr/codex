@@ -7,7 +7,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'scripts'))
-from pin_release import caller, dispatch_stubs
+from pin_release import caller
 
 
 class WorkflowTests(unittest.TestCase):
@@ -72,17 +72,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("RUST_VERSION: '1.",text)
         self.assertIn('product/release/upstream.json --component core',text)
         self.assertIn('source/release/upstream.json --component core',text)
-
-    def test_dispatch_discovery_has_no_product_or_publication_authority(self):
-        stubs = dispatch_stubs()
-        self.assertEqual(len(stubs), 3)
-        for name, text in stubs.items():
-            self.assertIn('workflow_dispatch:', text)
-            self.assertIn('exit 1', text)
-            self.assertNotIn('secrets.', text)
-            self.assertNotIn('write', text.replace('rewrite/rust-core', 'source'))
-            source = (ROOT/'.github/workflows'/name).read_text()
-            self.assertIn('workflow_dispatch:', source)
 
     def test_main_caller_pins_both_inputs_and_default_dry_run(self):
         sha='a'*40; text=caller(sha)

@@ -74,33 +74,6 @@ jobs:
     return header + ''.join(jobs)
 
 
-PROOF_WORKFLOWS = {
-    'rald7-full-acceptance.yml': 'Source acceptance',
-    'core-runtime-qualification.yml': 'Independent Core/runtime qualification',
-    'manager-tui-native.yml': 'Manager TUI native qualification',
-}
-
-
-def dispatch_stubs():
-    # GitHub requires dispatchable workflow names on its default branch. Runs
-    # dispatched with ref=rewrite/rust-core execute that branch's real workflow,
-    # whose head_sha is then checked by the controller. These discovery files
-    # contain no product/release authority and reject accidental main execution.
-    return {name: f"""name: {label}
-on:
-  workflow_dispatch:
-{('    inputs:\n      rebuild_current:\n        type: boolean\n        default: true\n' if name.startswith('core-') else '')}permissions:
-  contents: read
-jobs:
-  source_branch_required:
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          echo 'Dispatch this proof on rewrite/rust-core; main has no implementation.' >&2
-          exit 1
-""" for name, label in PROOF_WORKFLOWS.items()}
-
-
 
 if __name__=='__main__':
     if len(sys.argv)!=2:raise SystemExit('usage: scripts/pin_release.py ACCEPTED_SOURCE_SHA')
