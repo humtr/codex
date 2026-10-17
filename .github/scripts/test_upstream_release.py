@@ -15,7 +15,10 @@ class ReleaseInputsTests(unittest.TestCase):
         core, frontend = [environment(value, component) for component in ['core', 'frontend']]
         for key in ['UPSTREAM_VERSION', 'UPSTREAM_SHA', 'UPSTREAM_ARCHIVE_SHA256']:
             self.assertEqual(core[key], frontend[key])
-        self.assertEqual(core['MANAGER_TUI_VERSION'], core['UPSTREAM_VERSION'])
+        if value['frontend'] is None:
+            self.assertNotIn('MANAGER_TUI_VERSION', core)
+        else:
+            self.assertEqual(core['MANAGER_TUI_VERSION'], core['UPSTREAM_VERSION'])
         self.assertEqual(frontend['RUSTUP_TOOLCHAIN'], frontend['RUST_VERSION'])
         self.assertTrue(all('\n' not in item and '\r' not in item for item in core.values()))
 
@@ -30,6 +33,10 @@ class ReleaseInputsTests(unittest.TestCase):
 
     def test_changed_or_injectable_authority_refuses_before_output(self):
         baseline = load(AUTHORITY)
+        if baseline['frontend'] is None:
+            baseline['frontend'] = {'source':'a'*40,'run_id':'123','sha256':'b'*64,
+                'input_url':'https://github.com/humtr/codex/releases/download/owned/inputs.tar.gz',
+                'input_sha256':'c'*64}
         mutations = [('schema', None, True), ('upstream', 'version', '0.0163.0'),
                      ('upstream', 'source', 'main'), ('upstream', 'archive_sha256', 'A'*64),
                      ('toolchains', 'core_rust', '1.98.0\nEVIL=yes'),

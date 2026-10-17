@@ -89,7 +89,7 @@ class NativeArtifactTests(unittest.TestCase):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
                 fixture = self.fixture(Path(temp))
                 source, artifact, proof, _, digest, run, run_file = fixture
-                version = "0.163.0"
+                version = qualifier.VERSION
                 if fault and fault.startswith("run-"):
                     key = fault[4:]
                     run[key] = {"full_name": "foreign/repository"} if key == "repository" else "wrong"
