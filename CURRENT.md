@@ -190,29 +190,54 @@ The527-file source33cb3e1 context projection was activated as329360; current
 inputs match; endpoint/capability,12 account auth/config files and the signed app
 identity are preserved. Reinstall/rollback/restore and six simultaneous bootstrap
 clients pass with0 Chat submissions. Old remote test chats are not rewritten or
-deleted. Physical user-window observation remains open. Private zero-Chat proof:
+deleted. Physical model-selection observation now passes; question UI remains open. Private zero-Chat proof:
 chat-context-native-wire-shapes.json. Native TUI sourcef348df3 passes43 maintained/94 retained tests plus lint;
 actual Android Default and Plan menus preserve PID/PTY/thread/account settings
 through model/effort/no-op changes with0 frontend exec/inference. Signed public
-Core publication is separate and in progress. Evidence:
+Core54 publication and device activation now pass. Evidence:
 `experiments/web-provider/continuity-qualification.json` and private cache
 `chat-{automatic-core-live-1,repository-candidate-live-2,interrupted-compaction-offline-4,failed-compaction-offline-1}`.
 
-Current independent-MCP boundary is verified with0 model starts: the signed app
-still advertises six legacy tools. A stopped, separately owned trial tunnel can
-poll successfully with the independent endpoint; catalog-only metadata does not
-send tools/list. Forcing the known legacy inventory metadata call reaches the new
-server and negotiates2025-11-25, but the host still sends the stored old tool name,
-not tools/list; it retries that metadata request once and returns400. This is not
-fresh independent-catalog acceptance. Both requests are non-executing with an
-invalid synthetic token; all tunnel profiles and Tdev remain unchanged, and the
-trial tunnel is stopped/removed. The next prerequisite is a host registration/
-metadata refresh that actually reads native_catalog/native_tool; do not spend a
-Chat generation on the stale catalog or disguise old names as new tools. The
-probe can reuse an idle ready app without stopping it, and refuses an operating
-adapter with activity. Public Plugins-page inspection changed no connector or
-account setting; its temporary search filter was cleared and Back restored the
-previous view. Physical model-selection confirmation is independent of this gap.
+Independent-MCP host discovery now passes without inference. The official signed-
+app refresh action reloads the selected owned connector's tools from the trial
+endpoint: the actual stdio tools/list response and app metadata both contain only
+native_catalog/native_tool. The host's first2026-07-28 discovery attempt is not
+supported; its actual2025-11-25 fallback succeeds. Earlier six-tool cache reads and
+negative old-name calls remain negative evidence, not current catalog authority.
+All existing tunnel profiles and Tdev stay unchanged; only the separately owned
+trial tunnel is started and removed. No connector display name is hardcoded.
+
+Lazy catalog projection and host-control regression pass103 Bun/45 Python tests and actual Android Core
+with deterministic host plus independent stdio broker:2 native calls/returns,
+no user-message return turns and native reports/persistence/cold TUI rendering.
+An actual signed-app request-construction probe blocks before inference and
+confirms exact generated-ID ownership,2 co-submitted user objects and hidden
+canonical context. Actual GPT-6 Instant/Core54 live attempts1/3/4/5 all reach
+native_catalog, then fail mcp_stream_incomplete before a Core command. Each has
+1 outer dispatch/2 user objects,0 Pro/retry; host internal sampling count and
+Chat allowance deductions remain unknown. Attempt2 fails the old proof-source
+preflight before dispatch,0 Chat. Negative results are retained unchanged.
+Attempt5 identifies the actual blocking message as api_tool.call_tool with
+jit_plugin_data.from_server.type=confirm_action: host confirmation intervenes
+before the native_tool request reaches the tunnel. It is not a public final answer
+or proof of detached background work. The source now distinguishes host confirmation
+and connector authentication errors without auto-approval, new user prompts or
+persistent permission changes. No native command was executed in these failures.
+Next qualify an exact connector/call-bound host acknowledgment and count its tool-
+message POST separately; do not impose an artificial one-HTTP-start rule if an
+actual acknowledgment is needed. Preserve Core as sole execution/approval owner.
+A successful catalog refresh is not original-call Core result acceptance.
+
+The new source discovers the unique signed-app primary entry independently of
+visible Chat/Work labels; auxiliary avatar/page targets stay excluded. Actual Home
+metadata acquisition passes with0 Chat and0 UI actions. Actual signed-app/stable54 local-return Core proof also passes:2 co-submitted
+user objects,2 native writes/reads and tool returns,3 model starts,0 Pro/retry;
+initial/intermediate/final reports persist and render after cold restore. Its
+runtime input hashes remain unchanged throughout. This fixes a shared selected-
+page assumption; source acceptance precedes installation over payload3a9. Earlier Plugins
+inspection cleared its temporary search and navigated Back to Home; restoration
+of the prior Chat view was not established. No connector/account setting was
+changed by that UI inspection. Physical model-selection confirmation is separate.
 
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not

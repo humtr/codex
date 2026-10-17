@@ -25,7 +25,7 @@ class MetadataTapTests(unittest.TestCase):
         proof['app']['modelStarts']=1
         self.assertFalse(qualify_independent_discovery(proof,'owned'))
 
-    def probe(self, call):
+    def probe(self, call, native=False):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
             root = Path(temporary)
             target = root / 'target.py'
@@ -42,7 +42,7 @@ for line in sys.stdin:
             wire = root / 'wire.jsonl'
             child = subprocess.Popen(
                 [sys.executable, '-B', str(Path(__file__).with_name('desktop_mcp_stdio_inspect.py')),
-                 str(argv), str(wire)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                 str(argv), str(wire), *(['--native-core-results'] if native else [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True,
             )
             replies = []
@@ -82,6 +82,16 @@ for line in sys.stdin:
         self.assertEqual(request['id'], response['id'])
         self.assertEqual(response['method'], 'tools/call')
         self.assertNotIn('owned_unbound_test', json.dumps(wire))
+
+    def test_native_gateways_require_explicit_forwarding_and_preserve_target_errors(self):
+        call={'jsonrpc':'2.0','id':'native','method':'tools/call','params':{'name':'native_tool','arguments':{'turn_token':'a'*64,'call_id':'owned','name':'functions__shell','input':'{}','report':''}}}
+        rejected,_=self.probe(call)
+        self.assertIn('error',rejected[-1])
+        forwarded,wire=self.probe(call,native=True)
+        self.assertTrue(forwarded[-1]['result']['isError'])
+        self.assertEqual(wire[-1]['nativeTool'],'native_tool')
+        self.assertFalse(wire[-1]['exactLogicalReturn'])
+        self.assertNotIn('a'*64,json.dumps(wire))
 
     def test_bound_or_execution_calls_never_reach_target(self):
         for name, token in [('codex_tool_inventory', 'real-owner'),

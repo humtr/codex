@@ -62,6 +62,8 @@ def run(args):
     independent=getattr(args,'independent_discovery',False)
     assert not(ordinary and independent),'choose_one_probe_mode'
     wakeup=getattr(args,'independent_metadata_call',False)
+    refresh=getattr(args,'refresh_tools',False)
+    assert not refresh or independent and not wakeup,'refresh_requires_independent_catalog_probe'
     assert not wakeup or independent,'metadata_wakeup_requires_independent_endpoint'
     result={'qualification':'ordinary-model-negative-delivery-only' if ordinary else 'metadata-negative-delivery-only','ordinaryChatModel':ordinary,'diagnosticOnly':wakeup,'modelStarts':None if ordinary else 0,'nativeToolExecutionsPermitted':False,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
     with tempfile.TemporaryDirectory(prefix='mcp-channel-',dir=os.environ['TMPDIR']) as temporary:
@@ -111,6 +113,7 @@ def run(args):
                     if not ordinary:
                         command+=['--tools-from-cache']
                         if not independent or wakeup:command+=['--channel-inventory']
+                        if refresh:command+=['--refresh-tools']
                     proc=subprocess.run(command,capture_output=True,timeout=125)
                     result['appExitCode']=proc.returncode
             except Exception as error:
@@ -157,6 +160,7 @@ if __name__=='__main__':
     parser.add_argument('--connector-name',required=True)
     parser.add_argument('--ordinary-model',action='store_true',help='Explicit live ordinary-Chat test, at most one app request start; no Pro/retry/native execution')
     parser.add_argument('--independent-discovery',action='store_true',help='Zero-inference catalog read against our unbound independent endpoint')
+    parser.add_argument('--refresh-tools',action='store_true',help='With independent discovery, invoke the existing signed-app settings refresh for the one selected MCP link')
     parser.add_argument('--independent-metadata-call',action='store_true',help='With independent discovery, send only the known legacy inventory request with an invalid synthetic token; no execution')
     args=parser.parse_args()
     report=run(args);args.report.write_text(json.dumps(report,indent=2)+'\n');args.report.chmod(0o600)

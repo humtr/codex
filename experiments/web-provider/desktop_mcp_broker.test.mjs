@@ -76,6 +76,11 @@ test('MCP wire contract has repository-owned names, preserves IDs and returns co
  const request=(method,params)=>({jsonrpc:'2.0',id:0,method,params});
  assert.equal((await handleNativeMcp(request('initialize',{protocolVersion:'2025-11-25'}))).protocolVersion,'2025-11-25');
  await assert.rejects(()=>handleNativeMcp(request('initialize',{protocolVersion:'2026-07-28'})),/unqualified/);
+ const catalog=await handleNativeMcp(request('tools/call',{name:'native_catalog',arguments:{turn_token:'a'.repeat(64)}}),async()=>tools);
+ const entries=JSON.parse(catalog.content[0].text).tools;
+ assert.deepEqual(entries.map(t=>t.name),['functions__exec','tool_search','mcp__app__read']);
+ assert.equal(entries[0].freeform,true);assert.equal(entries[1].toolSearch,true);assert.deepEqual(entries[2].parameters,{type:'object'});
+ assert.ok(entries.every(t=>!Object.hasOwn(t,'wireName')));
  const token='a'.repeat(64),result={content:[{type:'text',text:'error from Core'}],isError:true};
  const returned=await handleNativeMcp(request('tools/call',{name:'native_tool',arguments:{turn_token:token,...args()}}),async row=>{assert.equal(row.token,token);return result;});
  assert.equal(returned.isError,false);assert.deepEqual(JSON.parse(returned.content[0].text).output,result);

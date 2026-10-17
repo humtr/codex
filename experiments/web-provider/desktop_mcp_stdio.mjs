@@ -1,4 +1,5 @@
 // Repository-owned MCP wire endpoint. Only Core can perform advertised actions.
+import {localToolCatalog} from './desktop_tool_session.mjs';
 import {callMcpBroker} from './desktop_mcp_broker.mjs';
 
 const token={type:'string',minLength:64,maxLength:64,description:'Exact turn token supplied by the native adapter.'};
@@ -19,7 +20,7 @@ export async function handleNativeMcp(row,invoke,signal){
  if(row.method!=='tools/call')throw Error('mcp_method_unavailable');
  const {name,arguments:args}=row.params||{};
  if(!args||typeof args.turn_token!=='string'||!/^[a-f0-9]{64}$/.test(args.turn_token))throw Error('mcp_turn_unavailable');
- if(name==='native_catalog')return {content:[{type:'text',text:JSON.stringify({tools:await invoke({method:'catalog',token:args.turn_token},signal)})}]};
+ if(name==='native_catalog')return {content:[{type:'text',text:JSON.stringify({tools:localToolCatalog(await invoke({method:'catalog',token:args.turn_token},signal))})}]};
  if(name!=='native_tool')throw Error('mcp_tool_unavailable');
  const output=await invoke({method:'invoke',token:args.turn_token,args:{call_id:args.call_id,name:args.name,input:args.input,report:args.report}},signal);
  // A failed native command is still a valid tool return, not a tunnel/auth error.

@@ -3390,6 +3390,12 @@ all actual user-message objects and model starts separately.
 Host terminal completion is required before returning a terminal sample. A
 finished sampling response carrying tool calls is not the end of Core's task.
 
+The MCP app submission uses the same hidden-context/text projection. Bind its
+first request by the exact generated message IDs; do not prefix routing markers
+or serialized history to the visible user request. Imported assistant IDs are
+inert history, not new public output. Count all co-submitted user objects rather
+than assuming one; retained MCP returns submit no further user objects.
+
 The independently written MCP candidate exposes `native_catalog` and
 `native_tool`, without a required connector display name or legacy executor.
 An unpredictable turn token binds the exact backend/thread/turn; each invocation
@@ -3399,6 +3405,19 @@ report under that identity refuses. Keep the full current Core catalog, includin
 custom/freeform input and native deferred discovery, as data rather than deriving
 a second tool runtime from shell shortcuts. Updated catalogs apply only after
 pending results have settled.
+
+The host first obtains `native_catalog` within its retained MCP turn. It receives
+all current schemas with one canonical callable name per tool, using the same
+projection as local functions. Native namespaces/custom/deferred discovery remain
+available. Do not duplicate the full schema catalog in the initial Chat prompt;
+catalog retrieval and subsequent Core returns add no user messages. Internal
+host sampling rounds are not observable from a single app stream start.
+An app `confirm_action` or pending connector authentication message is a host
+control boundary, not a public final answer or generic stream failure. Report
+that boundary distinctly. Do not automatically acknowledge it, change persistent
+connector permissions, replay the user prompt or execute outside Core. Supporting
+an acknowledgment requires exact owned connector/call binding and separate proof;
+a stream-complete callback alone does not establish that qualification.
 
 The parent adapter retains each original invocation until the exact Core result
 arrives, returns that result without a new Chat submission, and projects public
@@ -3471,7 +3490,12 @@ Recovery must check for a pre-existing draft before creating fresh remote
 context; it may clear only its exactly matched generated draft, never user input.
 The signed-app internal transport must positively identify its main application
 page before acquiring a Scope. An app:// launcher or auxiliary page is not a
-model target. Discovery is bounded and must not create windows, change modes,
+model target. For the qualified app build, a unique bare
+`app://-/index.html` is the primary application across Home/Plugins/Chat views;
+initialRoute auxiliary pages are not that entrypoint. Prefer this positively
+identified entry before visible-label fallback; ambiguous entrypoints still
+require the existing main-context discriminator. Actual Scope/capability checks
+remain mandatory. Discovery is bounded and must not create windows, change modes,
 submit a prompt or touch drafts while skipping an auxiliary page.
 
 ### Opt-in bootstrap and installation authority

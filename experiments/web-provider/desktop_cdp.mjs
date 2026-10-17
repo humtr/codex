@@ -36,9 +36,16 @@ export async function connectDesktop(root,targetId,options={}){
   for(let attempt=0;attempt<(options.app?60:20)&&!session;attempt++){
    const {targetInfos}=await request('Target.getTargets');
    if(targetId&&!targetInfos.some(t=>t.type==='page'&&t.targetId===targetId&&t.url.startsWith('app://-/')))targetId=undefined;
-   for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
+   const roots=targetInfos.filter(t=>t.type==='page'&&t.url==='app://-/index.html');
+   const primary=options.app&&roots.length===1?roots[0].targetId:undefined;
+   const candidates=targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId));
+   if(primary)candidates.sort((a,b)=>Number(b.targetId===primary)-Number(a.targetId===primary));
+   for(const target of candidates){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
     if(options.app){
+     // This build's unique primary entry survives Home/Plugins navigation.
+     // Scope discovery still validates the actual facade/capabilities afterwards.
+     if(target.targetId===primary){session=sessionId;selected=target.targetId;break;}
      // The app also opens a small launcher, with its own empty composer. Its
      // Scope is not the main conversation/model context. Discovery never clicks.
      const {result}=await request('Runtime.evaluate',{expression:`(()=>{if(document.querySelector('button[aria-label="Select ChatGPT model"]'))return true;const labels=new Set([...document.querySelectorAll('button,span')].map(e=>e.textContent?.trim()));return labels.has('Chat')&&labels.has('Work');})()`,returnByValue:true},sessionId);
