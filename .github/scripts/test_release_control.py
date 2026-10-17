@@ -84,6 +84,33 @@ class ReleaseControlTests(unittest.TestCase):
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
 
+    def test_frontend_registration_only_releases_full_after_matching_base_is_public(self):
+        root_source=Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'release').mkdir()
+            def git(*args):
+                return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
+            git('init');git('config','user.name','Owned');git('config','user.email','owned@example.invalid')
+            value=control.load(root_source/'release/upstream.json')
+            frontend=value['frontend'] or {'source':'a'*40,'run_id':'123','sha256':'b'*64,
+                'input_url':'https://github.com/humtr/codex/releases/download/owned/inputs.tar.gz','input_sha256':'c'*64}
+            value['frontend']=None
+            path=root/'release/upstream.json';path.write_text(json.dumps(value))
+            git('add','.');git('commit','-m','base');base=git('rev-parse','HEAD')
+            value['frontend']=frontend;path.write_text(json.dumps(value))
+            git('add','.');git('commit','-m','frontend');current=git('rev-parse','HEAD')
+            def content(source):
+                index='codex-update-index-v1\nchannel\tstable\ngeneration_id\tlocal-base-hosted-0-163-0-'+source[:12]+'-s55\nrelease_base\thttps://example.invalid/\n'
+                return {'content':base64.b64encode(index.encode()).decode()}
+            with patch.object(control,'api',return_value=content(base)):
+                self.assertEqual(control.release_lane(root,base,current,'a'*40),'full')
+            with patch.object(control,'api',return_value=content('b'*40)):
+                self.assertEqual(control.release_lane(root,base,current,'a'*40),'both')
+            value['upstream']['archive_sha256']='c'*64;path.write_text(json.dumps(value))
+            git('add','.');git('commit','-m','new recipe');current=git('rev-parse','HEAD')
+            with patch.object(control,'api',return_value=content(base)):
+                self.assertEqual(control.release_lane(root,base,current,'a'*40),'both')
+
     def test_inflight_publication_delays_pointer_write_until_its_completion_event(self):
         root=Path(__file__).resolve().parents[2];sha='a'*40
         def api(path,**kwargs):

@@ -17,7 +17,7 @@ import tarfile
 import tempfile
 
 from manager_tui_artifact import verify as verify_frontend, verify_recipe
-from upstream_release import load
+from upstream_release import load, build_recipe
 
 REPO = 'humtr/codex'
 SOURCE_BRANCH = 'rewrite/rust-core'
@@ -208,6 +208,29 @@ def frontend_registration_needed(source):
                for run in recent)
 
 
+def release_lane(source, previous, current, main):
+    # A newly admitted frontend need not republish an already proven base.
+    # Any recipe/code change or missing/older base keeps both real lanes.
+    changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only',previous,current],text=True).splitlines()
+    if changed != ['release/upstream.json']:
+        return 'both'
+    try:
+        with tempfile.TemporaryDirectory(prefix='previous-recipe-',dir=os.environ.get('TMPDIR')) as temporary:
+            path=Path(temporary)/'upstream.json'
+            path.write_bytes(subprocess.check_output(['git','-C',str(source),'show',previous+':release/upstream.json']))
+            before, after=load(path), load(source/'release/upstream.json')
+        if build_recipe(before)!=build_recipe(after) or after['frontend'] is None:
+            return 'both'
+        content=api('contents/update-index-base-v1?ref='+main)['content']
+        index=base64.b64decode(content).decode().splitlines()
+        if (len(index)==4 and index[:2]==['codex-update-index-v1','channel\tstable']
+                and re.fullmatch(r'generation_id\tlocal-base-hosted-[0-9-]+-'+previous[:12]+r'-s[1-9][0-9]*',index[2])):
+            return 'full'
+    except (ValueError,OSError,KeyError,subprocess.CalledProcessError):
+        pass
+    return 'both'
+
+
 def run(source):
     current=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if api('git/ref/heads/'+SOURCE_BRANCH)['object']['sha']!=current:
@@ -238,9 +261,10 @@ def run(source):
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
     if any(run['status'] != 'completed' for run in public_runs):
         return {'state':'awaiting-publication','source':current}
+    variant=release_lane(source,previous,current,main)
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
-    dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
+    dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
     return {'state':'accepted-product-pinned-public-proof-started','source':current,'main':promoted}
 
 
