@@ -144,15 +144,24 @@ runtime modules without requiring probe files in the runtime package. Startup of
 that installed-source path is separately proved with0 Chat. The four-start short
 trial budget persists across adapter generations; complete counters include both
 processes rather than resetting at restart. Production modules are unchanged by
-these driver changes. Observation-only detach/reconnect remains the next gate.
+these driver changes. Observation-only frozen-reader and disconnected-owner recovery now pass actual
+Android Core/tools/remote TUI with a deterministic local model,0 Chat messages.
+Both execute a later native command while the original output is unread, show
+initial/intermediate progress before releasing the final result, retain the same
+active turn and complete without extra inference or file rewrites. The remote
+TUI is observed while alive; exiting it can unload its thread, so completion is
+checked before fixture exit. This proves local transcript recovery, not automatic
+repair of a real Chat host observer failure or physical device UI visibility.
 
 The527-file source33cb3e1 provider is now activated. All25 qualified runtime
 inputs match; endpoint/capability,12 account auth/config files and the signed app
 identity are preserved. Reinstall/rollback/restore and six simultaneous bootstrap
 clients pass with0 Chat submissions. Old remote test chats are not rewritten or
 deleted. Physical user-window observation remains open. Private zero-Chat proof:
-chat-context-native-wire-shapes.json. Native TUI build/Android selection proof is
-in progress. Evidence:
+chat-context-native-wire-shapes.json. Native TUI sourcef348df3 passes43 maintained/94 retained tests plus lint;
+actual Android Default and Plan menus preserve PID/PTY/thread/account settings
+through model/effort/no-op changes with0 frontend exec/inference. Signed public
+Core publication is separate and in progress. Evidence:
 `experiments/web-provider/continuity-qualification.json` and private cache
 `chat-{automatic-core-live-1,repository-candidate-live-2,interrupted-compaction-offline-4,failed-compaction-offline-1}`.
 
@@ -168,7 +177,7 @@ qualification after native tool recovery and surface coverage.
 | 2 | Failure recovery | Installed local transport passes actual signed-app/stable53 malformed JSON→Core error→model correction with one user message. Arrays/whitespace and other recovery cases pass offline; further live error surfaces remain. Completed pre-dispatch rejections require genuine new input; unknown delivery stays blocked without work replay. |
 | 3 | Complete native development surface | Installed legacy single-call trial failed parallel execution. Installed explicit gateway batch source passes actual GPT-6 Instant/stable53 MCP/search, guardian, freeform patch, overlapping background starts/polls, question RPC/driver answer and reports/restore. Payload329360/source33cb3e1 is activated; physical question UI remains unqualified. |
 | 4 | Long context and switching | Installed85e8f9 passes bounded test failure→repair→manual compaction→continuation→cold Core inference. Automatic/interrupted paths now pass actual signed-app proof; failed401 passes actual Core/offline. Mid-turn and cross-provider compaction, hours-long work and lost provider/app context remain unqualified. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
-| 5 | Lifetime and owners | Actual two-account concurrent work/guardian isolation passes. Native command interruption then explicit Core termination/resume passes offline without replay. Short app-generation inference continuity passes. App and installed adapter short restart continuity pass. Qualify observation-only loss/reconnect. A turn interrupt is distinct from termination of an already-running unified-exec process. |
+| 5 | Lifetime and owners | Actual two-account concurrent work/guardian isolation passes. Native command interruption then explicit Core termination/resume passes offline without replay. Short app-generation inference continuity passes. App and installed adapter short restart continuity pass. Local observation-only loss/reconnect passes; real Chat-host observation loss remains unqualified. A turn interrupt is distinct from termination of an already-running unified-exec process. |
 | 6 | Transcript and visible progress | Relay actual model initial/intermediate/final reports and native tool results once, in order. Verify real TUI visibility/persistence and resumed latest state during injected output/observer loss. Heartbeat is not model progress. |
 | 7 | Latency and model-change reload | Time startup/context/dispatch/first-public-output/completion separately; reduce buffering and unnecessary resend. Use upstream session model/effort actions for same-Chat changes; cross-provider handoff remains separately qualified. |
 | 8 | Independent MCP return transport | Establish actual new host schema and original-call Core result delivery. Qualify hosted deadlines, long execution/approvals, late results and observation recovery. Preserve local and MCP choices through the same Core/transcript projection. |

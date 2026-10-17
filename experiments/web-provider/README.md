@@ -207,6 +207,15 @@ Core commands, exact original-call returns, initial/intermediate/final TUI repor
 canonical persistence and cold restore, with0 real Chat submissions. It also
 checks owned socket/root cleanup. The normal `local` fixture remains independent.
 MCP live-session/interrupt flags refuse here until their control path is qualified.
+Actual Android frozen-reader and disconnected-owner trials use a deterministic
+local model and consume0 Chat messages. Continued native commands, progress visible
+in a reconnected TUI before final completion, same-turn completion and no extra
+model request/file rewrite all pass. Run `desktop_observer_probe.py --frontend
+/path/to/qualified/raw/codex --output /owned/new/evidence` and optionally
+`--disconnect-output-owner`. The helper connects with `--remote` rather than the
+incompatible `--no-daemon` flag. These are local display/connection tests, not real
+Chat host observation failure or physical screen qualification.
+
 Observer/stdio disconnect retains results; app-observer failure currently closes
 the remote lane and blocks replay. Full observer recovery, generation-time stop,
 host receipt after long approval/execution and media remain separate gates.

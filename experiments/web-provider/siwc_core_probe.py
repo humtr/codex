@@ -35,13 +35,14 @@ def sha(path):
     with path.open('rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def render_transcript(launcher, workspace, env, thread_id, marker, trace_path=None):
+def render_transcript(launcher, workspace, env, thread_id, marker, trace_path=None,on_visible=None,remote_url=None):
     """Render only an owned persisted fixture; never send a user/model turn."""
     master, slave=pty.openpty()
     fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',60,120,0,0))
     def session():
         os.setsid();fcntl.ioctl(slave,termios.TIOCSCTTY,0)
-    child=subprocess.Popen([str(launcher),'--no-daemon','--no-alt-screen','resume',thread_id],cwd=workspace,
+    connection=['--remote',remote_url] if remote_url else ['--no-daemon']
+    child=subprocess.Popen([str(launcher),*connection,'--no-alt-screen','resume',thread_id],cwd=workspace,
         env=env,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
     os.close(slave);output=b'';trusted=False;rendered={}
     try:
@@ -61,6 +62,7 @@ def render_transcript(launcher, workspace, env, thread_id, marker, trace_path=No
             # native assistant bullet, not a substring anywhere in the screen.
             rendered={key:bool(re.search(r'(?:^|\n)\s*•\s*'+re.escape(value),text)) for key,value in
                 [('initial','LOCAL_INITIAL_REPORT'),('intermediate','LOCAL_INTERMEDIATE_REPORT'),('final',marker)]}
+            if on_visible:on_visible(rendered)
             if all(rendered.values()):return {**rendered,'nativeTuiRunning':True}
         return rendered
     finally:

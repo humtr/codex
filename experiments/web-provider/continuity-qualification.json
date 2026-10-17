@@ -1210,5 +1210,148 @@
     "actualChatSubmissions": 0,
     "ownedAdapterExited": true,
     "temporaryRootRemoved": true
+  },
+  "frozenOutputReconnect": {
+    "accepted": true,
+    "actualChatSubmissions": 0,
+    "syntheticModelStarts": 3,
+    "realNativeCommands": 2,
+    "frozenOutputOwnerStillConnected": true,
+    "laterToolExecutedWithoutOwnerReads": true,
+    "sameActiveTurnObserved": true,
+    "visibleProgressBeforeFinalReleased": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "resumeDidNotStartAnotherModelRequest": true,
+    "completedFileIdentityPreserved": true,
+    "scope": "Real Android Core/tools/remote TUI with deterministic local model; not physical UI or real Chat failure injection",
+    "temporaryRootRemoved": true,
+    "rawResultSha256": "554dd1bd3263db0051b68a4021c91f77f8cacebb1eed08c73d8cc559e7b8fc86"
+  },
+  "disconnectedOutputReconnect": {
+    "accepted": true,
+    "actualChatSubmissions": 0,
+    "syntheticModelStarts": 3,
+    "realNativeCommands": 2,
+    "frozenOutputOwnerStillConnected": false,
+    "outputOwnerDisconnected": true,
+    "laterToolExecutedWithoutOwnerReads": true,
+    "sameActiveTurnObserved": true,
+    "visibleProgressBeforeFinalReleased": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "resumeDidNotStartAnotherModelRequest": true,
+    "completedFileIdentityPreserved": true,
+    "scope": "Real Android Core/tools/remote TUI with deterministic local model; not physical UI or real Chat failure injection",
+    "temporaryRootRemoved": true,
+    "rawResultSha256": "869fbfea7cd1e92cbbc277cd0fa840c5b683b8bd3f56941876d824062534182d"
+  },
+  "nativeModelSelection": {
+    "default": {
+      "samePidAndPty": true,
+      "chatEntered": true,
+      "nativeReturned": true,
+      "sameHomeAndThread": true,
+      "qualifiedFrontendRetained": true,
+      "officialBackendRetained": true,
+      "backendProviderRoundTrip": true,
+      "backendChatCatalogBound": true,
+      "otherThreadKeepsServerDefaults": true,
+      "sharedRegistrationUsed": true,
+      "originalConfigurationPreserved": true,
+      "namedPermissionRequested": false,
+      "chatProfileRequested": false,
+      "sameChatSessionUpdates": [
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "high",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-5.6-sol",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        }
+      ],
+      "noAuthCopied": true,
+      "modelInferenceSubmitted": false,
+      "proInference": false,
+      "productionChanged": false,
+      "accepted": true
+    },
+    "plan": {
+      "samePidAndPty": true,
+      "chatEntered": true,
+      "nativeReturned": true,
+      "sameHomeAndThread": true,
+      "qualifiedFrontendRetained": true,
+      "officialBackendRetained": true,
+      "backendProviderRoundTrip": true,
+      "backendChatCatalogBound": true,
+      "otherThreadKeepsServerDefaults": true,
+      "sharedRegistrationUsed": true,
+      "originalConfigurationPreserved": true,
+      "namedPermissionRequested": false,
+      "chatProfileRequested": false,
+      "planModeRequested": true,
+      "sameChatSessionUpdates": [
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "high",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-5.6-sol",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        },
+        {
+          "model": "chatgpt-desktop/gpt-6",
+          "effort": "none",
+          "sameProcessAndThread": true,
+          "frontendExecs": 0
+        }
+      ],
+      "noAuthCopied": true,
+      "modelInferenceSubmitted": false,
+      "proInference": false,
+      "productionChanged": false,
+      "accepted": true
+    },
+    "source": "f348df3f597666e7dcd26f85c90df6df833b4ea0",
+    "nativeRun": 38979482916,
+    "nativeTests": 43,
+    "retainedUpstreamTests": 94,
+    "frontendSha256": "1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a"
   }
 }

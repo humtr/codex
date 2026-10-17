@@ -94,7 +94,7 @@ def backend_thread(home, thread, check_defaults=False):
     return found[0]
 
 
-def probe(core, frontend, named_permission=False, chat_profile=False, manager=None):
+def probe(core, frontend, named_permission=False, chat_profile=False, manager=None, plan_mode=False):
     runtime=json.loads((Path.home()/'.local/share/codex-web-experiment/native-provider/runtime.json').read_text())
     adapter_proof=Path(runtime['binding']+'.proof')
     before_requests={k:json.loads(adapter_proof.read_text())[k] for k in ['requests','arrivals']}
@@ -190,6 +190,11 @@ def probe(core, frontend, named_permission=False, chat_profile=False, manager=No
             actual_chat = backend_thread(home, thread, check_defaults=True)
             assert actual_chat['modelProvider'] == 'chatgpt_desktop_trial' and actual_chat['model'] == 'chatgpt-desktop/gpt-6', 'chat_backend_route_not_selected'
             assert actual_chat['reasoningEffort'] == 'none', 'chat_backend_effort_not_selected'
+            if plan_mode:
+                for byte in b'/plan':
+                    os.write(master,bytes([byte]));time.sleep(.07)
+                os.write(master,b'\r');plan_screen=collect(3)+repaint()
+                assert re.search(r'Plan mode|Plan Mode',plan_screen),'plan_mode_not_entered'
             initial_argv=Path(f'/proc/{process.pid}/cmdline').read_bytes()
             trace=root/'same-chat-exec.trace'
             observer=subprocess.Popen([shutil.which('strace'),'-f','-p',str(process.pid),'-e','trace=execve,execveat','-o',str(trace)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -208,6 +213,8 @@ def probe(core, frontend, named_permission=False, chat_profile=False, manager=No
                 assert 'Instant' in reason,'same_chat_reasoning_absent'
                 os.write(master,b'\x1b[H'+b'\x1b[B'*index+b'\r');collect(2)
                 current=backend_thread(home,thread)
+                if not (current['model']==model and current['reasoningEffort']==effort):
+                    print(json.dumps({'ownedSelectedSettings':{'model':current['model'],'reasoningEffort':current['reasoningEffort'],'expectedModel':model,'expectedEffort':effort,'planMode':plan_mode}}))
                 assert current['model']==model and current['reasoningEffort']==effort,'same_chat_setting_not_applied'
                 assert Path(f'/proc/{process.pid}/cmdline').read_bytes()==initial_argv,'same_chat_frontend_reentered'
                 assert not re.search(r'\bexecve(?:at)?\(',trace.read_text()),'same_chat_frontend_exec_observed'
@@ -244,7 +251,7 @@ def probe(core, frontend, named_permission=False, chat_profile=False, manager=No
                 'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'backendChatCatalogBound':True,'otherThreadKeepsServerDefaults':True,
                 'sharedRegistrationUsed': (home/'.codex/chatgpt.config.toml').is_symlink(),
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
-                'chatProfileRequested':chat_profile,
+                'chatProfileRequested':chat_profile,'planModeRequested':plan_mode,
                 'sameChatSessionUpdates':same_chat,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:
@@ -282,10 +289,11 @@ if __name__ == '__main__':
     parser.add_argument('--manager', type=Path)
     parser.add_argument('--named-permission', action='store_true')
     parser.add_argument('--chat-profile', action='store_true')
+    parser.add_argument('--plan-mode', action='store_true')
     args = parser.parse_args()
     try:
         assert not (args.chat_profile and args.named_permission), 'choose_one_profile_fixture'
-        report = probe(args.core, args.frontend, args.named_permission, args.chat_profile, args.manager)
+        report = probe(args.core, args.frontend, args.named_permission, args.chat_profile, args.manager, args.plan_mode)
     except Exception as error:
         report = {'accepted': False, 'failureClass': type(error).__name__,
             'failureCode': str(error) if re.fullmatch('[a-z_]+', str(error)) else 'unclassified'}
