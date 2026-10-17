@@ -207,6 +207,13 @@ Core commands, exact original-call returns, initial/intermediate/final TUI repor
 canonical persistence and cold restore, with0 real Chat submissions. It also
 checks owned socket/root cleanup. The normal `local` fixture remains independent.
 MCP live-session/interrupt flags refuse here until their control path is qualified.
+The private adapter proof retains at most32 completed `latencySamples`, each
+with monotonic milliseconds since HTTP arrival: `admitted`, `desktopReady`,
+`firstDispatchObserved`, `firstPublicOutputObserved`, `exchangeSettled` and a
+completed/failed/cancelled outcome. Missing public output stays missing; heartbeat
+or a tool call does not count. Concurrent requests retain independent samples.
+These are local observations, not server compute time or Chat-limit debits.
+
 Actual Android frozen-reader and disconnected-owner trials use a deterministic
 local model and consume0 Chat messages. Continued native commands, progress visible
 in a reconnected TUI before final completion, same-turn completion and no extra

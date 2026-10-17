@@ -113,7 +113,7 @@ source inputs before execution. Two actual concurrent native clients in separate
 account homes also pass exact writes/reads/replies through one local adapter,
 shared profile fallback and an independent guardian conversation:3 user messages,
 5 tool returns,8 starts,0 owner conflicts/Pro/retry; both base configs unchanged.
-The current source suite passes98 Bun tests/44 Python tests. Source-candidate
+The current source suite passes99 Bun tests/44 Python tests. Source-candidate
 text projection separates the current request from hidden user-scoped canonical
 context, retaining original role/content/order. An actual Android request capture
 shows that the custom-provider wire drops per-content harness classifications;
@@ -153,6 +153,18 @@ TUI is observed while alive; exiting it can unload its thread, so completion is
 checked before fixture exit. This proves local transcript recovery, not automatic
 repair of a real Chat host observer failure or physical device UI visibility.
 
+Content-free per-request latency measurement passes99 Bun/44 Python tests,
+actual Android Core/offline and actual signed-app GPT-6 Instant. The live trial
+uses2 user-message objects (including hidden context),2 tool returns and3 model
+starts,0 Pro/retry; tool returns add no user-message objects. Observed first-output
+latencies are13.606/13.274/5.170 seconds; app dispatch is first observed at
+6.226/8.223/1.139 seconds. Local admission/readiness is below0.04 seconds. These
+are local observation intervals, not remote compute/quota measurements or a
+representative performance comparison. Source inputs captured before execution
+remain unchanged. All reports persist/cold-restore/render. The initial stale-app
+preflight failed before dispatch,0 Chat; normal bootstrap then succeeded. The
+measurement changes are source-qualified; activation follows separately.
+
 The527-file source33cb3e1 provider is now activated. All25 qualified runtime
 inputs match; endpoint/capability,12 account auth/config files and the signed app
 identity are preserved. Reinstall/rollback/restore and six simultaneous bootstrap
@@ -179,7 +191,7 @@ qualification after native tool recovery and surface coverage.
 | 4 | Long context and switching | Installed85e8f9 passes bounded test failure→repair→manual compaction→continuation→cold Core inference. Automatic/interrupted paths now pass actual signed-app proof; failed401 passes actual Core/offline. Mid-turn and cross-provider compaction, hours-long work and lost provider/app context remain unqualified. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Actual two-account concurrent work/guardian isolation passes. Native command interruption then explicit Core termination/resume passes offline without replay. Short app-generation inference continuity passes. App and installed adapter short restart continuity pass. Local observation-only loss/reconnect passes; real Chat-host observation loss remains unqualified. A turn interrupt is distinct from termination of an already-running unified-exec process. |
 | 6 | Transcript and visible progress | Relay actual model initial/intermediate/final reports and native tool results once, in order. Verify real TUI visibility/persistence and resumed latest state during injected output/observer loss. Heartbeat is not model progress. |
-| 7 | Latency and model-change reload | Time startup/context/dispatch/first-public-output/completion separately; reduce buffering and unnecessary resend. Use upstream session model/effort actions for same-Chat changes; cross-provider handoff remains separately qualified. |
+| 7 | Latency and model-change reload | Bounded local admission/readiness/dispatch/public-output/completion timings pass offline/live; reduce buffering and unnecessary resend. Use upstream session model/effort actions for same-Chat changes; cross-provider handoff remains separately qualified. |
 | 8 | Independent MCP return transport | Establish actual new host schema and original-call Core result delivery. Qualify hosted deadlines, long execution/approvals, late results and observation recovery. Preserve local and MCP choices through the same Core/transcript projection. |
 | 9 | Models and settings | /model is primary; upstream --profile chatgpt remains shared fallback across account homes. Actual family/mode/effort must match selection; preserve native defaults, account home, permissions, PTY and thread. |
 | 10 | Cost and cache | Separate user submissions, tool returns, model starts, HTTP rounds and observed Chat limit changes. Count setup/review/retry/compact too. Reuse warm deltas/known batching without losing judgments or quality; correctness cannot require provider cache retention. |

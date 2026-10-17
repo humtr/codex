@@ -3281,6 +3281,14 @@ delivery/persistence and warm/cold resume require actual native-client proof;
 token-by-token timing depends on the qualified remote event source, not merely
 on exposing a streaming Responses endpoint.
 
+The optional adapter records bounded, content-free local request timings in its
+existing private proof: admission, desktop readiness, first dispatch observation,
+first genuine public text observation and settled exchange. Times are monotonic
+milliseconds since that HTTP request arrived, not remote compute time or quota.
+Heartbeats/tool calls do not establish public text. Concurrent requests have
+independent samples; keep only the latest32 completed samples and no account,
+thread, prompt, argument or credential content. Measurement submits no messages.
+
 ### Two return transports, one native execution and transcript
 
 The experiment qualifies two explicitly selected tool-return transports: `local`

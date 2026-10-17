@@ -1,5 +1,6 @@
 """Actual signed Android Core + real adapter; deterministic app port, zero Chat."""
 import argparse
+import hashlib
 from contextlib import contextmanager
 import json
 import os
@@ -44,6 +45,11 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
     assert return_transport!='mcp' or not(session or interrupt_tool),'mcp_live_control_not_qualified'
     assert not invalid_tool or not(session or interrupt_tool or reject_tool or mcp_discovery or return_transport!='local'),'invalid_input_fixture_is_offline_only'
     invalid_arguments={'malformed':'{"cmd":','array':'[1,2]','whitespace':' \n'}[invalid_input]
+    if session:
+        from desktop_lifecycle import desktop_ready
+        assert desktop_ready(session),'live_desktop_must_be_ready_before_trial'
+    from install_desktop_provider import RUNTIME_FILES
+    inputs={name:hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest() for name in RUNTIME_FILES if name!='README.md'}
     with tempfile.TemporaryDirectory(prefix='local-core-', dir=os.environ['TMPDIR']) as temporary:
         root = Path(temporary)
         with (root/'adapter.log').open('w') as log:
@@ -69,6 +75,14 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
                     result.setdefault('realCoreToolLoopAccepted',False)
                     result['probeFailureClass']=type(error).__name__
                 state = json.loads(Path(str(binding)+'.proof').read_text())
+                result['latencySamples']=state.get('latencySamples',[])
+                result['productInputs']=inputs
+                result['productInputsUnchanged']=all(hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest()==digest for name,digest in inputs.items())
+                assert result['productInputsUnchanged'],'product_inputs_changed_during_trial'
+                if not any([session,interrupt_tool,reject_tool,invalid_tool,mcp_discovery]) and return_transport=='local':
+                    samples=result['latencySamples']
+                    assert len(samples)==3 and all(x['outcome']=='completed' and 0<=x['admitted']<=x['desktopReady']<=x['exchangeSettled'] and x.get('firstDispatchObserved',-1)>=0 and x.get('firstPublicOutputObserved',-1)>=0 for x in samples),'request_timing_not_observed'
+
                 if invalid_tool:
                     error=json.loads((root/'fixture-input-error.json').read_text()) if (root/'fixture-input-error.json').exists() else {}
                     result['nativeArgumentErrorReturned']=error.get('callId')=='fixture-call-1' and error.get('rawHistory')==invalid_arguments
@@ -88,12 +102,12 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
                     fixtureToolSubmissions=state['toolResultSubmissions'],
                     fixtureDispatches=state.get('selectedControl', {}).get('dispatches'),
                     fixtureTotalDispatches=state.get('observedNativeDispatches',0),
-                    adapterError=state.get('errorCode'), nativeFailure=state.get('nativeFailure'), returnTransport=state['returnTransport'])
+                    adapterError=state.get('errorCode'), failureSite=state.get('failureSite'), nativeFailure=state.get('nativeFailure'), returnTransport=state['returnTransport'])
                 if return_transport=='mcp':
                     proof=root/'mcp-fixture-proof.json'
                     result['mcpWire']=json.loads(proof.read_text()) if proof.exists() else {}
                     result['returnedNativeResults']=state['returnedNativeResults']
-                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==(2 if interrupt_tool or reject_tool or mcp_discovery else 1) and result['fixtureToolSubmissions']==(0 if return_transport=='mcp' else 3 if invalid_tool else 2) and result['fixtureDispatches']==(1 if return_transport=='mcp' else 2 if reject_tool else 4 if invalid_tool else 3) and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
+                result['accepted'] = result.pop('realCoreToolLoopAccepted') and (1<=result['fixtureUserSubmissions']<=2 if session else result['fixtureUserSubmissions']==(2 if interrupt_tool or reject_tool or mcp_discovery else 1)) and result['fixtureToolSubmissions']==(0 if return_transport=='mcp' else 3 if invalid_tool else 2) and result['fixtureDispatches']==(1 if return_transport=='mcp' else 2 if reject_tool else 4 if invalid_tool else 3) and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
                 if reject_tool:result['accepted'] &= all(result.get(k) for k in ['rejectedSampleObserved','noAutomaticResubmit','recoveryPreservedExistingFile']) and result['successfulShellCalls']==2 and result['persistedNativeCommands']==2 and result['fixtureTotalDispatches']==4
                 if invalid_tool:result['accepted'] &= result['nativeArgumentErrorReturned'] and result['successfulShellCalls']==2 and result['persistedNativeCommands']==2 and state['returnedNativeResults']==3 and state['requests']==4 and state['observedChatSubmissions']==1 and state['toolResultSubmissions']==3
                 if mcp_discovery:result['accepted'] &= result.get('ownedMcpCalls')==1 and result.get('persistedMcpCalls')==1 and state['modelRequestedSearches']==1 and state['nativeSearchLoadedTools']==1

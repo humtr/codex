@@ -1353,5 +1353,128 @@
     "nativeTests": 43,
     "retainedUpstreamTests": 94,
     "frontendSha256": "1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a"
+  },
+  "requestLatencyOffline": {
+    "accepted": true,
+    "realService": false,
+    "chatSubmissions": 0,
+    "fixtureToolSubmissions": 2,
+    "fixtureTotalDispatches": 3,
+    "latencySamples": [
+      {
+        "request": 1,
+        "admitted": 32.058,
+        "desktopReady": 36.721,
+        "firstDispatchObserved": 42.943,
+        "firstPublicOutputObserved": 48.435,
+        "exchangeSettled": 49.817,
+        "outcome": "completed"
+      },
+      {
+        "request": 2,
+        "admitted": 13.832,
+        "desktopReady": 16.629,
+        "firstDispatchObserved": 19.595,
+        "firstPublicOutputObserved": 20.351,
+        "exchangeSettled": 21.029,
+        "outcome": "completed"
+      },
+      {
+        "request": 3,
+        "admitted": 7.253,
+        "desktopReady": 9.864,
+        "firstDispatchObserved": 13.005,
+        "firstPublicOutputObserved": 13.483,
+        "exchangeSettled": 14.279,
+        "outcome": "completed"
+      }
+    ],
+    "productInputsUnchanged": null,
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "rawResultSha256": "c8abc4066fd7b694e0735351050d25c5f8c22bcba30e1ec479b6847d1976c7e1"
+  },
+  "requestLatencyLive": {
+    "accepted": true,
+    "realService": true,
+    "chatSubmissions": 2,
+    "fixtureToolSubmissions": 2,
+    "fixtureTotalDispatches": 3,
+    "latencySamples": [
+      {
+        "request": 1,
+        "admitted": 31.003,
+        "desktopReady": 38.23,
+        "firstDispatchObserved": 6225.773,
+        "firstPublicOutputObserved": 13606.382,
+        "exchangeSettled": 13607.239,
+        "outcome": "completed"
+      },
+      {
+        "request": 2,
+        "admitted": 8.549,
+        "desktopReady": 11.12,
+        "firstDispatchObserved": 8222.573,
+        "firstPublicOutputObserved": 13274.163,
+        "exchangeSettled": 13275.562,
+        "outcome": "completed"
+      },
+      {
+        "request": 3,
+        "admitted": 10.638,
+        "desktopReady": 12.031,
+        "firstDispatchObserved": 1139.497,
+        "firstPublicOutputObserved": 5170.14,
+        "exchangeSettled": 5487.967,
+        "outcome": "completed"
+      }
+    ],
+    "productInputsUnchanged": true,
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "rawResultSha256": "5eaa9a0ad8ea55ebdc93f81fe70e7f8d7a39ec957ef7849fbdcd121e97a20ef7",
+    "productInputs": {
+      "desktop-bridge-615.patch": "4a6fd89dd0c37eec39e8fe53081d4e92da7525a5f768951893d91063cde22bdd",
+      "desktop_app_transport.mjs": "e5ec3b1fff1fa1e2418019a4b99ddb83a0441fa356eb33f3e2019ce6327f279d",
+      "desktop_cdp.mjs": "89654c289b06f0d239b96d162d45b8112e865498e04e3cb69819f565d05c01e9",
+      "desktop_http.mjs": "b9879ceeead973773ca0a79cce7cbbeeb4483b9778dcbff073972706c97e35bd",
+      "desktop_lifecycle.py": "cbe64b993cbb6a055bcae2e3da4c30631b3291e0f5493e2ac548ce3f1f514ca6",
+      "desktop_local_transport.mjs": "27d326bb76d2d01ab05c0a4d0d750d380b48b5afb41301482ea727cfe2bffebc",
+      "desktop_mcp_broker.mjs": "2bbe2e8251f57399889029f81761bf360b51bd54b8eec5518b4a6fc9b3fc09b6",
+      "desktop_mcp_stdio.mjs": "3e7fe7e9c3502463e80e2589ccc7cd9c73f047ca827a72474283206ec82d3876",
+      "desktop_mcp_transport.mjs": "4e037d0ef5caa36f1e1b7c722e638fcdbf18937fccc03da72a9a5a5667ecf1bb",
+      "desktop_model_controls.mjs": "3b76ac8d76c1d56965eaee4402e67f74c51380d578a3c7e7026e33ff6c358740",
+      "desktop_protocol.mjs": "eb38093125de22b002dcb12bd2b9345afd6619d5db6f926bff28acf30d207307",
+      "desktop_provider_profile.py": "6ee3204a3d4d06816356e94ff72c0875bd385a75d3e2dda6f5f1d5ea05f76e64",
+      "desktop_response_transport.mjs": "d5119cd9f553ab0b797f1ba3e37493709af00c08a3f7893ef3d91c6449458eff",
+      "desktop_responses_server.mjs": "d2fce94778c84646de1e67bdd7e918fd69271d7c78519db1ccfc5c2d8adaa29c",
+      "desktop_tool_session.mjs": "401db8395ae7ba4ab61fbfbd4e675c11f92bf621b99c1c44cf88001a67d95c75",
+      "fit_browser.py": "4cf7e4fe9353161786ad2cd14c37e5a630d65304f751121f2420620dab93d7e2",
+      "install_desktop_provider.py": "e71e0818d22c2d0920d2bb07413937c8eac5857b7ebd1cf24c4724a7bf5df5cd",
+      "linux_desktop_trial.py": "348865c4682779407a1503714fe4a775e9e8f622d1a8c4f46688782b252bdc63",
+      "mobile_controls.css": "f42af2b8a628378d48d5f533f770fee2202d8cda47ab26bd64977e81686543ef",
+      "mobile_controls.js": "94d1050f2d55a0c3f65893c81d5de5a839fea974dd781bde1299ce5e68afc64e",
+      "native_chromium_host.mjs": "e4945d6b09805ea424f6ba6b512ff181e8900c893d91d39f5b8697e23d7f812a",
+      "open_dual_trial.py": "ed00cccdf6ba1050763d403e51e7df95def3ccd61c5bc46d3ef98bb377ee5a4c",
+      "open_linux_browser.py": "25448d0471a08ce8955e6a859dffc6e47be865352340d5c01310c3fe9439a25e",
+      "open_viewer.py": "4ef7505bad585f79460767c7aae7f429790fdc94372de94f53f11a58053139bd",
+      "termux_viewer.ts": "5451d8091c8292cf4ff30487a1e290afabd649c0086bcbb6ad28fdccff8c1b50"
+    },
+    "clock": "Monotonic milliseconds since HTTP arrival; local observations, not remote compute time",
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "failedPreflightActualSubmissions": 0
   }
 }

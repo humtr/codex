@@ -241,3 +241,21 @@ export function markDesktopEstimatedUsage(stream){
 
 // Route validation is shared with the actual observed UI controls.
 export {validateDesktopRoute};
+
+// Local observation times only: no wall clock, remote compute estimate or content.
+export class DesktopRequestTiming{
+ constructor(request,clock=()=>performance.now()){
+  this.clock=clock;this.started=clock();this.sample={request};this.finished=false;
+ }
+ mark(phase){
+  if(!['admitted','desktopReady','firstDispatchObserved','firstPublicOutputObserved','exchangeSettled'].includes(phase))throw Error('invalid_desktop_timing_phase');
+  if(this.finished||this.sample[phase]!==undefined)return;
+  this.sample[phase]=Math.max(0,Math.round((this.clock()-this.started)*1000)/1000);
+ }
+ finish(report,outcome){
+  if(this.finished)return;
+  if(!['completed','failed','cancelled'].includes(outcome))throw Error('invalid_desktop_timing_outcome');
+  this.mark('exchangeSettled');this.sample.outcome=outcome;this.finished=true;
+  report.latencySamples=[...(report.latencySamples||[]).slice(-31),{...this.sample}];
+ }
+}

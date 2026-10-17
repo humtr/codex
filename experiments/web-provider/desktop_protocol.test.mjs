@@ -3,7 +3,7 @@ import {desktopConnection} from './desktop_cdp.mjs';
 import {mkdtempSync,writeFileSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {test,expect} from 'bun:test';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
+import {DesktopRequestTiming,DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
 const tools=[{wireName:'functions__exec_command'},{wireName:'functions__exec',freeform:true},{wireName:'tool_search',toolSearch:true}];
 test('setup submissions remain counted when their ACK fails; legacy work count stays separate',()=>{
  const report={observedChatSubmissions:0,submittedContextRequests:0,submittedRequests:0,submittedProRequests:0,contextPackets:0,submissionSources:{app_accepted:0,ui_observed:0}};
@@ -227,4 +227,18 @@ test('native structured reviewer output reaches the desktop without inventing a 
  expect(desktopOutputInstructions({text:{format}})[0]).toContain(JSON.stringify(format));
  expect(desktopOutputInstructions({text:{format:{type:'json_object'}}})[0]).toContain('JSON object');
  for(const bad of [{type:'unknown'},{type:'json_schema'},{type:'json_schema',schema:[]}])expect(()=>desktopOutputInstructions({text:{format:bad}})).toThrow('unsupported_desktop_output_format');
+});
+
+test('request timings retain first observations, distinguish owners and bound private state',()=>{
+ let now=10;const clock=()=>now,report={},a=new DesktopRequestTiming(1,clock);
+ now=11;a.mark('admitted');now=12;const b=new DesktopRequestTiming(2,clock);
+ now=15;a.mark('desktopReady');b.mark('admitted');now=20;a.mark('firstDispatchObserved');
+ now=25;a.mark('firstPublicOutputObserved');now=30;a.mark('firstPublicOutputObserved');
+ b.finish(report,'failed');now=40;a.finish(report,'completed');a.finish(report,'cancelled');
+ expect(report.latencySamples).toEqual([{request:2,admitted:3,exchangeSettled:18,outcome:'failed'},
+  {request:1,admitted:1,desktopReady:5,firstDispatchObserved:10,firstPublicOutputObserved:15,exchangeSettled:30,outcome:'completed'}]);
+ for(let i=3;i<=40;i++)new DesktopRequestTiming(i,clock).finish(report,'cancelled');
+ expect(report.latencySamples.length).toBe(32);expect(report.latencySamples[0].request).toBe(9);
+ expect(()=>b.mark('heartbeat')).toThrow('invalid_desktop_timing_phase');
+ expect(()=>new DesktopRequestTiming(41,clock).finish(report,'guess')).toThrow('invalid_desktop_timing_outcome');
 });
