@@ -248,8 +248,8 @@ fn run_manager_with_input(
     child.wait_with_output().unwrap()
 }
 
-fn write_core_probe(root: &Path) -> PathBuf {
-    let shell = std::env::var_os("SHELL")
+fn test_shell() -> PathBuf {
+    std::env::var_os("SHELL")
         .map(PathBuf::from)
         .filter(|path| path.is_file())
         .or_else(|| {
@@ -259,7 +259,11 @@ fn write_core_probe(root: &Path) -> PathBuf {
                     .find(|path| path.is_file())
             })
         })
-        .expect("test shell must be available");
+        .expect("test shell must be available")
+}
+
+fn write_core_probe(root: &Path) -> PathBuf {
+    let shell = test_shell();
     let path = root.join("core-probe");
     let body = format!(
         "#!{}\n\
@@ -1144,17 +1148,7 @@ fn shell_quote(path: &Path) -> String {
 }
 
 fn write_notification_provider(root: &Path, name: &str) -> PathBuf {
-    let shell = std::env::var_os("SHELL")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-        .or_else(|| {
-            std::env::var_os("PATH").and_then(|path| {
-                std::env::split_paths(&path)
-                    .map(|directory| directory.join("sh"))
-                    .find(|path| path.is_file())
-            })
-        })
-        .expect("test shell must be available");
+    let shell = test_shell();
     let path = root.join(name);
     let body = format!(
         "#!{}\nprintf 'provider=%s\\n' \"$0\" >> \"$PROVIDER_LOG\"\nfor argument in \"$@\"; do printf 'arg=%s\\n' \"$argument\" >> \"$PROVIDER_LOG\"; done\nprintf 'provider stderr must be hidden\\n' >&2\nexit 23\n",
@@ -1742,8 +1736,8 @@ fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_a
             && !action.contains("startservice")
     );
     let am = bin.join("am");
-    let shell = std::env::var_os("SHELL").unwrap();
-    fs::write(&am, format!("#!{}\nprintf '%s\\n' \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\n", Path::new(&shell).display())).unwrap();
+    let shell = test_shell();
+    fs::write(&am, format!("#!{}\nprintf '%s\\n' \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\n", shell.display())).unwrap();
     fs::set_permissions(&am, fs::Permissions::from_mode(0o700)).unwrap();
     fs::write(&log, "").unwrap();
     for _ in 0..3 {
@@ -1798,8 +1792,8 @@ fn notification_tmux_click_uses_core_only_and_failure_never_creates_a_window() {
             && !action.contains("bin/ai")
             && !action.contains("startservice")
     );
-    let shell = std::env::var_os("SHELL").unwrap();
-    fs::write(&core, format!("#!{}\nprintf '%s\\n' core \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\nexit \"$CLICK_STATUS\"\n",Path::new(&shell).display())).unwrap();
+    let shell = test_shell();
+    fs::write(&core, format!("#!{}\nprintf '%s\\n' core \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\nexit \"$CLICK_STATUS\"\n",shell.display())).unwrap();
     let clicked_log = root.0.join("click.log");
     for status in ["0", "0", "1"] {
         let clicked = Command::new(&shell)

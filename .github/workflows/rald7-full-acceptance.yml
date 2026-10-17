@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: source-acceptance
@@ -52,7 +53,7 @@ jobs:
           if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && test "$BEFORE" != 0000000000000000000000000000000000000000 && \
              git fetch --no-tags --depth=1 origin "$BEFORE" &&
              gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rald7-full-acceptance.yml/runs?head_sha=$BEFORE&per_page=100" \
-               --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex")' | grep -Fqx true; then
+               --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and (.event=="push" or .event=="workflow_dispatch") and .path==".github/workflows/rald7-full-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex")' | grep -Fqx true; then
             git diff --name-only -z "$BEFORE" HEAD | python3 scripts/ci_scope.py --stdin | sed 's/^/scope=/' >> "$GITHUB_OUTPUT"
           else
             printf 'scope=full\n' >> "$GITHUB_OUTPUT"
