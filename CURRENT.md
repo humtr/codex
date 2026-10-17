@@ -98,7 +98,7 @@ model/effort changes on upstream session actions without persisting a Chat slug
 into an ordinary account profile. Manager supplies default on-request/auto_review
 in its existing system-layer fragment; explicit upstream user/profile/CLI choices
 win. Core owns neither default reviewer policy nor provider behavior. These
-changes still require native/device qualification and normal signed publication.
+changes pass native/device qualification and still require normal signed publication.
 The experiment now fixes missing optional reports, preserves same-Chat context,
 reduces warm resend and restores shared app hooks across owner exit orders.
 Actual signed-app/stable53 automatic and interrupted compaction both pass through
@@ -131,8 +131,13 @@ before checking actions. The same test covers Default and Plan for all four
 no-op/model/effort combinations, applies the emitted native setters and checks the
 effective result plus inactive-mode preservation. Plan effort now uses the existing
 UpdatePlanModeReasoningEffort event rather than the Default-only event; no account
-preference is persisted. The required43-test native/94-feature/lint gate and signed
-stable54 publication remain pending; no failing gate is waived. Private cache:
+preference is persisted. The required43-test native/94-feature/lint gate now passes in38979482916,
+and source acceptance38979482791 passes. Actual Android Default and Plan menu
+trials pass all four no-op/model/effort changes with0 frontend exec/inference,
+same PID/PTY/thread and unchanged account configuration. The exact raw frontend
+SHA256 is1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a.
+Its immutable archive is pinned in the public producer; signed stable54 publication
+and separate device activation remain pending. No failing gate is waived. Private cache:
 chat-manager-default{,-named}-lifecycle.json and chat-manager-explicit-{user-3,full}.json.
 
 ## Final Core / Manager responsibility boundary
