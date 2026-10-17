@@ -8,21 +8,34 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Operating baseline
 
-- Public/device Core and frontend: signed stable53, CLI0.163.0, source36bfeed.
-  Release38904810656 and source/native/device qualification pass on the production
-  branch. Actual version and Core/Manager doctor confirm device selection; stable52
-  is retained for rollback. Production upgrade proof and Chat inference acceptance
-  remain separate; the new narrow stable53 live proof is described below.
-- Installed opt-in Chat provider:3293607105766a583c42, source33cb3e1,
+- Public/device Core and frontend: signed stable54, CLI0.163.0, sourcec085617.
+  Release38985595917 passes build, Android execution, signing, public readback,
+  disposable update and non-forced promotion. Ordinary device update verifies all
+  eight signed files;14 configuration files and10 existing process identities stay
+  unchanged. Stable53 remains rollback. Published Default/Plan model selection
+  keeps the same process/PTY/thread,0 exec/inference; same-Chat reasoning uses the
+  active mode. Actual installed54 fresh/resume/btw proof passes six commands/six
+  guardian reviews, dangerFullAccess/auto_review across legacy/named permissions.
+- Installed opt-in Chat provider:3a9d8b4398c038db34ba, source9f9d015,
   `returnTransport=local`,527 installed files verified including its manifest.
-  Prior0eb431a/sourceef2a15a,23a08e9/source2245164 and earlier payloads are retained.
-  Gateway batching, hidden canonical user context, role-preserving text and settled
-  app-generation recovery are installed. Activation stopped only the verified
-  idle old adapter (zero requests/arrivals since start); endpoint/capability,12 base
-  auth/config hashes and the signed desktop identity are unchanged. Bootstrap and
-  authenticated catalog smoke require no Chat inference.
+  Prior329360/source33cb3e1,0eb431a/sourceef2a15a and older payloads are retained.
+  Gateway batching, hidden canonical context, role-preserving text, settled app-
+  generation recovery and bounded request-phase timing are installed. Activation
+  stops only a verified idle adapter;12 auth/config hashes, app identity and
+  endpoint/capability remain unchanged. Reinstall/rollback/restore and six concurrent
+  bootstrap clients pass,0 Chat. Ordinary operating bootstrap has no trial budget.
+  The actual timing/tool proof uses2 user-message objects including hidden context,
+  2 tool returns and3 starts,0 Pro/retry, with native report/persistence/cold TUI
+  acceptance. Chat allowance deduction remains unknown.
   This provider is experimental; Core stable publication does not make it a fully
   qualified public Chat provider. No later source edit is implicitly installed.
+- Current remote history behavior is retained ordinary Chat in adapter-created
+  task lanes. Warm calls/model changes reuse that lane; compaction, recovery or app/
+  adapter replacement can create another retained conversation. Closing a lane
+  cancels its controller; it does not delete remote history. Existing user remote
+  chats are never selected as test lanes or deleted. Temporary/project grouping/
+  explicit cleanup options remain unimplemented; no automatic retention limit is
+  claimed. This preserves the user's ability to inspect app history.
 - Earlier installed signed-app + stable51 Core proof: one Chat user message,
   two real commands/tool-role returns, three model starts; initial/intermediate/
   final reports, canonical persistence and cold Core/TUI restore pass. Fresh

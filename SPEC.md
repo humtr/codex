@@ -3417,8 +3417,14 @@ then add MCP against the same projection. Each path must independently pass
 native display/persistence, approval, explicit stop, observation recovery,
 parallel-owner isolation and warm/cold resume. A passed echo probe is not full
 Core acceptance. Use owned synthetic data for ordinary-Chat qualification; the
-local-function proof used non-Temporary Chat. Production history/retention behavior
-must be explicit before applying this mode to existing user conversations.
+local-function proof used non-Temporary Chat. The current experimental local mode
+creates retained ordinary-Chat task lanes; warm requests/model changes reuse the
+same lane. Compaction/recovery/generation replacement may create a new retained
+lane. Closing cancels owned generation without deleting history. Never adopt or
+delete existing user remote conversations. Temporary/grouped/explicit cleanup
+options and retention limits remain unimplemented; do not imply automatic remote
+history cleanup. Production history/retention behavior must be explicit before
+applying this mode to existing user conversations.
 The `/model` entry is primary and `--profile chatgpt` selects the same provider.
 Pro inference remains prohibited; explain the expected live-trial budget first.
 
