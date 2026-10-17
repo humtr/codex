@@ -258,9 +258,14 @@ approval defaults and verifies that the source choices still win. Named-profile
 and incompatible-permission proofs also pass; incompatible permissions stop
 before destination inference. Notices are verified from rendered PTY text with
 cursor/spacing controls normalized, not from a server acknowledgment.
-Proofs: quota-native-qualified-ui.json and quota-native-final48-{named,
-incompatible}.json. Final repeat with the rebuilt exact Manager and normal
-fresh/resume/btw permission proof remain in progress.
+All four final trials pass with the rebuilt exact Manager and native1c413cf:
+UI controls/notice, named permissions, pre-inference incompatible-permission pause,
+and fresh/resume/btw. The latter executes3 real Android commands with3 guardian
+reviews, retaining dangerFullAccess/on-request/auto_review without bubblewrap.
+No real account inference is submitted. The combined receipt binds both binary
+hashes and base58 Core: quota-qualified-device-matrix.json; individual reports
+are quota-native-qualified-{ui,named,incompatible,permissions}.json.
+Public full-only admission and final native48/94/lint gates remain required.
 Local full acceptance passes135 Python and353 Rust tests, fmt and Clippy; the
 48-test final native input remains subject to its independent build/feature/lint
 gates. The final UI also replaces the existing quota picker during asynchronous
