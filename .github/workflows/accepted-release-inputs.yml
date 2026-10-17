@@ -5,6 +5,11 @@ on:
     branches: [rewrite/rust-core, main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      completed_run:
+        description: Optional completion handshake; it grants no proof authority
+        type: string
+        default: ''
 permissions:
   contents: write
   actions: write
@@ -21,8 +26,19 @@ jobs:
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
+          COMPLETED_RUN: ${{ inputs.completed_run }}
         run: |
           set -euo pipefail
+          completed="${COMPLETED_RUN:-}"
+          if test -n "$completed"; then
+            [[ "$completed" =~ ^[1-9][0-9]{0,19}$ ]]
+            for attempt in $(seq 1 60); do
+              status="$(gh api "repos/humtr/codex/actions/runs/$completed" --jq '.status')"
+              if test "$status" = completed; then break; fi
+              sleep 2
+            done
+            test "$status" = completed
+          fi
           sha="$(gh api repos/humtr/codex/git/ref/heads/rewrite/rust-core --jq '.object.sha')"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
           git init source
