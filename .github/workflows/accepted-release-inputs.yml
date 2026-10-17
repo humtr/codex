@@ -1,8 +1,8 @@
 name: Advance accepted release inputs
 on:
   workflow_run:
-    workflows: [Source acceptance, Independent Core/runtime qualification, Manager TUI native qualification]
-    branches: [rewrite/rust-core]
+    workflows: [Source acceptance, Independent Core/runtime qualification, Manager TUI native qualification, Termux Hosted Release Preflight]
+    branches: [rewrite/rust-core, main]
     types: [completed]
   workflow_dispatch:
 permissions:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   advance:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.name == 'Termux Hosted Release Preflight'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

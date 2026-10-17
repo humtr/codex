@@ -63,6 +63,7 @@ class ReleaseControlTests(unittest.TestCase):
             calls.append((path,kwargs))
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=False),\
@@ -80,6 +81,25 @@ class ReleaseControlTests(unittest.TestCase):
             self.assertEqual(control.run(root)['state'],'awaiting-exact-proof')
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
+
+    def test_inflight_publication_delays_pointer_write_until_its_completion_event(self):
+        root=Path(__file__).resolve().parents[2];sha='a'*40
+        def api(path,**kwargs):
+            if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
+            if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
+            if path.startswith('actions/workflows/auto-release-termux.yml/runs'):
+                return {'workflow_runs':[{'status':'in_progress'}]}
+        with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
+             patch.object(control,'same_product_inputs',return_value=False),\
+             patch.object(control,'successful_run',return_value=({'id':1},[])),\
+             patch.object(control,'ensure_frontend',return_value=None),\
+             patch.object(control,'commit_files') as commit,patch.object(control,'dispatch') as dispatch:
+            self.assertEqual(control.run(root)['state'],'awaiting-publication')
+            commit.assert_not_called();dispatch.assert_not_called()
+        text=(root/'.github/workflows/accepted-release-inputs.yml').read_text()
+        self.assertIn('Termux Hosted Release Preflight',text)
+        self.assertIn('rewrite/rust-core, main',text)
 
     def test_git_comparison_preserves_unknown_product_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,9 +123,11 @@ class ReleaseControlTests(unittest.TestCase):
         def api(path,**kwargs):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=True),\
+             patch.object(control,'frontend_registration_needed',return_value=False),\
              patch.object(control,'successful_run') as proof,patch.object(control,'dispatch') as dispatch,\
              patch.object(control,'commit_files') as commit:
             self.assertEqual(control.run(root)['state'],'no-product-change')

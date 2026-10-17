@@ -43,6 +43,25 @@ def metadata(path):
                       object_pairs_hook=no_duplicate_object)
 
 
+def verify_recipe(source, source_sha):
+    inputs = load_release(source / 'release/upstream.json')
+    for relative in INPUTS:
+        blobs = [subprocess.check_output(
+            ["git", "-C", str(source), "rev-parse", f"{revision}:{relative}"],
+            stderr=subprocess.DEVNULL) for revision in ("HEAD", source_sha)]
+        if blobs[0] != blobs[1]:
+            raise ValueError("maintained native input differs from qualified source: " + relative)
+    qualified_input = subprocess.check_output(
+        ['git', '-C', str(source), 'show', source_sha + ':release/upstream.json'],
+        stderr=subprocess.DEVNULL)
+    # Parse through the same strict loader without modifying a source checkout.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='native-input-') as temporary:
+        path = Path(temporary) / 'upstream.json'
+        path.write_bytes(qualified_input)
+        if build_recipe(load_release(path)) != build_recipe(inputs):
+            raise ValueError('native release recipe differs from qualified source')
+
 def verify(args):
     inputs = load_release(args.source / 'release/upstream.json')
     version = inputs['upstream']['version']
@@ -57,22 +76,7 @@ def verify(args):
             or run.get("event") not in {"push", "workflow_dispatch"}
             or run.get("repository", {}).get("full_name") != "humtr/codex"):
         raise ValueError("native qualification run is not the pinned successful authority")
-    for relative in INPUTS:
-        blobs = [subprocess.check_output(
-            ["git", "-C", str(args.source), "rev-parse", f"{revision}:{relative}"],
-            stderr=subprocess.DEVNULL) for revision in ("HEAD", args.source_sha)]
-        if blobs[0] != blobs[1]:
-            raise ValueError("maintained native input differs from qualified source: " + relative)
-    qualified_input = subprocess.check_output(
-        ['git', '-C', str(args.source), 'show', args.source_sha + ':release/upstream.json'],
-        stderr=subprocess.DEVNULL)
-    # Parse through the same strict loader without modifying a source checkout.
-    import tempfile
-    with tempfile.TemporaryDirectory(prefix='native-input-') as temporary:
-        path = Path(temporary) / 'upstream.json'
-        path.write_bytes(qualified_input)
-        if build_recipe(load_release(path)) != build_recipe(inputs):
-            raise ValueError('native release recipe differs from qualified source')
+    verify_recipe(args.source, args.source_sha)
     if args.artifact.is_symlink() or not args.artifact.is_dir():
         raise ValueError("native artifact root is not an owned directory")
     if {p.name for p in args.artifact.iterdir()} != FILES:

@@ -16,7 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from manager_tui_artifact import verify as verify_frontend
+from manager_tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load
 
 REPO = 'humtr/codex'
@@ -185,6 +185,22 @@ def same_product_inputs(source, previous, current):
     return all(not path or path.endswith('.md') or path == '.gitignore' for path in paths)
 
 
+def frontend_registration_needed(source):
+    pinned=load(source/'release/upstream.json')['frontend']
+    def matches(sha):
+        try:
+            subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',sha],check=True,capture_output=True)
+            verify_recipe(source,sha)
+            return True
+        except (ValueError,OSError,subprocess.CalledProcessError):
+            return False
+    if pinned and matches(pinned['source']):
+        return False
+    recent=api('actions/workflows/manager-tui-native.yml/runs?branch='+SOURCE_BRANCH+'&per_page=20')['workflow_runs']
+    return any(accepted_run(run,'manager-tui-native.yml',run['head_sha']) and matches(run['head_sha'])
+               for run in recent)
+
+
 def run(source):
     current=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if api('git/ref/heads/'+SOURCE_BRANCH)['object']['sha']!=current:
@@ -192,7 +208,8 @@ def run(source):
     main=api('git/ref/heads/main')['object']['sha']
     pointer=api('contents/release-source-v1?ref='+main)
     previous=base64.b64decode(pointer['content']).decode().strip()
-    if previous != current and same_product_inputs(source, previous, current):
+    if (previous != current and same_product_inputs(source, previous, current)
+            and not frontend_registration_needed(source)):
         return {'state':'no-product-change','source':current,'accepted_source':previous}
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
         passed, runs=successful_run(workflow,current)
@@ -211,6 +228,9 @@ def run(source):
         return {'state':'frontend-inputs-bound-awaiting-source-proof','source':updated}
     if previous==current:
         return {'state':'already-pinned','source':current}
+    public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
+    if any(run['status'] != 'completed' for run in public_runs):
+        return {'state':'awaiting-publication','source':current}
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
     dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
