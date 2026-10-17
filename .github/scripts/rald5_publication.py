@@ -25,6 +25,7 @@ EXPECTED_FILES = {
     "runtime": "0755",
 }
 EXTENDED_FILES = dict(sorted({**EXPECTED_FILES, "helpers/2": "0755"}.items()))
+BASE_FILES = {path: mode for path, mode in EXPECTED_FILES.items() if path != "manager"}
 FLAT_ASSETS = {
     "codex-code-mode-host": "codex-code-mode-host",
     "core": "core",
@@ -145,9 +146,12 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
         fail("release public key is not canonical")
     count = positive_decimal(values["file_count"], "file count")
     records = lines[1 + len(keys) :]
-    if len(records) != count or count not in (len(EXPECTED_FILES), len(EXTENDED_FILES)):
+    if len(records) != count or count not in (len(BASE_FILES), len(EXPECTED_FILES), len(EXTENDED_FILES)):
         fail("release file count is invalid")
-    inventory = EXTENDED_FILES if count == len(EXTENDED_FILES) else EXPECTED_FILES
+    base = values["generation_id"].startswith("local-base-")
+    if base != (count == len(BASE_FILES)):
+        fail("release variant does not match signed inventory")
+    inventory = BASE_FILES if base else EXTENDED_FILES if count == len(EXTENDED_FILES) else EXPECTED_FILES
     files: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     for line in records:

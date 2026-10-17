@@ -65,6 +65,23 @@ class BaseQualificationTests(unittest.TestCase):
                 with self.assertRaises((preflight.PreflightError,OSError)):
                     preflight.verify_base_candidate(root, '0.161.0')
 
+    def test_source_qualification_and_rebuild_use_proposed_recipe_not_old_public_version(self):
+        resolve = step('Resolve official upstream stable').split('          qualification_args=()', 1)[0]
+        # step() dedents its literal shell, so stop before decision dispatch.
+        resolve = resolve.split('qualification_args=()', 1)[0]
+        resolve += '\nprintf "%s %s %s\\n" "$upstream_version" "$archive_sha256" "$REBUILD_CURRENT"\n'
+        for base, current, expected_rebuild in [('true','0.163.0','false'),
+                                                 ('false','0.163.0','false'),
+                                                 ('false','0.164.0','true')]:
+            with self.subTest(base=base,current=current), tempfile.TemporaryDirectory() as tmp:
+                script = resolve.replace('${{ inputs.base_only }}', base)
+                env = {**os.environ, 'RUNNER_TEMP':tmp,'REBUILD_CURRENT':'true',
+                       'UPSTREAM_VERSION':'0.164.0','UPSTREAM_ARCHIVE_SHA256':'a'*64,
+                       'CURRENT_VERSION':current,'CURRENT_ARCHIVE_SHA256':'b'*64}
+                result = subprocess.run(['bash','-c',script],env=env,capture_output=True,text=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout.strip(), '0.164.0 '+'a'*64+' '+expected_rebuild)
+
     def test_real_source_guard_refuses_publish_before_acquisition(self):
         script = step('Fetch exact accepted source').split('\nrm -rf source', 1)[0]
         for publish,ref,event,same,accepted in (
@@ -75,7 +92,7 @@ class BaseQualificationTests(unittest.TestCase):
                 ('false','refs/heads/rewrite/rust-core','schedule',True,False),
                 ('false','refs/heads/rewrite/rust-core','push',False,False)):
             with self.subTest(publish=publish,ref=ref,event=event,same=same):
-                actual = script.replace('${{ inputs.publish }}', publish)
+                actual = script.replace('${{ inputs.publish }}', publish).replace('${{ inputs.base_only }}', 'true')
                 env = {**os.environ,'BASE_ONLY':'true','CODEX_SOURCE_SHA':'a'*40,
                        'GITHUB_SHA':('a' if same else 'b')*40,'GITHUB_REF':ref,'GITHUB_EVENT_NAME':event}
                 result = subprocess.run(['bash','-c',actual],env=env,capture_output=True,text=True)

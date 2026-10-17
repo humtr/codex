@@ -23,13 +23,14 @@ class PublicTransportTests(unittest.TestCase):
     def fixture(self, current_frontend, candidate_frontend):
         fixture = fixtures.Rald5PublicationTests('test_verify_public_accepts_exact_pages_tree')
         fixture.setUp()
+        fixture.native_descriptor = True
         self.addCleanup(fixture.tearDown)
         root = fixture.root
         fixture.build_signed(frontend=current_frontend)
         current = root / 'current'
         shutil.copytree(fixture.signed, current)
         with patch.object(fixtures, 'GENERATION', CANDIDATE), patch.object(
-                fixtures, 'BASE', f'https://humtr.github.io/codex/{CANDIDATE}/'):
+                fixtures, 'BASE', f'https://humtr.github.io/codex/{CANDIDATE}/'), patch.object(fixtures, 'SEQUENCE', '12'):
             fixture.build_signed(frontend=candidate_frontend)
             assets = root / 'release-assets'
             result = fixture.prepare(assets)
@@ -37,6 +38,8 @@ class PublicTransportTests(unittest.TestCase):
         source = root / 'publication-source/.github/scripts'
         source.mkdir(parents=True)
         shutil.copy2(ROOT / '.github/scripts/rald5_publication.py', source)
+        for name in ['release_heads.py', 'rald3_preflight.py']:
+            shutil.copy2(ROOT/'.github/scripts'/name, source)
         urls = {}
         for signed in (current, fixture.signed):
             generation = fixtures.GENERATION if signed == current else CANDIDATE
@@ -52,6 +55,19 @@ class PublicTransportTests(unittest.TestCase):
                 if signed == current:
                     urls[f'https://raw.githubusercontent.com/humtr/codex/{MAIN}/{name}'] = str(signed / name)
         (root / 'urls.json').write_text(json.dumps(urls))
+        hooks = root/'transport-hook';hooks.mkdir()
+        (hooks/'sitecustomize.py').write_text(textwrap.dedent('''\
+            import io,json,os
+            from pathlib import Path
+            import urllib.request
+            from urllib.error import HTTPError
+            def owned_open(url,timeout=60):
+                paths=json.loads((Path(os.environ['TRANSPORT_FIXTURE'])/'urls.json').read_text())
+                if url not in paths:raise HTTPError(url,404,'owned missing',None,None)
+                value=io.BytesIO(Path(paths[url]).read_bytes());value.geturl=lambda:url
+                return value
+            urllib.request.urlopen=owned_open
+        '''))
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'curl').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
@@ -94,7 +110,8 @@ class PublicTransportTests(unittest.TestCase):
             tool.chmod(0o755)
         env = {**os.environ, 'TRANSPORT_FIXTURE': str(root),
                'PATH': str(tools) + os.pathsep + os.environ['PATH'],
-               'GENERATION_ID': CANDIDATE, 'RELEASE_SEQUENCE': fixtures.SEQUENCE,
+               'GENERATION_ID': CANDIDATE, 'RELEASE_SEQUENCE': '12',
+               'RUNNER_TEMP': str(root), 'PYTHONPATH': str(hooks),
                'CURRENT_GENERATION': fixtures.GENERATION, 'EXPECTED_MAIN_SHA': MAIN,
                'GITHUB_REPOSITORY': 'humtr/codex', 'PYTHONDONTWRITEBYTECODE': '1'}
         return fixture, current, assets, env
@@ -114,6 +131,7 @@ class PublicTransportTests(unittest.TestCase):
                 root = fixture.root
                 key_hash = hashlib.sha256(fixture.public_key.read_bytes()).hexdigest()
                 actual = script.replace('62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c', key_hash)
+                actual = actual.replace('${{ inputs.release_variant }}', 'full')
                 if fault == 'candidate-helper':
                     (assets / 'helper-2').write_bytes(b'changed')
                 elif fault == 'current-helper':
@@ -158,7 +176,7 @@ class PublicTransportTests(unittest.TestCase):
                 destination.mkdir()
                 env.update(root=str(destination), authority=str(fixture.public_key), candidate=CANDIDATE)
                 actual = script + '\nfetch_generation "$candidate" "https://humtr.github.io/codex/$candidate/update-index-v1" true\n'
-                actual += 'python3 publication-source/.github/scripts/rald5_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 11 --release-base "https://humtr.github.io/codex/$candidate/" --require-download-size\n'
+                actual += 'python3 publication-source/.github/scripts/rald5_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "https://humtr.github.io/codex/$candidate/" --require-download-size\n'
                 result = subprocess.run(['bash', '-ec', actual], cwd=root, env=env,
                                         text=True, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1200:])

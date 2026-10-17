@@ -27,7 +27,13 @@ class NativeArtifactTests(unittest.TestCase):
             if relative == "frontend/manager-tui/src":
                 path = path / "owned.rs"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("owned native source input\n")
+            if relative == '.github/scripts/upstream_release.py':
+                path.write_bytes((qualifier.RELEASE_INPUT.parents[1] / relative).read_bytes())
+            else:
+                path.write_text("owned native source input\n")
+        release = source / 'release/upstream.json'
+        release.parent.mkdir(parents=True, exist_ok=True)
+        release.write_bytes(qualifier.RELEASE_INPUT.read_bytes())
         git("add", ".")
         git("-c", "user.name=Owned fixture", "-c", "user.email=owned@example.invalid",
             "commit", "-m", "owned qualification")

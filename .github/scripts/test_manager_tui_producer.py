@@ -28,7 +28,8 @@ class NativeProducerTests(unittest.TestCase):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 source, artifact, proof, sha, digest, run, run_file = fixtures.NativeArtifactTests().fixture(root)
-                (source / '.github/scripts').symlink_to(ROOT / '.github/scripts', target_is_directory=True)
+                for name in ['manager_tui_artifact.py', 'rald3_preflight.py']:
+                    (source / '.github/scripts' / name).symlink_to(ROOT / '.github/scripts' / name)
                 archive = root / 'input.tar.gz'
                 with tarfile.open(archive, 'w:gz') as bundle:
                     for p in artifact.iterdir(): bundle.add(p, arcname='artifact/' + p.name)
@@ -66,7 +67,8 @@ class NativeProducerTests(unittest.TestCase):
                 binary.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\
                     import json,os,sys
                     from pathlib import Path
-                    if sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
+                    if sys.argv[1] == 'prepare': pass
+                    elif sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
                     else: Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))
                 ''')); binary.chmod(0o755)
                 script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]

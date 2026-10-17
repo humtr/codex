@@ -1,0 +1,46 @@
+name: Advance accepted release inputs
+on:
+  workflow_run:
+    workflows: [Source acceptance, Independent Core/runtime qualification, Manager TUI native qualification]
+    branches: [rewrite/rust-core]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: accepted-termux-release-inputs
+  cancel-in-progress: false
+jobs:
+  advance:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact owned source for proof checking
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/humtr/codex/git/ref/heads/rewrite/rust-core --jq '.object.sha')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$sha"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$sha"
+          # Do not execute a newly fetched privileged controller until that exact
+          # repository-owned source has passed the full source acceptance gate.
+          gh api "repos/humtr/codex/actions/workflows/rald7-full-acceptance.yml/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/source-runs.json"
+          if jq -e --arg sha "$sha" '.workflow_runs | any(.head_sha==$sha and .path==".github/workflows/rald7-full-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and (.event=="push" or .event=="workflow_dispatch") and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/source-runs.json"; then
+            echo 'accepted=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require real proofs and advance exact non-forced inputs
+        if: steps.source.outputs.accepted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/release_control.py --source "$GITHUB_WORKSPACE/source"

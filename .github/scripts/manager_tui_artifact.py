@@ -13,11 +13,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/manager-t
 from check_command_boundary import nonzero_tests
 from check_upstream_features import verify as verify_upstream_features
 
-UPSTREAM = "83086188ae0614bd882818ff1aa23f3194962012"
-VERSION = "0.163.0"
+from upstream_release import load as load_release, build_recipe
+RELEASE_INPUT = Path(__file__).resolve().parents[2] / 'release/upstream.json'
+# Kept as fixture conveniences; verify() reads the selected source authority.
+_INPUT = load_release(RELEASE_INPUT)
+UPSTREAM = _INPUT['upstream']['source']
+VERSION = _INPUT['upstream']['version']
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
     "frontend/manager-tui/native.patch",
+    ".github/scripts/upstream_release.py",
     "frontend/manager-tui/src",
     "frontend/manager-tui/apply.py",
     "frontend/manager-tui/test_apply.py",
@@ -30,12 +35,7 @@ INPUTS = (
 )
 FILES = {"codex", "source.txt", "version.txt", "help.txt", "sha256.txt",
          "lock-audit.json", "native.patch"}
-LOCK = {
-    "external_packages_unchanged": 1314,
-    "workspace_versions_changed": 160,
-    "original_lock_sha256": "17cdd862471774ba7aef836aaf0a0a3ed76bd23e503b1fc7278c89d1f2719d03",
-    "normalized_lock_sha256": "cae541406f7ec43a418e126be2bcd5de00b243e7bbf6382570028727d99c1069",
-}
+LOCK = _INPUT['qualification']['lock_audit']
 
 
 def metadata(path):
@@ -44,13 +44,18 @@ def metadata(path):
 
 
 def verify(args):
-    if args.version != VERSION or not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
+    inputs = load_release(args.source / 'release/upstream.json')
+    version = inputs['upstream']['version']
+    upstream = inputs['upstream']['source']
+    if args.version != version or not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
         raise ValueError("no qualified native pair for this backend/source")
     run = metadata(args.run_json)
-    expected = {"id": args.run_id, "path": INPUTS[0], "event": "push",
+    expected = {"id": args.run_id, "path": INPUTS[0],
                 "head_branch": "rewrite/rust-core", "head_sha": args.source_sha,
                 "status": "completed", "conclusion": "success"}
-    if any(run.get(k) != v for k, v in expected.items()) or run.get("repository", {}).get("full_name") != "humtr/codex":
+    if (any(run.get(k) != v for k, v in expected.items())
+            or run.get("event") not in {"push", "workflow_dispatch"}
+            or run.get("repository", {}).get("full_name") != "humtr/codex"):
         raise ValueError("native qualification run is not the pinned successful authority")
     for relative in INPUTS:
         blobs = [subprocess.check_output(
@@ -58,6 +63,16 @@ def verify(args):
             stderr=subprocess.DEVNULL) for revision in ("HEAD", args.source_sha)]
         if blobs[0] != blobs[1]:
             raise ValueError("maintained native input differs from qualified source: " + relative)
+    qualified_input = subprocess.check_output(
+        ['git', '-C', str(args.source), 'show', args.source_sha + ':release/upstream.json'],
+        stderr=subprocess.DEVNULL)
+    # Parse through the same strict loader without modifying a source checkout.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='native-input-') as temporary:
+        path = Path(temporary) / 'upstream.json'
+        path.write_bytes(qualified_input)
+        if build_recipe(load_release(path)) != build_recipe(inputs):
+            raise ValueError('native release recipe differs from qualified source')
     if args.artifact.is_symlink() or not args.artifact.is_dir():
         raise ValueError("native artifact root is not an owned directory")
     if {p.name for p in args.artifact.iterdir()} != FILES:
@@ -68,14 +83,14 @@ def verify(args):
             raise ValueError("native artifact contains a nonregular asset")
     if (args.artifact / "codex").stat().st_size > 512 * 1024 * 1024:
         raise ValueError("native executable exceeds the builder bound")
-    if bounded_read(args.artifact / "version.txt", 128, "native version") != f"codex-cli {VERSION}\n".encode():
+    if bounded_read(args.artifact / "version.txt", 128, "native version") != f"codex-cli {version}\n".encode():
         raise ValueError("native/backend version mismatch")
-    source = (f"upstream_sha={UPSTREAM}\nsource_sha={args.source_sha}\n"
+    source = (f"upstream_sha={upstream}\nsource_sha={args.source_sha}\n"
               "target=aarch64-unknown-linux-musl\n"
               "profile=release opt-level=z codegen-units=1 strip=symbols\n")
     if bounded_read(args.artifact / "source.txt", 1024, "native source") != source.encode():
         raise ValueError("native source/target/profile differs from qualification")
-    if metadata(args.artifact / "lock-audit.json") != LOCK:
+    if metadata(args.artifact / "lock-audit.json") != inputs['qualification']['lock_audit']:
         raise ValueError("native dependency audit differs from qualification")
     digest = hashlib.sha256()
     with (args.artifact / "codex").open("rb") as stream:
@@ -91,7 +106,7 @@ def verify(args):
     if args.proof.is_symlink() or proof.is_symlink():
         raise ValueError("native proof root is not an owned directory")
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
-    if nonzero_tests(log) != 43:
+    if nonzero_tests(log) != inputs['qualification']['focused_tests']:
         raise ValueError("actual native regression set is not qualified")
     verify_upstream_features(proof)
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")

@@ -29,6 +29,20 @@ def manifest_lines() -> list[str]:
 
 
 class Rald5PublicationContractTests(unittest.TestCase):
+    def test_base_variant_is_bound_to_its_signed_identity_and_exact_inventory(self):
+        lines = manifest_lines()
+        lines[1] = 'generation_id\tlocal-base-hosted-0-163-0-proof-s12'
+        lines[9] = 'file_count\t6'
+        lines = [line for line in lines if not line.startswith('file\tmanager\t')]
+        _, files = publication.parse_manifest(self.write_manifest(lines))
+        self.assertEqual([row[0] for row in files], list(publication.BASE_FILES))
+        wrong_name = lines.copy();wrong_name[1] = 'generation_id\t' + GENERATION
+        with self.assertRaisesRegex(publication.ValidationError, 'variant'):
+            publication.parse_manifest(self.write_manifest(wrong_name))
+        full = manifest_lines();full[1] = lines[1]
+        with self.assertRaisesRegex(publication.ValidationError, 'variant'):
+            publication.parse_manifest(self.write_manifest(full))
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="rald5-contract-")
         self.root = Path(self.temp.name)

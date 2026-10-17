@@ -12,6 +12,10 @@ on:
       rebuild_current:
         type: boolean
         default: false
+      release_variant:
+        description: Explicit public base or full lane; qualification-only stays separate
+        type: string
+        default: full
       base_only:
         description: Unsigned Core/runtime qualification; publication is forbidden
         type: boolean
@@ -35,6 +39,8 @@ on:
         value: ${{ jobs.producer.outputs.current_generation }}
       current_release_sequence:
         value: ${{ jobs.producer.outputs.current_release_sequence }}
+      current_index_path:
+        value: ${{ jobs.producer.outputs.current_index_path }}
       release_sequence:
         value: ${{ jobs.producer.outputs.release_sequence }}
 
@@ -42,20 +48,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: termux-read-only-qualification-${{ inputs.base_only }}
+  group: termux-qualification-${{ inputs.base_only }}-${{ inputs.release_variant }}
   cancel-in-progress: false
 
 env:
-  BASE_ONLY: ${{ inputs.base_only }}
+  BASE_ONLY: ${{ inputs.base_only || inputs.release_variant == 'base' }}
   CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
-  MANAGER_TUI_ARCHIVE_SHA256: '9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb'
-  MANAGER_TUI_VERSION: '0.163.0'
-  MANAGER_TUI_SOURCE_SHA: 'f348df3f597666e7dcd26f85c90df6df833b4ea0'
-  MANAGER_TUI_RUN_ID: '38979482916'
-  MANAGER_TUI_SHA256: '1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a'
-  MANAGER_TUI_INPUT_URL: 'https://github.com/humtr/codex/releases/download/manager-tui-native-v0.163.0-f348df3/manager-tui-inputs-0.163.0-f348df3.tar.gz'
-  MANAGER_TUI_INPUT_SHA256: 'ce2c760f9400ea952fa9e933598908471e5e39f28ba84a05271a624b3a3a3c4d'
-  RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
   PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
@@ -82,6 +80,8 @@ jobs:
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
+      current_index_path: ${{ steps.stable.outputs.current_index_path }}
+      bootstrap_base: ${{ steps.stable.outputs.bootstrap_base }}
       release_sequence: ${{ steps.stable.outputs.release_sequence }}
     steps:
       - name: Fetch exact accepted source
@@ -89,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CODEX_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          if test "$BASE_ONLY" = true; then
+          if test '${{ inputs.base_only }}' = true; then
             test '${{ inputs.publish }}' = false
             test "$CODEX_SOURCE_SHA" = "$GITHUB_SHA"
             test "$GITHUB_REF" = refs/heads/rewrite/rust-core
@@ -102,6 +102,12 @@ jobs:
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
           test -z "$(git -C source status --porcelain)"
+
+      - name: Load exact release input authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
 
       - name: Verify source preflight helpers
         shell: bash
@@ -124,70 +130,16 @@ jobs:
           expected_main_sha="$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')"
           test "${#expected_main_sha}" -eq 40
           case "$expected_main_sha" in (*[!0-9a-f]*) exit 1;; esac
-          pinned_index_url="https://raw.githubusercontent.com/humtr/codex/${expected_main_sha}/update-index-v1"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
-            --output "$state/update-index-v1" "$pinned_index_url"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
-            --output "$state/update-index-v1.sig" "${pinned_index_url}.sig"
-          test "$(wc -c < "$state/update-index-v1.sig")" -eq 64
-
-          python3 source/.github/scripts/rald3_preflight.py \
-            index "$state/update-index-v1" > "$state/index.untrusted"
-          current_id="$(sed -n 's/^generation_id=//p' "$state/index.untrusted")"
-          current_base="$(sed -n 's/^release_base=//p' "$state/index.untrusted")"
-          test -n "$current_id"
-          test "$current_base" = "https://humtr.github.io/codex/${current_id}/"
-
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 16384 \
             --output "$state/update-public-key.pem" \
-            "https://github.com/humtr/codex/releases/download/${current_id}/update-public-key.pem"
-          test "$(sha256sum "$state/update-public-key.pem" | awk '{print $1}')" = \
-            "$WRAPPER_PUBLIC_KEY_SHA256"
-          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
-            -in "$state/update-index-v1" -sigfile "$state/update-index-v1.sig"
-          python3 source/.github/scripts/rald3_preflight.py \
-            index "$state/update-index-v1" > "$state/index.authenticated"
-          cmp "$state/index.untrusted" "$state/index.authenticated"
-
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
-            --output "$state/release.manifest" "${current_base}release.manifest"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
-            --output "$state/release.sig" "${current_base}release.sig"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 65536 \
-            --output "$state/generation.meta" "${current_base}generation.meta"
-          test "$(wc -c < "$state/release.sig")" -eq 64
-          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
-            -in "$state/release.manifest" -sigfile "$state/release.sig"
-
-          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-            "$state/release.manifest" generation.meta > "$state/manifest-entry"
-          test "$(sed -n 's/^generation_id=//p' "$state/manifest-entry")" = "$current_id"
-          test "$(sed -n 's/^mode=//p' "$state/manifest-entry")" = '0644'
-          test "$(sha256sum "$state/generation.meta" | awk '{print $1}')" = \
-            "$(sed -n 's/^sha256=//p' "$state/manifest-entry")"
-          python3 source/.github/scripts/rald3_preflight.py descriptor \
-            "$state/generation.meta" > "$state/descriptor"
-          test "$(sed -n 's/^generation_id=//p' "$state/descriptor")" = "$current_id"
-          current_version="$(sed -n 's/^version=//p' "$state/descriptor")"
-          current_sequence="$(sed -n 's/^release_sequence=//p' "$state/manifest-entry")"
-          test -n "$current_version"
-          test -n "$current_sequence"
-          python3 source/.github/scripts/rald3_preflight.py next-sequence \
-            "$current_sequence" > "$state/next-sequence"
-          release_sequence="$(sed -n 's/^release_sequence=//p' "$state/next-sequence")"
-          test -n "$release_sequence"
-          printf 'current_version=%s\n' "$current_version" >> "$GITHUB_OUTPUT"
-          printf 'current_archive_sha256=%s\n' "$(sed -n 's/^source_sha256=//p' "$state/descriptor")" >> "$GITHUB_OUTPUT"
-          printf 'expected_main_sha=%s\n' "$expected_main_sha" >> "$GITHUB_OUTPUT"
-          printf 'current_generation=%s\n' "$current_id" >> "$GITHUB_OUTPUT"
-          printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
-          printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
+            'https://github.com/humtr/codex/releases/download/local-20260914-update-channel-bridge-1/update-public-key.pem'
+          test "$(sha256sum "$state/update-public-key.pem" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+          python3 source/.github/scripts/release_heads.py \
+            --main-sha "$expected_main_sha" --variant '${{ inputs.release_variant }}' \
+            --public-key "$state/update-public-key.pem" --output "$state/heads" \
+            > "$state/outputs"
+          cat "$state/outputs" >> "$GITHUB_OUTPUT"
 
       - name: Resolve official upstream stable
         id: decision
@@ -202,17 +154,19 @@ jobs:
           set -euo pipefail
           state="$RUNNER_TEMP/upstream"
           mkdir -p "$state"
-          if test "$REBUILD_CURRENT" = true; then
-            if test "$BASE_ONLY" = true; then
-              upstream_version="$CURRENT_VERSION"
-              archive_sha256="$CURRENT_ARCHIVE_SHA256"
-            else
-              test "$GITHUB_EVENT_NAME" = workflow_dispatch
-              test "$GITHUB_REF" = refs/heads/main
-              test "$CURRENT_VERSION" = "$MANAGER_TUI_VERSION"
-              upstream_version="$MANAGER_TUI_VERSION"
-              archive_sha256="$MANAGER_TUI_ARCHIVE_SHA256"
-            fi
+          if test '${{ inputs.base_only }}' = true; then
+            # Qualify the proposed source recipe, including a version that is
+            # newer than public stable. Never prove the old runtime by accident.
+            upstream_version="$UPSTREAM_VERSION"
+            archive_sha256="$UPSTREAM_ARCHIVE_SHA256"
+            REBUILD_CURRENT=false
+          elif test "$REBUILD_CURRENT" = true; then
+            # Controller-triggered source releases use the accepted recipe. A
+            # version advance takes normal promotion admission; same-version
+            # source changes take the explicit rebuild admission.
+            upstream_version="$UPSTREAM_VERSION"
+            archive_sha256="$UPSTREAM_ARCHIVE_SHA256"
+            if test "$upstream_version" != "$CURRENT_VERSION"; then REBUILD_CURRENT=false; fi
           else
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --max-filesize 131072 \
@@ -223,7 +177,7 @@ jobs:
             archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
           fi
           qualification_args=()
-          if test "$BASE_ONLY" != true; then
+          if test "$BASE_ONLY" != true && test -n "${MANAGER_TUI_VERSION:-}"; then
             qualification_args=(--qualified "$MANAGER_TUI_VERSION"
                                 --qualified-archive "$MANAGER_TUI_ARCHIVE_SHA256")
           fi
@@ -233,10 +187,11 @@ jobs:
             --source "$CODEX_SOURCE_SHA" --sequence "$RELEASE_SEQUENCE" \
             --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" \
             --publish "$PUBLISH" --rebuild-current "$REBUILD_CURRENT" \
-            --base-only "$BASE_ONLY" >> "$GITHUB_OUTPUT"
+            --base-only '${{ inputs.base_only }}' --variant '${{ inputs.release_variant }}' \
+            --bootstrap-base '${{ steps.stable.outputs.bootstrap_base }}' >> "$GITHUB_OUTPUT"
 
       - name: Acquire successful qualified Manager TUI input
-        if: steps.decision.outputs.candidate == 'true' && !inputs.base_only
+        if: steps.decision.outputs.candidate == 'true' && !inputs.base_only && inputs.release_variant == 'full'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -308,6 +263,10 @@ jobs:
           # The signed R10 activation bridge signal is required on every public
           # stable candidate until the compatibility floor moves past retained R10.
           transition_args=(--legacy-activation-doctor-unsupported)
+          # Fail before large acquisition when a semantic Termux port is needed.
+          # A selected transform still requires the real Android gates below.
+          "$builder" prepare --version "$upstream_version" --archive-sha256 "$archive_sha256" \
+            | tee "$work/preparation.txt"
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \
@@ -415,6 +374,12 @@ jobs:
           git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+
+      - name: Load exact release input authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
 
       - name: Download unsigned candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -559,7 +524,7 @@ jobs:
           if test "$BASE_ONLY" = true; then
             printf 'codex-cli %s\n' '${{ needs.producer.outputs.upstream_version }}' > "$RUNNER_TEMP/runtime.expected"
             cmp "$RUNNER_TEMP/runtime.expected" "$RUNNER_TEMP/runtime.out"
-            printf 'unsigned base Core/runtime passed Android/AArch64 smoke; not publishable\n'
+            printf 'base Core/runtime passed Android/AArch64 smoke; publication requires the explicit release lane\n'
             exit 0
           fi
           test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION"

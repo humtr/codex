@@ -61,6 +61,23 @@ class Rald5PublicationTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((f"fixture:{rel}\n").encode())
             path.chmod(mode)
+        if getattr(self, 'native_descriptor', False):
+            from rald3_preflight import PACKAGE_IDENTITY
+            descriptor = '\n'.join([
+                'codex-local-generation-v2', 'generation_id\t'+GENERATION,
+                'upstream_package_identity\t'+PACKAGE_IDENTITY, 'upstream_package_version\t0.155.0',
+                'source_artifact_digest\t'+'b'*64, 'expected_platform\tandroid', 'expected_architecture\taarch64',
+                'patch_policy_id\ttermux-fd-remap-v1', 'patch_report\tfixture',
+                'runtime_digest\t'+sha256(release/'runtime'), 'core_artifact_digest\t'+sha256(release/'core'),
+                'manager_artifact_digest\t'+sha256(release/'manager'),
+                'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
+                'qualification\tqualified', 'creation_metadata\tr10-browser-helper-bridge-v1',
+                'upstream_doctor\tunsupported', 'helper_count\t'+str(3 if frontend else 2),
+                'helper\ttermux-browser-open-v1\t'+sha256(release/'helpers/0'),
+                'helper\ttermux-browser-manual-v1\t'+sha256(release/'helpers/1'),
+                *(['helper\ttermux-manager-tui-v1\t'+sha256(release/'helpers/2')] if frontend else []), '',
+            ])
+            (release/'generation.meta').write_text(descriptor)
         der = self.root / "public.der"
         openssl("pkey", "-pubin", "-in", str(self.public_key), "-outform", "DER", "-out", str(der))
         raw_key = der.read_bytes()[-32:].hex()

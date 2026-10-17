@@ -154,6 +154,8 @@ const REQUIRED_ARCHIVE_FILES: [&str; 3] = [
 ];
 
 const USAGE: &str = concat!(
+    "usage: codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
+    "--archive-sha256 <LOWERCASE_SHA256>\n",
     "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
     "--curl <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_FILE>\n",
@@ -3895,6 +3897,17 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
+        Some("prepare") => match prepare_policy(&args) {
+            Ok(policy) => {
+                println!("patch_policy_id\t{policy}");
+                println!("qualification\trequired");
+                0
+            }
+            Err(error) => {
+                eprintln!("codex-release-builder: {error}");
+                2
+            }
+        },
         Some("fetch") => {
             let request = match parse_fetch_request(args) {
                 Ok(request) => request,
@@ -3956,10 +3969,61 @@ where
     }
 }
 
+// Read-only early admission before acquiring large archives or compilation.
+// This chooses only an already implemented transformation, never qualifies it.
+fn prepare_policy(args: &[OsString]) -> Result<&'static str, BuilderError> {
+    let values = args
+        .iter()
+        .map(|arg| arg.to_str())
+        .collect::<Option<Vec<_>>>()
+        .ok_or(BuilderError::Usage)?;
+    let ["prepare", "--version", version, "--archive-sha256", archive] = values.as_slice() else {
+        return Err(BuilderError::Usage);
+    };
+    if !valid_stable_version(version) || !valid_lower_sha256(archive) {
+        return Err(BuilderError::Usage);
+    }
+    match runtime_patch::required(version).map_err(BuilderError::Archive)? {
+        Some(policy) => {
+            if policy
+                .archive_sha256
+                .is_some_and(|expected| expected != *archive)
+            {
+                return Err(BuilderError::Archive(
+                    "official archive differs from implemented Termux transformation",
+                ));
+            }
+            Ok(policy.id)
+        }
+        None => Ok(PATCH_POLICY_ID),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn preparation_is_exact_read_only_and_does_not_imply_qualification() {
+        let args = |version: &str, archive: &str| {
+            ["prepare", "--version", version, "--archive-sha256", archive].map(OsString::from)
+        };
+        let archive = runtime_patch::policy("termux-fd-remap-v5")
+            .unwrap()
+            .archive_sha256
+            .unwrap();
+        assert_eq!(
+            prepare_policy(&args("0.163.0", archive)).unwrap(),
+            "termux-fd-remap-v5"
+        );
+        assert!(prepare_policy(&args("0.164.0", archive)).is_err());
+        assert!(prepare_policy(&args("0.163.0", &"a".repeat(64))).is_err());
+        assert!(prepare_policy(&args("0.0163.0", archive)).is_err());
+        let mut malformed = args("0.163.0", archive).to_vec();
+        malformed.push("--publish".into());
+        assert!(prepare_policy(&malformed).is_err());
+    }
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 

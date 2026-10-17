@@ -9,6 +9,10 @@ on:
       publish:
         type: boolean
         default: false
+      release_variant:
+        description: base or full, with separate signed public heads
+        type: string
+        default: full
       rebuild_current:
         type: boolean
         default: false
@@ -25,8 +29,8 @@ concurrency:
 
 env:
   CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
-  RUST_VERSION: '1.98.0'
-  PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
+  PUBLIC_INDEX_PATH: ${{ inputs.release_variant == 'base' && 'update-index-base-v1' || 'update-index-v1' }}
+  PUBLIC_INDEX_URL: https://raw.githubusercontent.com/humtr/codex/main/${{ inputs.release_variant == 'base' && 'update-index-base-v1' || 'update-index-v1' }}
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -43,6 +47,7 @@ jobs:
       publish: ${{ inputs.publish }}
       rebuild_current: ${{ inputs.rebuild_current }}
       base_only: false
+      release_variant: ${{ inputs.release_variant }}
 
   sign:
     name: Sign qualified candidate
@@ -64,6 +69,12 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
           test -z "$(git -C source status --porcelain)"
 
+      - name: Load exact release toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
+
       - name: Download qualified unsigned candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -78,7 +89,9 @@ jobs:
           rm -rf "$work"
           mkdir -p "$work"
           tar -xf "$RUNNER_TEMP/rald4-qualified-download/rald4-qualified.tar" -C "$work"
-          python3 source/.github/scripts/rald3_preflight.py qualified-candidate \
+          mode=qualified-candidate
+          if test '${{ inputs.release_variant }}' = base; then mode=base-candidate; fi
+          python3 source/.github/scripts/rald3_preflight.py "$mode" \
             "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
           test "$(sed -n 's/^generation_id\t//p' "$work/candidate/generation.meta")" = \
             '${{ needs.producer.outputs.generation_id }}'
@@ -326,6 +339,7 @@ jobs:
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
+      release_variant: ${{ inputs.release_variant }}
       publication_source_sha: ${{ inputs.source_sha }}
 
   verify_public:
@@ -444,7 +458,7 @@ jobs:
             fi
           }
 
-          current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/update-index-v1"
+          current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/${{ needs.producer.outputs.current_index_path }}"
           fetch_generation "$current" "$current_index"
           python3 publication-source/.github/scripts/rald5_publication.py verify-public \
             --root "$root" --public-key "$authority" \
@@ -835,8 +849,8 @@ jobs:
           sig_blob="$(base64 -w0 "$work/update-index-v1.sig" | \
             jq -Rs '{content:.,encoding:"base64"}' | \
             gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input - --jq '.sha')"
-          new_tree="$(jq -n --arg base "$base_tree" --arg index "$index_blob" --arg sig "$sig_blob" \
-            '{base_tree:$base,tree:[{path:"update-index-v1",mode:"100644",type:"blob",sha:$index},{path:"update-index-v1.sig",mode:"100644",type:"blob",sha:$sig}]}' | \
+          new_tree="$(jq -n --arg base "$base_tree" --arg index "$index_blob" --arg sig "$sig_blob" --arg path "$PUBLIC_INDEX_PATH" \
+            '{base_tree:$base,tree:[{path:$path,mode:"100644",type:"blob",sha:$index},{path:($path+".sig"),mode:"100644",type:"blob",sha:$sig}]}' | \
             gh api --method POST "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq '.sha')"
           new_commit="$(jq -n --arg tree "$new_tree" --arg parent "$expected" --arg generation "$generation" \
             '{message:("release: promote " + $generation),tree:$tree,parents:[$parent]}' | \

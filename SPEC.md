@@ -1034,6 +1034,35 @@ owned. The qualified native model/list API cannot replace a server's startup
 catalog, so frontend resolution precedes that bounded Core request. Neither
 binding authorizes account selection or model-schema interpretation in Core.
 
+### Automated upstream preparation and base/full publication
+
+Upstream handling must resolve one exact official version/archive/source tuple,
+prepare its Termux compatibility inputs, and drive separate base and full release
+lanes automatically. Base contains Core plus the adapted upstream default UI;
+full adds admitted Manager and enhanced TUI. The opt-in Chat provider remains
+independent. Both lanes require actual Android execution, affected behavior proof,
+signing, immutable assets, complete public readback, disposable update/rollback
+proof and non-forced promotion. Source preparation or a green host build alone
+cannot authorize publication. An unsupported or ambiguous transformation stops
+that candidate with actionable evidence and preserves the accepted installation.
+
+Version/source/toolchain and qualified frontend references have one machine-
+readable authority. Preparation must not guess binary offsets or accept an
+unqualified version by removing its guard. Prefer repeatable source/semantic
+transformations; any generated artifact policy remains bound to exact inputs and
+Android proof. Historic policies needed by retained generations remain supported.
+
+Base and full have independent signed public heads. The existing update-index-v1
+remains the full head for compatibility; the base head is update-index-base-v1.
+The default update head follows the authenticated public baseline of the selected
+generation, including a local-derived generation; an explicit update URL remains
+an operator override. Full users must never be silently downgraded when only base qualifies. Both public
+heads and their retained last-known-good assets survive Pages reconstruction.
+Promotion coordinates both heads with non-forced compare-and-swap and increasing
+release sequence; a stale concurrent run re-evaluates rather than overwriting
+another lane. No device activation or user-profile/provider mutation is implied
+by public publication. Qualification-only workflows remain non-publishing.
+
 codex-runtime-binding is dependency-free shared **source**, statically compiled
 into its callers, for the existing bounded execution-record codec. Core depends
 on release-builder and this primitive, not on Manager, frontend or provider.

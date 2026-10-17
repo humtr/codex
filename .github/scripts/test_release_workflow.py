@@ -7,7 +7,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'scripts'))
-from pin_release import caller
+from pin_release import caller, dispatch_stubs
 
 
 class WorkflowTests(unittest.TestCase):
@@ -63,13 +63,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('same_version_acceptance',text)
         self.assertNotIn('legacy_lag_jump_remediation',text)
 
+    def test_dispatch_discovery_has_no_product_or_publication_authority(self):
+        stubs = dispatch_stubs()
+        self.assertEqual(len(stubs), 3)
+        for name, text in stubs.items():
+            self.assertIn('workflow_dispatch:', text)
+            self.assertIn('exit 1', text)
+            self.assertNotIn('secrets.', text)
+            self.assertNotIn('write', text.replace('rewrite/rust-core', 'source'))
+            source = (ROOT/'.github/workflows'/name).read_text()
+            self.assertIn('workflow_dispatch:', source)
+
     def test_main_caller_pins_both_inputs_and_default_dry_run(self):
         sha='a'*40; text=caller(sha)
         self.assertIn('/auto-release-termux.yml@'+sha,text)
-        self.assertIn('source_sha: '+sha,text)
+        self.assertIn('source_sha: ${{ needs.source.outputs.sha }}',text)
+        self.assertIn('contents/release-source-v1?ref=',text)
+        self.assertIn('core-runtime-qualification.yml',text)
         self.assertEqual(text.count('default: false'),2)
-        self.assertEqual(text.count('secrets.CODEX_RELEASE_SIGNING_KEY'),1)
+        self.assertEqual(text.count('secrets.CODEX_RELEASE_SIGNING_KEY'),2)
         self.assertNotIn('secrets: inherit',text)
+        self.assertIn('release_variant: base',text)
+        self.assertIn('release_variant: full',text)
+        self.assertIn('needs: [source, base]',text)
+        self.assertIn('!cancelled()',text)
         for bad in ('main','a'*39,'A'*40,'a'*40+'\ninjected'):
             with self.assertRaises(ValueError):caller(bad)
 

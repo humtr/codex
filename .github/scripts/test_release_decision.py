@@ -7,6 +7,20 @@ SCRIPT=Path(__file__).with_name('release_decision.py')
 
 
 class ReleaseDecisionTests(unittest.TestCase):
+    def test_public_base_is_independent_of_frontend_but_not_of_caller_authority(self):
+        base={'variant':'base','qualified':None,'qualified-archive':None,'upstream':'0.164.0'}
+        accepted=self.run_decision(**base)
+        self.assertEqual(accepted.returncode,0,accepted.stderr)
+        self.assertIn('candidate=true',accepted.stdout)
+        self.assertIn('generation_id=local-base-hosted-',accepted.stdout)
+        for change in [{'event':'push'},{'ref':'refs/heads/rewrite/rust-core'},
+                       {'event':'schedule'},{'rebuild-current':'true'},
+                       {'base-only':'true','publish':'true'}]:
+            result=self.run_decision(**{**base,**change})
+            self.assertNotEqual(result.returncode,0,result.stdout)
+        result=self.run_decision(**{**base,'event':'schedule','publish':'true'})
+        self.assertEqual(result.returncode,0,result.stderr)
+
     def run_decision(self,**changes):
         args={'current':'0.161.0','upstream':'0.161.0','qualified':'0.161.0','archive':'a'*64,
               'qualified-archive':'a'*64,'source':'b'*40,'sequence':'44','event':'workflow_dispatch',

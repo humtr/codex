@@ -101,6 +101,19 @@ qualified0.163 upgrade and later fixes are now public/device stable54; optional 
 remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
+### Active automated upstream release work
+
+User authorizes automated Core preparation and independently qualified base/full
+publication while preserving actual proof. Implement one version/source/toolchain/
+frontend-input authority, then source preparation and qualification orchestration,
+then base-aware signing/readback/Pages/non-forced dual-head promotion and accepted-
+source caller updates. Existing stable54/full and installed optional provider stay
+selected until the corresponding complete gates pass. Base is Core+upstream UI;
+full adds Manager/enhanced TUI; Chat provider remains opt-in. Do not conflate a
+qualification-only base build with a publishable base release. End-to-end Android
+and disposable update/rollback proof remain required for both lanes. This work is
+in progress, not installed or operational merely because configuration exists.
+
 ### Responsibility recheck2026-10-17
 
 Current Core/Manager/frontend/build inputs are unchanged from accepted source

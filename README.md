@@ -199,15 +199,19 @@ selection. The provider owns its transport and host lifetime. The small shared
 runtime-binding crate is compiled source, not another installed dependency.
 See [the component boundary](SPEC.md#46-final-component-boundary-and-core-independence).
 
-Core/runtime qualification can run without Manager or the modified TUI through
-the source branch's **Independent Core/runtime qualification** workflow. Pushes
-qualify the authenticated current runtime; manual dispatch can discover latest
-upstream instead. Unsupported versions still fail the existing compatibility gate.
-This read-only workflow produces unsigned test artifacts only. The regular release
-workflow uses the same qualification implementation in integrated mode and retains
-its full frontend, signing, readback and stable-promotion requirements.
-Independent base qualification does not silently strip features from a public
-update: an incompatible enhanced frontend leaves the accepted generation active.
+`release/upstream.json` is the single exact version/source/archive/toolchain
+recipe. Core/runtime qualification runs it without acquiring or compiling Manager
+or the enhanced TUI. Native frontend qualification runs independently. Source and
+Android proofs are required before the controller can register immutable frontend
+inputs and advance the accepted product-source pointer.
+
+Public **base** (Core + adapted upstream UI) and **full** (+ Manager/enhanced TUI)
+have separate signed heads. Ordinary updates follow the installed signed public
+baseline; losing an optional binary does not move a full installation onto base.
+Both publication lanes run real Android smoke, signing, public readback,
+disposable update/rollback and non-forced promotion. Pages retains both live heads.
+Unsupported upstream transformations fail with the accepted release preserved;
+automation does not invent a semantic port or skip its qualification.
 Actual standalone lifecycle proof is reproducible with
 `scripts/qualify_core_independence.py --help`, using disposable roots and a fresh
 fixture signing key, with no real account or Chat request.
@@ -219,7 +223,17 @@ Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 
 Implementation and reusable release logic live on `rewrite/rust-core`. The small
-`main` caller pins accepted workflow and source to one immutable commit. Scheduled
-publication admits qualified newer backends; manual `rebuild_current` rebuilds
-the qualified current version. Manual `publish` defaults to false: unsigned
-build/smoke only, without signing, Release, Pages or stable mutation.
+`main` caller pins accepted workflow implementation and resolves the exact accepted
+product SHA from `release-source-v1`. Its controller advances that pointer only
+after the source and independent Android gates succeed; frontend registration
+requires its own exact build/execution proof. Workflow implementation changes need
+an accepted caller repin; recipe/output updates do not. Default-branch proof
+workflow files only register dispatch names and reject execution on `main`; the
+controller explicitly dispatches the real implementations on `rewrite/rust-core`.
+
+Scheduled publication checks newer official backends. Manual `rebuild_current`
+qualifies the accepted source recipe even when its version has not changed;
+manual `publish` defaults to false. `variant` selects base, full, or both. No
+signing, Release, Pages or stable mutation occurs in a dry run. Initial controller
+installation and caller pinning use an accepted exact source; no signing key is
+available to the input controller.

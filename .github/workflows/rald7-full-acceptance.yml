@@ -1,6 +1,7 @@
 name: Source acceptance
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - rewrite/rust-core

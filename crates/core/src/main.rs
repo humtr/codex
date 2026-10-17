@@ -3995,6 +3995,9 @@ const STARTUP_ADVISORY_PROMPT_SECONDS: u64 = 5;
 const DEFAULT_UPDATE_INDEX_URL: &str =
     "https://raw.githubusercontent.com/humtr/codex/main/update-index-v1";
 #[cfg(unix)]
+const BASE_UPDATE_INDEX_URL: &str =
+    "https://raw.githubusercontent.com/humtr/codex/main/update-index-base-v1";
+#[cfg(unix)]
 const UPDATE_INDEX_URL_ENV: &str = "CODEX_TERMUX_UPDATE_INDEX_URL";
 #[cfg(unix)]
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
@@ -4577,10 +4580,36 @@ fn parse_update_index_url(value: &OsStr) -> Result<String, LocalProductError> {
 }
 
 #[cfg(unix)]
-fn configured_update_index_url() -> Result<String, LocalProductError> {
-    let value = std::env::var_os(UPDATE_INDEX_URL_ENV)
-        .unwrap_or_else(|| OsString::from(DEFAULT_UPDATE_INDEX_URL));
-    parse_update_index_url(&value)
+fn default_update_index_url(generation: Option<&str>) -> &'static str {
+    if generation.is_some_and(|id| id.starts_with("local-base-")) {
+        BASE_UPDATE_INDEX_URL
+    } else {
+        DEFAULT_UPDATE_INDEX_URL
+    }
+}
+
+#[cfg(unix)]
+fn configured_update_index_url(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
+    if let Some(value) = std::env::var_os(UPDATE_INDEX_URL_ENV) {
+        return parse_update_index_url(&value);
+    }
+    installed_update_index_url(roots).map(str::to_owned)
+}
+
+#[cfg(unix)]
+fn installed_update_index_url(roots: &LocalCoreRoots) -> Result<&'static str, LocalProductError> {
+    let paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let state =
+        m2_generation_state::read_pointer_state(&paths).map_err(LocalProductError::State)?;
+    let generation = state
+        .as_ref()
+        .map(|state| {
+            authenticated_public_baseline(roots, state)
+                .map(|(baseline, _, _)| baseline.generation_component)
+        })
+        .transpose()?;
+    Ok(default_update_index_url(generation.as_deref()))
 }
 
 #[cfg(unix)]
@@ -9448,7 +9477,7 @@ fn fetch_signed_update_index_with_timeout(
     ensure_openssl_available(&roots.openssl)?;
     ensure_curl_available(&roots.curl)?;
 
-    let index_url = configured_update_index_url()?;
+    let index_url = configured_update_index_url(roots)?;
     let signature_url = format!("{index_url}.sig");
     parse_update_index_url(OsStr::new(&signature_url))?;
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -11992,6 +12021,24 @@ mod tests {
     #[cfg(unix)]
     use super::m2_generation_state::*;
     use super::*;
+
+    #[test]
+    fn public_update_lane_preserves_base_and_full_without_a_manager_dependency() {
+        for generation in [
+            None,
+            Some("local-hosted-0-163-0-proof-s54"),
+            Some("old-generation"),
+        ] {
+            assert_eq!(
+                default_update_index_url(generation),
+                DEFAULT_UPDATE_INDEX_URL
+            );
+        }
+        assert_eq!(
+            default_update_index_url(Some("local-base-hosted-0-163-0-proof-s55")),
+            BASE_UPDATE_INDEX_URL
+        );
+    }
 
     fn valid_manifest(manager: bool, with_helper: bool) -> GenerationManifest {
         GenerationManifest {
@@ -21270,6 +21317,63 @@ esac
                     authenticated_public_baseline(&roots, &state),
                     Err(LocalProductError::ReleaseDigestMismatch)
                 ));
+                remove_temp_root(root);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_update_lane_authenticates_baseline_and_preserves_local_derivation() {
+        for base in [false, true] {
+            for derived in [false, true] {
+                let (root, mut roots) = b2_test_roots("installed-update-lane");
+                roots.openssl = b4_termux_openssl();
+                let private = root.join("keys/private.pem");
+                let public = root.join("keys/public.pem");
+                b4_generate_release_keypair(&roots.openssl, &private, &public);
+                let baseline = if base {
+                    "local-base-hosted-proof-s55"
+                } else {
+                    "local-hosted-proof-s54"
+                };
+                let id = if derived {
+                    "local-derived-proof"
+                } else {
+                    baseline
+                };
+                let generation = b2_write_root_generation(&roots, id, !base, "supported");
+                if derived {
+                    let path = generation.join("generation.meta");
+                    let descriptor = std::fs::read_to_string(&path).unwrap()
+                        .replace("source_artifact_digest\tsource-digest", &format!("source_artifact_digest\t{}", "b".repeat(64)))
+                        .replace("creation_metadata\ttest-fixture", &format!("creation_metadata\tcodex-local-derived-v1;upstream_version=9.9.9;archive_sha256={};public_generation={baseline};public_sequence=1", "b".repeat(64)));
+                    std::fs::write(path, descriptor).unwrap();
+                }
+                b4_write_signed_release(&generation, 1, &roots.openssl, &private);
+                let key = b4_public_key_from_private(&roots.openssl, &private);
+                let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+                prepare_core_state_paths(&paths).unwrap();
+                activate_pointer_state(
+                    &paths,
+                    None,
+                    &plan_initial_pointer_state_with_key(id, key).unwrap(),
+                )
+                .unwrap();
+                if !base {
+                    // Optional Manager loss cannot move a full user onto base.
+                    std::fs::remove_file(generation.join("manager")).unwrap();
+                }
+                assert_eq!(
+                    installed_update_index_url(&roots).unwrap(),
+                    if base {
+                        BASE_UPDATE_INDEX_URL
+                    } else {
+                        DEFAULT_UPDATE_INDEX_URL
+                    }
+                );
+                std::fs::write(generation.join("runtime"), b"tampered required runtime").unwrap();
+                assert!(installed_update_index_url(&roots).is_err());
                 remove_temp_root(root);
             }
         }

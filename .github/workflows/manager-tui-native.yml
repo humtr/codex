@@ -1,9 +1,12 @@
 name: Manager TUI native qualification
 on:
+  workflow_dispatch:
   push:
     branches: [rewrite/rust-core]
     paths:
       - '.github/workflows/manager-tui-native.yml'
+      - 'release/upstream.json'
+      - '.github/scripts/upstream_release.py'
       - 'frontend/manager-tui/native.patch'
       - 'frontend/manager-tui/src/**'
       - 'frontend/manager-tui/apply.py'
@@ -25,9 +28,6 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      UPSTREAM_SHA: 83086188ae0614bd882818ff1aa23f3194962012
-      RUST_VERSION: 1.95.0
-      RUSTUP_TOOLCHAIN: 1.95.0
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
       CARGO_PROFILE_DEV_OPT_LEVEL: '1'
@@ -48,6 +48,11 @@ jobs:
           git -C experiment checkout --detach FETCH_HEAD
           test "$(git -C experiment rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git -C experiment status --porcelain)"
+      - name: Load exact release input authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiment/.github/scripts/upstream_release.py experiment/release/upstream.json --component frontend >> "$GITHUB_ENV"
       - name: Fetch exact unmodified official source
         shell: bash
         run: |
@@ -95,9 +100,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-83086188-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ github.sha }}
           restore-keys: |
-            profile-tui-display-aarch64-musl-1.95.0-83086188-
+            profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
             profile-tui-display-aarch64-musl-1.95.0-97901140-
       - name: Normalize release workspace versions only
         shell: bash
@@ -189,7 +194,7 @@ jobs:
           chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
-          printf 'codex-cli 0.163.0\n' > "$root/version.expected"
+          printf 'codex-cli %s\n' "$UPSTREAM_VERSION" > "$root/version.expected"
           cmp "$root/version.expected" "$root/artifact/version.txt"
           printf 'codex-termux-resolved-startup-v1\n' > "$root/capability.expected"
           # Invalid user configuration must not be loaded by the static query.
@@ -243,9 +248,9 @@ jobs:
           mkdir -m 0700 "$host"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 180 --max-filesize 536870912 \
-            https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-unknown-linux-musl.tar.gz \
+            "https://github.com/openai/codex/releases/download/rust-v${UPSTREAM_VERSION}/codex-package-aarch64-unknown-linux-musl.tar.gz" \
             --output "$host/package.tar.gz"
-          echo "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb  $host/package.tar.gz" | sha256sum -c -
+          echo "$UPSTREAM_ARCHIVE_SHA256  $host/package.tar.gz" | sha256sum -c -
           python3 - <<'PYTHON'
           import os, shutil, tarfile
           from pathlib import Path
@@ -333,7 +338,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-83086188-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ github.sha }}
       - name: Retain failed native build diagnosis
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
