@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='codex-manager-tmux-') as tmp:
     root = Path(tmp); home = root/'home'; home.mkdir(); (root/'run').mkdir()
     marker = root/'runs'; core = root/'core'
     core.write_text('#!'+sys.executable+'\nimport json,os,sys,time\nif sys.argv[1:3]==["termux","__terminal-exec-v1"]:\n os.environ["CODEX_TERMUX_CORE_API"]="codex-manager-core-v1";os.environ["CODEX_TERMUX_CORE_ENTRYPOINT"]=os.path.abspath(sys.argv[0]);os.execv('+repr(str(manager))+',["manager",*sys.argv[2:]])\np='+repr(str(marker))+'\nwith open(p,"a") as f:f.write(json.dumps({"argv":sys.argv[1:],"home":os.environ.get("CODEX_HOME"),"cwd":os.getcwd(),"color":os.environ.get("NO_COLOR"),"tty":os.ttyname(0),"pid":os.getpid()})+"\\n")\nprint("OWNED_WORKLOAD",flush=True)\ntime.sleep(90)\n');core.chmod(0o755)
-    env = {**os.environ, 'HOME':str(home), 'CODEX_TERMUX_CORE_API':'codex-manager-core-v1', 'CODEX_TERMUX_CORE_ENTRYPOINT':str(core), 'TMUX':'', 'TMUX_PANE':'', 'TMUX_TMPDIR':str(root/'run'), 'PREFIX':str(root/'prefix'), 'TERM':'xterm-256color'}
+    env = {**os.environ, 'SHELL':shutil.which('sh'), 'HOME':str(home), 'CODEX_TERMUX_CORE_API':'codex-manager-core-v1', 'CODEX_TERMUX_CORE_ENTRYPOINT':str(core), 'TMUX':'', 'TMUX_PANE':'', 'TMUX_TMPDIR':str(root/'run'), 'PREFIX':str(root/'prefix'), 'TERM':'xterm-256color'}
     env.pop('CODEX_HOME', None); env.pop('NO_COLOR', None)
     socket = str(root/'run'/('tmux-'+str(os.getuid()))/'default')
     clients=[]; fds=[]

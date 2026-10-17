@@ -9,9 +9,13 @@ fail() {
   exit 1
 }
 
-if [ "$#" -ne 0 ]; then
-  fail 'usage: install-online.sh'
+variant=full
+if [ "$#" -eq 2 ] && [ "$1" = --variant ]; then
+  variant=$2
+elif [ "$#" -ne 0 ]; then
+  fail 'usage: install-online.sh [--variant base|full]'
 fi
+case $variant in base|full) ;; *) fail 'usage: install-online.sh [--variant base|full]' ;; esac
 
 case ${HOME-} in /*) ;; *) fail 'HOME must be an absolute path' ;; esac
 case ${PREFIX-} in /*) ;; *) fail 'PREFIX must be an absolute path' ;; esac
@@ -27,6 +31,9 @@ LOCAL_INSTALL_SOURCE_SHA='b58f2432c6a9aa9b018f3afc9502d16680e1b043'
 BOOTSTRAP_KEY_SHA256='62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
 BOOTSTRAP_KEY_URL='https://github.com/humtr/codex/releases/download/local-hosted-0-154-0-37fbbd8033b8-rald45-transition/update-public-key.pem'
 STABLE_INDEX_URL='https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
+if [ "$variant" = base ]; then
+  STABLE_INDEX_URL='https://raw.githubusercontent.com/humtr/codex/main/update-index-base-v1'
+fi
 LOCAL_INSTALL_RAW_BASE="https://raw.githubusercontent.com/humtr/codex/$LOCAL_INSTALL_SOURCE_SHA"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy || :
@@ -94,6 +101,10 @@ release_base=$(sed -n '4s/^release_base	//p' "$index")
 first=$(printf '%s' "$generation" | cut -c 1)
 case $first in [A-Za-z0-9]) ;; *) fail 'stable generation identity is invalid' ;; esac
 case $generation in *[!A-Za-z0-9._~-]*) fail 'stable generation identity is invalid' ;; esac
+case $variant:$generation in
+  base:local-base-*|full:local-base-*) [ "$variant" = base ] || fail 'signed generation belongs to base' ;;
+  base:*) fail 'signed generation does not belong to base' ;;
+esac
 case $release_base in
   https://*/"$generation"/) ;;
   *) fail 'stable release base is invalid' ;;
@@ -120,8 +131,10 @@ manifest_generation=$(awk -F '\t' '$1=="generation_id"{count++; value=$2} END {i
   fail 'release manifest generation does not match the signed index'
 file_count=$(awk -F '\t' '$1=="file_count"{count++; value=$2} END {if(count==1) print value}' "$manifest")
 case $file_count in ''|*[!0-9]*) fail 'release manifest file count is invalid' ;; esac
-[ "$file_count" -ge 6 ] && [ "$file_count" -le 7 ] ||
-  fail 'release manifest inventory size is unsupported'
+case $variant:$file_count in
+  base:6|full:7|full:8) ;;
+  *) fail 'release manifest inventory size is unsupported for selected lane' ;;
+esac
 
 tab=$(printf '\t')
 downloaded=0
@@ -130,7 +143,7 @@ while IFS="$tab" read -r kind rel digest mode extra; do
   [ "$kind" = file ] || continue
   [ -z "$extra" ] || fail 'release manifest file record is malformed'
   case $rel in
-    generation.meta|core|runtime|codex-code-mode-host|manager|helpers/0|helpers/1|browser/open/curl|browser/manual/curl) ;;
+    generation.meta|core|runtime|codex-code-mode-host|manager|helpers/0|helpers/1|helpers/2|browser/open/curl|browser/manual/curl) ;;
     *) fail 'release manifest contains an unsupported bootstrap path' ;;
   esac
   [ "${#digest}" -eq 64 ] || fail 'release manifest digest is invalid'
@@ -145,6 +158,7 @@ while IFS="$tab" read -r kind rel digest mode extra; do
   parent=${target%/*}
   [ "$parent" = "$target" ] || mkdir -p "$parent"
   fetch_bounded "${release_base}$rel" "$target" 536870912
+  [ "$(sha256_hex "$target")" = "$digest" ] || fail 'downloaded asset does not match signed inventory'
   chmod "$mode" "$target"
   size=$(wc -c < "$target" | tr -d '[:space:]')
   total=$((total + size))
@@ -153,6 +167,17 @@ while IFS="$tab" read -r kind rel digest mode extra; do
 done < "$manifest"
 [ "$downloaded" -eq "$file_count" ] ||
   fail 'release manifest inventory count does not match downloaded files'
+
+if [ "$variant" = base ]; then
+  [ ! -e "$release_dir/manager" ] && [ ! -e "$release_dir/helpers/2" ] || fail 'base includes optional full assets'
+else
+  [ -f "$release_dir/manager" ] || fail 'full is missing Manager'
+  if [ "$file_count" = 8 ]; then
+    [ -f "$release_dir/helpers/2" ] || fail 'full enhanced inventory is incomplete'
+  else
+    [ ! -e "$release_dir/helpers/2" ] || fail 'full enhanced inventory is incomplete'
+  fi
+fi
 
 for required in generation.meta core runtime codex-code-mode-host; do
   [ -f "$release_dir/$required" ] && [ ! -L "$release_dir/$required" ] ||

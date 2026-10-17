@@ -19,8 +19,11 @@ class Rald6InstallerContract(unittest.TestCase):
         cls.local = LOCAL_INSTALL.read_text()
         cls.bootstrap = BOOTSTRAP.read_text()
 
-    def test_network_frontend_is_no_argument_and_fixed_source(self) -> None:
-        self.assertIn('if [ "$#" -ne 0 ]; then', self.text)
+    def test_network_frontend_has_only_fixed_lane_selection_and_fixed_source(self) -> None:
+        self.assertIn('elif [ "$#" -ne 0 ]; then', self.text)
+        self.assertIn('case $variant in base|full)', self.text)
+        self.assertIn('base:6|full:7|full:8)', self.text)
+        self.assertIn('update-index-base-v1', self.text)
         self.assertIn("usage: install-online.sh", self.text)
         self.assertIn(f"LOCAL_INSTALL_SOURCE_SHA='{PINNED_LOCAL_SOURCE}'", self.text)
         self.assertIn(f"BOOTSTRAP_KEY_SHA256='{PINNED_KEY_SHA256}'", self.text)

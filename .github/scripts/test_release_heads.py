@@ -7,7 +7,7 @@ import unittest
 
 import release_heads as channel
 from rald3_preflight import PACKAGE_IDENTITY
-from rald5_publication import BASE_FILES, EXPECTED_FILES, ValidationError
+from rald5_publication import BASE_FILES, EXPECTED_FILES, EXTENDED_FILES, ValidationError
 
 
 class ReleaseHeadsTests(unittest.TestCase):
@@ -33,8 +33,8 @@ class ReleaseHeadsTests(unittest.TestCase):
         self.openssl('pkeyutl', '-sign', '-rawin', '-inkey', str(self.key), '-in', str(data), '-out', str(sig))
         return sig.read_bytes()
 
-    def head(self, lane, generation, sequence):
-        inventory = BASE_FILES if lane == 'base' else EXPECTED_FILES
+    def head(self, lane, generation, sequence, frontend=False):
+        inventory = BASE_FILES if lane == 'base' else EXTENDED_FILES if frontend else EXPECTED_FILES
         assets = {name: ('owned:'+name).encode() for name in inventory}
         digest = lambda name: hashlib.sha256(assets[name]).hexdigest()
         assets['generation.meta'] = ('\n'.join([
@@ -46,9 +46,10 @@ class ReleaseHeadsTests(unittest.TestCase):
             'manager_artifact_digest\t'+(digest('manager') if lane == 'full' else '-'),
             'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
             'qualification\tqualified', 'creation_metadata\tr10-browser-helper-bridge-v1',
-            'upstream_doctor\tunsupported', 'helper_count\t2',
+            'upstream_doctor\tunsupported', 'helper_count\t'+('3' if frontend else '2'),
             'helper\ttermux-browser-open-v1\t'+digest('helpers/0'),
-            'helper\ttermux-browser-manual-v1\t'+digest('helpers/1'), '',
+            'helper\ttermux-browser-manual-v1\t'+digest('helpers/1'),
+            *(['helper\ttermux-manager-tui-v1:0.155.0\t'+digest('helpers/2')] if frontend else []), '',
         ])).encode()
         manifest = ('\n'.join([
             'codex-release-v4', 'generation_id\t'+generation, 'release_sequence\t'+str(sequence),

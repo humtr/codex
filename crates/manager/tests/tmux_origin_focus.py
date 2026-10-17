@@ -51,7 +51,7 @@ int main(int argc,char **argv) {
                 response={'schema':'termux-terminal-origin-v1','result':'ok' if state['accept'] else 'unavailable','origin':state['origin']}
                 client.sendall(json.dumps(response).encode())
     thread=threading.Thread(target=serve);thread.start()
-    tsock=str(root/'t.sock');ready=root/'ready';env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(manager),'TMUX':'','TMUX_PANE':''}
+    tsock=str(root/'t.sock');ready=root/'ready';env={**os.environ,'SHELL':shutil.which('sh'),'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(manager),'TMUX':'','TMUX_PANE':''}
     def tm(*args):return subprocess.check_output(['tmux','-S',tsock,*args],env=env,text=True).strip()
     def focus(value=sid):return subprocess.run([str(manager),'__terminal-focus-v1',value],env=env,capture_output=True,timeout=8)
     try:

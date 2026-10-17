@@ -1869,7 +1869,8 @@ state; all validation and writes remain behind the audited bootstrap boundary.
 The fresh form keeps the existing no-clobber rule, while the
 `upgrade-legacy` form is the sole explicit legacy entrypoint handoff.
 
-`install-online.sh` accepts no arguments. It is only a bootstrap transport
+`install-online.sh [--variant base|full]` defaults to full and selects only the
+fixed project head for that lane. It is only a bootstrap transport
 frontend for a fresh target; it is not an update command, alternate trust
 authority, package-manager installer, release producer, or legacy handoff. It
 requires the existing Termux shell, `$PREFIX/bin/curl`, and
@@ -1880,7 +1881,8 @@ mirrors.
 Before trusting any network-selected generation, the online frontend retrieves
 the bootstrap public key from the fixed project release locator and requires
 the exact repository-pinned SHA-256 of those key bytes. It then retrieves the
-canonical stable `update-index-v1` and sibling signature and verifies that
+canonical stable `update-index-v1` (full) or `update-index-base-v1` (base)
+and sibling signature and verifies that
 signature with the pinned bootstrap key before parsing the generation identity
 or `release_base`. HTTPS transport alone is never release authority. The
 verified index must have the exact stable four-record grammar already consumed
@@ -1891,7 +1893,10 @@ The online frontend retrieves that generation's `release.manifest` and
 `release.sig`, verifies the manifest with the same bootstrap key before using
 its inventory, and accepts only the existing bounded v4 bootstrap inventory:
 `generation.meta`, `core`, `runtime`, `codex-code-mode-host`, optional
-`manager`, and exactly one supported two-helper layout. It downloads only
+`manager`, exactly one supported two-helper layout, and an admitted optional
+`helpers/2` enhanced TUI in the full lane. Base requires its signed `local-base-`
+identity and exact six-file inventory; full requires Manager and seven or eight
+files. Selecting a lane cannot cross into another signed lane. It downloads only
 those signed relative paths into a private `$TMPDIR` workspace with the Core
 remote-acquisition per-file and total byte ceilings and applies only the
 signed regular-file modes needed by the existing bootstrap admission. It does
