@@ -23,6 +23,8 @@ This repository carries no external workflow skill or model configuration.
   Exact54-byte FD adaptation reproduces the published frontend byte for byte.
 - Actual Android Default and Plan model menus preserve process/PTY/thread/settings
   through same-Chat no-op/model/effort changes with0 frontend exec/inference.
+  The user also confirms a new tmux-free notification window and model/effort
+  selection without blanking/restart. No automatic prompt is submitted.
   Native↔Chat provider transitions remain deliberate re-entry. Manager supplies
   on-request/auto_review convenience defaults; explicit user choices still win.
   Installed54 fresh/resume/btw paths pass six commands/six guardian reviews across
@@ -93,7 +95,7 @@ model/effort changes on upstream session actions without persisting a Chat slug
 into an ordinary account profile. Manager supplies default on-request/auto_review
 in its existing system-layer fragment; explicit upstream user/profile/CLI choices
 win. Core owns neither default reviewer policy nor provider behavior. These
-changes pass native/device qualification and still require normal signed publication.
+changes are signed, public and device-selected in stable54.
 The experiment now fixes missing optional reports, preserves same-Chat context,
 reduces warm resend and restores shared app hooks across owner exit orders.
 Actual signed-app/stable53 automatic and interrupted compaction both pass through
