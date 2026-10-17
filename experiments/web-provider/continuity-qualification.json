@@ -1929,5 +1929,91 @@
       }
     ],
     "privateEvidence": "chat-home-native-core-live.json"
+  },
+  "primaryEntryInstalledActivation": {
+    "accepted": true,
+    "installation": "45072df8448589d3523e",
+    "source": "7bb202e4f426f6fd83ddc9f31ee07950134f4ca2",
+    "filesVerified": 527,
+    "protectedAuthConfigFiles": 13,
+    "managedProfileConfigsChecked": 7,
+    "managedConfigOnlyOwnedHelperPathChanged": true,
+    "appIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "qualifiedRuntimeInputsMatched": 25,
+    "actualChatSubmissions": 0,
+    "previousInstallation": "3a9d8b4398c038db34ba",
+    "returnTransport": "local",
+    "priorVerificationFailure": "generated helper path compared as user configuration; runtime rolled back, old installer reconciled"
+  },
+  "primaryEntryInstallCycle": {
+    "accepted": true,
+    "steps": [
+      {
+        "step": "reinstall",
+        "installation": "45072df8448589d3523e",
+        "filesVerified": 527
+      },
+      {
+        "step": "rollback",
+        "installation": "3a9d8b4398c038db34ba",
+        "filesVerified": 527
+      },
+      {
+        "step": "restore",
+        "installation": "45072df8448589d3523e",
+        "filesVerified": 527
+      }
+    ],
+    "concurrentBootstrapClients": 6,
+    "bootstrapResults": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "protectedAuthConfigFiles": 12,
+    "signedDesktopIdentityPreserved": true,
+    "endpointCapabilityPreserved": true,
+    "onlyUnusedAdaptersStopped": true,
+    "actualChatSubmissions": 0,
+    "finalInstallation": "45072df8448589d3523e",
+    "priorInstallationRetained": true
+  },
+  "primaryEntryInstalledAdmission": {
+    "ready": true,
+    "unauthorizedStatus": 401,
+    "rejectionCodes": [
+      "invalid_desktop_json",
+      "invalid_desktop_request",
+      "unsupported_desktop_route",
+      "desktop_stream_required",
+      "desktop_response_cursor_unavailable"
+    ],
+    "extraRejectionCodes": [
+      "desktop_encoding_unsupported",
+      "invalid_desktop_compression",
+      "invalid_desktop_utf8",
+      "opaque_context_unavailable",
+      "desktop_decoded_request_too_large"
+    ],
+    "largeIdentityAndZstd": true,
+    "wireLimitBytes": 16777216,
+    "decodedLimitBytes": 33554432,
+    "chunkedWireLimit": "typed_413",
+    "oversizeStatus": 413,
+    "oversizeBodySendError": "broken_pipe",
+    "arrivals": 15,
+    "admittedRequests": 0,
+    "chatSubmissions": 0
+  },
+  "currentProviderChecks": {
+    "bun": 103,
+    "python": 45,
+    "repositoryPython": 18,
+    "publicationPython": 59,
+    "docs": true
   }
 }

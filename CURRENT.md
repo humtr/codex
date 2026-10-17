@@ -16,19 +16,24 @@ acceptance cache. No external workflow skill or separate task ledger is required
   keeps the same process/PTY/thread,0 exec/inference; same-Chat reasoning uses the
   active mode. Actual installed54 fresh/resume/btw proof passes six commands/six
   guardian reviews, dangerFullAccess/auto_review across legacy/named permissions.
-- Installed opt-in Chat provider:3a9d8b4398c038db34ba, source9f9d015,
+- Installed opt-in Chat provider:45072df8448589d3523e, source7bb202e,
   `returnTransport=local`,527 installed files verified including its manifest.
-  Prior329360/source33cb3e1,0eb431a/sourceef2a15a and older payloads are retained.
-  Gateway batching, hidden canonical context, role-preserving text, settled app-
-  generation recovery and bounded request-phase timing are installed. Activation
-  stops only a verified idle adapter;12 auth/config hashes, app identity and
-  endpoint/capability remain unchanged. Reinstall/rollback/restore and six concurrent
-  bootstrap clients pass,0 Chat. Ordinary operating bootstrap has no trial budget.
-  The actual timing/tool proof uses2 user-message objects including hidden context,
-  2 tool returns and3 starts,0 Pro/retry, with native report/persistence/cold TUI
-  acceptance. Chat allowance deduction remains unknown.
-  This provider is experimental; Core stable publication does not make it a fully
-  qualified public Chat provider. No later source edit is implicitly installed.
+  Prior3a9/source9f9d015 and earlier payloads remain rollback candidates. Unique
+  primary-entry discovery now works across Home/Plugins/Chat without UI actions;
+  canonical hidden context, local-function returns and bounded request timing stay
+  active. Activation preserves13 auth/base configuration files, app identity and
+  endpoint/capability. Seven generated profile configs retain their meaning; only
+  the owned immutable lifecycle-helper path may change. All25 runtime inputs match
+  actual signed-app/stable54 local Core proof byte for byte. Reinstall→rollback3a9
+  →restore and six concurrent bootstrap clients pass,0 Chat. Only adapters with
+  zero lifetime requests/arrivals are stopped; operating bootstrap has no trial
+  budget. One verification attempt compared the expected generated helper-path
+  update as user state, rolled the runtime back, then reconciled the old installer;
+  the corrected semantic/profile and exact auth checks pass. Actual local proof
+  has2 user-message objects (one hidden context),2 tool returns and3 starts,
+  initial/intermediate/final reports and native persistence/cold TUI acceptance.
+  Chat allowance deduction remains unknown. This is an experimental provider,
+  separate from signed public Core54; independent MCP is not selected or qualified.
 - Physical user observation now confirms that the stable54 notification opens a
   new tmux-free Codex window and same-Chat model/effort selection works without
   blanking/restart. No automatic prompt is submitted. This does not qualify the
@@ -234,7 +239,7 @@ metadata acquisition passes with0 Chat and0 UI actions. Actual signed-app/stable
 user objects,2 native writes/reads and tool returns,3 model starts,0 Pro/retry;
 initial/intermediate/final reports persist and render after cold restore. Its
 runtime input hashes remain unchanged throughout. This fixes a shared selected-
-page assumption; source acceptance precedes installation over payload3a9. Earlier Plugins
+page assumption and is installed in payload45072d. Earlier Plugins
 inspection cleared its temporary search and navigated Back to Home; restoration
 of the prior Chat view was not established. No connector/account setting was
 changed by that UI inspection. Physical model-selection confirmation is separate.
