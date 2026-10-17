@@ -8,7 +8,6 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-#[derive(Default)]
 pub(crate) struct State {
     pub(super) uncertain: bool,
     generation: u64,
@@ -19,6 +18,24 @@ pub(crate) struct State {
     pending: BTreeSet<String>,
     view: Option<Value>,
     handled: Option<String>,
+}
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            uncertain: false,
+            generation: 0,
+            visible: false,
+            settings: false,
+            session_off: std::env::var("CODEX_QUOTA_SESSION_OFF").ok().as_deref() == Some("1"),
+            turn: None,
+            pending: BTreeSet::new(),
+            view: None,
+            handled: None,
+        }
+    }
+}
+pub(super) fn session_off(app: &App) -> bool {
+    app.quota_switch.session_off
 }
 fn core() -> PathBuf {
     std::env::var_os("CODEX_PROFILE_CORE")
@@ -118,6 +135,59 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             .flatten()
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect();
+        let cooldowns = [30, 60, 300, 900, 3600];
+        let current = policy["cooldown"].as_u64().unwrap_or(300);
+        let next = cooldowns
+            [(cooldowns.iter().position(|v| *v == current).unwrap_or(2) + 1) % cooldowns.len()];
+        items.push(item(format!("Cooldown: {current}s"), None, move || {
+            AppEvent::EditQuotaPolicy(json!({"cooldown":next}))
+        }));
+        if policy["policy"] == "custom" {
+            let weights = policy["weights"]
+                .as_array()
+                .cloned()
+                .unwrap_or_else(|| vec![json!(1); 3]);
+            for (index, label) in [
+                "5h capacity weight",
+                "Weekly capacity weight",
+                "Reset urgency weight",
+            ]
+            .iter()
+            .enumerate()
+            {
+                let mut next = weights.clone();
+                let current = weights.get(index).and_then(Value::as_i64).unwrap_or(1);
+                let values = [0, 1, 2, 5, 10];
+                next[index] = json!(
+                    values[(values.iter().position(|v| *v == current).unwrap_or(1) + 1)
+                        % values.len()]
+                );
+                items.push(item(format!("{label}: {current}"), None, move || {
+                    AppEvent::EditQuotaPolicy(json!({"weights":next}))
+                }));
+            }
+            let mut order: Vec<String> = policy["order"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect();
+            for id in &members {
+                if !order.contains(id) {
+                    order.push(id.clone());
+                }
+            }
+            for (rank, id) in order.iter().enumerate() {
+                let mut next = order.clone();
+                next.retain(|v| v != id);
+                next.insert(0, id.clone());
+                items.push(item(
+                    format!("Priority {}: {id}", rank + 1),
+                    Some("Enter moves this account to first priority.".into()),
+                    move || AppEvent::EditQuotaPolicy(json!({"order":next})),
+                ));
+            }
+        }
         for row in view["rows"].as_array().into_iter().flatten() {
             let id = row["id"].as_str().unwrap().to_owned();
             let included = members.contains(&id);
@@ -132,6 +202,26 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                 row["summary"].as_str().map(str::to_owned),
                 move || AppEvent::EditQuotaPolicy(json!({"accounts":next})),
             ));
+            if included {
+                let pause_id = id.clone();
+                let seconds = if row["excluded_until"].is_null() {
+                    900
+                } else {
+                    0
+                };
+                items.push(item(
+                    format!(
+                        "{} {id}",
+                        if seconds == 0 {
+                            "Clear cooldown for"
+                        } else {
+                            "Pause 15m:"
+                        }
+                    ),
+                    None,
+                    move || AppEvent::PauseQuotaAccount(pause_id.clone(), seconds),
+                ));
+            }
         }
         items.push(item(
             "Back to profiles".into(),
@@ -143,14 +233,26 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             let id = row["id"].as_str().unwrap().to_owned();
             let current = view["current"].as_str() == Some(&id);
             let selected = id.clone();
-            let mut entry = item(id, row["summary"].as_str().map(str::to_owned), move || {
-                if current {
-                    AppEvent::CloseQuotaView
-                } else {
-                    AppEvent::SelectExecutionProfile(selected.clone())
-                }
-            });
+            let mut name = id.clone();
+            if !current && view["saved_default"].as_str() == Some(&id) {
+                name.push_str(" (default)");
+            }
+            if view["recommended"].as_str() == Some(&id) {
+                name.push_str(" (next)");
+            }
+            let mut entry = item(
+                name,
+                row["summary"].as_str().map(str::to_owned),
+                move || {
+                    if current {
+                        AppEvent::CloseQuotaView
+                    } else {
+                        AppEvent::SelectExecutionProfile(selected.clone())
+                    }
+                },
+            );
             entry.is_current = current;
+            entry.dismiss_on_select = current;
             items.push(entry);
         }
         items.push(item(
@@ -273,6 +375,17 @@ pub(super) fn toggle_session(app: &mut App) {
     app.quota_switch.session_off = !app.quota_switch.session_off;
     render(app);
 }
+pub(super) async fn pause(app: &mut App, id: String, seconds: u64) {
+    let args = vec!["rotation".into(), "exclude".into(), id, seconds.to_string()];
+    if super::profile_manager::call(&core(), &args, 3)
+        .await
+        .is_none()
+    {
+        app.chat_widget
+            .add_error_message("Account pause unchanged; refresh usage first.".into());
+    }
+    open(app, true).await;
+}
 
 fn event(value: &Value) -> Option<(&str, &Value)> {
     Some((value["method"].as_str()?, &value["params"]))
@@ -379,7 +492,7 @@ pub(super) fn request(app: &mut App, request: &codex_app_server_protocol::Server
 }
 pub(super) async fn automatic(
     app: &mut App,
-    server: &mut crate::app_server_session::AppServerSession,
+    _server: &mut crate::app_server_session::AppServerSession,
     thread: ThreadId,
     turn: String,
     trigger: String,
@@ -393,6 +506,7 @@ pub(super) async fn automatic(
             .iter()
             .any(|(id, entry)| *id != thread && entry.is_running)
         || app.chat_widget.thread_id() != Some(thread)
+        || app.primary_thread_id != Some(thread)
         || app.chat_widget.config_ref().model_provider_id != "openai"
         || !app.chat_widget.composer_is_empty()
         || !app.dynamic_tool_tasks.is_empty()
@@ -411,15 +525,59 @@ pub(super) async fn automatic(
     {
         return None;
     }
-    let args = vec![
-        "__switch-view-v2".into(),
-        "--refresh".into(),
-        "--model".into(),
-        model.clone(),
-    ];
-    let view = super::profile_manager::call(&core(), &args, 25)
-        .await
-        .and_then(|b| decode(&b))?;
+    let tx = app.app_event_tx.clone();
+    if trigger == "quota" {
+        app.chat_widget.add_info_message("Quota exhausted; checking enrolled accounts. The saved task remains paused until a safe destination is ready.".into(),None);
+    }
+    tokio::spawn(async move {
+        let args = vec![
+            "__switch-view-v2".into(),
+            "--refresh".into(),
+            "--model".into(),
+            model,
+        ];
+        let view = super::profile_manager::call(&core(), &args, 25)
+            .await
+            .and_then(|b| decode(&b));
+        tx.send(AppEvent::AutoQuotaReady {
+            thread,
+            turn,
+            trigger,
+            view,
+        });
+    });
+    None
+}
+pub(super) async fn automatic_ready(
+    app: &mut App,
+    server: &mut crate::app_server_session::AppServerSession,
+    thread: ThreadId,
+    turn: String,
+    trigger: String,
+    view: Option<Value>,
+) -> Option<super::profile_manager::ProfileReentry> {
+    if app.quota_switch.session_off
+        || app.quota_switch.visible
+        || app.quota_switch.handled.as_deref() != Some(&turn)
+        || app.chat_widget.thread_id() != Some(thread)
+        || app.primary_thread_id != Some(thread)
+        || app.chat_widget.has_active_modal()
+        || !app.chat_widget.composer_is_empty()
+        || !app.dynamic_tool_tasks.is_empty()
+        || !app.chat_widget.can_change_working_directory(thread)
+    {
+        return None;
+    }
+    let model = app.chat_widget.config_ref().model.clone()?;
+    let Some(view) = view else {
+        app.chat_widget.add_error_message(
+            "Automatic switching paused: usage refresh failed; work remains saved.".into(),
+        );
+        return None;
+    };
+    if view["rotation"]["enabled"] != true {
+        return None;
+    }
     let Some(profile) = view["recommended"].as_str() else {
         if trigger == "quota" {
             app.chat_widget.add_error_message("Automatic switching paused: no fresh enrolled account with available quota; work remains saved.".into());
@@ -462,7 +620,7 @@ mod tests {
     #[test]
     fn profile_manager_quota_rows_render_and_settings_actions_use_manager_policy() {
         use crate::app_event_sender::AppEventSender;
-        use crate::bottom_pane::{BottomPaneView, ListSelectionView};
+        use crate::bottom_pane::ListSelectionView;
         use crate::keymap::RuntimeKeymap;
         use crate::render::renderable::Renderable;
         use ratatui::{buffer::Buffer, layout::Rect};

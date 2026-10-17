@@ -344,6 +344,7 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
         cwd: "/owned/current-workspace".into(),
         flags: Vec::new(),
         handoff: None,
+        session_off: false,
     };
     let report = color_eyre::eyre::Report::new(std::io::Error::other(request));
     let error = report.downcast::<std::io::Error>().unwrap();

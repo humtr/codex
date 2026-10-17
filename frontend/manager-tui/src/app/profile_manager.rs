@@ -197,6 +197,7 @@ pub(crate) struct ProfileReentry {
     cwd: PathBuf,
     flags: Vec<String>,
     handoff: Option<String>,
+    session_off: bool,
 }
 
 impl ProfileReentry {
@@ -218,6 +219,10 @@ impl ProfileReentry {
             ]);
         }
         command.current_dir(&self.cwd);
+        command.env(
+            "CODEX_QUOTA_SESSION_OFF",
+            if self.session_off { "1" } else { "0" },
+        );
         command
     }
 
@@ -236,7 +241,8 @@ pub(super) async fn prepare(
         matches!(
             app.app_server_target,
             crate::AppServerTarget::LocalDaemon { .. }
-        ) && app.chat_widget.composer_is_empty()
+        ) && app.primary_thread_id == Some(*thread)
+            && app.chat_widget.composer_is_empty()
             && app.dynamic_tool_tasks.is_empty()
             && app.chat_widget.can_change_working_directory(*thread)
     });
@@ -272,6 +278,7 @@ pub(super) async fn prepare(
         cwd: app.config.cwd.to_path_buf(),
         flags: preserved_flags(app.chat_widget.config_ref())?,
         handoff: None,
+        session_off: super::quota_switch::session_off(app),
     })
 }
 
@@ -348,7 +355,7 @@ fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<St
             toml::Value::try_from(config.approvals_reviewer).ok()?
         ),
     ]);
-    Some(flags)
+    (flags.len() <= 256 && flags.iter().map(String::len).sum::<usize>() <= 65536).then_some(flags)
 }
 
 /// Only native durability is needed; saved chats do not hydrate their history.

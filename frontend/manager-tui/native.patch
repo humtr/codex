@@ -124,7 +124,7 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index a7f7f1e..ac51625 100644
+index a7f7f1e..3064cbc 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -139,6 +139,19 @@ impl App {
@@ -147,7 +147,7 @@ index a7f7f1e..ac51625 100644
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -484,6 +497,34 @@ impl App {
+@@ -484,6 +497,40 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -174,6 +174,12 @@ index a7f7f1e..ac51625 100644
 +                }
 +            }
 +            #[cfg(unix)]
++            AppEvent::AutoQuotaReady{thread,turn,trigger,view} => {
++                if let Some(request)=quota_switch::automatic_ready(self,app_server,thread,turn,trigger,view).await {return Err(std::io::Error::other(request).into());}
++            }
++            #[cfg(unix)]
++            AppEvent::PauseQuotaAccount(id,seconds) => {quota_switch::pause(self,id,seconds).await;}
++            #[cfg(unix)]
 +            AppEvent::SelectExecutionProfile(profile) => {
 +                if let Some(request) = profile_manager::prepare(self, app_server, profile).await {
 +                    return Err(std::io::Error::other(request).into());
@@ -182,7 +188,7 @@ index a7f7f1e..ac51625 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -2110,6 +2151,12 @@ impl App {
+@@ -2110,6 +2157,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -343,10 +349,10 @@ index c8d16dc..8cfe486 100644
                      .pending_app_server_requests
                      .contains_server_request(request.as_ref())
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index a201931..9e30128 100644
+index a201931..55368e2 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -638,6 +638,33 @@ pub(crate) enum AppEvent {
+@@ -638,6 +638,43 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
@@ -364,6 +370,8 @@ index a201931..9e30128 100644
 +    #[cfg(unix)]
 +    EditQuotaPolicy(serde_json::Value),
 +    #[cfg(unix)]
++    PauseQuotaAccount(String, u64),
++    #[cfg(unix)]
 +    QuotaViewReady {
 +        generation: u64,
 +        view: Option<serde_json::Value>,
@@ -374,13 +382,21 @@ index a201931..9e30128 100644
 +        turn: String,
 +        trigger: String,
 +    },
++
++    #[cfg(unix)]
++    AutoQuotaReady {
++        thread: codex_protocol::ThreadId,
++        turn: String,
++        trigger: String,
++        view: Option<serde_json::Value>,
++    },
 +    #[cfg(unix)]
 +    SelectExecutionProfile(String),
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
-@@ -1230,6 +1257,11 @@ pub(crate) enum AppEvent {
+@@ -1230,6 +1267,11 @@ pub(crate) enum AppEvent {
 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),

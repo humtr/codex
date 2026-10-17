@@ -252,6 +252,9 @@ Usage caches are private XDG cache data, not authentication authority. Unknown,
 stale, unavailable, API-key and changed account identities cannot be automatic
 destinations. Two profiles for the same metered account are one allowance pool.
 Windows are labelled by actual duration; reset timestamps do not prove recovery.
+Ordinary automatic Codex destinations need both advertised5h and weekly windows;
+an absent window stays unknown rather than implying unlimited usage. Manual
+selection remains available. Model-specific buckets stay distinct from codex.
 
 `codex termux rotation show|preview|set JSON` and /switch settings share Manager's
 policy: off by default, explicitly enrolled account identities, a deterministic
@@ -273,6 +276,14 @@ checkpoint; pending tools/questions/reviews or uncertain partial work pause with
 an explicit reason. Switching accounts and successfully continuing work are
 distinct visible outcomes. Attempts and per-thread handoffs are bounded and
 serialized; exhausted destinations cool down and never ping-pong in a retry loop.
+The new frontend uses private __profile-resume-v2 with bounded serialized native
+session flags to preserve model/effort, configuration profile, permissions/reviewer
+and explicit session options. Retained v1 callers remain supported unchanged.
+Quota-failed continuation is one explicitly consented checkpoint-continuation
+turn, not resubmission of the original prompt or retry of completed tools.
+Proactive idle switches submit no prompt. A durable attempt claim precedes exec;
+an uncertain crash pauses instead of replaying. At most3 automatic handoffs per
+thread per hour are attempted, with the selected cooldown between attempts.
 
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone Manager TUI implementations live as

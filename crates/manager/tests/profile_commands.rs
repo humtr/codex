@@ -16,6 +16,9 @@ mod profile_resume;
 #[path = "profile_commands/task_snapshot.rs"]
 mod task_snapshot;
 
+#[path = "profile_commands/quota.rs"]
+mod quota;
+
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 const CORE_API: &str = "codex-manager-core-v1";

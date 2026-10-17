@@ -474,6 +474,14 @@ fn reason(
     let Some(bucket) = selected_bucket(u, model) else {
         return "bucket unknown";
     };
+    if !u.buckets.iter().any(|b| {
+        b.id == "codex"
+            && [300, 10080]
+                .iter()
+                .all(|minutes| b.windows.iter().any(|w| w.minutes == *minutes))
+    }) {
+        return "windows unknown";
+    }
     if u.buckets
         .iter()
         .any(|b| b.id == "codex" && (b.blocked || b.windows.iter().any(|w| w.remaining <= reserve)))
@@ -538,7 +546,6 @@ fn recommended(
     let current_account = current
         .and_then(|id| load(context, id))
         .and_then(|u| u.account);
-    let mut seen = BTreeSet::new();
     let time = now();
     let cooldowns: BTreeMap<String, u64> = read_json(&cache(context).join("cooldowns.json"))
         .ok()
@@ -556,7 +563,6 @@ fn recommended(
                 .get(&member.account)
                 .is_some_and(|until| *until > time)
             || reason(usage.as_ref(), Some(member), model, policy.reserve, time) != "ready"
-            || !seen.insert(member.account.clone())
         {
             continue;
         }
@@ -566,7 +572,11 @@ fn recommended(
             .iter()
             .position(|x| x == id)
             .unwrap_or(usize::MAX);
-        choices.push((score(&usage, policy, model, time), order, id.clone()));
+        let mut rank = score(&usage, policy, model, time);
+        if policy.policy == "custom" {
+            rank = [order.min(1_000_000) as i64, rank[0], rank[1]];
+        }
+        choices.push((rank, order, id.clone()));
     }
     choices.sort();
     choices.into_iter().next().map(|x| x.2)
@@ -737,15 +747,31 @@ fn view(context: &Context, update: bool, model: Option<&str>) -> Result<Value, M
     }
     let policy = policy(context)?;
     let time = now();
-    let rows:Vec<_>=ids.iter().map(|id|{let usage=load(context,id);let bucket=usage.as_ref().and_then(|u|selected_bucket(u,model));
+    let cooldowns: BTreeMap<String, u64> =
+        read_json(&cache(context).join("cooldowns.json"))?.unwrap_or_default();
+    let rows:Vec<_>=ids.iter().map(|id|{
+        let usage=load(context,id);
+        let bucket=usage.as_ref().and_then(|u|selected_bucket(u,model));
         let windows=bucket.map(|b|b.windows.clone()).unwrap_or_default();
-        let summary=windows.iter().map(|w|{let label=match w.minutes{300=>"5h".to_owned(),10080=>"weekly".to_owned(),n=>format!("{n}m")};let reset=w.reset.map(|r|if r>time{format!("reset {}m",(r-time).div_ceil(60))}else{"reset passed; refresh".into()}).unwrap_or("reset unknown".into());format!("{label} {}% ({reset})",w.remaining)}).collect::<Vec<_>>().join(" · ");
-        let state=reason(usage.as_ref(),policy.accounts.get(id),model,policy.reserve,time);
-        json!({"id":id,"summary":if summary.is_empty(){state.to_owned()}else{format!("{summary} · {state}")},"state":state,"observed":usage.as_ref().map(|u|u.observed),"windows":windows,"pool":policy.accounts.contains_key(id)})
+        let mut labels=Vec::new();
+        for (minutes,label) in [(300,"5h"),(10080,"weekly")] {
+            labels.push(match windows.iter().find(|w|w.minutes==minutes) {
+                Some(window)=>{
+                    let reset=window.reset.map(|r|if r>time{format!("reset {}m",(r-time).div_ceil(60))}else{"reset passed; refresh".into()}).unwrap_or("reset unknown".into());
+                    format!("{label} {}% ({reset})",window.remaining)
+                },
+                None=>format!("{label} unknown"),
+            });
+        }
+        let mut state=reason(usage.as_ref(),policy.accounts.get(id),model,policy.reserve,time);
+        let excluded_until=usage.as_ref().and_then(|u|u.account.as_ref()).and_then(|a|cooldowns.get(a)).filter(|until|**until>time);
+        if excluded_until.is_some(){state="cooldown";}
+        json!({"id":id,"summary":format!("{} · {state}",labels.join(" · ")),"state":state,"observed":usage.as_ref().map(|u|u.observed),"windows":windows,"bucket":bucket.map(|b|&b.id),"pool":policy.accounts.contains_key(id),"excluded_until":excluded_until})
     }).collect();
     snapshot["schema"] = json!("codex-manager-profiles-v2");
     snapshot["rows"] = json!(rows);
     snapshot["rotation"] = settings(&policy);
+    snapshot["selected_model"] = json!(model);
     snapshot["recommended"] = json!(recommended(
         context,
         &ids,
@@ -753,6 +779,14 @@ fn view(context: &Context, update: bool, model: Option<&str>) -> Result<Value, M
         snapshot["current"].as_str(),
         model
     ));
+    snapshot["recommendation_reason"] = json!(if snapshot["recommended"].is_null() {
+        "No fresh eligible enrolled account".to_owned()
+    } else {
+        format!(
+            "Fresh eligible account ranked by {} (reserve {}%)",
+            policy.policy, policy.reserve
+        )
+    });
     Ok(snapshot)
 }
 fn configure(context: &Context, value: &str) -> Result<Value, ManagerError> {
@@ -820,6 +854,30 @@ pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>
     let verb = args[0].to_str().ok_or(ERR_USAGE)?;
     if verb == "rotation" {
         let value = match args.get(1).and_then(|v| v.to_str()) {
+            Some("exclude") if args.len() == 4 => {
+                let id = args[2].to_str().ok_or(ERR_USAGE)?;
+                let seconds = args[3]
+                    .to_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|s| *s <= 86400)
+                    .ok_or(ERR_USAGE)?;
+                let usage = load(context, id)
+                    .filter(|u| fresh(u, now()))
+                    .ok_or(ERR_QUOTA)?;
+                let account = usage.account.ok_or(ERR_QUOTA)?;
+                ensure_private_directory(&cache(context))?;
+                let _lock = profile::directory_lock(&cache(context), libc::LOCK_EX)?;
+                let path = cache(context).join("cooldowns.json");
+                let mut values: BTreeMap<String, u64> = read_json(&path)?.unwrap_or_default();
+                values.retain(|_, until| *until > now());
+                if seconds == 0 {
+                    values.remove(&account);
+                } else {
+                    values.insert(account, now() + seconds);
+                }
+                publish(&path, &values)?;
+                json!({"profile":id,"excluded_seconds":seconds})
+            }
             Some("show") if args.len() == 2 => settings(&policy(context)?),
             Some("set") if args.len() == 3 => {
                 configure(context, args[2].to_str().ok_or(ERR_USAGE)?)?
