@@ -19,8 +19,8 @@ pub(crate) fn enabled() -> bool {
 fn supported(profile: &PermissionProfile) -> bool {
     let file_system = profile.file_system_sandbox_policy();
     let external = file_system.kind == FileSystemSandboxKind::ExternalSandbox;
-    (external || profile.network_sandbox_policy().is_enabled())
-        && (external || file_system.has_full_disk_write_access())
+    external
+        || profile.network_sandbox_policy().is_enabled() && file_system.has_full_disk_write_access()
 }
 
 pub(crate) fn validate(profile: &PermissionProfile, termux: bool) -> color_eyre::Result<()> {

@@ -223,7 +223,10 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             }
         }
         for row in view["rows"].as_array().into_iter().flatten() {
-            let id = row["id"].as_str().unwrap().to_owned();
+            let Some(id) = row["id"].as_str() else {
+                continue;
+            };
+            let id = id.to_owned();
             let included = members.contains(&id);
             let mut next = members.clone();
             if included {
@@ -264,7 +267,10 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         ));
     } else {
         for row in view["rows"].as_array().into_iter().flatten() {
-            let id = row["id"].as_str().unwrap().to_owned();
+            let Some(id) = row["id"].as_str() else {
+                continue;
+            };
+            let id = id.to_owned();
             let current = view["current"].as_str() == Some(&id);
             let selected = id.clone();
             let mut name = id.clone();
@@ -737,7 +743,7 @@ mod tests {
         assert!(screen.contains("Automatic switching"), "{screen}");
         let settings = picker(&value, true, false);
         assert!(settings.items.iter().any(|i| i.name == "[ ] default"));
-        let mut bad = value.clone();
+        let mut bad = value;
         bad["rows"][0]["summary"] = json!("forged\nrow");
         assert!(decode(bad.to_string().as_bytes()).is_none());
     }
