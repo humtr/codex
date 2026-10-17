@@ -199,7 +199,7 @@ def run(source):
         if not passed:
             if not runs:dispatch(workflow,SOURCE_BRANCH,{'rebuild_current':'true'} if workflow.startswith('core-') else None)
             return {'state':'awaiting-exact-proof','workflow':workflow,'source':current}
-    with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ['TMPDIR']) as temporary:
+    with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
         value=ensure_frontend(source,current,Path(temporary))
     before=load(source/'release/upstream.json')
     if value is not None and value!=before:

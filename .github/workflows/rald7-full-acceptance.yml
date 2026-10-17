@@ -15,7 +15,6 @@ concurrency:
 
 env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-target
-  RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
@@ -46,11 +45,14 @@ jobs:
         shell: bash
         env:
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd source
           if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && test "$BEFORE" != 0000000000000000000000000000000000000000 && \
-             git fetch --no-tags --depth=1 origin "$BEFORE"; then
+             git fetch --no-tags --depth=1 origin "$BEFORE" &&
+             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rald7-full-acceptance.yml/runs?head_sha=$BEFORE&per_page=100" \
+               --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex")' | grep -Fqx true; then
             git diff --name-only -z "$BEFORE" HEAD | python3 scripts/ci_scope.py --stdin | sed 's/^/scope=/' >> "$GITHUB_OUTPUT"
           else
             printf 'scope=full\n' >> "$GITHUB_OUTPUT"
@@ -87,6 +89,7 @@ jobs:
           git -C product fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C product checkout --detach FETCH_HEAD
           test "$(git -C product rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 product/.github/scripts/upstream_release.py product/release/upstream.json --component core >> "$GITHUB_ENV"
 
       - name: Restore compiler cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -146,6 +149,15 @@ jobs:
           git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Load exact acceptance toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
+          rust_version="$(python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core | sed -n 's/^RUST_VERSION=//p')"
+          rustup toolchain install "$rust_version" --profile minimal --component rustfmt,clippy
+          rustup default "$rust_version"
 
       - name: Download accepted Android Core proof artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

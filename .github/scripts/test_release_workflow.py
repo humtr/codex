@@ -63,6 +63,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('same_version_acceptance',text)
         self.assertNotIn('legacy_lag_jump_remediation',text)
 
+    def test_incremental_scope_requires_a_successful_predecessor(self):
+        text=(ROOT/'.github/workflows/rald7-full-acceptance.yml').read_text()
+        scope=text.split('      - name: Select verification scope',1)[1].split('      - name:',1)[0]
+        self.assertIn('head_sha=$BEFORE',scope)
+        self.assertIn('.conclusion=="success"',scope)
+        self.assertIn("scope=full",scope)
+        self.assertNotIn("RUST_VERSION: '1.",text)
+        self.assertIn('product/release/upstream.json --component core',text)
+        self.assertIn('source/release/upstream.json --component core',text)
+
     def test_dispatch_discovery_has_no_product_or_publication_authority(self):
         stubs = dispatch_stubs()
         self.assertEqual(len(stubs), 3)
