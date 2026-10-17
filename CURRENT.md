@@ -32,12 +32,16 @@ This repository carries no external workflow skill or model configuration.
   Doctor has0 failures; the active wrlab upstream index reports3 thread issues.
   Its degraded warning is separate from healthy Core/Manager and is not repaired
   by editing user titles/history or silently deleting records.
-- Installed opt-in Chat provider:3a9d8b4398c038db34ba/source9f9d015,
+- Installed opt-in Chat provider:45072df8448589d3523e/source7bb202e,
   `returnTransport=local`; all527 files and25 live-qualified runtime inputs match.
-  Reinstall→rollback329360→restore plus six concurrent bootstrap clients pass,
-  preserving12 account auth/config files, app identity and endpoint/capability.
-  Only adapters with zero lifetime requests/arrivals were stopped for activation.
-  No trial budget is applied to the operating adapter. Prior payloads are retained.
+  Primary signed-app entry discovery works across Home/Plugins/Chat independently
+  of visible labels. Actual stable54 native local-return proof passes2 tool returns,
+  initial/intermediate/final reports and cold TUI restore:2 co-submitted user objects,
+  3 starts,0 Pro/retry. Reinstall→rollback3a9→restore and six concurrent bootstrap
+  clients pass, preserving13 auth/base-config files, app identity and endpoint/
+  capability. Seven generated profile configs are semantically unchanged except
+  the controlled immutable lifecycle-helper path. Only adapters with zero lifetime
+  requests/arrivals are stopped; no operating trial budget. Prior payloads remain.
 - The provider hides preceding canonical context in the Chat app without changing
   its user authority/content, XML guessing or hiding the current request. Literal
   XML in current user input stays visible. Old remote test chats are not rewritten.
@@ -55,97 +59,45 @@ This repository carries no external workflow skill or model configuration.
 - This Chat provider remains opt-in/experimental. Core54 publication does not
   qualify its full lifecycle or publish it as stable. Physical question interaction,
   remote history options, hours-long maintenance, cross-provider long context and
-  the independent MCP return path remain open. That host still caches its old
-  connector schema; native MCP tools through the local return path already work.
+  the independent MCP return path remain open. Official signed-app refresh now
+  loads native_catalog/native_tool from the independent endpoint with0 Chat. Live
+  MCP reaches catalog then host confirm_action before Core execution; source now
+  reports that confirmation separately from generic stream failure. Exact owned-
+  call acknowledgment remains unqualified. Native MCP tools through the default
+  local-return path already work.
   The experiment owns the detailed remaining scope and useful/negative evidence.
 
 ## Chat provider work ownership
 
 The [experiment current state and complete backlog](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#active-remaining-work)
-owns the twelve remaining Chat-provider work areas, deferred models/media/phone
-presentation and their evidence boundaries. The current user-trial MCP tool-name
-failure is reproduced at the adapter admission boundary. Canonical catalog,
-old-round observation and completed-sample recovery fixes are now installed in
-the opt-in provider, with native MCP live proof above. This remains experimental,
-not a public stable Chat-provider promotion or full lifecycle qualification.
-The provider has narrow stable53 live recovery acceptance above; unrelated Core
-update/doctor maintenance and broader Chat lifecycle acceptance remain separate.
+owns the twelve remaining Chat-provider work areas and their acceptance limits.
+The optional installed provider uses actual local-function result returns, not new
+user messages for tools; Chat-plan allowance deductions remain unknown. The signed
+app remains the authentication and hosted model owner, Core the sole native
+execution/approval/transcript owner, Manager the optional account/window UX owner.
 
-Source7b8e541 adds explicit gateway batches: one host local-function call carries
-independent native tools, each with stable Core identity/approval/execution/history,
-then receives one aggregate exact return. Core itself is unchanged. A serial live
-sample previously failed parallel acceptance; the new path overlaps workers and
-reduces observed starts10→8 and host returns8→6, with user messages unchanged at2.
-The121.865s installed development/compaction/cold Core trial above is a separate
-bounded acceptance, not an hours-long benchmark or Chat allowance experiment.
+Latest provider source7bb202e passes103 Bun/45 provider Python tests plus18+59
+repository/publication Python checks, packaged imports/builds/HTTP admission,
+actual signed-app/stable54 local tools/reports/cold TUI, and deterministic native
+MCP stdio/original-call returns. Payload45072d is installed. Experimental source
+and qualification are pushed separately; this does not publish a stable Chat
+provider or qualify real MCP confirmation/deadline/long-work behavior.
 
-Current evidence and reusable scripts are on experiment/web-termux atd26722c:
-`batch-qualification.json` and `development-qualification.json`. Private evidence
-is ~/.cache/codex/acceptance/chat-batch-activation and
-chat-development-installed-live-1, including model-developed code, native records,
-command outputs, source/trace hashes and actual rendered TUI.42 provider Python
-checks,18+59 source Python checks and deterministic Core development/batch surface
-pass after test-driver changes; unchanged product reuses52 Node +37 additional Bun
-proof. No existing user task was stopped. Next: automatic/fault compaction and
-provider/app lifecycle, then longer development/concurrent-owner qualification.
-The experiment's current-state document owns remaining scope and exclusions.
-
-Whole-backlog work is authorized and in progress. Source changes now keep same-Chat
-model/effort changes on upstream session actions without persisting a Chat slug
-into an ordinary account profile. Manager supplies default on-request/auto_review
-in its existing system-layer fragment; explicit upstream user/profile/CLI choices
-win. Core owns neither default reviewer policy nor provider behavior. These
-changes are signed, public and device-selected in stable54.
-The experiment now fixes missing optional reports, preserves same-Chat context,
-reduces warm resend and restores shared app hooks across owner exit orders.
-Actual signed-app/stable53 automatic and interrupted compaction both pass through
-continued real development and cold Core inference; two concurrent account homes
-with independent guardian also pass. Autonomous ai-copy improvements pass full
-repository verification, with an explicitly corrected report-count observer and
-an exact-input evidence limitation. Source2245164 records that earlier proof and gaps. Current source33cb3e1 hides
-preceding user-scoped environment/history context in the app without XML guessing
-or changing the final user request. Actual short app-generation recovery passes:
-4 user-message objects,2 tool returns,4 model starts,0 Pro/retry; the cold model
-remembers the completed result without tools or file rewrites, and native reports
-persist/render. Reinstall/rollback/restore plus six bootstrap clients preserve
-all527 files,12 account auth/config hashes, the signed app and endpoint,0 Chat.
-The combined mid-turn/app-restart case remains recorded as FAIL; its retiring-
-controller race is fixed and separately regression/short-live qualified. Physical
-user-window observation and the experiment's other backlog remain open.
-
-Updated Manager system-fragment defaults pass actual Android fresh/resume/btw
-execution in legacy and named permissions: six commands/six guardian reviews,
-dangerFullAccess/auto_review retained. Explicit user reviewer and Full Access
-choices also pass without any model turn. These use stable53's frontend plus the
-new Manager. Actual Android no-op/model/effort selection with source90781cd
-passes without frontend exec or inference, including shared --profile fallback.
-Source acceptance38971986448 and38975807272 pass. Native runs38971985065 and
-38975807254 each pass42/43 focused tests and are not release authority. The first
-new test lacked an explicit Termux child environment; the second initialized only
-stored defaults while the picker reads the active collaboration mask. The test
-now uses actual set_model/set_reasoning_effort setters and asserts effective state
-before checking actions. The same test covers Default and Plan for all four
-no-op/model/effort combinations, applies the emitted native setters and checks the
-effective result plus inactive-mode preservation. Plan effort now uses the existing
-UpdatePlanModeReasoningEffort event rather than the Default-only event; no account
-preference is persisted. The required43-test native/94-feature/lint gate now passes in38979482916,
-and source acceptance38979482791 passes. Actual Android Default and Plan menu
-trials pass all four no-op/model/effort changes with0 frontend exec/inference,
-same PID/PTY/thread and unchanged account configuration. The exact raw frontend
-SHA256 is1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a.
-Its immutable archive is pinned in the public producer; signed stable54 publication
-and separate device activation now pass in release38985595917. Installed54
-fresh/resume/btw proof adds six commands/six guardian reviews with no real model
-inference. Private stable54-device-activation.json verifies all eight signed files,
-14 unchanged configuration files and10 retained process identities. No failing
-gate is waived. Private cache:
-chat-manager-default{,-named}-lifecycle.json and chat-manager-explicit-{user-3,full}.json.
+The physical user confirms stable54 tmux-free opening and same-Chat model/effort
+changes without screen blanking/restart. Physical question interaction and reboot,
+exact-input hours-long development, real-host observer-loss recovery, cross-provider
+long context and explicit remote-history choices remain open. Retained ordinary
+Chat history is the current behavior; no user remote conversations are deleted.
+Independent MCP next needs exact connector/call-bound host acknowledgment, with
+tool-message acknowledgment POSTs counted separately from user submissions and
+hosted internal sampling. No automatic persistent permission change or prompt replay
+is introduced to make a test pass. The default local return path remains usable.
 
 ## Final Core / Manager responsibility boundary
 
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
 responsibility extraction and independent execution are complete. The separately
-qualified0.163 upgrade is now public/device stable53; optional provider improvements
+qualified0.163 upgrade and later fixes are now public/device stable54; optional provider improvements
 remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
