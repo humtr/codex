@@ -26,6 +26,16 @@ class ReleaseControlTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertFalse(control.accepted_run({**run,field:bad},'rald7-full-acceptance.yml',sha))
 
+    def test_github_failure_reports_status_without_private_response_or_tokens(self):
+        error=subprocess.CalledProcessError(1,['gh','release','create'],stderr=b'HTTP 403 opaque-private-value')
+        with patch.object(control.subprocess,'run',side_effect=error):
+            with self.assertRaisesRegex(control.GitHubFailure,'GitHub release operation failed: HTTP 403') as caught:
+                control.gh('release','create','owned')
+            self.assertNotIn('opaque-private-value',str(caught.exception))
+        text=(Path(__file__).with_name('release_control.py')).read_text()
+        self.assertIn("'--target','main'",text)
+        self.assertNotIn("'--target',run['head_sha']",text)
+
     def test_branch_move_refuses_before_writing_and_commit_is_nonforced(self):
         calls=[]
         def api(path,**kwargs):

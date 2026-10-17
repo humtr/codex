@@ -23,12 +23,28 @@ REPO = 'humtr/codex'
 SOURCE_BRANCH = 'rewrite/rust-core'
 
 
+class GitHubFailure(subprocess.CalledProcessError):
+    def __init__(self, code, operation, detail):
+        super().__init__(code,['gh',operation])
+        self.operation,self.detail=operation,detail
+
+    def __str__(self):
+        return 'GitHub '+self.operation+' operation failed: '+self.detail
+
+
 def gh(*args, payload=None):
     command = ['gh', *args]
     if payload is not None:
         command += ['--input', '-']
-    result = subprocess.run(command, input=None if payload is None else json.dumps(payload).encode(),
-                            capture_output=True, check=True)
+    try:
+        result = subprocess.run(command, input=None if payload is None else json.dumps(payload).encode(),
+                                capture_output=True, check=True)
+    except subprocess.CalledProcessError as error:
+        status=re.search(r'HTTP ([0-9]{3})',error.stderr.decode(errors='replace'))
+        detail='HTTP '+status[1] if status else 'exit '+str(error.returncode)
+        # Keep bearer tokens, signed transport URLs and API response bodies out
+        # of logs while preserving an actionable operation/status boundary.
+        raise GitHubFailure(error.returncode,args[0],detail) from None
     return result.stdout
 
 
@@ -176,9 +192,9 @@ def ensure_frontend(source, current, root):
         listed=api('releases?per_page=100')
         existing=next((release for release in listed if release['tag_name']==tag),None)
         if existing is None:
-            gh('release','create',tag,str(bundle),'--repo',REPO,'--target',run['head_sha'],
+            gh('release','create',tag,str(bundle),'--repo',REPO,'--target','main',
                '--title','Qualified unsigned frontend '+value['upstream']['version'],
-               '--notes','Exact successful native build and execution evidence; not a signed runtime release.',
+               '--notes','Exact native source '+run['head_sha']+' and execution evidence; the tag is a container on main, not source authority.',
                '--prerelease','--latest=false')
         readback=directory/'readback';readback.mkdir()
         gh('release','download',tag,'--repo',REPO,'--pattern',name,'--dir',str(readback))
