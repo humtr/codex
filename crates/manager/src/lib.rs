@@ -60,7 +60,7 @@ const HELP: &str = concat!(
     "codex termux profile default [PROFILE_ID]\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
     "codex termux usage [--refresh] [--json]\n",
-    "codex termux rotation show|preview|set JSON\n",
+    "codex termux rotation show|preview MODEL|set JSON|exclude PROFILE SECONDS\n",
     "codex termux task [THREAD_UUID]\n",
     "codex termux task status [THREAD_UUID]\n",
     "codex termux task reconnect <THREAD_UUID>\n",

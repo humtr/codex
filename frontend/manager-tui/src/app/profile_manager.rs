@@ -207,6 +207,7 @@ impl ProfileReentry {
 
     fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.core);
+        command.env_remove("CODEX_QUOTA_SWITCH_NOTICE");
         if let Some(handoff) = &self.handoff {
             command.args(["termux", "__quota-handoff-v1", handoff]);
         } else {

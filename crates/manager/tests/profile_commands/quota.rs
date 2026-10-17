@@ -21,6 +21,7 @@ if sys.argv[1]=='resume':
  with open(os.path.join(os.environ['HOME'],'resumes'),'a') as f:f.write(json.dumps({'args':sys.argv[1:],'home':home})+'\n')
  sys.exit(0)
 assert sys.argv[1:]==['app-server']
+with open(os.path.join(os.environ['HOME'],'reader-starts'),'a') as f:f.write('read\n')
 facts=json.load(open(os.path.join(home,'fixture.json')))
 for line in sys.stdin:
  v=json.loads(line)
@@ -156,6 +157,14 @@ fn quota_proactive_handoff_is_opt_in_and_adds_no_continuation_prompt() {
         .unwrap()
         .contains("checkpoint"));
 }
+
+#[test]
+fn quota_pool_limits_destinations_without_requiring_source_enrollment() {
+    let f = Fixture::new();
+    f.run(&["rotation", "set", r#"{"accounts":["next"]}"#], true);
+    f.handoff("quota", "failed-turn", true);
+    assert_eq!(f.resumes().len(), 1);
+}
 #[test]
 fn quota_handoff_never_removes_or_steals_an_existing_writer() {
     let f = Fixture::new();
@@ -182,4 +191,93 @@ fn quota_handoff_never_removes_or_steals_an_existing_writer() {
     assert!(f.resumes().is_empty());
     use std::os::unix::fs::MetadataExt;
     assert_eq!(fs::metadata(&lock).unwrap().ino(), before.ino());
+}
+
+#[test]
+fn quota_cancelled_manager_leaves_no_owned_background_reader() {
+    let f = Fixture::new();
+    let cache = f.root.0.join(".cache/codex/manager/usage");
+    for id in ["default", "next"] {
+        let path = cache.join(format!("{id}.json"));
+        let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["observed"] = json!(0);
+        fs::write(path, value.to_string()).unwrap();
+    }
+    fs::write(f.root.0.join("core.py"),"import os,time\nwith open(os.path.join(os.environ['HOME'],'reader-pids'),'a') as f:f.write(str(os.getpid())+'\\n')\ntime.sleep(30)\n").unwrap();
+    let mut child = base_manager_command(&f.root.0, &f.core)
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .args(["usage", "--refresh", "--json"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let path = f.root.0.join("reader-pids");
+    while std::time::Instant::now() < deadline
+        && fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .count()
+            < 2
+    {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let pids: Vec<u32> = fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|pid| pid.parse().unwrap())
+        .collect();
+    assert!(!pids.is_empty());
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let exited = |pid| match fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Err(_) => true,
+        Ok(stat) => stat.rsplit_once(')').unwrap().1.split_whitespace().next() == Some("Z"),
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && !pids.iter().all(|pid| exited(*pid)) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        pids.iter().all(|pid| exited(*pid)),
+        "owned readers survived cancellation"
+    );
+}
+
+#[test]
+fn quota_concurrent_refreshes_share_one_native_read_per_profile() {
+    let f = Fixture::new();
+    for id in ["default", "next"] {
+        let path = f
+            .root
+            .0
+            .join(format!(".cache/codex/manager/usage/{id}.json"));
+        let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["observed"] = json!(0);
+        fs::write(path, value.to_string()).unwrap();
+    }
+    let starts = f.root.0.join("reader-starts");
+    fs::write(&starts, "").unwrap();
+    let spawn = || {
+        base_manager_command(&f.root.0, &f.core)
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .args(["usage", "--refresh", "--json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let first = spawn();
+    let second = spawn();
+    for process in [first, second] {
+        let result = process.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let view: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(view["rows"][1]["state"], "ready");
+    }
+    assert_eq!(fs::read_to_string(starts).unwrap().lines().count(), 2);
 }

@@ -226,19 +226,30 @@ rewrite/rust-core remains implementation authority and public base58/full59 rema
 selected until the complete feature passes qualification. Rotation stays off by
 default; no live account pool is enrolled by development tests.
 
-Existing implementation: Manager profile_view snapshots registered profile IDs,
-current and saved default. Enhanced TUI app/profile_manager renders selection and
-requires an idle primary chat without queued input or pending tools; Manager
-profile_resume validates destination/source, registry identity and writer release
-before ordinary same-thread resume. No quota display, rotation policy or automatic
-quota handoff exists. Core forwards Manager commands without interpreting them.
+The feature is implemented on the experiment branch and is undergoing native
+qualification before integrated publication. Manager owns private identity-bound
+usage snapshots, explicit pool/settings/ranking, cooldowns and durable handoff
+claims. The optional TUI renders cached rows, refreshes asynchronously and forwards
+only settled typed boundaries. Core forwards Manager commands unchanged. Both
+manual and automatic re-entry preserve resolved model/effort and session policy;
+a quota continuation adds one checkpoint turn, never the original prompt.
+
+Actual Android proof with authenticated base58, candidate Manager and native
+45d150d frontend passes: two synthetic ChatGPT accounts,2 source samples,1
+quota-failed terminal turn,1 completed command effect,1 automatic handoff and1
+destination continuation. The original request appears once and the checkpoint
+once in the canonical rollout; UUID, permissions/reviewer and the visible final
+answer survive. No real inference/account allowance is consumed and no operating
+policy/runtime is changed. Proof: quota-native-synthetic-current.json in the
+private acceptance cache. Final exact-source frontend qualification, native
+menu/toggle/notice proof and integrated public full-only admission remain required.
 
 Pinned upstream0.163 source83086188 already exposes account/rateLimits/read and
 account/rateLimits/updated. Its account protocol includes windowDurationMins,
 usedPercent, resetsAt, multiple limit IDs, account_id and ordinary_usage_allowed;
 null permission is explicitly unknown and percentages/reset times cannot establish
-recovery. Typed UsageLimitExceeded and RateLimitExceeded are distinct. This review
-checked source, not live account responses. Official reference:
+recovery. Typed UsageLimitExceeded and RateLimitExceeded are distinct. Read-only Android native account queries now establish actual window/identity
+mapping without inference or operating policy changes. Official reference:
 https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt
 
 Ownership and required behavior:
@@ -317,8 +328,8 @@ Ownership and required behavior:
 
 Approved execution order:
 
-1. Complete chosen composition/transport, component selection and both public-lane
-   proofs; retain full54/device and base55 until their replacement gates pass.
+1. Completed composition/transport and both public-lane proofs: authenticated
+   base58/full59 are serving; installed57 remains unchanged by this development.
 2. Implement read-only quota rows, freshness/error states and manual /switch;
    qualify account identity, window mapping and inactive-account query behavior.
 3. Implement pool/toggle/ranking and deterministic preview; fixture-test missing

@@ -18,6 +18,7 @@ pub(crate) struct State {
     pending: BTreeSet<String>,
     view: Option<Value>,
     handled: Option<String>,
+    notice: Option<String>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -31,7 +32,40 @@ impl Default for State {
             pending: BTreeSet::new(),
             view: None,
             handled: None,
+            notice: std::env::var("CODEX_QUOTA_SWITCH_NOTICE")
+                .ok()
+                .and_then(|v| notice(&v, std::process::id())),
         }
+    }
+}
+fn notice(value: &str, pid: u32) -> Option<String> {
+    if value.len() > 512 {
+        return None;
+    }
+    let value: Value = serde_json::from_str(value).ok()?;
+    if value["pid"].as_u64() != Some(pid as u64) {
+        return None;
+    }
+    let source = value["source"].as_str()?;
+    let target = value["target"].as_str()?;
+    if [source, target].iter().any(|id| {
+        id.is_empty()
+            || id.len() > 64
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    }) {
+        return None;
+    }
+    Some(format!(
+        "Account switched: {source} -> {target}. Conversation and settings retained."
+    ))
+}
+pub(super) fn show_notice(app: &mut App) {
+    if app.chat_widget.thread_id().is_some()
+        && let Some(notice) = app.quota_switch.notice.take()
+    {
+        app.chat_widget.add_info_message(notice, None);
     }
 }
 pub(super) fn session_off(app: &App) -> bool {
@@ -96,7 +130,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                 "Automatic switching: {}",
                 if enabled { "off" } else { "on" }
             ),
-            Some("Only explicitly enrolled accounts; safe idle boundaries.".into()),
+            Some("Enrolled accounts only. Quota recovery submits one saved-checkpoint continuation turn.".into()),
             move || AppEvent::EditQuotaPolicy(json!({"enabled":enabled})),
         ));
         items.push(item(
@@ -253,6 +287,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             );
             entry.is_current = current;
             entry.dismiss_on_select = current;
+            entry.require_explicit_confirmation = true;
             items.push(entry);
         }
         items.push(item(
@@ -278,7 +313,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             if settings {
                 "Switch settings"
             } else {
-                "Profiles · quota"
+                "Profiles · Codex usage"
             }
             .into(),
         ),
@@ -474,7 +509,18 @@ pub(super) fn observe(app: &mut App, notification: &ServerNotification) {
     {
         return;
     }
-    if let Some((turn, trigger)) = record(&mut app.quota_switch, method, params)
+    let mut boundary = record(&mut app.quota_switch, method, params);
+    if boundary.is_none()
+        && method == "turn/completed"
+        && params["turn"]["status"] == "failed"
+        && params["turn"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
+        && let Some(turn) = params["turn"]["id"].as_str()
+        && app.quota_switch.handled.as_deref() != Some(turn)
+    {
+        app.quota_switch.handled = Some(turn.to_owned());
+        boundary = Some((turn.to_owned(), "unsafe".to_owned()));
+    }
+    if let Some((turn, trigger)) = boundary
         && let Some(thread) = app.chat_widget.thread_id()
     {
         app.app_event_tx.send(AppEvent::AutoQuotaHandoff {
@@ -500,17 +546,9 @@ pub(super) async fn automatic(
 ) -> Option<super::profile_manager::ProfileReentry> {
     if app.quota_switch.session_off
         || app.quota_switch.visible
-        || app
-            .agent_navigation
-            .ordered_threads()
-            .iter()
-            .any(|(id, entry)| *id != thread && entry.is_running)
         || app.chat_widget.thread_id() != Some(thread)
         || app.primary_thread_id != Some(thread)
         || app.chat_widget.config_ref().model_provider_id != "openai"
-        || !app.chat_widget.composer_is_empty()
-        || !app.dynamic_tool_tasks.is_empty()
-        || !app.chat_widget.can_change_working_directory(thread)
     {
         return None;
     }
@@ -523,6 +561,21 @@ pub(super) async fn automatic(
     if view["rotation"]["enabled"] != true
         || trigger == "proactive" && view["rotation"]["proactive"].as_i64().unwrap_or(0) == 0
     {
+        return None;
+    }
+    if trigger == "unsafe"
+        || app
+            .agent_navigation
+            .ordered_threads()
+            .iter()
+            .any(|(id, entry)| *id != thread && entry.is_running)
+        || !app.chat_widget.composer_is_empty()
+        || !app.dynamic_tool_tasks.is_empty()
+        || !app.chat_widget.can_change_working_directory(thread)
+    {
+        if trigger != "proactive" {
+            app.chat_widget.add_info_message("Automatic switching paused: pending input, running agents/tools or uncertain execution outcomes must settle first. Saved work has not been replayed.".into(),None);
+        }
         return None;
     }
     app.chat_widget.termux_prepare_account_handoff();
@@ -572,9 +625,17 @@ pub(super) async fn automatic_ready(
         || app.quota_switch.handled.as_deref() != Some(&turn)
         || app.chat_widget.thread_id() != Some(thread)
         || app.primary_thread_id != Some(thread)
+        || app.chat_widget.config_ref().model_provider_id != "openai"
         || app.chat_widget.has_active_modal()
         || !app.chat_widget.composer_is_empty()
         || !app.dynamic_tool_tasks.is_empty()
+        || app.quota_switch.uncertain
+        || !app.quota_switch.pending.is_empty()
+        || app
+            .agent_navigation
+            .ordered_threads()
+            .iter()
+            .any(|(id, entry)| *id != thread && entry.is_running)
         || !app.chat_widget.can_change_working_directory(thread)
     {
         return None;
@@ -630,6 +691,20 @@ mod tests {
         let mut state = State::default();
         record(&mut state, method, params);
         assert_eq!(state.turn.as_deref(), Some("native-turn"));
+        let valid = json!({"pid":123,"source":"default","target":"next"});
+        assert!(
+            notice(&valid.to_string(), 123)
+                .unwrap()
+                .contains("default -> next")
+        );
+        assert!(notice(&valid.to_string(), 124).is_none());
+        assert!(
+            notice(
+                &json!({"pid":123,"source":"bad\nrow","target":"next"}).to_string(),
+                123
+            )
+            .is_none()
+        );
     }
     #[test]
     fn profile_manager_quota_rows_render_and_settings_actions_use_manager_policy() {

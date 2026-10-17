@@ -201,6 +201,33 @@ and running clients are preserved. The temporary download is always cleaned.
 )
 ```
 
+## Account usage and automatic switching (Full)
+
+`/switch` shows each registered profile's remaining Codex5h/weekly usage, reset
+countdown and freshness/error state. It opens cached rows first and refreshes
+without sending a model request. Unknown values stay unknown. API-key and other
+provider allowances are not Codex account quota.
+
+Open its settings to choose the account pool, enable automatic switching, select
+5h reset/weekly reset/combined/remaining/custom ranking, adjust reserves and
+weights, set account priority, pause a member or disable rotation for this client.
+Rotation is off by default and new/replaced accounts are not enrolled implicitly.
+Two profiles of the same account share one allowance. Manual selection still works.
+
+```sh
+codex termux usage --refresh
+codex termux rotation show
+codex termux rotation preview gpt-6.1-sol
+codex termux rotation set '{"accounts":["default","work"],"enabled":true,"policy":"combined"}'
+```
+
+Automatic switching waits for settled native work and writer release. It retains
+the conversation, terminal, CWD and session settings. A confirmed quota failure
+starts one checkpoint-continuation turn on an eligible account; it does not resend
+the original request or replay completed tool calls. Proactive idle switching
+submits no prompt. Unknown tool outcomes, conflicting writers, stale quota,
+cooldowns or missing destination capabilities pause safely with a reason.
+
 ## Development
 
 The minimum installation is the qualified upstream runtime plus Core. Core owns

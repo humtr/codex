@@ -23,6 +23,7 @@ impl ChatModelReentry {
     }
     fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.core);
+        command.env_remove("CODEX_QUOTA_SWITCH_NOTICE");
         command
             .args(&self.args)
             .current_dir(&self.cwd)

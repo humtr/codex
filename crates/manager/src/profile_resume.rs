@@ -71,7 +71,7 @@ fn run_with(
             .ok()?;
         Some((home, directory))
     });
-    match switch_with(context, &target, id, flags, None) {
+    match switch_with(context, &target, id, flags, None, None) {
         Err(error) => match source {
             Some((home, directory)) => {
                 return_to_source(context, id, &home, &directory, error, flags)
@@ -88,6 +88,7 @@ pub(super) fn switch_with(
     id: &str,
     flags: &[String],
     continuation: Option<&str>,
+    notice: Option<&str>,
 ) -> Result<Option<String>, ManagerError> {
     // Reuse lifecycle's registry lock so rename/delete cannot invalidate the
     // selected account while native writer cleanup is still in progress.
@@ -111,6 +112,10 @@ pub(super) fn switch_with(
     }
     // Native resume provides the final atomic writer acquisition if ownership races.
     let mut command = task::resume_command(context, &home, id, None)?;
+    command.env_remove("CODEX_QUOTA_SWITCH_NOTICE");
+    if let Some(notice) = notice {
+        command.env("CODEX_QUOTA_SWITCH_NOTICE", notice);
+    }
     command.args(flags);
     if let Some(prompt) = continuation {
         command.arg(prompt);

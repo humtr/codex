@@ -386,10 +386,22 @@ fn query(context: &Context, id: &str, deadline: Instant) -> Result<Usage, Manage
 }
 fn refresh(context: &Context, ids: &[String]) -> Result<(), ManagerError> {
     ensure_private_directory(&cache(context))?;
-    let Ok(_lock) = profile::directory_lock(&cache(context), libc::LOCK_EX) else {
-        return Ok(());
-    };
     let deadline = Instant::now() + Duration::from_secs(20);
+    let _lock = match profile::directory_lock(&cache(context), libc::LOCK_EX) {
+        Ok(lock) => lock,
+        Err(error) if error == profile::ERR_BUSY => {
+            // Reuse the in-flight refresh, rather than opening another set of
+            // account clients or returning before its fresh rows are available.
+            while Instant::now() < deadline {
+                if profile::directory_lock(&cache(context), libc::LOCK_SH).is_ok() {
+                    return Ok(());
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     // Four bounded readers; only this explicit operation creates them.
     thread::scope(|scope| {
         for part in ids.chunks(ids.len().div_ceil(4).max(1)) {
@@ -642,13 +654,16 @@ fn handoff(context: &Context, value: &str) -> Result<Option<String>, ManagerErro
     let registry = manager_profiles_for_create(context)?;
     let _registry = profile::directory_lock(&registry, libc::LOCK_SH)?;
     let policy = policy(context)?;
-    if !policy.enabled || !policy.accounts.contains_key(source) {
+    if !policy.enabled {
         return Err(ERR_QUOTA);
     }
     let destination = policy.accounts.get(&request.profile).ok_or(ERR_QUOTA)?;
     let source_usage = query(context, source, Instant::now() + Duration::from_secs(8))?;
-    if Some(&policy.accounts[source].account) != source_usage.account.as_ref()
-        || policy.accounts[source].home != source_usage.home
+    if source_usage.account.is_none()
+        || policy.accounts.get(source).is_some_and(|member| {
+            Some(&member.account) != source_usage.account.as_ref()
+                || member.home != source_usage.home
+        })
     {
         return Err(ERR_QUOTA);
     }
@@ -714,7 +729,7 @@ fn handoff(context: &Context, value: &str) -> Result<Option<String>, ManagerErro
             return Err(ERR_QUOTA);
         }
         cooldowns.insert(
-            policy.accounts[source].account.clone(),
+            source_usage.account.clone().ok_or(ERR_QUOTA)?,
             now() + policy.cooldown,
         );
         publish(&cooldown_path, &cooldowns)?;
@@ -765,12 +780,15 @@ fn handoff(context: &Context, value: &str) -> Result<Option<String>, ManagerErro
         }
     );
     let target = parse_target(&OsString::from(&request.profile))?;
+    let notice =
+        json!({"pid":std::process::id(),"source":source,"target":request.profile}).to_string();
     profile_resume::switch_with(
         context,
         &target,
         &request.thread,
         &request.flags,
         continuation,
+        Some(&notice),
     )
 }
 fn settings(policy: &Policy) -> Value {

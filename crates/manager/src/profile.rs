@@ -6,7 +6,7 @@ use std::os::unix::fs::MetadataExt;
 const PREFERENCE: &str = "default-profile-v1";
 const HEADER: &str = "codex-manager-default-profile-v1";
 pub(super) const METADATA_V2: &[u8] = b"codex-manager-profile-v2\n";
-const ERR_BUSY: ManagerError =
+pub(super) const ERR_BUSY: ManagerError =
     ManagerError::operation("codex termux: profile is in use; no change made");
 const ERR_DEFAULT: ManagerError =
     ManagerError::operation("codex termux: default profile is invalid");

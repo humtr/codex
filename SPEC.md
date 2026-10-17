@@ -256,7 +256,7 @@ Ordinary automatic Codex destinations need both advertised5h and weekly windows;
 an absent window stays unknown rather than implying unlimited usage. Manual
 selection remains available. Model-specific buckets stay distinct from codex.
 
-`codex termux rotation show|preview|set JSON` and /switch settings share Manager's
+`codex termux rotation show|preview MODEL|set JSON|exclude PROFILE SECONDS` and /switch settings share Manager's
 policy: off by default, explicitly enrolled account identities, a deterministic
 5h/weekly/combined/remaining/custom ordering, reserves, proactive safe-boundary
 threshold and cooldown. Custom values are data, never executable commands.

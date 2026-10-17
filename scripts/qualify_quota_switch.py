@@ -31,7 +31,7 @@ def token(account):
 def probe(args):
     counts={'sourceSamples':0,'destinationSamples':0,'usageReads':0,'guardian':0}
     failures=[];requests=[];state={'exhausted':False}
-    with tempfile.TemporaryDirectory(prefix='quota-native-',dir=os.environ['TMPDIR']) as temporary:
+    with tempfile.TemporaryDirectory(prefix='qn-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary)
         home,prefix,env=fixture(root,args.core,args.frontend,args.manager,None)
         env.pop('OPENAI_API_KEY',None)
@@ -58,7 +58,10 @@ def probe(args):
                 else:self.json(200,{})
             def do_POST(self):
                 try:
-                    body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                    payload=self.rfile.read(int(self.headers['Content-Length']))
+                    if self.headers.get('Content-Encoding')=='zstd':
+                        payload=subprocess.run(['zstd','-d','-q','-c'],input=payload,capture_output=True,check=True).stdout
+                    body=json.loads(payload)
                     account=self.headers.get('chatgpt-account-id','')
                     requests.append({'method':'POST','path':self.path,'account':account})
                     if not self.path.endswith('/responses'):
@@ -110,7 +113,7 @@ def probe(args):
         for model in value['models']:model.update(multi_agent_version='v1',context_window=262144,max_context_window=262144,auto_compact_token_limit=200000)
         catalog.write_text(json.dumps(value))
         config=('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\napproval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\ncheck_for_update_on_startup = false\n'
-            +'chatgpt_base_url = '+json.dumps(address) +'\nmodel_catalog_json = '+json.dumps(str(catalog))+'\n'
+            +'openai_base_url = '+json.dumps(address+'/v1')+'\nchatgpt_base_url = '+json.dumps(address) +'\nmodel_catalog_json = '+json.dumps(str(catalog))+'\n'
             +'[tui]\nscreen_reader_detection_done = true\n[features]\nmemories = false\nplugins = false\n'
             +'[projects.'+json.dumps(str(work))+']\ntrust_level = "trusted"\n')
         core=prefix/'bin/codex'
@@ -171,7 +174,7 @@ def probe(args):
                     if predicate():return
                     if process.poll() is not None:break
                 clean=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',screen)
-                raise AssertionError('native quota trial timeout '+json.dumps(counts)+': '+clean[-2600:])
+                raise AssertionError('native quota trial timeout '+json.dumps(counts)+' requests='+json.dumps(requests[-12:])+': '+clean[-2600:])
             def loaded():
                 result=[]
                 from qualify_tasks import Ws
@@ -183,8 +186,29 @@ def probe(args):
             wait(lambda:bool(server_paths(home)))
             wait(lambda:len(loaded())==1)
             thread=loaded()[0]
+            if args.ui_proof:
+                os.write(master,b'/switch');time.sleep(.3);os.write(master,b'\r')
+                wait(lambda:'Profiles' in screen and 'Automatic switching' in screen)
+                wait(lambda:'weekly' in screen and '5h' in screen)
+                end=time.monotonic()+1
+                while time.monotonic()<end:drain()
+                os.write(master,b'\x1b[B'*3+b'\r')
+                wait(lambda:'Switch settings' in screen)
+                os.write(master,b'\r')
+                wait(lambda:json.loads(run('termux','rotation','show'))['enabled']==False)
+                os.write(master,b'\r')
+                wait(lambda:json.loads(run('termux','rotation','show'))['enabled']==True)
+                os.write(master,b'\x1b')
+                end=time.monotonic()+.5
+                while time.monotonic()<end:drain()
             rpc(home,'turn/start',{'threadId':thread,'input':[{'type':'text','text':'QUOTA_REQUEST: execute the owned command once, then finish.','text_elements':[]}]})
+            if args.source_only:
+                wait(lambda:state['exhausted'],60)
+                assert counter.read_text().splitlines()==['effect']
+                return {'accepted':True,'nativeCommandEffects':1,'terminalQuotaResponse':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
             wait(lambda:'QUOTA_SWITCH_COMPLETE' in screen,90)
+            if args.ui_proof:
+                wait(lambda:'Account switched: default -> next' in screen)
             assert counter.read_text().splitlines()==['effect'],'completed command ran more than once'
             assert counts['sourceSamples']==2 and counts['destinationSamples']==1,counts
             assert thread in loaded(),'conversation UUID changed'
@@ -192,13 +216,13 @@ def probe(args):
             assert len(attempts)==1 and len(json.loads(attempts[0].read_text()))==1
             native=rpc(home,'thread/read',{'threadId':thread,'includeTurns':False})['thread']
             rollout=Path(native['path']);events=[json.loads(line) for line in rollout.read_text().splitlines()]
-            prompts=[entry['payload'].get('message','') for entry in events if entry.get('type')=='event_msg' and entry.get('payload',{}).get('type')=='user_message']
-            assert sum('QUOTA_REQUEST' in p for p in prompts)==1,prompts
+            prompts=[json.dumps(entry['payload'].get('content',[])) for entry in events if entry.get('type')=='response_item' and entry.get('payload',{}).get('role')=='user']
+            assert sum('QUOTA_REQUEST' in p for p in prompts)==1,{'prompts':prompts,'eventKinds':sorted({str(e.get('type')) for e in events})}
             assert sum('checkpoint' in p for p in prompts)==1,prompts
             settings=rpc(home,'thread/resume',{'threadId':thread})
             assert settings['sandbox']['type']=='dangerFullAccess' and settings['approvalPolicy']=='never' and settings['approvalsReviewer']=='user',settings
             assert not failures,failures
-            return {'accepted':True,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
+            return {'accepted':True,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'visibleSwitchNotice':args.ui_proof,'nativeMenuAndToggle':args.ui_proof,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
         finally:
             if process and process.poll() is None:
                 os.killpg(process.pid,signal.SIGTERM)
@@ -217,6 +241,8 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['core','manager','frontend','report']:parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--prepare-only',action='store_true')
+    parser.add_argument('--source-only',action='store_true')
+    parser.add_argument('--ui-proof',action='store_true')
     args=parser.parse_args()
     try:result=probe(args)
     except Exception as error:
