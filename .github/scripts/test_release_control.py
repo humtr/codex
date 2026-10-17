@@ -56,6 +56,8 @@ class ReleaseControlTests(unittest.TestCase):
             with tarfile.open(fileobj=io.BytesIO(first),mode='r:gz') as archive:
                 self.assertEqual(archive.getnames(),['artifact/codex','proof/_temp/log'])
                 self.assertTrue(all(entry.mtime==entry.uid==entry.gid==0 for entry in archive))
+                self.assertEqual(archive.getmember('artifact/codex').mode,0o755)
+                self.assertEqual(archive.getmember('proof/_temp/log').mode,0o644)
 
     def test_base_can_advance_without_frontend_and_missing_core_proof_dispatches_only_proof(self):
         root=Path(__file__).resolve().parents[2];sha='a'*40;calls=[]

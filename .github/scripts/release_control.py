@@ -81,6 +81,9 @@ def bundle_inputs(artifact, proof):
                         continue
                     info = archive.gettarinfo(str(path), label+'/'+str(path.relative_to(root)))
                     info.uid=info.gid=0;info.uname=info.gname='';info.mtime=0
+                    # Actions transport strips executable modes. Restore only
+                    # the admitted binary's mode in the immutable input bundle.
+                    info.mode=0o755 if label=='artifact' and path.relative_to(root)==Path('codex') else 0o644
                     with path.open('rb') as stream:archive.addfile(info, stream)
     return output.getvalue()
 
