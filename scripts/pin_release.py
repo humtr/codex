@@ -71,7 +71,22 @@ jobs:
     secrets:
       CODEX_RELEASE_SIGNING_KEY: ${{{{ secrets.CODEX_RELEASE_SIGNING_KEY }}}}
 """)
-    return header + ''.join(jobs)
+    signal = """  notify_acceptance:
+    needs: [source, base, release]
+    if: always() && needs.source.result == 'success'
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Continue after publication reaches a terminal state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run accepted-release-inputs.yml --repo humtr/codex --ref main -f completed_run="$GITHUB_RUN_ID"
+"""
+    return header + ''.join(jobs) + signal
 
 
 def source_workflow_registrations():

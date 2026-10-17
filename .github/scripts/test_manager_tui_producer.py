@@ -28,7 +28,7 @@ class NativeProducerTests(unittest.TestCase):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 source, artifact, proof, sha, digest, run, run_file = fixtures.NativeArtifactTests().fixture(root)
-                for name in ['manager_tui_artifact.py', 'rald3_preflight.py']:
+                for name in ['manager_tui_artifact.py', 'rald3_preflight.py', 'qualification_signal.py']:
                     (source / '.github/scripts' / name).symlink_to(ROOT / '.github/scripts' / name)
                 archive = root / 'input.tar.gz'
                 with tarfile.open(archive, 'w:gz') as bundle:

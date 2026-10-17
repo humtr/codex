@@ -338,3 +338,19 @@ jobs:
             test '${{ needs.workspace.result }}' = skipped
           fi
           printf 'Event-revision source acceptance gates are green\n'
+
+  notify_acceptance:
+    needs: accepted
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Continue accepted input processing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api 'repos/humtr/codex/contents/.github/workflows/accepted-release-inputs.yml?ref=main' --silent; then
+            gh workflow run accepted-release-inputs.yml --repo humtr/codex --ref main -f completed_run="$GITHUB_RUN_ID"
+          fi

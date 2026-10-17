@@ -1052,6 +1052,15 @@ unqualified version by removing its guard. Prefer repeatable source/semantic
 transformations; any generated artifact policy remains bound to exact inputs and
 Android proof. Historic policies needed by retained generations remain supported.
 
+Qualification build/test jobs remain read-only. An isolated completion relay may
+only enqueue the accepted-input workflow with its run ID; it has no content-write
+permission or signing key. The receiver waits for that run to finish, then checks
+owned exact-source qualification independently. Completion delivery is not proof.
+Native trigger metadata and the exact isolated relay are excluded from recipe
+comparison only while build/test code consumes no event/dispatch input; global
+settings and all actual build/test steps remain bound. Native builds start through
+the accepted-input controller, reusing a matching build already in progress.
+
 Base and full have independent signed public heads. The existing update-index-v1
 remains the full head for compatibility; the base head is update-index-base-v1.
 The default update head follows the authenticated public baseline of the selected

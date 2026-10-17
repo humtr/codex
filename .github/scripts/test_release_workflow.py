@@ -51,7 +51,8 @@ class WorkflowTests(unittest.TestCase):
         base=(ROOT/'.github/workflows/core-runtime-qualification.yml').read_text()
         self.assertIn('base_only: true',base)
         self.assertIn('publish: false',base)
-        self.assertNotIn('write',base.replace('rewrite/rust-core','source-branch'))
+        self.assertNotIn('write',base.split('\n  notify_acceptance:',1)[0].replace('rewrite/rust-core','source-branch'))
+        self.assertIn('actions: write',base.split('\n  notify_acceptance:',1)[1])
         for key in ('stage_release','pages','verify_public','promote'):
             job=re.split(r'\n  [a-z_]+:',body.split('\n  '+key+':',1)[1],maxsplit=1)[0]
             self.assertIn('&& inputs.publish',job)

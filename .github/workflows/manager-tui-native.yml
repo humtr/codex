@@ -1,22 +1,6 @@
 name: Manager TUI native qualification
 on:
   workflow_dispatch:
-  push:
-    branches: [rewrite/rust-core]
-    paths:
-      - '.github/workflows/manager-tui-native.yml'
-      - 'release/upstream.json'
-      - '.github/scripts/upstream_release.py'
-      - 'frontend/manager-tui/native.patch'
-      - 'frontend/manager-tui/src/**'
-      - 'frontend/manager-tui/apply.py'
-      - 'frontend/manager-tui/test_apply.py'
-      - 'frontend/manager-tui/normalize_lock.py'
-      - 'frontend/manager-tui/test_normalize_lock.py'
-      - 'frontend/manager-tui/check_command_boundary.py'
-      - 'frontend/manager-tui/test_command_boundary.py'
-      - 'frontend/manager-tui/check_upstream_features.py'
-      - 'frontend/manager-tui/test_upstream_features.py'
 permissions:
   contents: read
 concurrency:
@@ -349,3 +333,19 @@ jobs:
             ${{ github.workspace }}/upstream/codex-rs/target/**/config.log
           if-no-files-found: warn
           retention-days: 3
+
+  notify_acceptance:
+    needs: upstream-baseline
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Continue accepted input processing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api 'repos/humtr/codex/contents/.github/workflows/accepted-release-inputs.yml?ref=main' --silent; then
+            gh workflow run accepted-release-inputs.yml --repo humtr/codex --ref main -f completed_run="$GITHUB_RUN_ID"
+          fi

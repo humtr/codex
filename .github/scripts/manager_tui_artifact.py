@@ -14,6 +14,7 @@ from check_command_boundary import nonzero_tests
 from check_upstream_features import verify as verify_upstream_features
 
 from upstream_release import load as load_release, build_recipe
+from qualification_signal import native_recipe
 RELEASE_INPUT = Path(__file__).resolve().parents[2] / 'release/upstream.json'
 # Kept as fixture conveniences; verify() reads the selected source authority.
 _INPUT = load_release(RELEASE_INPUT)
@@ -50,6 +51,10 @@ def verify_recipe(source, source_sha):
             ["git", "-C", str(source), "rev-parse", f"{revision}:{relative}"],
             stderr=subprocess.DEVNULL) for revision in ("HEAD", source_sha)]
         if blobs[0] != blobs[1]:
+            if relative == INPUTS[0]:
+                workflows=[subprocess.check_output(['git','-C',str(source),'show',revision+':'+relative]).decode() for revision in ('HEAD',source_sha)]
+                if native_recipe(workflows[0]) == native_recipe(workflows[1]):
+                    continue
             raise ValueError("maintained native input differs from qualified source: " + relative)
     qualified_input = subprocess.check_output(
         ['git', '-C', str(source), 'show', source_sha + ':release/upstream.json'],
