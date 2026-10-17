@@ -149,8 +149,10 @@ class ReleaseControlTests(unittest.TestCase):
             self.assertEqual(control.run(root)['state'],'awaiting-publication')
             commit.assert_not_called();dispatch.assert_not_called()
         text=(root/'.github/workflows/accepted-release-inputs.yml').read_text()
-        self.assertIn('Termux Hosted Release Preflight',text)
-        self.assertIn('rewrite/rust-core, main',text)
+        self.assertIn('completed_run:',text)
+        self.assertNotIn('workflow_run:',text)
+        caller=(root/'scripts/pin_release.py').read_text()
+        self.assertIn('Continue after publication reaches a terminal state',caller)
 
     def test_git_comparison_preserves_unknown_product_changes(self):
         with tempfile.TemporaryDirectory() as tmp:

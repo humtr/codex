@@ -90,8 +90,8 @@ jobs:
 
 
 def source_workflow_registrations():
-    # workflow_run subscriptions need these source workflow identities on the
-    # default branch. Actual dispatch uses the source branch's implementation;
+    # Register discoverable workflow identities, including initial API dispatch
+    # before a source workflow has run. Actual dispatch uses source implementation;
     # accidental main execution fails instead of becoming a second proof path.
     workflows={'rald7-full-acceptance.yml':'Source acceptance',
                'core-runtime-qualification.yml':'Independent Core/runtime qualification',
