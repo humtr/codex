@@ -101,6 +101,37 @@ qualified0.163 upgrade and later fixes are now public/device stable54; optional 
 remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
+### Responsibility recheck2026-10-17
+
+Current Core/Manager/frontend/build inputs are unchanged from accepted source
+c085617; only documentation changed on rewrite/rust-core. Read-only installed
+verification matches all8 Core generation assets and the optional provider's527-
+file content-bound installation, including26 runtime source/assets matching
+source7bb202e. No Chat submission, operating configuration or runtime change is
+part of this review. Private proof: responsibility-boundary-20261017.json.
+
+The dependency direction remains correct: Core uses release-builder and the
+no-dependency statically linked execution-record codec, not Manager/frontend/
+provider. Optional Manager fragment failure leaves Core usable. Core treats a
+resolved startup catalog as opaque bounded bytes. Manager owns auto_review
+convenience defaults and generic shared-profile projection; upstream owns actual
+tool execution/reviewer/records. Provider host confirmation stays in provider
+transport and cannot silently become Core policy or native approval bypass.
+
+Two real coupling debts remain; do not call the architecture fully decoupled:
+
+- The enhanced TUI hardcodes Chat model families/efforts/provider/profile format
+  in addition to reading the provider's catalog. New supported families can still
+  require a frontend rebuild. Prefer the existing installed catalog/config as the
+  capability authority and keep TUI work to generic selection/routing; do not move
+  that interpretation into Core or create a second registry.
+- Independent Core build/Android qualification is base-only and cannot publish.
+  Normal feature-complete signed publication still requires a matching enhanced
+  TUI and its upstream API/patch acceptance. Thus Core source/runtime independence
+  does not guarantee independent feature-complete publication. Keep this tradeoff
+  explicit; a future Core-only publication option would be release-contract work,
+  with capability disclosure and retained optional assets, not silent downgrading.
+
 ### Accepted0.163 upgrade
 
 User authorized the0.161→0.163 upgrade after boundary finalization, including
