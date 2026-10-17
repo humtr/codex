@@ -1,0 +1,16 @@
+name: Independent Core/runtime qualification
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild_current:
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  source_branch_required:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Dispatch qualification on rewrite/rust-core; main has no implementation.' >&2
+          exit 1
