@@ -54,6 +54,20 @@ def probe(bun, bridge, runtime_source=None):
                          (b'{"model":"native","stream":true}', 'unsupported_desktop_route'),
                          (b'{"model":"chatgpt-desktop/gpt-6","stream":false}', 'desktop_stream_required'),
                          (b'{"model":"chatgpt-desktop/gpt-6","stream":true,"previous_response_id":"private"}', 'desktop_response_cursor_unavailable')]
+                # Actual upstream model-downshift compaction retains the previous
+                # model while using the newly selected provider. Verify both
+                # independent blockers without submitting a real Chat message.
+                previous_provider = {'model': 'gpt-6.1-sol', 'stream': True,
+                    'reasoning': {'effort': 'high'},
+                    'client_metadata': {'x-codex-turn-metadata': json.dumps({
+                        'request_kind': 'compaction', 'compaction': {
+                            'trigger': 'auto', 'reason': 'model_downshift',
+                            'implementation': 'responses', 'phase': 'pre_turn', 'strategy': 'memento'}})},
+                    'input': [{'type': 'compaction', 'encrypted_content': 'OWNED_OPAQUE_CHECKPOINT'}]}
+                cases.extend([
+                    (json.dumps(previous_provider).encode(), 'unsupported_desktop_route'),
+                    (json.dumps({**previous_provider, 'model': 'chatgpt-desktop/gpt-6'}).encode(), 'opaque_context_unavailable'),
+                ])
                 for body, code in cases:
                     status, response = request('/v1/responses', body)
                     assert status==400
@@ -111,8 +125,8 @@ def probe(bun, bridge, runtime_source=None):
                 assert report['submissionSources']=={'app_accepted': 0, 'ui_observed': 0}
                 # Bun's outer body ceiling can reject before entering fetch.
                 assert report['arrivals'] >= len(cases)+len(extra_codes)+2
-                for code in codes+extra_codes:
-                    expected_count = 3 if code == 'unsupported_desktop_route' else 1
+                for code in set(codes+extra_codes):
+                    expected_count = codes.count(code)+extra_codes.count(code)+(2 if code == 'unsupported_desktop_route' else 0)
                     assert report['admissionFailures'][code] == expected_count
                 return {'ready': True, 'unauthorizedStatus': 401, 'rejectionCodes': codes,
                         'extraRejectionCodes': extra_codes, 'largeIdentityAndZstd': True,

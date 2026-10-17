@@ -8,7 +8,11 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Operating baseline
 
-- Public/device Core and frontend: signed stable54, CLI0.163.0, sourcec085617.
+- Public/device Core and frontend are now Full60/source54f9264, pinning Base58;
+  CLI0.163.0. Device activation retains Full57 as previous. The independent
+  optional provider remains payload45072d; a Full update does not update it or
+  qualify cross-provider long-context inference. Retained acceptance below uses
+  signed stable54, sourcec085617.
   Release38985595917 passes build, Android execution, signing, public readback,
   disposable update and non-forced promotion. Ordinary device update verifies all
   eight signed files;14 configuration files and10 existing process identities stay
@@ -87,6 +91,47 @@ acceptance cache. No external workflow skill or separate task ledger is required
   requirements. New independent MCP tools are native_catalog/native_tool.
 
 ## Active remaining work
+
+### Current operating blocker: native-to-Chat long conversation
+
+On2026-10-17, after the user's Full60 update, two attempts to continue an
+existing native conversation with Chat GPT-6 (Extra High, then High) fail before
+Chat submission. Read-only native logs show `run_pre_sampling_compact`,
+`ModelDownshift`/`PreTurn` and a `gpt-6.1-sol` compaction request through the
+new Chat endpoint. Actual0.163 source8308618 `maybe_run_previous_model_inline_compact`
+preserves the previous model while retaining the newly selected provider.
+The installed adapter rejects that model with400 `unsupported_desktop_route`.
+Its lifetime receipt has2 arrivals,2 admission failures,0 admitted requests,
+0 user submissions and0 tool returns. This is a confirmed provider-transition
+integration defect. No real Chat sampling was attempted by this investigation.
+
+The persisted transition snapshot also contains an opaque upstream compaction
+item (not an `ocx1:` readable provider envelope); its metadata contains a turn
+reference, no readable summary. This is evidence about stored input, not a capture
+of the failed HTTP body. Renaming the requested model cannot establish safe
+context transfer: the existing admission guard independently rejects such
+opaque context. The actual HTTP/no-inference probe now covers both boundaries;
+private proof: `chat-full60-cross-provider-admission.json`. Do not remove that
+guard, discard the checkpoint, invent a summary or silently substitute a model.
+Full60 menu/no-inference acceptance never qualified this continuation path.
+
+Next implement readable cross-provider handoff using upstream-owned conversation
+history and supported thread APIs, with the optional frontend owning selection
+and provider owning transport/summary translation. Establish the available public
+history/checkpoint shape first; hidden native state cannot be assumed recoverable.
+Core must remain independent and require no Chat model policy or second history
+authority. Keep source thread/settings/tool results intact on failed handoff.
+Acceptance must cover long native→Chat and return, fresh Chat and --profile
+fallback, one actual tool effect, latest state after cold resume, chosen model/
+effort and unchanged permission/reviewer settings. Explain actual Chat summary/
+turn budget before live qualification. Existing Chat-only acceptance remains
+separate; fresh Chat is an isolation workaround, not proof this defect is fixed.
+No operating provider/package/configuration was changed during diagnosis.
+Installed Full60 signature/all8 payload hashes/modes and527 provider files pass;
+45 provider Python tests, actual17-arrival HTTP admission and both documentation
+gates pass. Proof: `chat-full60-operating-diagnosis.json` and
+`chat-full60-diagnosis-python.log` alongside the admission report. These validate
+diagnosis/rejection boundaries, not a repaired cross-provider continuation.
 
 The latest527-file payload packages26 runtime source/asset files instead of the
 whole experiment directory. Runtime modules match the source-candidate live proof
