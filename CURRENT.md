@@ -221,13 +221,14 @@ The optional Chat provider remains outside this feature.
 
 ### Active development: quota-aware /switch
 
-Development uses experiment/quota-switch for read-only native qualification;
-rewrite/rust-core remains implementation authority and public base58/full59 remain
-selected until the complete feature passes qualification. Rotation stays off by
-default; no live account pool is enrolled by development tests.
+The complete feature is integrated on rewrite/rust-core. The temporary
+experiment/quota-switch branch supplied intermediate native qualification and is
+closed after final admission. Public base58/full59 remain selected until the full
+feature passes qualification. Rotation stays off by default; no live account pool
+is enrolled by development tests.
 
-The feature is implemented on the experiment branch and is undergoing native
-qualification before integrated publication. Manager owns private identity-bound
+The integrated feature is undergoing exact native qualification before
+publication. Manager owns private identity-bound
 usage snapshots, explicit pool/settings/ranking, cooldowns and durable handoff
 claims. The optional TUI renders cached rows, refreshes asynchronously and forwards
 only settled typed boundaries. Core forwards Manager commands unchanged. Both
@@ -243,6 +244,18 @@ answer survive. No real inference/account allowance is consumed and no operating
 policy/runtime is changed. Proof: quota-native-synthetic-current.json in the
 private acceptance cache. Final exact-source frontend qualification, native
 menu/toggle/notice proof and integrated public full-only admission remain required.
+
+The actual intermediate UI also passes usage rows and persistent off/on controls
+before the same successful handoff. A final read-only query across6 real
+registered profiles preserves all19 existing Codex process identities and both
+activation/rotation policy records; it performs0 inference. Source16f3a71 adds a
+PID-bound native resolved-permission comparison: incompatible account definitions
+must stop before a continuation, without copying either account's configuration.
+Its real positive/named/negative device trials await the final native artifact.
+Local full acceptance passes135 Python and353 Rust tests, fmt and Clippy; the
+47-test final native input remains subject to its independent build/feature/lint
+gates. Proofs: quota-native-ui-intermediate.json, quota-native-account-isolation-
+final.json, quota-final-full-check.log and quota-native-authority-final-python.log.
 
 Pinned upstream0.163 source83086188 already exposes account/rateLimits/read and
 account/rateLimits/updated. Its account protocol includes windowDurationMins,

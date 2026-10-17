@@ -249,6 +249,23 @@ def probe(args):
                     pid=int(path.with_name('pid').read_text())
                     if Path(f'/proc/{pid}/exe').resolve().is_relative_to(home):os.kill(pid,signal.SIGTERM)
                 except (OSError,ValueError):pass
+            # Retire only this fixture's surviving native workers. Their parent
+            # app-server may have already exited after re-entry or a rejected
+            # continuation; do not let them recreate a removed temporary home.
+            owned={}
+            for entry in Path('/proc').iterdir():
+                if not entry.name.isdigit():continue
+                try:
+                    if (entry/'exe').resolve().is_relative_to(root) or (entry/'cwd').resolve().is_relative_to(root):
+                        pid=int(entry.name);owned[pid]=(entry/'stat').read_text().split(') ',1)[1].split()[19]
+                        os.kill(pid,signal.SIGTERM)
+                except (OSError,ValueError):pass
+            end=time.monotonic()+2
+            while time.monotonic()<end and any(Path('/proc',str(pid)).exists() for pid in owned):time.sleep(.05)
+            for pid,start in owned.items():
+                try:
+                    if Path('/proc',str(pid),'stat').read_text().split(') ',1)[1].split()[19]==start:os.kill(pid,signal.SIGKILL)
+                except OSError:pass
             server.shutdown();server.server_close()
 
 
@@ -261,6 +278,7 @@ if __name__=='__main__':
     parser.add_argument('--named-permission',action='store_true')
     parser.add_argument('--incompatible-permission',action='store_true')
     args=parser.parse_args()
+    if args.incompatible_permission and not args.named_permission:parser.error('--incompatible-permission requires --named-permission')
     try:result=probe(args)
     except Exception as error:
         import traceback
