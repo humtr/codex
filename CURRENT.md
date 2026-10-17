@@ -6,61 +6,54 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public stable53: local-hosted-0-163-0-36bfeed4ea58-s53, CLI0.163.0,
-  accepted implementation36bfeed4ea582778caf1c6d606e69b0e624bc7b5. Release38904810656
-  passes build, Android execution, signing, immutable Release, Pages with retained
-  stable52, complete public readback/disposable update and non-forced promotion.
-  main caller b2622ce pins that exact source; promotion df443eb changes only the
-  signed index. Independent HTTPS readback verifies its signature and exact
-  candidate bytes. Production release and source proofs are linked below.
-- Device activation state now selects stable53/CLI0.163.0, retaining stable52 for
-  rollback. Actual `codex --version` reports0.163.0; Core/Manager doctor is healthy
-  with zero failures. Upstream doctor reports two existing title/thread-index
-  warnings and zero failures. No user title/history is rewritten to hide them.
-  Existing clients may retain older loaded images until normal restart/re-entry;
-  this observation does not prove every running process has restarted.
-- Source36bfeed has full hosted acceptance38904327519, including the event's
-  Android Core proof, workspace tests, fmt and Clippy. Native38898455640 passes
-  42 maintained TUI regressions and94 executed retained-upstream feature tests,
-  lint, pristine Core and unchanged external bindings. The exact frontend and
-  minimal proof are immutable input0161217f under manager-tui-native-v0.163.0-49cd664.
-- Actual Android isolated0.163 qualification covers Core independence, profiles,
-  catalog binding, permission menus/shortcuts, fresh/cold-resume/btw commands and
-  auto_review, same-thread /resume and /switch, managed worktree creation/listing,
-  p-key pin/unpin, CodeMode helpers, Retry-After, patch line endings, retained
-  history and old/new Core update/rollback. Detailed evidence and scope are below.
-  No real Chat inference or account credentials are used by this upgrade.
-- Installed opt-in ChatGPT provider:3293607105766a583c42/source33cb3e1,
-  durable `returnTransport=local`; all527 files verify. Prior0eb431a/sourceef2a15a
-  and earlier payloads remain available. Authorized activation prebuilt the new
-  payload and rechecked zero lifetime requests/arrivals before normally stopping
-  only the idle old adapter. Endpoint/capability,12 base auth/config hashes and
-  the signed desktop identity are preserved. Ordinary bootstrap and authenticated
-  catalog reads pass; no trial budget is applied to the operating adapter.
-- Actual signed-app + stable53 Core + installed85e8f9 passes bounded iterative
-  development: original tests fail, model repairs library/CLI, unchanged tests
-  and independent holdouts pass, native manual compaction preserves a tool-only
-  token, continued tests pass and completed source inode/mtime/content survive.
-  Cold Core inference remembers the token without tools. Initial/intermediate/
-  final reports persist and render in native TUI.121.865s,4 user submissions,
-  8 host tool returns,12 model starts,1 summary/checkpoint,0 guardian/Pro/retry;
-  these are not Chat-limit debits. Test adapter/Core/roots exit and are removed.
-  The signed app and provider remain alive during cold Core verification; their
-  own restart/lost-context and hours-long development remain unqualified.
-- Earlier source7b8e541 batch proof passes actual MCP/search, real guardian,
-  freeform patch, overlapping background tools/polls and native question/driver
-  answer with report/cold-TUI restoration:2 user messages,6 returns,8 model starts.
-  Prior9dd288 malformed-argument→actual Core error→correction proof remains useful;
-  new installed product retains its fix unchanged. Physical question interaction
-  and complete Chat-provider lifecycle/public qualification remain separate.
-- The independent MCP candidate remains unselected: the host still caches its
-  old connector schema and has not qualified the new tools. Long cross-provider
-  compaction is also unqualified; opaque native checkpoints are rejected before
-  placeholder conversion rather than silently losing context. These are separate
-  follow-ups, not completed by the catalog release. Same-Chat model changes still
-  re-enter the frontend. Public stable53 qualifies0.163, including0.162 features,
-  as tracked below. Existing upstream title/history doctor warnings remain separate;
-  user title/history data is not edited to conceal them.
+- Public/device stable54: `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
+  accepted sourcec0856171e77870b3682f1b841e37e5314636c652. Release38985595917
+  passes build, Android execution, signing, immutable Release, Pages retaining
+  stable53, complete public readback/disposable update and non-forced promotion.
+  Main caller87adee8 pins that source; promotion41a4026 changes the signed index.
+  Ordinary `codex update` activates54 and retains53 for rollback. All eight signed
+  hashes/modes/signature verify;14 configuration files and10 process identities
+  remain unchanged. Existing clients keep loaded images until normal restart.
+- Source acceptance38985256219 passes all required gates, including the event's
+  Android Core proof, workspace tests, fmt and Clippy. Independent Core build/
+  Android qualification38985256222 also passes. Native sourcef348df3/run38979482916
+  passes43 maintained TUI tests,94 retained upstream features and lint. Immutable
+  raw frontend input SHA256 is1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a;
+  adapted installed frontend is4416789b3032b87ee4b08ad68250a27779ce10b6c18e863a6e08383aedb191cd.
+  Exact54-byte FD adaptation reproduces the published frontend byte for byte.
+- Actual Android Default and Plan model menus preserve process/PTY/thread/settings
+  through same-Chat no-op/model/effort changes with0 frontend exec/inference.
+  Native↔Chat provider transitions remain deliberate re-entry. Manager supplies
+  on-request/auto_review convenience defaults; explicit user choices still win.
+  Installed54 fresh/resume/btw paths pass six commands/six guardian reviews across
+  legacy/named permissions, all dangerFullAccess/auto_review. No real Chat is used.
+  Doctor has0 failures; existing upstream title/index warnings remain separate.
+- Installed opt-in Chat provider:3a9d8b4398c038db34ba/source9f9d015,
+  `returnTransport=local`; all527 files and25 live-qualified runtime inputs match.
+  Reinstall→rollback329360→restore plus six concurrent bootstrap clients pass,
+  preserving12 account auth/config files, app identity and endpoint/capability.
+  Only adapters with zero lifetime requests/arrivals were stopped for activation.
+  No trial budget is applied to the operating adapter. Prior payloads are retained.
+- The provider hides preceding canonical context in the Chat app without changing
+  its user authority/content, XML guessing or hiding the current request. Literal
+  XML in current user input stays visible. Old remote test chats are not rewritten.
+  Source-qualified actual Instant timing proof passes with2 user-message objects
+  (including hidden context),2 tool returns and3 starts,0 Pro/retry. Reports persist,
+  cold-restore and render in real native TUI. Tool returns add no user-message
+  objects; actual Chat-limit deductions remain unknown.
+- Current local-return proof includes real tool search/discovered MCP calls,
+  guardian, freeform patch, overlapping background tools/polls, driver-answered
+  questions, iterative repair/test/compaction, concurrent owners, short signed-app
+  replacement and installed-adapter replacement without replaying completed work.
+  Frozen-reader and disconnected-owner trials prove continued native work and
+  visible initial/intermediate/final reports on reconnect with0 Chat. They use a
+  deterministic model and do not qualify real Chat-host observer-loss recovery.
+- This Chat provider remains opt-in/experimental. Core54 publication does not
+  qualify its full lifecycle or publish it as stable. Physical question interaction,
+  remote history options, hours-long maintenance, cross-provider long context and
+  the independent MCP return path remain open. That host still caches its old
+  connector schema; native MCP tools through the local return path already work.
+  The experiment owns the detailed remaining scope and useful/negative evidence.
 
 ## Chat provider work ownership
 
@@ -137,7 +130,11 @@ trials pass all four no-op/model/effort changes with0 frontend exec/inference,
 same PID/PTY/thread and unchanged account configuration. The exact raw frontend
 SHA256 is1b1a16e4c17f3f0a1b4a62cca5d345571a26fccac8953abdc8ae175658351d5a.
 Its immutable archive is pinned in the public producer; signed stable54 publication
-and separate device activation remain pending. No failing gate is waived. Private cache:
+and separate device activation now pass in release38985595917. Installed54
+fresh/resume/btw proof adds six commands/six guardian reviews with no real model
+inference. Private stable54-device-activation.json verifies all eight signed files,
+14 unchanged configuration files and10 retained process identities. No failing
+gate is waived. Private cache:
 chat-manager-default{,-named}-lifecycle.json and chat-manager-explicit-{user-3,full}.json.
 
 ## Final Core / Manager responsibility boundary
