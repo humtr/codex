@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+const VIEW_ID: &str = "codex-manager-quota-v2";
+
 pub(crate) struct State {
     pub(super) uncertain: bool,
     generation: u64,
@@ -315,6 +317,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         ));
     }
     SelectionViewParams {
+        view_id: Some(VIEW_ID),
         title: Some(
             if settings {
                 "Switch settings"
@@ -334,8 +337,18 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         ..SelectionViewParams::picker()
     }
 }
-fn render(app: &mut App) {
-    if let Some(view) = &app.quota_switch.view {
+fn render(app: &mut App, refresh_only: bool) {
+    if let Some(view) = &app.quota_switch.view
+        && !app.chat_widget.termux_refresh_quota_view(
+            VIEW_ID,
+            picker(
+                view,
+                app.quota_switch.settings,
+                app.quota_switch.session_off,
+            ),
+        )
+        && !refresh_only
+    {
         app.chat_widget.show_selection_view(picker(
             view,
             app.quota_switch.settings,
@@ -368,7 +381,7 @@ pub(super) async fn open(app: &mut App, settings: bool) -> bool {
     app.quota_switch.settings = settings;
     app.quota_switch.view = Some(view);
     app.quota_switch.generation = app.quota_switch.generation.wrapping_add(1);
-    render(app);
+    render(app, false);
     refresh(app);
     true
 }
@@ -400,7 +413,7 @@ pub(super) fn ready(app: &mut App, generation: u64, view: Option<Value>) {
         && let Some(view) = view
     {
         app.quota_switch.view = Some(view);
-        render(app);
+        render(app, true);
     }
 }
 pub(super) async fn edit(app: &mut App, value: Value) {
@@ -415,7 +428,7 @@ pub(super) async fn edit(app: &mut App, value: Value) {
 }
 pub(super) fn toggle_session(app: &mut App) {
     app.quota_switch.session_off = !app.quota_switch.session_off;
-    render(app);
+    render(app, false);
 }
 pub(super) async fn pause(app: &mut App, id: String, seconds: u64) {
     let args = vec!["rotation".into(), "exclude".into(), id, seconds.to_string()];
@@ -779,5 +792,33 @@ mod tests {
         record(&mut s, "turn/started", &start);
         s.uncertain = true;
         assert!(record(&mut s, "turn/completed", &done).is_none());
+    }
+    #[tokio::test]
+    async fn profile_manager_quota_refresh_retains_selection_and_one_escape_closes_the_only_popup()
+    {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut app, _events, _ops) = super::super::tests::make_test_app_with_channels().await;
+        let mut value = json!({"schema":"codex-manager-profiles-v2","current":"default","rows":[{"id":"default","summary":"5h 80%"},{"id":"next","summary":"5h 60%"}],"rotation":{"enabled":false,"accounts":[]}});
+        app.quota_switch.visible = true;
+        app.quota_switch.view = Some(value.clone());
+        render(&mut app, false);
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(
+            app.chat_widget.selected_index_for_active_view(VIEW_ID),
+            Some(1)
+        );
+        value["rows"][1]["summary"] = json!("5h 50%");
+        ready(&mut app, 0, Some(value.clone()));
+        assert_eq!(
+            app.chat_widget.selected_index_for_active_view(VIEW_ID),
+            Some(1)
+        );
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.chat_widget.has_active_modal());
+        close(&mut app);
+        ready(&mut app, 0, Some(value));
+        assert!(!app.chat_widget.has_active_modal());
     }
 }

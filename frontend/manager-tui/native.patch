@@ -842,13 +842,23 @@ index 4e2fcb6..47be0a3 100644
              discovery
                  .profiles
 diff --git a/codex-rs/tui/src/chatwidget/rate_limits.rs b/codex-rs/tui/src/chatwidget/rate_limits.rs
-index 0e48527..43ed980 100644
+index 0e48527..c466e0c 100644
 --- a/codex-rs/tui/src/chatwidget/rate_limits.rs
 +++ b/codex-rs/tui/src/chatwidget/rate_limits.rs
-@@ -641,6 +641,14 @@ impl ChatWidget {
+@@ -641,6 +641,24 @@ impl ChatWidget {
          self.request_redraw();
      }
 
++    pub(crate) fn termux_refresh_quota_view(
++        &mut self,
++        view_id: &'static str,
++        mut params: crate::bottom_pane::SelectionViewParams,
++    ) -> bool {
++        params.initial_selected_idx = self.bottom_pane.selected_index_for_active_view(view_id);
++        self.bottom_pane
++            .replace_selection_view_if_active(view_id, params)
++    }
++
 +    // Account rotation takes precedence only when Manager has opted in. Do not
 +    // persist a native notice preference or dismiss unrelated protected views.
 +    pub(crate) fn termux_prepare_account_handoff(&mut self) {

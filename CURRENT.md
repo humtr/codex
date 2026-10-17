@@ -253,8 +253,11 @@ PID-bound native resolved-permission comparison: incompatible account definition
 must stop before a continuation, without copying either account's configuration.
 Its real positive/named/negative device trials await the final native artifact.
 Local full acceptance passes135 Python and353 Rust tests, fmt and Clippy; the
-47-test final native input remains subject to its independent build/feature/lint
-gates. Proofs: quota-native-ui-intermediate.json, quota-native-account-isolation-
+48-test final native input remains subject to its independent build/feature/lint
+gates. The final UI also replaces the existing quota picker during asynchronous
+refresh, retaining selection/search instead of stacking popups. Its regression
+checks selection and a single Esc close after refresh/cancellation.
+Proofs: quota-native-ui-intermediate.json, quota-native-account-isolation-
 final.json, quota-final-full-check.log and quota-native-authority-final-python.log.
 
 Pinned upstream0.163 source83086188 already exposes account/rateLimits/read and

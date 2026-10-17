@@ -261,7 +261,9 @@ policy: off by default, explicitly enrolled account identities, a deterministic
 5h/weekly/combined/remaining/custom ordering, reserves, proactive safe-boundary
 threshold and cooldown. Custom values are data, never executable commands.
 Removing, renaming or replacing an account does not enroll another identity.
-The UI first shows cached rows, then bounded asynchronous refresh. It exposes
+The UI first shows cached rows, then bounded asynchronous refresh. Refresh replaces
+the existing picker, retaining selection/search and leaving other modals intact;
+one cancellation closes the picker. It exposes
 refresh, pool membership, enable/disable, ranking and session override without
 ordinary-launch network work or a new background service.
 
