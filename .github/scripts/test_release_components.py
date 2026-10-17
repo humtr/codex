@@ -115,6 +115,31 @@ class ComponentsTests(unittest.TestCase):
         for invalid in ['local-../escape','other','local-a\n']:
             with self.assertRaises(publication.ValidationError):publication.canonical_release_base(invalid)
 
+    def test_failed_full_repair_acquires_latest_base_not_the_serving_full(self):
+        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        repo=self.repository(fixture.root/'source')
+        assets,_=self.signed_assets(fixture,repo,BASE,True)
+        heads=fixture.root/'heads';heads.mkdir()
+        (heads/'heads.json').write_text(json.dumps({'heads':{
+            'base':{'generation':BASE},'full':{'generation':'local-hosted-previous-full'}}}))
+        requested=[]
+        def fetch(url,target,limit):
+            self.assertTrue(url.startswith(publication.canonical_release_base(BASE)))
+            requested.append(url)
+            name=url.removeprefix(publication.canonical_release_base(BASE))
+            source=assets/component.CONTROL_ASSETS.get(name,publication.FLAT_ASSETS.get(name,name))
+            self.assertLessEqual(source.stat().st_size,limit)
+            target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(source,target)
+        acquired=fixture.root/'latest-base'
+        self.assertEqual(component.acquire_base(repo,heads,fixture.public_key,acquired,fetch),BASE)
+        self.assertTrue((acquired/'runtime').is_file())
+        self.assertEqual(len(requested),4+len(publication.BASE_FILES))
+        # Changing Core invalidates this base. Never silently use the serving
+        # full's older base or rebuild an unqualified replacement instead.
+        (repo/'crates/core/lib.rs').write_text('new incompatible Core');self.commit(repo)
+        self.assertIsNone(component.acquire_base(repo,heads,fixture.public_key,fixture.root/'incompatible',fetch))
+
     def test_worker_executes_positive_and_negative_redirects_without_proxying_payloads(self):
         node=shutil.which('node')
         self.assertIsNotNone(node,'Node is required for actual redirect module qualification')

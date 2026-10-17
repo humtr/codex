@@ -62,6 +62,7 @@ class PublicTransportTests(unittest.TestCase):
             import urllib.request
             from urllib.error import HTTPError
             def owned_open(url,timeout=60):
+                if isinstance(url,urllib.request.Request):url=url.full_url
                 paths=json.loads((Path(os.environ['TRANSPORT_FIXTURE'])/'urls.json').read_text())
                 if url not in paths:raise HTTPError(url,404,'owned missing',None,None)
                 value=io.BytesIO(Path(paths[url]).read_bytes());value.geturl=lambda:url

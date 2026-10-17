@@ -72,7 +72,7 @@ is required on the device.
 The accepted public entrypoint is the immutable online installer:
 
 ```sh
-"$PREFIX/bin/curl" -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 --max-filesize 131072 'https://raw.githubusercontent.com/humtr/codex/9972a3288c0531ba744e9bd1356273d9a080aa79/install-online.sh' | "$PREFIX/bin/sh"
+"$PREFIX/bin/curl" -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 --max-filesize 131072 'https://raw.githubusercontent.com/humtr/codex/eba60a7a72cacc9f6be126606ee992c00e662f5d/install-online.sh' | "$PREFIX/bin/sh"
 ```
 
 The network frontend is only acquisition. It pins the accepted bootstrap public
@@ -83,6 +83,10 @@ all persistent writes to the existing local
 
 For an already downloaded signed bundle, `install.sh` remains the local/offline
 frontend defined by `SPEC.md`.
+The online installer defaults to full. Save the same script and run
+`sh install-online.sh --variant base` for the standalone Core/upstream edition.
+Component acquisition is automatic; both editions install a complete signed
+generation through the same lifecycle.
 
 ## Updating
 
@@ -209,7 +213,13 @@ Public **base** (Core + adapted upstream UI) and **full** (+ Manager/enhanced TU
 have separate signed heads. Ordinary updates follow the installed signed public
 baseline; losing an optional binary does not move a full installation onto base.
 Both publication lanes run real Android smoke, signing, public readback,
-disposable update/rollback and non-forced promotion. Pages retains both live heads.
+disposable update/rollback and non-forced promotion. A scheduled controller
+discovers official upstream stable releases and qualifies base independently.
+Immutable GitHub Releases store common base files once; full pins those exact
+files plus its additional components. Existing Pages URLs remain valid. If full
+fails after base advances, the previous full stays available while the next
+add-on repair targets the latest successful base. Unexpected failures open a
+deduplicated GitHub attention issue assigned to the owner.
 Unsupported upstream transformations fail with the accepted release preserved;
 automation does not invent a semantic port or skip its qualification.
 Actual standalone lifecycle proof is reproducible with

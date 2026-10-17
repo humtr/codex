@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from rald3_preflight import parse_descriptor
 from rald5_publication import (canonical_release_base, parse_index, parse_manifest,
@@ -40,14 +40,18 @@ def plan(heads, variant):
 
 def download(url, target, limit, *, optional=False):
     try:
-        with urlopen(url, timeout=60) as response:
+        # Identify this first-party qualification client. Cloudflare rejects
+        # urllib's default Python user agent (1010), including public assets
+        # that the native updater/curl can download normally.
+        request = Request(url, headers={'User-Agent':'codex-release-qualification/1'})
+        with urlopen(request, timeout=60) as response:
             if not response.geturl().startswith('https://'):
                 raise ValueError('publication transport left HTTPS')
             data = response.read(limit + 1)
     except HTTPError as error:
         if optional and error.code == 404:
             return False
-        raise
+        raise ValueError(f'publication download failed: HTTP {error.code}: {url}') from error
     if len(data) > limit:
         raise ValueError('publication download exceeds bound')
     target.parent.mkdir(parents=True, exist_ok=True)

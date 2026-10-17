@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+from io import BytesIO
+from urllib.error import HTTPError
 
 import release_heads as channel
 from rald3_preflight import PACKAGE_IDENTITY
@@ -11,6 +14,34 @@ from rald5_publication import BASE_FILES, EXPECTED_FILES, EXTENDED_FILES, Valida
 
 
 class ReleaseHeadsTests(unittest.TestCase):
+    def test_public_transport_identifies_client_and_preserves_failure_bounds(self):
+        url='https://codex-releases.humtr.workers.dev/local-base-relay-hosted-test/release.manifest'
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/'result'
+            response=BytesIO(b'owned')
+            response.geturl=lambda:url
+            with patch.object(channel,'urlopen',return_value=response) as fetch:
+                self.assertTrue(channel.download(url,target,5))
+                request=fetch.call_args.args[0]
+                self.assertEqual(request.full_url,url)
+                self.assertEqual(request.get_header('User-agent'),'codex-release-qualification/1')
+                self.assertEqual(target.read_bytes(),b'owned')
+            target.unlink()
+            for status in [403,404]:
+                error=HTTPError(url,status,'unavailable',{},None)
+                with patch.object(channel,'urlopen',side_effect=error):
+                    if status==404:self.assertFalse(channel.download(url,target,5,optional=True))
+                    else:
+                        with self.assertRaisesRegex(ValueError,'HTTP 403'):
+                            channel.download(url,target,5,optional=True)
+                self.assertFalse(target.exists())
+            for returned,data,message in [(url,b'oversized','exceeds bound'),
+                    ('http://insecure.invalid/',b'owned','left HTTPS')]:
+                response=BytesIO(data);response.geturl=lambda:returned
+                with patch.object(channel,'urlopen',return_value=response):
+                    with self.assertRaisesRegex(ValueError,message):channel.download(url,target,5)
+                self.assertFalse(target.exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='release-heads-')
         self.addCleanup(self.temp.cleanup)

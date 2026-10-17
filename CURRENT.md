@@ -103,12 +103,21 @@ No actual Chat inference is part of this boundary/upgrade qualification.
 
 ### Automated publication: approved shared base/add-ons design
 
-Status2026-10-17: implementation/source automation is pushed through b6488df;
-source acceptance39001269896 and independent Core/Android39001375960 pass.
+Status2026-10-17: shared-base implementation is pushed through eba60a7;
+exact-source acceptance39006354535 and independent Core/Android39006354537 pass.
 Actual native inputb7c9daa/run38996725433 passes43 maintained regressions and94
-retained upstream feature checks. Public base55 is operational; public/device
-full54 remains selected. No installed user runtime or optional provider is changed
-by the review below. Automation is not complete until both public lanes pass.
+retained upstream feature checks. Main caller94e09e0 pins accepted implementation
+eba60a7. Publication39006677326 passes base build, Android smoke, signing, immutable
+Release, complete public readback/disposable update and non-forced promotion:
+public base56 is `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`.
+Public/device full54 remains selected; no installed user runtime or provider changed.
+Full stopped before compilation when urllib's default user agent received HTTP403
+(Cloudflare1010) reading base56. Explicit qualification-client identification
+returns200 for the same signed assets. Repair changes publication transport only;
+the authenticated base fingerprint is unchanged. Retry full against base56,
+without rebuilding/republishing base. Failure reporting actually created owner
+attention issue21; physical notification delivery is not observed.
+Automation is not complete until the full lane and device public consumer proofs pass.
 
 Publication39001602662 built, Android-smoked, signed and immutably staged both
 sequence56 candidates. Both failed Pages preparation at its existing1GiB guard;
@@ -116,10 +125,10 @@ neither deployed a site or promoted a stable head. Keeping both live heads plus
 a candidate exceeds that bound. Removing LKG, raising the guard, dropping actual
 proof or treating a staged Release as a promoted release is not a solution.
 
-User approved the recommended shared immutable base + versioned add-ons design,
+Approved scope: shared immutable base + versioned add-ons,
 GitHub Release-backed payload delivery, reference-aware retention, and subsequent
 quota-aware /switch development after both publication lanes pass. Implement the
-contract below; public/device activation remains separate. Never delete historical
+contract below; remaining public/device proof and activation remain separate. Never delete historical
 public assets as incidental cleanup. No recurring housekeeping service is added.
 
 | Approach | Benefit | Cost / limit |
@@ -168,7 +177,9 @@ Required implementation shape:
   discovery/update and independent base qualification/publication. Do not stop at
   a manually pinned version recipe or wait for enhanced TUI. Unsupported semantic
   ports still fail without advancing stable; keep diagnostic evidence. The current
-  controller lacks version/source/archive discovery, so this is required work.
+  controller implements official GitHub release/source/archive/toolchain discovery.
+  A read-only check confirms the pinned0.163.0 is current; a genuinely new upstream
+  port is not claimed proven until its actual candidate passes.
 
 - Pin an exact compatible immutable base and its input/manifest identity in each
   full composition. Never follow a mutable "latest base" or overlay files onto
@@ -202,14 +213,23 @@ Required implementation shape:
   Manager/TUI-only policy. Add-on identity binds its own sources and exact supported
   base/protocol. Reuse green proof only for identical qualified inputs. Whole-tree
   SHA changes alone must not rebuild/republish an identical base.
-- Current release_control.release_lane only narrows a frontend-output-reference
-  update; ordinary Manager/TUI source changes still select both lanes. That is
-  unfinished release coupling. Replace it with input-bound component selection,
-  and prove that a /switch-only change preserves base artifact hashes, base head,
-  recipe and base build count while a changed Core/shared input invalidates reuse.
+- release_control.release_lane now selects full only for matching signed public
+  base input closures, including ordinary Manager/TUI changes. Production full
+  composition reuses authenticated base executables; independent source-acceptance
+  CI may still compile/test Core. Verify published base hashes/head and production
+  build selection on the next Manager-only release; changed shared inputs invalidate reuse.
 - Keep real Android smoke, complete public readback, disposable full/base fresh
   install/update/no-op/rollback, compatibility negatives, and non-forced promotion.
   Publishing only add-on bytes does not waive full-combination execution proof.
+
+Local proof: shared-components-device-core.json records20 actual Android Core
+lifecycle steps; shared-components-device-composition.json records9 real Android
+base/full assembly, Manager/frontend execution, validation and signing steps.
+Both use disposable roots, remove them afterwards, submit0 real chats and preserve
+the user installation. latest-base-repair-target.json authenticates serving full54
+and newer repair base56 independently. Redirect deployment source identity is
+verified, and public base56 logical manifest returns200. Public full composition
+and its real-device consumer lifecycle remain pending.
 
 ### Deferred development: quota-aware /switch
 
