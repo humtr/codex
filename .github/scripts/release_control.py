@@ -103,6 +103,11 @@ def ensure_frontend(source, current, root):
                 and all(run['id'] != candidate['id'] for candidate in candidates)):
             candidates.append(run)
     for index, run in enumerate(candidates):
+        try:
+            subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',run['head_sha']],check=True,capture_output=True)
+            verify_recipe(source, run['head_sha'])
+        except (ValueError,OSError,subprocess.CalledProcessError):
+            continue  # Reject stale recipes before downloading large outputs.
         directory=root/str(index);directory.mkdir()
         artifact, proof = directory/'artifact', directory/'proof'
         retained = pinned is not None and str(run['id']) == pinned['run_id']
@@ -128,7 +133,6 @@ def ensure_frontend(source, current, root):
                 gh('run','download',str(run['id']),'--repo',REPO,'--name','manager-tui-native-proof','--dir',str(proof))
         except (subprocess.CalledProcessError, ValueError, OSError):
             continue
-        subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',run['head_sha']],check=True,capture_output=True)
         run_json=directory/'run.json';run_json.write_text(json.dumps(run))
         try:
             binary=artifact/'codex'
