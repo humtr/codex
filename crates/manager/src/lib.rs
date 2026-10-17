@@ -3,6 +3,8 @@
 mod profile;
 mod profile_resume;
 mod profile_view;
+mod quota;
+mod quota_rpc;
 use profile_view::format_current;
 mod origin;
 mod runtime_config;
@@ -57,6 +59,8 @@ const HELP: &str = concat!(
     "codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>\n",
     "codex termux profile default [PROFILE_ID]\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
+    "codex termux usage [--refresh] [--json]\n",
+    "codex termux rotation show|preview|set JSON\n",
     "codex termux task [THREAD_UUID]\n",
     "codex termux task status [THREAD_UUID]\n",
     "codex termux task reconnect <THREAD_UUID>\n",
@@ -314,6 +318,14 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if args.first().is_some_and(|arg| {
+        matches!(
+            arg.to_str(),
+            Some("usage" | "rotation" | "__switch-view-v2" | "__quota-handoff-v1")
+        )
+    }) {
+        return quota::run(&capture_context()?, &args);
+    }
     if is_exact(args.first(), "__runtime-config-v1") {
         return runtime_config::prepare(&capture_context()?, &args[1..]);
     }
@@ -365,6 +377,9 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
     }
     if is_exact(args.first(), "__profile-resume-v1") {
         return profile_resume::run(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "__profile-resume-v2") {
+        return profile_resume::extended(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "__task-snapshot-v1") {
         if args.len() != 1 {

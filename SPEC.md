@@ -242,6 +242,38 @@ promotion are different guarantees; section4.6 defines their final boundary.
 
 Manager owns execution-profile selection within the upstream conversation UI.
 
+Quota-aware selection is an optional Manager/TUI capability. Core and the base
+edition acquire no quota policy, account registry, polling or Manager dependency.
+`codex termux usage [--refresh] [--json]` reads cached registered-account usage;
+refresh uses each account's qualified native app-server account/model read methods
+only, never a thread or inference request. A separate bounded profiles-v2 view
+adds rows, freshness, selection reasons and rotation settings; v1 stays unchanged.
+Usage caches are private XDG cache data, not authentication authority. Unknown,
+stale, unavailable, API-key and changed account identities cannot be automatic
+destinations. Two profiles for the same metered account are one allowance pool.
+Windows are labelled by actual duration; reset timestamps do not prove recovery.
+
+`codex termux rotation show|preview|set JSON` and /switch settings share Manager's
+policy: off by default, explicitly enrolled account identities, a deterministic
+5h/weekly/combined/remaining/custom ordering, reserves, proactive safe-boundary
+threshold and cooldown. Custom values are data, never executable commands.
+Removing, renaming or replacing an account does not enroll another identity.
+The UI first shows cached rows, then bounded asynchronous refresh. It exposes
+refresh, pool membership, enable/disable, ranking and session override without
+ordinary-launch network work or a new background service.
+
+Automatic handoff requires a confirmed terminal UsageLimitExceeded or an opted-in
+proactive threshold at an idle primary turn boundary. Transport errors and generic
+429s never trigger it. Both the frontend and Manager revalidate the destination,
+same model entitlement, source identity and existing writer release. Preserve
+thread UUID, CWD, terminal, model/effort, permissions/reviewer and queued input.
+No stop, kill, writer-lock removal, transcript copying or original-prompt replay
+is an automatic fallback. Continuation needs an unambiguous settled durable
+checkpoint; pending tools/questions/reviews or uncertain partial work pause with
+an explicit reason. Switching accounts and successfully continuing work are
+distinct visible outcomes. Attempts and per-thread handoffs are bounded and
+serialized; exhausted destinations cool down and never ping-pong in a retry loop.
+
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone Manager TUI implementations live as
 ordinary source under frontend/manager-tui/src. The single maintained source

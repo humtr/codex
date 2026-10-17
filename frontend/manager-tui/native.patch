@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 1b07e98..c5daa41 100644
+index 1b07e98..6bdaf9e 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -19,16 +19,18 @@ index 1b07e98..c5daa41 100644
  mod composer_hints;
  mod config_panel;
  mod config_persistence;
-@@ -237,6 +238,8 @@ mod managed_worktree_creation;
+@@ -237,6 +238,10 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
 +#[cfg(unix)]
 +pub(crate) mod profile_manager;
++#[cfg(unix)]
++pub(crate) mod quota_switch;
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -436,7 +439,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -436,7 +441,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -37,7 +39,16 @@ index 1b07e98..c5daa41 100644
          ),
      }
  }
-@@ -1218,6 +1221,8 @@ impl App {
+@@ -531,6 +536,8 @@ struct InitialHistoryReplayBuffer {
+ }
+
+ pub(crate) struct App {
++    #[cfg(unix)]
++    quota_switch: quota_switch::State,
+     feature_write_lock: Arc<tokio::sync::Mutex<()>>,
+     config_notification_test_generation: u64,
+     config_notification_test_pending: Option<u64>,
+@@ -1218,6 +1225,8 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -46,8 +57,23 @@ index 1b07e98..c5daa41 100644
          self.sync_thread_title_progress();
          self.chat_widget
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
+diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
+index 2821d6d..15eaf29 100644
+--- a/codex-rs/tui/src/app/app_server_events.rs
++++ b/codex-rs/tui/src/app/app_server_events.rs
+@@ -98,6 +98,10 @@ impl App {
+     ) {
+         match event {
+             AppServerEvent::Lagged { skipped } => {
++                #[cfg(unix)]
++                {
++                    self.quota_switch.uncertain = true;
++                }
+                 tracing::warn!(
+                     skipped,
+                     "app-server event consumer lagged; dropping ignored events"
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
-index ada9e88..a526271 100644
+index ada9e88..a5a1e67 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
 +++ b/codex-rs/tui/src/app/daemon_menu.rs
 @@ -27,6 +27,13 @@ impl Renderable for DaemonMenuHeader {
@@ -79,17 +105,26 @@ index ada9e88..a526271 100644
              Some(
                  "Manage this server on its host. Local daemon updates are unavailable for remote connections.",
              )
-@@ -95,7 +108,7 @@ impl App {
+@@ -95,11 +108,12 @@ impl App {
          .collect();
          items.push(SelectionItem {
              name: "Restart background server".to_string(),
 -            is_disabled: !self
-+            is_disabled: core_owned || !self
-                 .chat_widget
-                 .remote_connection
-                 .as_ref()
+-                .chat_widget
+-                .remote_connection
+-                .as_ref()
+-                .is_some_and(|connection| connection.is_managed_daemon)
++            is_disabled: core_owned
++                || !self
++                    .chat_widget
++                    .remote_connection
++                    .as_ref()
++                    .is_some_and(|connection| connection.is_managed_daemon)
+                 || self.reconnect.offline
+                 || self.daemon_restart.is_some(),
+             disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index a7f7f1e..c49f5bc 100644
+index a7f7f1e..ac51625 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -139,6 +139,19 @@ impl App {
@@ -112,13 +147,31 @@ index a7f7f1e..c49f5bc 100644
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -484,6 +497,16 @@ impl App {
+@@ -484,6 +497,34 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
 +            #[cfg(unix)]
 +            AppEvent::OpenProfilePicker => {
 +                profile_manager::open(self).await;
++            }
++            #[cfg(unix)]
++            AppEvent::OpenQuotaSettings => { quota_switch::open(self,true).await; }
++            #[cfg(unix)]
++            AppEvent::RefreshQuotaView => { quota_switch::refresh(self); }
++            #[cfg(unix)]
++            AppEvent::CloseQuotaView => { quota_switch::close(self); }
++            #[cfg(unix)]
++            AppEvent::ToggleQuotaSession => { quota_switch::toggle_session(self); }
++            #[cfg(unix)]
++            AppEvent::EditQuotaPolicy(value) => { quota_switch::edit(self,value).await; }
++            #[cfg(unix)]
++            AppEvent::QuotaViewReady{generation,view} => { quota_switch::ready(self,generation,view); }
++            #[cfg(unix)]
++            AppEvent::AutoQuotaHandoff{thread,turn,trigger} => {
++                if let Some(request)=quota_switch::automatic(self,app_server,thread,turn,trigger).await {
++                    return Err(std::io::Error::other(request).into());
++                }
 +            }
 +            #[cfg(unix)]
 +            AppEvent::SelectExecutionProfile(profile) => {
@@ -129,7 +182,7 @@ index a7f7f1e..c49f5bc 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -2110,6 +2133,12 @@ impl App {
+@@ -2110,6 +2151,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -142,8 +195,34 @@ index a7f7f1e..c49f5bc 100644
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
+diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
+index 4c329f3..e1a39e4 100644
+--- a/codex-rs/tui/src/app/startup.rs
++++ b/codex-rs/tui/src/app/startup.rs
+@@ -884,6 +884,8 @@ See the Codex keymap documentation for supported actions and examples."
+         let agents_overview =
+             agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
+         let mut app = Self {
++            #[cfg(unix)]
++            quota_switch: Default::default(),
+             feature_write_lock: Arc::default(),
+             config_notification_test_generation: 0,
+             config_notification_test_pending: None,
+diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
+index 9394604..f133fa0 100644
+--- a/codex-rs/tui/src/app/test_support.rs
++++ b/codex-rs/tui/src/app/test_support.rs
+@@ -21,6 +21,8 @@ pub(crate) async fn make_test_app() -> Box<App> {
+     let session_telemetry = test_session_telemetry(&config, model.as_str());
+
+     Box::new(App {
++        #[cfg(unix)]
++        quota_switch: Default::default(),
+         feature_write_lock: Arc::default(),
+         config_notification_test_generation: 0,
+         config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index 40c30df..30793d6 100644
+index 40c30df..2e167e1 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -86,7 +86,7 @@ mod recap_generation;
@@ -155,7 +234,25 @@ index 40c30df..30793d6 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -7374,7 +7374,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+@@ -6259,6 +6259,8 @@ async fn make_test_app() -> Box<App> {
+     let session_telemetry = test_session_telemetry(&config, model.as_str());
+
+     Box::new(App {
++        #[cfg(unix)]
++        quota_switch: Default::default(),
+         feature_write_lock: Arc::default(),
+         config_notification_test_generation: 0,
+         config_notification_test_pending: None,
+@@ -6384,6 +6386,8 @@ pub(super) async fn make_test_app_with_channels() -> (
+
+     (
+         Box::new(App {
++            #[cfg(unix)]
++            quota_switch: Default::default(),
+             feature_write_lock: Arc::default(),
+             config_notification_test_generation: 0,
+             config_notification_test_pending: None,
+@@ -7374,7 +7378,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
 
@@ -164,7 +261,7 @@ index 40c30df..30793d6 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7384,7 +7384,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7384,7 +7388,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
 
@@ -211,7 +308,7 @@ index 062efa3..38676c9 100644
          .lock()
          .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index c8d16dc..bbf9c3b 100644
+index c8d16dc..8cfe486 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
 @@ -894,6 +894,12 @@ impl App {
@@ -227,11 +324,29 @@ index c8d16dc..bbf9c3b 100644
                      let response = app_server
                          .turn_start(
                              thread_id,
+@@ -2072,6 +2078,8 @@ impl App {
+             ThreadBufferedEvent::Notification(notification) => {
+                 self.cache_collab_receiver_threads_for_notification(notification.as_ref());
+                 let tip_ready = self.turn_tips.observe(&notification, Instant::now());
++                #[cfg(unix)]
++                super::quota_switch::observe(self, notification.as_ref());
+                 self.chat_widget
+                     .handle_server_notification(*notification, /*replay_kind*/ None);
+                 // History cells queued by completion must be applied before anchoring its tip.
+@@ -2080,6 +2088,8 @@ impl App {
+                 }
+             }
+             ThreadBufferedEvent::Request(request) => {
++                #[cfg(unix)]
++                super::quota_switch::request(self, request.as_ref());
+                 if self
+                     .pending_app_server_requests
+                     .contains_server_request(request.as_ref())
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index a201931..5b371a9 100644
+index a201931..9e30128 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -638,6 +638,12 @@ pub(crate) enum AppEvent {
+@@ -638,6 +638,33 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
@@ -239,12 +354,33 @@ index a201931..5b371a9 100644
 +    #[cfg(unix)]
 +    OpenProfilePicker,
 +    #[cfg(unix)]
++    OpenQuotaSettings,
++    #[cfg(unix)]
++    RefreshQuotaView,
++    #[cfg(unix)]
++    CloseQuotaView,
++    #[cfg(unix)]
++    ToggleQuotaSession,
++    #[cfg(unix)]
++    EditQuotaPolicy(serde_json::Value),
++    #[cfg(unix)]
++    QuotaViewReady {
++        generation: u64,
++        view: Option<serde_json::Value>,
++    },
++    #[cfg(unix)]
++    AutoQuotaHandoff {
++        thread: codex_protocol::ThreadId,
++        turn: String,
++        trigger: String,
++    },
++    #[cfg(unix)]
 +    SelectExecutionProfile(String),
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
-@@ -1230,6 +1236,11 @@ pub(crate) enum AppEvent {
+@@ -1230,6 +1257,11 @@ pub(crate) enum AppEvent {
 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
@@ -483,7 +619,7 @@ index 2f74f84..f88e189 100644
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index aa5de8b..f7f7c14 100644
+index aa5de8b..c27a44b 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
@@ -505,7 +641,7 @@ index aa5de8b..f7f7c14 100644
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -294,6 +299,46 @@ impl ChatWidget {
+@@ -294,6 +299,48 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -542,7 +678,9 @@ index aa5de8b..f7f7c14 100644
 +                }
 +                if effort_changed {
 +                    if plan_mode {
-+                        tx.send(AppEvent::UpdatePlanModeReasoningEffort(effort_for_action.clone()));
++                        tx.send(AppEvent::UpdatePlanModeReasoningEffort(
++                            effort_for_action.clone(),
++                        ));
 +                    } else {
 +                        tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
 +                    }
@@ -552,7 +690,7 @@ index aa5de8b..f7f7c14 100644
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
-@@ -774,3 +819,7 @@ impl ChatWidget {
+@@ -774,3 +821,7 @@ impl ChatWidget {
          }
      }
  }
@@ -727,19 +865,19 @@ index 5327f80..99e589c 100644
      }
 
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 8534d75..4816fe2 100644
+index 8534d75..c866eeb 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -299,6 +299,9 @@ mod status_surface_previews;
+@@ -297,6 +297,9 @@ mod status_command_tests;
+ mod status_surface_previews;
+ #[path = "tests/subagent_activity_tests.rs"]
  mod subagent_activity;
- #[path = "tests/terminal_program_status.rs"]
- mod terminal_program_status;
 +#[cfg(unix)]
 +#[path = "tests/switch_command_tests.rs"]
 +mod switch_command_tests;
+ #[path = "tests/terminal_program_status.rs"]
+ mod terminal_program_status;
  mod terminal_title;
- #[path = "tests/tool_activity_tests.rs"]
- mod tool_activity_tests;
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
 index 29469b2..5caeb50 100644
 --- a/codex-rs/tui/src/cli.rs
@@ -756,7 +894,7 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index a3fb544..b34f83a 100644
+index a3fb544..d1829e4 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,11 @@ mod experimental_features;
@@ -771,21 +909,14 @@ index a3fb544..b34f83a 100644
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
-@@ -185,6 +189,8 @@ mod markdown_stream;
- mod markdown_text_merge;
- mod mention_codec;
- mod model_catalog;
-+#[cfg(unix)]
-+mod termux_chat_models;
- mod model_migration;
- mod motion;
- mod multi_agents;
-@@ -232,6 +238,8 @@ mod terminal_palette;
+@@ -232,6 +236,10 @@ mod terminal_palette;
  mod terminal_probe;
  mod terminal_title;
  mod terminal_visualization_instructions;
 +#[cfg(unix)]
 +mod termux_backend_catalog;
++#[cfg(unix)]
++mod termux_chat_models;
  mod text_formatting;
  mod text_selection;
  mod theme_picker;

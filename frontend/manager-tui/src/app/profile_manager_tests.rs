@@ -342,6 +342,8 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
         profile: "work".to_string(),
         thread: codex_protocol::ThreadId::from_string(id).unwrap(),
         cwd: "/owned/current-workspace".into(),
+        flags: Vec::new(),
+        handoff: None,
     };
     let report = color_eyre::eyre::Report::new(std::io::Error::other(request));
     let error = report.downcast::<std::io::Error>().unwrap();
@@ -349,7 +351,7 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
     assert_eq!(command.get_program(), OsStr::new("/owned/core"));
     assert_eq!(
         command.get_args().collect::<Vec<_>>(),
-        ["termux", "__profile-resume-v1", "work", id].map(OsStr::new)
+        ["termux", "__profile-resume-v2", "work", id, "[]"].map(OsStr::new)
     );
     assert_eq!(
         command.get_current_dir(),

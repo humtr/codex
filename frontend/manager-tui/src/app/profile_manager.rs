@@ -73,6 +73,14 @@ fn decode(bytes: &[u8]) -> Option<Profiles> {
 }
 
 async fn load(core: &Path) -> Option<Profiles> {
+    let bytes = call(core, &["__profile-snapshot-v1".to_owned()], 3).await?;
+    if bytes.len() > 65536 {
+        return None;
+    }
+    decode(&bytes)
+}
+
+pub(super) async fn call(core: &Path, args: &[String], seconds: u64) -> Option<Vec<u8>> {
     let metadata = std::fs::symlink_metadata(core).ok()?;
     if !core.is_absolute()
         || !metadata.is_file()
@@ -82,9 +90,10 @@ async fn load(core: &Path) -> Option<Profiles> {
     {
         return None;
     }
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(Duration::from_secs(seconds), async {
         let mut child = Command::new(core)
-            .args(["termux", "__profile-snapshot-v1"])
+            .arg("termux")
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -95,14 +104,14 @@ async fn load(core: &Path) -> Option<Profiles> {
         child
             .stdout
             .take()?
-            .take(65537)
+            .take(262145)
             .read_to_end(&mut bytes)
             .await
             .ok()?;
-        if bytes.len() > 65536 || !child.wait().await.ok()?.success() {
+        if bytes.len() > 262144 || !child.wait().await.ok()?.success() {
             return None;
         }
-        decode(&bytes)
+        Some(bytes)
     })
     .await
     .ok()
@@ -160,6 +169,9 @@ fn picker(view: Profiles, keymap: &ListKeymap) -> SelectionViewParams {
 }
 
 pub(super) async fn open(app: &mut App) {
+    if super::quota_switch::open(app, false).await {
+        return;
+    }
     let core = std::env::var_os("CODEX_PROFILE_CORE");
     let view = match core.as_deref() {
         Some(core) => load(Path::new(core)).await,
@@ -183,6 +195,8 @@ pub(crate) struct ProfileReentry {
     profile: String,
     thread: codex_protocol::ThreadId,
     cwd: PathBuf,
+    flags: Vec<String>,
+    handoff: Option<String>,
 }
 
 impl ProfileReentry {
@@ -192,12 +206,17 @@ impl ProfileReentry {
 
     fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.core);
-        command.args([
-            "termux",
-            "__profile-resume-v1",
-            &self.profile,
-            &self.thread.to_string(),
-        ]);
+        if let Some(handoff) = &self.handoff {
+            command.args(["termux", "__quota-handoff-v1", handoff]);
+        } else {
+            command.args([
+                "termux",
+                "__profile-resume-v2",
+                &self.profile,
+                &self.thread.to_string(),
+                &serde_json::to_string(&self.flags).unwrap_or_default(),
+            ]);
+        }
         command.current_dir(&self.cwd);
         command
     }
@@ -212,6 +231,7 @@ pub(super) async fn prepare(
     app_server: &mut crate::app_server_session::AppServerSession,
     profile: String,
 ) -> Option<ProfileReentry> {
+    super::quota_switch::close(app);
     let thread = app.chat_widget.thread_id().filter(|thread| {
         matches!(
             app.app_server_target,
@@ -250,7 +270,85 @@ pub(super) async fn prepare(
         profile,
         thread,
         cwd: app.config.cwd.to_path_buf(),
+        flags: preserved_flags(app.chat_widget.config_ref())?,
+        handoff: None,
     })
+}
+
+pub(super) fn automatic(request: &mut ProfileReentry, value: serde_json::Value) {
+    request.handoff = Some(value.to_string());
+}
+pub(super) fn flags(request: &ProfileReentry) -> &[String] {
+    &request.flags
+}
+
+fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<String>> {
+    use codex_config::ConfigLayerSource;
+    let mut flags = Vec::new();
+    for layer in config.config_layer_stack.layers_low_to_high() {
+        if let ConfigLayerSource::User {
+            profile: Some(profile),
+            ..
+        } = &layer.name
+        {
+            flags.extend(["--profile".into(), profile.clone()]);
+        }
+        if matches!(layer.name, ConfigLayerSource::SessionFlags)
+            && let Some(table) = layer.config.as_table()
+        {
+            for (key, value) in table {
+                if !matches!(
+                    key.as_str(),
+                    "profile"
+                        | "model"
+                        | "model_reasoning_effort"
+                        | "sandbox_mode"
+                        | "default_permissions"
+                        | "approval_policy"
+                        | "approvals_reviewer"
+                ) {
+                    flags.extend(["-c".into(), format!("{key}={value}")]);
+                }
+            }
+        }
+    }
+    flags.extend(["--model".into(), config.model.clone()?]);
+    flags.extend([
+        "-c".into(),
+        format!("model_provider={:?}", config.model_provider_id),
+    ]);
+    if let Some(effort) = config.model_reasoning_effort {
+        flags.extend([
+            "-c".into(),
+            format!("model_reasoning_effort={:?}", effort.as_str()),
+        ]);
+    }
+    let permission = if let Some(profile) = config.permissions.active_permission_profile() {
+        format!("default_permissions={:?}", profile.id)
+    } else {
+        let mode = match config.legacy_sandbox_policy() {
+            codex_protocol::protocol::SandboxPolicy::DangerFullAccess => "danger-full-access",
+            codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. } => "workspace-write",
+            codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => "read-only",
+            _ => return None,
+        };
+        format!("sandbox_mode={mode:?}")
+    };
+    flags.extend([
+        "-c".into(),
+        permission,
+        "-c".into(),
+        format!(
+            "approval_policy={}",
+            toml::Value::try_from(config.permissions.approval_policy.value()).ok()?
+        ),
+        "-c".into(),
+        format!(
+            "approvals_reviewer={}",
+            toml::Value::try_from(config.approvals_reviewer).ok()?
+        ),
+    ]);
+    Some(flags)
 }
 
 /// Only native durability is needed; saved chats do not hydrate their history.

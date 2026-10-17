@@ -4,6 +4,46 @@ use std::io::{BufRead, IsTerminal};
 use std::os::unix::fs::MetadataExt;
 
 pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    run_with(context, args, &[])
+}
+
+pub(super) fn extended(
+    context: &Context,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    let [profile, id, flags] = args else {
+        return Err(ERR_USAGE);
+    };
+    let flags: Vec<String> = serde_json::from_str(
+        flags
+            .to_str()
+            .filter(|s| s.len() <= 65536)
+            .ok_or(ERR_USAGE)?,
+    )
+    .map_err(|_| ERR_USAGE)?;
+    validate_flags(&flags)?;
+    run_with(context, &[profile.clone(), id.clone()], &flags)
+}
+
+pub(super) fn validate_flags(flags: &[String]) -> Result<(), ManagerError> {
+    if flags.len() > 256
+        || flags.iter().map(String::len).sum::<usize>() > 65536
+        || flags.chunks(2).any(|pair| {
+            pair.len() != 2
+                || !matches!(pair[0].as_str(), "-c" | "--model" | "--profile")
+                || pair[1].contains('\0')
+        })
+    {
+        return Err(ERR_USAGE);
+    }
+    Ok(())
+}
+
+fn run_with(
+    context: &Context,
+    args: &[OsString],
+    flags: &[String],
+) -> Result<Option<String>, ManagerError> {
     let [profile, id] = args else {
         return Err(ERR_USAGE);
     };
@@ -31,19 +71,23 @@ pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>
             .ok()?;
         Some((home, directory))
     });
-    match switch(context, &target, id) {
+    match switch_with(context, &target, id, flags, None) {
         Err(error) => match source {
-            Some((home, directory)) => return_to_source(context, id, &home, &directory, error),
+            Some((home, directory)) => {
+                return_to_source(context, id, &home, &directory, error, flags)
+            }
             None => Err(error),
         },
         result => result,
     }
 }
 
-fn switch(
+pub(super) fn switch_with(
     context: &Context,
     target: &ProfileTarget,
     id: &str,
+    flags: &[String],
+    continuation: Option<&str>,
 ) -> Result<Option<String>, ManagerError> {
     // Reuse lifecycle's registry lock so rename/delete cannot invalidate the
     // selected account while native writer cleanup is still in progress.
@@ -66,7 +110,12 @@ fn switch(
         thread::sleep(Duration::from_millis(25));
     }
     // Native resume provides the final atomic writer acquisition if ownership races.
-    let _ = task::resume_command(context, &home, id, None)?.exec();
+    let mut command = task::resume_command(context, &home, id, None)?;
+    command.args(flags);
+    if let Some(prompt) = continuation {
+        command.arg(prompt);
+    }
+    let _ = command.exec();
     Err(ERR_LAUNCH)
 }
 
@@ -76,6 +125,7 @@ fn return_to_source(
     home: &Path,
     directory: &File,
     error: ManagerError,
+    flags: &[String],
 ) -> Result<Option<String>, ManagerError> {
     eprintln!("{}", error.message);
     eprint!("Enter to return to the original profile; q or other input exits: ");
@@ -94,6 +144,7 @@ fn return_to_source(
         });
     }
     let mut command = task::resume_command(context, home, id, None)?;
+    command.args(flags);
     let current = fs::symlink_metadata(home).map_err(|_| ERR_PROFILE)?;
     let original = directory.metadata().map_err(|_| ERR_PROFILE)?;
     if (current.dev(), current.ino()) != (original.dev(), original.ino()) {

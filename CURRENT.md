@@ -213,16 +213,18 @@ Core's subsequent no-op must show the exact authenticated new line, without ANSI
 staging, runtime probes or activation-state changes. Older releases with no signed
 display fields report unavailable rather than inventing a date or base.
 
-After this correction and document cleanup, report the approved quota-aware
-/switch sequence below. This request does not start account rotation or provider
-work. First implement usage visibility and account identity qualification, then
-selection settings/preview, then proven checkpoint-safe automatic handoff.
+The user authorized the entire remaining quota-aware /switch scope together.
+Complete usage visibility, identity-bound pool/settings/ranking, guarded automatic
+handoff and affected native/device regression proof before integrated full-only
+publication. Intermediate implementation commits are not separate deployments.
+The optional Chat provider remains outside this feature.
 
-### Deferred development: quota-aware /switch
+### Active development: quota-aware /switch
 
-Schedule: after the currently authorized work and the selected base/full
-publication path are complete. User approved this development scope;
-this entry is a development target, not implemented or enabled behavior.
+Development uses experiment/quota-switch for read-only native qualification;
+rewrite/rust-core remains implementation authority and public base58/full59 remain
+selected until the complete feature passes qualification. Rotation stays off by
+default; no live account pool is enrolled by development tests.
 
 Existing implementation: Manager profile_view snapshots registered profile IDs,
 current and saved default. Enhanced TUI app/profile_manager renders selection and
