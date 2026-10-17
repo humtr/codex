@@ -55,7 +55,7 @@ int main(int argc,char **argv) {
     def tm(*args):return subprocess.check_output(['tmux','-S',tsock,*args],env=env,text=True).strip()
     def focus(value=sid):return subprocess.run([str(manager),'__terminal-focus-v1',value],env=env,capture_output=True,timeout=8)
     try:
-        pane=tm('-f','/dev/null','new-session','-d','-P','-F','#{pane_id}','-s','owned',shlex.join([str(native),str(manager),str(ready)]))
+        pane=tm('-f','/dev/null','new-session','-d','-P','-F','#{pane_id}','-s','owned','exec '+shlex.join([str(native),str(manager),str(ready)]))
         deadline=time.monotonic()+4
         while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
         assert ready.exists(),'actual native binding did not publish'
