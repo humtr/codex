@@ -1,0 +1,12 @@
+name: Source acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source_branch_required:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Dispatch qualification on rewrite/rust-core; main has no implementation.' >&2
+          exit 1
