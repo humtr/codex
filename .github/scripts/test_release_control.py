@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tarfile
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -64,6 +65,7 @@ class ReleaseControlTests(unittest.TestCase):
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
+             patch.object(control,'same_product_inputs',return_value=False),\
              patch.object(control,'successful_run',return_value=({'id':1},[])),\
              patch.object(control,'ensure_frontend',return_value=None),\
              patch.object(control,'commit_files',return_value='d'*40) as commit,patch.object(control,'dispatch') as dispatch:
@@ -72,11 +74,42 @@ class ReleaseControlTests(unittest.TestCase):
             self.assertEqual(set(commit.call_args.args[2]),{'release-source-v1'})
             self.assertEqual(dispatch.call_args.args[2]['variant'],'both')
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
+             patch.object(control,'same_product_inputs',return_value=False),\
              patch.object(control,'successful_run',side_effect=[({'id':1},[]),(None,[])]),\
              patch.object(control,'dispatch') as dispatch,patch.object(control,'commit_files') as commit:
             self.assertEqual(control.run(root)['state'],'awaiting-exact-proof')
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
+
+    def test_git_comparison_preserves_unknown_product_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def git(*args):
+                return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
+            git('init');git('config','user.name','Owned');git('config','user.email','owned@example.invalid')
+            (root/'runtime').write_text('owned source')
+            git('add','.');git('commit','-m','baseline');baseline=git('rev-parse','HEAD')
+            (root/'CURRENT.md').write_text('updated evidence')
+            git('add','.');git('commit','-m','docs');docs=git('rev-parse','HEAD')
+            self.assertTrue(control.same_product_inputs(root,baseline,docs))
+            (root/'previously-unknown-source').write_text('new product input')
+            git('add','.');git('commit','-m','product');product=git('rev-parse','HEAD')
+            self.assertFalse(control.same_product_inputs(root,baseline,product))
+            with self.assertRaisesRegex(ValueError,'invalid accepted'):
+                control.same_product_inputs(root,'main',product)
+
+    def test_documentation_only_updates_do_not_rebuild_or_publish(self):
+        root=Path(__file__).resolve().parents[2];sha='a'*40
+        def api(path,**kwargs):
+            if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
+            if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
+        with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
+             patch.object(control,'same_product_inputs',return_value=True),\
+             patch.object(control,'successful_run') as proof,patch.object(control,'dispatch') as dispatch,\
+             patch.object(control,'commit_files') as commit:
+            self.assertEqual(control.run(root)['state'],'no-product-change')
+            proof.assert_not_called();dispatch.assert_not_called();commit.assert_not_called()
 
     def test_controller_executes_owned_code_only_after_exact_source_acceptance(self):
         root=Path(__file__).resolve().parents[2]

@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tarfile
@@ -170,10 +171,29 @@ def ensure_frontend(source, current, root):
     return value
 
 
+# Documentation changes must not rebuild and publish an otherwise identical
+# installation. Unknown product/workflow changes still require fresh proof.
+
+def same_product_inputs(source, previous, current):
+    if not re.fullmatch('[0-9a-f]{40}', previous):
+        raise ValueError('invalid accepted product source pointer')
+    known = subprocess.run(['git','-C',str(source),'cat-file','-e',previous+'^{commit}'],capture_output=True)
+    if known.returncode:
+        subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',previous],check=True,capture_output=True)
+    changed = subprocess.check_output(['git','-C',str(source),'diff','--name-only','-z',previous,current])
+    paths = changed.decode('utf-8', errors='surrogateescape').split('\0')
+    return all(not path or path.endswith('.md') or path == '.gitignore' for path in paths)
+
+
 def run(source):
     current=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if api('git/ref/heads/'+SOURCE_BRANCH)['object']['sha']!=current:
         return {'state':'obsolete-source-ignored'}
+    main=api('git/ref/heads/main')['object']['sha']
+    pointer=api('contents/release-source-v1?ref='+main)
+    previous=base64.b64decode(pointer['content']).decode().strip()
+    if previous != current and same_product_inputs(source, previous, current):
+        return {'state':'no-product-change','source':current,'accepted_source':previous}
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
         passed, runs=successful_run(workflow,current)
         if not passed:
@@ -189,9 +209,7 @@ def run(source):
         dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
         dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})
         return {'state':'frontend-inputs-bound-awaiting-source-proof','source':updated}
-    main=api('git/ref/heads/main')['object']['sha']
-    pointer=api('contents/release-source-v1?ref='+main)
-    if base64.b64decode(pointer['content']).decode().strip()==current:
+    if previous==current:
         return {'state':'already-pinned','source':current}
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
