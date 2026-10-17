@@ -8,6 +8,7 @@ def signal_job(dependency):
     return f'''
   notify_acceptance:
     needs: {dependency}
+    if: always() && needs.{dependency}.result == 'success'
     permissions:
       contents: read
       actions: write
