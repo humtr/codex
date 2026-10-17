@@ -29,7 +29,7 @@ for line in sys.stdin:
  if method=='initialize':r={}
  elif method=='account/read':r={'account':{'type':'chatgpt'},'workspaceRouting':{'chatgptAccountId':facts['account']}}
  elif method=='account/rateLimits/read':r={'accountId':facts['account'],'ordinaryUsageAllowed':facts['allowed'],'rateLimits':{'limitId':'codex','primary':{'usedPercent':100-facts['remaining'],'windowDurationMins':300,'resetsAt':9999999999},'secondary':{'usedPercent':10,'windowDurationMins':10080,'resetsAt':9999999999}}}
- elif method=='model/list':r={'data':[{'model':'owned'}],'nextCursor':None}
+ elif method=='model/list':r={'data':[{'model':'owned','supportedReasoningEfforts':[{'reasoningEffort':'high'}]}],'nextCursor':None}
  else:raise Exception('unexpected read method')
  print(json.dumps({'id':v['id'],'result':r}),flush=True)
 "#).unwrap();

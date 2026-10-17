@@ -10,6 +10,7 @@ fn sample() -> Usage {
         account: Some("account-a".into()),
         allowed: Some(true),
         models: vec!["owned".into()],
+        efforts: BTreeMap::from([("owned".into(), vec!["high".into()])]),
         buckets: vec![Bucket {
             id: "codex".into(),
             model: None,
@@ -228,6 +229,8 @@ fn quota_duplicate_accounts_binding_replacement_and_invalid_settings_preserve_po
         None
     );
     configure(&f.context, r#"{"policy":"weekly"}"#).unwrap();
+    assert_eq!(policy(&f.context).unwrap().accounts, p.accounts);
+    configure(&f.context, r#"{"accounts":["default","same","other"]}"#).unwrap();
     assert_eq!(policy(&f.context).unwrap().accounts, p.accounts);
     let view = view(&f.context, false, Some("owned")).unwrap();
     assert!(!view.to_string().contains("account-a"));

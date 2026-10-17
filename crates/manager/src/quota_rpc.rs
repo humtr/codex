@@ -24,7 +24,21 @@ impl Client {
         home: &Path,
         deadline: Instant,
     ) -> Result<Self, ManagerError> {
-        let mut child = Command::new(&context.core_entrypoint)
+        let mut command = Command::new(&context.core_entrypoint);
+        let parent = std::process::id() as libc::pid_t;
+        // The reader must not survive a cancelled/killed Manager or TUI. It
+        // owns only this new stdio process, never an existing account server.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0) != 0
+                    || libc::getppid() != parent
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command
             .arg("app-server")
             .env_remove(CORE_API_ENV)
             .env_remove(CORE_ENTRYPOINT_ENV)

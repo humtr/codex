@@ -354,11 +354,12 @@ pub(super) fn refresh(app: &mut App) {
     });
 }
 pub(super) fn ready(app: &mut App, generation: u64, view: Option<Value>) {
-    if app.quota_switch.visible && generation == app.quota_switch.generation {
-        if let Some(view) = view {
-            app.quota_switch.view = Some(view);
-            render(app);
-        }
+    if app.quota_switch.visible
+        && generation == app.quota_switch.generation
+        && let Some(view) = view
+    {
+        app.quota_switch.view = Some(view);
+        render(app);
     }
 }
 pub(super) async fn edit(app: &mut App, value: Value) {
@@ -473,14 +474,14 @@ pub(super) fn observe(app: &mut App, notification: &ServerNotification) {
     {
         return;
     }
-    if let Some((turn, trigger)) = record(&mut app.quota_switch, method, params) {
-        if let Some(thread) = app.chat_widget.thread_id() {
-            app.app_event_tx.send(AppEvent::AutoQuotaHandoff {
-                thread,
-                turn,
-                trigger,
-            });
-        }
+    if let Some((turn, trigger)) = record(&mut app.quota_switch, method, params)
+        && let Some(thread) = app.chat_widget.thread_id()
+    {
+        app.app_event_tx.send(AppEvent::AutoQuotaHandoff {
+            thread,
+            turn,
+            trigger,
+        });
     }
 }
 pub(super) fn request(app: &mut App, request: &codex_app_server_protocol::ServerRequest) {
@@ -499,7 +500,6 @@ pub(super) async fn automatic(
 ) -> Option<super::profile_manager::ProfileReentry> {
     if app.quota_switch.session_off
         || app.quota_switch.visible
-        || app.chat_widget.has_active_modal()
         || app
             .agent_navigation
             .ordered_threads()
@@ -523,6 +523,10 @@ pub(super) async fn automatic(
     if view["rotation"]["enabled"] != true
         || trigger == "proactive" && view["rotation"]["proactive"].as_i64().unwrap_or(0) == 0
     {
+        return None;
+    }
+    app.chat_widget.termux_prepare_account_handoff();
+    if app.chat_widget.has_active_modal() {
         return None;
     }
     let tx = app.app_event_tx.clone();
@@ -556,6 +560,13 @@ pub(super) async fn automatic_ready(
     trigger: String,
     view: Option<Value>,
 ) -> Option<super::profile_manager::ProfileReentry> {
+    if view
+        .as_ref()
+        .is_some_and(|v| v["rotation"]["enabled"] == true)
+        && !app.quota_switch.session_off
+    {
+        app.chat_widget.termux_prepare_account_handoff();
+    }
     if app.quota_switch.session_off
         || app.quota_switch.visible
         || app.quota_switch.handled.as_deref() != Some(&turn)
@@ -576,6 +587,9 @@ pub(super) async fn automatic_ready(
         return None;
     };
     if view["rotation"]["enabled"] != true {
+        return None;
+    }
+    if view["selected_model"].as_str() != Some(&model) {
         return None;
     }
     let Some(profile) = view["recommended"].as_str() else {

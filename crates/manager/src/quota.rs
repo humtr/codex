@@ -39,6 +39,8 @@ struct Usage {
     allowed: Option<bool>,
     buckets: Vec<Bucket>,
     models: Vec<String>,
+    #[serde(default)]
+    efforts: BTreeMap<String, Vec<String>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -301,6 +303,7 @@ fn query(context: &Context, id: &str, deadline: Instant) -> Result<Usage, Manage
         allowed: None,
         buckets: Vec::new(),
         models: Vec::new(),
+        efforts: BTreeMap::new(),
     };
     if account["account"]["type"].as_str() != Some("chatgpt") {
         result.status = if account["account"].is_null() {
@@ -351,6 +354,14 @@ fn query(context: &Context, id: &str, deadline: Instant) -> Result<Usage, Manage
         )?;
         for model in models["data"].as_array().ok_or(ERR_QUOTA)? {
             if let Some(id) = nonempty(&model["model"]) {
+                let efforts = model["supportedReasoningEfforts"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| nonempty(&v["reasoningEffort"]))
+                    .take(32)
+                    .collect();
+                result.efforts.insert(id.clone(), efforts);
                 result.models.push(id);
             }
         }
@@ -412,6 +423,7 @@ fn refresh(context: &Context, ids: &[String]) -> Result<(), ManagerError> {
                                         allowed: None,
                                         buckets: Vec::new(),
                                         models: Vec::new(),
+                                        efforts: BTreeMap::new(),
                                     };
                                     let _ =
                                         publish(&cache(context).join(format!("{id}.json")), &value);
@@ -423,6 +435,23 @@ fn refresh(context: &Context, ids: &[String]) -> Result<(), ManagerError> {
             });
         }
     });
+    // A first Core launch may contend with another account's shared-layout
+    // preparation. Retry failed reads once after the parallel readers settle.
+    // This never retries inference or touches an existing server/job.
+    for id in ids {
+        if Instant::now() >= deadline {
+            break;
+        }
+        if load(context, id).is_some_and(|u| u.status == "unavailable") {
+            if let Ok(value) = query(
+                context,
+                id,
+                (Instant::now() + Duration::from_secs(8)).min(deadline),
+            ) {
+                let _ = publish(&cache(context).join(format!("{id}.json")), &value);
+            }
+        }
+    }
     Ok(())
 }
 fn selected_bucket<'a>(usage: &'a Usage, model: Option<&str>) -> Option<&'a Bucket> {
@@ -647,6 +676,20 @@ fn handoff(context: &Context, value: &str) -> Result<Option<String>, ManagerErro
         &request.profile,
         Instant::now() + Duration::from_secs(8),
     )?;
+    if let Some(value) = request.flags.chunks(2).find_map(|p| {
+        (p[0] == "-c")
+            .then_some(p[1].strip_prefix("model_reasoning_effort="))
+            .flatten()
+    }) {
+        let effort: String = serde_json::from_str(value).map_err(|_| ERR_USAGE)?;
+        if !usage
+            .efforts
+            .get(&request.model)
+            .is_some_and(|efforts| efforts.contains(&effort))
+        {
+            return Err(ManagerError::operation("codex termux: destination does not advertise the selected reasoning effort; work remains saved"));
+        }
+    }
     if source_usage.account == usage.account
         || reason(
             Some(&usage),
@@ -825,6 +868,10 @@ fn configure(context: &Context, value: &str) -> Result<Value, ManagerError> {
             let id = id.as_str().ok_or(ERR_USAGE)?;
             if !seen.insert(id) {
                 return Err(ERR_USAGE);
+            }
+            if let Some(member) = old.accounts.get(id) {
+                members.insert(id.to_owned(), member.clone());
+                continue;
             }
             let usage = load(context, id)
                 .filter(|u| fresh(u, now()))

@@ -839,6 +839,25 @@ index 4e2fcb6..47be0a3 100644
          items.extend(
              discovery
                  .profiles
+diff --git a/codex-rs/tui/src/chatwidget/rate_limits.rs b/codex-rs/tui/src/chatwidget/rate_limits.rs
+index 0e48527..43ed980 100644
+--- a/codex-rs/tui/src/chatwidget/rate_limits.rs
++++ b/codex-rs/tui/src/chatwidget/rate_limits.rs
+@@ -641,6 +641,14 @@ impl ChatWidget {
+         self.request_redraw();
+     }
+
++    // Account rotation takes precedence only when Manager has opted in. Do not
++    // persist a native notice preference or dismiss unrelated protected views.
++    pub(crate) fn termux_prepare_account_handoff(&mut self) {
++        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
++        self.bottom_pane
++            .dismiss_view_by_id(RATE_LIMIT_SWITCH_PROMPT_VIEW_ID);
++    }
++
+     pub(crate) fn set_rate_limit_switch_prompt_hidden(&mut self, hidden: bool) {
+         self.local_settings.notices.hide_rate_limit_model_nudge = Some(hidden);
+         if hidden {
 diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
 index ac9b5c8..ebdcad9 100644
 --- a/codex-rs/tui/src/chatwidget/session_model_selection.rs

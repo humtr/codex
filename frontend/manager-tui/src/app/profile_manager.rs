@@ -324,7 +324,7 @@ fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<St
         "-c".into(),
         format!("model_provider={:?}", config.model_provider_id),
     ]);
-    if let Some(effort) = config.model_reasoning_effort {
+    if let Some(effort) = &config.model_reasoning_effort {
         flags.extend([
             "-c".into(),
             format!("model_reasoning_effort={:?}", effort.as_str()),

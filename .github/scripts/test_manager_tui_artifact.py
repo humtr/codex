@@ -56,7 +56,8 @@ class NativeArtifactTests(unittest.TestCase):
         (artifact / "native.patch").write_bytes(patch)
         proof = root / "proof" / "_temp"
         proof.mkdir(parents=True)
-        (proof / "profile-tui-focused.log").write_text("Summary [3s] 43 tests run: 43 passed, 5632 skipped\n")
+        count=json.loads(release.read_text())['qualification']['focused_tests']
+        (proof / "profile-tui-focused.log").write_text(f"Summary [3s] {count} tests run: {count} passed, 5632 skipped\n")
         for suite, (package, _, topics) in SUITES.items():
             (proof / f"profile-tui-upstream-{suite}.log").write_text(
                 "".join(f"PASS [0.01s] {package} {name}\n" for name in topics.values()) +
