@@ -6,16 +6,20 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public full59: `local-relay-hosted-0-163-0-b18cc2a2f5f4-s59`, CLI0.163.0,
-  accepted product sourceb18cc2a2f5f4eda67bff1197ce607bddbed96d4a. It pins public
-  base58 `local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58`. Accepted main caller
-  a086145 pins the same implementation/source. Publication39015294386 passes both
-  lanes' builds, Android execution, signing, immutable Release staging, complete
-  public readback/disposable update and non-forced promotion. Source acceptance
-  39015035450 and independent Core/Android39015035471 pass. Signed release date is
-  2026-10-17 UTC; GitHub full59 published_at is2026-10-17T08:00:23Z. New Core update
-  output identifies edition/sequence, full's exact base and signed release date.
-  Ordinary full `codex update` selects59; public publication does not activate it.
+- Public full60: `local-relay-hosted-0-163-0-54f926437ad5-s60`, CLI0.163.0,
+  accepted product source54f926437ad5093bb11e8d53c3502b810e514071. It reuses public
+  base58 `local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58` byte for byte; the base
+  publication job is skipped. The main caller keeps the accepted b18 workflow,
+  while source pinb0702ba selects54f9264 and non-forced stable promotionb5e1d9f
+  publishes60. Publication39033383447 passes build, Android execution, signing,
+  immutable Release, complete public readback/disposable update and CAS promotion.
+  Full60 published_at is2026-10-17T12:42:39Z. Source acceptance39033120658 and
+  independent Core39033121990 pass. Native1c413cf/run39027733603 passes48 maintained
+  TUI regressions,94 retained upstream features and lint. Previous full59/sourceb18
+  remains published; its base/full display correction is retained in base58.
+  Actual device public57→60/no-op/rollback/forward and published-Manager quota
+  handoff pass; user installation57 is unchanged. See quota-release-public-full-
+  device.json and quota-public-published-manager-ui.json in the private cache.
 - User has updated to full57; previous54 remains the rollback target. Actual
   user-full57-update-check.json verifies all8 signed payload hashes/modes, the
   launcher/Core identity and unchanged activation state. `codex --version` reports
@@ -175,210 +179,74 @@ disposable update/no-op/rollback and non-forced promotion for every new release.
 Reference-aware retention must preserve both heads, their exact referenced bases
 and last-known-good assets; historical public assets are not incidental cleanup.
 
-### Release identification and next work
+### Release identification
 
-The user's57 update is healthy. Ordinary update output previously showed only
-the upstream version, making same-upstream base/full releases indistinguishable.
-Current correction adds one authenticated edition/release/base/date line to both
-changing and already-current remote updates. It extends the existing signed
-component-input-v1 with optional display fields; old sidecars stay valid. Date is
-the UTC preparation/signing date, never installation time. No new state authority,
-service, Core dependency or Manager/account policy is introduced. Explicit update
-alone fetches bounded optional display data; unavailable or invalid data remains
-unavailable without changing release admission. New publication must verify these
-fields against actual base provenance and read them back through both public paths.
-The producer owns signed provenance, and the existing Core updater owns its
-verification and presentation. Manager owns none of this path; no Manager RPC,
-configuration or executable is required, even to identify an installed full release.
-Exact-source acceptance39015035450 and independent Core/Android39015035471 pass
-for b18cc2a. Accepted callera086145 pins that source; publication39015294386 is green
-for public base58/full59. Actual Android proofs for both editions pass signed
-public update, exact-current display, version and offline rollback/forward. Base58
-contains no Manager; full59 still prints the exact same full/base/date with its
-Manager file physically removed. No-op launcher/activation state is unchanged.
-Both owned fixtures are removed,0 chats submitted, live installation57 unchanged.
-Evidence: release-display-public-{base,full}-device.json. The reproducible device
-probe is release-display-public-device-proof.py in the same private cache.
-
-The old57 Core cannot retrospectively render new fields during its own upgrade.
-After activating59, the next ordinary no-op `codex update` shows:
+The producer owns authenticated edition/sequence/base/date provenance. Core's
+existing updater verifies and presents it; Manager owns none of this path.
+The signed UTC release date is preparation/signing time, not installation time.
+Actual public Full60 prints the following with Manager physically absent too:
 
 ```text
 Codex 0.163.0 is already up to date.
-Termux release: Full #59 · Base #58 · Release date: 2026-10-17 (UTC)
+Termux release: Full #60 · Base #58 · Release date: 2026-10-17 (UTC)
 ```
 
-First-update acceptance admits the exact legacy output from old clients; candidate
-Core's subsequent no-op must show the exact authenticated new line, without ANSI,
-staging, runtime probes or activation-state changes. Older releases with no signed
-display fields report unavailable rather than inventing a date or base.
+Old57 cannot render new fields during its own initial upgrade. Once new Core58
+is active, the next ordinary no-op update shows this authenticated line. Older
+releases without signed display fields remain unavailable rather than inventing
+metadata. Base/full lifecycle and ordinary Core launch remain Manager-independent.
 
-The user authorized the entire remaining quota-aware /switch scope together.
-Complete usage visibility, identity-bound pool/settings/ranking, guarded automatic
-handoff and affected native/device regression proof before integrated full-only
-publication. Intermediate implementation commits are not separate deployments.
-The optional Chat provider remains outside this feature.
+### Delivered: quota-aware /switch
 
-### Active development: quota-aware /switch
+Full60 includes the complete approved feature; rotation is off by default and no
+operating account pool was enrolled by development. README owns usage and SPEC
+owns the detailed behavior. The temporary experiment/quota-switch branch is
+merged into rewrite/rust-core and closed after admission.
 
-The complete feature is integrated on rewrite/rust-core. The temporary
-experiment/quota-switch branch supplied intermediate native qualification and is
-closed after final admission. Public base58/full59 remain selected until the full
-feature passes qualification. Rotation stays off by default; no live account pool
-is enrolled by development tests.
+Manager owns bounded native account/model reads, private usage projections,
+identity-bound eligible accounts,5h/weekly/combined/remaining/custom ranking,
+reserves, weights/order, cooldown/exclusion and bounded durable handoff claims.
+The optional TUI owns cached rows, asynchronous refresh and settings. Refresh
+retains selection/search, does not stack pickers or cover another modal, and
+one Esc closes it. Core acquires no account/quota policy or Manager dependency.
+The base input fingerprint remains43e0b888ec06af28e2e98d55cdd30adb9f01e5ef9d3e8f691cfab7c6e2a97a3c.
 
-The integrated feature is undergoing exact native qualification before
-publication. Manager owns private identity-bound
-usage snapshots, explicit pool/settings/ranking, cooldowns and durable handoff
-claims. The optional TUI renders cached rows, refreshes asynchronously and forwards
-only settled typed boundaries. Core forwards Manager commands unchanged. Both
-manual and automatic re-entry preserve resolved model/effort and session policy;
-a quota continuation adds one checkpoint turn, never the original prompt.
+Only a confirmed terminal native quota error or opted-in proactive idle threshold
+can hand off. The path preserves UUID/CWD/terminal, model/effort and approval/
+reviewer settings, rechecks entitlement/quota/identity and waits for native writer
+release. It never kills a writer, copies history or resubmits the original prompt.
+Quota recovery submits one checkpoint continuation; proactive switching submits
+none. Pending/uncertain work pauses, and incompatible resolved permissions stop
+before inference without copying account configuration. Attempts/cooldowns are
+bounded; newly registered or replaced identities are excluded until enrollment.
+The optional Chat provider is not a Codex-quota fallback.
 
-Actual Android proof with authenticated base58, candidate Manager and native
-45d150d frontend passes: two synthetic ChatGPT accounts,2 source samples,1
-quota-failed terminal turn,1 completed command effect,1 automatic handoff and1
-destination continuation. The original request appears once and the checkpoint
-once in the canonical rollout; UUID, permissions/reviewer and the visible final
-answer survive. No real inference/account allowance is consumed and no operating
-policy/runtime is changed. Proof: quota-native-synthetic-current.json in the
-private acceptance cache. Final exact-source frontend qualification, native
-menu/toggle/notice proof and integrated public full-only admission remain required.
+Qualification is complete:
 
-The actual intermediate UI also passes usage rows and persistent off/on controls
-before the same successful handoff. A final read-only query across6 real
-registered profiles preserves all19 existing Codex process identities and both
-activation/rotation policy records; it performs0 inference. Source16f3a71 adds a
-PID-bound native resolved-permission comparison: incompatible account definitions
-must stop before a continuation, without copying either account's configuration.
-The final1c413cf Android frontend now passes the real menu/off-on controls,
-PID-bound visible account notice, same-thread continuation and exactly-once
-command effects. The proof gives the destination different effort/reviewer/
-approval defaults and verifies that the source choices still win. Named-profile
-and incompatible-permission proofs also pass; incompatible permissions stop
-before destination inference. Notices are verified from rendered PTY text with
-cursor/spacing controls normalized, not from a server acknowledgment.
-All four final trials pass with the rebuilt exact Manager and native1c413cf:
-UI controls/notice, named permissions, pre-inference incompatible-permission pause,
-and fresh/resume/btw. The latter executes3 real Android commands with3 guardian
-reviews, retaining dangerFullAccess/on-request/auto_review without bubblewrap.
-No real account inference is submitted. The combined receipt binds both binary
-hashes and base58 Core: quota-qualified-device-matrix.json; individual reports
-are quota-native-qualified-{ui,named,incompatible,permissions}.json.
-Public full-only admission and final native48/94/lint gates remain required.
-Local full acceptance passes135 Python and353 Rust tests, fmt and Clippy; the
-48-test final native input remains subject to its independent build/feature/lint
-gates. The final UI also replaces the existing quota picker during asynchronous
-refresh, retaining selection/search instead of stacking popups. Its regression
-checks selection and a single Esc close after refresh/cancellation.
-Proofs: quota-native-ui-intermediate.json, quota-native-account-isolation-
-final.json, quota-final-full-check.log and quota-native-authority-final-python.log.
+- 135 repository/publication/frontend Python and353 workspace Rust tests, fmt and
+  Clippy pass. Native1c413cf passes48 actual TUI and94 retained upstream checks/lint.
+- Actual Android native matrix passes UI/pool controls and visible switch notice,
+  same-thread continuation with differing destination defaults, named permissions,
+  and incompatible-permission pre-inference pause. A completed command has1 effect;
+  original/checkpoint messages occur once each. Fresh/resume/btw execute3 commands
+  with3 guardian reviews, retaining dangerFullAccess/on-request/auto_review without
+  bubblewrap. Receipt quota-qualified-device-matrix.json binds the tested binaries.
+- A read-only query across6 real registered profiles preserves all19 existing
+  Codex process identities and activation/rotation records. No model inference or
+  live policy enrollment is performed: quota-native-account-isolation-final.json.
+- Publication39033383447 reuses base58 and promotes only full60. Actual device
+  public57→60 update, exact-current display with/without Manager, cached quota view,
+  signed payloads and offline rollback/forward pass. The published Manager itself
+  passes actual Android quota handoff, one command effect and the visible final/
+  switch notice: quota-release-public-full-device.json and quota-public-published-
+  manager-ui.json. All fixtures are removed and user install57 remains unchanged.
 
-Pinned upstream0.163 source83086188 already exposes account/rateLimits/read and
-account/rateLimits/updated. Its account protocol includes windowDurationMins,
-usedPercent, resetsAt, multiple limit IDs, account_id and ordinary_usage_allowed;
-null permission is explicitly unknown and percentages/reset times cannot establish
-recovery. Typed UsageLimitExceeded and RateLimitExceeded are distinct. Read-only Android native account queries now establish actual window/identity
-mapping without inference or operating policy changes. Official reference:
-https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt
-
-Ownership and required behavior:
-
-- Upstream owns authentication/refresh, actual quota/error facts, inference,
-  durable transcript/turn state, tools/reviewer and writer locks. Manager owns
-  registered-account usage projection/cache, eligibility, chosen pool, ranking,
-  rotation settings and handoff decision. Enhanced TUI owns /switch rows/settings,
-  event forwarding and a narrow existing lifecycle re-entry hook. Core retains
-  generic execution-home/lease/verified lifecycle only; provider quota facts stay
-  in the provider. No account policy or new supervision layer enters Core.
-- Use each profile's existing qualified account-scoped upstream interface; reuse
-  an existing endpoint or a bounded native client through Core, never copy tokens
-  into a cross-account client or log secrets. Prove inactive-account reads do not
-  infer, hydrate conversations, seize a writer, restart a running job or sign out
-  another account. Manager's launch-preparation config hook remains bounded and
-  network-free; quota acquisition must not move into ordinary Core startup. Keep
-  private snapshots in the existing XDG cache, separated by bound account/workspace/
-  bucket identity; cache is never authentication authority. Expose the same Manager
-  data/policy through text/JSON usage and selection-preview views for testing without
-  TUI. Preserve the strict existing __profile-snapshot-v1 schema; introduce a
-  versioned richer view instead of unknown fields that break retained clients.
-- Show each account's remaining5h/weekly percentage and reset countdown/time,
-  freshness and login/error/unknown state. Derive labels from actual duration
-  (300/10080 minutes only when supplied), not primary/secondary position. Keep
-  model/limit IDs distinct, merge sparse updates correctly, and never display an
-  absent/expired value as100% or treat a past reset timestamp as confirmed recovery.
-  Show cached rows immediately with bounded asynchronous refresh, one refresh
-  action, timeout/backoff and concurrent-read dedup; avoid permanent polling.
-- Distinguish execution profiles from actual account/workspace identities. Two
-  homes sharing one metered account/bucket do not create two pools of allowance.
-  Respect model access and shared workspace limits; an API-key/billed route or the
-  experimental Chat model route is not an automatic Codex-quota fallback. Provider
-  data remains a separately labelled future capability, never fabricated from
-  Codex limits. Initial live proof must establish account/bucket mapping.
-- Add a persistent automatic-switch toggle, off by default, with an explicit
-  allowlist of eligible registered accounts. New profiles are excluded by default;
-  removal/rename/login replacement must not silently enroll a new identity. Allow
-  user ordering, temporary exclusion/cooldown and a session-level off override.
-  Do not alter the saved default account or explicit permission/reviewer/model/
-  effort choice merely because a running conversation rotates accounts.
-- Offer earliest5h reset, earliest weekly reset, combined and remaining-capacity
-  policies plus declarative custom priorities/weights/reserve thresholds. First
-  establish usable authentication, same provider/model entitlement, fresh quota
-  facts and no blocking quota/spend state for every applicable window. An account
-  with weekly allowance exhausted is ineligible despite a near5h reset. Earliest
-  reset ranks usable accounts; it does not wait for or assume the reset. Remaining
-  percentage is not an absolute cross-plan work-capacity measurement. The combined
-  policy must consider both blocking windows and minimum reserves before reset
-  urgency; never simply add5h/weekly percentages. Show a deterministic selection
-  reason/preview; freeze tie-breaks for reproducibility. Custom settings are data,
-  not arbitrary shell execution.
-- Trigger only from confirmed applicable quota exhaustion or an explicitly chosen
-  proactive threshold at a safe turn boundary, not every429, network disconnect,
-  slow response or cosmetic100% rounding. Revalidate the destination immediately
-  before handoff. Use structured exhaustion/permission facts where supported;
-  ambiguous/unknown state remains visible and never rotates in a retry loop.
-- Preserve UUID, CWD, original Android terminal identity/title behavior, durable
-  completed tools/reports, queued/unsent input, permission/reviewer and model/effort.
-  Wait for actual turn/tool quiescence and native writer release. A shared-source
-  continuation requires a proven resumable conversation in the destination; never
-  fork/copy a transcript or force/kill an unrelated owner as automatic fallback.
-  Switching and successful continuation are distinct states in the UI.
-- Qualify upstream retry/continuation semantics for a quota-failed partial turn.
-  Automatic continuation must continue from the persisted checkpoint, without
-  replaying completed commands or submitting the original request twice. Pending
-  tool/reviewer/question/uncertain execution outcomes cannot be silently replayed.
-  If that guarantee cannot be established, stop with the saved state and precise
-  reason; do not label account selection as seamless recovery. This is the main
-  technical precondition for publishing automatic work continuation.
-- Bound candidate attempts, serialize per-thread handoffs, cool down rejected or
-  exhausted accounts, suppress ping-pong and reconcile with concurrent sessions
-  spending the same quota. If no destination qualifies, preserve work and show the
-  limiting window/reset/unknown reason plus manual alternatives. Emit one useful
-  notification/transcript status for a switch or pause, not duplicate input alarms.
-
-Approved execution order:
-
-1. Completed composition/transport and both public-lane proofs: authenticated
-   base58/full59 are serving; installed57 remains unchanged by this development.
-2. Implement read-only quota rows, freshness/error states and manual /switch;
-   qualify account identity, window mapping and inactive-account query behavior.
-3. Implement pool/toggle/ranking and deterministic preview; fixture-test missing
-   windows, multiple buckets, policy/ties, duplicate accounts, stale data and races.
-4. Implement structured exhaustion -> durable idle checkpoint -> destination
-   revalidation -> writer release -> same-thread resume -> safe continuation;
-   qualify repeated failures, cancellation, conflicting writers, pending tools,
-   partial streams and process restarts without duplicated side effects.
-5. Real Android notification/window/title/manual/automatic handoff proof, then
-   full/add-on publication only. Assert base hashes/head unchanged. Use simulated
-   quota exhaustion; no need to spend accounts down to zero. Explain any necessary
-   real inference and its expected budget before such a trial.
-
-Acceptance is observable: immediate readable quota rows, understandable ranking,
-explicit selected pool/toggle, preserved conversation/window/input/permissions,
-exactly-once completed-tool effects after rotation, bounded failure behavior, and
-no base publication or Core-byte change for a /switch-only feature. If development
-reveals a genuinely generic Core protocol/lifecycle gap, report it as a separate
-base change with its own proof; never hide switch policy there to bypass a boundary.
+These trials use deterministic loopback quota exhaustion and perform0 real model
+requests/Pro samples. They do not spend an operating account down to zero. The
+previously qualified physical window-return path is unchanged; these new device
+trials exercise real native CLI rendering in owned PTYs, without new Android
+notification-tap observations. Remaining optional Chat-provider work is tracked
+separately above and is not represented as completed by this quota release.
 
 ### Responsibility recheck2026-10-17 (before publication automation)
 
