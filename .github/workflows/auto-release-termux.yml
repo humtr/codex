@@ -47,7 +47,7 @@ jobs:
       actions: read
       pages: write
       id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@cc4286599665a2143ead48e21c002123b6c40b02
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d58a834e182b23ad1011491f3582ef49529fe1e1
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: base
@@ -63,7 +63,7 @@ jobs:
       actions: read
       pages: write
       id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@cc4286599665a2143ead48e21c002123b6c40b02
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d58a834e182b23ad1011491f3582ef49529fe1e1
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: full
@@ -71,3 +71,17 @@ jobs:
       rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
     secrets:
       CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+  notify_acceptance:
+    needs: [source, base, release]
+    if: always() && needs.source.result == 'success'
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Continue after publication reaches a terminal state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run accepted-release-inputs.yml --repo humtr/codex --ref main -f completed_run="$GITHUB_RUN_ID"
