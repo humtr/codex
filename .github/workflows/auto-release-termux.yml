@@ -131,6 +131,20 @@ jobs:
             source/.github/scripts/rald4_signing.py \
             source/.github/scripts/test_rald4_signing.py
 
+      - name: Authenticate exact base for release display
+        if: inputs.release_variant == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald4-sign"
+          python3 source/.github/scripts/release_heads.py \
+            --main-sha '${{ needs.producer.outputs.expected_main_sha }}' --variant full \
+            --public-key "$work/update-public-key.pem" --output "$work/display-heads"
+          python3 source/.github/scripts/release_components.py match-base \
+            --source source --heads "$work/display-heads" --authority "$work/update-public-key.pem" \
+            --output "$work/display-base" > "$work/display-base.env"
+          grep -Fqx reuse_base=true "$work/display-base.env"
+
       - name: Sign qualified candidate with accepted authority only
         shell: bash
         env:
@@ -138,6 +152,10 @@ jobs:
         run: |
           set -euo pipefail
           release_base="$(python3 source/.github/scripts/rald5_publication.py release-base --generation '${{ needs.producer.outputs.generation_id }}')"
+          component_args=()
+          if test '${{ inputs.release_variant }}' = full; then
+            component_args=(--component-base "$RUNNER_TEMP/rald4-sign/display-base")
+          fi
           python3 source/.github/scripts/rald4_signing.py \
             --candidate "$RUNNER_TEMP/rald4-sign/candidate" \
             --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
@@ -147,7 +165,7 @@ jobs:
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
             --output "$RUNNER_TEMP/rald4-sign/signed-output" \
-            --component-source "$GITHUB_WORKSPACE/source"
+            --component-source "$GITHUB_WORKSPACE/source" "${component_args[@]}"
 
       - name: Independently verify signed candidate
         shell: bash
@@ -515,6 +533,30 @@ jobs:
             --output "$release_readback/update-public-key.pem" "$release_url/update-public-key.pem"
           cmp "$release_readback/update-public-key.pem" "$authority"
 
+          # Display metadata is optional for retained clients, but every new
+          # candidate must expose its signed date and exact base through both
+          # the logical origin and immutable Release assets.
+          display="$root/display"
+          mkdir "$display"
+          cp "$root/$candidate/release.manifest" "$display/release.manifest"
+          for relative in component-input-v1 component-input-v1.sig; do
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --max-filesize 4096 \
+              --output "$display/$relative" "${candidate_base}${relative}"
+            target_url="$(python3 publication-source/.github/scripts/release_components.py target \
+              --map "$root/asset-map-v1.json" --generation "$candidate" --path "$relative")"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --max-filesize 4096 \
+              --output "$release_readback/$relative" "$target_url"
+            cmp "$display/$relative" "$release_readback/$relative"
+          done
+          PYTHONPATH=publication-source/.github/scripts python3 - "$display" "$candidate" "$authority" <<'PYDISPLAY'
+          from pathlib import Path
+          import sys
+          from release_components import component
+          assert 'display' in component(Path(sys.argv[1]),sys.argv[2],Path(sys.argv[3]))
+          PYDISPLAY
+
           python3 publication-source/.github/scripts/rald5_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$candidate" \
@@ -681,7 +723,27 @@ jobs:
           fi
           printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
           printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
-          cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
+          python3 - "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out" \
+            "$root/display/component-input-v1" "$root/$current/release.manifest" \
+            '${{ needs.producer.outputs.release_sequence }}' '${{ inputs.release_variant }}' <<'PYFIRST'
+          import json
+          from pathlib import Path
+          import sys
+          expected=Path(sys.argv[1]).read_text().splitlines()
+          actual=Path(sys.argv[2]).read_text().splitlines()
+          # A retained pre-display Core prints the three legacy lines. A newer
+          # Core may add exactly one authenticated current -> candidate line.
+          if actual!=expected:
+              prior=Path(sys.argv[4]).read_text().splitlines()
+              sequence=next(line.split('\t')[1] for line in prior if line.startswith('release_sequence\t'))
+              old='Full' if any(line.startswith('file\tmanager\t') for line in prior) else 'Base'
+              new='Base' if sys.argv[6]=='base' else 'Full'
+              info=json.loads(Path(sys.argv[3]).read_text())['display']
+              detail=f'Termux release: {old} #{sequence} -> {new} #{sys.argv[5]}'
+              if new=='Full':detail+=f" · Base #{info['base_sequence']}"
+              detail+=f" · Release date: {info['release_date']} (UTC)"
+              assert actual==[expected[0],detail,*expected[1:]],actual
+          PYFIRST
           state="$HOME/.local/share/codex/core/activation-state"
           test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
           test "$(sed -n 's/^previous=//p' "$state")" = "$current"
@@ -774,7 +836,18 @@ jobs:
           }
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
-          printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
+          python3 - "$root/display/component-input-v1" "$version" \
+            '${{ needs.producer.outputs.release_sequence }}' '${{ inputs.release_variant }}' <<'PYNOOP' > "$RUNNER_TEMP/rald5-second-update.expected"
+          import json
+          from pathlib import Path
+          import sys
+          info=json.loads(Path(sys.argv[1]).read_text())['display']
+          edition='Base' if sys.argv[4]=='base' else 'Full'
+          print(f'Codex {sys.argv[2]} is already up to date.')
+          detail=f'Termux release: {edition} #{sys.argv[3]}'
+          if edition=='Full':detail+=f" · Base #{info['base_sequence']}"
+          print(detail+f" · Release date: {info['release_date']} (UTC)")
+          PYNOOP
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
           python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path

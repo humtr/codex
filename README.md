@@ -100,6 +100,14 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
+Update output separates the upstream Codex version from the Termux edition and
+release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
+standalone Core/upstream edition; Full includes Manager/enhanced TUI. The signed
+release date is the UTC date that the immutable release was prepared, not the
+device installation date. Older releases or unavailable optional metadata show
+`unavailable`; valid updates still work. An already-current update also shows
+the installed edition/release information, without installing again.
+
 ## Profile selection and optional tmux
 
 ```sh

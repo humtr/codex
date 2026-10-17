@@ -1,5 +1,6 @@
 """Input-bound base reuse and immutable full-release transport composition."""
 import argparse
+from datetime import datetime, timezone, date
 import hashlib
 import json
 import os
@@ -93,13 +94,24 @@ def base_fingerprint(source, revision='HEAD'):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def sign_component(source, output, generation, key, openssl):
+def sign_component(source, output, generation, key, openssl, base=None, authority=None):
     source_sha = git(source,'rev-parse','HEAD').decode().strip()
     if not re.fullmatch('[0-9a-f]{40}', source_sha):
         raise ValueError('invalid component source')
     payload = {'schema':'codex-component-input-v1','generation_id':generation,
                'source_sha':source_sha,'base_inputs_sha256':base_fingerprint(source),
                'manifest_sha256':sha256(output/'releases'/generation/'release.manifest')}
+    if generation.startswith('local-base-') or base is not None:
+        base_generation = base_sequence = None
+        if base is not None:
+            verify_signature(openssl,authority,base/'release.manifest',base/'release.sig')
+            manifest,_ = parse_manifest(base/'release.manifest')
+            provenance=component(base,manifest['generation_id'],authority,openssl)
+            if provenance['base_inputs_sha256'] != payload['base_inputs_sha256']:
+                raise ValueError('display base input identity differs')
+            base_generation=manifest['generation_id'];base_sequence=int(manifest['release_sequence'])
+        payload['display']={'release_date':datetime.now(timezone.utc).date().isoformat(),
+                            'base_generation':base_generation,'base_sequence':base_sequence}
     target = output/COMPONENT
     target.write_bytes(canonical(payload))
     subprocess.run([str(openssl),'pkeyutl','-sign','-rawin','-inkey',str(key),'-in',str(target),
@@ -113,12 +125,27 @@ def component(directory, generation, authority, openssl='openssl'):
     verify_signature(openssl, authority, path, directory/(COMPONENT+'.sig'))
     data = path.read_bytes()
     value = json.loads(data,object_pairs_hook=unique)
-    if (set(value) != {'schema','generation_id','source_sha','base_inputs_sha256','manifest_sha256'}
+    required={'schema','generation_id','source_sha','base_inputs_sha256','manifest_sha256'}
+    if (set(value) not in (required,required|{'display'})
         or value['schema'] != 'codex-component-input-v1' or value['generation_id'] != generation
         or data != canonical(value) or not re.fullmatch('[0-9a-f]{40}',value['source_sha'])
         or any(not re.fullmatch('[0-9a-f]{64}',value[key]) for key in ['base_inputs_sha256','manifest_sha256'])
         or value['manifest_sha256'] != sha256(directory/'release.manifest')):
         raise ValueError('component metadata identity differs')
+    if 'display' in value:
+        display=value['display']
+        if (not isinstance(display,dict) or set(display)!={'release_date','base_generation','base_sequence'}
+            or not isinstance(display['release_date'],str) or len(display['release_date'])!=10
+            or date.fromisoformat(display['release_date']).isoformat()!=display['release_date']):
+            raise ValueError('invalid release display date')
+        if generation.startswith('local-base-'):
+            if display['base_generation'] is not None or display['base_sequence'] is not None:
+                raise ValueError('base display cannot inherit')
+        elif (not isinstance(display['base_generation'],str)
+              or not re.fullmatch(r'local-base-[a-z0-9._-]+',display['base_generation'])
+              or type(display['base_sequence']) is not int
+              or not 0 < display['base_sequence'] < int(parse_manifest(directory/'release.manifest')[0]['release_sequence'])):
+            raise ValueError('invalid release display base')
     return value
 
 
@@ -184,6 +211,10 @@ def compose(assets, base, authority):
         base_component = component(base,base_generation,authority)
         if base_component['base_inputs_sha256'] != own_component['base_inputs_sha256']:
             raise ValueError('full and base input closure differs')
+        if 'display' in own_component and (
+                own_component['display']['base_generation'] != base_generation
+                or own_component['display']['base_sequence'] != int(base_manifest['release_sequence'])):
+            raise ValueError('display base differs from actual composition')
         inherited = {name:(digest,mode) for name,digest,mode in base_files if name in COMMON}
         if set(inherited) != COMMON:
             raise ValueError('base common inventory differs')

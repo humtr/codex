@@ -281,7 +281,11 @@ def sign(args: argparse.Namespace) -> str:
     require_real_directory(output.parent, "signed output parent")
 
     accepted_raw = ed25519_raw_public(openssl, accepted_public_key, private=False)
-    secret = os.environ.get(SECRET_NAME)
+    if (getattr(args,'component_source',None) is not None
+        and generation.startswith('local-relay-hosted-')
+        and getattr(args,'component_base',None) is None):
+        fail('full release display requires its exact authenticated base')
+    secret = os.environ.pop(SECRET_NAME, None)
     if not secret:
         fail("release signing secret is absent")
 
@@ -330,7 +334,8 @@ def sign(args: argparse.Namespace) -> str:
         )
         if getattr(args, "component_source", None) is not None:
             from release_components import sign_component
-            sign_component(args.component_source, output, generation, key_path, openssl)
+            sign_component(args.component_source, output, generation, key_path, openssl,
+                           getattr(args,'component_base',None),accepted_public_key)
     finally:
         if key_dir is not None:
             shutil.rmtree(key_dir, ignore_errors=False)
@@ -348,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runner-temp", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--component-source", type=Path)
+    parser.add_argument("--component-base", type=Path)
     args = parser.parse_args(argv)
     try:
         generation = sign(args)

@@ -115,6 +115,27 @@ class ComponentsTests(unittest.TestCase):
         for invalid in ['local-../escape','other','local-a\n']:
             with self.assertRaises(publication.ValidationError):publication.canonical_release_base(invalid)
 
+    def test_display_metadata_is_signed_manifest_bound_and_matches_actual_base(self):
+        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        repo=self.repository(fixture.root/'source')
+        with patch.object(fixtures,'SEQUENCE','10'):
+            _,base=self.signed_assets(fixture,repo,BASE,True)
+        full,_=self.signed_assets(fixture,repo,FULL)
+        component.sign_component(repo,fixture.signed,FULL,fixture.private_key,Path(shutil.which('openssl')),base,fixture.public_key)
+        for name in [component.COMPONENT,component.COMPONENT+'.sig']:
+            shutil.copyfile(fixture.signed/name,full/name)
+        value=component.component(full,FULL,fixture.public_key)
+        self.assertEqual(value['display']['base_generation'],BASE)
+        self.assertEqual(value['display']['base_sequence'],10)
+        self.assertRegex(value['display']['release_date'],r'^\d{4}-\d{2}-\d{2}$')
+        # Even independently valid display provenance cannot name another base
+        # when assembling the actual immutable composition.
+        with patch.object(fixtures,'SEQUENCE','9'):
+            _,other=self.signed_assets(fixture,repo,'local-base-relay-hosted-other-s9',True)
+        with self.assertRaisesRegex(ValueError,'display base differs'):
+            component.compose(full,other,fixture.public_key)
+        component.compose(full,base,fixture.public_key)
+
     def test_failed_full_repair_acquires_latest_base_not_the_serving_full(self):
         fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')

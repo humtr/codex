@@ -666,7 +666,8 @@ rollback remain offline, and the explicit remote form remains an immutable
 signed-generation source. No top-level `codex update` argument is passed to
 upstream, and Core never invokes a package manager or an upstream self-updater.
 
-Human `codex update` output is version-centric rather than generation-centric.
+Human `codex update` output distinguishes the upstream version from the Termux
+edition and public release number.
 The ordinary signed-channel path derives both the installed and candidate Codex
 versions only from already authenticated generation metadata; it must not execute
 an untrusted candidate merely to discover presentation data. Before the candidate
@@ -697,8 +698,8 @@ presentation. Once a sidecar body is fetched, an unavailable or invalid
 signature, manifest-digest mismatch, malformed/duplicate/missing file entry, or
 actual GET byte count that differs from the authenticated file size fails the
 update closed. Progress is derived only from bytes actually written by the GET
-transfer; Core does not issue per-file HEAD requests. Non-TTY output remains
-unchanged and contains neither progress counters nor terminal-control bytes.
+transfer; Core does not issue per-file HEAD requests. Non-TTY output contains
+neither progress counters nor terminal-control bytes.
 
 After both versions are authenticated, a genuinely version-changing signed
 channel activation writes the permanent stdout header
@@ -712,10 +713,21 @@ state mutation. Human operational update failures omit redundant command-name
 prefixes such as `codex update:`; after clearing any transient line they emit
 one concise sentence ending in a period. Success and failure results use
 plain text with no emoji decoration. Usage errors retain the canonical usage
-surface and are not decorated as operational failures. Internal generation IDs,
-release sequences, digests, API/schema identities, and similar machinery do not
-become ordinary human success text; they remain available only on the
-Termux-specific diagnostic/status surfaces already authorized below.
+surface and are not decorated as operational failures.
+One concise ordinary signed-update detail line names Base or Full and its signed
+release number, including the previous number when changing releases. Full also
+shows its exact base release number when authenticated display metadata exists.
+The release date is the publisher-declared UTC date of signing/preparing that
+immutable release, never the device installation time or a filesystem timestamp.
+It is carried as optional `display` fields in the existing signed
+`component-input-v1`, bound to the exact manifest digest/generation. Older sidecars
+without display fields remain valid. Missing/unavailable/invalid optional display
+information is reported as unavailable; it cannot select a release, change
+activation eligibility, trigger local building, or fail an otherwise valid update.
+Display acquisition is bounded and only on explicit remote update, including its
+exact-current result; it adds no ordinary-launch query, cache authority or daemon.
+Local/offline lifecycle does not acquire remote display data. Raw generation IDs,
+digests and API/schema identities remain diagnostic details.
 
 ### Bare interactive launch update discovery
 

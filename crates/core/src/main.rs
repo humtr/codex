@@ -9,6 +9,8 @@ mod manager_config;
 #[cfg(unix)]
 mod manager_tui;
 #[cfg(unix)]
+mod release_display;
+#[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
@@ -4396,7 +4398,11 @@ impl RemoteReleaseBase {
     fn resource_url(&self, relative_path: &str) -> Result<String, LocalProductError> {
         if !matches!(
             relative_path,
-            "release.manifest" | "release.sig" | "release-authority.sig"
+            "release.manifest"
+                | "release.sig"
+                | "release-authority.sig"
+                | "component-input-v1"
+                | "component-input-v1.sig"
         ) && !valid_release_relative_path(relative_path)
         {
             return Err(LocalProductError::Remote(
@@ -7675,6 +7681,8 @@ struct UpdatePresentation {
     transient_visible: bool,
     transient_worker: Option<UpdateTransientWorker>,
     update_started: bool,
+    release_details: Option<String>,
+    release_details_printed: bool,
 }
 
 #[cfg(unix)]
@@ -7689,6 +7697,8 @@ impl UpdatePresentation {
             transient_visible: false,
             transient_worker: None,
             update_started: false,
+            release_details: None,
+            release_details_printed: false,
         }
     }
 
@@ -7788,6 +7798,7 @@ impl UpdatePresentation {
             "{}",
             render_update_header(previous_version, current_version)
         );
+        self.show_release_details();
         use std::io::Write as _;
         let _ = std::io::stdout().flush();
         self.update_started = true;
@@ -7797,6 +7808,7 @@ impl UpdatePresentation {
         self.clear_transient();
         println!("Verified and activated the signed Termux release.");
         println!("Codex {current_version} is now active.");
+        self.show_release_details();
     }
 
     fn finish_local_activation(&mut self, current_version: &str) {
@@ -7808,6 +7820,16 @@ impl UpdatePresentation {
     fn finish_current(&mut self, current_version: &str) {
         self.clear_transient();
         println!("Codex {current_version} is already up to date.");
+        self.show_release_details();
+    }
+
+    fn show_release_details(&mut self) {
+        if !self.release_details_printed {
+            if let Some(details) = self.release_details.as_ref() {
+                println!("{details}");
+                self.release_details_printed = true;
+            }
+        }
     }
 
     fn finish_rollback(&mut self, previous_version: &str, current_version: &str) {
@@ -9166,8 +9188,15 @@ fn acquire_remote_release_source(
         authenticated_remote_generation_version(acquisition_root, &manifest.generation_id)?;
     let updating = &manifest != current_release;
 
-    if updating {
-        if let Some(presentation) = presentation.as_deref_mut() {
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.release_details = Some(release_display::line(
+            roots,
+            base,
+            &acquisition_root.join("release.manifest"),
+            current_release,
+            &manifest,
+        ));
+        if updating {
             presentation.begin_update(current_version, &candidate_version);
             if let Some(sizes) = download_sizes.as_ref() {
                 presentation.download_progress(payload_downloaded, sizes.total_bytes);
@@ -9914,12 +9943,24 @@ fn activate_signed_update_channel_with_hold_policy(
             ));
         }
         let _ = rollback_guard::effective_update_hold(roots, None)?;
-        let (_, current_loaded) = verify_installed_local_release(
+        let (current_release, current_loaded) = verify_installed_local_release(
             roots,
             &before.current,
             before.current_key,
             "active generation descriptor id does not match current",
         )?;
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.release_details = Some(release_display::line(
+                roots,
+                &base,
+                &roots
+                    .generation_root
+                    .join(&before.current)
+                    .join("release.manifest"),
+                &current_release,
+                &current_release,
+            ));
+        }
         return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
             generation_id: before.current,
             version: current_loaded.manifest.upstream_package_version.clone(),
@@ -22242,7 +22283,7 @@ esac
         assert!(log.contains(&format!("{base}release-authority.sig\n")));
         assert_eq!(
             log.lines().filter(|line| *line == "CALL").count(),
-            files.len() + 4
+            files.len() + 5
         );
         remove_temp_root(root);
     }
@@ -22556,7 +22597,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|compat/*) ;;
   *) exit 100 ;;
 esac
 if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
@@ -22637,7 +22678,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|codex-code-mode-host|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|codex-code-mode-host|compat/*) ;;
   *) exit 100 ;;
 esac
 exec "$cat_path" "$release_root/$relative"
@@ -24260,7 +24301,8 @@ exit 2
                     "exact-current path unexpectedly fetched {forbidden}: {exact_current_calls}"
                 );
             }
-            assert_eq!(exact_current_calls.matches("CALL\n").count(), 2);
+            assert!(exact_current_calls.contains("component-input-v1"));
+            assert_eq!(exact_current_calls.matches("CALL\n").count(), 3);
             b5_assert_no_acquisition(&generation_root);
             m2_b1_assert_no_transaction_files(&state_paths);
             remove_temp_root(fixture.root);
@@ -24558,7 +24600,7 @@ exit 0
         let curl_log = std::fs::read_to_string(curl_log).unwrap();
         assert_eq!(
             curl_log.lines().filter(|line| *line == "CALL").count(),
-            manifest.files.len() + 3
+            manifest.files.len() + 4
         );
         assert!(curl_log.contains(&format!("{base}release.manifest\n")));
         assert!(curl_log.contains(&format!("{base}compat/nested/data\n")));
@@ -27000,5 +27042,80 @@ exit 0
         assert!(!old.exists());
         assert!(generations.join("g1/runtime").is_file());
         remove_temp_root(root);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn test_release_display_real_signed_update_current_and_bad_metadata_preserve_state() {
+        let fixture = b5_channel_fixture("display-signed", "display-signed-next");
+        let payload = fixture.release.join("component-input-v1");
+        let signature = fixture.release.join("component-input-v1.sig");
+        let digest =
+            openssl_sha256(&fixture.openssl, &fixture.release.join("release.manifest")).unwrap();
+        let body = format!(
+            r#"{{"schema":"codex-component-input-v1","generation_id":"display-signed-next","manifest_sha256":"{digest}","display":{{"release_date":"2026-10-17","base_generation":null,"base_sequence":null}}}}"#
+        );
+        std::fs::write(&payload, &body).unwrap();
+        b4_sign_update_index(&payload, &signature, &fixture.openssl, &fixture.private_key);
+        let first = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(first.status.code(), Some(0), "{:?}", first.stderr);
+        let text = String::from_utf8(first.stdout).unwrap();
+        assert!(
+            text.contains("Termux release: Base #1 -> Base #2"),
+            "{text}"
+        );
+        assert!(text.contains("Release date: 2026-10-17 (UTC)"), "{text}");
+        assert_eq!(text.matches("Termux release:").count(), 1);
+        let state = fixture
+            .home
+            .join(".local/share/codex/core/activation-state");
+        let before = std::fs::read(&state).unwrap();
+        for fault in ["valid", "signature", "binding", "missing"] {
+            match fault {
+                "signature" => std::fs::write(&payload, format!("{body} ")).unwrap(),
+                "binding" => {
+                    std::fs::write(&payload, body.replace(&digest, &"b".repeat(64))).unwrap();
+                    b4_sign_update_index(
+                        &payload,
+                        &signature,
+                        &fixture.openssl,
+                        &fixture.private_key,
+                    );
+                }
+                "missing" => {
+                    std::fs::remove_file(&payload).unwrap();
+                }
+                _ => {}
+            }
+            let result = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert_eq!(
+                result.status.code(),
+                Some(0),
+                "{fault}: {:?}",
+                result.stderr
+            );
+            let text = String::from_utf8(result.stdout).unwrap();
+            assert!(text.contains("Termux release: Base #2"), "{text}");
+            assert!(
+                text.contains(if fault == "valid" {
+                    "Release date: 2026-10-17 (UTC)"
+                } else {
+                    "Release date: unavailable"
+                }),
+                "{text}"
+            );
+            assert!(!text.contains('\u{1b}'));
+            assert_eq!(std::fs::read(&state).unwrap(), before);
+        }
+        remove_temp_root(fixture.root);
     }
 }

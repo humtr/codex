@@ -14,16 +14,21 @@ This repository carries no external workflow skill or model configuration.
   not rebuild or advance that base. Source39007614396 and independent Core/Android
   39007614483 pass. Ordinary installed full `codex update` now selects57 and retains
   its previous generation for rollback; public publication does not activate it.
-- User-installed full54 remains `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
+- User has updated to full57; previous54 remains the rollback target. Actual
+  user-full57-update-check.json verifies all8 signed payload hashes/modes, the
+  launcher/Core identity and unchanged activation state. `codex --version` reports
+  0.163.0, Manager help works and `doctor --json` exits0 with healthy summary.
+  Inspection submits0 model requests and makes no activation/configuration edits.
+- Retained54 proof: `local-hosted-0-163-0-c0856171e778-s54`, CLI0.163.0,
   accepted sourcec0856171e77870b3682f1b841e37e5314636c652. Release38985595917
   passes build, Android execution, signing, immutable Release, Pages retaining
   stable53, complete public readback/disposable update and non-forced promotion.
   Its historical caller87adee8 and promotion41a4026 qualified54; current caller
   94e09e0 uses implementationeba60a7 and product pointer3acfbbe.
-  Installed previous53 remains available. All eight installed signed
-  hashes/modes/signature verify;14 configuration files and10 process identities
-  remain unchanged. Existing clients keep loaded images until normal restart.
-- Installed54 source acceptance38985256219 passes all required gates, including the event's
+  That historical activation retained53 and verified all eight signed files,
+  preserving14 configuration files and10 process identities. Existing clients
+  keep loaded images until normal restart.
+- Retained54 source acceptance38985256219 passes all required gates, including the event's
   Android Core proof, workspace tests, fmt and Clippy. Independent Core build/
   Android qualification38985256222 also passes. Native sourcef348df3/run38979482916
   passes43 maintained TUI tests,94 retained upstream features and lint. Immutable
@@ -119,7 +124,7 @@ retained upstream feature checks. Main caller94e09e0 pins accepted implementatio
 eba60a7. Publication39006677326 passes base build, Android smoke, signing, immutable
 Release, complete public readback/disposable update and non-forced promotion:
 public base56 is `local-base-relay-hosted-0-163-0-eba60a7a72ca-s56`.
-Public full57 is selected; user-installed full54 and provider remain unchanged.
+Public/device full57 is selected; provider remains unchanged.
 The first full attempt stopped before compilation when urllib's default user agent received HTTP403
 (Cloudflare1010) reading base56. Explicit qualification-client identification
 returns200 for the same signed assets. Repair3acfbbe changes publication transport
@@ -248,9 +253,29 @@ actual versions/Manager and default-head no-op; corresponding -lifecycle.json
 proofs verify55->56 and54->57 updates, no-op, offline rollback/forward. The full
 upgrade trial explicitly selected the signed public candidate index; fresh full
 installation/default update subsequently selects promoted57 normally. All roots
-are removed and user-installed54 is unchanged. All tests submit0 real chats.
+were removed while user-installed54 was unchanged, before the user's own57 update.
+All tests submit0 real chats.
 upstream-automation-status.json authenticates both final heads and signed full
 provenance/map: full57 pins exactly base56, not the former full's older base.
+
+### Release identification and next work
+
+The user's57 update is healthy. Ordinary update output previously showed only
+the upstream version, making same-upstream base/full releases indistinguishable.
+Current correction adds one authenticated edition/release/base/date line to both
+changing and already-current remote updates. It extends the existing signed
+component-input-v1 with optional display fields; old sidecars stay valid. Date is
+the UTC preparation/signing date, never installation time. No new state authority,
+service, Core dependency or Manager/account policy is introduced. Explicit update
+alone fetches bounded optional display data; unavailable or invalid data remains
+unavailable without changing release admission. New publication must verify these
+fields against actual base provenance and read them back through both public paths.
+Publication/runtime qualification of this correction remains pending.
+
+After this correction and document cleanup, report the approved quota-aware
+/switch sequence below. This request does not start account rotation or provider
+work. First implement usage visibility and account identity qualification, then
+selection settings/preview, then proven checkpoint-safe automatic handoff.
 
 ### Deferred development: quota-aware /switch
 
