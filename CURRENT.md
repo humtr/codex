@@ -82,7 +82,7 @@ a successful menu, HTTP response or preserved output file alone is insufficient.
 | --- | --- | --- |
 | 1. Core independence | Core/Manager/TUI: explicit direct execution, optional-setting isolation, versioned preparation/execution boundary, no preference/window-policy interpretation in Core, projection separated from lookup | Same-home normal→direct→normal; absent/damaged/malformed/hung Manager; exact account identity; zero duplicated tool effects; existing jobs/configuration preserved. No real Chat required. |
 | 2. Provider settings and generic TUI | Provider validates one user-owned config; show/effective/edit/set/validate; generated catalog/profile projection; TUI reads provider capabilities instead of hardcoded Chat families/efforts | File-only use without Manager; optional TUI/Manager convenience uses same validator. Invalid edit/no-op/reinstall/rollback/default precedence tested. No extra slash command or global launcher is assumed. |
-| 3. Context and native↔Chat handoff | Provider/TUI/upstream APIs: preserve1m override, separate compaction thresholds and wire bounds, readable canonical state transfer, failure atomicity | Fresh and existing long threads, switch both ways, saved opaque compaction, comp-hash/downshift, manual/automatic/mid-turn/failed/interrupted compaction, cold resume and chosen model/effort. No dropped history or blind prompt replay. |
+| 3. Context and native↔Chat handoff | Provider/TUI/upstream APIs: preserve1m override, diagnose successive-prompt reply→compaction→new-Chat/summary cycles, warm-delta reuse, separate compaction thresholds and wire bounds, readable canonical state transfer, failure atomicity | Fresh and existing long threads, switch both ways, saved opaque compaction, comp-hash/downshift, manual/automatic/mid-turn/failed/interrupted/repeated compaction, cold resume and chosen model/effort. Checkpoints apply once; no unnecessary lane retirement, dropped history or blind prompt replay. |
 | 4. Project-backed history | Provider: configured ChatGPT project; resolve/reuse or create when absent; bind account/workspace/project IDs; create new owned chats there | Read-only host discovery, no-inference create/reuse/place/readback; then scoped live tool roundtrip. Duplicate/inaccessible/deleted projects, concurrency, uncertain results and app restart pass; no silent root-level fallback. |
 | 5. Complete development and lifetime | Provider/TUI: native search/discovered tools, JSON/freeform/batches, questions, reviewer, errors→repair→tests, parallel work, cancel/reconnect/latest resume | Exact copied-repository trial, user-visible initial/intermediate/final and persisted transcript, one actual effect per call, original-ID returns, surviving sibling on cancel, real-host observer-loss, hours-long work and phone reboot. |
 | 6. Cost/output and alternative transport | Provider/TUI: warm deltas/lazy tool catalogs, latency, public markup handling; complete independent retained MCP original-call return | Separate user-message objects/tool returns/model starts/HTTP/summary/retry counters; no extra user prompt per tool. Confirm exact host call/connector acknowledgment and report its cost; no automatic approval. Both transports share Core execution/transcript ownership. |
@@ -99,11 +99,22 @@ excluded from automatic testing; GPT-6 is first, GPT-5.6 remains deferred until 
 continuation failures are resolved. Do not rewrite all provider code in Rust merely
 to unify language or combine separate processes to reduce their count.
 
+The2026-10-18 implementation authorization also includes tidying /switch rotation
+settings: group policy/account controls, retain all capabilities and render every
+selectable item on one line at narrow terminal widths. Actual rendering/navigation
+proof is required; removing descriptions alone is insufficient. This optional TUI
+change does not move quota policy into Core or alter Base inputs.
+
 ## Context and easy configuration
 
 The user's1,000,000-token setting is a preserved local policy override, not measured
-Chat capacity. The user observed frequent compaction with the old32,768 catalog; actual trigger
-reason and frequency still need measurement against the current override. A large number does not lift the
+Chat capacity. It addresses an observed successive-prompt cycle of reply,
+compaction, new Chat conversation and summary/context transfer. Investigate the
+trigger separately from checkpoint application, lane retirement, actual Chat
+creation and prefix retransmission; actual frequency still needs measurement
+against the current override. Warm context and an acknowledged checkpoint must
+not be reset/applied repeatedly. Start with deterministic no-Chat regressions,
+then explain any required live sample budget. A large number does not lift the
 HTTP wire/decompression ceiling, guarantee host memory, or disable model-downshift
 and comp-hash compaction. Current auto_compact_token_limit=null is not a promise
 that automatic compaction never runs. Historical32k proofs do not qualify1m use.

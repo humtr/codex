@@ -1,7 +1,7 @@
 //! Optional quota UI and idle-boundary integration; Manager owns every policy decision.
 use super::App;
 use crate::app_event::AppEvent;
-use crate::bottom_pane::{SelectionItem, SelectionViewParams};
+use crate::bottom_pane::{SelectionItem, SelectionRowDisplay, SelectionTab, SelectionViewParams};
 use codex_app_server_protocol::ServerNotification;
 use codex_protocol::ThreadId;
 use serde_json::{Value, json};
@@ -125,6 +125,7 @@ fn item(
 fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParams {
     let policy = &view["rotation"];
     let mut items = Vec::new();
+    let mut tabs = Vec::new();
     if settings {
         let enabled = !policy["enabled"].as_bool().unwrap_or(false);
         items.push(item(
@@ -132,13 +133,13 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                 "Automatic switching: {}",
                 if enabled { "off" } else { "on" }
             ),
-            Some("Enrolled accounts only. Quota recovery submits one saved-checkpoint continuation turn.".into()),
+            None,
             move || AppEvent::EditQuotaPolicy(json!({"enabled":enabled})),
         ));
         items.push(item(
             format!(
-                "This session: {}",
-                if session_off { "off" } else { "enabled" }
+                "Session override: {}",
+                if session_off { "paused" } else { "allow" }
             ),
             None,
             || AppEvent::ToggleQuotaSession,
@@ -148,14 +149,12 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         let next = policies
             [(policies.iter().position(|p| *p == current).unwrap_or(0) + 1) % policies.len()]
         .to_owned();
-        items.push(item(
-            format!("Ranking: {current}"),
-            Some("Enter cycles combined, 5h reset, weekly reset, remaining and custom.".into()),
-            move || AppEvent::EditQuotaPolicy(json!({"policy":next})),
-        ));
+        items.push(item(format!("Ranking: {current}"), None, move || {
+            AppEvent::EditQuotaPolicy(json!({"policy":next}))
+        }));
         for (key, label, step, max) in [
-            ("reserve", "Minimum reserve", 5, 50),
-            ("proactive", "Proactive threshold (0 = off)", 5, 50),
+            ("reserve", "Reserve", 5, 50),
+            ("proactive", "Switch below (0 = off)", 5, 50),
         ] {
             let next = (policy[key].as_i64().unwrap_or(0) + step) % (max + step);
             let key = key.to_owned();
@@ -178,18 +177,15 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         items.push(item(format!("Cooldown: {current}s"), None, move || {
             AppEvent::EditQuotaPolicy(json!({"cooldown":next}))
         }));
+        let mut custom = Vec::new();
         if policy["policy"] == "custom" {
             let weights = policy["weights"]
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![json!(1); 3]);
-            for (index, label) in [
-                "5h capacity weight",
-                "Weekly capacity weight",
-                "Reset urgency weight",
-            ]
-            .iter()
-            .enumerate()
+            for (index, label) in ["Weight · 5h", "Weight · weekly", "Weight · reset"]
+                .iter()
+                .enumerate()
             {
                 let mut next = weights.clone();
                 let current = weights.get(index).and_then(Value::as_i64).unwrap_or(1);
@@ -198,7 +194,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                     values[(values.iter().position(|v| *v == current).unwrap_or(1) + 1)
                         % values.len()]
                 );
-                items.push(item(format!("{label}: {current}"), None, move || {
+                custom.push(item(format!("{label}: {current}"), None, move || {
                     AppEvent::EditQuotaPolicy(json!({"weights":next}))
                 }));
             }
@@ -217,13 +213,12 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                 let mut next = order.clone();
                 next.retain(|v| v != id);
                 next.insert(0, id.clone());
-                items.push(item(
-                    format!("Priority {}: {id}", rank + 1),
-                    Some("Enter moves this account to first priority.".into()),
-                    move || AppEvent::EditQuotaPolicy(json!({"order":next})),
-                ));
+                custom.push(item(format!("{} · {id}", rank + 1), None, move || {
+                    AppEvent::EditQuotaPolicy(json!({"order":next}))
+                }));
             }
         }
+        let mut accounts = Vec::new();
         for row in view["rows"].as_array().into_iter().flatten() {
             let Some(id) = row["id"].as_str() else {
                 continue;
@@ -236,7 +231,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             } else {
                 next.push(id.clone());
             }
-            items.push(item(
+            accounts.push(item(
                 format!("[{}] {id}", if included { "x" } else { " " }),
                 row["summary"].as_str().map(str::to_owned),
                 move || AppEvent::EditQuotaPolicy(json!({"accounts":next})),
@@ -248,25 +243,40 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                 } else {
                     0
                 };
-                items.push(item(
+                accounts.push(item(
                     format!(
-                        "{} {id}",
-                        if seconds == 0 {
-                            "Clear cooldown for"
-                        } else {
-                            "Pause 15m:"
-                        }
+                        "{} · {id}",
+                        if seconds == 0 { "Unpause" } else { "Pause 15m" }
                     ),
                     None,
                     move || AppEvent::PauseQuotaAccount(pause_id.clone(), seconds),
                 ));
             }
         }
-        items.push(item(
-            "Back to profiles".into(),
-            Some("Custom order/weights/cooldown: codex termux rotation set JSON".into()),
-            || AppEvent::OpenProfilePicker,
-        ));
+        for (id, label, mut entries) in [
+            ("policy", "Policy", items),
+            ("accounts", "Accounts", accounts),
+            ("custom", "Custom", custom),
+        ] {
+            if id == "custom" && entries.is_empty() {
+                continue;
+            }
+            entries.push(item("Back to profiles".into(), None, || {
+                AppEvent::OpenProfilePicker
+            }));
+            // Policy mutations refresh this same popup; keep its tab, cursor and
+            // filter while the bounded Manager call is in flight.
+            for entry in &mut entries {
+                entry.dismiss_on_select = false;
+            }
+            tabs.push(SelectionTab {
+                id: id.into(),
+                label: label.into(),
+                header: Box::new(()),
+                items: entries,
+            });
+        }
+        items = Vec::new();
     } else {
         for row in view["rows"].as_array().into_iter().flatten() {
             let Some(id) = row["id"].as_str() else {
@@ -332,6 +342,9 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
             policy["policy"].as_str().unwrap_or("combined")
         )),
         items,
+        tabs,
+        row_display: SelectionRowDisplay::SingleLine,
+        footer_note: settings.then(|| "Enter changes · Tab changes section".into()),
         is_searchable: true,
         on_cancel: Some(Box::new(|tx| tx.send(AppEvent::CloseQuotaView))),
         ..SelectionViewParams::picker()
@@ -755,7 +768,70 @@ mod tests {
         assert!(screen.contains("weekly 12%"), "{screen}");
         assert!(screen.contains("Automatic switching"), "{screen}");
         let settings = picker(&value, true, false);
-        assert!(settings.items.iter().any(|i| i.name == "[ ] default"));
+        assert!(
+            settings.tabs[1]
+                .items
+                .iter()
+                .any(|i| i.name == "[ ] default")
+        );
+        // Use the real upstream renderer: long account IDs and descriptions must
+        // not increase list height on a narrow phone terminal.
+        let mut custom = value.clone();
+        custom["rotation"]["policy"] = json!("custom");
+        let long_id = "account-with-a-long-but-valid-identity-01234567890123456789012345";
+        custom["rows"][0]["id"] = json!(long_id);
+        custom["rows"][0]["summary"] = json!("5h 72% · weekly 12% · 계정 사용량 확인 · ready");
+        custom["rotation"]["accounts"] = json!([long_id]);
+        custom["rotation"]["order"] = json!([long_id]);
+        assert!(decode(custom.to_string().as_bytes()).is_some());
+        assert_eq!(picker(&custom, true, false).tabs.len(), 3);
+        for tab_index in 0..3 {
+            let mut params = picker(&custom, true, false);
+            let tab = params.tabs.remove(tab_index);
+            params.tabs.clear();
+            params.items = tab.items;
+            params.title = None;
+            params.subtitle = None;
+            params.footer_note = None;
+            params.footer_hint = None;
+            params.is_searchable = false;
+            params.header_gap = 0;
+            params.max_visible_rows = 64;
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            let view = ListSelectionView::new(
+                params,
+                AppEventSender::new(tx),
+                RuntimeKeymap::defaults().list,
+            );
+            for width in [24, 32, 40, 80] {
+                assert_eq!(
+                    view.desired_height(width),
+                    view.desired_height(100),
+                    "tab {tab_index}, width {width}"
+                );
+                let rect = Rect::new(0, 0, width, view.desired_height(width));
+                let mut buffer = Buffer::empty(rect);
+                view.render(rect, &mut buffer);
+                let screen = (0..rect.height)
+                    .map(|y| {
+                        (0..rect.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect::<String>()
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if width == 24 {
+                    assert!(screen.contains('…'), "tab {tab_index}: {screen}");
+                }
+            }
+        }
+        // Display truncation never becomes an account-policy identifier.
+        let mut accounts = picker(&custom, true, false).tabs.remove(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        accounts.items.remove(0).actions[0](&AppEventSender::new(tx));
+        assert!(
+            matches!(rx.try_recv().unwrap(), AppEvent::EditQuotaPolicy(value) if value["accounts"] == json!([]))
+        );
         let mut bad = value;
         bad["rows"][0]["summary"] = json!("forged\nrow");
         assert!(decode(bad.to_string().as_bytes()).is_none());

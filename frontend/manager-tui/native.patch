@@ -845,7 +845,7 @@ diff --git a/codex-rs/tui/src/chatwidget/rate_limits.rs b/codex-rs/tui/src/chatw
 index 0e48527..c466e0c 100644
 --- a/codex-rs/tui/src/chatwidget/rate_limits.rs
 +++ b/codex-rs/tui/src/chatwidget/rate_limits.rs
-@@ -641,6 +641,24 @@ impl ChatWidget {
+@@ -641,6 +641,28 @@ impl ChatWidget {
          self.request_redraw();
      }
 
@@ -855,6 +855,10 @@ index 0e48527..c466e0c 100644
 +        mut params: crate::bottom_pane::SelectionViewParams,
 +    ) -> bool {
 +        params.initial_selected_idx = self.bottom_pane.selected_index_for_active_view(view_id);
++        params.initial_tab_id = self.bottom_pane
++            .active_tab_id_for_active_view(view_id)
++            .map(str::to_owned);
++
 +        self.bottom_pane
 +            .replace_selection_view_if_active(view_id, params)
 +    }

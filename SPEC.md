@@ -1191,6 +1191,13 @@ frontend and execution-protocol compatibility proof.
 
 ### Approved provider configuration, context and remote project behavior
 
+Quota switching settings must present a compact, grouped interface. Each selectable
+row occupies one terminal line even at narrow supported widths; explanatory help
+must not become wrapped per-row descriptions. Keep all existing policy controls,
+account enrollment, custom ranking and session override accessible. Clipping must
+preserve the selected action/value and must not change the underlying account ID.
+Verify actual rendering and navigation, not only the generated labels.
+
 The proposed single user-owned provider configuration is
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaulting to
 `~/.config/codex/providers/chatgpt.toml`. The path/schema becomes public only with
@@ -1222,6 +1229,18 @@ compaction caused by model/hash changes is separate from token thresholds; a
 disabled token-trigger setting must not promise to suppress every compaction.
 Changing a startup catalog creates/reuses only the matching qualified execution
 binding; do not hot-edit an immutable package or an active sibling's metadata.
+
+The1m override was a workaround for the user's observed reply/compaction/new-Chat
+summary-transfer cycle on successive prompts. Investigate and reduce that cycle,
+not just token-trigger frequency. Distinguish compaction reason, checkpoint
+acceptance, lane retirement, actual Chat creation and context retransmission.
+An acknowledged checkpoint must be applied once; warm requests must reuse valid
+owned conversation/context and send only needed deltas. Do not suppress necessary
+compaction, discard history, replay a submitted request or promise that stored
+host history increases the model's real context capacity. Deterministic regressions
+must cover repeated checkpoints, unchanged prefixes, compaction failure, restart
+and model/effort changes before budgeted live qualification. Report message
+submissions separately from tool returns and model starts.
 
 The provider should accept a ChatGPT project destination, resolve it in the
 currently authenticated Chat account/workspace and create it when absent, as
