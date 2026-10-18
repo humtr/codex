@@ -336,7 +336,7 @@ async fn tool_batch_returns_once_to_original_host_call_without_setup_or_assistan
         .collect::<Vec<_>>();
     assert_eq!(submissions.len(), 2);
     assert_eq!(submissions[0]["messages"][0]["hidden"], false);
-    assert_eq!(submissions[0]["messages"][1]["role"], "user");
+    assert_eq!(submissions[0]["messages"][1]["role"], "developer");
     assert_eq!(submissions[0]["messages"][1]["hidden"], true);
     assert!(submissions[1]["messages"].as_array().unwrap().is_empty());
     assert!(submissions[1]["instructions"]

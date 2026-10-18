@@ -84,7 +84,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 5 | Native context transitions | Manual/automatic/interrupted compact, one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; final TUI artifact and pending-result/cold-resume/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native blocking question/answer passes at the app-server API; actual question TUI and host crash/reboot remain |
-| 8 | Independent MCP and efficiency | Rust MCP original-call return shares the common lane/journal; actual native three-tool HTTP return passes with one synthetic app submission. Real Termux Codex connector admission and host search remain; improve argument/output overhead |
+| 8 | Independent MCP and efficiency | Rust MCP original-call return shares the common lane/journal; actual native three-tool HTTP return passes with one synthetic app submission. The Rust trial tunnel reuses the existing Tdev runtime-key reference; metadata read, active polling, ChatGPT connector installation and tool discovery pass. Actual Codex Provider model/tool call and host search remain; improve argument/output overhead |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
 
@@ -328,28 +328,28 @@ qualification. Unsupported box components remained in its final transcript.
    default. Rust stdio/source gates pass; complete actual connector ACK using
    configurable Termux Codex identity; no automatic fallback or Codex Native2
    naming dependency. Preserve stopped/unknown turns rather than replaying them.
-   App auth/request preparation is reestablished. The installed Termux Codex
-   connector has exact native_catalog/native_tool schemas and points at the
-   dedicated prior probe tunnel. Its runtime-key file exists; the separate saved
-   admin-key file remains absent and is not required merely to reuse this tunnel.
-   Local health/tool discovery does not establish external permission: the Linux
-   Go tunnel client first failed localhost DNS. A bounded trial-only CONNECT relay
-   uses Android DNS with end-to-end TLS, no resolver-file change or payload logs;
-   external polling still reports401 tunnel_use_forbidden with recorded owner
-   scope. The trial service/alias/proxy were stopped and cleaned. Need a runtime
-   key with Read/Use rights in the owning organization/workspace; its private file
-   path was requested. Verify external poll before spending Chat starts; never
-   repoint an unrelated service. Native local-function work is independent of
-   this optional fallback's tunnel permission.
-   Prior admin authorization is valid, but the credential itself was not found:
-   default OPENAI_ADMIN_KEY is unset, the recorded
-   ~/.config/tdev-surface-probe/admin.key is absent, related private files/process
-   environments have no recovered admin candidate, and the restoration selector
-   explicitly excludes .config/tdev-surface-probe. No complete6GiB archive scan
-   was performed after that exclusion was found. Existing local hidden-entry
-   helper ~/prj/tdev/examples/surface-probe/enter_key.py can restore the missing
-   credential without sending its value through chat. Do not ask for permission
-   again or mistake ChatGPT sign-in for API tunnel authorization.
+   App auth/request preparation is reestablished. The installed legacy
+   `Termux Codex` connector still points at the dedicated prior probe tunnel,
+   which the current Platform account no longer finds; it is unchanged. A
+   separate Rust Provider trial tunnel is
+   associated with the target organization/workspace and reuses the existing
+   Tdev runtime-key reference. That key reads its metadata and the live Rust
+   runtime passes `health --require-control-plane-poll`; no new runtime key is
+   needed for this trial. The control-plane DNS failure is isolated to the
+   container resolver and is handled by a trial-only CONNECT relay over Android
+   DNS with end-to-end TLS; no resolver file is changed and no payloads are
+   logged. The Tdev production tunnel/service remains untouched. A saved admin
+   key is now restored for tunnel management; it is separate from the runtime key
+   and is not used by the running MCP server. Signed-in ChatGPT web now has the
+   separately installed `Termux Codex Provider` development app, using this
+   trial tunnel and `No authentication`; its app/version IDs are in the private
+   acceptance receipt. This does not repoint the existing `Termux Codex` app or
+   Tdev. The tunnel recorded successful ChatGPT `server/discover` and `tools/list`
+   requests (HTTP 200). No model turn or `tools/call` has been sampled yet:
+   `native_catalog` requires a per-Codex-turn capability, so test it from an
+   actual Codex Provider turn, not as a standalone ChatGPT chat prompt. Native
+   local-function work is independent of this optional fallback's tunnel
+   permission.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.

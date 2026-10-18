@@ -1550,6 +1550,16 @@ account, restart a live owner or infer merely to test readiness. Distinguish a
 missing startup target from multiple matching app targets; ambiguity refuses
 immediately. A local listener readiness proof is not model readiness.
 
+Only the current ordinary native request is projected as a ChatGPT user message.
+The upstream `<environment_context>` block is execution metadata: preserve it only
+as context-only developer/system input, never as a user-role message. The visual
+hidden metadata flag is insufficient on its own because the live ChatGPT surface
+has displayed hidden user-role context. Preserve the original native request and
+do not promote the contents of environment values into instructions. Source and
+app-wire checks must assert the system/developer role and absence of that block
+from user-role messages; transcript visibility must be checked separately from
+request construction.
+
 Public message phase is not determined by the app's channel name alone. A
 `final` channel message with `finished_partial_completion`, even with
 `end_turn=true`, remains commentary before its tool call. Stream its text once;

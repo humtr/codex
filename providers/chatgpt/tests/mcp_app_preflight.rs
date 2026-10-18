@@ -89,7 +89,8 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
         proof.localSignatures=r?.local_function_signatures?.length??0;
         proof.localNames=r?.local_function_names?.length??0;
         proof.users=r?.messages?.filter(m=>m.author?.role==='user').length;
-        proof.hiddenEnvironment=r?.messages?.some(m=>m.author?.role==='user'&&m.content?.parts?.includes('<environment_context>owned synthetic fixture</environment_context>')&&m.metadata?.is_visually_hidden_from_conversation===true);
+        proof.hiddenEnvironment=r?.messages?.some(m=>m.author?.role==='system'&&m.content?.parts?.some(p=>p.includes('<environment_context>owned synthetic fixture</environment_context>'))&&m.metadata?.is_visually_hidden_from_conversation===true);
+        proof.environmentIsUser=r?.messages?.some(m=>m.author?.role==='user'&&m.content?.parts?.some(p=>p.includes('<environment_context>owned synthetic fixture</environment_context>')));
         proof.literalUserVisible=r?.messages?.some(m=>m.author?.role==='user'&&m.content?.parts?.includes('literal <environment_context /> request')&&!m.metadata?.is_visually_hidden_from_conversation);
         throw Error('owned_preflight_inference_blocked');
       };
@@ -122,8 +123,9 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
     assert_eq!(proof["posts"], 0);
     assert_eq!(proof["localSignatures"], 0);
     assert_eq!(proof["localNames"], 0);
-    assert_eq!(proof["users"], 2);
+    assert_eq!(proof["users"], 1);
     assert_eq!(proof["hiddenEnvironment"], true);
+    assert_eq!(proof["environmentIsUser"], false);
     assert_eq!(proof["literalUserVisible"], true);
     println!(
         "{}",
