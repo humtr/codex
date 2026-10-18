@@ -54,8 +54,9 @@ optional tools; Core links no Manager code. The remaining runtime/configuration
 coupling is listed below. Existing `frontend/manager-tui`
 paths and signed markers keep their compatibility spelling until a qualified
 migration warrants changing them. Public naming is TUI.
-The current Full TUI launcher still requires its admitted Manager pairing. That
-is an existing composition constraint, not proof of the target TUI-alone path.
+The current public Full remains its previously admitted pairing. Source now
+admits independent TUI composition, with signed Android execution proof below;
+this does not retroactively change the installed generation.
 
 The model catalog belongs to the Provider configuration as data. TUI reads that
 catalog; Manager remains independent of model/effort lists. Data changes can add
@@ -77,22 +78,23 @@ proof. Corrective changes are being implemented against that exact history.
   native acceptance39097582554 passed all48 focused tests,94 retained upstream
   checks and the lint gate. The earlier failed run's skipped checks are not proof.
   The candidate is not installed or published; published TUI authority is unchanged.
-- **Core:** `a003c8b` adds `CODEX_TERMUX_CORE_ONLY=1`, skipping Manager preparation,
-  optional config and TUI on the upstream dispatch path. Its process fixture proves
-  no Manager calls and flag removal before the fake upstream. Source acceptance
-  39094807266 and generic Android build/smoke 39095043381 passed for source4975616;
-  neither is a signed real-upstream normal→direct→normal feature trial. Earlier
-  reports overstated that scope. `qualify_core_independence.py` did not set this
-  flag. The corrected driver now sets it and passes the real signed Android
-  normal→direct→normal configuration-load sequence with an admitted Manager;
-  a broken explicit default blocks normal operation while direct operation
-  preserves that preference and remains usable. TUI/live-sibling settings
-  isolation and available-Manager failure coverage remain open.
-- **Configuration isolation:** `shared_server` currently refreshes a running
-  server's config snapshot files, and its namespace binds home/runtime/catalog
-  but not effective system settings. The direct flag alone therefore does not
-  establish independent live-sibling defaults. Fix generic opaque configuration
-  identity and prove coexistence before declaring the Core boundary complete.
+- **Core:** explicit `CODEX_TERMUX_CORE_ONLY=1` bypasses optional preparation,
+  configuration and TUI while retaining execution-home/shared-storage/runtime
+  validation. Effective settings now use immutable per-launch snapshots. The
+  shared base directory contains Core defaults only; opaque optional fragments
+  are admitted by the real upstream loader in an empty, no-inference environment.
+  Syntax/type/envelope/hung failures retain Core defaults before any dispatch.
+  Server identities bind exact config/requirements as well as home/runtime/catalog;
+  equal settings reuse a server without rewriting live FD34. One current
+  `config-v1` execution-record codec serves Core and Manager, without historical
+  experimental decoders or staged reader/writer releases.
+- **Independent TUI:** Core and release builder no longer require a Manager
+  artifact to admit or run a qualified same-version TUI. `/switch` reports its
+  optional profile capability unavailable; native UI remains live. Signed Android
+  `core-settings-android.json` passed57 lifecycle steps, real config RPC/FD34
+  normal→direct→normal live-sibling isolation, four admitted optional-artifact
+  failures, install/update/rollback and an actual TUI-without-Manager PTY. These
+  are disposable-root executions, not a production/device activation or Chat trial.
 - **Rust settings:** initial `23b7be4`/`4975616` supplied a standalone binary, not a
   Rust inference adapter. The CLI could not construct project mode one field at a
   time; show/effective were identical; model capabilities were fixed Rust values;
@@ -148,10 +150,11 @@ early to identify actual host limits; no extra live task is submitted just to in
 Core isolation must bind the opaque effective config and requirements (including
 absence) before another launch can replace them; merely hashing a later read of
 the mutable global directory is insufficient. Reusing a server must never rewrite
-its live FD-34 snapshot. Keep catalog/model policy in its existing owner. Any
-record-format or namespace change needs mixed-generation discovery, safe profile
-deletion, retirement and rollback proof with the previously admitted readers;
-do not fix one launch by making older Manager/Core readers reject all task state.
+its live FD-34 snapshot. Keep catalog/model policy in its existing owner. Use one current execution-record codec and fresh complete-composition proof for
+discovery, profile deletion, retirement, install/update and rollback. The user
+rejected historical experimental codec support and a staged reader/writer
+rollout. Unsupported records authorize no operation; preserve their processes
+and data, and verify native process/writer state before mutation.
 Use the upstream configuration loader for syntax/type admission, without adding
 a competing Manager policy parser to Core. Preparation failure can fall back only
 before dispatch and with confirmed execution-home identity; never replay work.

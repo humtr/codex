@@ -1,4 +1,4 @@
-//! Optional same-generation Manager frontend; the official runtime owns execution.
+//! Optional same-generation frontend; the official runtime owns execution.
 use super::{GenerationManifest, LocalProductError, RuntimeFdSources, TermuxBaseEnvPlan};
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -96,12 +96,11 @@ pub(super) fn index(manifest: &GenerationManifest) -> Result<Option<usize>, Loca
         || manifest.helper_digests.len() != 3
         || matches[0].1.identity.strip_prefix(PREFIX)
             != Some(manifest.upstream_package_version.as_str())
-        || manifest.manager_artifact_digest.is_none()
         || manifest.helper_digests[0].identity != super::TERMUX_BROWSER_OPEN_HELPER_IDENTITY
         || manifest.helper_digests[1].identity != super::TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
     {
         return Err(LocalProductError::Descriptor(
-            "Manager frontend must match its generation version, Manager and helper layout",
+            "Manager frontend must match its generation version and helper layout",
         ));
     }
     Ok(Some(2))
@@ -264,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_tui_declaration_requires_one_matching_version_manager_and_layout() {
+    fn manager_tui_declaration_requires_one_matching_version_and_layout() {
         let valid = manifest();
         assert_eq!(index(&valid).unwrap(), Some(2));
         let mut absent = valid.clone();
@@ -275,7 +274,7 @@ mod tests {
         assert!(index(&invalid).is_err());
         invalid = manifest();
         invalid.manager_artifact_digest = None;
-        assert!(index(&invalid).is_err());
+        assert_eq!(index(&invalid).unwrap(), Some(2));
         invalid = manifest();
         invalid.helper_digests.swap(0, 1);
         assert!(index(&invalid).is_err());

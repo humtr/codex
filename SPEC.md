@@ -107,12 +107,12 @@ update authority is maintained.
 - Actual source build qualifies the exact official upstream source/version,
   pristine slash inventory, external dependency lock, bounded native patch,
   frontend FD remaps and actual TUI behavior before publication. The builder
-  refuses a frontend version mismatch or frontend without Manager. An unqualified
+  refuses a frontend version mismatch. Manager remains optional. An unqualified
   newer version cannot silently publish without `/switch`; retain the prior
   admitted generation until the new pair is qualified.
 - The producer build interface accepts `--manager-tui RAW_FRONTEND` only paired
   with `--manager-tui-version UPSTREAM_VERSION`. Both are absent for historical
-  or Core-only builds. A declared frontend requires Manager, exact backend-version
+  or Core-only builds. A declared frontend requires exact backend-version
   equality and one of these exact browser-helper layouts. The builder privately
   snapshots a regular executable static AArch64 ELF within its existing512MiB file bound,
   applies only the shared FD33/34 remap policy (counts2,1,1,1;54 changed bytes),
@@ -1155,8 +1155,10 @@ dependencies require them; do not link the upstream execution engine into Manage
 to reduce artifact count. Generic model routing reads the installed provider
 capability/configuration authority rather than duplicating Chat families/efforts
 in Manager or TUI. Optional capability absence removes only the affected extension;
-native UI and basic Core execution remain usable. Final TUI-without-Manager
-admission requires tests; the current signed full pairing is not already relaxed.
+native UI and basic Core execution remain usable. TUI installation and launch
+must not require Manager. Without Manager, its profile/quota/window commands
+report that capability unavailable, while native UI and Provider selection work.
+This composition requires its own execution proof before release.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
@@ -1575,9 +1577,18 @@ and receives no upstream workload arguments. It returns UTF-8 bytes beginning wi
 fragment. The entire response is limited to 8 KiB (inside the existing 16-KiB
 shared-server configuration bound) and the call to two seconds;
 stdin and stderr are not inherited. Core checks the envelope, byte bound, UTF-8
-and absence of NUL, and atomically publishes the fragment after its execution
-defaults through the existing FD-34 config.toml. Upstream still owns TOML parsing
-and configuration precedence. No account config.toml or credential is rewritten.
+and absence of NUL, and composes the fragment after its execution defaults into an immutable private
+per-launch snapshot supplied through FD34. The shared base directory contains
+Core defaults only. Equal complete settings reuse a snapshot; different settings
+never rewrite one another. Upstream still owns TOML parsing and configuration
+precedence. No account config.toml or credential is rewritten.
+
+Before dispatch, validate optional combined settings using the exact admitted
+upstream executable with an inert configuration-loading command, empty private
+HOME/CODEX_HOME and working directory, no account credentials, bounded time and
+no inference. Cache success only for that immutable snapshot and runtime identity.
+If combined syntax/types fail, validate Core defaults and continue on those
+defaults only if they pass. Never retry a workload or silently change accounts.
 
 Manager reads its own notification policy and renders the same existing native
 completion callback and hook matchers. Missing configuration enables no automatic
@@ -1597,7 +1608,7 @@ response is discarded with a concise warning, leaving the Core execution default
 usable; it must not replay the workload or run an alternate executor. The legacy
 `# codex-termux-notify-v1` file prefix remains solely as the ownership marker for
 safe replacement of existing Core system configuration. Shared-server snapshots
-consume the same combined file without a second policy renderer. Managed-home
+consume the same complete immutable bytes without a second policy renderer. Managed-home
 leases and shared conversation preparation remain Core-owned in this slice.
 
 ### Termux permission selection
@@ -3819,7 +3830,8 @@ through `/proc`, and
 serializes startup with a kernel-held directory lock. Generation changes choose
 a new namespace and preserve existing clients on the old server; they never
 kill user turns as a side effect of launch. Server system configuration is a
-private snapshot of the Core-owned defaults/requirements for that identity. A substituted socket,
+private immutable snapshot of the effective Core defaults/optional fragment and
+requirements for that identity. Another launch never refreshes a live snapshot. A substituted socket,
 record, directory or runtime is rejected. Startup is bounded; failure does not
 invoke an installer or execute any package outside signed generations. Explicit
 user embedded/remote/configuration selections retain their upstream semantics.
@@ -3835,7 +3847,7 @@ second native server. A catalog request remains distinct from an absent catalog;
 an empty/invalid catalog is not a request for native/default behavior.
 Core returns only the exact qualified server socket, and uses the existing server
 coordinator, environment, descriptor and retirement path. Catalog bytes, profile
-home and runtime jointly identify reuse; a changed catalog at the same source
+home, runtime and effective system config/requirements jointly identify reuse; a changed catalog at the same source
 filename must not reuse stale metadata. Core stores an immutable private snapshot
 and supplies its path only to backend startup, never to ordinary upstream argv.
 It does not interpret profile TOML, resolve provider credentials or start another
@@ -3844,8 +3856,7 @@ configuration with upstream code. Existing native servers and active siblings
 remain intact. Remote/embedded launches are unaffected; failure to prepare a
 requested catalog is explicit, never a fallback to an unqualified embedded backend.
 Catalog server records live under Core's private `catalogs` namespace and never
-retarget the default `servers` rendezvous. This keeps older Core/Manager readers
-from rejecting a new-format record during rollback. Current Manager discovery
+retarget the default `servers` rendezvous. Current Manager discovery
 validates both families, including exact catalog content, runtime and peer PID;
 generation retirement applies the same existing-client/writer protections to both.
 The existing server-record codec has one implementation shared by Core and
@@ -3857,10 +3868,25 @@ installed shared runtime or a third management authority. Core never imports
 Manager, and Core-only construction and execution require no Manager artifact.
 Callers retain their filesystem trust checks and revalidate live process/peer
 identity before use. The codec performs no writes, process control, model-schema
-interpretation or provider selection. Existing record bytes and namespaces remain
-unchanged; this introduces no registry, migration, service or runtime RPC.
+interpretation or provider selection. This introduces no registry, service or
+second runtime authority.
 Core launches no upstream daemon updater and never creates a packages tree.
 The historical public daemon/remote-control lifecycle fence remains in force.
+
+Configuration-bound execution records add the `config-v1` owner marker after
+home/runtime, followed only by an optional `catalog-v1` marker. They retain the
+existing `servers`/`catalogs` families. Their namespace also binds the exact
+opaque `config/config.toml` and optional `config/requirements.toml` bytes, with
+absence distinct from an empty file. Each config file retains the16-KiB bound.
+Core and optional consumers share this codec; it interprets no Manager/provider
+policy. Reuse compares the complete requested snapshot, not only its short routing
+hash. A live snapshot is immutable. Use one current codec, without historical
+format emulation or a staged reader/writer release. Unsupported old experimental
+records authorize no operation. Preserve their running processes and user data;
+profile mutation and takeover still require native process/writer checks. Test
+the complete new composition, its install/update/rollback, discovery and retirement
+directly. Compatibility with superseded experimental codecs is not an admission
+requirement.
 
 A daemon-backed app-server command, including `remote-control start`, may run
 only if it is bound to the currently qualified signed generation and cannot

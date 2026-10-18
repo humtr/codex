@@ -5,11 +5,19 @@ Uses the production builder and installer phases with a fresh fixture signing ke
 This is not a base-only public release mode or a replacement publication validator.
 """
 import argparse
+import contextlib
+import fcntl
+import pty
+import select
+import struct
+import termios
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import time
 import subprocess
 import tempfile
 
@@ -23,12 +31,12 @@ def qualify(args, report):
     tools = {name: shutil.which(name) for name in ('openssl', 'gzip')}
     assert all(tools.values()), 'OpenSSL and gzip are required'
     report['inputs'] = {name: sha(getattr(args, name))
-                        for name in ('core', 'builder', 'archive', 'manager')
+                        for name in ('core', 'builder', 'archive', 'manager', 'frontend')
                         if getattr(args, name) is not None}
     report['driverSha256'] = sha(Path(__file__).resolve())
     assert report['inputs']['archive'] == args.archive_sha256
     report['version'] = args.version
-    with tempfile.TemporaryDirectory(prefix='ci-', dir=os.environ['TMPDIR']) as temporary:
+    with tempfile.TemporaryDirectory(prefix='ci-', dir=os.environ['TMPDIR']) as temporary, contextlib.ExitStack() as cleanup:
         root = Path(temporary)
         report['fixtureRoot'] = str(root)
         home, prefix = root / 'h', root / 'p'
@@ -38,7 +46,7 @@ def qualify(args, report):
         for relative in ('etc/resolv.conf', 'etc/tls/cert.pem'):
             shutil.copy2(host_prefix / relative, prefix / relative)
         (prefix / 'bin/openssl').symlink_to(tools['openssl'])
-        env = dict(HOME=str(home), PREFIX=str(prefix), TMPDIR=str(root),
+        env = dict(HOME=str(home), PREFIX=str(prefix), TMPDIR=str(root.parent),
                    PATH=f'{prefix / "bin"}:{host_prefix / "bin"}',
                    SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'), TERM='dumb')
 
@@ -56,7 +64,7 @@ def qualify(args, report):
         key.chmod(0o600)
         run('fixture public key', [tools['openssl'], 'pkey', '-in', key, '-pubout', '-out', public])
 
-        def generation(identity, sequence, manager=False):
+        def generation(identity, sequence, manager=None, frontend=None):
             unsigned, published = root / f'{identity}-unsigned', root / f'{identity}-published'
             command = [args.builder, 'build', '--version', args.version,
                        '--archive', args.archive, '--archive-sha256', args.archive_sha256,
@@ -64,22 +72,24 @@ def qualify(args, report):
                        '--creation-metadata', 'core-independence-fixture',
                        '--gzip', tools['gzip'], '--openssl', tools['openssl'], '--output', unsigned]
             if manager:
-                command += ['--manager', args.manager]
+                command += ['--manager', manager]
+            if frontend:
+                command += ['--manager-tui', frontend, '--manager-tui-version', args.version]
             run(f'build {identity}', command)
             run(f'sign {identity}', [args.builder, 'publish', '--generation', unsigned,
                 '--release-sequence', str(sequence), '--release-base', f'https://humtr.github.io/codex/{identity}/',
                 '--private-key', key, '--openssl', tools['openssl'], '--output', published])
             shutil.rmtree(unsigned)
             result = published / 'releases' / identity
-            assert not (result / 'helpers/2').exists()
-            assert (result / 'manager').exists() == manager
+            assert (result / 'helpers/2').exists() == bool(frontend)
+            assert (result / 'manager').exists() == bool(manager)
             return result
 
         first = generation('local-core-independent-a', 1)
         second = generation('local-core-independent-b', 2)
         managed = None
         if args.manager is not None:
-            managed = generation('local-core-independent-manager', 3, manager=True)
+            managed = generation('local-core-independent-manager', 3, manager=args.manager)
             assert sha(managed / 'manager') == report['inputs']['manager']
             report['managerReusedWithoutCompilation'] = True
 
@@ -150,7 +160,10 @@ def qualify(args, report):
                 run(f'{label} real configuration load',
                     [launcher, 'features', 'list'], selected=selected)
                 config_bytes = core_config.read_bytes()
-                assert (b'approvals_reviewer = "auto_review"' in config_bytes) == (selected is env)
+                assert b'approvals_reviewer' not in config_bytes
+                snapshots = core_config.parent / 'snapshots'
+                assert any((b'approvals_reviewer = "auto_review"' in (item / 'config.toml').read_bytes())
+                           == (selected is env) for item in snapshots.iterdir())
                 assert preference.read_bytes() == preference_bytes
             # A broken explicit choice must remain an error in the normal path.
             # Direct operation uses the caller's native home and does not repair
@@ -167,10 +180,66 @@ def qualify(args, report):
                 [launcher, 'features', 'list'])
             run('reset owned account-selection fixture',
                 [launcher, 'termux', 'profile', 'default', 'default'])
+            # Same home/runtime, different optional settings: query actual native
+            # RPC and the live process's FD34, not just files the launcher wrote.
+            from qualify_tasks import Ws
+            observed = []
+            started = set()
+
+            def live(label, selected, optional):
+                result = run(label, [launcher, '__app-server-default-v1'], selected=selected)
+                socket = Path(result.stdout.decode().strip())
+                record = socket.parent
+                pid = int((record / 'pid').read_text())
+                proc = Path('/proc') / str(pid)
+                executable = (proc / 'exe').resolve(strict=True)
+                identity = (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+                assert executable == generations / state()['current'] / 'runtime'
+                if pid not in started:
+                    started.add(pid)
+                    def stop_owned():
+                        try:
+                            assert (proc / 'exe').resolve(strict=True) == executable
+                            assert (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19] == identity
+                        except (FileNotFoundError, AssertionError):
+                            return
+                        os.kill(pid, signal.SIGTERM)
+                        until = time.monotonic() + 5
+                        while time.monotonic() < until and (proc / 'exe').exists():
+                            time.sleep(.02)
+                        if (proc / 'exe').exists():
+                            assert (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19] == identity
+                            os.kill(pid, signal.SIGKILL)
+                    cleanup.callback(stop_owned)
+                config = (proc / 'fd/34/config.toml').read_bytes()
+                assert config == (record / 'config/config.toml').read_bytes()
+                assert (b'approvals_reviewer = "auto_review"' in config) == optional
+                client = Ws(socket)
+                try:
+                    settings = client.call('config/read', {'includeLayers': False})['config']
+                    assert settings['sandbox_mode'] == 'danger-full-access'
+                    assert settings.get('approvals_reviewer') in (['auto_review'] if optional else [None, 'user'])
+                finally:
+                    client.close()
+                observed.append((pid, config))
+                return pid
+
+            first_pid = live('normal live settings', env, True)
+            direct_pid = live('direct live sibling settings', direct, False)
+            assert first_pid != direct_pid
+            assert live('normal reuses unchanged live sibling', env, True) == first_pid
+            assert observed[0] == observed[2]
+            assert (Path('/proc') / str(first_pid) / 'fd/34/config.toml').read_bytes() == observed[0][1]
+            assert b'approvals_reviewer' not in core_config.read_bytes()
+            report['liveSiblingSettings'] = {
+                'sameHome': True, 'separateSettingsServers': True,
+                'originalServerReused': True, 'nativeConfigRpc': True,
+                'liveFd34Unchanged': True,
+            }
             report['directExecution'] = {
                 'admittedManager': True, 'realUpstreamConfigLoad': True,
                 'normalDirectNormal': True, 'invalidPreferencePreserved': True,
-                'tuiOrLiveSiblingIsolationProven': False,
+                'liveSiblingIsolationProven': True, 'tuiExercised': False,
             }
             installed_manager.unlink()  # Only this owned fixture's optional asset.
             current(managed.name)
@@ -178,6 +247,96 @@ def qualify(args, report):
             current(second.name)
             run('retained installed optional absence remains Core-usable', [launcher, 'update', '--rollback'])
             current(managed.name)
+            # Independently compiled admitted optional artifact: malformed policy
+            # reaches the real upstream loader without a production fault hook.
+            rustc = shutil.which('rustc')
+            assert rustc, 'Rust is required to compile the owned optional-artifact fixture'
+            source, fixture_manager = root / 'optional-fixture.rs', root / 'optional-fixture'
+            source.write_text(r'''fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--artifact-probe") => print!("codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n"),
+        Some("__prepare-launch-v1") => print!("codex-manager-launch-v1\ncurrent\n"),
+        Some("__prepare-runtime-v1") => {
+            match std::env::var("OWNED_CORE_OPTIONAL_FIXTURE").as_deref() {
+                Ok("syntax") => print!("codex-manager-runtime-config-v1\n[unfinished\n"),
+                Ok("type") => print!("codex-manager-runtime-config-v1\napproval_policy = 42\n"),
+                Ok("envelope") => print!("unrecognized-config-v1\n"),
+                Ok("hung") => std::thread::sleep(std::time::Duration::from_secs(30)),
+                _ => std::process::exit(3),
+            }
+        }
+        _ => std::process::exit(2),
+    }
+}
+''')
+            run('compile owned optional-artifact fixture',
+                [rustc, '--edition=2021', source, '-o', fixture_manager])
+            faulty = generation('local-core-independent-optional-faults', 4, manager=fixture_manager)
+            run('admit owned optional-artifact fixture', [launcher, 'update', '--local', faulty])
+            for mode in ('syntax', 'type', 'envelope', 'hung'):
+                selected = dict(env, OWNED_CORE_OPTIONAL_FIXTURE=mode)
+                result = run(f'{mode} optional settings preserve real Core execution',
+                             [launcher, 'features', 'list'], selected=selected)
+                assert b'optional Manager' in result.stderr
+                assert b'approvals_reviewer' not in core_config.read_bytes()
+            report['optionalFaultIsolation'] = {
+                'realUpstreamTomlSyntax': True, 'realUpstreamFieldTypes': True,
+                'unknownEnvelope': True, 'boundedHungArtifact': True,
+                'noWorkloadReplay': True,
+            }
+            run('rollback optional-artifact fixture', [launcher, 'update', '--rollback'])
+            current(managed.name)
+            if args.frontend is not None:
+                independent = generation('local-core-independent-tui', 5, frontend=args.frontend)
+                run('install TUI without Manager', [launcher, 'update', '--local', independent])
+                current(independent.name)
+                assert not (generations / independent.name / 'manager').exists()
+                config = home / '.codex/config.toml'
+                config.write_text('model="fixture"\nmodel_provider="fixture"\n'
+                    '[model_providers.fixture]\nname="Owned fixture"\n'
+                    'base_url="http://127.0.0.1:9/v1"\nwire_api="responses"\n'
+                    'requires_openai_auth=false\n'
+                    f'[projects.{json.dumps(str(root / "work"))}]\ntrust_level="trusted"\n')
+                master, slave = pty.openpty()
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 130, 0, 0))
+                process = subprocess.Popen([launcher, '--no-alt-screen'],
+                    env=dict(env, TERM='xterm-256color'), cwd=root / 'work',
+                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+                os.close(slave)
+                os.set_blocking(master, False)
+                screen = ''
+                def wait_screen(text):
+                    nonlocal screen
+                    until = time.monotonic() + 45
+                    while time.monotonic() < until:
+                        if select.select([master], [], [], .05)[0]:
+                            try:
+                                screen += os.read(master, 262144).decode(errors='replace')
+                            except (OSError, BlockingIOError):
+                                pass
+                        if text in screen:
+                            return
+                        assert process.poll() is None, screen[-4000:]
+                    raise AssertionError('owned TUI timeout: ' + screen[-4000:])
+                try:
+                    wait_screen('Ask Codex to do anything')
+                    for byte in b'/switch':
+                        os.write(master, bytes([byte])); time.sleep(.08)
+                    os.write(master, b'\r')
+                    wait_screen('Profiles are unavailable.')
+                    assert process.poll() is None
+                    report['tuiWithoutManager'] = {'nativeUiLoaded': True,
+                        'optionalProfilesUnavailable': True, 'nativeUiRemainsLive': True,
+                        'noInferenceSubmitted': True}
+                finally:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=8)
+                    except subprocess.TimeoutExpired:
+                        process.kill(); process.wait()
+                    os.close(master)
+                live('TUI-only Core server settings', env, False)
         assert sha(sentinel) == sentinel_hash
         report['userStatePreserved'] = True
         report['accepted'] = True
@@ -193,6 +352,8 @@ def main():
         parser.add_argument('--' + name, type=lambda value: Path(value).resolve(), required=True)
     parser.add_argument('--manager', type=lambda value: Path(value).resolve(),
                         help='Also prove unchanged Manager reuse and optional-asset failure boundaries')
+    parser.add_argument('--frontend', type=lambda value: Path(value).resolve(),
+                        help='Qualified raw frontend for actual TUI-without-Manager execution')
     parser.add_argument('--archive-sha256', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()

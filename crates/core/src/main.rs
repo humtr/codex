@@ -18,6 +18,8 @@ mod rollback_guard;
 mod shared_layout;
 #[cfg(unix)]
 mod shared_server;
+#[cfg(unix)]
+mod system_config;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
@@ -1420,20 +1422,41 @@ where
         }
         None => None,
     };
-    match prepare_core_shared_state_requirements(config_dir.as_ref()) {
-        Ok(Some(shared)) => env_plan
-            .assignments
-            .push((CODEX_SQLITE_HOME_ENV.into(), shared.into_os_string())),
-        Ok(None) => (),
-        Err(error) => return RuntimeLaunchError::Config(error),
-    }
     if let Err(error) = validate_core_config(config_dir.as_ref()) {
         return RuntimeLaunchError::Config(error);
     }
     let fragment = manager_config::optional(options.manager, config_dir.as_ref());
-    if let Err(error) = prepare_core_config(config_dir.as_ref(), &fragment) {
-        return RuntimeLaunchError::Config(error);
+    let mut prepared = match system_config::prepare(config_dir.as_ref(), &fragment) {
+        Ok(prepared) => prepared,
+        Err(error) => return RuntimeLaunchError::Config(error),
+    };
+    if !fragment.is_empty()
+        && !system_config::validate(
+            &prepared,
+            selection.runtime.program_path,
+            resolver_path.as_ref(),
+            &env_plan,
+        )
+        .unwrap_or(false)
+    {
+        // Validate only inert settings, before any workload/server dispatch.
+        // No account selection, retry or alternate executor is introduced here.
+        prepared = match system_config::prepare(config_dir.as_ref(), &[]) {
+            Ok(base) => base,
+            Err(error) => return RuntimeLaunchError::Config(error),
+        };
+        match system_config::validate(&prepared, selection.runtime.program_path, resolver_path.as_ref(), &env_plan) {
+            Ok(true) => eprintln!("codex: optional Manager settings rejected by upstream; continuing with Termux defaults"),
+            Ok(false) => return RuntimeLaunchError::Config(std::io::Error::other("Core execution defaults failed upstream configuration validation")),
+            Err(error) => return RuntimeLaunchError::Config(error),
+        }
     }
+    if let Some(shared) = &prepared.shared {
+        env_plan
+            .assignments
+            .push((CODEX_SQLITE_HOME_ENV.into(), shared.as_os_str().to_owned()));
+    }
+    let config_dir = prepared.path.as_path();
     use std::io::IsTerminal as _;
     if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)]
         || options.planned_args == [OsStr::new(shared_server::DEFAULT_COMMAND)]
@@ -1452,7 +1475,7 @@ where
                 &upstream_execution_home(&home),
                 &home.join(".local/share/codex/core"),
                 resolver_path.as_ref(),
-                config_dir.as_ref(),
+                config_dir,
                 &env_plan,
                 catalog.as_deref(),
             )
@@ -1468,16 +1491,14 @@ where
     if std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
         && (shared_server::eligible(options.planned_args)
-            || (matches!(options.manager, ManagerArtifact::Available(_))
-                && options.manager_tui_available
+            || (options.manager_tui_available
                 && manager_tui::local_interactive(options.planned_args)))
     {
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         if let Some(home) = home {
             let profile = upstream_execution_home(&home);
             let state = home.join(".local/share/codex/core");
-            let frontend = (matches!(options.manager, ManagerArtifact::Available(_))
-                && options.manager_tui_available
+            let frontend = (options.manager_tui_available
                 && manager_tui::supported(options.planned_args))
             .then(|| {
                 selection
@@ -1490,19 +1511,24 @@ where
                 manager_tui::resolved_startup(
                     frontend.asset_path,
                     resolver_path.as_ref(),
-                    config_dir.as_ref(),
+                    config_dir,
                     &env_plan,
                 )
             });
             let socket = if resolved {
-                shared_server::native_socket(selection.runtime.program_path, &profile, &state)
+                shared_server::native_socket(
+                    selection.runtime.program_path,
+                    &profile,
+                    &state,
+                    config_dir,
+                )
             } else {
                 shared_server::ensure(
                     selection.runtime.program_path,
                     &profile,
                     &state,
                     resolver_path.as_ref(),
-                    config_dir.as_ref(),
+                    config_dir,
                     &env_plan,
                 )
             };
@@ -1515,7 +1541,7 @@ where
                             &profile,
                             options.planned_args,
                             resolver_path.as_ref(),
-                            config_dir.as_ref(),
+                            config_dir,
                             &env_plan,
                         ));
                     }
@@ -8424,8 +8450,7 @@ fn activate_local_built_update(
     let frontend_index = manager_tui::index(&current_loaded.manifest)?;
     if frontend_index.is_some()
         && (metadata.version != current_loaded.manifest.upstream_package_version
-            || !current_loaded.manager_tui_available
-            || current_loaded.manager_path.is_none())
+            || !current_loaded.manager_tui_available)
     {
         return Err(LocalProductError::LocalUpdate(
             "local-derived update requires the admitted same-version Manager frontend; use a qualified paired release",
@@ -13087,7 +13112,7 @@ mod tests {
         assert_eq!(result.stdout, b"codex-upstream 9.9.9\n");
         assert_eq!(result.stderr, b"version-stderr\n");
         assert_eq!(
-            std::fs::read(config.join("config.toml")).unwrap(),
+            std::fs::read(root.join("observed-system-config")).unwrap(),
             render_core_config(fragment)
         );
 
@@ -13100,7 +13125,7 @@ mod tests {
             .unwrap()
             .contains("optional Manager configuration unavailable"));
         assert_eq!(
-            std::fs::read(config.join("config.toml")).unwrap(),
+            std::fs::read(root.join("observed-system-config")).unwrap(),
             render_core_config(&[])
         );
 
@@ -13114,6 +13139,23 @@ mod tests {
         );
         assert_eq!(absent.stdout, result.stdout);
         assert_eq!(absent.stderr, result.stderr);
+        assert_eq!(
+            std::fs::read(root.join("observed-system-config")).unwrap(),
+            render_core_config(&[])
+        );
+
+        std::fs::write(
+            root.join("manager-fragment"),
+            b"manager_invalid_fixture = [\n",
+        )
+        .unwrap();
+        let invalid = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
+        assert_eq!(invalid.status.code(), Some(0));
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains("settings rejected by upstream"));
+        assert_eq!(
+            std::fs::read(root.join("observed-system-config")).unwrap(),
+            render_core_config(&[])
+        );
         assert_eq!(
             std::fs::read(config.join("config.toml")).unwrap(),
             render_core_config(&[])
@@ -13206,6 +13248,13 @@ if [ "${CODEX_TEST_REQUIRE_NO_ACQUISITION:-}" = "1" ]; then
   for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
   done
+fi
+if [ -n "${CODEX_TEST_CONFIG_OUTPUT:-}" ] && [ -f /proc/self/fd/34/config.toml ]; then
+  while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line"; done < /proc/self/fd/34/config.toml > "$CODEX_TEST_CONFIG_OUTPUT"
+fi
+if [ "$1" = features ] && [ "$2" = list ]; then
+  while IFS= read -r line; do case "$line" in *manager_invalid_fixture*) exit 2;; esac; done < /proc/self/fd/34/config.toml
+  exit 0
 fi
 if [ "$1" = "--version" ] || [ "$1" = "-V" ]; then
   printf 'codex-upstream 9.9.9\n'
@@ -13474,6 +13523,10 @@ exit 73
             .env(PROBE_CONFIG, config)
             .env(PROBE_STDOUT, &stdout)
             .env(PROBE_STDERR, &stderr)
+            .env(
+                "CODEX_TEST_CONFIG_OUTPUT",
+                root.join("observed-system-config"),
+            )
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         command
@@ -18475,7 +18528,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update() {
+    fn test_tui_public_local_build_preserves_optional_components_and_matching_version() {
         use std::os::unix::fs::PermissionsExt;
 
         for defect in [
@@ -18594,7 +18647,7 @@ esac
                 std::fs::write(curl_path, script).unwrap();
             }
             let output = b7_run_public_build_local(None, None, &home, &prefix, &tmp);
-            if defect == "healthy" {
+            if matches!(defect, "healthy" | "missing-manager") {
                 assert_eq!(
                     output.status.code(),
                     Some(0),
@@ -18614,6 +18667,7 @@ esac
                 )
                 .unwrap();
                 assert!(loaded.manager_tui_available);
+                assert_eq!(loaded.manager_path.is_some(), defect == "healthy");
                 assert_eq!(loaded.manifest.helper_digests[2].digest, digest);
                 assert_eq!(
                     std::fs::read(&loaded.helper_paths[2]).unwrap(),
@@ -18649,6 +18703,7 @@ esac
                 )
                 .unwrap();
                 assert!(loaded.manager_tui_available);
+                assert_eq!(loaded.manager_path.is_some(), defect == "healthy");
                 assert_eq!(
                     std::fs::read(&loaded.helper_paths[2]).unwrap(),
                     frontend_bytes

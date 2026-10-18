@@ -1,6 +1,6 @@
 //! Starts only the signed generation's foreground app-server; upstream discovers
 //! its ordinary socket and therefore never enters package/installer lifecycle.
-use codex_runtime_binding::{namespace as catalog_namespace, Binding, CATALOG_LIMIT, FAMILIES};
+use codex_runtime_binding::{configuration_namespace, Binding, CATALOG_LIMIT, FAMILIES};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -115,7 +115,7 @@ pub(super) fn private_dir(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 fn namespace(home: &Path, program: &OsStr) -> String {
-    catalog_namespace(home, program, None)
+    configuration_namespace(home, program, None, &super::render_core_config(&[]), None)
 }
 
 fn read_record(path: &Path) -> io::Result<Vec<u8>> {
@@ -126,10 +126,22 @@ pub(super) const CATALOG_COMMAND: &str = "__app-server-catalog-v1";
 pub(super) const DEFAULT_COMMAND: &str = "__app-server-default-v1";
 
 /// Compute the existing native rendezvous without preparing state or a process.
-pub(super) fn native_socket(program: &OsStr, profile: &Path, state: &Path) -> io::Result<PathBuf> {
+pub(super) fn native_socket(
+    program: &OsStr,
+    profile: &Path,
+    state: &Path,
+    config: &Path,
+) -> io::Result<PathBuf> {
+    let settings = super::system_config::Bytes::read(config)?;
     let socket = state
         .join("servers")
-        .join(catalog_namespace(profile, program, None))
+        .join(configuration_namespace(
+            profile,
+            program,
+            None,
+            &settings.config,
+            settings.requirements.as_deref(),
+        ))
         .join("s");
     if !socket.is_absolute() || socket.as_os_str().as_bytes().len() > 107 {
         return Err(invalid());
@@ -146,13 +158,30 @@ pub(super) fn read_catalog(input: impl Read) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
-    let m = fs::symlink_metadata(path)?;
-    if !m.is_file() || m.file_type().is_symlink() || m.len() > limit {
+pub(super) fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+    if !super::core_safe_absolute_path(path) {
+        return Err(invalid());
+    }
+    for parent in path.ancestors().skip(1) {
+        let metadata = fs::symlink_metadata(parent)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid());
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    const NOFOLLOW: i32 = 0x8000;
+    #[cfg(not(target_arch = "aarch64"))]
+    const NOFOLLOW: i32 = 0x20000;
+    let input = OpenOptions::new()
+        .read(true)
+        .custom_flags(NOFOLLOW | 0x800)
+        .open(path)?;
+    let m = input.metadata()?;
+    if !m.is_file() || m.uid() != fs::metadata("/proc/self")?.uid() || m.len() > limit {
         return Err(invalid());
     }
     let mut bytes = Vec::new();
-    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    input.take(limit + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
         return Err(invalid());
     }
@@ -161,12 +190,12 @@ fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
 
 fn write_record(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)?;
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temp, path)?;
@@ -174,6 +203,39 @@ fn write_record(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })();
     if result.is_err() {
         let _ = fs::remove_file(temp);
+    }
+    result
+}
+
+pub(super) fn immutable_record(path: &Path, expected: Option<&[u8]>, limit: u64) -> io::Result<()> {
+    match (read_bounded(path, limit), expected) {
+        (Ok(old), Some(bytes)) if old == bytes => return Ok(()),
+        (Err(e), None) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        (Err(e), Some(_)) if e.kind() == io::ErrorKind::NotFound => (),
+        _ => return Err(invalid()),
+    }
+    let bytes = expected.ok_or_else(invalid)?;
+    if bytes.len() as u64 > limit {
+        return Err(invalid());
+    }
+    let temp = path.with_extension(format!(
+        "tmp-{}-{}",
+        std::process::id(),
+        super::LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        super::rename_noreplace(&temp, path)?;
+        File::open(path.parent().ok_or_else(invalid)?)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
     }
     result
 }
@@ -244,6 +306,7 @@ pub(super) fn ensure_catalog(
     if catalog.is_some_and(|c| c.is_empty() || c.len() as u64 > CATALOG_LIMIT) {
         return Err(invalid());
     }
+    let settings = super::system_config::Bytes::read(config)?;
     private_dir(profile)?;
     let servers = state.join(if catalog.is_some() {
         "catalogs"
@@ -251,7 +314,13 @@ pub(super) fn ensure_catalog(
         "servers"
     });
     private_dir(&servers)?;
-    let directory = servers.join(catalog_namespace(profile, program, catalog));
+    let directory = servers.join(configuration_namespace(
+        profile,
+        program,
+        catalog,
+        &settings.config,
+        settings.requirements.as_deref(),
+    ));
     private_dir(&directory)?;
     let lock = File::open(&directory)?;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -263,7 +332,8 @@ pub(super) fn ensure_catalog(
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    let binding = codex_runtime_binding::owner_bytes(profile, program, catalog.is_some());
+    let binding =
+        codex_runtime_binding::configuration_owner_bytes(profile, program, catalog.is_some());
     let owner = directory.join("owner");
     match read_record(&owner) {
         Ok(b) if b == binding => (),
@@ -335,27 +405,14 @@ pub(super) fn ensure_catalog(
         }
     }
     let snapshot = directory.join("config");
-    private_dir(&snapshot)?;
-    for name in ["config.toml", "requirements.toml"] {
-        let source = config.join(name);
-        match read_record(&source) {
-            Ok(b) => match read_record(&snapshot.join(name)) {
-                Ok(old) if old == b => (),
-                Ok(_) => write_record(&snapshot.join(name), &b)?,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    write_record(&snapshot.join(name), &b)?
-                }
-                Err(e) => return Err(e),
-            },
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                match read_record(&snapshot.join(name)) {
-                    Ok(_) => fs::remove_file(snapshot.join(name))?,
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-                    Err(e) => return Err(e),
-                }
-            }
-            Err(e) => return Err(e),
+    if running {
+        let existing = super::system_config::Bytes::read(&snapshot)?;
+        if existing.config != settings.config || existing.requirements != settings.requirements {
+            return Err(invalid());
         }
+    } else {
+        private_dir(&snapshot)?;
+        settings.materialize(&snapshot)?;
     }
     if !running {
         let fds = super::RuntimeFdSources::open(resolver, &snapshot)?;
@@ -618,8 +675,8 @@ fn main() {
     }
 
     #[test]
-    fn shared_server_reuse_refreshes_config_without_restarting_active_server() {
-        let root = crate::tests::temp_root("server-refresh");
+    fn shared_server_settings_select_immutable_siblings_and_reuse_exact_configuration() {
+        let root = crate::tests::temp_root("server-settings");
         let program = server_fixture(&root);
         let state = root.join("state");
         let config = root.join("config");
@@ -627,56 +684,14 @@ fn main() {
         private_dir(&config).unwrap();
         let resolver = root.join("resolver");
         fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
-        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
+        let base = crate::render_core_config(&[]);
+        fs::write(config.join("config.toml"), &base).unwrap();
         let env = crate::TermuxBaseEnvPlan {
             assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
             removals: vec![],
         };
         let profile = root.join("profile");
-        let socket = ensure(
-            program.as_os_str(),
-            &profile,
-            &state,
-            &resolver,
-            &config,
-            &env,
-        )
-        .unwrap();
-        let directory = socket.parent().unwrap();
-        let pid = read_record(&directory.join("pid")).unwrap();
-        let pid_text = String::from_utf8(pid.clone()).unwrap();
-        let server_config = PathBuf::from(format!("/proc/{}/fd/34", pid_text.trim()));
-        let inode = fs::metadata(&server_config).unwrap().ino();
-        for fragment in [b"# Manager configuration\n".as_slice(), b"".as_slice()] {
-            let bytes = crate::render_core_config(fragment);
-            fs::write(config.join("config.toml"), &bytes).unwrap();
-            fs::write(
-                config.join("requirements.toml"),
-                b"# refreshed requirements\n",
-            )
-            .unwrap();
-            assert_eq!(
-                ensure(
-                    program.as_os_str(),
-                    &profile,
-                    &state,
-                    &resolver,
-                    &config,
-                    &env
-                )
-                .unwrap(),
-                socket
-            );
-            assert_eq!(read_record(&directory.join("pid")).unwrap(), pid);
-            assert_eq!(fs::metadata(&server_config).unwrap().ino(), inode);
-            assert_eq!(fs::read(server_config.join("config.toml")).unwrap(), bytes);
-            assert_eq!(
-                fs::read(server_config.join("requirements.toml")).unwrap(),
-                b"# refreshed requirements\n"
-            );
-            let file_inode = fs::metadata(server_config.join("config.toml"))
-                .unwrap()
-                .ino();
+        let start = || {
             ensure(
                 program.as_os_str(),
                 &profile,
@@ -685,48 +700,60 @@ fn main() {
                 &config,
                 &env,
             )
+        };
+        let original = start().unwrap();
+        let original_pid = read_record(&original.parent().unwrap().join("pid")).unwrap();
+        let first = String::from_utf8(original_pid.clone()).unwrap();
+        let live_config = PathBuf::from(format!("/proc/{}/fd/34", first.trim()));
+        let inode = fs::metadata(&live_config).unwrap().ino();
+        let mut pids = vec![first];
+        for fragment in [b"# optional settings\n".as_slice(), b"".as_slice()] {
+            let bytes = crate::render_core_config(fragment);
+            fs::write(config.join("config.toml"), &bytes).unwrap();
+            fs::write(
+                config.join("requirements.toml"),
+                b"# independent requirements\n",
+            )
             .unwrap();
+            let selected = start().unwrap();
+            assert_ne!(selected, original);
+            let selected_pid = read_record(&selected.parent().unwrap().join("pid")).unwrap();
+            assert_eq!(start().unwrap(), selected);
             assert_eq!(
-                fs::metadata(server_config.join("config.toml"))
-                    .unwrap()
-                    .ino(),
-                file_inode
+                read_record(&selected.parent().unwrap().join("pid")).unwrap(),
+                selected_pid
             );
+            assert_eq!(
+                fs::read(selected.parent().unwrap().join("config/config.toml")).unwrap(),
+                bytes
+            );
+            assert_eq!(fs::read(live_config.join("config.toml")).unwrap(), base);
+            assert!(!live_config.join("requirements.toml").exists());
+            assert_eq!(fs::metadata(&live_config).unwrap().ino(), inode);
+            pids.push(String::from_utf8(selected_pid).unwrap());
         }
         fs::remove_file(config.join("requirements.toml")).unwrap();
-        ensure(
-            program.as_os_str(),
-            &profile,
-            &state,
-            &resolver,
-            &config,
-            &env,
-        )
-        .unwrap();
-        assert!(!server_config.join("requirements.toml").exists());
+        assert_eq!(start().unwrap(), original);
+        assert_eq!(
+            read_record(&original.parent().unwrap().join("pid")).unwrap(),
+            original_pid
+        );
         let foreign = root.join("foreign");
         fs::write(&foreign, b"untouched").unwrap();
-        let snapshot_file = directory.join("config/config.toml");
-        fs::remove_file(&snapshot_file).unwrap();
-        std::os::unix::fs::symlink(&foreign, &snapshot_file).unwrap();
-        assert!(ensure(
-            program.as_os_str(),
-            &profile,
-            &state,
-            &resolver,
-            &config,
-            &env
-        )
-        .is_err());
+        let snapshot = original.parent().unwrap().join("config/config.toml");
+        fs::remove_file(&snapshot).unwrap();
+        std::os::unix::fs::symlink(&foreign, &snapshot).unwrap();
+        assert!(start().is_err());
         assert_eq!(fs::read(&foreign).unwrap(), b"untouched");
-        assert!(Path::new(&format!("/proc/{}", pid_text.trim())).exists());
-        assert!(
-            Command::new(crate::tests::resolve_test_tool("kill").unwrap())
-                .args(["-TERM", pid_text.trim()])
-                .status()
-                .unwrap()
-                .success()
-        );
+        for pid in pids {
+            assert!(
+                Command::new(crate::tests::resolve_test_tool("kill").unwrap())
+                    .args(["-TERM", pid.trim()])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
         crate::tests::remove_temp_root(root);
     }
 
@@ -758,10 +785,16 @@ fn main() {
             )
             .unwrap()
         };
-        let planned = native_socket(program.as_os_str(), &profile, &state).unwrap();
+        let planned = native_socket(program.as_os_str(), &profile, &state, &config).unwrap();
         assert!(!planned.exists());
         assert!(!state.join("servers").exists());
-        assert!(native_socket(program.as_os_str(), &profile, Path::new("relative")).is_err());
+        assert!(native_socket(
+            program.as_os_str(),
+            &profile,
+            Path::new("relative"),
+            &config
+        )
+        .is_err());
         let native = start(None);
         assert_eq!(native, planned);
         let native_pid = read_record(&native.parent().unwrap().join("pid")).unwrap();
@@ -956,10 +989,17 @@ fn main() {
         let profile = root.join("account");
         let directory = servers.join(namespace(&profile, program.as_os_str()));
         private_dir(&directory).unwrap();
-        let mut owner = profile.as_os_str().as_bytes().to_vec();
-        owner.push(0);
-        owner.extend_from_slice(program.as_os_str().as_bytes());
+        let owner =
+            codex_runtime_binding::configuration_owner_bytes(&profile, program.as_os_str(), false);
         write_record(&directory.join("owner"), &owner).unwrap();
+        let snapshot = directory.join("config");
+        private_dir(&snapshot).unwrap();
+        super::super::system_config::Bytes {
+            config: super::super::render_core_config(&[]),
+            requirements: None,
+        }
+        .materialize(&snapshot)
+        .unwrap();
         let mut child = crate::tests::exited_leader_with_live_file(&program);
         write_record(
             &directory.join("pid"),
@@ -1100,6 +1140,14 @@ fn main() {
         fs::remove_file(&record).unwrap();
         std::os::unix::fs::symlink(&target, &record).unwrap();
         assert!(read_record(&record).is_err());
+        fs::remove_file(&record).unwrap();
+        fs::write(target.join("file"), b"owned").unwrap();
+        assert!(read_record(&alias.join("file")).is_err());
+        let temporary = record.with_extension(format!("tmp-{}", std::process::id()));
+        fs::write(&temporary, b"preexisting content").unwrap();
+        assert!(write_record(&record, b"replacement").is_err());
+        assert_eq!(fs::read(&temporary).unwrap(), b"preexisting content");
+        assert!(!record.exists());
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(private_dir(&target).is_err());
         assert_ne!(

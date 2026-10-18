@@ -10,41 +10,60 @@ use std::path::{Path, PathBuf};
 pub const FAMILIES: [&str; 2] = ["servers", "catalogs"];
 pub const OWNER_LIMIT: u64 = 16384;
 pub const CATALOG_LIMIT: u64 = 4 * 1024 * 1024;
+pub const CONFIG_LIMIT: u64 = 16384;
 const CATALOG_MARKER: &[u8] = b"catalog-v1";
+const CONFIG_MARKER: &[u8] = b"config-v1";
 
 fn invalid() -> io::Error {
     io::Error::other("execution binding does not match its namespace")
 }
 
-/// Exact legacy namespace; the full binding below rejects hash collisions.
-pub fn namespace(home: &Path, program: &OsStr, catalog: Option<&[u8]>) -> String {
-    let mut value = 0xcbf29ce484222325_u64;
-    for b in home
-        .as_os_str()
-        .as_bytes()
-        .iter()
-        .chain([0].iter())
-        .chain(program.as_bytes())
-    {
-        value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-    }
-    if let Some(catalog) = catalog {
-        for b in b"\0catalog-v1\0".iter().chain(catalog) {
-            value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+/// Versioned opaque settings binding. This short hash routes records; producers
+/// must also compare their complete requested snapshot before reusing a server.
+pub fn configuration_namespace(
+    home: &Path,
+    program: &OsStr,
+    catalog: Option<&[u8]>,
+    config: &[u8],
+    requirements: Option<&[u8]>,
+) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    let mut field = |bytes: Option<&[u8]>| {
+        let length = bytes.map_or(u64::MAX, |b| b.len() as u64).to_le_bytes();
+        for byte in length.iter().chain(bytes.unwrap_or_default()) {
+            hash = (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
         }
-    }
-    format!("{value:016x}")
+    };
+    field(Some(CONFIG_MARKER));
+    field(Some(home.as_os_str().as_bytes()));
+    field(Some(program.as_bytes()));
+    field(catalog);
+    field(Some(config));
+    field(requirements);
+    format!("{hash:016x}")
 }
 
-pub fn owner_bytes(home: &Path, program: &OsStr, has_catalog: bool) -> Vec<u8> {
+pub fn configuration_owner_bytes(home: &Path, program: &OsStr, has_catalog: bool) -> Vec<u8> {
     let mut bytes = home.as_os_str().as_bytes().to_vec();
     bytes.push(0);
     bytes.extend_from_slice(program.as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(CONFIG_MARKER);
     if has_catalog {
         bytes.push(0);
         bytes.extend_from_slice(CATALOG_MARKER);
     }
     bytes
+}
+
+pub fn settings_identity(config: &[u8], requirements: Option<&[u8]>) -> String {
+    configuration_namespace(
+        Path::new("/"),
+        OsStr::new("core-system-config-v1"),
+        None,
+        config,
+        requirements,
+    )
 }
 
 #[derive(Debug)]
@@ -55,8 +74,9 @@ pub struct Binding {
 
 impl Binding {
     /// The caller supplies its existing owned/private, no-follow bounded reader.
-    /// Only bounded owner/catalog bytes are read; PID/peer/liveness stay with the
-    /// consumer and must be revalidated before any operation.
+    /// Only bounded owner/catalog/settings bytes are read; PID/peer/liveness stay
+    /// with the consumer. Readers must preserve NotFound for an absent optional
+    /// requirements file, and reject unsafe paths before returning any bytes.
     pub fn read(
         directory: &Path,
         mut read: impl FnMut(&Path, u64) -> io::Result<Vec<u8>>,
@@ -72,29 +92,50 @@ impl Binding {
         let program = PathBuf::from(OsString::from_vec(
             fields.next().ok_or_else(invalid)?.to_vec(),
         ));
-        let catalog = match fields.next() {
-            None => None,
-            Some(CATALOG_MARKER) if fields.next().is_none() => {
-                let bytes = read(&directory.join("models.json"), CATALOG_LIMIT)?;
-                if bytes.is_empty() || bytes.len() as u64 > CATALOG_LIMIT {
-                    return Err(invalid());
-                }
-                Some(bytes)
+        let tail: Vec<_> = fields.collect();
+        let has_catalog = match tail.as_slice() {
+            [CONFIG_MARKER] => false,
+            [CONFIG_MARKER, CATALOG_MARKER] => true,
+            _ if tail.first().copied() != Some(CONFIG_MARKER) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "unsupported execution-record format",
+                ))
             }
             _ => return Err(invalid()),
         };
+        let catalog = if has_catalog {
+            let bytes = read(&directory.join("models.json"), CATALOG_LIMIT)?;
+            if bytes.is_empty() || bytes.len() as u64 > CATALOG_LIMIT {
+                return Err(invalid());
+            }
+            Some(bytes)
+        } else {
+            None
+        };
+        let config = read(&directory.join("config/config.toml"), CONFIG_LIMIT)?;
+        if config.len() as u64 > CONFIG_LIMIT {
+            return Err(invalid());
+        }
+        let requirements = match read(&directory.join("config/requirements.toml"), CONFIG_LIMIT) {
+            Ok(bytes) if bytes.len() as u64 <= CONFIG_LIMIT => Some(bytes),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            _ => return Err(invalid()),
+        };
+        let expected = configuration_namespace(
+            &home,
+            program.as_os_str(),
+            catalog.as_deref(),
+            &config,
+            requirements.as_deref(),
+        );
         let family = if catalog.is_some() {
             FAMILIES[1]
         } else {
             FAMILIES[0]
         };
         if directory.parent().and_then(Path::file_name) != Some(OsStr::new(family))
-            || directory.file_name()
-                != Some(OsStr::new(&namespace(
-                    &home,
-                    program.as_os_str(),
-                    catalog.as_deref(),
-                )))
+            || directory.file_name() != Some(OsStr::new(&expected))
         {
             return Err(invalid());
         }
@@ -106,108 +147,124 @@ impl Binding {
 mod tests {
     use super::*;
 
-    fn decode(path: &str, owner: &[u8], catalog: &[u8]) -> io::Result<Binding> {
-        Binding::read(Path::new(path), |path, limit| {
-            let bytes = if path.file_name() == Some(OsStr::new("owner")) {
-                assert_eq!(limit, OWNER_LIMIT);
-                owner
-            } else {
-                assert_eq!(path.file_name(), Some(OsStr::new("models.json")));
-                assert_eq!(limit, CATALOG_LIMIT);
-                catalog
-            };
-            Ok(bytes.to_vec())
-        })
-    }
-
     #[test]
-    fn published_native_and_catalog_bytes_keep_their_namespaces() {
+    fn configured_records_bind_opaque_settings_presence_and_both_families() {
         let home = Path::new("/owned/home");
         let program = OsStr::new("/owned/runtime");
-        assert_eq!(namespace(home, program, None), "3b9e6bddaf561c44");
-        assert_eq!(
-            namespace(home, program, Some(b"opaque-catalog")),
-            "0ae7b340bf4873dc"
-        );
-        for (family, id, catalog) in [
-            ("servers", "3b9e6bddaf561c44", None),
-            ("catalogs", "0ae7b340bf4873dc", Some(&b"opaque-catalog"[..])),
-        ] {
-            let owner = owner_bytes(home, program, catalog.is_some());
-            let result = decode(
-                &format!("/{family}/{id}"),
-                &owner,
-                catalog.unwrap_or_default(),
-            )
-            .unwrap();
-            assert_eq!(result.home, home);
-            assert_eq!(result.program, program);
+        let config = b"opaque\0config\xff";
+        for catalog in [None, Some(&b"opaque catalog"[..])] {
+            for requirements in [None, Some(&b""[..]), Some(&b"opaque requirements"[..])] {
+                let id = configuration_namespace(home, program, catalog, config, requirements);
+                let dir = Path::new(if catalog.is_some() {
+                    "/catalogs"
+                } else {
+                    "/servers"
+                })
+                .join(&id);
+                let owner = configuration_owner_bytes(home, program, catalog.is_some());
+                let read = |path: &Path, limit| {
+                    let bytes = match path.strip_prefix(&dir).unwrap().to_str().unwrap() {
+                        "owner" => {
+                            assert_eq!(limit, OWNER_LIMIT);
+                            Some(owner.as_slice())
+                        }
+                        "models.json" => {
+                            assert_eq!(limit, CATALOG_LIMIT);
+                            catalog
+                        }
+                        "config/config.toml" => {
+                            assert_eq!(limit, CONFIG_LIMIT);
+                            Some(&config[..])
+                        }
+                        "config/requirements.toml" => {
+                            assert_eq!(limit, CONFIG_LIMIT);
+                            requirements
+                        }
+                        other => panic!("unexpected read: {other}"),
+                    };
+                    bytes
+                        .map(Vec::from)
+                        .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+                };
+                let binding = Binding::read(&dir, read).unwrap();
+                assert_eq!(binding.home, home);
+                assert_eq!(binding.program, Path::new(program));
+                // A same-home/settings change selects a different immutable record.
+                assert_ne!(
+                    id,
+                    configuration_namespace(home, program, catalog, b"changed", requirements)
+                );
+
+                // No absence/empty-file or concatenation ambiguity.
+                assert_ne!(
+                    configuration_namespace(home, program, catalog, config, None),
+                    configuration_namespace(home, program, catalog, config, Some(b""))
+                );
+                assert_ne!(
+                    configuration_namespace(home, program, catalog, b"a", Some(b"bc")),
+                    configuration_namespace(home, program, catalog, b"ab", Some(b"c"))
+                );
+                assert!(Binding::read(&dir, |p, limit| {
+                    if p.ends_with("config/config.toml") {
+                        Ok(b"substituted".to_vec())
+                    } else {
+                        read(p, limit)
+                    }
+                })
+                .is_err());
+                assert!(Binding::read(&dir, |p, limit| {
+                    if p.ends_with("config/requirements.toml") {
+                        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+                    } else {
+                        read(p, limit)
+                    }
+                })
+                .is_err());
+                assert!(Binding::read(&dir, |p, limit| {
+                    if p.ends_with("config/config.toml") {
+                        Ok(vec![b'x'; CONFIG_LIMIT as usize + 1])
+                    } else {
+                        read(p, limit)
+                    }
+                })
+                .is_err());
+            }
         }
     }
 
     #[test]
-    fn mismatched_family_owner_catalog_and_unknown_versions_are_rejected() {
-        let native = b"/owned/home\0/owned/runtime";
-        let custom = b"/owned/home\0/owned/runtime\0catalog-v1";
-        for (path, owner, catalog) in [
-            ("/catalogs/3b9e6bddaf561c44", &native[..], &b""[..]),
-            ("/servers/0ae7b340bf4873dc", custom, b"opaque-catalog"),
-            ("/servers/wrong", native, b""),
-            (
-                "/servers/3b9e6bddaf561c44",
-                b"/other/home\0/owned/runtime",
-                b"",
-            ),
-            ("/catalogs/0ae7b340bf4873dc", custom, b"changed"),
-            ("/catalogs/0ae7b340bf4873dc", custom, b""),
-            (
-                "/catalogs/0ae7b340bf4873dc",
-                b"/owned/home\0/owned/runtime\0catalog-v2",
-                b"opaque-catalog",
-            ),
-            (
-                "/catalogs/0ae7b340bf4873dc",
-                b"/owned/home\0/owned/runtime\0catalog-v1\0extra",
-                b"opaque-catalog",
-            ),
-            ("/servers/3b9e6bddaf561c44", b"missing-separator", b""),
+    fn unknown_versions_do_not_authorize_operations_and_current_records_are_strict() {
+        let home = Path::new("/owned/home");
+        let program = OsStr::new("/owned/runtime");
+        let config = b"settings";
+        let id = configuration_namespace(home, program, None, config, None);
+        let dir = Path::new("/servers").join(id);
+        for owner in [
+            b"/owned/home\0/owned/runtime".to_vec(),
+            b"/owned/home\0/owned/runtime\0config-v9".to_vec(),
+            b"/owned/home\0/owned/runtime\0config-v1\0unexpected".to_vec(),
+            vec![b'x'; OWNER_LIMIT as usize + 1],
         ] {
-            assert!(decode(path, owner, catalog).is_err(), "{path}");
-        }
-        assert!(decode(
-            "/servers/3b9e6bddaf561c44",
-            &vec![b'x'; OWNER_LIMIT as usize + 1],
-            b""
-        )
-        .is_err());
-        assert!(decode(
-            "/catalogs/0ae7b340bf4873dc",
-            custom,
-            &vec![b'x'; CATALOG_LIMIT as usize + 1]
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn non_utf8_paths_and_opaque_catalogs_need_no_provider_schema() {
-        let home = PathBuf::from(OsString::from_vec(b"/owned/\xff".to_vec()));
-        let program = OsString::from_vec(b"/owned/\xfe".to_vec());
-        let bytes = b"\xff\x00not-json";
-        let directory = Path::new("/catalogs").join(namespace(&home, &program, Some(bytes)));
-        let owner = owner_bytes(&home, &program, true);
-        let binding = Binding::read(&directory, |path, _| {
-            Ok(if path.file_name() == Some(OsStr::new("owner")) {
-                owner.clone()
+            assert!(Binding::read(&dir, |path, _| if path.ends_with("owner") {
+                Ok(owner.clone())
             } else {
-                bytes.to_vec()
+                panic!("rejected owner must not read settings")
             })
-        })
-        .unwrap();
-        assert_eq!(binding.home, home);
-        assert_eq!(binding.program.as_os_str(), program);
-        assert!(Binding::read(&directory, |_, _| Err(io::Error::from(
-            io::ErrorKind::PermissionDenied
-        )))
+            .is_err());
+        }
+        let owner = configuration_owner_bytes(home, program, false);
+        assert!(Binding::read(
+            &Path::new("/catalogs").join(dir.file_name().unwrap()),
+            |path, _| {
+                if path.ends_with("owner") {
+                    Ok(owner.clone())
+                } else if path.ends_with("requirements.toml") {
+                    Err(io::Error::from(io::ErrorKind::NotFound))
+                } else {
+                    Ok(config.to_vec())
+                }
+            }
+        )
         .is_err());
     }
 }

@@ -404,6 +404,11 @@ fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, Manager
         let dir = entry.map_err(|_| ERR_TASK)?.path();
         private(&dir, true)?;
         let Binding { home, program } = Binding::read(&dir, |path, limit| {
+            if inspect_path(path).map_err(|_| io::Error::other("unsafe execution record"))?
+                == PathPresence::Missing
+            {
+                return Err(io::Error::from(io::ErrorKind::NotFound));
+            }
             bounded_record(path, limit).map_err(|_| io::Error::other("unsafe execution record"))
         })
         .map_err(|_| ERR_TASK)?;

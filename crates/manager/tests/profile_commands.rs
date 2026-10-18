@@ -2004,6 +2004,38 @@ fn active_task_native_fixture() {
     }
 }
 
+const TASK_SETTINGS: &[u8] = b"opaque independent configuration\n";
+fn task_binding(root: &Path, home: &Path, runtime: &Path) -> PathBuf {
+    let directory = root.join(".local/share/codex/core/servers").join(
+        codex_runtime_binding::configuration_namespace(
+            home,
+            runtime.as_os_str(),
+            None,
+            TASK_SETTINGS,
+            None,
+        ),
+    );
+    fs::create_dir_all(directory.join("config")).unwrap();
+    for path in [
+        directory.parent().unwrap(),
+        &directory,
+        &directory.join("config"),
+    ] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    for (path, bytes) in [
+        (
+            directory.join("owner"),
+            codex_runtime_binding::configuration_owner_bytes(home, runtime.as_os_str(), false),
+        ),
+        (directory.join("config/config.toml"), TASK_SETTINGS.to_vec()),
+    ] {
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    directory
+}
+
 struct TaskFixture {
     root: TestRoot,
     core: PathBuf,
@@ -2012,6 +2044,52 @@ struct TaskFixture {
     binding: PathBuf,
 }
 impl TaskFixture {
+    fn bind_configuration(&mut self, catalog: Option<&[u8]>, requirements: Option<&[u8]>) {
+        use codex_runtime_binding::{configuration_namespace, configuration_owner_bytes};
+        let runtime = self
+            .root
+            .0
+            .join(".local/lib/codex/core/generations/fixture-old/runtime");
+        let config = b"opaque independent configuration\n";
+        let directory = self.binding.join("config");
+        fs::create_dir_all(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        for (path, bytes) in [
+            (directory.join("config.toml"), Some(&config[..])),
+            (directory.join("requirements.toml"), requirements),
+            (self.binding.join("models.json"), catalog),
+        ] {
+            if let Some(bytes) = bytes {
+                fs::write(&path, bytes).unwrap();
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+        fs::write(
+            self.binding.join("owner"),
+            configuration_owner_bytes(&self.account, runtime.as_os_str(), catalog.is_some()),
+        )
+        .unwrap();
+        let family = self
+            .root
+            .0
+            .join(".local/share/codex/core")
+            .join(if catalog.is_some() {
+                "catalogs"
+            } else {
+                "servers"
+            });
+        fs::create_dir_all(&family).unwrap();
+        fs::set_permissions(&family, fs::Permissions::from_mode(0o700)).unwrap();
+        let target = family.join(configuration_namespace(
+            &self.account,
+            runtime.as_os_str(),
+            catalog,
+            config,
+            requirements,
+        ));
+        fs::rename(&self.binding, &target).unwrap();
+        self.binding = target;
+    }
     fn new() -> Self {
         Self::configured(false)
     }
@@ -2024,7 +2102,6 @@ impl TaskFixture {
         unresponsive: bool,
         child_view_only: bool,
     ) -> Self {
-        use std::os::unix::ffi::OsStrExt;
         let root = TestRoot::new();
         let core = write_core_probe(&root.0);
         let account = root.0.join("external-a");
@@ -2036,23 +2113,7 @@ impl TaskFixture {
         fs::create_dir_all(runtime.parent().unwrap()).unwrap();
         fs::copy(std::env::current_exe().unwrap(), &runtime).unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
-        let mut hash = 0xcbf29ce484222325u64;
-        for b in account
-            .as_os_str()
-            .as_bytes()
-            .iter()
-            .chain([0].iter())
-            .chain(runtime.as_os_str().as_bytes())
-        {
-            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-        }
-        let binding = root
-            .0
-            .join(format!(".local/share/codex/core/servers/{hash:016x}"));
-        fs::create_dir_all(&binding).unwrap();
-        for p in [binding.parent().unwrap(), binding.as_path()] {
-            fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        let binding = task_binding(&root.0, &account, &runtime);
         let socket = root.0.join("s");
         let locks = root.0.join(".codex/thread-writer-locks");
         fs::create_dir_all(&locks).unwrap();
@@ -2089,9 +2150,8 @@ impl TaskFixture {
             process.env("TASK_FIXTURE_CHILD_VIEW_ONLY", "1");
         }
         let child = process.spawn().unwrap();
-        let mut owner = account.as_os_str().as_bytes().to_vec();
-        owner.push(0);
-        owner.extend_from_slice(runtime.as_os_str().as_bytes());
+        let owner =
+            codex_runtime_binding::configuration_owner_bytes(&account, runtime.as_os_str(), false);
         for (name, bytes) in [
             ("owner", owner),
             ("pid", format!("{}\n", child.id()).into_bytes()),
@@ -2124,7 +2184,6 @@ impl Drop for TaskFixture {
 
 #[test]
 fn profile_old_server_binding_blocks_mutation_without_home_lease() {
-    use std::os::unix::ffi::OsStrExt;
     let mut f = TaskFixture::new();
     assert!(
         run_manager(&f.root.0, &f.core, &["profile", "create", "old"], None)
@@ -2137,26 +2196,18 @@ fn profile_old_server_binding_blocks_mutation_without_home_lease() {
         .join(".local/share/codex/manager/profiles/old/home");
     fs::remove_dir(&home).unwrap();
     fs::rename(&f.account, &home).unwrap();
-    let runtime = f
-        .root
-        .0
-        .join(".local/lib/codex/core/generations/fixture-old/runtime");
-    let mut hash = 0xcbf29ce484222325u64;
-    for b in home
-        .as_os_str()
-        .as_bytes()
-        .iter()
-        .chain([0].iter())
-        .chain(runtime.as_os_str().as_bytes())
-    {
-        hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+    f.account = home.clone();
+    f.bind_configuration(None, None);
+    for args in [
+        vec!["profile", "delete", "old"],
+        vec!["profile", "rename", "old", "new"],
+    ] {
+        let output = run_manager(&f.root.0, &f.core, &args, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("profile is in use"));
+        assert!(home.is_dir());
     }
-    let updated = f.binding.parent().unwrap().join(format!("{hash:016x}"));
-    fs::rename(&f.binding, &updated).unwrap();
-    let mut owner = home.as_os_str().as_bytes().to_vec();
-    owner.push(0);
-    owner.extend_from_slice(runtime.as_os_str().as_bytes());
-    fs::write(updated.join("owner"), owner).unwrap();
+    f.bind_configuration(None, Some(b"opaque requirements\n"));
     for args in [
         vec!["profile", "delete", "old"],
         vec!["profile", "rename", "old", "new"],
@@ -2180,8 +2231,34 @@ fn profile_old_server_binding_blocks_mutation_without_home_lease() {
 }
 
 #[test]
+fn configured_server_discovery_and_reconnect_preserve_native_owner_and_reject_changed_settings() {
+    for catalog in [None, Some(&b"opaque catalog"[..])] {
+        for requirements in [None, Some(&b""[..]), Some(&b"opaque requirements"[..])] {
+            let mut f = TaskFixture::new();
+            f.bind_configuration(catalog, requirements);
+            let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+            assert_eq!(
+                status.status.code(),
+                Some(0),
+                "{}",
+                String::from_utf8_lossy(&status.stderr)
+            );
+            let text = String::from_utf8(status.stdout).unwrap();
+            assert!(text.contains(TASK_ID));
+            assert!(text.contains(&format!("server={}:", f.child.id())));
+            let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
+            assert_eq!(reconnect.status.code(), Some(37));
+            fs::write(f.binding.join("config/config.toml"), b"changed settings").unwrap();
+            let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+            assert_eq!(rejected.status.code(), Some(1));
+            assert!(rejected.stdout.is_empty());
+            assert!(f.child.try_wait().unwrap().is_none());
+        }
+    }
+}
+
+#[test]
 fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mutation() {
-    use std::os::unix::ffi::OsStrExt;
     let f = TaskFixture::new();
     // Obtain an actually exited owned PID rather than guessing an unused PID.
     let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
@@ -2200,16 +2277,9 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
     std::os::unix::fs::symlink(f.root.0.join("removed-target"), &broken).unwrap();
     let mut snapshots = Vec::new();
     for home in [f.root.0.join("removed-home"), alias, broken] {
-        let mut owner = home.as_os_str().as_bytes().to_vec();
-        owner.push(0);
-        owner.extend_from_slice(runtime.as_os_str().as_bytes());
-        let mut hash = 0xcbf29ce484222325u64;
-        for b in &owner {
-            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-        }
-        let binding = f.binding.parent().unwrap().join(format!("{hash:016x}"));
-        fs::create_dir(&binding).unwrap();
-        fs::set_permissions(&binding, fs::Permissions::from_mode(0o700)).unwrap();
+        let binding = task_binding(&f.root.0, &home, &runtime);
+        let owner =
+            codex_runtime_binding::configuration_owner_bytes(&home, runtime.as_os_str(), false);
         for (name, bytes) in [("owner", owner), ("pid", format!("{pid}\n").into_bytes())] {
             let p = binding.join(name);
             fs::write(&p, &bytes).unwrap();
@@ -2262,7 +2332,6 @@ fn active_task_live_unsafe_home_and_substituted_dead_binding_fail_closed() {
 
 #[test]
 fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() {
-    use std::os::unix::ffi::OsStrExt;
     struct OwnedProcess(std::process::Child);
     impl Drop for OwnedProcess {
         fn drop(&mut self) {
@@ -2292,16 +2361,9 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
         .root
         .0
         .join(".local/lib/codex/core/generations/fixture-old/runtime");
-    let mut owner = account.as_os_str().as_bytes().to_vec();
-    owner.push(0);
-    owner.extend_from_slice(runtime.as_os_str().as_bytes());
-    let mut hash = 0xcbf29ce484222325u64;
-    for b in &owner {
-        hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
-    }
-    let binding = f.binding.parent().unwrap().join(format!("{hash:016x}"));
-    fs::create_dir(&binding).unwrap();
-    fs::set_permissions(&binding, fs::Permissions::from_mode(0o700)).unwrap();
+    let binding = task_binding(&f.root.0, &account, &runtime);
+    let owner =
+        codex_runtime_binding::configuration_owner_bytes(&account, runtime.as_os_str(), false);
     let socket = f.root.0.join("s2");
     let mut child = OwnedProcess(
         Command::new(&runtime)

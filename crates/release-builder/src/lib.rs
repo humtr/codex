@@ -728,12 +728,9 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
         }
     }
     if let Some(frontend) = request.manager_tui.as_ref() {
-        if request.manager.is_none()
-            || frontend.version != request.version
-            || !canonical_absolute_path(&frontend.path)
-        {
+        if frontend.version != request.version || !canonical_absolute_path(&frontend.path) {
             return Err(BuilderError::Invalid(
-                "Manager frontend requires matching version and Manager",
+                "frontend requires matching upstream version",
             ));
         }
     }
@@ -1500,9 +1497,9 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let helper_count = publish_descriptor_field(&mut lines, "helper_count")?;
-    if !matches!(helper_count, "2" | "3") || (helper_count == "3" && manager_path.is_none()) {
+    if !matches!(helper_count, "2" | "3") {
         return Err(BuilderError::Invalid(
-            "publication frontend requires Manager and three-helper layout",
+            "publication frontend helper layout is invalid",
         ));
     }
     let browser_open_helper_digest =
@@ -5175,9 +5172,7 @@ fi
     #[test]
     fn test_manager_tui_build_snapshots_adapts_and_binds_third_helper() {
         let mut fixture = fixture("manager-tui-build", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        write_valid_manager_probe(&manager);
-        fixture.request.manager = Some(manager);
+        assert!(fixture.request.manager.is_none());
         let frontend = fixture.root.join("frontend-source");
         let raw = fake_runtime();
         std::fs::write(&frontend, &raw).unwrap();
@@ -5271,7 +5266,6 @@ fi
     fn test_manager_tui_request_and_artifact_faults_preserve_sources_and_output() {
         for defect in [
             "version",
-            "manager",
             "relative",
             "missing",
             "symlink",
@@ -5310,7 +5304,6 @@ fi
                 "version" => {
                     fixture.request.manager_tui.as_mut().unwrap().version = "0.161.0".into()
                 }
-                "manager" => fixture.request.manager = None,
                 "relative" => {
                     fixture.request.manager_tui.as_mut().unwrap().path = PathBuf::from("relative")
                 }

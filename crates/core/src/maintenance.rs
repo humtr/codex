@@ -233,7 +233,7 @@ fn process_is_owned(process: &Path, directory_uid: u32, uid: u32) -> io::Result<
     Ok(owners.contains(&uid))
 }
 
-fn process_references(root: &Path) -> io::Result<HashSet<String>> {
+pub(super) fn process_references(root: &Path) -> io::Result<HashSet<String>> {
     let uid = fs::metadata("/proc/self")?.uid();
     let mut keep = HashSet::new();
     let mut exit_budget = std::time::Duration::from_millis(10);
@@ -378,6 +378,7 @@ pub(super) fn prune(roots: &LocalCoreRoots) -> io::Result<usize> {
         keep.insert(candidate);
     }
     shared_server::retire_unused(&roots.state_root, &roots.generation_root, &keep)?;
+    super::system_config::prune(&roots.config_dir)?;
     keep.extend(process_references(&roots.generation_root)?);
     // No state mutation can occur under this writer lock, including rollback.
     let mut removed = prune_directory(&roots.generation_root, &keep, false)?;
