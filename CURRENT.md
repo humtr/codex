@@ -247,6 +247,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-panel-target-full.log / provider-mcp-multiple-index-preflight.log |84 regular Rust/103 Bun/30 Python, fmt/clippy/release pass. Real reauthenticated app with auxiliary index targets passes zero-inference MCP preparation, hidden automatic environment/user-literal preservation and hook cleanup. Connector inference ACK remains separate |
 | provider-mcp-host-wait-full.log / provider-mcp-preflight-review.log |88 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Immutable versus replaced process owner, observed error-path counts, retained confirmation resolve/cancel and reply correlation regressions pass. Corrected actual-app request preparation passes with zero posts; real host approval/return remains separate |
 | provider-sse-idle-regression-before-corrected.log / provider-sse-idle-android-fixed.log / provider-sse-idle-full.log |Actual native 2.5s SSE-idle regression fails with comment-only keepalive; data pings complete four six-second silent fixture waits/three native effects, zero Chat. Wire ping/cancel proof plus89 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Source-only fix, not an activated public runtime |
+| provider-sse-android-composed.log |14 actual Android native regressions pass against the current installed0.163 runtime: retained MCP three-tool return, six executor/search/correction/reviewer/silent-wait fixtures and seven context/fork/question/automatic-interrupted compaction fixtures. All app replies synthetic; zero Chat |
 | desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
 | provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
@@ -388,7 +389,13 @@ qualification. Unsupported box components remained in its final transcript.
    persistent profile without copying credentials or changing Tdev. Explicit
    viewer-to-native-lane selection remains an integration task; opening the app
    alone does not guarantee its pending consent is visible. Preserve stopped or
-   unknown attempts instead of replaying them.
+   unknown attempts instead of replaying them. Fixes `ea954ae` and `7f02db9` are
+   pushed. The latter's immutable device candidate is running in the isolated MCP
+   trial; one new app dispatch/one user object is at host confirmation with zero
+   native effects. The actual latest project chat is selected and a fresh viewer
+   notification requests the user's host consent. No automatic approval/retry is
+   used. Full source validation passes; hosted qualification `39146010553` has
+   passed its source gate and is still building the independent Android artifact.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
