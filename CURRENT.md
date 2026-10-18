@@ -16,6 +16,7 @@ Superseded trial narratives remain in Git, not as additional current baselines.
 | Installed optional Chat provider | Immutable payload45072df8448589d3523e, source7bb202e; local-function returns; unchanged during source integration |
 | Integrated provider source | providers/chatgpt on rewrite/rust-core, selectively ported from experiment ab41733 plus preserved user1m edits; separate optional offline gate, no operating activation |
 | Approved provider implementation | Standalone Rust package, typed private config CLI and GPT-6 capability catalog now exist under providers/chatgpt; request/runtime migration is not yet implemented. Installed runtime remains JS/Bun + Python |
+| Rust provider foundation | Source4975616;7 Rust tests and actual Android/aarch64 CLI smoke pass. Exact-source provider qualification39094807348 and source acceptance39094807266 pass; no installed runtime change |
 | Mutable Chat model catalog | All5 entries currently report context_window=max_context_window=1,000,000; auto_compact_token_limit=null |
 | Provider source edits | experiment/web-termux has existing uncommitted profile/test changes from32,768 to1,000,000. Preserved unchanged there; their intended1m values are included in the integrated provider source. No operating activation. |
 
@@ -174,6 +175,13 @@ requires an explicit reviewed integration result with no unintended Core/UI/rele
 changes and no unique unpreserved work. Do not erase the experimental checkout as
 an incidental cleanup. Keep no second active roadmap or production runtime after
 cutover; old signed generations remain explicit rollback targets.
+
+Comparison with experiment/web-termux HEAD found shared-provider revisions that
+must not be blindly copied over the Rust authority: the experiment drops the
+current old-prefix compaction anchor guard and the preserved1m profile assertions,
+and removes license files from its runtime allowlist. Those differences need
+preservation/licensing review; experiment-only probes and qualification records
+remain evidence to port selectively, not a second runtime or a wholesale merge.
 
 The independent provider gate now runs Cargo format/test/lint/release-build before
 the legacy suites. Exact-source hosted acceptance will run for this change;
