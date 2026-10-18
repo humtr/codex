@@ -31,12 +31,16 @@ and refuses an occupied port before starting an app. Startup errors append to th
 private state `startup.log`; no Chat message is sent by authentication/startup.
 The operating adapter is still JS/Bun/Python. Rust transport has real GPT-6/native
 command, patch, validation and final-transcript proof through the existing app's
-explicit private relay. This does not qualify the complete owned-app migration.
+explicit private relay. A separate bounded device proof now also starts the authenticated app directly
+from Rust, verifies the same account and executes native commands/patch/validation
+without a Bun/Python host. It restores the original profile inode and controller
+afterward; this does not activate a permanent operating migration.
 Actual project create/reuse/readback and project-bound GPT-6 native tools now pass.
 Android native manual compaction commits a readable checkpoint and continues the
 same thread; app replies in that separate compaction proof are synthetic. Foreign
-opaque context, owned authenticated migration, reboot and full development
-qualification remain unfinished. No production fallback silently selects the Rust candidate. The
+opaque context, permanent operating migration, fresh login/provisioning and reboot
+remain unfinished. The direct real AI repository development trial is qualified
+within its bounded scope, including a Provider defect repair and same-thread resume. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
 
 | Responsibility | Target implementation |
@@ -182,7 +186,7 @@ with account-scoped durable uncertain-creation records. On-demand authentication
 has actual Android fresh-profile startup/restart proof, without inference or
 existing-profile access. Account/host binding and settled cold-lane reconstruction
 have app-wire fixture proof. Real authenticated inference has explicit relay proof;
-owned-app authentication migration and full lifecycle admission remain separate
-gates. Host API changes can still require binary/bridge changes.
+authenticated Rust boot/inference now have independent actual proof; permanent
+cutover/fresh login and full lifecycle admission remain separate gates. Host API changes can still require binary/bridge changes.
 
 See [NOTICE](NOTICE.md) for dependency provenance and licenses.

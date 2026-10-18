@@ -12,7 +12,16 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
     // its existing observer. Never retry, stop it or start a replacement here.
     let client = Client::connect(&descriptor).await.unwrap();
     let app = client.app().await.unwrap();
-    let result = app.evaluate(r#"(async()=>{
+    let expected = std::env::var_os("CODEX_PROVIDER_EXPECTED_IDENTITY")
+        .map(|path| {
+            serde_json::from_slice::<serde_json::Value>(
+                &codex_chatgpt_provider::cdp::private_read(std::path::Path::new(&path), 4096)
+                    .unwrap(),
+            )
+            .unwrap()
+        })
+        .unwrap_or(serde_json::Value::Null);
+    let script = r#"(async(expected)=>{
       let node=document.querySelector('[contenteditable=true]')||document.querySelector('button');
       while(node&&!Object.keys(node).some(k=>k.startsWith('__reactFiber')))node=node.parentElement;
       let fiber=node?.[Object.keys(node).find(k=>k.startsWith('__reactFiber'))],scope;
@@ -47,13 +56,19 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
         stream:['prepareCompletionStream','startCompletionStream'].every(k=>typeof client?.[k]==='function'),
         localFunctionGate:scope.get(shared.HAt)===true,
         wire:typeof shared.$wt?.streamPost==='function',
+        restartable:typeof client?.getRestartBlockers==='function'&&client.getRestartBlockers().length===0,
         projects:projectShape&&detailShape,
+        expectedIdentity:expected==null||['account','user','structure'].every(k=>before[k]===expected[k]),
         sameIdentity:before.account===after?.accountId&&before.user===after?.userId&&before.structure===after?.accountStructure
       };
-    })()"#).await.unwrap();
+    })"#;
+    let result = app
+        .evaluate(&format!("{script}({expected})"))
+        .await
+        .unwrap();
     assert_eq!(
         result,
-        serde_json::json!({"scope":true,"authenticated":true,"localFunctions":true,"identityExport":true,"stream":true,"localFunctionGate":true,"wire":true,"projects":true,"sameIdentity":true})
+        serde_json::json!({"scope":true,"authenticated":true,"localFunctions":true,"identityExport":true,"stream":true,"localFunctionGate":true,"wire":true,"restartable":true,"projects":true,"sameIdentity":true,"expectedIdentity":true})
     );
     println!(
         "{}",

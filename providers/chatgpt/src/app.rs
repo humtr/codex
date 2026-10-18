@@ -77,7 +77,18 @@ impl Bridge for Remote {
                     (Source::Pipe(c), _) => c.clone(),
                     _ => unreachable!(),
                 };
-                let app = client.app().await?;
+                let until = tokio::time::Instant::now() + Duration::from_secs(30);
+                let app = loop {
+                    match client.app().await {
+                        Ok(app) => break app,
+                        Err(Error("app_target_unavailable"))
+                            if tokio::time::Instant::now() < until =>
+                        {
+                            tokio::time::sleep(Duration::from_millis(200)).await
+                        }
+                        Err(error) => return Err(error),
+                    }
+                };
                 let init = json!({"op":"init","owner":owner,"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
@@ -100,6 +111,13 @@ impl Bridge for Remote {
             command["owner"] = json!(owner);
             let mut result = evaluate_bridge(&app, &command).await;
             if command["op"] == "identity" {
+                let until = tokio::time::Instant::now() + Duration::from_secs(30);
+                while result == Err(Error("app_auth_loading"))
+                    && tokio::time::Instant::now() < until
+                {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    result = evaluate_bridge(&app, &command).await;
+                }
                 if let Ok(value) = &mut result {
                     let object = value
                         .as_object_mut()
@@ -134,6 +152,7 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "project_membership_unsettled",
         "project_membership_unconfirmed",
         "app_auth_context_unavailable",
+        "app_auth_loading",
         "app_lane_busy",
         "app_bridge_owned",
         "app_local_functions_unavailable",

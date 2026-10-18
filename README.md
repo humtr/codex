@@ -105,7 +105,9 @@ remote project or create it when absent; existing chats stay where they are and
 are not deleted. The Rust source candidate has configuration/catalog and Responses transport,
 but the installed pilot does not consume that file. Actual Android manual
 compaction and GPT-6 project-bound tool execution now pass; foreign opaque context,
-authenticated owned-app migration and full lifecycle/release qualification remain.
+permanent operating migration and full lifecycle/release qualification remain.
+Authenticated Rust-owned app inference and direct AI repository maintenance have
+separate actual proofs; neither activates the candidate.
 See [configuration](CURRENT.md#context-and-easy-configuration) and
 [project behavior](CURRENT.md#chatgpt-projects-and-history).
 

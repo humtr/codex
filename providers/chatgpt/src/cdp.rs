@@ -314,6 +314,9 @@ impl Client {
             .iter()
             .filter(|t| t["type"] == "page" && t["url"] == "app://-/index.html")
             .collect::<Vec<_>>();
+        if roots.is_empty() {
+            return Err(Error("app_target_unavailable"));
+        }
         if roots.len() != 1 {
             return Err(Error("unique_app_target_required"));
         }

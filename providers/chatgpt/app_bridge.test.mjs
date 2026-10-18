@@ -32,7 +32,7 @@ async function fixture(run){
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
@@ -107,4 +107,14 @@ test('opening and release reconcile lost replies and reattach the same owned app
  await bridge({op:'submit',owner:'owned',lane:'next',round:'new',model:'configured-host',messages:[{role:'user',text:'Resume latest',hidden:false}]});
  await Promise.resolve();expect(f.sent).toHaveLength(1);expect(f.created).toBe(2);
  expect((await bridge({op:'snapshot',owner:'owned',lane:'next'})).roundStarts).toBe(1);
+}));
+
+
+test('initial auth loading installs no hooks and identity refresh is read-only',async()=>fixture(async({f,bindings,original})=>{
+ f.authLoading=true;expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:false});
+ expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);expect(f.created).toBe(0);
+ f.authLoading=false;expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:true});
+ f.authLoading=true;await expect(bridge({op:'identity',owner:'owned',lane:'not-opened'})).rejects.toThrow('app_auth_loading');
+ f.authLoading=false;expect((await bridge({op:'identity',owner:'owned',lane:'not-opened'})).account).toBe('account');
+ expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);
 }));

@@ -11,6 +11,95 @@ use tokio_tungstenite::{
 };
 
 #[tokio::test]
+async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_targets() {
+    use codex_chatgpt_provider::{
+        app::{Bridge, Remote},
+        protocol::Error,
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for ambiguous in [false, true] {
+        let (native, peer) = tokio::io::duplex(65536);
+        let (read, write) = tokio::io::split(native);
+        let remote = Remote::pipe(
+            Client::pipe(read, write, "owned-pipe-generation".into()),
+            "owned-bridge".into(),
+        );
+        let peer = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(peer);
+            let mut reader = BufReader::new(read);
+            let (mut targets, mut inits, mut identities) = (0, 0, 0);
+            loop {
+                let mut bytes = Vec::new();
+                reader.read_until(0, &mut bytes).await.unwrap();
+                assert_eq!(bytes.pop(), Some(0));
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                let response = match request["method"].as_str().unwrap() {
+                    "Target.getTargets" => {
+                        targets += 1;
+                        let target =
+                            json!({"targetId":"owned","type":"page","url":"app://-/index.html"});
+                        json!({"targetInfos":if ambiguous{json!([target.clone(),target])}else if targets==1{json!([])}else{json!([target])}})
+                    }
+                    "Target.attachToTarget" => {
+                        assert!(!ambiguous);
+                        json!({"sessionId":"owned-session"})
+                    }
+                    "Runtime.evaluate" => {
+                        let command = request["params"]["expression"]
+                            .as_str()
+                            .unwrap()
+                            .split_once("const command=")
+                            .unwrap()
+                            .1
+                            .split_once(";\n")
+                            .unwrap()
+                            .0;
+                        let command: Value = serde_json::from_str(command).unwrap();
+                        let value = match command["op"].as_str().unwrap() {
+                            "init" => {
+                                inits += 1;
+                                json!({"value":{"ready":inits>=2}})
+                            }
+                            "identity" => {
+                                identities += 1;
+                                if identities == 1 {
+                                    json!({"error":"app_auth_loading"})
+                                } else {
+                                    json!({"value":{"account":"owned-account","user":"owned-user","structure":"personal","present":false}})
+                                }
+                            }
+                            _ => panic!("readiness must never allocate a lane or submit inference"),
+                        };
+                        json!({"result":{"value":value}})
+                    }
+                    _ => panic!("readiness must not create/select targets"),
+                };
+                write
+                    .write_all(
+                        format!("{}\0", json!({"id":request["id"],"result":response})).as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                if ambiguous || identities == 2 {
+                    break;
+                }
+            }
+            (targets, inits, identities)
+        });
+        let result = remote
+            .operation(json!({"op":"identity","lane":"not-opened"}))
+            .await;
+        if ambiguous {
+            assert_eq!(result, Err(Error("unique_app_target_required")));
+            assert_eq!(peer.await.unwrap(), (1, 0, 0));
+        } else {
+            assert_eq!(result.unwrap()["account"], "owned-account");
+            assert_eq!(peer.await.unwrap(), (2, 2, 2));
+        }
+    }
+}
+
+#[tokio::test]
 async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_owned_app() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let process = Process::read(std::process::id()).unwrap();

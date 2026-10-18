@@ -167,17 +167,17 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
     let live_descriptor = std::env::var_os("CODEX_PROVIDER_LIVE_DESCRIPTOR");
+    let owned_state = std::env::var_os("CODEX_PROVIDER_OWNED_STATE").map(PathBuf::from);
+    assert!(!(live_descriptor.is_some() && owned_state.is_some()));
+    let is_live = live_descriptor.is_some() || owned_state.is_some();
     let failure_proof = std::env::var_os("CODEX_PROVIDER_EXPECT_FAILURE").is_some_and(|value| {
         assert_eq!(value, "qualification_expected_failure");
-        assert!(live_descriptor.is_none());
+        assert!(!is_live);
         true
     });
     let development = std::env::var_os("CODEX_PROVIDER_DEVELOPMENT").map(|value| {
         assert_eq!(value, "direct-ai-development");
-        assert!(
-            live_descriptor.is_some(),
-            "actual development requires live arming"
-        );
+        assert!(is_live, "actual development requires live arming");
         let workspace = PathBuf::from(std::env::var_os("HOME").unwrap()).join("prj/ai");
         assert!(workspace.join("AGENTS.md").is_file() && workspace.join(".git").exists());
         let path = PathBuf::from(
@@ -189,14 +189,14 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
                 .unwrap();
         (workspace, task)
     });
-    if live_descriptor.is_some() {
+    if is_live {
         assert_eq!(
             std::env::var("CODEX_PROVIDER_LIVE_CHAT").as_deref(),
             Ok("qualified-gpt6-no-pro"),
             "live qualification requires separate explicit arming"
         );
     }
-    let mut live_transcript = live_descriptor.as_ref().map(|_| {
+    let mut live_transcript = is_live.then(|| {
         use std::os::unix::fs::OpenOptionsExt;
         let path = PathBuf::from(
             std::env::var_os("CODEX_PROVIDER_LIVE_TRANSCRIPT")
@@ -228,7 +228,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         resume.clone().unwrap_or_else(|| {
             std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8]))
         }),
-        live_descriptor.is_some(),
+        is_live,
     );
     use std::os::unix::fs::DirBuilderExt;
     if resume.is_none() {
@@ -246,13 +246,88 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     let app = Arc::new(App::default());
     app.0.lock().unwrap().fail_identity = failure_proof;
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
-    let live = live_descriptor.map(|path| {
-        Arc::new(Live {
-            remote: codex_chatgpt_provider::app::Remote::new(path.into(), journal.owner.clone()),
-            commands: Mutex::new(Vec::new()),
-            budget: if development.is_some() { 40 } else { 4 },
+    let mut owned = if let Some(state) = owned_state {
+        Some(
+            codex_chatgpt_provider::host::OwnedHost::start(
+                &codex_chatgpt_provider::config::HostConfig {
+                    rootfs: Some(
+                        std::env::var_os("CHATGPT_PROVIDER_ROOTFS")
+                            .expect("qualified app rootfs required")
+                            .into(),
+                    ),
+                },
+                &state,
+            )
+            .await
+            .unwrap(),
+        )
+    } else {
+        None
+    };
+    let live = if is_live {
+        Some({
+            Arc::new(Live {
+                remote: if let Some(owned) = &owned {
+                    codex_chatgpt_provider::app::Remote::pipe(
+                        owned.client.clone(),
+                        journal.owner.clone(),
+                    )
+                } else {
+                    codex_chatgpt_provider::app::Remote::new(
+                        live_descriptor.unwrap().into(),
+                        journal.owner.clone(),
+                    )
+                },
+                commands: Mutex::new(Vec::new()),
+                budget: if development.is_some() { 40 } else { 4 },
+            })
         })
-    });
+    } else {
+        None
+    };
+    if owned.is_some() {
+        let expected: Value = serde_json::from_slice(
+            &codex_chatgpt_provider::cdp::private_read(
+                &PathBuf::from(
+                    std::env::var_os("CODEX_PROVIDER_EXPECTED_IDENTITY")
+                        .expect("private pre-migration identity required"),
+                ),
+                4096,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let remote = &live.as_ref().unwrap().remote;
+        let until = tokio::time::Instant::now() + std::time::Duration::from_secs(45);
+        let identity = loop {
+            match remote
+                .operation(json!({"op":"identity","lane":"no-inference-auth-preflight"}))
+                .await
+            {
+                Ok(value) => break value,
+                Err(error)
+                    if tokio::time::Instant::now() < until
+                        && matches!(
+                            error.0,
+                            "app_auth_context_unavailable" | "app_target_unavailable"
+                        ) =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await
+                }
+                Err(error) => {
+                    owned.as_mut().unwrap().shutdown().await;
+                    panic!("owned identity preflight: {error}");
+                }
+            }
+        };
+        let same = ["account", "user", "structure"]
+            .iter()
+            .all(|k| identity[k] == expected[k]);
+        if !same {
+            owned.as_mut().unwrap().shutdown().await;
+            panic!("owned app account changed; no inference authorized");
+        }
+    }
     let bridge: Arc<dyn Bridge> = match &live {
         Some(live) => live.clone(),
         None => app.clone(),
@@ -545,10 +620,13 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             .operation(json!({"op":"dispose"}))
             .await
             .unwrap();
+        if let Some(owned) = &mut owned {
+            owned.shutdown().await;
+        }
         assert!(observation.is_some());
         println!(
             "{}",
-            json!({"accepted":true,"liveNoMcp":true,"directAiDevelopment":development.is_some(),"nativeEffects":if development.is_some(){Value::Null}else{json!(3)},"providerSubmissions":submissions.len(),"observation":observation,"proSampled":false,"automaticSubmissionRetry":false,"independentDiffReviewRequired":development.is_some()})
+            json!({"accepted":true,"liveNoMcp":true,"rustOwnedAuthenticatedApp":owned.is_some(),"directAiDevelopment":development.is_some(),"nativeEffects":if development.is_some(){Value::Null}else{json!(3)},"providerSubmissions":submissions.len(),"observation":observation,"proSampled":false,"automaticSubmissionRetry":false,"independentDiffReviewRequired":development.is_some()})
         );
         if development.is_some() {
             let destination =

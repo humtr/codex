@@ -18,6 +18,8 @@ async function termuxCodexBridge(command) {
     if (!scope) return {ready: false};
     const api = await import(command.bindings.initial);
     const shared = await import(command.bindings.shared);
+    const auth=scope.get(shared.xNt);
+    if(!auth||auth.authLoading||auth.accountLoading)return {ready:false};
     api.gRt();
     if (!['aCn','bRt','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind || !scope.get(shared.HAt)) fail('app_local_functions_unavailable');
     const client = scope.get(api.oMn), wire = shared.$wt;
@@ -85,6 +87,7 @@ async function termuxCodexBridge(command) {
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
   const identity = () => {
     const auth=state.scope.get(state.shared.xNt);
+    if(auth?.authLoading||auth?.accountLoading)fail('app_auth_loading');
     if (!auth || auth.authLoading || auth.accountLoading || auth.authMethod!=='chatgpt' ||
         typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
         typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||

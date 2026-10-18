@@ -1416,6 +1416,12 @@ history until upstream replaces it with the exact offered checkpoint. Retire tha
 settled remote lane once after replacement, preserving its chat and pending-call
 integrity; an unchanged old prefix containing identical summary text is not an ACK.
 
+First admission may wait for the same owned app target and authentication to
+finish loading. Bound this read-only wait; never create a target, change an
+account, restart a live owner or infer merely to test readiness. Distinguish a
+missing startup target from multiple matching app targets; ambiguity refuses
+immediately. A local listener readiness proof is not model readiness.
+
 Public message phase is not determined by the app's channel name alone. A
 `final` channel message with `finished_partial_completion`, even with
 `end_turn=true`, remains commentary before its tool call. Stream its text once;
