@@ -1332,6 +1332,13 @@ comparison only while build/test code consumes no event/dispatch input; global
 settings and all actual build/test steps remain bound. Native builds start through
 the accepted-input controller, reusing a matching build already in progress.
 
+Provider-only source changes under providers/chatgpt use the independent optional
+provider gate and do not rebuild unchanged Core/Manager or make Bun a Core
+prerequisite. Classification still requires a successful accepted predecessor;
+otherwise the conservative full Core gate runs. Changes to Core/shared build inputs
+or mixed unknown paths retain full qualification. Provider qualification is separate
+from Core acceptance and must be required before future signed provider admission.
+
 Base and full have independent signed public heads. The existing update-index-v1
 remains the full head for compatibility; the base head is update-index-base-v1.
 The default update head follows the authenticated public baseline of the selected

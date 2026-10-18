@@ -128,6 +128,10 @@ request, transcript store or service is added. Proof: checkpoint-ack-negative.js
 Content-free observations distinguish append/replay, changed
 instructions/tools and host-acknowledged conversation counts. This does not prove
 the cause of the user's entire repeated-compaction cycle or allowance deductions.
+Provider-only changes now select the independent Provider gate instead of
+rebuilding unchanged Core/Manager in source acceptance. The accepted-predecessor
+requirement and conservative unknown/mixed-input fallback remain; Base has no Bun
+dependency. This does not admit an optional provider merely through Core acceptance.
 Existing operating provider and running jobs remain unchanged. Private proofs:
 context-prefix-negative.log, context-local-regression.log, integrated-provider-gate.log.
 

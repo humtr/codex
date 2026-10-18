@@ -13,6 +13,12 @@ class ScopeTests(unittest.TestCase):
                            (['scripts/test_ci_scope.py','crates/core/src/main.rs'],'full'),
                            (['Cargo.lock'],'full'),(['install.sh'],'full'),
                            (['.github/workflows/auto-release-termux.yml'],'full'),
+                           (['providers/chatgpt/desktop_protocol.mjs'],'provider'),
+                           (['providers/chatgpt/desktop_protocol.mjs','SPEC.md'],'provider'),
+                           (['providers/chatgpt/test_desktop_profile.py','scripts/test_check.py'],'python'),
+                           (['scripts/test_check.py','providers/chatgpt/desktop_protocol.mjs'],'python'),
+                           (['providers/chatgpt/desktop_protocol.mjs','crates/core/src/main.rs'],'full'),
+                           (['providers/chatgpt-unknown/file.py'],'full'),
                            (['unknown'], 'full')]:
             with self.subTest(paths=paths):self.assertEqual(scope(paths),want)
 

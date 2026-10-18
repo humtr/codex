@@ -69,7 +69,10 @@ jobs:
             ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
           done
           python3 .github/scripts/test_release_workflow.py
-          if test '${{ steps.scope.outputs.scope }}' != docs; then
+          scope='${{ steps.scope.outputs.scope }}'
+          # Optional-provider inputs have their own qualification workflow;
+          # unchanged Core/Manager must not acquire a Bun dependency or rebuild.
+          if test "$scope" = python || test "$scope" = full; then
             scripts/check.sh python
           fi
           git diff --check HEAD^ HEAD
