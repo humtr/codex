@@ -386,9 +386,8 @@ mod tests {
                 r#"#!/bin/sh
 [ "$1" = checkpoint ] || exit 1
 cat >/dev/null
-printf '%s\n' '{}'
-"#,
-                response
+printf '%s\n' '{response}'
+"#
             ),
         )
         .unwrap();
