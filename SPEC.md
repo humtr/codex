@@ -1370,8 +1370,12 @@ app home/authentication on shutdown; remove only owned temporary resources.
 A lost host with unsettled lanes is not permission to replay their requests.
 Bind each lane to the app's currently authenticated user/account/workspace and
 owned host generation using identifier-only app state, never a token dump. Check
-that identity before warm submissions/results. An account mismatch refuses before
-sending canonical history or results. A settled lane may be rebuilt from current
+that identity before warm submissions/results and again after a completed app
+round, before publishing executable calls, committing a summary or declaring
+completion. Account/host changes during inference must not authorize later native
+effects. An account mismatch refuses before sending canonical history or results;
+restoring the original account reconciles the existing round without resubmission.
+A settled lane may be rebuilt from current
 native canonical input at a new native user turn after its app context disappears;
 retain the old remote chat. A model/effort-only change is not a new user turn.
 Pending/uncertain rounds and executable cached calls must not be replayed into a

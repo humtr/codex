@@ -74,7 +74,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 2 | Core independence | Core-only, optional absent/broken/hung/config isolation and signed Android57-step proof passed; final composed release still required |
 | 3 | Rust vertical path | Actual native commands/custom patch/results/transcript and authenticated Rust-owned app passed, without Bun/Python host |
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
-| 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; source TUI integration added, UI/automatic/interrupted/downshift admission pending |
+| 5 | Native context transitions | Manual/automatic/interrupted compact, one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; final TUI artifact and pending-result/cold-resume/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native blocking question/answer passes at the app-server API; actual question TUI and host crash/reboot remain |
 | 8 | Independent MCP and efficiency | Independent MCP still retained legacy source/offline proof, not Rust/admitted fallback; qualify Termux Codex original-call ACK, tool discovery and native host search; improve argument/output overhead |
@@ -232,6 +232,8 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-tui-handoff-final-android.json | Actual same-thread PTY round trip with ff2682d executable8d84f1dd…, real checkpoint encoding, four synthetic Responses including exactly one reverse summary; no Chat/operating mutation. Exact composed input digests retained; hosted full TUI acceptance still finishing |
 | provider-viewer-wire.log / provider-viewer-owned-android-final.log | Actual Rust HTTP/WebSocket/private RFB; capability versus Responses auth, origin/traversal/symlink boundaries, controls and peer shutdown. Fresh official-app profile boots/serves actual RFB from the same service, concurrent auth coalesces, service/viewer credentials rotate on restart; no existing profile or Chat, physical UI not observed |
 | provider-viewer-qualified-serial.log / provider-viewer-cdp-auth-readonly.log |74 regular Rust/102 Bun/28 Python plus fmt/clippy/release; WebSocket stack unified at0.29, actual authenticated relay capability/identity preflight stays green without hooks or Chat. An earlier parallel-Cargo run hit generated executable ETXTBSY; serialized full gate passes |
+| provider-context-seven-android.log / provider-context-seven-lint.log | Seven actual Android context fixtures pass: automatic token-trigger summary occurs once, and an interrupted summary commits no checkpoint, preserves the latest native work and resumes in the same thread. Three/four synthetic app dispatches respectively; no Chat submissions; clippy passes |
+| provider-terminal-identity.log / provider-terminal-identity-full.log / provider-terminal-identity-native.log | Account change during model work refuses before executable calls/completion; restoring the original account reconciles the original round with one total app dispatch.75 regular Rust/102 Bun/28 Python, fmt/clippy/release and five native executor/reviewer/MCP plus seven context fixtures pass; no Chat |
 | provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
@@ -285,7 +287,8 @@ qualification. Unsupported box components remained in its final transcript.
    history; permanent operating migration and fresh login/provisioning remain. Optional
    Rust viewer now reuses the service/private RFB with configured noVNC assets;
    actual fresh-profile RFB and restart/revocation pass, physical UI remains.
-2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
+2. Automatic/interrupted native compaction now passes with synthetic responses;
+   qualify model-downshift compaction and actual TUI
    native↔Chat transfer with pending results/cold resume. An actual Android PTY
    /model round trip now passes with real checkpoint encoding and synthetic
    Responses; final admitted artifact and real-Chat TUI proof remain. Bidirectional

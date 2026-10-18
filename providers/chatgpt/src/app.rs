@@ -848,6 +848,23 @@ async fn exchange(
                 journal.write(key, lane)?;
                 return Err(Error("app_round_incomplete"));
             }
+            // A user can change the app account while inference is running.
+            // Recheck before publishing executable calls or committing a summary;
+            // startup identity alone cannot authorize those later effects.
+            let observed = bridge
+                .operation(json!({"op":"identity","lane":lane.marker}))
+                .await?;
+            let current = Identity::parse(&observed)?;
+            let previous = lane
+                .identity
+                .as_ref()
+                .ok_or(Error("app_identity_unavailable"))?;
+            if !previous.account_matches(&current) {
+                return Err(Error("app_account_changed"));
+            }
+            if previous.generation != current.generation || observed["present"] != true {
+                return Err(Error("owned_app_round_unavailable"));
+            }
             lane.user_messages = state["userMessages"]
                 .as_u64()
                 .ok_or(Error("invalid_submission_counters"))?;

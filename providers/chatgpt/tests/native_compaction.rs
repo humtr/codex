@@ -48,8 +48,7 @@ impl Bridge for Live {
         })
     }
 }
-#[derive(Default)]
-struct App(Mutex<Vec<Value>>, bool);
+struct App(Mutex<Vec<Value>>, Scenario);
 impl Bridge for App {
     fn operation(&self, value: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let mut commands = self.0.lock().unwrap();
@@ -64,15 +63,20 @@ impl Bridge for App {
             }
             "open" => json!({"localId":"fixture"}),
             "release" => json!({"released":true}),
+            "stop" => json!({}),
             "submit" => json!({"started":true}),
             "snapshot" => {
                 let last = submissions.last().unwrap();
-                let text = if self.1 {
-                    "NATIVE_QUESTION_COMPLETE"
+                let text = if matches!(self.1, Scenario::Automatic | Scenario::InterruptedAutomatic)
+                    && submissions.len() == 1
+                {
+                    "OWNED_LARGE_PUBLIC_STATE ".repeat(8192)
+                } else if matches!(self.1, Scenario::Question) {
+                    "NATIVE_QUESTION_COMPLETE".into()
                 } else if submissions.len() == 2 {
-                    "COMPACTED_PUBLIC_WORK_STATE"
+                    "COMPACTED_PUBLIC_WORK_STATE".into()
                 } else {
-                    "NATIVE_TURN_COMPLETE"
+                    "NATIVE_TURN_COMPLETE".into()
                 };
                 let polls = commands
                     .iter()
@@ -80,8 +84,19 @@ impl Bridge for App {
                     .take_while(|v| v["op"] != "submit")
                     .filter(|v| v["op"] == "snapshot")
                     .count();
-                let settled = polls >= 3;
-                if self.1 && submissions.len() == 1 {
+                if commands
+                    .iter()
+                    .rev()
+                    .take_while(|v| v["op"] != "submit")
+                    .any(|v| v["op"] == "stop" && v["lane"] == last["lane"])
+                {
+                    let stopped = json!({"round":last["round"],"stopped":true});
+                    return Box::pin(async move { Ok(stopped) });
+                }
+                let settled = polls >= 3
+                    && !(matches!(self.1, Scenario::InterruptedAutomatic)
+                        && submissions.len() == 2);
+                if matches!(self.1, Scenario::Question) && submissions.len() == 1 {
                     let catalog=last["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).unwrap();
                     let tools: Value = serde_json::from_str(catalog).unwrap();
                     let key = tools
@@ -98,7 +113,7 @@ impl Bridge for App {
                     let snapshot = json!({"round":last["round"],"messages":[{"id":"question-host-call","author":{"role":"assistant"},"recipient":format!("local.{gateway}"),"content":{"content_type":"code","text":json!({"kwargs":{"name":key,"input":input,"report":"Waiting for the owned native question"}}).to_string()},"status":"finished_successfully","end_turn":false}],"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":0,"dispatches":1});
                     return Box::pin(async move { Ok(snapshot) });
                 }
-                json!({"round":last["round"],"messages":[{"id":format!("reply-{}",submissions.len()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[if polls==1{&text[..6]}else{text}]},"status":if settled{"finished_successfully"}else if polls==2{"finished_partial_completion"}else{"in_progress"},"end_turn":polls>=2}],"terminals":if settled{json!(["done"])}else{json!([])},"roundStarts":1,"userMessages":submissions.len(),"toolMessages":0,"dispatches":submissions.len()})
+                json!({"round":last["round"],"messages":[{"id":format!("reply-{}",submissions.len()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[if polls==1{&text[..6]}else{&text}]},"status":if settled{"finished_successfully"}else if polls==2{"finished_partial_completion"}else{"in_progress"},"end_turn":polls>=2}],"terminals":if settled{json!(["done"])}else{json!([])},"roundStarts":1,"userMessages":submissions.len(),"toolMessages":0,"dispatches":submissions.len()})
             }
             _ => return Box::pin(async { Err(Error("unexpected_fixture_operation")) }),
         };
@@ -229,6 +244,18 @@ async fn native_question_returns_the_actual_choice_on_original_host_call_without
     native_context_fixture(Scenario::Question).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn native_token_trigger_compacts_once_and_continues_without_a_manual_compact_request() {
+    native_context_fixture(Scenario::Automatic).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn interrupted_native_automatic_compaction_preserves_history_and_resumes_latest_user_work() {
+    native_context_fixture(Scenario::InterruptedAutomatic).await;
+}
+
 #[derive(Clone, Copy)]
 enum Scenario {
     Compact,
@@ -236,6 +263,8 @@ enum Scenario {
     Bidirectional,
     Fork,
     Question,
+    Automatic,
+    InterruptedAutomatic,
 }
 async fn native_context_fixture(scenario: Scenario) {
     let handoff = matches!(
@@ -253,10 +282,7 @@ async fn native_context_fixture(scenario: Scenario) {
     for name in ["home", "codex", "system", "tmp", "work"] {
         fs::create_dir(root.0.join(name)).unwrap();
     }
-    let app = Arc::new(App(
-        Mutex::new(Vec::new()),
-        matches!(scenario, Scenario::Question),
-    ));
+    let app = Arc::new(App(Mutex::new(Vec::new()), scenario));
     let live = if cross_provider && std::env::var_os("CODEX_PROVIDER_LIVE_HANDOFF").is_some() {
         assert_eq!(
             std::env::var("CODEX_PROVIDER_LIVE_HANDOFF").as_deref(),
@@ -338,6 +364,12 @@ async fn native_context_fixture(scenario: Scenario) {
     let mut config: toml::Table = toml::from_str(&profile).unwrap();
     config.insert("sandbox_mode".into(), "danger-full-access".into());
     config.insert("approval_policy".into(), "never".into());
+    if matches!(
+        scenario,
+        Scenario::Automatic | Scenario::InterruptedAutomatic
+    ) {
+        config.insert("model_auto_compact_token_limit".into(), 20000.into());
+    }
     if cross_provider {
         let mut catalog = codex_chatgpt_provider::projection::catalog(&Config::default()).unwrap();
         let mut native = catalog["models"][0].clone();
@@ -569,6 +601,158 @@ async fn native_context_fixture(scenario: Scenario) {
     }
     rpc.turn(3, thread, if live.is_some(){"Remember that HANDOFF_STATE_7K2Q identifies the completed fixture work. Do not execute anything."}else{"Remember the completed fixture work"})
         .await;
+    if matches!(scenario, Scenario::InterruptedAutomatic) {
+        let started=rpc.call(4,"turn/start",json!({"threadId":thread,"input":[{"type":"text","text":"Owned turn to interrupt during automatic summary"}]})).await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let count = app
+                    .0
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|v| v["op"] == "submit")
+                    .count();
+                if count >= 2 {
+                    assert_eq!(count, 2);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        rpc.call(
+            5,
+            "turn/interrupt",
+            json!({"threadId":thread,"turnId":started["turn"]["id"]}),
+        )
+        .await;
+        let done = rpc
+            .matching(|v| {
+                v["method"] == "turn/completed"
+                    && v["params"]["turn"]["id"] == started["turn"]["id"]
+            })
+            .await;
+        assert_eq!(done["params"]["turn"]["status"], "interrupted");
+        let key = digest(&thread);
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let lane: Value = journal.read(&key).unwrap().unwrap();
+                if lane["phase"] == "stopped" {
+                    assert!(
+                        lane["checkpoint"].is_null(),
+                        "partial summary must never become a committed checkpoint"
+                    );
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let before = rpc
+            .call(
+                6,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert!(before.to_string().contains("OWNED_LARGE_PUBLIC_STATE"));
+        rpc.turn(
+            7,
+            thread,
+            "Resume the latest owned work after the interrupted summary",
+        )
+        .await;
+        let after = rpc
+            .call(
+                8,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(after["thread"]["id"], thread);
+        assert!(after.to_string().contains("NATIVE_TURN_COMPLETE"));
+        {
+            let commands = app.0.lock().unwrap();
+            assert_eq!(
+                commands.iter().filter(|v| v["op"] == "submit").count(),
+                4,
+                "one stopped summary, one replacement at a new native turn, no replay"
+            );
+            assert_eq!(commands.iter().filter(|v| v["op"] == "stop").count(), 1);
+        }
+        drop(rpc);
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        stop.cancel();
+        server.await.unwrap();
+        host.shutdown().await;
+        println!(
+            "{}",
+            json!({"accepted":true,"actualNativeInterruptedCompaction":true,"stopAcknowledged":true,"partialCheckpointCommitted":false,"sameThread":true,"resumedFromLatestNativeWork":true,"fixtureAppDispatches":4,"chatSubmissions":0})
+        );
+        return;
+    }
+    if matches!(scenario, Scenario::Automatic) {
+        rpc.turn(
+            4,
+            thread,
+            "Continue the latest owned work after the token trigger",
+        )
+        .await;
+        let after = rpc
+            .call(
+                5,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(after["thread"]["id"], thread);
+        assert!(after.to_string().contains("NATIVE_TURN_COMPLETE"));
+        let trace = fs::read_to_string(root.0.join("request-trace.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|v| serde_json::from_str::<Value>(v).unwrap())
+            .collect::<Vec<_>>();
+        let requests = trace
+            .iter()
+            .map(|v| {
+                codex_chatgpt_provider::protocol::Request::parse(
+                    v.clone(),
+                    &Config::default(),
+                    None,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            requests.iter().filter(|v| v.compaction.is_some()).count(),
+            1,
+            "native token trigger must not enter a compaction loop"
+        );
+        assert_eq!(requests.len(), 3);
+        {
+            let commands = app.0.lock().unwrap();
+            assert_eq!(commands.iter().filter(|v| v["op"] == "submit").count(), 3);
+            assert_eq!(
+                commands.iter().filter(|v| v["op"] == "release").count(),
+                1,
+                "committed automatic checkpoint retires once"
+            );
+        }
+        drop(rpc);
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        stop.cancel();
+        server.await.unwrap();
+        host.shutdown().await;
+        println!(
+            "{}",
+            json!({"accepted":true,"actualNativeAutomaticCompaction":true,"manualCompactRequested":false,"sameThread":true,"compactionRequests":1,"fixtureAppDispatches":3,"chatSubmissions":0})
+        );
+        return;
+    }
     if handoff {
         let before = rpc
             .call(

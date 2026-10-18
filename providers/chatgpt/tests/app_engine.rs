@@ -27,6 +27,7 @@ struct State {
     lose_correction_reply: bool,
     bad_gateway_rounds: usize,
     change_account_on_rejection: bool,
+    change_account_before_tools: bool,
     lose_snapshot: usize,
     hold: bool,
     stopped: bool,
@@ -107,6 +108,9 @@ impl Bridge for App {
                         } else {
                             "<box title=\"검증\">Tests passed</box>\n`<box>literal code</box>`"
                         }]);
+                    }
+                    if state.change_account_before_tools {
+                        state.account = "other-account".into();
                     }
                     Ok(
                         json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"dispatches":state.stage}),
@@ -1016,4 +1020,50 @@ async fn projected_components_keep_native_prefix_and_cached_replies_without_extr
     assert!(submissions[1]["results"]
         .to_string()
         .contains("exact <box>native result</box>"));
+}
+
+#[tokio::test]
+async fn account_change_during_model_work_refuses_before_publishing_any_native_call() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().change_account_before_tools = true;
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let (error, events) = failure(&host, body(), CancellationToken::new()).await;
+    assert_eq!(error, Error("app_account_changed"));
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Tool(_) | Event::Completed { .. })),
+        "an unconfirmed account must not publish executable effects or completion"
+    );
+    let before = app
+        .state
+        .lock()
+        .unwrap()
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .count();
+    assert_eq!(before, 1);
+    app.state.lock().unwrap().account = "fixture-account".into();
+    app.state.lock().unwrap().change_account_before_tools = false;
+    let recovered = execute(&host, body()).await;
+    assert_eq!(
+        recovered
+            .iter()
+            .filter(|e| matches!(e, Event::Tool(_)))
+            .count(),
+        2
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c["op"] == "submit")
+            .count(),
+        1,
+        "restoring the owned account reconciles the same round, not a new inference"
+    );
 }
