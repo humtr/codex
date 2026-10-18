@@ -15,7 +15,7 @@ Superseded trial narratives remain in Git, not as additional current baselines.
 | TUI | Native source1c413cf, qualification39027733603;48 maintained native UI tests,94 upstream feature checks and lint |
 | Installed optional Chat provider | Immutable payload45072df8448589d3523e, source7bb202e; local-function returns; unchanged during source integration |
 | Integrated provider source | providers/chatgpt on rewrite/rust-core, selectively ported from experiment ab41733 plus preserved user1m edits; separate optional offline gate, no operating activation |
-| Approved provider implementation | Native Rust adapter under providers/chatgpt, minimal app-side JS and optional viewer assets; Rust conversion not started, current runtime remains JS/Bun + Python |
+| Approved provider implementation | Standalone Rust package and typed private config CLI now exist under providers/chatgpt; request/runtime migration is not yet implemented. Installed runtime remains JS/Bun + Python |
 | Mutable Chat model catalog | All5 entries currently report context_window=max_context_window=1,000,000; auto_compact_token_limit=null |
 | Provider source edits | experiment/web-termux has existing uncommitted profile/test changes from32,768 to1,000,000. Preserved unchanged there; their intended1m values are included in the integrated provider source. No operating activation. |
 
@@ -80,10 +80,10 @@ must leave Core/base inputs unchanged after the interface work is admitted.
 ## Product completion scope and work order
 
 This is the single ordered product backlog, revised for the user's Rust Provider
-decision. Active legacy Provider runtime/tests already live under providers/chatgpt;
-there is no Rust Provider package yet. The final target is one independently built
-Rust adapter in that directory, not another Core module. Current JS/Bun/Python is
-the migration reference; only the app-side JS needed by the qualified function
+decision. Active legacy Provider runtime/tests and the initial standalone Rust
+package/configuration foundation live under providers/chatgpt. The final target is
+one independently built Rust adapter in that directory, not another Core module.
+Current JS/Bun/Python is the migration reference; only the app-side JS needed by the qualified function
 transport and optional viewer assets remain in the product after cutover.
 Remaining experimental technical evidence stays on experiment/web-termux until
 ported; its historical Core/UI/release snapshots must not replace current
@@ -95,7 +95,7 @@ preserved output file alone is insufficient.
 | --- | --- | --- |
 | 0. Close current TUI regression | TUI: correct the overlength account-ID fixture; complete the existing compact /switch settings work | Actual48 focused native tests,94 upstream checks/lint,24/32/40/80-column rendering, selection/tab preservation and affected Android UI proof. A failed candidate is not releasable. |
 | 1. Core independence | Core/Manager/TUI: finish optional-setting isolation and preparation/exec failure boundaries; retain versioned preparation/handoff and explicit projection | Same-home normal→direct→normal (direct path now exists); absent/damaged/malformed/hung Manager; invalid upstream settings; exact account identity; no duplicate effects or configuration changes. No real Chat required. |
-| 2. Rust Provider foundation and transport migration | Provider: independent Cargo package, one adapter process; Rust Responses/parser/SSE/tools, CDP, context correlation and owned-host/cancel/reconnect; minimal versioned app JS bridge | Port relevant experimental drivers alongside code; deterministic legacy/Rust contract comparison without submitting to both; original call IDs, streaming/errors, warm deltas, checkpoints, capability mismatch, unknown dispatch and sibling isolation; actual Android binary/app-bridge proof. |
+| 2. Rust Provider foundation and transport migration | Provider: independent Cargo package and typed configuration CLI established; next one adapter process with Rust Responses/parser/SSE/tools, CDP, context correlation and owned-host/cancel/reconnect; minimal versioned app JS bridge | Config round-trip/private-file checks and Android CLI smoke pass; still port relevant experimental drivers alongside code; deterministic legacy/Rust contract comparison without submitting to both; original call IDs, streaming/errors, warm deltas, checkpoints, capability mismatch, unknown dispatch and sibling isolation; hosted exact-source and Android app-bridge proof remain. |
 | 3. Provider settings and generic TUI | Rust Provider: one config/validator, show/effective/edit/set/validate and catalog/profile projection; TUI reads capabilities instead of hardcoded Chat families/efforts | File-only use without Manager; convenience surfaces share the validator; invalid edit/no-op/default precedence and1m preservation; no public command advertised before implementation. |
 | 4. Context and native↔Chat handoff | Rust Provider/TUI/upstream APIs: repair unsupported_desktop_route at its actual previous-model/opaque-history boundary; reduce reply→compaction→new-Chat cycles; separate thresholds/wire limits | Fresh/existing long threads, both directions, readable canonical transfer, saved opaque checkpoints, hash/downshift, manual/automatic/interrupted/repeated compaction, cold resume, in-place Chat model/effort. No alias-only repair, lost history or blind replay. |
 | 5. Project-backed history | Rust Provider: configured ChatGPT project; resolve/reuse or create when absent; bind account/workspace/project IDs before new conversations | Read-only host discovery, no-inference create/reuse/place/readback, then budgeted tools. Duplicate/inaccessible/deleted projects, concurrency, uncertainty and restart; no silent root-level fallback or old-chat deletion. |
@@ -122,8 +122,9 @@ app/API instability, project support or private reasoning availability.
 
 ### Rust migration scope and preservation
 
-The package target is providers/chatgpt/Cargo.toml and src/; no crate or product
-binary exists there yet. Keep it outside the Core/Manager/TUI dependency graph.
+The package target is providers/chatgpt/Cargo.toml and src/; its current binary
+only manages validated provider configuration and is not a transport runtime.
+Keep it outside the Core/Manager/TUI dependency graph.
 Use existing upstream provider configuration and one bounded local adapter; no
 new global launcher, second supervisor or general plugin registry is required.
 Rust owns HTTP/SSE/protocol conversion, schema/tool IDs, config/capabilities,
@@ -174,8 +175,10 @@ changes and no unique unpreserved work. Do not erase the experimental checkout a
 an incidental cleanup. Keep no second active roadmap or production runtime after
 cutover; old signed generations remain explicit rollback targets.
 
-Adapt the independent provider gate to cargo format/test/lint/build plus minimal
-bridge contract tests and actual Android execution. Optional JS bridge tests need
+The independent provider gate now runs Cargo format/test/lint/release-build before
+the legacy suites. Exact-source hosted acceptance will run for this change;
+Android config CLI execution passed, while app-bridge execution remains required.
+Optional JS bridge tests need
 not impose Bun on the shipped adapter. Core/Base jobs stay package-scoped; shared
 lockfile/toolchain changes still get checks for their actual consumers. Preserve
 source fingerprints so provider-only policy updates do not invalidate Base. The

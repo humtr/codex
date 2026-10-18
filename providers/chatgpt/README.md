@@ -10,9 +10,10 @@ linked into Core or Manager.
 
 The production target is a standalone Rust Provider package here
 (`Cargo.toml`, `src/`), with minimal app-side JavaScript and separately inventoried
-optional viewer assets. This target is not implemented yet: today's runtime is
-JS/Bun plus Python. Source integration is already underway; experiment closure
-and Rust runtime admission are still pending. The repository-wide ordered work
+optional viewer assets. The initial Rust package now validates and edits one private
+configuration file with disposable-root tests. It does not yet execute Responses,
+tool transport, CDP or host lifetime; today's installed runtime remains JS/Bun plus
+Python. Experiment closure and Rust runtime admission are still pending. The repository-wide ordered work
 is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order);
 this file does not define a competing roadmap.
 
@@ -87,11 +88,11 @@ From the repository root:
 BUN=/absolute/path/to/qualified/bun scripts/check.sh provider
 ```
 
-This current gate runs the actual provider JavaScript/Python suites in disposable roots,
-with no real Chat submissions. Missing Bun is an unfinished gate, not a skipped
-success. Normal Core checks do not require the optional provider runtime.
-The Rust package/bridge and actual Android execution gates must be added with the
-implementation; the existing legacy gate alone cannot admit the future Rust binary.
+This gate runs Rust formatting, tests, lint and release build, then the existing
+JavaScript/Python suites in disposable roots; it performs no real Chat submissions.
+Missing Bun is an unfinished legacy regression gate, not a skipped success. Normal
+Core checks do not require the optional provider runtime. Actual Android binary and
+app-bridge execution gates are still needed before Rust runtime admission.
 A live trial requires explaining its purpose, scope and expected submissions;
 automated tests never sample Pro or replay an uncertain submission.
 

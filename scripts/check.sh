@@ -22,6 +22,12 @@ if [ "$scope" = rust ] || [ "$scope" = full ]; then
   cargo clippy --workspace --all-targets --locked -- -D warnings
 fi
 if [ "$scope" = provider ]; then
+  : "${CARGO_TARGET_DIR:=${XDG_CACHE_HOME:-$HOME/.cache}/codex/provider-target}"
+  export CARGO_TARGET_DIR
+  cargo fmt --manifest-path providers/chatgpt/Cargo.toml --all -- --check
+  cargo test --manifest-path providers/chatgpt/Cargo.toml --locked
+  cargo clippy --manifest-path providers/chatgpt/Cargo.toml --all-targets --locked -- -D warnings
+  cargo build --manifest-path providers/chatgpt/Cargo.toml --release --locked
   : "${BUN:?set BUN to the qualified optional-provider Bun executable}"
   "$BUN" test ./providers/chatgpt/*.test.mjs
   python3 -B -m unittest discover -s providers/chatgpt -p 'test_*.py'
