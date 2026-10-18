@@ -80,11 +80,17 @@ summary/re-entry proof is not a real-Chat TUI run. Remaining physical/live and
 signed lifecycle gates are in [CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
 
 The [ChatGPT-operated MCP proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
-is under review. If adopted, TUI would display/control the same bound work and
+has authorized Phase B scope with its partial draft paused for design alignment.
+TUI would display/control the same bound work and
 receive native execution plus public report/final events; it would not become
 another executor, planner or canonical history owner. Existing cross-provider
 handoff code is the current model-adapter behavior, not proof of MCP session/
-context control. Origin metadata does not belong in a synthetic user prompt.
+context control. Chat renewal retains the same primary Codex thread, canonical
+history and original CLI reply binding. Incremental handoff replaces the Chat
+reasoning context; it does not require the existing cross-provider /model summary
+cycle, a fork or native-context reset. Live handoff/report visibility still needs
+actual Android qualification. Origin metadata does not belong in a synthetic
+user prompt.
 No new UI/control default or live cancellation behavior is introduced by the review.
 
 Local resume carries the supported Termux permission selection even when Core's

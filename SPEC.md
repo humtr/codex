@@ -12,12 +12,13 @@ explicit migration; a terminology change alone changes no executable behavior.
 CURRENT.md owns the current installed/public baseline and the ordered completion
 plan. Sections labelled approved target define the accepted design. CURRENT
 distinguishes implemented source, bounded proof, public release and activation. A source
-PASS is not an installed behavior claim. The proposed ChatGPT-operated MCP workflow
-in CURRENT is under review and is not yet a replacement product contract. Existing
-model-adapter/local-function/MCP-return behavior remains in effect; no new control
-endpoint, default, automatic fallback or runtime migration follows from that
-proposal. Historical release versions below describe retained compatibility, not
-the latest installed release.
+PASS is not an installed behavior claim. The opt-in ChatGPT-operated MCP contract
+below governs authorized Phase B work; CURRENT records its paused partial draft
+and remaining integration/qualification decisions. Existing model-adapter/local-
+function/MCP-return behavior remains in effect; no qualified control endpoint,
+new default, automatic fallback or runtime migration is claimed. Historical
+release versions below describe retained compatibility, not the latest installed
+release.
 
 ## Generation-bound TUI admission (2026-10-10)
 
@@ -1126,6 +1127,115 @@ without Manager. A full installation with unavailable optional Manager still
 identifies as full from its authenticated manifest, not from executable presence.
 Display metadata is informational and never selects components or relaxes admission.
 
+### Opt-in ChatGPT operator through MCP (Phase B)
+
+Phase B implementation and synthetic-host Android qualification are authorized.
+Real Chat trials, default selection, public release and operating activation remain
+separate gates. The existing model-adapter/local-function configuration remains
+the default and an explicit fallback candidate. Never switch routes or resend work
+after uncertain dispatch. Core gains no operator policy or Provider dependency.
+
+The optional Provider may expose one authenticated MCP control service with two
+entrances. A Codex-origin native request starts the initial selected Chat model/effort;
+a Chat-origin MCP request opens or attaches native work without initiating Chat or
+another model. Both then use the same work binding and controls. The Provider
+routes controls/events/results; upstream owns execution, approvals, writers,
+canonical history, context commits and native task lifecycle. There is no Provider
+shell executor, planning agent, second transcript database or self-review override.
+
+Use upstream's actual tool dispatch, approval and recording path; native results
+settle their original logical MCP calls. Responses tool rounds are a candidate
+integration, not a fixed architecture requirement. Compare their context/lifecycle
+coupling with a narrow upstream integration before selecting the path. Intermediate
+transport rounds do not authorize another Chat submission. Preserve the complete
+advertised/deferred tool surface and independent child/reviewer contexts. Do not
+substitute threadless command/exec or user-shell escape hatches.
+
+Session/control operations use the same bound upstream app-server and native
+context tools. Provider may consume the existing Core catalog-server preparation
+operation and execution-record codec; it validates the exact home, runtime, live
+process and socket peer. It never chooses another execution account after failure.
+The control surface must cover discovery, commands/custom patches/tests, native
+history/status, thread creation/attachment/list/read and supported independent
+child/fork operations, Chat context handoff, public reports/completion, explicit
+interrupt and latest-state resume. Supported native control inventory and actual
+execution determine the exposed schema; existing native_catalog/native_tool alone
+are not the operator capability.
+
+Keep the same primary Codex thread and stable work identity across native request
+rounds, Chat conversation replacement and restart. A new Chat conversation must
+not create/fork a replacement primary Codex thread. Explicit independent child
+work retains its own native thread and permissions.
+The existing private Provider journal holds origin, exact execution binding,
+thread/turn links, original reply sink and unresolved calls. Return model-visible
+origin/control context on the attach/catalog or other already-needed tool result.
+Do not insert origin/return/environment blocks or prior answers as another Chat
+user message. Keep private reply destinations, credentials and account identifiers
+local. Authenticate bootstrap controls before they can create or claim work; a
+work capability and exclusive controller then fence subsequent operations.
+
+Reports and final output enter a qualified native event/recording path, render
+live in an attached CLI and persist through upstream recording. A Chat-origin task
+without a CLI has real native history and no fabricated CLI-origin request. Actual
+execution receipts come from native tools. Completion is idempotent and only
+confirmed after outstanding calls and the native turn settle. HTTP success or a
+saved report alone is not CLI visibility proof.
+
+The Codex thread is the durable continuity authority; a Chat conversation is a
+replaceable reasoning context that should support substantial MCP development
+before replacement. ChatGPT chooses a useful handoff boundary and supplies a
+summary grounded in the previous accepted summary, confirmed incremental native
+history and current actual work state. Local code validates source coverage and
+the transition; it does not become a summarization agent. Preserve goals/current
+instructions, decisions, changed files, test results, unresolved work and relevant
+history references. Retrieve original details through MCP when needed; do not
+recursively summarize summaries while ignoring the native evidence.
+
+Bind each handoff to the same work/thread, source-history boundary and controller
+generation. Preserve the summary through an upstream-supported recording operation
+without replacing/deleting original execution history or adding another transcript
+database. The existing Provider journal keeps only routing/reconciliation state
+and references. At transition, fence the old controller from new effects, settle
+or explicitly reconcile outstanding approvals/jobs/calls, and confirm the new
+Chat's attachment and receipt before giving it control. Read later native events
+and user instructions again on attachment; a stale summary cannot override them.
+Keep the original CLI reply binding and unresolved call identities. If preparation,
+creation, attachment or acknowledgment fails, preserve recoverable state and report
+the boundary reached; do not guess success or replay uncertain work.
+
+Chat renewal does not itself require native inference-context compaction or a new
+Codex thread. Native turns may change as execution requires without changing the
+primary thread/work or completing its original task. Native compaction remains
+upstream-owned when the selected execution integration actually requires it.
+Do not make its token/hash triggers the Chat renewal policy or reset native context
+merely to rotate Chat. Initial history
+projection is not itself model summarization. No verified Chat remaining-context
+sensor or fixed call/token threshold is assumed; use task boundaries, observable
+context growth and headroom, and report unknown capacity honestly. Native controls
+must respect active turns; never wait recursively for a summary while that same
+turn awaits the MCP call's result. Do not assume `new_context` or native compact
+automatically performs this Chat handoff. Preserve foreign opaque state and use
+supported native APIs rather than editing rollout files.
+
+Status separates native activity, last host observation/freshness and unknown
+remote state from idle. Missing output/observer heartbeat is not completion.
+Explicit Stop fences actions before requesting native/host interruption and reports
+requested, confirmed or unknown results separately, including remaining owned jobs.
+A service exit is not confirmation that native work stopped. Resume reads latest
+native history and reconciles unresolved calls/results without replaying uncertain
+effects. Another entrance may observe or explicitly take a settled handoff; it
+cannot silently become a second controller/writer.
+
+Acceptance requires actual Android native tools/history and live CLI initial,
+intermediate and final reports from a synthetic MCP host, both entrances, repeated
+MCP work followed by same-thread Chat replacement, source-bound incremental
+handoff, exact result/retry correlation, interruption and reconciliation. A saved
+summary or ready MCP endpoint does not prove a new Chat was created/attached or
+received it. Synthetic transition proof and actual Chat creation/continuation proof
+are separate gates, including host dependencies and measured starts/submissions.
+No real Chat submission, account migration, live installation change or new default
+is implied by Phase B. CURRENT owns detailed scope and proof.
+
 ### Approved next architecture: independent execution and optional integrations
 
 This heading names the accepted independence design, not a claim that every item
@@ -1433,6 +1543,11 @@ base inputs unchanged. Upstream/backend changes still require the applicable
 frontend and execution-protocol compatibility proof.
 
 ### Approved provider configuration, context and remote project behavior
+
+The inference-context/compaction and cross-provider handoff rules in this section
+describe the existing model adapter. The opt-in operator contract above governs
+Chat conversation renewal; shared configuration, identity and safety rules still
+apply. Native compaction and operator Chat renewal are not one mandatory cycle.
 
 The Rust candidate's single user-owned provider configuration is
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaulting to

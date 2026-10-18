@@ -13,22 +13,30 @@ JS/Bun/Python experiment; the Rust candidate has real native/app/development pro
 but is not a signed, permanently activated Provider release. Source integration,
 a successful build and a model listing do not change that state.
 
-## Workflow under review
+## Opt-in operator design and implementation status
 
 The [ChatGPT-operated Codex proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
 would let ChatGPT use MCP to manage local sessions/context, discover tools, develop,
 report and finish, with either Codex or ChatGPT as the entrance. It is not the
 current two-tool MCP return transport, an implemented control API or a selected
-default. Origin/control context would use existing non-user tool returns; local
-bindings own the actual reply destination. No extra user prompt is proposed.
+default. Phase B implementation/synthetic Android qualification is authorized;
+the partial draft is paused for the same-thread context correction. The primary
+Codex thread keeps long-term history while Chat conversations are replaced after
+substantial MCP work. Each successor receives the accepted summary, confirmed
+incremental native work and current state. Old-controller fencing, source coverage,
+late events, unresolved calls and successor acknowledgment need independent proof.
+Origin/control/handoff context would use existing non-user tool returns; local
+bindings preserve the actual reply destination across Chat replacement.
 
 The single [work order](../../CURRENT.md#product-completion-scope-and-work-order)
 stabilizes shared primitives and a recoverable Rust baseline before comparing the
 alternative, then completes the selected product and signed delivery. It does not
 require polishing every existing adapter policy before experimentation. Existing
 Rust local functions are an explicit fallback candidate; no uncertain mid-task
-switch or silent legacy-runtime fallback is allowed. SPEC retains the accepted
-model-adapter behavior until an explicit replacement contract and qualification.
+switch or silent legacy-runtime fallback is allowed. SPEC distinguishes the current
+model-adapter behavior from the opt-in operator contract. Responses dispatch reuse
+versus a narrow upstream integration remains a B design choice; no native-context
+reset or compaction is assumed to create/attach a successor Chat.
 
 ## Candidate configuration and commands
 
@@ -146,6 +154,15 @@ are different quantities; the last remains unknown. Neither same-call returns no
 project grouping establishes a free allowance or absent remote history.
 
 ## Context, projects and transcripts
+
+The existing adapter imports public native history on cold admission and sends
+needed deltas/results while warm; import is not itself model summarization. Native
+Codex requests inference-context compaction, ChatGPT supplies the summary through
+Provider, upstream commits its active-context replacement, then Provider retires
+and rebuilds the Chat lane. The original durable native history remains. There is
+no independently verified Chat remaining-context sensor. This coupled lifecycle
+belongs to the model adapter; operator Chat renewal follows the
+[same-thread incremental handoff design](../../CURRENT.md#same-thread-continuity-and-chat-context-handoff).
 
 The existing adapter tracks warm-prefix deltas and native checkpoint acknowledgment.
 Summary policy/results are transient until upstream commits the offered checkpoint;

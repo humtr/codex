@@ -21,11 +21,15 @@ source and bounded Android proof; signed composition and operating activation
 are distinct. See [current status and work order](CURRENT.md#product-completion-scope-and-work-order).
 
 A [ChatGPT-operated MCP workflow](CURRENT.md#proposed-chatgpt-control-through-mcp)
-is being reviewed: ChatGPT would manage local Codex work/context/sessions and
-reports through MCP, with either ChatGPT or Codex as the entrance. This is broader
-than the existing MCP result-return transport and is not implemented or selected
-as a default. Origin/control information would travel through non-user tool
-returns. The proposal does not change current execution, cancellation or updates.
+has authorized opt-in implementation scope: ChatGPT would manage local Codex
+work/context/sessions and reports through MCP, with either ChatGPT or Codex as the
+entrance. This is broader than the existing MCP result-return transport and is
+not implemented or selected
+as a default. The partial implementation is paused for design alignment. The same
+Codex thread retains long-term history while replaceable Chat conversations receive
+summaries plus confirmed incremental work and current state. Origin/control and
+handoff information would travel through non-user tool returns. Current execution,
+cancellation and updates are unchanged.
 
 ## Current status
 
@@ -351,6 +355,7 @@ under providers/chatgpt, with its own offline source qualification. Its developm
 installer and existing app/user data remain separate from signed Base/Full delivery.
 Source integration does not activate a new operating Provider. CURRENT is the
 single authority for the revised work sequence, completed proof and remaining
-context/project/lifecycle/packaging gates. The broader MCP control proposal is
-awaiting a development decision; existing Rust local functions remain the default,
-with no automatic fallback after uncertain execution.
+context/project/lifecycle/packaging gates. The broader MCP control path has paused
+Phase B draft work and separate synthetic/real-Chat qualification; existing Rust
+model-adapter local functions remain its default, with no automatic fallback after
+uncertain execution.

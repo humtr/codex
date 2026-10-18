@@ -44,28 +44,27 @@ not bundled into the repository or implied by a model listing.
 
 ## Documentation authority and review scope
 
-The seven tracked Markdown documents were reviewed together after the agenda
-change: AGENTS, SPEC, CURRENT, root README, TUI README, Provider README and NOTICE.
-SPEC retains the current execution contract; this file owns the pending proposal,
+The seven tracked Markdown documents were checked for the same-thread/context
+design: AGENTS, SPEC, CURRENT, root README, TUI README, Provider README and NOTICE.
+SPEC retains the current and opt-in implementation contracts; this file owns status,
 one work sequence, outstanding acceptance matrix and bounded proof index. README
 files describe their component and link here rather than carrying competing plans.
 NOTICE owns provenance. AGENTS and the license/prompt fixtures remain unchanged.
 
-Source comparisons corrected stale descriptions of four-component ownership,
-Manager-selected account failure, immutable server settings, notification return,
-local-derived signing and atomic release promotion. These are documentation
-repairs to existing code/contracts, not new behavior or runtime acceptance. The
-new MCP operator workflow remains a proposal. Completed proof is not a pending
-implementation task; fixture, live inference, public release and device activation
-remain distinct. Historical evidence is retained in Git/private acceptance logs.
+SPEC separates the opt-in operator contract from current model-adapter policy.
+The correction retains one primary Codex thread, puts incremental Chat handoff in
+B–C, reopens the native integration choice and limits E's adapter-specific gates
+to D's retained paths. Phase A recovery evidence remains exact-source evidence;
+the unqualified B draft is not that baseline. AGENTS, NOTICE, licenses and prompt
+fixtures need no change. The deferred Core update-display/prompt work remains low
+priority for the next substantive Core change.
 
-Documentation-only validation:23 relative links/anchors and fence structure pass;
-root README command blocks are unchanged. The existing migration-example test
-passes its six success/failure cases. Protected license/provenance/instruction/
-prompt reference bytes are unchanged; the current-generation record matches
-Full76. Evidence: documentation-agenda-audit.json and
-documentation-audit-migration-example.log in the private acceptance root. No
-runtime was requalified/changed and no Chat request was submitted by this audit.
+This review changes documentation only. No runtime requalification, B execution,
+Chat submission, public release or device activation is claimed. Earlier
+documentation-agenda-audit.json and documentation-audit-migration-example.log
+retain their historical scope, including the then-observed Full76; they do not
+describe today's installed generation. Completed fixtures/live proofs are not a
+new backlog. Historical evidence remains in Git/private acceptance logs.
 
 ## Components and approved architecture
 
@@ -101,7 +100,12 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 
 ## Proposed ChatGPT control through MCP
 
-Status: proposal and work-order recommendation; implementation decision pending.
+Status: Phase B implementation and synthetic-host Android qualification authorized.
+The partial implementation is paused while its design/documents are realigned:
+the primary Codex thread persists; only the Chat execution context is replaced.
+This review authorizes documentation work, not implementation resumption. C real
+Chat trials, D default/fallback selection and E publication/operating activation
+remain separate decisions/gates.
 
 This proposal supersedes the earlier interpretation of dual entry as just a
 ChatGPT-first bootstrap for the existing per-inference tool loop. The user wants
@@ -109,8 +113,9 @@ ChatGPT to operate local Codex through MCP: discover tools, inspect/manage work
 and sessions, execute development, choose context/checkpoint/handoff operations,
 publish public reports and finish the task. Codex is the local execution/recording
 system; the Provider is its transport/control adapter, not a second planning agent.
-No implementation/default/activation change is approved by this documentation
-review alone. Current product behavior remains SPEC's existing model-adapter path.
+The documentation review alone approved no implementation/default/activation change;
+the subsequent user decision authorizes B. SPEC now includes the opt-in operator
+contract. The model-adapter/local-function path remains the current default.
 
 Two entrances converge on the same control workflow:
 
@@ -129,7 +134,8 @@ The user did not request an origin marker in the user prompt. Persist the bindin
 in the existing Provider journal: origin, a stable run/request identity, confirmed
 execution home/account, native thread/turn associations, outstanding calls and the
 local reply sink. These are proposed fields/semantics, not an implemented schema.
-Keep one run identity across model-request rounds and explicit thread handoffs;
+Keep the same primary thread and run identity across model-request rounds, Chat
+conversation handoffs and restart; Chat renewal never forks the primary thread.
 thread_id, response_id and JSON-RPC id alone are not the whole task identity.
 
 If ChatGPT needs origin/control context, return a compact model-visible record on
@@ -173,12 +179,11 @@ a live TUI. Prefer reuse of actual native execution and existing Responses/event
 projection over arbitrary rollout-file edits or an unverified second executor.
 Reference: https://learn.chatgpt.com/docs/app-server
 
-ChatGPT chooses when/what to summarize or hand off; local code still validates and
-commits checkpoint data and preserves unreturned calls. Native automatic context
-limits and foreign opaque state do not disappear. A control command targeting an
-active turn can require a deferred/settled transition, not a synchronous recursive
-wait while that same turn awaits the command's MCP result. Independent review and
-child agents need their own real contexts/transports; do not replace auto_review
+The context/handoff policy below distinguishes Chat renewal from native inference
+compaction. A control command targeting an active turn can require a deferred or
+settled transition, not a recursive wait while that turn awaits its MCP result.
+Independent review and child agents need their own real contexts/transports;
+do not replace auto_review
 with self-review or silently weaken the configured approval mode. If a reviewer
 still uses the Linux app, that capability retains the dependency even when the
 primary ChatGPT-first path does not.
@@ -199,12 +204,57 @@ latest history and unresolved original calls; it must not replay uncertain effec
 One active controller owns each work binding even if both UIs observe it. Separate
 work can run concurrently; a second entrance cannot silently become a second writer.
 
+### Same-thread continuity and Chat context handoff
+
+The primary Codex thread keeps the long-term canonical execution/history record.
+Chat conversations are replaceable reasoning contexts; use each for substantial
+MCP development, then prepare its successor in that same native thread. Independent
+children/reviewers retain their own native contexts; they are not replacements for
+the primary thread. Origin, work identity and original CLI reply binding survive.
+
+ChatGPT supplies the next summary from the previous accepted summary, confirmed
+native history since its source boundary and current actual work state. Include
+current instructions/goals, decisions, changed files, tests, remaining issues and
+references for fetching details through MCP. Local code validates/persists through
+supported upstream recording, retaining full original history. The Provider journal
+keeps transport/controller state and references, not a second transcript/summary DB.
+Reconcile against original evidence so repeated summaries do not silently lose work.
+
+Bind handoff to a definite native-history boundary and controller generation. Fence
+new effects from the old Chat, settle or reconcile pending calls/approvals/jobs,
+record the prepared handoff, then confirm the successor's attachment/receipt before
+granting control. Attachment rereads later instructions/events and unresolved calls;
+an acknowledged summary does not cover new events automatically. A failed or
+uncertain transition preserves the last recoverable boundary without executing
+effects twice. Handoff may span native turns, but does not complete the user's
+overall task or discard its original return binding.
+
+Native inference compaction and Chat renewal are separate operations. Keep native
+compaction only where the chosen execution integration needs it; native token/hash
+triggers must not dictate Chat renewal. No independently verified host-capacity
+sensor exists. Initial/cold history import is projection, not automatic model
+summarization; the old30k/32k or preserved1m settings are not measured Chat limits.
+Use task milestones, observed context growth and headroom rather than a fixed MCP
+call count; call output sizes differ. Do not renew on every native transport round.
+
+Before B implementation resumes, compare Responses dispatch reuse with a narrow
+upstream tool/control integration. The first preserves existing native execution
+but may retain unwanted inference-budget/compaction coupling. The second must
+still preserve full native tools, approvals, history, live events and writer locks.
+Select from concrete source/runtime evidence; no second executor or Core policy.
+The partial native client/config/dependency edits are uncommitted draft work, not
+an accepted API or recovery candidate; the first compile check has an unresolved
+catalog-error conversion. Its `new_context`/native-compact handoff assumption is
+withdrawn: neither operation proves successor Chat creation, summary transfer or
+attachment. Automatic Chat creation/reattachment, bootstrap delivery, failure
+recovery and any remaining app/bridge dependency require their own B/C proof.
+
 ### Timing, fallback and proposed revised order
 
-Recommendation: first freeze a useful, recoverable Rust baseline from existing
-work, then qualify this alternative before expanding orchestration that it may
-replace. Finishing every existing optimization and publishing a final legacy-shaped
-Provider first risks duplicate development; replacing the working path immediately
+Phase A has frozen a useful, recoverable Rust baseline. Qualify this alternative
+before expanding orchestration that it may replace. Finishing every existing
+optimization and publishing a final legacy-shaped Provider first risks duplicate
+development; replacing the working path immediately
 risks losing its broader native/AI-development proof. A full public release is not
 a prerequisite for the new bounded experiment. Base/Full automation and unrelated
 Core/Manager fixes remain independent and may ship with their own acceptance.
@@ -243,16 +293,20 @@ select it because the Rust/new MCP route fails.
 - Zero-Chat fixtures: origin/context travels through non-user returns; no extra
   user-role environment/previous-answer block. Origin and reply binding survive
   reconnect/handoff without exposing private return destinations.
-- Actual Android: discover a tool, run commands/patch/tests once, request context
-  and session controls at a valid boundary, retain native history and stream public
+- Actual Android: discover tools, run multiple command/patch/test rounds, replace
+  Chat with a source-bound incremental handoff in the same primary Codex thread,
+  retain original native history and stream public
   initial/intermediate/final reports to the original CLI. A no-observer Chat entry
   still records execution without creating a dummy CLI-origin request.
 - Interrupt and disconnect during model wait, execution, approval, checkpoint and
   handoff. Verify observed stale/unknown state, the exact stopped work, remaining
   owned jobs, result reconciliation and no new effects after confirmed Stop.
 - Two entry clients observe/control one task without duplicate writers; independent
-  tasks/reviewers remain isolated. Prove compaction, restart and return-to-native
-  context rather than relying on the earlier two-command MCP result.
+  tasks/reviewers remain isolated. Prove restart, unchanged primary thread/return
+  binding, summary receipt plus post-boundary events, and safe failed/double/stale
+  controller attachment. Synthetic Chat replacement is B evidence; actual Chat
+  creation/continuation is C evidence. Qualify native compaction/cross-provider
+  return only where the selected path still needs it; R11 proves neither handoff.
 - A matched real development task, including direct ~/prj/ai under its AGENTS and
   preserved user changes, must show analysis, actual failure/correction, tests and
   same-task resume. Supervisor evaluates the real diff/tests and physical CLI
@@ -266,23 +320,26 @@ select it because the Rust/new MCP route fails.
   general task controls, new origin payload, automatic real-time transcript and
   charged Chat message savings are not. No Pro/GPT-5.6 trial or silent retry.
 
-This proposal has documentation/review status. It has no new MCP control code,
-live trial, model/provider change, automatic fallback or runtime activation result.
+Phase B has a paused partial implementation. Resume with the integration choice
+above, then qualify the common control path on actual Android with a synthetic
+host. No B completion, real Chat trial, new default, automatic fallback or runtime
+activation is yet claimed.
 
 ## Product completion scope and work order
 
-This is the single work sequence. A is baseline work within existing scope;
-B–D are the recommendation awaiting the user's new-architecture decision, not
-already-authorized/default product behavior. E retains final product acceptance;
-independent Core/Manager/Base/Full work need not wait for the Provider experiment.
+This is the single work sequence. A's bounded baseline is accepted. B is authorized
+with partial implementation paused for design alignment; C real Chat trials require
+their declared scope/submission budget, and D default/fallback selection remains
+pending. E retains final product acceptance; independent Core/Manager/Base/Full
+work need not wait for the Provider experiment.
 
 | Phase | Work | Gate |
 | --- | --- | --- |
 | A | Stabilize shared Rust identity/auth, exact-call returns, native execution/history, visible failure/stop/recovery, config and candidate packaging | Bounded recoverable checkpoint accepted at acf1bdb, with exact source/artifact/proof and disposable standalone snapshot install/restart/rollback. Remaining product/lifecycle gates stay in E; no public activation |
-| B | Expose Codex control operations to ChatGPT and connect both entrances | After architecture decision: actual Android with synthetic host, non-user context return, discovery, real tools, public reports, context/session transition and correct final routing |
-| C | Real ChatGPT control and comparison | Explain trial scope/expected submissions first; matched fixtures and sequential legitimate direct AI development; physical CLI progress, stop and latest-state recovery, independent supervisor review |
+| B | Choose native integration, expose Codex control to ChatGPT and connect both entrances | Authorized; draft paused. Actual Android synthetic host: non-user bootstrap, full native tools, live public reports, repeated MCP work and same-thread incremental Chat handoff, failure/restart/stop reconciliation and original final routing |
+| C | Real ChatGPT control, conversation renewal and comparison | Explain trial scope/expected submissions first, including summary and successor Chat starts; real automatic creation/attachment/receipt and continued work on the same native thread; matched fixtures and direct AI development, physical CLI progress/stop/recovery and independent supervisor review |
 | D | Select default and useful fallback | Compare quality, continuity, latency, dependencies and maintenance. Existing Rust local functions stay the current default until qualified replacement; no uncertain mid-task fallback |
-| E | Finish shared product, publish and activate | Close applicable acceptance matrix below; independent component composition, package/provisioning/install/update/rollback, signing/readback/disposable update/non-forced promotion. Device activation is separate |
+| E | Finish shared product, publish and activate | Close applicable matrix gates for D's retained paths/components, without expanding replaced adapter policies; independent composition, package/provisioning/install/update/rollback, signing/readback/disposable update/non-forced promotion. Device activation is separate |
 | F | Close superseded experiment and code | Preserve unique work/user1m edits/licenses/proof and admitted rollback generations; remove replaced implementation policy only after accepted replacement |
 
 Completed implementation is not a new backlog: Core independence/config isolation,
@@ -316,8 +373,17 @@ Local `full` acceptance passes358 Rust and135 Python checks; Provider passes98 R
 hosted Provider jobs pass. Unarmed live/physical gates remain in the matrix below.
 Added qualification uses disposable roots and a synthetic host. The candidate
 lifecycle trial made zero host requests/Chat submissions; there was no public
-signing or operating activation. B still needs the new-architecture decision;
-the recoverable baseline does not authorize it.
+signing or operating activation. The later user decision authorizes B independently
+of this baseline; C–E retain their separate trial/default/delivery gates.
+
+This design correction does not invalidate Phase A's exact-source service-stop,
+identity, correlation or candidate-recovery proof. Preserve acf1bdb as the recovery
+baseline instead of folding the unfinished B draft into it. Those passing gates
+are not evidence for B's same-thread incremental handoff or changed dependency
+closure. Requalify affected inputs when B changes them. Do not expand old adapter
+context/rotation policy simply to finish A; keep shared correctness and defer
+path-specific hardening to D's retained scope. No Phase A implementation change is
+required by this documentation correction.
 
 The user's required AI trial was run directly in ~/prj/ai, not a copied project or
 worktree, after the Rust no-MCP execution/context/project path was established.
@@ -329,8 +395,8 @@ Do not substitute the old adapter or a supervisor-made patch for model developme
 Complete independent source work while hosted checks run; admit releases in their
 dependency order. Do not stop after each individual file change or invent a new
 planner/checkpoint hierarchy. Existing user permission and verified remote ownership
-remain valid for existing authorized baseline work; they do not turn the pending
-ChatGPT-operated architecture decision into implementation approval.
+remain valid for authorized baseline and Phase B work. They do not authorize
+undeclared real Chat trials, a new default or operating activation.
 
 ### Deferred Core follow-up
 
@@ -390,6 +456,17 @@ The user1,000,000-token setting is preserved policy, not measured Chat capacity 
 a qualified ceiling. Do not impose an arbitrary32k minimum. Native token triggers,
 model/hash compaction, HTTP byte bounds and true host capacity differ. An unset
 explicit threshold delegates to upstream, not an all-compaction disable switch.
+
+The following describes the existing model adapter, not B's Chat-renewal policy.
+Cold admission projects/imports public native history; a warm lane sends needed
+deltas/results. Neither step necessarily asks a model to summarize. Native Codex
+requests inference-context compaction on its own lifecycle triggers, asks its
+configured model endpoint for a summary and commits the accepted replacement to
+active inference history while retaining the original durable rollout. The Chat
+Provider supplies that summary through ChatGPT and retires/rebuilds its old lane
+only after native acknowledgment. This couples native compaction to Chat renewal;
+it is not an independent measurement of actual Chat remaining context. B replaces
+that coupling with the [same-thread handoff policy](#same-thread-continuity-and-chat-context-handoff).
 
 Responses Lite declarations are transport metadata, not canonical conversation
 items; compaction may remove/reinsert them without changing the accepted prefix.
@@ -543,11 +620,14 @@ This matrix is the outstanding qualification authority, not a second work order.
 Use the A–F sequence above. Actual Chat trials need a declared scope/expected
 submissions first. Do not turn completed fixtures/live proof into mandatory reruns
 without changed inputs, failures or an unresolved boundary.
+E applies to the paths/components retained at D; replacement may retire an old
+path-specific gate with its feature. Shared safety, supported upstream behavior,
+protected state and signed lifecycle gates cannot be retired as path optimization.
 
 | Area | Evidence already retained | Open gate and timing |
 | --- | --- | --- |
 | Host lifecycle/visibility | Authenticated Rust boot/native effects, synthetic concurrent lanes/sibling stop, readonly journal status, Phase A exact-owner/restart and kernel-confirmed service-stop proof | E: real host-loss/cancellation/concurrency/reboot and fresh login/provisioning. Journal liveness is not current model progress; service exit is not native-job stop confirmation |
-| Context and TUI | Seven actual Android synthetic context cases, exact admitted no-Manager PTY /model round trip, separate real Chat API summary/re-entry | E: real-Chat TUI, downshift/cold resume/pending-result transitions; B–C must independently qualify operator-controlled context/session changes |
+| Context and TUI | Seven actual Android synthetic context cases, exact admitted no-Manager PTY /model round trip, separate real Chat API summary/re-entry | B: same-thread incremental Chat handoff, history boundary/current instructions, old-controller fencing, pending-result/failure/restart reconciliation and original CLI return. C: actual successor Chat creation/receipt and continued development. E: real-Chat TUI/downshift/cold-resume transitions for retained model-adapter routes |
 | Tools/approval/question | Actual native discovery/correction, independent reviewer allow/deny effects and project isolation, blocking question result on original call | E: broader function/custom/batch and host search behavior, real reviewer judgment/project instruction priority, physical question UI. Quoted executable prefix matching remains an upstream limitation |
 | Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. B–C: full Codex control and two-entry origin/report/finish are new gates, not R11 features |
 | Cost/presentation | Stream-safe MemoryCite/box projection, exact native results and warm prefixes | Count title-model starts, setup/summary/retries and source-specific overhead; defer path-only optimization until C–D unless shared correctness. No claim that counters measure Chat message debits |
