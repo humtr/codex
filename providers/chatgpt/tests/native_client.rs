@@ -44,7 +44,7 @@ struct State {
     stopped: bool,
 }
 #[derive(Clone, Default)]
-struct App(Arc<Mutex<State>>);
+struct App(Arc<Mutex<State>>, std::time::Duration);
 struct Live {
     remote: codex_chatgpt_provider::app::Remote,
     commands: Mutex<Vec<Value>>,
@@ -66,6 +66,9 @@ impl Bridge for App {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let this = self.clone();
         Box::pin(async move {
+            if command["op"] == "submit" && !this.1.is_zero() {
+                tokio::time::sleep(this.1).await;
+            }
             let mut all = this.0.lock().unwrap();
             all.commands.push(command.clone());
             let key = command["lane"].as_str().unwrap_or("service").to_owned();
@@ -253,34 +256,53 @@ impl Drop for Root {
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_executes_commands_custom_patch_and_validation_with_generated_catalog()
 {
-    native_fixture(false, false, false, false).await;
+    native_fixture(false, false, false, false, std::time::Duration::ZERO).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_discovers_and_executes_deferred_mcp_tools_before_local_work() {
-    native_fixture(true, false, false, false).await;
+    native_fixture(true, false, false, false, std::time::Duration::ZERO).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_recovers_unadvertised_tool_with_original_call_error_then_discovers() {
-    native_fixture(true, true, false, false).await;
+    native_fixture(true, true, false, false, std::time::Duration::ZERO).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_auto_reviewer_uses_independent_provider_lane_and_json_contract() {
-    native_fixture(false, false, true, false).await;
+    native_fixture(false, false, true, false, std::time::Duration::ZERO).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_auto_reviewer_denial_prevents_the_owned_commands() {
-    native_fixture(false, false, true, true).await;
+    native_fixture(false, false, true, true, std::time::Duration::ZERO).await;
 }
 
-async fn native_fixture(mcp: bool, reject_first: bool, reviewer: bool, deny_review: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE; synthetic host only, no Chat"]
+async fn actual_native_client_survives_silent_host_wait_beyond_its_sse_idle_limit() {
+    native_fixture(
+        false,
+        false,
+        false,
+        false,
+        std::time::Duration::from_secs(6),
+    )
+    .await;
+}
+
+async fn native_fixture(
+    mcp: bool,
+    reject_first: bool,
+    reviewer: bool,
+    deny_review: bool,
+    silent_wait: std::time::Duration,
+) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
@@ -291,6 +313,10 @@ async fn native_fixture(mcp: bool, reject_first: bool, reviewer: bool, deny_revi
     assert!(
         !(mcp || reviewer) || !is_live,
         "MCP/reviewer fixtures never enable live inference"
+    );
+    assert!(
+        silent_wait.is_zero() || !is_live,
+        "silent wait proof never enables Chat"
     );
     let failure_proof = std::env::var_os("CODEX_PROVIDER_EXPECT_FAILURE").is_some_and(|value| {
         assert_eq!(value, "qualification_expected_failure");
@@ -365,7 +391,7 @@ async fn native_fixture(mcp: bool, reject_first: bool, reviewer: bool, deny_revi
         "sandbox_mode = \"danger-full-access\"\napproval_policy = \"never\"\n",
     )
     .unwrap();
-    let app = Arc::new(App::default());
+    let app = Arc::new(App(Default::default(), silent_wait));
     app.0.lock().unwrap().fail_identity = failure_proof;
     app.0.lock().unwrap().mcp = mcp;
     app.0.lock().unwrap().reject_first = reject_first;
@@ -667,6 +693,12 @@ fi
                 .unwrap_or_else(|| root.0.join("work")),
         )
         .args(["exec", "--json", "--skip-git-repo-check"]);
+    if !silent_wait.is_zero() {
+        command.args([
+            "-c",
+            "model_providers.chatgpt_desktop.stream_idle_timeout_ms=2500",
+        ]);
+    }
     if !reviewer {
         command.args(["--profile", "chatgpt"]);
         command.arg("--dangerously-bypass-approvals-and-sandbox");

@@ -28,12 +28,14 @@ lease authorizes bypassing that check or restarting it. `status` is read-only;
 `status --thread NATIVE_THREAD_ID [--state PATH]` reads the private lane's last
 observation even when its local endpoint is unavailable. It distinguishes app
 running, pending native tool results, stop requested/unconfirmed, acknowledged stop
-and unknown state. A pending host confirmation/authentication retains the same request, emits one
-waiting report and exposes `host_block`; approve/reject in ChatGPT itself. A host
+and unknown state. A pending host confirmation/authentication retains the same
+request, emits one waiting report and exposes `host_block`; approve/reject in ChatGPT itself. A host
 reply resolves only its matching prompt. No automatic approval or new user
-submission continues the wait. Counts separate app dispatches, user-role objects and tool
-returns; they do not measure Chat allowance. It neither starts a service nor
-queries/resumes/cancels the app. No prompt, tool output, account identifiers or
+submission continues the wait. Content-free SSE data pings keep Codex's parsed-event
+idle deadline alive during silent waits; they establish transport liveness, not
+actual model progress, and add no Chat or native transcript item. Counts separate
+app dispatches, user-role objects and tool returns; they do not measure Chat
+allowance. It neither starts a service nor queries/resumes/cancels the app. No prompt, tool output, account identifiers or
 credential is included. A journal observation is not current remote progress or
 proof that native tools have finished; review canonical native history as well.
 
@@ -191,8 +193,8 @@ codex-chatgpt-provider config set history.mode project history.project_name "Cod
 ```
 
 Use optional `history.project_id` to disambiguate an existing exact project.
-Only owned private projects with default memory semantics are currently admitted;
-shared/project-only-memory destinations fail explicitly. Changed destinations
+Only owned, private, unshared projects are admitted; their existing memory scope
+is preserved. Shared destinations fail explicitly. Changed destinations
 affect new lanes; existing conversations stay in place. An uncertain create never
 blindly retries. Project grouping does not reduce stored history or establish
 allowance savings.

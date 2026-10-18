@@ -367,7 +367,10 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(2))
-                .text("connection alive"),
+                // Codex times out waiting for parsed data events; SSE comments
+                // alone do not reset that deadline. This is transport liveness,
+                // never model progress or a public transcript item.
+                .event(SseEvent::default().event("ping").data(r#"{"type":"ping"}"#)),
         )
         .into_response()
 }

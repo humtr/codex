@@ -1307,6 +1307,10 @@ submission counters. Poll the same invocation until the host resolves it or the
 user cancels. A correlated host response clears only its own confirmation; never
 click approval automatically or submit another Chat message to continue. Record
 observed counters before reporting a host block or stream failure.
+Loopback SSE keepalive uses a content-free data `ping` event: upstream's parsed
+SSE idle deadline ignores comment-only heartbeats. This proves transport
+liveness only, not model or native work progress. It adds no transcript item,
+Chat submission or retry; ordinary observer cancellation still reaches the host.
 
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,

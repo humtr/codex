@@ -194,6 +194,56 @@ async fn admission_bounds_and_origin_fail_before_any_host_work() {
 }
 
 #[tokio::test]
+async fn silent_host_keeps_data_events_alive_without_another_exchange_or_transcript_item() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    let mut value = body();
+    value["client_metadata"]["x-codex-turn-metadata"]["thread_id"] = json!("cancellation");
+    let mut stream = send(address, value.to_string().as_bytes(), "").await;
+    let mut raw = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(7), async {
+        let mut buffer = [0; 4096];
+        loop {
+            let count = stream.read(&mut buffer).await.unwrap();
+            assert!(count > 0, "retained stream closed during host wait");
+            raw.extend_from_slice(&buffer[..count]);
+            if String::from_utf8_lossy(&raw)
+                .matches(r#"data: {"type":"ping"}"#)
+                .count()
+                >= 2
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let observed = frames(&String::from_utf8(raw).unwrap());
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.cancelled.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        observed
+            .iter()
+            .filter(|v| v["type"] == "response.output_item.added")
+            .count(),
+        1
+    );
+    assert!(observed
+        .iter()
+        .filter(|v| v["type"] == "ping")
+        .all(|v| v.as_object().unwrap().len() == 1));
+    assert!(!observed.iter().any(|v| v["type"] == "response.completed"));
+    drop(stream);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while fixture.cancelled.load(Ordering::SeqCst) != 1 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    stop.cancel();
+}
+
+#[tokio::test]
 async fn closing_the_native_observer_requests_owned_host_cancellation() {
     let (address, fixture, stop) = start(Config::default()).await;
     let mut value = body();

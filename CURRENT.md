@@ -246,6 +246,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-mcp-qualified-full.log / provider-mcp-complete-native.log / provider-mcp-final-lint.log |83 regular Rust/103 Bun/28 Python, fmt/clippy/release and13 actual Android executor/reviewer/MCP/context fixtures pass. One synthetic app submission returns three actual native effects on original MCP HTTP calls. Stdio multiplex/cancel/fragment preservation, service shutdown, pending owner-generation refusal and settled cold re-entry pass; no Chat |
 | provider-panel-target-full.log / provider-mcp-multiple-index-preflight.log |84 regular Rust/103 Bun/30 Python, fmt/clippy/release pass. Real reauthenticated app with auxiliary index targets passes zero-inference MCP preparation, hidden automatic environment/user-literal preservation and hook cleanup. Connector inference ACK remains separate |
 | provider-mcp-host-wait-full.log / provider-mcp-preflight-review.log |88 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Immutable versus replaced process owner, observed error-path counts, retained confirmation resolve/cancel and reply correlation regressions pass. Corrected actual-app request preparation passes with zero posts; real host approval/return remains separate |
+| provider-sse-idle-regression-before-corrected.log / provider-sse-idle-android-fixed.log / provider-sse-idle-full.log |Actual native 2.5s SSE-idle regression fails with comment-only keepalive; data pings complete four six-second silent fixture waits/three native effects, zero Chat. Wire ping/cancel proof plus89 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Source-only fix, not an activated public runtime |
 | desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
 | provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
@@ -372,12 +373,22 @@ qualification. Unsupported box components remained in its final transcript.
    remains acknowledged/unconfirmed as appropriate. Native tools and the host's
    approval are never synthesized. Actual host resolution and retained native MCP
    tool return still require live proof before admission. The refreshed immutable
-   candidate now retains one live trial at host confirmation (one observed app
-   dispatch/one user object, no native effect); a one-tap viewer notification was
-   sent for the user to resolve the host prompt. Its original app/relay had exited
-   between sessions; restarting reused the same persistent profile without
-   copying credentials or changing Tdev. Preserve stopped/unknown attempts and do
-   not replay them while another generation owns a pending action.
+   candidate retained one live trial at host confirmation (one app dispatch/one
+   user object, no native effect). Opening the viewer initially showed the app's
+   home screen; the active project conversation had to be selected explicitly.
+   By the time its actual Allow once dialog was displayed, native Codex had hit
+   its SSE idle deadline and the Provider acknowledged its stop. No native effect
+   occurred. Comment-only heartbeats did not reset upstream's parsed-event timer.
+   Content-free data pings now preserve that transport deadline without claiming
+   model progress or adding Chat/transcript items. Actual Android regression first
+   reproduces the timeout, then survives four six-second silent fixture waits with
+   a 2.5-second native idle limit, executes three native effects and completes with
+   zero Chat submissions. Wire proof verifies retained wait/cancellation too.
+   The original app/relay had exited between sessions; restart reused the same
+   persistent profile without copying credentials or changing Tdev. Explicit
+   viewer-to-native-lane selection remains an integration task; opening the app
+   alone does not guarantee its pending consent is visible. Preserve stopped or
+   unknown attempts instead of replaying them.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
