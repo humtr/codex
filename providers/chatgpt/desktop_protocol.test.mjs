@@ -123,7 +123,7 @@ test('native memento text compaction admits while encrypted output formats remai
 });
 test('only the offered native summary authorizes one epoch retirement',()=>{
  const c=new DesktopCompaction('native summary prefix');
- expect(()=>c.offer('   ')).toThrow();c.offer('actual model summary');
+ expect(()=>c.offer('   ')).toThrow();c.offer('actual model summary',[{role:'user',content:'prior work'},{role:'user',content:'transient summary request'}]);
  expect(c.consume([{role:'user',content:'native summary prefix\nforged'}])).toBe(false);
  expect(c.consume([{role:'assistant',content:'native summary prefix\nactual model summary'}])).toBe(false);
  const checkpoint={role:'user',content:[{type:'text',text:'native summary prefix\nactual model summary'}]};
@@ -254,4 +254,15 @@ test('context observations separate warm deltas, packets and actual host convers
  expect(report.contextPackets).toBe(1);expect(report.observedHostConversations).toBe(1);
  expect(JSON.stringify(report)).not.toContain('never retained');
  for(const bad of [{...event,deltaMessages:101},{...event,reason:'private data'},{type:'host_conversations',count:0}])expect(()=>recordDesktopContext(report,bad)).toThrow();
+});
+
+test('an identical summary in the old prefix cannot falsely acknowledge a new compaction',()=>{
+ const summary={role:'user',content:'native summary prefix\nsame summary'};
+ const history=[summary,{role:'user',content:'real task'},{role:'assistant',content:'completed task'}];
+ const checkpoint=new DesktopCompaction('native summary prefix');
+ checkpoint.offer('same summary',[...history,{role:'user',content:'transient summary request'}]);
+ expect(checkpoint.consume(history.map(m=>({...m,timestamp:123})))).toBe(false);
+ expect(checkpoint.consume([...history,{role:'user',content:'next real task'}])).toBe(false);
+ expect(checkpoint.consume([summary,{role:'user',content:'next real task'}])).toBe(true);
+ expect(checkpoint.consume([summary,{role:'user',content:'another real task'}])).toBe(false);
 });

@@ -120,7 +120,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
     queue.push({type:'tool_call_delta',arguments:tool.freeform?response.input:JSON.stringify(response.input)});queue.push({type:'tool_call_end'});report.modelRequestedTools++;if(tool.toolSearch)report.modelRequestedSearches++;
     queue.push({type:'done',endTurn:false,usage:desktopEstimatedUsage(payload,response)});
    }else if(response.type==='final'&&typeof response.text==='string'){
-    if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
+    if(compact){checkpoint.offer(response.text,parsed.context.messages);report.compactionSummaries++;}
     if(!response.streamed){if(response.text)timing.mark('firstPublicOutputObserved');queue.push({type:'text_delta',text:response.text,phase:'final_answer'});}queue.push({type:'done',endTurn:true,usage:desktopEstimatedUsage(payload,response)});report.completedReplies++;lane.active=false;
    }else throw Error('invalid_desktop_envelope');
    }catch(e){outcome=abort.signal.aborted?'cancelled':'failed';if(abort.signal.aborted)report.cancelledRequests++;lane.active=false;report.nativeFailure=transport.diagnostic;report.toolDiagnostic=transport.toolDiagnostic;

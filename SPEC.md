@@ -1235,7 +1235,9 @@ The1m override was a workaround for the user's observed reply/compaction/new-Cha
 summary-transfer cycle on successive prompts. Investigate and reduce that cycle,
 not just token-trigger frequency. Distinguish compaction reason, checkpoint
 acceptance, lane retirement, actual Chat creation and context retransmission.
-An acknowledged checkpoint must be applied once; warm requests must reuse valid
+A checkpoint is acknowledged only after canonical history replacement, not merely
+because identical summary text already appears in the old prefix. An acknowledged
+checkpoint must be applied once; warm requests must reuse valid
 owned conversation/context and send only needed deltas. Do not suppress necessary
 compaction, discard history, replay a submitted request or promise that stored
 host history increases the model's real context capacity. Deterministic regressions

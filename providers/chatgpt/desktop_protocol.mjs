@@ -221,16 +221,24 @@ export function correlatedDesktopCode(codes,correlation){
 
 // Native Core owns history replacement; only the actual offered summary retires this epoch.
 export class DesktopCompaction{
- constructor(prefix){this.prefix=prefix;this.expected=undefined;}
- offer(summary){
+ constructor(prefix){this.prefix=prefix;this.expected=undefined;this.anchor=undefined;}
+ offer(summary,messages){
   if(typeof summary!=='string'||!summary.trim())throw Error('desktop_empty_compaction_summary');
-  this.expected=(this.prefix+'\n'+summary).trim();
+  if(!Array.isArray(messages)||messages.at(-1)?.role!=='user')throw Error('desktop_compaction_context_invalid');
+  // The trailing summary instruction is transient. Retain only an opaque digest
+  // of canonical history, so an identical summary already present there cannot
+  // falsely acknowledge a new replacement and retire the lane again.
+  const history=messages.slice(0,-1);
+  const anchor={length:history.length,digest:this.fingerprint(history)};
+  this.expected=(this.prefix+'\n'+summary).trim();this.anchor=anchor;
  }
+ fingerprint(messages){return createHash('sha256').update(JSON.stringify(messages.map(({timestamp,...message})=>message))).digest('hex');}
  consume(messages){
   if(!this.expected)return false;
   const matched=messages.some(m=>m.role==='user'&&(typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(p=>p.type==='text').map(p=>p.text).join(''):'').trim()===this.expected);
-  if(matched)this.expected=undefined;
-  return matched;
+  if(!matched)return false;
+  if(this.anchor&&messages.length>=this.anchor.length&&this.fingerprint(messages.slice(0,this.anchor.length))===this.anchor.digest)return false;
+  this.expected=undefined;this.anchor=undefined;return true;
  }
 }
 

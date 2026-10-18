@@ -20,7 +20,9 @@ automatically admitted live fallback. User submissions, tool returns, model star
 and Chat allowance deductions are different quantities.
 
 Warm requests reuse their owned prefix. A successful summary instruction remains
-transient unless native history commits its checkpoint. Bounded content-free
+transient unless native history commits its checkpoint. Identical summary text in
+the previous prefix is not a new checkpoint acknowledgment; actual history
+replacement is required before retiring a lane. Bounded content-free
 observations record append/replay, changed instructions/tools and host-acknowledged
 conversation counts; they contain no prompt text. The1m native context setting is
 the user's override, not a measured host capacity. Cross-provider opaque history

@@ -89,7 +89,7 @@ a successful menu, HTTP response or preserved output file alone is insufficient.
 | 4. Project-backed history | Provider: configured ChatGPT project; resolve/reuse or create when absent; bind account/workspace/project IDs; create new owned chats there | Read-only host discovery, no-inference create/reuse/place/readback; then scoped live tool roundtrip. Duplicate/inaccessible/deleted projects, concurrency, uncertain results and app restart pass; no silent root-level fallback. |
 | 5. Complete development and lifetime | Provider/TUI: native search/discovered tools, JSON/freeform/batches, questions, reviewer, errors→repair→tests, parallel work, cancel/reconnect/latest resume | Exact copied-repository trial, user-visible initial/intermediate/final and persisted transcript, one actual effect per call, original-ID returns, surviving sibling on cancel, real-host observer-loss, hours-long work and phone reboot. |
 | 6. Cost/output and alternative transport | Provider/TUI: warm deltas/lazy tool catalogs, latency, public markup handling; complete independent retained MCP original-call return | Separate user-message objects/tool returns/model starts/HTTP/summary/retry counters; no extra user prompt per tool. Confirm exact host call/connector acknowledgment and report its cost; no automatic approval. Both transports share Core execution/transcript ownership. |
-| 7. Selective source integration | Current rewrite/rust-core: active runtime/licenses and96 JS/28 Python tests integrated under providers/chatgpt; port remaining applicable real-Core qualification drivers, separate runtime from research and preserve unique history/edits | No resurrection of old Core/shared-profile/quota/UI/publication code. Port all remaining requirements or mark unshipped optional behavior explicitly; no enabled-but-unqualified fallback. Required supported product paths pass together. |
+| 7. Selective source integration | Current rewrite/rust-core: active runtime/licenses and97 JS/28 Python tests integrated under providers/chatgpt; port remaining applicable real-Core qualification drivers, separate runtime from research and preserve unique history/edits | No resurrection of old Core/shared-profile/quota/UI/publication code. Port all remaining requirements or mark unshipped optional behavior explicitly; no enabled-but-unqualified fallback. Required supported product paths pass together. |
 | 8. Release and activation | Producer/Core: authenticated optional payload inventory, compatibility, install/update/reinstall/rollback and recovery; Base+Full composition | Base excludes Manager/TUI/Provider; Full retains its qualified UI/Manager; Chat opt-in never forces app/rootfs/login on ordinary launch/update. Sign/readback/disposable device proof/CAS before bounded device activation; close experiment after migration and accepted proof. |
 
 Phase1 precedes feature implementation to avoid moving new debt twice. Phase2 sets
@@ -103,9 +103,10 @@ continuation failures are resolved. Do not rewrite all provider code in Rust mer
 to unify language or combine separate processes to reduce their count.
 
 Implementation is in progress: /switch now uses Policy/Accounts/Custom tabs and
-upstream single-line rows, with real-render tests at24/32/40/80 columns. Exact
-native qualification39087518955 targets UI source1acbcd8; it is not published or
-installed. The Core launch/config/account source changes pass the full local gate
+upstream single-line rows, with real-render tests at24/32/40/80 columns. Exact native qualification39088954804 targets final UI sourceb55ea78; it is
+not published or installed. The controller cleared stale frontend output pins
+while the changed recipe awaits successful qualification; public Full60 is
+unchanged. The Core launch/config/account source changes pass the full local gate
 (135 Python/355 Rust, format/lint/build), followed by the affected66 Manager
 profile tests and lint after the final argument guard. The explicitly ignored
 read-only Android smoke also passes. Actual signed disposable Android proof passes
@@ -115,11 +116,16 @@ rejection and Manager-absent native execution. It uses qualified TUI1c413cf;
 new quota UI acceptance is separate. Proofs: product-phase1-complete-check.log,
 manager-final-profile-gate.log, product-preparation-android.{json,log},
 product-android-read-only-smoke.log. No operating activation or real Chat.
-Provider integration runs96 JS and28 Python tests without Chat; this selected
+Provider integration runs97 JS and28 Python tests without Chat; this selected
 runtime gate excludes unrelated historical SIWC/probe suites. The source fixes
 successful-but-uncommitted compaction poisoning the warm prefix: old source fails
 with desktop_context_replaced, candidate keeps one conversation and sends only
-one new user delta. Content-free observations distinguish append/replay, changed
+one new user delta. A second regression prevents an identical older summary in
+the prefix from falsely acknowledging another compaction: only actual canonical
+history replacement consumes the checkpoint. The old source falsely acknowledges
+it; the candidate refuses and accepts the actual replacement once. No extra model
+request, transcript store or service is added. Proof: checkpoint-ack-negative.json.
+Content-free observations distinguish append/replay, changed
 instructions/tools and host-acknowledged conversation counts. This does not prove
 the cause of the user's entire repeated-compaction cycle or allowance deductions.
 Existing operating provider and running jobs remain unchanged. Private proofs:
