@@ -3,6 +3,17 @@ use codex_chatgpt_provider::config::{self, HistoryMode};
 fn run() -> Result<(), String> {
     let mut args = std::env::args_os().skip(1);
     match args.next().as_deref().and_then(|arg| arg.to_str()) {
+        Some("models") => {
+            if args.next().is_some() {
+                return Err("unexpected model catalog argument".into());
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(codex_chatgpt_provider::models::CATALOG)
+                    .map_err(|_| "model catalog serialization failed")?
+            );
+            Ok(())
+        }
         Some("config") => match args.next().as_deref().and_then(|arg| arg.to_str()) {
             Some("show") | Some("effective") => {
                 if args.next().is_some() {
@@ -83,8 +94,8 @@ fn run() -> Result<(), String> {
                 Ok(())
             }
             _ => Err(
-                "usage: codex-chatgpt-provider config <show|effective|validate|set FIELD VALUE>"
-                    .into(),
+            "usage: codex-chatgpt-provider <models|config show|effective|validate|set FIELD VALUE>"
+                .into(),
             ),
         },
         _ => Err(

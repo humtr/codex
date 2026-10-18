@@ -26,6 +26,13 @@ this file does not define a competing roadmap.
 | Optional remote viewer | Browser JS/TS/CSS assets; not a mandatory inference path |
 | Build/research/qualification helpers | Rust, Python or shell as appropriate; not product runtime dependencies |
 
+The candidate binary's `models` command emits its provider capability catalog;
+`config show`, `config effective`, `config validate` and `config set FIELD VALUE`
+operate on the same XDG-owned file. It currently exposes GPT-6 standard controls
+and a Pro entry marked execution-unverified. GPT-5.6 stays deferred in this Rust
+catalog. These commands are source qualification surfaces, not installed public
+commands or proof of account entitlement.
+
 Current code demonstrates an app JS/React connection point; it does not establish
 the language of every part of the desktop app. Moving the adapter to Rust must not
 move credentials out of the app, duplicate tool execution, add model requests or

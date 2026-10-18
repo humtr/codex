@@ -1,4 +1,5 @@
 //! One user-owned provider configuration, independent of Core and Manager.
+use crate::models;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -129,14 +130,10 @@ impl Config {
         if self.version != FORMAT_VERSION {
             return Err(ConfigError::Invalid("unsupported configuration version"));
         }
-        if self.model.default != "chatgpt-desktop/gpt-6"
-            && self.model.default != "chatgpt-desktop/gpt-6-pro"
-        {
+        if models::find(&self.model.default).is_none() {
             return Err(ConfigError::Invalid("unsupported default model"));
         }
-        if !["none", "medium", "high", "xhigh"].contains(&self.model.reasoning_effort.as_str())
-            || self.model.default.ends_with("-pro") && self.model.reasoning_effort != "none"
-        {
+        if !models::supports(&self.model.default, &self.model.reasoning_effort) {
             return Err(ConfigError::Invalid("unsupported model reasoning effort"));
         }
         if !(MIN_CONTEXT_TOKENS..=MAX_CONTEXT_TOKENS).contains(&self.context.window_tokens) {
