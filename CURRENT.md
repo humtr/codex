@@ -341,6 +341,15 @@ qualification. Unsupported box components remained in its final transcript.
    path was requested. Verify external poll before spending Chat starts; never
    repoint an unrelated service. Native local-function work is independent of
    this optional fallback's tunnel permission.
+   Prior admin authorization is valid, but the credential itself was not found:
+   default OPENAI_ADMIN_KEY is unset, the recorded
+   ~/.config/tdev-surface-probe/admin.key is absent, related private files/process
+   environments have no recovered admin candidate, and the restoration selector
+   explicitly excludes .config/tdev-surface-probe. No complete6GiB archive scan
+   was performed after that exclusion was found. Existing local hidden-entry
+   helper ~/prj/tdev/examples/surface-probe/enter_key.py can restore the missing
+   credential without sending its value through chat. Do not ask for permission
+   again or mistake ChatGPT sign-in for API tunnel authorization.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
