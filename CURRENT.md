@@ -10,10 +10,10 @@ audit narratives and plans remain in Git.
 | Component | Current authority |
 | --- | --- |
 | Upstream | Qualified0.163.0, source83086188ae0614bd882818ff1aa23f3194962012; release/upstream.json |
-| Installed Full | Actual activation-state and generation inventory select local-relay-hosted-0-163-0-0ec0389aef99-s76; upstream0.163.0; previous Full60 retained |
+| Installed Full | Actual activation-state selects local-relay-hosted-0-163-0-acf1bdb8f531-s86; upstream0.163.0; previous Full85. User confirms85→86 update succeeded; installed launcher and both generations have identical Core bytes |
 | Earlier public Full proof | local-relay-hosted-0-163-0-54f926437ad5-s60; source54f926437ad5093bb11e8d53c3502b810e514071; published2026-10-17T12:42:39Z |
 | Base used by Full60 | local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58, reused byte for byte; previous user Full57 retained |
-| Earlier Full60 TUI proof | Source1c413cf, qualification39027733603; installed Full76 helper is a different signed inventory entry |
+| Earlier Full60 TUI proof | Source1c413cf, qualification39027733603; Full76 helper was a different signed inventory entry |
 | Retained prior TUI candidate | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384; old binding invalidated by changed source recipe, artifact retained/not activated |
 | Installed Chat adapter | Immutable c3642b19a87cdace158f; sourceBase9a5436a plus preserved user1m setting; JS/Bun/Python; app-local function returns |
 | Rust Provider candidate | Recoverable Phase A source acf1bdb8f5316b0f0a0d5e6d4c0893aaa8455dbf; unsigned Android run39173039235 and disposable snapshot restart/rollback accepted; existing authenticated host/AI proof retained; not installed publicly |
@@ -332,6 +332,37 @@ planner/checkpoint hierarchy. Existing user permission and verified remote owner
 remain valid for existing authorized baseline work; they do not turn the pending
 ChatGPT-operated architecture decision into implementation approval.
 
+### Deferred Core follow-up
+
+User-requested, low-priority work to bundle with the next substantive Core change;
+do not implement it now or make it a prerequisite for the Provider work order.
+The85→86 update succeeded, but the user observed `unknown` in the right-hand
+release date/other details. Core bytes were unchanged across those releases.
+
+- Improve update information so upstream Codex, Core, Manager and applicable TUI
+  each have identifiable installed/target versions or source revisions and release
+  dates. Make unchanged or absent optional components and unavailable metadata
+  understandable. Diagnose the missing display data; use authenticated metadata
+  and its actual date meaning, never infer a release date from installation/file
+  time or imply every component changed because the Full sequence increased.
+  Choose a concise, consistent presentation for explicit update and startup prompt
+  when implementing; exact layout and metadata mechanics remain design choices.
+- On every eligible all-TTY, zero-argument bare `codex` launch with a verified
+  available update, show the useful current→target component information and ask
+  whether to update. A prior decline/timeout must not hide that same update on the
+  next eligible launch. Missing optional component details must not hide a verified
+  update or prevent its prompt. Keep discovery/display acquisition bounded,
+  continue normal launch on decline, timeout or failed discovery, and retain
+  rollback/trust guards.
+- Preserve all upstream commands/options and raw execution behavior. Any arguments
+  or any non-terminal standard stream bypass startup discovery, prompts and
+  advisory writes entirely; preserve stdin, argv, streams, exit status and signals.
+  No optional Manager/Provider dependency or unattended activation is introduced.
+
+Before implementation, amend SPEC's current display-acquisition and six-hour
+generation-snooze rules. This records future work, not changed shipped/default
+behavior. Verification belongs to the eventual affected Core change.
+
 ## Context and easy configuration
 
 The Rust authority is $XDG_CONFIG_HOME/codex/providers/chatgpt.toml, default
@@ -520,6 +551,7 @@ without changed inputs, failures or an unresolved boundary.
 | Tools/approval/question | Actual native discovery/correction, independent reviewer allow/deny effects and project isolation, blocking question result on original call | E: broader function/custom/batch and host search behavior, real reviewer judgment/project instruction priority, physical question UI. Quoted executable prefix matching remains an upstream limitation |
 | Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. B–C: full Codex control and two-entry origin/report/finish are new gates, not R11 features |
 | Cost/presentation | Stream-safe MemoryCite/box projection, exact native results and warm prefixes | Count title-model starts, setup/summary/retries and source-specific overhead; defer path-only optimization until C–D unless shared correctness. No claim that counters measure Chat message debits |
+| Core update information/prompt | User-confirmed85→86 success; Core bytes unchanged; release-date/other display details observed as unknown | Low priority with the next substantive Core change: [deferred Core follow-up](#deferred-core-follow-up), including component information and a prompt on each eligible bare launch; preserve upstream/noninteractive behavior |
 | Viewer and desktop | Rust private RFB/HTTP/control fixtures; actual owned fresh-profile RFB; old desktop font/icon observations | E when shipped: physical current Rust viewer/keyboard/scroll/login. Old desktop observations do not qualify a changed viewer; viewer stays optional for inference |
 | Packaging/composition | Independent hosted Android Provider build, source-bound complete inventory and Phase A disposable standalone snapshot lifecycle; TUI/Provider without Manager on actual Android | E: signed optional payload/provisioning and product installer lifecycle, Base alone, Manager without TUI, direct --profile and Full /model, absent/incompatible components, install/reinstall/update/rollback. No implicit desktop download/login |
 | Experiment retirement/publication | Source/provenance and user1m changes preserved; existing Base/Full release process | E: build/smoke/sign/readback/disposable consumer/non-forced promotion then separate activation. F: remove superseded code only after unique-source/license/user-state review; no legacy runtime auto-fallback |
