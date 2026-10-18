@@ -81,7 +81,7 @@ test('MCP wire contract has repository-owned names, preserves IDs and returns co
  assert.deepEqual(entries.map(t=>t.name),['functions__exec','tool_search','mcp__app__read']);
  assert.equal(entries[0].freeform,true);assert.equal(entries[1].toolSearch,true);assert.deepEqual(entries[2].parameters,{type:'object'});
  assert.ok(entries.every(t=>!Object.hasOwn(t,'wireName')));
- const token='a'.repeat(64),result={content:[{type:'text',text:'error from Core'}],isError:true};
+ const token='a'.repeat(64),result={content:[{type:'text',text:'error from native Codex'}],isError:true};
  const returned=await handleNativeMcp(request('tools/call',{name:'native_tool',arguments:{turn_token:token,...args()}}),async row=>{assert.equal(row.token,token);return result;});
  assert.equal(returned.isError,false);assert.deepEqual(JSON.parse(returned.content[0].text).output,result);
  const lines=[];let controller;
@@ -89,6 +89,10 @@ test('MCP wire contract has repository-owned names, preserves IDs and returns co
  const running=runNativeMcp('/absent/socket',input,line=>lines.push(JSON.parse(line)));
  const put=row=>controller.enqueue(new TextEncoder().encode(JSON.stringify(row)+'\n'));
  put(request('tools/list'));await until(()=>lines.length===1);assert.equal(lines[0].id,0);
+ const [metadata,execution]=lines[0].result.tools;
+ assert.deepEqual(metadata.annotations,{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false});
+ assert.deepEqual(execution.annotations,{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true});
+ assert.ok(lines[0].result.tools.every(t=>!/(MUST|Core owns|retry)/.test(t.description)));
  put(request('ping'));await until(()=>lines.length===2);assert.equal(lines[1].id,0);
  put({jsonrpc:'2.0',method:'notifications/initialized'});controller.close();await running;
  assert.equal(lines.length,2);

@@ -1,11 +1,11 @@
-// Repository-owned MCP wire endpoint. Only Core can perform advertised actions.
+// Repository-owned MCP wire endpoint. Only native Codex can perform advertised actions.
 import {localToolCatalog} from './desktop_tool_session.mjs';
 import {callMcpBroker} from './desktop_mcp_broker.mjs';
 
 const token={type:'string',minLength:64,maxLength:64,description:'Exact turn token supplied by the native adapter.'};
 export const nativeMcpTools=[
- {name:'native_catalog',description:'Read the exact current Codex Core tool catalog, including schemas, namespaces, custom and deferred discovery tools.',inputSchema:{type:'object',properties:{turn_token:token},required:['turn_token'],additionalProperties:false},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
- {name:'native_tool',description:'Request one exact Core tool. Core owns execution, approval and transcript. Keep call_id unchanged when retrying delivery of the same action; use a new call_id for a new action. Return user-facing report with the call.',inputSchema:{type:'object',properties:{turn_token:token,call_id:{type:'string',minLength:1,maxLength:160},name:{type:'string'},input:{type:'string',description:'JSON encoded arguments for a function, exact source for custom/freeform tools.'},report:{type:'string',description:'Public progress report before the call, never private reasoning. Empty if unnecessary.'}},required:['turn_token','call_id','name','input','report'],additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true}},
+ {name:'native_catalog',description:'Read the tool names and input schemas available to the selected native Codex turn.',inputSchema:{type:'object',properties:{turn_token:token},required:['turn_token'],additionalProperties:false},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
+ {name:'native_tool',description:'Run one advertised native Codex tool and return its execution result.',inputSchema:{type:'object',properties:{turn_token:token,call_id:{type:'string',minLength:1,maxLength:160},name:{type:'string'},input:{type:'string',description:'JSON encoded arguments for a function, exact source for custom/freeform tools.'},report:{type:'string',description:'Public progress report before the call, never private reasoning. Empty if unnecessary.'}},required:['turn_token','call_id','name','input','report'],additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true}},
 ];
 const errorMessage=error=>/^mcp_[a-z_]+$/.test(error?.message||'')?error.message:'mcp_binding_failed';
 export async function handleNativeMcp(row,invoke,signal){

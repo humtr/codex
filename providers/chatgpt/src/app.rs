@@ -776,12 +776,12 @@ async fn exchange(
             }
         }
         if lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools)) {
-            instructions.push(format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n{}",serde_json::to_string(&request.tools).unwrap()));
+            instructions.push(format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n{}",serde_json::to_string(&request.tools).unwrap()));
         }
         if !request.host_tools.is_empty()
             && lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools))
         {
-            instructions.push(format!("Separate host-side capabilities: {}. These are app-owned search capabilities, not Core function names; do not send them through the local gateway. Keep public findings distinct from native command execution.",serde_json::to_string(&request.host_tools).unwrap()));
+            instructions.push(format!("Separate host-side capabilities: {}. These are app-owned search capabilities, not native Codex function names; do not send them through the local gateway. Keep public findings distinct from native command execution.",serde_json::to_string(&request.host_tools).unwrap()));
         }
         if let Some(mode) = request.compaction {
             if mode == context::Compaction::Checkpoint {

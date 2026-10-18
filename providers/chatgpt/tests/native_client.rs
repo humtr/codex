@@ -110,7 +110,7 @@ fn fixture_operation(s: &mut State, command: Value) -> Result<Value, Error> {
                 });
             s.round = command["round"].as_str().unwrap().into();
             if s.mcp {
-                if let Some(catalog)=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")) {
+                if let Some(catalog)=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n")) {
                             let tools:Value=serde_json::from_str(catalog).unwrap();
                             s.search_key=tools.as_object().unwrap().keys().find(|k|k.rsplit('.').next()==Some("tool_search")).ok_or(Error("fixture_search_unavailable"))?.clone();
                             let found=tools.as_object().unwrap().keys().find(|k|k.contains("fixture") && (k.ends_with(".echo") || k.ends_with("__echo"))).cloned();
@@ -119,7 +119,7 @@ fn fixture_operation(s: &mut State, command: Value) -> Result<Value, Error> {
                         }
             }
             if s.stage == 1 && !s.reviewer {
-                let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
+                let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
                 let tools: Value = serde_json::from_str(catalog).unwrap();
                 s.patch_key = tools
                     .as_object()

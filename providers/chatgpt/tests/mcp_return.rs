@@ -434,6 +434,30 @@ async fn two_http_tool_round_trips_share_one_app_submission_and_the_native_trans
     let address = listener.local_addr().unwrap();
     let router = broker.clone().router();
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    // Discovery remains available without a native capability and cannot grant
+    // execution. Honest side-effect hints let the host apply its own policy.
+    let discovery = rpc(address, json!("discovery"), "tools/list", json!({})).await;
+    let tools = discovery["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0]["name"], "native_catalog");
+    assert_eq!(
+        tools[0]["annotations"],
+        json!({"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false})
+    );
+    assert_eq!(tools[1]["name"], "native_tool");
+    assert_eq!(
+        tools[1]["annotations"],
+        json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true})
+    );
+    for tool in tools {
+        let description = tool["description"].as_str().unwrap();
+        assert!(!["MUST", "Core owns", "retry"]
+            .iter()
+            .any(|v| description.contains(v)));
+    }
+    let refused = rpc(address, json!("unbound"), "tools/call", json!({"name":"native_tool","arguments":{"call_id":"unbound","name":"exec","input":"{}","report":""}})).await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert!(refused.to_string().contains("mcp_turn_unavailable"));
     let state = Arc::new(Mutex::new(AppState::default()));
     let remote = Arc::new(App {
         state: state.clone(),
@@ -574,7 +598,7 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
         hold: true,
     });
     let bridge = McpBridge::new(app, broker.clone(), journal, "My Owned Connector".into()).unwrap();
-    let catalog=format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n{}",serde_json::to_string(&parsed().tools).unwrap());
+    let catalog=format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n{}",serde_json::to_string(&parsed().tools).unwrap());
     let mut tokens = Vec::new();
     let mut waiting = Vec::new();
     let mut offered = Vec::new();

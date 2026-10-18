@@ -153,7 +153,7 @@ impl Request {
             let values = values.as_array().ok_or(Error("invalid_tool_declaration"))?;
             for tool in values {
                 if tool["type"] == "web_search" {
-                    // Host-side search is not a Core function. Preserve the
+                    // Host-side search is not a native Codex function. Preserve the
                     // declaration separately; never invent an executable name.
                     if tool.as_object().is_none_or(|v| {
                         v.keys()

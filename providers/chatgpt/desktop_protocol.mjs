@@ -219,7 +219,7 @@ export function correlatedDesktopCode(codes,correlation){
  return '';
 }
 
-// Native Core owns history replacement; only the actual offered summary retires this epoch.
+// Native Codex owns history replacement; only the actual offered summary retires this epoch.
 export class DesktopCompaction{
  constructor(prefix){this.prefix=prefix;this.expected=undefined;this.anchor=undefined;}
  offer(summary,messages){

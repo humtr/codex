@@ -1,6 +1,6 @@
 # ChatGPT provider
 
-This optional provider is owned by `rewrite/rust-core`. Core executes verified
+This optional provider is owned by `rewrite/rust-core`. Core launches verified
 Codex on Termux; this directory owns Chat transport, model capabilities,
 authentication context and host/conversation lifetime. Manager is not required.
 TUI supplies native transcript/model-selection integration. No provider code is
@@ -83,6 +83,10 @@ verify the actual child executable/arguments and endpoint, not just ready status
 fallback follows an uncertain request. Its `/mcp` HTTP endpoint shares the Provider
 process and common native lane/executor/transcript path. Static discovery reveals
 no native state; a random per-turn capability gates catalog and tool operations.
+Discovery describes capabilities without overriding host approval/retry policy.
+Catalog metadata is read-only; native_tool advertises possible state changes.
+Upstream native Codex owns execution, approvals and canonical history, while the
+Provider validates exact calls and reconciles original results.
 Existing stdio tunnels can invoke this same binary's `mcp-stdio --state PATH`;
 it verifies the already running owned service and forwards bounded JSON-RPC,
 without starting an app or running native tools. Losing/cancelling a tunnel

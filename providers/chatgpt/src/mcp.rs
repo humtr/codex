@@ -163,7 +163,7 @@ impl Broker {
                     }
                     let id = format!("mcp_{}", digest(&(token, &args.call_id)));
                     // Use the same validator as local functions; malformed
-                    // ordinary function JSON remains Core's diagnostic domain.
+                    // ordinary function JSON remains native Codex's diagnostic domain.
                     gateway_calls(
                         &id,
                         &json!({"name":args.name,"input":args.input,"report":args.report})
@@ -350,8 +350,8 @@ async fn http(State(broker): State<Arc<Broker>>, request: Request) -> Response {
         },
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":[
-            {"name":"native_catalog","description":"Read the complete native Codex tool catalog for the exact turn_token supplied by its developer policy.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false}},
-            {"name":"native_tool","description":"Invoke one advertised native Codex tool; wait for its actual result. A delivery retry MUST reuse the exact logical call_id/name/input/report. Core owns approval and execution.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false}}
+            {"name":"native_catalog","description":"Read the tool names and input schemas available to the selected native Codex turn.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},
+            {"name":"native_tool","description":"Run one advertised native Codex tool and return its execution result.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true}}
         ]})),
         "tools/call" => {
             let args = &row["params"]["arguments"];

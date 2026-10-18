@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Mutex;
 
-const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n";
+const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
 #[derive(Default, Serialize, Deserialize)]
 struct Lane {
     gateway: String,
@@ -335,7 +335,7 @@ impl Bridge for McpBridge {
                 journal.write(&key, &*lane)?;
                 let mut submitted = command;
                 let mut native_policy = policy(&instructions);
-                native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Core executes, approves and records actions. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
+                native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Native Codex executes, approves and records actions. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
                 submitted["instructions"] = json!(native_policy);
                 return remote.operation(submitted).await;
             }

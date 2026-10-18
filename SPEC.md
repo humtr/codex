@@ -1285,8 +1285,14 @@ transport.return_path=mcp and a configurable transport.connector_name (default
 Termux Codex). Local functions remain the default; never switch transports after
 uncertain dispatch. The same Provider service exposes a bounded streamable-HTTP
 /mcp endpoint; it is not a second executor. Static discovery discloses no native
-state. The same binary's optional mcp-stdio command verifies an already running
-owned Provider and forwards bounded multiplexed JSON-RPC for an existing tunnel;
+state. Discovery descriptions state capabilities, not instructions overriding the
+host's approval or retry policy. native_catalog is read-only metadata;
+native_tool can execute state-changing tools and must not claim read-only access.
+Exact-call validation and replay protection remain enforced by the Provider.
+Upstream Codex owns tool execution, approvals and canonical history; Termux Core
+only prepares and launches its verified runtime. The same binary's optional
+mcp-stdio command verifies an already running owned Provider and forwards bounded
+multiplexed JSON-RPC for an existing tunnel;
 it never starts an app/service, repeats delivery or executes tools. EOF/request
 cancellation detaches only that observer. A random per-app-turn capability authorizes native_catalog/native_tool;
 each logical call ID binds exact tool/input/report, independently of JSON-RPC IDs.

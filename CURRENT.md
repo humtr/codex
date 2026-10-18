@@ -74,6 +74,98 @@ Public naming is TUI. Existing frontend/manager-tui paths and signed markers ret
 their spelling until a qualified migration. Catalog model/effort/context data
 belongs to Provider configuration; neither Manager nor Core maintains its own list.
 
+## Reviewed dual entry, not yet implemented
+
+The Codex-first MCP workflow is already the bounded R11 proof recorded here: native
+Codex requests inference, ChatGPT calls MCP, the Provider projects real native
+calls, native Codex executes and records them, and results settle the original
+MCP calls before ChatGPT continues/finalizes. It does not launch a second agent.
+This proves the two-command trial, not arbitrary long-development qualification.
+
+A ChatGPT-first entry is a proposed Provider extension, not an existing public
+endpoint. Current native_catalog/native_tool require a capability bound to an
+already-started native inference lane. Adding arbitrary shell access or running
+codex exec with the same ChatGPT driver does not supply the missing bootstrap;
+the latter can recursively wait on the host that is awaiting its MCP result.
+
+Recommended review direction: one upstream thread/turn/executor/history with
+one active model driver and two entry clients. A short authenticated MCP bootstrap
+would establish an explicitly selected local execution home/root and a passive
+Provider driver; it returns a native binding/catalog instead of waiting for the
+whole task or posting another Chat user message. Existing native-call/result
+projection is shared. Public reports and explicit finalization enter the normal
+native Responses stream; no fabricated history, duplicate goal submission or
+second execution authority. Native status/stop stays on app-server RPC. Core
+still only validates/launches/binds; optional Manager/TUI own selection/display.
+An admin/tunnel key alone does not establish the requesting Chat user's identity.
+
+The actual installed0.163 runtime's generated experimental schema includes
+command/exec, thread/shellCommand, thread/inject_items and turn/interrupt.
+Schema generation makes no inference. Direct command/exec creates no thread;
+thread/shellCommand can record a user shell action in a thread but bypasses its
+sandbox policy, and is not a general model-tool dispatcher. Neither provides
+complete native model/tool/report semantics merely by forwarding arbitrary MCP
+calls. Keep normal Responses tool admission/execution as the preferred full path.
+A bootstrap goal is the supplied goal, not an invented exact copy of the host's
+original user message. Native policy arriving in an external MCP result also
+does not acquire the priority of a ChatGPT system instruction; qualify instruction
+priority and keep native approvals/reviewer authoritative. Explicit report/final
+MCP actions are necessary when no app transport observes public host messages;
+ordinary ChatGPT prose is not automatically part of native history.
+
+The user's rejection of blind continuation after observation loss is binding.
+No cancellation behavior changes in this review. Current Responses SSE Drop
+cancels its host exchange; detaching an individual MCP waiter is a narrower
+transport event. A future dual entry must expose actual native activity, stop
+requested versus confirmed, result delivery and observation freshness. MCP alone
+cannot distinguish host thinking from host idle between tool calls or guarantee
+that the ChatGPT Stop button interrupts the native turn. Unknown must stay
+explicitly unknown; a live worker/HTTP response is not visible progress or goal
+completion. Native Stop must fence new calls, interrupt the correct turn and
+confirm settlement/remaining processes before reporting stopped. Resume reads
+latest native history and unresolved original calls; it never replays uncertain
+side effects. Entry transfer requires a settled boundary and one active driver.
+
+A small MCP Apps status/stop UI could use tools/call directly rather than posting
+follow-up Chat messages, while local Codex observes the same native events.
+This is a candidate needing real host visibility/control qualification, not a
+claim of model-idle telemetry or verified allowance savings. ChatGPT-first can
+avoid the local Linux app/CDP dependency; Codex-first automatic initiation still
+needs a model-initiation transport. In external entry, ChatGPT selects the model;
+local /model must not claim to change an unobserved external host model.
+
+External entry also needs explicit context/compaction and independent-reviewer
+handling. The current retained MCP turn refuses active policy/model changes;
+sharing its tool return codec does not qualify host-context replacement. A native
+auto_review request cannot obtain an independent judgment by asking the primary
+Chat conversation to review itself. It needs a separately configured independent
+model transport/context or an explicit user-selected approval mode. If that
+reviewer still uses the Linux app, the app dependency remains for that capability.
+Never downgrade approval policy or deadlock a pending primary tool while waiting
+for the same host to answer its nested reviewer. Full feature parity, including
+compaction/child agents, therefore exceeds a small MCP bootstrap patch.
+
+Proposed gates, before adopting the extension:
+1. Synthetic external entry boots the actual Android native engine, executes
+   multiple calls with one effect each, streams reports/final and keeps the
+   canonical transcript. No Chat, no recursive app submit, no extra agent.
+2. Interrupt during model wait/native execution/approval and disconnect each
+   observer separately. Confirm native stopping/stopped events, remaining owned
+   jobs, stale/unknown UI state and no new admission after explicit Stop.
+3. Same-thread attach/recovery across clients and Provider failure, pending
+   original-call reconciliation, catalog/context refresh, independent reviewer
+   admission, account isolation and conflicting
+   entry rejection. An observing TUI must not resume a second writer.
+4. After declaring scope/estimated Chat consumption, one bounded Instant external
+   trial: physical progress, deliberate interrupted display, Stop and same-thread
+   recovery. Count actual submissions/returns separately; charged Chat message
+   debits remain unknown. No Pro trial or silent transport fallback.
+
+This adds a Provider bootstrap/driver and observer/control integration, not a
+Tdev workflow/SQLite/deployment migration. Keep no-MCP and MCP return transports
+on the same native execution boundary. Do not make this optional extension a
+prerequisite for finishing the already-qualified path's signed composition.
+
 ## Product completion scope and work order
 
 | Order | Work | Current result and next gate |
@@ -358,6 +450,17 @@ qualification. Unsupported box components remained in its final transcript.
    diagnosis without another Chat input. Bounded delegated Allow uses the app's
    real control; it never fabricates consent. Korean CJK fonts are installed and
    physically verified, without changing account language/personalization.
+
+   Discovery now states capabilities rather than overriding host approval/retry
+   policy. Rust and retained reference metadata distinguish read-only catalog
+   access from potentially destructive/non-idempotent tool execution. Prompts and
+   documentation correctly name upstream native Codex as execution/approval/history
+   owner, not Termux Core. Exact-call/replay/capability checks remain enforced.
+   Source gate: Rust97, Bun108, Python30, fmt/clippy/release pass; actual Android14
+   MCP/native/reviewer/context fixtures pass with synthetic host, zero Chat posts.
+   Evidence: provider-discovery-metadata-proof.json and matching full/Android logs.
+   No cancellation behavior, operating runtime or public release changed. Actual
+   host warning disappearance under these new descriptions is not qualified.
 
    Runs use immutable binary snapshots. Reconfigured tunnel aliases must be
    explicitly reconnected at a settled boundary: configuration/ready metadata can

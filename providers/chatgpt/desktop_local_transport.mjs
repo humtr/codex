@@ -256,7 +256,7 @@ export class DesktopLocalTransport{
    signal?.throwIfAborted();if(this.blocked)throw Error('desktop_native_delivery_unknown');await this.retiring;
    if(this.lease?.currentGeneration&&this.lease.currentGeneration()!==this.generation){
     // A positively identified new app generation cannot receive returns on the
-    // old local-function lane. Reconstruct from Core's canonical history before
+    // old local-function lane. Reconstruct from native Codex's canonical history before
     // dispatch; never replay a native command or retry uncertain delivery.
     this.lease.release();this.lease=undefined;this.dispatched=0;this.observedCounts=undefined;this.observedServerConversations=0;
     this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;
@@ -284,7 +284,7 @@ export class DesktopLocalTransport{
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
    if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (call the exact name; preserve schemas and custom input):\n'+JSON.stringify(localToolCatalog(payload.tools)));
    if(prepared.mode==='replay'){
-    instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. For independent tools use calls: a JSON-encoded array of {name,input} pairs, omitting singular name/input. Core executes each separately and returns all results in one original tool response. Never batch dependent steps or guess results. Never hand off to Work/Codex or use desktop builtin tools instead.');
+    instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Native Codex displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. For independent tools use calls: a JSON-encoded array of {name,input} pairs, omitting singular name/input. Native Codex executes each separately and returns all results in one original tool response. Never batch dependent steps or guess results. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
    const delta=residentDelta(prepared,this.projection),taskMessages=localTaskMessages(delta,this.lane);

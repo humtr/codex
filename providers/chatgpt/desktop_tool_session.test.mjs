@@ -109,7 +109,7 @@ test('message counts, including parallel results and new user input, stay separa
  assert.equal(r.observedNativeDispatches,1);
 });
 
-test('explicit gateway batch keeps per-tool arguments and stable Core IDs, one report and one original host result',()=>{
+test('explicit gateway batch keeps per-tool arguments and stable native Codex IDs, one report and one original host result',()=>{
  const entries=[{name:'shell',input:'{"cmd":"pwd"}'},{name:'patch',input:'*** Begin Patch\n*** End Patch'},{name:'mcp__github__read',input:'{"path":"owned"}'},{name:'shell',input:'{"cmd":'}];
  const request=(calls=entries)=>({id:'original-host',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify({kwargs:{calls:JSON.stringify(calls),report:'Public batch report'}})}});
  const s=new DesktopToolSession(),events=[],calls=s.decode(request(),'gateway',tools);

@@ -97,7 +97,7 @@ impl Bridge for App {
                     && !(matches!(self.1, Scenario::InterruptedAutomatic)
                         && submissions.len() == 2);
                 if matches!(self.1, Scenario::Question) && submissions.len() == 1 {
-                    let catalog=last["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).unwrap();
+                    let catalog=last["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n")).unwrap();
                     let tools: Value = serde_json::from_str(catalog).unwrap();
                     let key = tools
                         .as_object()

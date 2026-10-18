@@ -330,7 +330,7 @@ test('a completed call ID cannot be silently repurposed for different arguments'
  assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,1);assert.equal(f.transport.blocked,true);await f.transport.close();
 });
 
-test('one host batch projects distinct Core tools and returns exact results once on its original host call',async()=>{
+test('one host batch projects distinct native Codex tools and returns exact results once on its original host call',async()=>{
  const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{"cmd":"pwd"}'},{name:'patch',input:'source'}],report:'Batch progress'}}],[publicText('final','done','final')]]);
  try{
   const first=await f.exchange();assert.equal(first.calls.length,2);
