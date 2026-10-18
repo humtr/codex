@@ -28,6 +28,12 @@ queries/resumes/cancels the app. No prompt, tool output, account identifiers or
 credential is included. A journal observation is not current remote progress or
 proof that native tools have finished; review canonical native history as well.
 
+`stop [--state PATH]` explicitly requests graceful shutdown of the verified
+Provider service using a PID-bound kernel handle. It preserves journal, app profile
+and configuration, refuses a mismatched/reused process and reports an unconfirmed
+stop without force-killing the service. Native Codex and completed tool effects
+are not rolled back. Older kernels without the handle capability fail explicitly.
+
 These paths have deterministic TCP/app-wire fixtures and actual Android Codex
 native-command/transcript proof. Rust directly boots/stops a fresh official app
 through private Chromium pipes, PRoot and Xvnc; no Bun/Python host is required for

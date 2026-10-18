@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | token [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | token [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -19,7 +19,7 @@ fn run() -> Result<(), String> {
         .collect::<Result<_, _>>()?;
     if matches!(
         args.first().map(String::as_str),
-        Some("serve" | "status" | "token" | "prepare")
+        Some("serve" | "status" | "stop" | "token" | "prepare")
     ) {
         return runtime_command(&args);
     }
@@ -234,6 +234,16 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                         None => runtime::status(&root).await,
                     }
                 })
+                .map_err(|e| e.to_string())?;
+            text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
+        }
+        "stop"
+            if !fields.contains_key("--descriptor")
+                && !fields.contains_key("--port")
+                && !fields.contains_key("--home") =>
+        {
+            let value = executor
+                .block_on(runtime::stop(&root))
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }

@@ -1192,6 +1192,15 @@ stop state is not completion, and tools-ready means awaiting native execution or
 results. If the local endpoint is unavailable, retain the observed lane state and
 say its current remote activity is unknown. Inspection never resumes or cancels
 work or infers Chat allowance deductions.
+An explicit Provider `stop --state PATH` requests graceful shutdown of its verified
+local service, including owned app cancellation/teardown, without removing its
+journal, app profile or configuration. Use a PID-bound kernel handle and revalidate
+the recorded process before signaling; never signal an unverified reused PID or
+fall back to a broad process match. Bound acknowledgment time, report an unconfirmed
+stop if the owner remains, and never automatically force-terminate the service.
+Existing bounded teardown of that service's own child groups is unchanged.
+An unavailable kernel signaling capability fails explicitly. Stopping this service
+does not stop the native Codex engine or undo completed native tool effects.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter

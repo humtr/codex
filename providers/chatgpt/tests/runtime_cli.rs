@@ -114,6 +114,48 @@ fn restart_retains_registered_endpoint_rotates_credentials_and_refuses_port_coll
         std::fs::read(home.join("chatgpt.config.toml")).unwrap(),
         profile
     );
+    let fake_state = root.0.join("untrusted-service-record");
+    let journal = Journal::open(&fake_state).unwrap();
+    let mut wrong = Process::read(second.0.id()).unwrap();
+    wrong.start.push('0');
+    journal
+        .write(
+            &digest(&"termux-codex-responses-service-v1"),
+            &json!({"schema":"termux-codex-responses-service-v1","process":wrong,
+            "port":1,"token":"c".repeat(48)}),
+        )
+        .unwrap();
+    let refused = Command::new(binary)
+        .arg("stop")
+        .arg("--state")
+        .arg(&fake_state)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("stale_process_owner"));
+    assert!(
+        credential().len() == 49,
+        "a mismatched record must not stop the real owner"
+    );
+    let stopped = Command::new(binary)
+        .arg("stop")
+        .arg("--state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    let stopped: Value = serde_json::from_slice(&stopped.stdout).unwrap();
+    assert_eq!(stopped["stopped"], true);
+    assert_eq!(stopped["forced_service_termination"], false);
+    assert_eq!(
+        std::fs::read(home.join("chatgpt.config.toml")).unwrap(),
+        profile
+    );
+    assert!(state.join("owner-v1").is_file());
     drop(second);
 
     let port = url

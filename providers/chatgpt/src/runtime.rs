@@ -268,6 +268,43 @@ pub async fn thread_status(root: &Path, thread: &str) -> Result<serde_json::Valu
         "inference_submitted":false,"service_started":false}))
 }
 
+pub async fn stop(root: &Path) -> Result<serde_json::Value, Error> {
+    use std::os::fd::FromRawFd;
+    let selected = binding(root)?;
+    // Pin the process first, then repeat the full start-time/executable check.
+    // No numeric-PID signal fallback on kernels without this capability.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, selected.process.pid, 0) };
+    if fd < 0 {
+        return Err(Error("owned_process_signal_unavailable"));
+    }
+    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd as i32) };
+    selected.process.validate()?;
+    let sent = unsafe {
+        libc::syscall(
+            libc::SYS_pidfd_send_signal,
+            fd.as_raw_fd(),
+            libc::SIGTERM,
+            std::ptr::null::<libc::siginfo_t>(),
+            0,
+        )
+    };
+    if sent != 0 {
+        return Err(Error("provider_stop_request_failed"));
+    }
+    let until = tokio::time::Instant::now() + Duration::from_secs(15);
+    while selected.process.validate().is_ok() {
+        if tokio::time::Instant::now() >= until {
+            return Err(Error("provider_stop_unconfirmed"));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Ok(
+        json!({"schema":"termux-codex-provider-stop-v1","stopped":true,
+        "forced_service_termination":false,"service_signal":"SIGTERM","journal_and_profile_preserved":true,
+        "native_tool_effects_undone":false,"inference_submitted":false}),
+    )
+}
+
 pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Result<(), Error> {
     let config = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
     let settings = store::Snapshot::open(&config)

@@ -228,6 +228,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-presentation-full.log / provider-presentation-native-prefix.log |72 regular Rust/102 Bun/28 Python plus fmt/clippy/release; every UTF-8 presentation prefix stays append-only, literal code/native results preserved, rendered native prefix/cache reuses two app submissions |
 | provider-native-question.log / provider-presentation-native-composed.log | Actual Android blocking native question answers Alpha on original host call; one native user turn, two synthetic app dispatches, no user resubmission. All five native executor/reviewer/MCP plus five context/fork/question fixtures pass. Physical question TUI not observed |
 | provider-android-executable-smoke.json | Hosted39127309252/source45a500e Android API24/Rust1.98 candidate inventory matches and executes help/models/config validate on Android without config/app/state writes or Chat. Unsigned, not stable install admission |
+| provider-explicit-stop-android.log / provider-explicit-stop-full.log | PID-bound explicit service stop works on Android, rejects a forged start-time record without stopping the real owner, preserves journal/profile and supports same-endpoint restart;72 Rust/102 Bun/28 Python plus fmt/clippy/release; no Chat |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -274,7 +275,8 @@ qualification. Unsupported box components remained in its final transcript.
    without claiming fresh app progress. Finish actual startup/identity loading,
    host-loss/cancellation/concurrency/reboot qualification. Authenticated Rust boot/inference now works; its reversible
    device test restored the old controller and original home directory inode.
-   Permanent operating migration and fresh login/provisioning/viewer remain.
+   Explicit PID-bound Provider service stop now passes without altering native
+   history; permanent operating migration and fresh login/provisioning/viewer remain.
 2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
    native↔Chat transfer with pending results/cold resume. An actual Android PTY
    /model round trip now passes with real checkpoint encoding and synthetic
