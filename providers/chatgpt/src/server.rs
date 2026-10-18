@@ -239,12 +239,6 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     if parts.uri.path() != "/v1/responses" || parts.method != "POST" {
         return failure(StatusCode::NOT_FOUND, "not_found");
     }
-    if config.history.mode == crate::config::HistoryMode::Project {
-        return failure(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "project_destination_not_implemented",
-        );
-    }
     let body = match tokio::time::timeout(
         Duration::from_secs(30),
         read_body(&parts.headers, body, &config),

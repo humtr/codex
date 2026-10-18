@@ -12,6 +12,10 @@ pub enum Event {
         delta: String,
     },
     Tool(Call),
+    Checkpoint {
+        id: String,
+        encrypted_content: String,
+    },
     Completed {
         input_tokens: u64,
         output_tokens: u64,
@@ -130,6 +134,20 @@ impl Projection {
                 out.push(self.frame(json!({"type":format!("response.{kind}.delta"),"item_id":call.id,"output_index":index,"delta":call.input})));
                 out.push(self.frame(json!({"type":format!("response.{kind}.done"),"item_id":call.id,"output_index":index,(field):full[field]})));
                 self.items.push(full);
+                out.extend(self.close_items());
+            }
+            Event::Checkpoint {
+                id,
+                encrypted_content,
+            } => {
+                out.extend(self.close_items());
+                let index = self.items.len();
+                let item =
+                    json!({"id":id,"type":"compaction","encrypted_content":encrypted_content});
+                out.push(self.frame(
+                    json!({"type":"response.output_item.added","output_index":index,"item":item}),
+                ));
+                self.items.push(item);
                 out.extend(self.close_items());
             }
             Event::Completed {

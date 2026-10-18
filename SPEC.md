@@ -1357,8 +1357,8 @@ serialize; an external editor changed since opening must cause a conflict rather
 than silently overwrite newer content. No-op changes preserve the existing file.
 An editor failure or invalid buffer preserves the original. Use private bounded
 files, reject symlink/nonregular destinations, and publish without hard links.
-The draft project fields are history.mode, history.project_name and
-history.create_if_missing; project_id and account/workspace-scoped bindings are
+The project fields are history.mode, history.project_name,
+history.project_id and history.create_if_missing; account/workspace-scoped bindings are
 added only with qualified host discovery. Retained history remains the migration
 default; choosing project mode requires a name and defaults creation to enabled.
 Neither saving that choice nor listing models proves a host operation is available.
@@ -1405,13 +1405,23 @@ host history increases the model's real context capacity. Deterministic regressi
 must cover repeated checkpoints, unchanged prefixes, compaction failure, restart
 and model/effort changes before budgeted live qualification. Report message
 submissions separately from tool returns and model starts.
+Recognize compaction from upstream request metadata and its explicit trailing
+`compaction_trigger`, rather than guessing from user prose. Text-summary requests
+return ordinary summary text; remote V2 returns one Provider-issued `compaction`
+item containing an `ocx1:` public-summary envelope. This envelope is readable
+Provider context, not encrypted OpenAI reasoning or a way to decode foreign opaque
+checkpoints. Never execute tools in a compaction round. A transient summary prompt
+and reply do not become the accepted native prefix. Keep the pre-summary canonical
+history until upstream replaces it with the exact offered checkpoint. Retire that
+settled remote lane once after replacement, preserving its chat and pending-call
+integrity; an unchanged old prefix containing identical summary text is not an ACK.
 
 The provider should accept a ChatGPT project destination, resolve it in the
 currently authenticated Chat account/workspace and create it when absent, as
 configured. This is a remote ChatGPT project, not the local CWD, a Manager login
-profile or an OpenAI API project. Proposed fields include history.mode=project,
-history.project_name and history.create_if_missing; an optional exact ID
-disambiguates existing projects. The configured destination is the default for
+profile or an OpenAI API project. Fields are `history.mode=project`,
+`history.project_name`, `history.create_if_missing` and optional `history.project_id`
+for an exact existing destination. The configured destination is the default for
 new provider-owned conversations. Existing conversations are not moved/deleted
 implicitly. A project/retention change applies to new lanes at a safe boundary;
 model/effort changes should reuse an existing owned conversation when supported.
@@ -1420,7 +1430,10 @@ Host account/workspace identity plus exact project ID binds remote placement.
 Reuse an unambiguous owned/readable matching project; duplicate names, missing
 permissions and inaccessible IDs require a useful error, not another account or
 silent root-level chat. Serialize owned creation and reconcile uncertain results
-before retrying. Verify project membership before sending the first user request;
+before retrying. A definite server rejection is distinct from uncertain delivery;
+only the latter blocks another creation until reconciled. Use the app's omitted
+defaults instead of supplying nullable memory/sharing options. Verify project
+membership before sending the first user request;
 if creation succeeded but placement failed, report the partial state and retain
 the known project for reconciliation. Do not create one project per tool result.
 Retire/replace a local-function lane only when its pending tools/results are
@@ -1440,8 +1453,11 @@ be explicit, scoped and independently qualified; never mass-delete existing chat
 Official product documentation supports projects and shared project context, but
 does not prove this signed-app adapter can create or select one using its local
 function return transport. Read-only host capability/operation discovery precedes
-implementation; then prove create/reuse/place/readback without model sampling,
-followed by a budgeted native tool round trip. Use the signed app's own auth and
+implementation; then prove project create/reuse/readback without model sampling.
+Verify the declared destination before starting inference and read back actual
+conversation membership after the budgeted native tool round trip. A new remote
+conversation may not exist on the server until its first admitted model request;
+metadata-only preparation must not be reported as persisted conversation placement. Use the signed app's own auth and
 supported app behavior; do not extract tokens or invent unsupported endpoints.
 If the current app cannot express the operation, report the exact boundary and
 qualify an owned UI fallback before any ambiguous submission; do not silently

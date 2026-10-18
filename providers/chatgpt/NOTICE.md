@@ -19,3 +19,12 @@ License texts are retained under [licenses](licenses/bridge-LICENSE), including
 Desktop application binaries, logins, profiles, tokens and rootfs/user data are
 not vendored here. Source integration does not grant redistribution rights for
 third-party desktop application binaries.
+
+`native-summary-prefix.txt` retains the upstream Codex compaction prefix from
+OpenAI's Apache-2.0 source at83086188ae0614bd882818ff1aa23f3194962012,
+`codex-rs/prompts/templates/compact/summary_prefix.md`. It is an upstream wire/history
+fixture (license retained as [upstream Codex](licenses/upstream-codex-LICENSE)),
+not a model-family list or a translated ChatGPT application component.
+Rust owns checkpoint admission and acknowledgment independently. Existing
+`desktop_protocol.mjs` guards inform equivalent Rust regression cases; their
+original provenance above remains preserved.

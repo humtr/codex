@@ -48,6 +48,9 @@ impl ChildGroup {
         Ok(Self { child, pid })
     }
     async fn stop(&mut self) {
+        if self.pid == 0 {
+            return;
+        }
         // Keep the leader unreaped until signalling its private group: its PID cannot
         // be recycled into an unrelated group while this child handle owns it.
         unsafe {
@@ -65,6 +68,7 @@ impl ChildGroup {
         self.pid = 0;
     }
 }
+
 impl Drop for ChildGroup {
     fn drop(&mut self) {
         if self.pid != 0 {
@@ -364,5 +368,42 @@ impl OwnedHost {
         .await;
         self.app.stop().await;
         self.display.stop().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn repeated_owned_stop_never_signals_the_callers_process_group() {
+        // Isolate the negative control: a regression to kill(0, SIGTERM) must
+        // fail this helper, never terminate the developer's terminal/processes.
+        if std::env::var_os("CODEX_HOST_STOP_HELPER").is_none()
+            || unsafe { libc::getpgrp() != libc::getpid() }
+        {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "host::tests::repeated_owned_stop_never_signals_the_callers_process_group",
+                ])
+                .env("CODEX_HOST_STOP_HELPER", "1")
+                .process_group(0)
+                .kill_on_drop(true)
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap();
+            let status = tokio::time::timeout(Duration::from_secs(10), child.wait())
+                .await
+                .expect("stop helper timeout")
+                .unwrap();
+            assert!(status.success(), "repeated stop must preserve its caller");
+            return;
+        }
+        let mut command = Command::new("sleep");
+        command.arg("30");
+        let mut group = ChildGroup::spawn(&mut command).unwrap();
+        group.stop().await;
+        assert_eq!(group.pid, 0);
+        group.stop().await;
     }
 }

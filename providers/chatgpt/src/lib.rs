@@ -7,6 +7,7 @@ pub mod cdp;
 pub mod context;
 pub mod host;
 pub mod journal;
+pub mod project;
 pub mod projection;
 pub mod protocol;
 pub mod registration;

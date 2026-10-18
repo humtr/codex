@@ -32,6 +32,7 @@ async function termuxCodexBridge(command) {
       state.hooks[name] = function(...args) {
         const request = name === 'startCompletionStream' ? args[0]?.request : args[0], lane = owner(request);
         if (!lane) return state.saved[name].apply(this,args);
+        if (lane.project && request.gizmo_id !== lane.project) fail('project_membership_unconfirmed');
         const template = request.local_function_signatures?.some(f => f.name === 'handoff');
         const prepared = lane.declared && request.local_function_signatures?.length === 1 && JSON.stringify(request.local_function_signatures[0]) === JSON.stringify(lane.signature);
         if (!scope.get(shared.HAt) || !template && !prepared) fail('app_local_declaration_unavailable');
@@ -82,6 +83,52 @@ async function termuxCodexBridge(command) {
     return {ready: true};
   }
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
+  const identity = () => {
+    const auth=state.scope.get(state.shared.xNt);
+    if (!auth || auth.authLoading || auth.accountLoading || auth.authMethod!=='chatgpt' ||
+        typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
+        typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||
+        !['personal','workspace'].includes(auth.accountStructure)) fail('app_auth_context_unavailable');
+    return {account:auth.accountId,user:auth.userId,structure:auth.accountStructure};
+  };
+  if (['project_list','project_read','project_create'].includes(command.op)) {
+    const check = () => { const current=identity();if (['account','user','structure'].some(k=>current[k]!==command.identity?.[k])) fail('app_account_changed'); };
+    const api=state.wire;
+    if (typeof api.safeGet!=='function'||typeof api.safePost!=='function') fail('app_project_operations_unavailable');
+    const project = value => {
+      const g=value?.gizmo,auth=state.scope.get(state.shared.xNt);
+      if(typeof g?.id!=='string'||typeof g.display?.name!=='string')fail('invalid_project_identity');
+      const user=auth.accountStructure==='personal'?auth.accountUserId?.split('__')[0]:auth.accountUserId;
+      return {id:g.id,name:g.display.name,compatible:g.id.startsWith('g-p-')&&g.author?.user_id===user&&
+        !g.first_party_project_type&&!g.gizmo_snorlax_type&&g.share_recipient==='private'&&
+        value.hasSharingSubjects!==true&&(g.sharing?.subjects?.length??0)===0&&g.memory_scope!=='project_v2'};
+    };
+    check();
+    if(command.op==='project_read') {
+      const value=await api.safeGet('/gizmos/{gizmo_id_or_short_url}',{parameters:{path:{gizmo_id_or_short_url:command.project},query:{include_file_limits:true}}});
+      check();return project(value);
+    }
+    if(command.op==='project_create') {
+      let value;
+      try { value=await api.safePost('/projects',{requestBody:{name:command.name,instructions:''},retry:'never',assertRequestCurrent:check}); }
+      catch(error) {
+        if([400,401,403,404,422,429].includes(error.responseStatus))fail('project_creation_rejected');
+        throw error;
+      }
+      check();if(value.error!=null&&!value.resource)fail('project_creation_rejected');
+      if(!value.resource)fail('project_creation_unconfirmed');return project(value.resource);
+    }
+    const result=[],seen=new Set();let cursor=null;
+    do {
+      const value=await api.safeGet('/gizmos/snorlax/sidebar',{parameters:{query:{conversations_per_gizmo:0,cursor,limit:20,owned_only:true}}});
+      check();if(!Array.isArray(value.items))fail('invalid_project_list');
+      for(const item of value.items)result.push(project(item.gizmo));
+      cursor=value.cursor??null;
+      if(cursor!==null&&(typeof cursor!=='string'||seen.has(cursor))||result.length>5000)fail('project_list_bound_exceeded');
+      seen.add(cursor);
+    }while(cursor!==null);
+    return result;
+  }
   if (command.op === 'dispose') {
     if (state.lanes.size) fail('app_lanes_active');
     for (const name of ['prepareCompletionStream','startCompletionStream']) if (state.client[name] === state.hooks[name]) state.client[name] = state.saved[name];
@@ -90,18 +137,13 @@ async function termuxCodexBridge(command) {
     return {disposed:true};
   }
   if (command.op === 'identity') {
-    const auth=state.scope.get(state.shared.xNt);
-    if (!auth || auth.authLoading || auth.accountLoading || auth.authMethod!=='chatgpt' ||
-        typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
-        typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||
-        !['personal','workspace'].includes(auth.accountStructure)) fail('app_auth_context_unavailable');
     // Return identifiers only; never tokens, email or the complete auth state.
-    return {account:auth.accountId,user:auth.userId,structure:auth.accountStructure,present:state.lanes.has(command.lane)};
+    return {...identity(),present:state.lanes.has(command.lane)};
   }
   if (command.op === 'open') {
     const existing=state.lanes.get(command.lane);
     if (existing) {
-      if (JSON.stringify(existing.signature)!==JSON.stringify(command.signature)) fail('app_lane_declaration_changed');
+      if (JSON.stringify(existing.signature)!==JSON.stringify(command.signature) || existing.project!==(command.project??null)) fail('app_lane_declaration_changed');
       return {localId:existing.localId};
     }
     // A released final lane restores app methods; retain the owned session so
@@ -113,7 +155,7 @@ async function termuxCodexBridge(command) {
     if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
     state.wire.streamPost = state.hooks.streamPost;
     const localId = state.api.aCn(state.scope);
-    state.lanes.set(command.lane,{localId,marker:command.lane,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,terminals: []});
+    state.lanes.set(command.lane,{localId,marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,terminals: []});
     return {localId};
   }
   const lane = state.lanes.get(command.lane);
@@ -135,6 +177,14 @@ async function termuxCodexBridge(command) {
       stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
   };
   if (command.op === 'snapshot') return snapshot();
+  if (command.op === 'project_membership') {
+    if (!lane.project || !lane.serverId || lane.pending || lane.streamActive) fail('project_membership_unsettled');
+    const before=identity();
+    const conversation=await state.wire.safeGet('/conversation/{conversation_id}',{parameters:{path:{conversation_id:lane.serverId}}});
+    if (JSON.stringify(identity())!==JSON.stringify(before)) fail('app_account_changed');
+    if (conversation.gizmo_id!==lane.project) fail('project_membership_unconfirmed');
+    return {verified:true};
+  }
   if (command.op === 'stop') {
     lane.stopRequested = true;
     lane.controller?.abort();
@@ -153,7 +203,7 @@ async function termuxCodexBridge(command) {
     const results = command.results || [], context = (command.messages || []).map(message);
     const instructions = command.instructions || [];
     lane.resultOnly = results.length > 0 && !context.some(m => m.author.role === 'user');
-    const options = {conversationId: lane.localId,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
+    const options = {conversationId: lane.localId,projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
       onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
     if (results.length === 1 && !context.length && !instructions.length) {

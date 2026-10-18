@@ -81,7 +81,7 @@ impl Bridge for Remote {
                 let init = json!({"op":"init","owner":owner,"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
-                    let value = app.evaluate(&expression(&init)).await?;
+                    let value = evaluate_bridge(&app, &init).await?;
                     if value["ready"] == true {
                         break;
                     }
@@ -98,7 +98,7 @@ impl Bridge for Remote {
             let app = guard.as_ref().unwrap().app.clone();
             drop(guard);
             command["owner"] = json!(owner);
-            let mut result = app.evaluate(&expression(&command)).await;
+            let mut result = evaluate_bridge(&app, &command).await;
             if command["op"] == "identity" {
                 if let Ok(value) = &mut result {
                     let object = value
@@ -119,8 +119,39 @@ impl Bridge for Remote {
         })
     }
 }
-fn expression(command: &Value) -> String {
-    format!("({})({})", include_str!("app_bridge.js"), command)
+async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
+    // Export only our own static bridge codes. Host exception text may include
+    // account details, request bodies or credentials and never crosses here.
+    let known = [
+        "app_account_changed",
+        "project_destination_incompatible",
+        "app_project_operations_unavailable",
+        "invalid_project_identity",
+        "project_creation_unconfirmed",
+        "project_creation_rejected",
+        "invalid_project_list",
+        "project_list_bound_exceeded",
+        "project_membership_unsettled",
+        "project_membership_unconfirmed",
+        "app_auth_context_unavailable",
+        "app_lane_busy",
+        "app_bridge_owned",
+        "app_local_functions_unavailable",
+    ];
+    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known).unwrap());
+    let result = app.evaluate(&expression).await?;
+    if let Some(code) = result["error"].as_str() {
+        return Err(Error(
+            known
+                .into_iter()
+                .find(|v| *v == code)
+                .unwrap_or("app_bridge_operation_failed"),
+        ));
+    }
+    result
+        .get("value")
+        .cloned()
+        .ok_or(Error("invalid_app_bridge_result"))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -200,6 +231,8 @@ struct Lane {
     user_messages: u64,
     tool_messages: u64,
     dispatches: u64,
+    checkpoint: Option<context::Checkpoint>,
+    project: Option<String>,
 }
 impl Lane {
     fn new(thread: &str) -> Result<Self, Error> {
@@ -221,6 +254,8 @@ impl Lane {
             user_messages: 0,
             tool_messages: 0,
             dispatches: 0,
+            checkpoint: None,
+            project: None,
         })
     }
 }
@@ -229,6 +264,7 @@ pub struct AppHost {
     bridge: Arc<dyn Bridge>,
     journal: Arc<Journal>,
     lanes: Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>,
+    project_lock: Arc<Mutex<()>>,
 }
 impl AppHost {
     pub fn new(bridge: Arc<dyn Bridge>, journal: Arc<Journal>) -> Self {
@@ -236,6 +272,7 @@ impl AppHost {
             bridge,
             journal,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
+            project_lock: Arc::new(Mutex::new(())),
         }
     }
     pub async fn shutdown(&self) {
@@ -283,6 +320,7 @@ impl Host for AppHost {
         let bridge = self.bridge.clone();
         let journal = self.journal.clone();
         let lanes = self.lanes.clone();
+        let project_lock = self.project_lock.clone();
         Box::pin(async move {
             let key = context::digest(&request.thread);
             let mutex = {
@@ -303,8 +341,11 @@ impl Host for AppHost {
             };
             let mut lane = mutex.try_lock().map_err(|_| Error("native_lane_busy"))?;
             let result = exchange(
-                bridge.as_ref(),
-                &journal,
+                LaneServices {
+                    bridge: bridge.as_ref(),
+                    journal: &journal,
+                    project_lock: &project_lock,
+                },
                 &key,
                 &mut lane,
                 &request,
@@ -362,21 +403,35 @@ fn native_output(events: &[Event]) -> Result<Vec<Value>, Error> {
                 }
             }
             Event::Tool(call) => output.push(call.output_item()?),
+            Event::Checkpoint {
+                id,
+                encrypted_content,
+            } => output
+                .push(json!({"id":id,"type":"compaction","encrypted_content":encrypted_content})),
             Event::Completed { .. } => (),
         }
     }
     Ok(output)
 }
 
+struct LaneServices<'a> {
+    bridge: &'a dyn Bridge,
+    journal: &'a Journal,
+    project_lock: &'a Mutex<()>,
+}
 async fn exchange(
-    bridge: &dyn Bridge,
-    journal: &Journal,
+    services: LaneServices<'_>,
     key: &str,
     lane: &mut Lane,
     request: &Request,
     events: &mpsc::Sender<Event>,
     cancel: &CancellationToken,
 ) -> Result<(), Error> {
+    let LaneServices {
+        bridge,
+        journal,
+        project_lock,
+    } = services;
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }
@@ -425,6 +480,21 @@ async fn exchange(
         return Ok(());
     }
 
+    if lane.phase == Phase::Idle
+        && lane
+            .checkpoint
+            .as_ref()
+            .is_some_and(|v| v.acknowledged(request))
+    {
+        bridge
+            .operation(json!({"op":"release","lane":lane.marker}))
+            .await?;
+        let identity = lane.identity.clone();
+        *lane = Lane::new(&request.thread)?;
+        lane.identity = identity;
+        journal.write(key, lane)?;
+    }
+
     if lane.phase == Phase::Stopped {
         if request_digest == lane.request {
             return Err(Error("previous_round_stopped"));
@@ -447,7 +517,7 @@ async fn exchange(
         // Opening allocates no inference. Reconcile the same marker and exact
         // declaration; never create a successor because its reply was lost.
         bridge
-            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway)}))
+            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway),"project":lane.project}))
             .await?;
         lane.phase = Phase::Idle;
         journal.write(key, lane)?;
@@ -463,10 +533,13 @@ async fn exchange(
         return Err(Error("previous_round_unsettled"));
     }
     if lane.phase == Phase::New {
+        let _guard = project_lock.lock().await;
+        lane.project =
+            crate::project::resolve(bridge, journal, &request.history, &observed).await?;
         lane.phase = Phase::Opening;
         journal.write(key, lane)?;
         if bridge
-            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway)}))
+            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway),"project":lane.project}))
             .await
             .is_err()
         {
@@ -521,7 +594,7 @@ async fn exchange(
             })
             .cloned()
             .collect::<Vec<_>>();
-        let messages = context::messages(&import)?;
+        let mut messages = context::messages(&import)?;
         let mut instructions = Vec::<String>::new();
         if lane.prefix.instructions != context::digest(&request.instructions) {
             for value in &request.instructions {
@@ -535,6 +608,21 @@ async fn exchange(
             && lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools))
         {
             instructions.push(format!("Separate host-side capabilities: {}. These are app-owned search capabilities, not Core function names; do not send them through the local gateway. Keep public findings distinct from native command execution.",serde_json::to_string(&request.host_tools).unwrap()));
+        }
+        if let Some(mode) = request.compaction {
+            if mode == context::Compaction::Checkpoint {
+                messages.push(context::Message {
+                    role: "user".into(),
+                    text: context::SUMMARY_INSTRUCTION.into(),
+                    hidden: true,
+                });
+            }
+            for message in &mut messages {
+                message.hidden = true;
+            }
+            instructions.push(context::SUMMARY_INSTRUCTION.into());
+        } else if lane.checkpoint.is_some() && lane.prefix.instructions.is_empty() {
+            instructions.push(context::CONTINUE_INSTRUCTION.into());
         }
         let results=results.into_iter().map(|(id,entries)| {
             let outputs=entries.iter().map(|(call,value)|json!({"id":call.id,"name":call.tool.key(),"output":value.get("output").cloned().unwrap_or_else(||value.clone())})).collect::<Vec<_>>();
@@ -645,7 +733,7 @@ async fn exchange(
             }
             let offset = previous.as_ref().map_or(0, |(_, text)| text.len());
             lane.public.insert(id.into(), (phase.into(), text.clone()));
-            if text.len() > offset {
+            if text.len() > offset && request.compaction != Some(context::Compaction::Checkpoint) {
                 publish(
                     lane,
                     events,
@@ -697,6 +785,9 @@ async fn exchange(
             if final_seen && !calls.is_empty() {
                 return Err(Error("final_with_pending_calls"));
             }
+            if request.compaction.is_some() && !calls.is_empty() {
+                return Err(Error("compaction_must_not_call_tools"));
+            }
             if !final_seen && calls.is_empty() {
                 return Err(Error("empty_app_round"));
             }
@@ -740,8 +831,38 @@ async fn exchange(
                     .insert(call.id.clone(), context::digest(value));
             }
             lane.pending = calls;
+            let checkpoint_event = if request.compaction.is_some() {
+                let summary = messages
+                    .iter()
+                    .rev()
+                    .find_map(|v| {
+                        let id = v["id"].as_str()?;
+                        lane.public
+                            .get(id)
+                            .filter(|(phase, _)| phase == "final_answer")
+                            .map(|(_, text)| text.clone())
+                    })
+                    .ok_or(Error("empty_compaction_summary"))?;
+                let checkpoint = context::Checkpoint::offer(request, &summary)?;
+                let event =
+                    (request.compaction == Some(context::Compaction::Checkpoint)).then(|| {
+                        Event::Checkpoint {
+                            id: format!("checkpoint_{}", lane.round),
+                            encrypted_content: checkpoint.encoded().into(),
+                        }
+                    });
+                if let Some(event) = &event {
+                    lane.cached.push(event.clone());
+                }
+                lane.checkpoint = Some(checkpoint);
+                lane.prefix.accept_compaction(request);
+                event
+            } else {
+                let output = native_output(&lane.cached)?;
+                lane.prefix.accept(request, &output);
+                None
+            };
             let output = native_output(&lane.cached)?;
-            lane.prefix.accept(request, &output);
             lane.phase = if lane.pending.is_empty() {
                 Phase::Idle
             } else {
@@ -774,6 +895,12 @@ async fn exchange(
             for call in &lane.pending {
                 events
                     .send(Event::Tool(call.clone()))
+                    .await
+                    .map_err(|_| Error("native_observer_closed"))?;
+            }
+            if let Some(event) = checkpoint_event {
+                events
+                    .send(event)
                     .await
                     .map_err(|_| Error("native_observer_closed"))?;
             }

@@ -8,7 +8,7 @@ const slot=Symbol.for('termux.codex.app.bridge.v1');
 async function fixture(run){
  const root=mkdtempSync(join(process.env.TMPDIR,'app-bridge-'));
  const oldDocument=globalThis.document;
- const wire={streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
+ const wire={async safeGet(path,options){const f=globalThis.appBridgeFixture;if(path==='/conversation/{conversation_id}')return {gizmo_id:f.membership};return path==='/gizmos/snorlax/sidebar'?{items:f.projects.map(gizmo=>({gizmo})),cursor:null}:f.projects.find(v=>v.gizmo.id===options.parameters.path.gizmo_id_or_short_url);},async safePost(path,options){const f=globalThis.appBridgeFixture;expect(path).toBe('/projects');expect(options.retry).toBe('never');expect(options.requestBody).toEqual({name:options.requestBody.name,instructions:''});options.assertRequestCurrent();const p={gizmo:{id:'g-p-fixture',display:{name:options.requestBody.name},author:{user_id:'user'},share_recipient:'private'}};f.projects.push(p);return {resource:p};},streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
  const client={prepareCompletionStream(request){return request;},startCompletionStream(options){
   wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});
   options.onDecodedEvent?.({message:{id:'analysis',author:{role:'assistant'},recipient:'all',channel:'analysis',content:{content_type:'text',parts:['private reasoning']}}});
@@ -16,7 +16,7 @@ async function fixture(run){
   options.onComplete?.({reason:'done'});return true;
  }};
  const original={...client,streamPost:wire.streamPost};
- const f=globalThis.appBridgeFixture={wire,client,sent:[],created:0,gate:true};
+ const f=globalThis.appBridgeFixture={wire,client,sent:[],created:0,gate:true,projects:[]};
  writeFileSync(join(root,'initial.mjs'),`
  export const oMn={kind:'client'},JRn={kind:'messages'};
  export function gRt(){}
@@ -26,13 +26,13 @@ async function fixture(run){
   const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
   const client=globalThis.appBridgeFixture.client;
   options.onServerThreadIdChange?.('server-owned');
-  const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,local_function_signatures:[{name:'handoff'}],messages});
+  const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
   client.startCompletionStream({request});return Promise.resolve(true);
  }
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
@@ -64,6 +64,26 @@ test('owned app hooks preserve unowned requests, actual feature gates and public
  expect(f.wire.streamPost).toBe(original.streamPost);
  expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
  expect(await bridge({op:'init',owner:'new-owned',bindings})).toEqual({ready:true});
+}));
+
+test('project operations preserve app credentials and verify membership before inference',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ const identity={account:'account',structure:'personal',user:'user'};
+ expect(await bridge({op:'project_list',owner:'owned',identity})).toEqual([]);
+ const project=await bridge({op:'project_create',owner:'owned',identity,name:'Codex'});
+ expect(project).toEqual({id:'g-p-fixture',name:'Codex',compatible:true});
+ expect(await bridge({op:'project_read',owner:'owned',identity,project:project.id})).toEqual(project);
+ expect(await bridge({op:'project_list',owner:'owned',identity})).toEqual([project]);
+ expect(f.sent.length).toBe(0);
+ await expect(bridge({op:'project_list',owner:'owned',identity:{...identity,account:'other'}})).rejects.toThrow('app_account_changed');
+ await bridge({op:'open',owner:'owned',lane:'project-lane',project:project.id,signature:{name:'termux_codex_project'}});
+ await bridge({op:'submit',owner:'owned',lane:'project-lane',round:'first',model:'configured',messages:[{role:'user',text:'Task',hidden:false}]});
+ await Promise.resolve();expect(f.sent[0].gizmo_id).toBe(project.id);
+ f.membership=project.id;expect(await bridge({op:'project_membership',owner:'owned',lane:'project-lane'})).toEqual({verified:true});
+ f.membership='g-p-other';await expect(bridge({op:'project_membership',owner:'owned',lane:'project-lane'})).rejects.toThrow('project_membership_unconfirmed');
+ const before=f.sent.length;
+ expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',local_function_signatures:[{name:'termux_codex_project'}],messages:[]})).toThrow('project_membership_unconfirmed');
+ expect(f.sent.length).toBe(before);
 }));
 
 test('app feature gate is required and owner conflicts do not allocate conversations',async()=>fixture(async({f,bindings})=>{

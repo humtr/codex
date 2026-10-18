@@ -26,6 +26,16 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
       const api=await import('app://-/assets/app-initial-ed5807835d97.js');
       const shared=await import('app://-/assets/app-shared-2d77298f0100.js');
       const auth=scope.get(shared.xNt),client=scope.get(api.oMn);
+      const before={account:auth?.accountId,user:auth?.userId,structure:auth?.accountStructure};
+      const projects=await shared.$wt.safeGet('/gizmos/snorlax/sidebar',{parameters:{query:{conversations_per_gizmo:0,cursor:null,limit:20,owned_only:true}}});
+      const projectShape=Array.isArray(projects.items)&&projects.items.every(item=>
+        typeof item.gizmo?.gizmo?.id==='string'&&typeof item.gizmo?.gizmo?.display?.name==='string');
+      let detailShape=true;
+      if(projectShape&&projects.items.length){
+        const detail=await shared.$wt.safeGet('/gizmos/{gizmo_id_or_short_url}',{parameters:{path:{gizmo_id_or_short_url:projects.items[0].gizmo.gizmo.id},query:{include_file_limits:true}}});
+        detailShape=detail.gizmo?.id===projects.items[0].gizmo.gizmo.id&&typeof detail.gizmo?.display?.name==='string';
+      }
+      const after=scope.get(shared.xNt);
       return {
         scope:true,
         authenticated:!!auth&&!auth.authLoading&&!auth.accountLoading&&auth.authMethod==='chatgpt'&&
@@ -36,12 +46,14 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
         identityExport:!!shared.xNt,
         stream:['prepareCompletionStream','startCompletionStream'].every(k=>typeof client?.[k]==='function'),
         localFunctionGate:scope.get(shared.HAt)===true,
-        wire:typeof shared.$wt?.streamPost==='function'
+        wire:typeof shared.$wt?.streamPost==='function',
+        projects:projectShape&&detailShape,
+        sameIdentity:before.account===after?.accountId&&before.user===after?.userId&&before.structure===after?.accountStructure
       };
     })()"#).await.unwrap();
     assert_eq!(
         result,
-        serde_json::json!({"scope":true,"authenticated":true,"localFunctions":true,"identityExport":true,"stream":true,"localFunctionGate":true,"wire":true})
+        serde_json::json!({"scope":true,"authenticated":true,"localFunctions":true,"identityExport":true,"stream":true,"localFunctionGate":true,"wire":true,"projects":true,"sameIdentity":true})
     );
     println!(
         "{}",

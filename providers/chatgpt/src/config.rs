@@ -14,6 +14,7 @@ pub const FIELDS: &[&str] = &[
     "transport.max_decoded_bytes",
     "history.mode",
     "history.project_name",
+    "history.project_id",
     "history.create_if_missing",
     "catalog",
     "host.rootfs",
@@ -104,6 +105,8 @@ pub struct HistoryConfig {
     pub mode: HistoryMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub create_if_missing: bool,
 }
 impl Default for HistoryConfig {
@@ -111,6 +114,7 @@ impl Default for HistoryConfig {
         Self {
             mode: HistoryMode::Retain,
             project_name: None,
+            project_id: None,
             create_if_missing: true,
         }
     }
@@ -206,6 +210,13 @@ impl Config {
         }
         if self.history.mode == HistoryMode::Project && self.history.project_name.is_none() {
             return Err(ConfigError::Invalid("project mode requires a project name"));
+        }
+        if self.history.project_id.as_deref().is_some_and(|v| {
+            !v.starts_with("g-p-")
+                || v.len() > 256
+                || !v.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        }) {
+            return Err(ConfigError::Invalid("project ID is invalid"));
         }
         Ok(())
     }

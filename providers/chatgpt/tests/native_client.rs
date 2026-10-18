@@ -35,12 +35,13 @@ struct App(Arc<Mutex<State>>);
 struct Live {
     remote: codex_chatgpt_provider::app::Remote,
     commands: Mutex<Vec<Value>>,
+    budget: usize,
 }
 impl Bridge for Live {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         if command["op"] == "submit" {
             let mut commands = self.commands.lock().unwrap();
-            if commands.iter().filter(|v| v["op"] == "submit").count() >= 4 {
+            if commands.iter().filter(|v| v["op"] == "submit").count() >= self.budget {
                 return Box::pin(async { Err(Error("qualification_budget_exhausted")) });
             }
             commands.push(command.clone());
@@ -140,10 +141,7 @@ struct Root(PathBuf, bool);
 impl Drop for Root {
     fn drop(&mut self) {
         if self.1 {
-            eprintln!(
-                "unfinished live qualification preserved at {}",
-                self.0.display()
-            );
+            eprintln!("qualification state retained at {}", self.0.display());
             return;
         }
         let _ = fs::remove_dir_all(&self.0);
@@ -158,6 +156,23 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
     let live_descriptor = std::env::var_os("CODEX_PROVIDER_LIVE_DESCRIPTOR");
+    let development = std::env::var_os("CODEX_PROVIDER_DEVELOPMENT").map(|value| {
+        assert_eq!(value, "direct-ai-development");
+        assert!(
+            live_descriptor.is_some(),
+            "actual development requires live arming"
+        );
+        let workspace = PathBuf::from(std::env::var_os("HOME").unwrap()).join("prj/ai");
+        assert!(workspace.join("AGENTS.md").is_file() && workspace.join(".git").exists());
+        let path = PathBuf::from(
+            std::env::var_os("CODEX_PROVIDER_DEVELOPMENT_TASK")
+                .expect("private task file required"),
+        );
+        let task =
+            String::from_utf8(codex_chatgpt_provider::cdp::private_read(&path, 32768).unwrap())
+                .unwrap();
+        (workspace, task)
+    });
     if live_descriptor.is_some() {
         assert_eq!(
             std::env::var("CODEX_PROVIDER_LIVE_CHAT").as_deref(),
@@ -202,6 +217,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         Arc::new(Live {
             remote: codex_chatgpt_provider::app::Remote::new(path.into(), journal.owner.clone()),
             commands: Mutex::new(Vec::new()),
+            budget: if development.is_some() { 40 } else { 4 },
         })
     });
     let bridge: Arc<dyn Bridge> = match &live {
@@ -210,11 +226,23 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     };
     let host = Arc::new(AppHost::new(bridge, journal.clone()));
     let token = random_id().unwrap();
+    let mut config = Config::default();
+    if development.is_some() {
+        config.model.reasoning_effort = "high".into();
+    }
+    if let Some(name) = std::env::var_os("CODEX_PROVIDER_LIVE_PROJECT") {
+        assert!(
+            live.is_some(),
+            "project qualification needs an explicitly armed app"
+        );
+        config.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
+        config.history.project_name = Some(name.into_string().unwrap());
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     journal.write(&codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1"),&json!({"schema":"termux-codex-responses-service-v1","process":Process::read(std::process::id()).unwrap(),"port":port,"token":token})).unwrap();
     codex_chatgpt_provider::registration::prepare(
-        &Config::default(),
+        &config,
         &root.0.join("journal"),
         &root.0.join("registry"),
         &root.0.join("codex"),
@@ -224,7 +252,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     .unwrap();
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
-    let service = Service::new(Config::default(), token.clone(), host.clone()).unwrap();
+    let service = Service::new(config.clone(), token.clone(), host.clone()).unwrap();
     let router = service.router().layer(axum::middleware::from_fn(
         async |request: axum::extract::Request, next: axum::middleware::Next| {
             let (parts, body) = request.into_parts();
@@ -286,7 +314,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         .env("CODEX_HOME", root.0.join("codex"))
         .env("TMPDIR", root.0.join("tmp"))
         .env("TERM", "dumb")
-        .current_dir(root.0.join("work"))
+        .current_dir(development.as_ref().map(|v| v.0.clone()).unwrap_or_else(||root.0.join("work")))
         .args([
             "exec",
             "--json",
@@ -294,7 +322,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             "--dangerously-bypass-approvals-and-sandbox",
             "--profile",
             "chatgpt",
-            if live.is_some(){"Run this exact bounded local transport qualification. Use exec_command once to execute: printf 'effect-1\\n' >> effect-count . Then use apply_patch to add patched.txt containing the one line: real custom tool . Then use exec_command to execute: test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count . Do not use any other tools, commands, network or directories. After successful validation, answer exactly: Native executor verified"}else{"Execute the fixture tools and return the verified result"},
+            if let Some((_,task)) = &development { task } else if live.is_some(){"Run this exact bounded local transport qualification. Use exec_command once to execute: printf 'effect-1\\n' >> effect-count . Then use apply_patch to add patched.txt containing the one line: real custom tool . Then use exec_command to execute: test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count . Do not use any other tools, commands, network or directories. After successful validation, answer exactly: Native executor verified"}else{"Execute the fixture tools and return the verified result"},
         ])
         .kill_on_drop(true);
     unsafe {
@@ -308,8 +336,54 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         });
     }
     let result = tokio::time::timeout(
-        std::time::Duration::from_secs(if live.is_some() { 240 } else { 90 }),
-        command.output(),
+        std::time::Duration::from_secs(if development.is_some() {
+            1200
+        } else if live.is_some() {
+            240
+        } else {
+            90
+        }),
+        async {
+            if development.is_none() {
+                return command.output().await;
+            }
+            use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+            command
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = command.spawn()?;
+            let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+            let mut stderr = child.stderr.take().unwrap();
+            let stdout = async {
+                let mut output = Vec::new();
+                while let Some(line) = lines.next_line().await? {
+                    if let Some(file) = &mut live_transcript {
+                        writeln!(file, "{line}")?;
+                        file.sync_data()?;
+                    }
+                    if let Ok(event) = serde_json::from_str::<Value>(&line) {
+                        eprintln!(
+                            "development native event: {} {}",
+                            event["type"], event["item"]["type"]
+                        );
+                    }
+                    output.extend_from_slice(line.as_bytes());
+                    output.push(b'\n');
+                }
+                Ok::<_, std::io::Error>(output)
+            };
+            let errors = async {
+                let mut bytes = Vec::new();
+                stderr.read_to_end(&mut bytes).await?;
+                Ok::<_, std::io::Error>(bytes)
+            };
+            let (stdout, stderr, status) = tokio::join!(stdout, errors, child.wait());
+            Ok(std::process::Output {
+                stdout: stdout?,
+                stderr: stderr?,
+                status: status?,
+            })
+        },
     )
     .await
     .expect("native execution timeout")
@@ -317,7 +391,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     shutdown.cancel();
     server.await.unwrap();
     host.shutdown().await;
-    if let Some(file) = &mut live_transcript {
+    if let Some(file) = &mut live_transcript.as_mut().filter(|_| development.is_none()) {
         file.write_all(&result.stdout).unwrap();
         file.sync_all().unwrap();
     }
@@ -328,28 +402,44 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         "native exit {:?}\nstdout: {stdout}\nstderr: {stderr}",
         result.status.code()
     );
-    assert!(
-        stdout.contains("Native executor verified"),
-        "{stdout}\n{stderr}"
-    );
+    if development.is_none() {
+        assert!(
+            stdout.contains("Native executor verified"),
+            "{stdout}\n{stderr}"
+        );
+    } else {
+        assert!(
+            stdout
+                .lines()
+                .filter_map(|v| serde_json::from_str::<Value>(v).ok())
+                .any(|v| v["type"] == "turn.completed"),
+            "development turn did not complete"
+        );
+    }
     assert!(
         stdout.contains("command_execution"),
         "native transcript omitted tool execution: {stdout}"
     );
-    assert_eq!(
-        fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
-        "effect-1\neffect-2\n"
-    );
-    if let Some(live) = live {
+    if development.is_none() {
         assert_eq!(
-            fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
-            "real custom tool\n"
+            fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
+            "effect-1\neffect-2\n"
         );
+    }
+    if let Some(live) = live {
+        if development.is_none() {
+            assert_eq!(
+                fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
+                "real custom tool\n"
+            );
+        }
         let submissions = live.commands.lock().unwrap().clone();
-        assert!((2..=4).contains(&submissions.len()));
+        assert!((2..=if development.is_some() { 40 } else { 4 }).contains(&submissions.len()));
         for command in &submissions[1..] {
-            assert!(command["messages"].as_array().unwrap().is_empty());
-            assert!(command["instructions"].as_array().unwrap().is_empty());
+            if development.is_none() {
+                assert!(command["messages"].as_array().unwrap().is_empty());
+                assert!(command["instructions"].as_array().unwrap().is_empty());
+            }
         }
         let mut observation = None;
         for entry in fs::read_dir(&journal.root).unwrap() {
@@ -365,6 +455,16 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
                     observation = Some(
                         json!({"appDispatches":lane["dispatches"],"appUserObjects":lane["user_messages"],"appToolObjects":lane["tool_messages"]}),
                     );
+                    if config.history.mode == codex_chatgpt_provider::config::HistoryMode::Project {
+                        assert!(lane["project"].as_str().unwrap().starts_with("g-p-"));
+                        assert_eq!(
+                            live.remote
+                                .operation(json!({"op":"project_membership","lane":lane["marker"]}))
+                                .await
+                                .unwrap(),
+                            json!({"verified":true})
+                        );
+                    }
                     live.remote
                         .operation(json!({"op":"release","lane":lane["marker"]}))
                         .await
@@ -379,9 +479,23 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         assert!(observation.is_some());
         println!(
             "{}",
-            json!({"accepted":true,"liveNoMcp":true,"nativeEffects":3,"providerSubmissions":submissions.len(),"observation":observation,"proSampled":false,"automaticSubmissionRetry":false})
+            json!({"accepted":true,"liveNoMcp":true,"directAiDevelopment":development.is_some(),"nativeEffects":if development.is_some(){Value::Null}else{json!(3)},"providerSubmissions":submissions.len(),"observation":observation,"proSampled":false,"automaticSubmissionRetry":false,"independentDiffReviewRequired":development.is_some()})
         );
-        root.1 = false;
+        if development.is_some() {
+            let destination =
+                PathBuf::from(std::env::var_os("CODEX_PROVIDER_LIVE_TRANSCRIPT").unwrap())
+                    .parent()
+                    .unwrap()
+                    .join("ai-development-state");
+            assert!(
+                !destination.exists(),
+                "never overwrite previous development evidence"
+            );
+            fs::rename(&root.0, &destination).unwrap();
+            root.0 = destination;
+        } else {
+            root.1 = false;
+        }
         return;
     }
     let s = app.0.lock().unwrap();

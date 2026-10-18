@@ -94,7 +94,8 @@ native checkpoints require readable context transfer. A fresh Chat conversation
 avoids that specific transition but is not blanket qualification of Full60 Chat
 inference. Keep existing conversations; see [current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
 
-Provider configuration and project placement are planned, not released. The
+Provider configuration and project placement are implemented in the Rust candidate,
+not released. The
 configuration target is `~/.config/codex/providers/chatgpt.toml` (honoring
 `XDG_CONFIG_HOME`), with validated context/compaction, model/effort and ChatGPT
 project settings. The observed1,000,000-token override is retained local policy,
@@ -102,8 +103,9 @@ not a verified Chat capacity. Generated model catalogs and immutable source are
 not the intended editing surface. New provider chats should reuse the configured
 remote project or create it when absent; existing chats stay where they are and
 are not deleted. The Rust source candidate has configuration/catalog and Responses transport,
-but the installed pilot does not consume that file; the Rust host/lifetime,
-context and remote project paths are not yet qualified for deployment.
+but the installed pilot does not consume that file. Actual Android manual
+compaction and GPT-6 project-bound tool execution now pass; foreign opaque context,
+authenticated owned-app migration and full lifecycle/release qualification remain.
 See [configuration](CURRENT.md#context-and-easy-configuration) and
 [project behavior](CURRENT.md#chatgpt-projects-and-history).
 

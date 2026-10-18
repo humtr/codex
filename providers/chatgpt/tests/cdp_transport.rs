@@ -220,9 +220,14 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                     "Target.attachToTarget" => json!({"sessionId":"owned-session"}),
                     "Runtime.evaluate" => {
                         let expression = request["params"]["expression"].as_str().unwrap();
-                        let (_, command) = expression.rsplit_once(")(").unwrap();
-                        let command: Value =
-                            serde_json::from_str(command.strip_suffix(')').unwrap()).unwrap();
+                        let command = expression
+                            .split_once("const command=")
+                            .unwrap()
+                            .1
+                            .split_once(";\n")
+                            .unwrap()
+                            .0;
+                        let command: Value = serde_json::from_str(command).unwrap();
                         let value = match command["op"].as_str().unwrap() {
                             "init" => json!({"ready":true}),
                             "identity" => {
@@ -230,7 +235,7 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                             }
                             _ => panic!("identity reattachment must not submit work"),
                         };
-                        json!({"result":{"value":value}})
+                        json!({"result":{"value":{"value":value}}})
                     }
                     _ => panic!("unexpected CDP method"),
                 };

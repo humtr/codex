@@ -32,8 +32,11 @@ private state `startup.log`; no Chat message is sent by authentication/startup.
 The operating adapter is still JS/Bun/Python. Rust transport has real GPT-6/native
 command, patch, validation and final-transcript proof through the existing app's
 explicit private relay. This does not qualify the complete owned-app migration.
-Project placement, native opaque compaction, reboot and full development qualification
-remain unfinished. No production fallback silently selects the Rust candidate. The
+Actual project create/reuse/readback and project-bound GPT-6 native tools now pass.
+Android native manual compaction commits a readable checkpoint and continues the
+same thread; app replies in that separate compaction proof are synthetic. Foreign
+opaque context, owned authenticated migration, reboot and full development
+qualification remain unfinished. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
 
 | Responsibility | Target implementation |
@@ -71,6 +74,13 @@ Set related fields together, for example:
 ```sh
 codex-chatgpt-provider config set history.mode project history.project_name "Codex"
 ```
+
+Use optional `history.project_id` to disambiguate an existing exact project.
+Only owned private projects with default memory semantics are currently admitted;
+shared/project-only-memory destinations fail explicitly. Changed destinations
+affect new lanes; existing conversations stay in place. An uncertain create never
+blindly retries. Project grouping does not reduce stored history or establish
+allowance savings.
 
 These are candidate source commands, not installed public commands. Effective
 output reports file/default origins and `runtime_application=not_queried`.
@@ -115,7 +125,11 @@ transient unless native history commits its checkpoint. Identical summary text i
 the previous prefix is not a new checkpoint acknowledgment; actual history
 replacement is required before retiring a lane. Bounded content-free
 observations record append/replay, changed instructions/tools and host-acknowledged
-conversation counts; they contain no prompt text. The1m native context setting is
+conversation counts; they contain no prompt text. Responses Lite tool declarations are excluded from the accepted conversation
+prefix, so their removal/reinsertion during native compaction does not rewrite
+history. Local text and V2 `ocx1:` summaries stay transient until acknowledged by
+canonical native history replacement; summary-only policy is then removed.
+The1m native context setting is
 the user's override, not a measured host capacity. Cross-provider opaque history
 handoff remains unqualified; do not silently drop or relabel it.
 
@@ -162,8 +176,9 @@ after the Rust no-MCP path is complete, rather than substituting the old adapter
 Configuration remains generated upstream `--profile chatgpt` fallback and TUI
 `/model` routing. The Rust candidate generates settings/catalog/profile outputs, and TUI source
 consumes the new contract. Hosted TUI qualification at310f0f7 passed. Operating
-activation, actual Android TUI composition and
-configured remote project placement remain unfinished. On-demand authentication
+activation and actual Android TUI composition remain unfinished. Configured
+project mode has actual create/reuse and native tool execution/membership proof,
+with account-scoped durable uncertain-creation records. On-demand authentication
 has actual Android fresh-profile startup/restart proof, without inference or
 existing-profile access. Account/host binding and settled cold-lane reconstruction
 have app-wire fixture proof. Real authenticated inference has explicit relay proof;

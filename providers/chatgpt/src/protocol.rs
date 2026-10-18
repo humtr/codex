@@ -49,6 +49,8 @@ pub struct Request {
     pub parent: Option<String>,
     pub turn: Option<String>,
     pub guardian: bool,
+    pub compaction: Option<crate::context::Compaction>,
+    pub history: crate::config::HistoryConfig,
 }
 
 fn id(value: &str) -> bool {
@@ -263,6 +265,7 @@ impl Request {
             .ok_or(Error("native_thread_identity_required"))?;
         let guardian = field("agent_name").as_deref() == Some("guardian")
             || field("subagent_kind").as_deref() == Some("guardian");
+        let compaction = crate::context::Compaction::detect(&input, &metadata)?;
         Ok(Self {
             model,
             effort,
@@ -276,6 +279,8 @@ impl Request {
             parent: field("parent_thread_id"),
             turn: field("turn_id"),
             guardian,
+            compaction,
+            history: config.history.clone(),
         })
     }
 

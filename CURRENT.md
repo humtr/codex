@@ -15,7 +15,7 @@ work. Git retains superseded plans and trial narratives.
 | Published TUI | Source `1c413cf`, qualification 39027733603: 48 maintained native tests, 94 retained upstream checks and lint |
 | Installed opt-in Chat adapter | Payload `c3642b19a87cdace158f`; sourceBase `9a5436a` plus the user's 1m profile change; JS/Bun plus Python; signed-app local-function returns |
 | Provider source integration | Active runtime/tests/licenses copied selectively from experiment `ab41733` to `providers/chatgpt`; later compaction guard and user's 1m edits retained here |
-| Rust Provider | Source candidate now includes Responses HTTP/SSE, CDP, app-local tool return, private lane journal and standalone serve/status/auth commands and direct Rust app startup; native-client and fresh-app pipe proof qualified, operating app/project/context migration pending |
+| Rust Provider | Source candidate now includes Responses HTTP/SSE, CDP, app-local tool return, private lane journal and standalone serve/status/auth commands and direct Rust app startup; native-client, project-bound GPT-6 and fresh-app pipe proof qualified; authenticated owned migration and cross-provider opaque context pending |
 | Mutable pilot catalog | Last read-only inspection found all 5 old entries at 1,000,000 tokens, null explicit auto-compaction threshold; generated settings, not verified capacity |
 | Experimental worktree | `experiment/web-termux` at `08e9856`; user's uncommitted 1m profile/test changes remain intact; worktree/branch not closed |
 
@@ -265,8 +265,8 @@ See `provider-live-no-mcp.log`, `provider-live-no-mcp-recheck.log` and the priva
 `provider-live-no-mcp-native.jsonl`. These counts do not establish allowance units.
 The settled disposable source/home/journal were archived as
 `provider-live-no-mcp-state` under the same private acceptance root, preserving
-the proof while removing its temporary working root. The latest Provider gate
-passes45 Rust cases,100 Bun and28 Python cases plus formatting/lint/release build
+the proof while removing its temporary working root. The earlier Provider gate
+passed45 Rust cases,100 Bun and28 Python cases plus formatting/lint/release build
 (`provider-final-identity-lifetime.log`); ignored live/Android cases are separately
 qualified above, never counted as executed by that offline gate.
 This trial explicitly used the existing authenticated app's private relay; owned
@@ -285,6 +285,24 @@ A larger catalog value alone is not a repair. Preserve canonical history and pen
 results; apply each acknowledged checkpoint once. Deterministic warm-prefix and
 repeated-summary guards already exist in JS and must move with the Rust path.
 
+Native context repair now recognizes actual upstream compaction metadata and
+explicit V2 triggers. Responses Lite declarations are transport metadata, not
+conversation history; their removal during native compaction must not trigger
+`native_context_prefix_changed`. Transient summary prompts/replies do not extend
+the accepted prefix. Apply an offered checkpoint only after actual canonical
+history replacement, exactly once; restore native policy on continuation.
+`provider-compaction-final-android.log` proves actual Android Codex manual compact
+commits its readable summary and continues the same native thread (three synthetic
+app replies, zero Chat submissions). App-engine fixtures cover V2 `ocx1:` summaries,
+restart/acknowledgment and unchanged-history guards. This does not decode foreign
+OpenAI checkpoints or qualify automatic/model-downshift/cross-provider compaction.
+The latter remains an explicit unfinished transition boundary.
+
+The same audit repaired an owned-host shutdown defect: repeated stop could signal
+the caller's process group after the stored PID became zero. A separate-process
+regression now proves repeated stop leaves its caller alive. Normal host startup/
+shutdown and authenticated migration remain separate gates.
+
 ## ChatGPT projects and history
 
 Retain history by default during migration. Configured project mode should reuse
@@ -293,8 +311,9 @@ is not host implementation. Bind exact project ID to authenticated account/works
 resolve duplicate/inaccessible/deleted projects explicitly, reconcile uncertain
 creation and never silently fall back to root chats. Model/effort changes should
 reuse a settled lane; project changes affect new lanes and do not move/delete old
-conversations. The draft scalar fields are `history.mode`, `history.project_name`
-and `history.create_if_missing` (true by default, active in project mode).
+conversations. The Rust fields are `history.mode`, `history.project_name`, optional exact
+`history.project_id` and `history.create_if_missing` (true by default in project
+mode). The installed pilot does not consume these settings.
 
 Project instructions/files/memory can affect behavior. Verify instruction priority,
 native reviewer/tool boundaries and sibling/guardian isolation. Do not alter global
@@ -306,8 +325,29 @@ archive/delete/temporary modes need their own acceptance; never mass-delete chat
 was checked on2026-10-18 and describes user-facing project context. It does not
 establish an API in the installed signed app. Current local-function source retains
 normal chats without project binding; older text transport uses temporary chats.
-Discover actual app-owned operations, then no-inference create/reuse/place/readback,
-then a budgeted native task. Do not invent an endpoint or extract account tokens.
+The Rust bridge now invokes the installed app's authenticated project list, read
+and create operations, with no token export. Read-only discovery passed with zero
+Chat submissions (`provider-project-discovery-android.log`). Actual create/reuse/
+readback of one `Termux Codex` project passed with zero Chat submissions
+(`provider-project-create-minimal-body.log`); the project is preserved. Earlier
+failed probes are retained and do not count as successful acceptance. Use the
+app's minimal creation body and explicit no-retry policy. Creation uncertainty
+is journaled before dispatch and reconciled by exact destination instead of
+blind retry; definite server rejection has a separate recoverable error.
+
+`provider-live-project-native.log` and its private native JSONL prove actual GPT-6
+inference in that project through Rust and Android Codex: two commands plus a
+custom patch/validation, three exact effects, four app dispatches, two user-role
+objects (one visible) and three tool-role returns. No additional user object was
+submitted on tool return. The bridge checks project ID before every stream and
+this driver independently read back the saved conversation's project membership.
+There was no Pro sampling or automatic request replay. Chat allowance deductions
+remain unknown. The installed pilot and existing chats were not changed.
+
+Source fixtures cover duplicate names, inaccessible/deleted exact IDs, account
+scope, definite rejection and uncertain creation reconciliation. Project instruction
+priority, guardian/sibling isolation and complete owned-app migration still need
+qualification; successful HTTP metadata alone does not prove those properties.
 
 ## Confirmed operating Chat blocker
 
@@ -373,6 +413,26 @@ Proof: `chat-full60-operating-diagnosis.json`,
   Chat deductions. Preserve useful text from MemoryCite/unsupported markup without
   executing HTML or fabricating private reasoning. SIWC/public Responses remains
   a distinct research path, not inferred entitlement or automatic fallback.
+
+The current context/project Provider gate passed56 Rust cases,101 Bun cases and28
+Python cases, rustfmt, clippy and release build
+(`provider-context-project-full.log`). Separately executed actual Android proofs
+are `provider-native-fixture-final.log` (three exact native effects, zero Chat),
+`provider-compaction-final-android.log` (same-thread manual checkpoint, zero Chat),
+and the project-bound actual GPT-6 proof described above. Ignored live tests are
+not included in offline counts. Core/Manager/TUI sources are unchanged by these
+Provider repairs.
+
+The direct `~/prj/ai` development gate is now being exercised through this Rust
+no-MCP transport and its qualified authenticated relay, not the legacy Responses
+adapter. Baseline `main` at1f958e5e078b8076a350fa8fac9f7664cbec61f7 was clean and
+`verify/final-verify.sh` passed48 checks with zero warnings/failures before model
+edits. The private task/baseline/transcript and subsequent independent review
+belong to the existing acceptance root. GPT-6 High is bounded to one initial
+user task and at most39 subsequent app submissions, no Pro or automatic replay.
+Do not declare sustained development acceptance before the actual diff and tests
+have been independently inspected. Complete owned-app migration/reboot, foreign
+opaque handoff, independent MCP and signed optional packaging remain separate work.
 
 ## Verification and publication
 

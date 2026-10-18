@@ -126,6 +126,141 @@ async fn execute(host: &AppHost, body: Value) -> Vec<Event> {
     }
     out
 }
+
+async fn settled_history(host: &AppHost) -> Value {
+    let mut body = body();
+    let first = execute(host, body.clone()).await;
+    let items = body["input"].as_array_mut().unwrap();
+    items.extend(output(&first));
+    for event in first {
+        if let Event::Tool(call) = event {
+            items.push(json!({"type":if call.tool.kind==codex_chatgpt_provider::protocol::ToolKind::Custom{"custom_tool_call_output"}else{"function_call_output"},"call_id":call.id,"output":"actual fixture outcome"}));
+        }
+    }
+    let final_events = execute(host, body.clone()).await;
+    body["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&final_events));
+    body
+}
+
+#[tokio::test]
+async fn v2_checkpoint_waits_for_native_history_replacement_then_retires_once() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let host = AppHost::new(app.clone(), journal.clone());
+    let history = settled_history(&host).await;
+    let mut compact = history.clone();
+    compact["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"compaction_trigger"}));
+    let checkpoint = execute(&host, compact.clone()).await;
+    assert!(!checkpoint
+        .iter()
+        .any(|v| matches!(v, Event::Text { .. } | Event::Tool(_))));
+    let result = output(&checkpoint);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["type"], "compaction");
+    assert!(result[0]["encrypted_content"]
+        .as_str()
+        .unwrap()
+        .starts_with("ocx1:"));
+    assert_eq!(
+        output(&execute(&host, compact).await),
+        result,
+        "repeated checkpoint request is cached without submission"
+    );
+    {
+        let s = app.state.lock().unwrap();
+        assert_eq!(s.commands.iter().filter(|v| v["op"] == "open").count(), 1);
+        assert_eq!(s.commands.iter().filter(|v| v["op"] == "submit").count(), 3);
+        let last = s
+            .commands
+            .iter()
+            .rev()
+            .find(|v| v["op"] == "submit")
+            .unwrap();
+        assert!(last["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["hidden"] == true));
+    }
+    // Upstream commits replacement, and a new observer loads the private journal.
+    drop(host);
+    let host = AppHost::new(app.clone(), journal);
+    let mut next = history;
+    next["input"] = json!([result[0],{"role":"user","content":"Continue the accepted work"}]);
+    let events = execute(&host, next.clone()).await;
+    next["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&events));
+    next["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"role":"user","content":"Continue again"}));
+    execute(&host, next).await;
+    let s = app.state.lock().unwrap();
+    assert_eq!(
+        s.commands.iter().filter(|v| v["op"] == "release").count(),
+        1
+    );
+    assert_eq!(s.commands.iter().filter(|v| v["op"] == "open").count(), 2);
+    let submissions = s
+        .commands
+        .iter()
+        .filter(|v| v["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submissions[4]["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(submissions[4]["messages"][0]["text"], "Continue again");
+}
+
+#[tokio::test]
+async fn uncommitted_summary_remains_transient_and_normal_continuation_stays_warm() {
+    for checkpoint in [false, true] {
+        let root = Root::new();
+        let app = Arc::new(App::default());
+        let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+        let mut history = settled_history(&host).await;
+        let mut compact = history.clone();
+        if checkpoint {
+            compact["input"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"type":"compaction_trigger"}));
+        } else {
+            compact["client_metadata"]["x-codex-turn-metadata"]=json!({"thread_id":"native-fixture","turn_id":"turn-1","request_kind":"compaction"}).to_string().into();
+            compact["input"].as_array_mut().unwrap().push(
+                json!({"role":"user","content":"Transient native summarization instruction"}),
+            );
+        }
+        execute(&host, compact).await;
+        history["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Real next instruction"}));
+        execute(&host, history).await;
+        let s = app.state.lock().unwrap();
+        assert_eq!(s.commands.iter().filter(|v| v["op"] == "open").count(), 1);
+        let last = s
+            .commands
+            .iter()
+            .rev()
+            .find(|v| v["op"] == "submit")
+            .unwrap();
+        assert_eq!(last["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(last["messages"][0]["text"], "Real next instruction");
+        assert!(last["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == codex_chatgpt_provider::context::CONTINUE_INSTRUCTION));
+    }
+}
 fn output(events: &[Event]) -> Vec<Value> {
     let mut projection = Projection::new("response".into(), "configured".into());
     for event in events {
