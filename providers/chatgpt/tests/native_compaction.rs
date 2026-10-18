@@ -149,6 +149,16 @@ impl Rpc {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_manual_compaction_commits_public_checkpoint_and_continues_same_thread() {
+    native_context_fixture(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn native_public_handoff_preserves_original_opaque_history_and_user_turns() {
+    native_context_fixture(true).await;
+}
+
+async fn native_context_fixture(handoff: bool) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime required"),
     );
@@ -276,6 +286,118 @@ async fn native_manual_compaction_commits_public_checkpoint_and_continues_same_t
     let thread = response["thread"]["id"].as_str().unwrap();
     rpc.turn(3, thread, "Remember the completed fixture work")
         .await;
+    if handoff {
+        let before = rpc
+            .call(
+                4,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        let checkpoint = codex_chatgpt_provider::handoff::Handoff::prepare(
+            &before["thread"],
+            thread,
+            "gpt-6.1-sol",
+            "chatgpt-desktop/gpt-6",
+            "none",
+            &Config::default(),
+        )
+        .unwrap();
+        rpc.call(5,"thread/inject_items",json!({"threadId":thread,"items":[{"type":"compaction","encrypted_content":"UNREADABLE_FOREIGN_NATIVE_CHECKPOINT"},checkpoint]})).await;
+        let after = rpc
+            .call(
+                6,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(
+            before["thread"]["turns"], after["thread"]["turns"],
+            "external context must not manufacture a user turn/bubble"
+        );
+        rpc.turn(
+            7,
+            thread,
+            "Continue from public history without repeating tools",
+        )
+        .await;
+        let continued = rpc
+            .call(
+                8,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(continued["thread"]["id"], thread);
+        assert_eq!(continued["thread"]["turns"].as_array().unwrap().len(), 2);
+        let commands = app.0.lock().unwrap().clone();
+        assert_eq!(
+            commands.iter().filter(|v| v["op"] == "release").count(),
+            1,
+            "an explicit new handoff retires the settled old lane once"
+        );
+        let submissions = commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
+            .collect::<Vec<_>>();
+        assert_eq!(submissions.len(), 2, "handoff itself starts no inference");
+        assert!(submissions[1]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["hidden"] == true
+                && v["role"] == "user"
+                && v["text"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with(codex_chatgpt_provider::handoff::OPEN))));
+        assert!(!submissions[1]
+            .to_string()
+            .contains("UNREADABLE_FOREIGN_NATIVE_CHECKPOINT"));
+        assert_eq!(
+            submissions[1]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|v| v["hidden"] == false)
+                .count(),
+            1
+        );
+        drop(commands);
+        drop(rpc);
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        stop.cancel();
+        server.await.unwrap();
+        host.shutdown().await;
+        fn preserves_opaque(path: &std::path::Path) -> bool {
+            fs::read_dir(path)
+                .unwrap()
+                .map(Result::unwrap)
+                .any(|entry| {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        return preserves_opaque(&path);
+                    }
+                    path.extension().is_some_and(|s| s == "jsonl")
+                        && fs::read_to_string(path).unwrap().lines().any(|line| {
+                            serde_json::from_str::<Value>(line).is_ok_and(|v| {
+                                v["type"] == "response_item"
+                                    && v["payload"]["encrypted_content"]
+                                        == "UNREADABLE_FOREIGN_NATIVE_CHECKPOINT"
+                            })
+                        })
+                })
+        }
+        assert!(
+            preserves_opaque(&root.0.join("codex/sessions")),
+            "handoff projection must not rewrite native canonical history"
+        );
+        println!(
+            "{}",
+            json!({"accepted":true,"actualNativePublicHandoff":true,"sameThread":true,"noExtraUserTurnOnInject":true,"originalOpaqueInputNotDecoded":true,"handoffModelStarts":0,"fixtureHostSubmissions":2,"chatSubmissions":0})
+        );
+        return;
+    }
     rpc.call(4, "thread/compact/start", json!({"threadId":thread}))
         .await;
     rpc.matching(|v| {

@@ -37,8 +37,11 @@ without a Bun/Python host. It restores the original profile inode and controller
 afterward; this does not activate a permanent operating migration.
 Actual project create/reuse/readback and project-bound GPT-6 native tools now pass.
 Android native manual compaction commits a readable checkpoint and continues the
-same thread; app replies in that separate compaction proof are synthetic. Foreign
-opaque context, permanent operating migration, fresh login/provisioning and reboot
+same thread; app replies in that separate compaction proof are synthetic. A
+separate Android fixture preserves foreign opaque input and its original public
+history while a readable user-context handoff admits the next native turn, without
+an extra user turn or inference at injection. This is not yet qualification of
+the full bidirectional TUI transition. Permanent operating migration, fresh login/provisioning and reboot
 remain unfinished. The direct real AI repository development trial is qualified
 within its bounded scope, including a Provider defect repair and same-thread resume. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
@@ -72,6 +75,17 @@ existing user profiles/config/auth. No bearer is written into the profile. Manag
 is not required. Saving settings does not hot-edit an already bound backend;
 prepare again for the next startup. Data-only host route changes are read on the
 next Provider request without app restart.
+
+`checkpoint --thread ID --from-model ID --model ID --effort EFFORT` reads a complete
+idle public `thread/read` snapshot from stdin and emits one ordinary upstream
+external-context user message. It neither starts the app nor reads credentials,
+performs inference or writes native history. TUI persists the message with the
+existing upstream API; it remains readable by the source model on failure. Only
+an explicit same-thread message can supply public context for preceding foreign
+opaque input. Reasoning/internal metadata are excluded. Current policy/settings
+and subsequent input remain intact; historical tools are quoted, never replayed.
+The generated catalog omits a compaction compatibility hash because this Provider
+does not share OpenAI's opaque format. Token/window compaction remains enabled.
 
 Set related fields together, for example:
 

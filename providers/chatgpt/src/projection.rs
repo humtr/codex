@@ -36,7 +36,7 @@ pub fn catalog(config: &Config) -> Result<Value, ConfigError> {
             "slug":model.id,"display_name":model.display_name,"description":format!("ChatGPT app through the independent Termux Provider{}",if model.pro {"; Pro requires explicit use and is excluded from automated qualification"}else{""}),
             "priority":2,"visibility":if model.hidden{"hide"}else{"list"},"supported_in_api":true,
             "context_window":context.window_tokens,"max_context_window":context.window_tokens,
-            "auto_compact_token_limit":context.auto_compact_token_limit,"comp_hash":"termux-chatgpt-context-v1",
+            "auto_compact_token_limit":context.auto_compact_token_limit,"comp_hash":null,
             "default_reasoning_level":default,"supported_reasoning_levels":model.routes.iter().map(|r|json!({"effort":r.effort,"description":r.effort})).collect::<Vec<_>>(),
             "supports_reasoning_effort_updates":model.routes.len()>1,"available_in_plans":[]
         });
@@ -62,6 +62,7 @@ mod tests {
         let projected = catalog(&config).unwrap();
         let id = &config.catalog.models[0].id;
         assert_eq!(projected["models"][0]["context_window"], 1200000);
+        assert!(projected["models"][0]["comp_hash"].is_null());
         let value = config
             .effective_context(
                 id,

@@ -124,19 +124,15 @@ impl Request {
         {
             return Err(Error("response_cursor_unavailable"));
         }
-        let model = body
+        let mut model = body
             .get("model")
             .and_then(Value::as_str)
             .ok_or(Error("model_required"))?
             .to_owned();
-        let effort = value["reasoning"]["effort"]
+        let mut effort = value["reasoning"]["effort"]
             .as_str()
             .unwrap_or(&config.model.reasoning_effort)
             .to_owned();
-        let route = config
-            .catalog
-            .route(&model, &effort)
-            .ok_or(Error("unsupported_desktop_route"))?;
         let input = match body.get("input") {
             Some(Value::String(text)) => vec![
                 json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]}),
@@ -249,7 +245,6 @@ impl Request {
         }
         // Reject unreadable checkpoints and unsupported input before allocating
         // any app lane; this is admission, not an implicit context conversion.
-        crate::context::messages(&input)?;
         let metadata = match &value["client_metadata"]["x-codex-turn-metadata"] {
             Value::String(text) => {
                 serde_json::from_str::<Value>(text).map_err(|_| Error("invalid_turn_metadata"))?
@@ -266,6 +261,22 @@ impl Request {
         let guardian = field("agent_name").as_deref() == Some("guardian")
             || field("subagent_kind").as_deref() == Some("guardian");
         let compaction = crate::context::Compaction::detect(&input, &metadata)?;
+        if let Some((_, handoff)) = crate::handoff::latest(&input)? {
+            if handoff.thread != thread {
+                return Err(Error("handoff_thread_mismatch"));
+            }
+            // Native model-downshift compaction can retain the old model ID.
+            // Only this explicit control request may use its selected handoff route.
+            if compaction.is_some() && model == handoff.from_model {
+                model = handoff.model;
+                effort = handoff.effort;
+            }
+        }
+        let route = config
+            .catalog
+            .route(&model, &effort)
+            .ok_or(Error("unsupported_desktop_route"))?;
+        crate::context::messages(&input)?;
         Ok(Self {
             model,
             effort,

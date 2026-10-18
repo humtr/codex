@@ -70,7 +70,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 2 | Core independence | Core-only, optional absent/broken/hung/config isolation and signed Android57-step proof passed; final composed release still required |
 | 3 | Rust vertical path | Actual native commands/custom patch/results/transcript and authenticated Rust-owned app passed, without Bun/Python host |
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
-| 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas passed; automatic/interrupted/model-downshift and foreign opaque cross-provider handoff remain |
+| 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and readable public-handoff Android fixture passed; source TUI integration added, bidirectional/automatic/interrupted/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; full native tool/reviewer/questions/concurrency, output loss, host crash/reboot remain |
 | 8 | Independent MCP and efficiency | Independent MCP still retained legacy source/offline proof, not Rust/admitted fallback; qualify Termux Codex original-call ACK, tool discovery and native host search; improve argument/output overhead |
@@ -126,6 +126,18 @@ identical summary text in an unchanged old prefix is not acknowledgment. Reasser
 normal native policy after control operations. V2 ocx1 encodes public readable
 summary, not private reasoning and not decrypted foreign OpenAI context.
 
+Source `checkpoint` serializes a complete idle public native snapshot as readable
+external user context, with no credentials, app startup or inference. Upstream
+persists it with its existing inject API, preserving original items/thread ID and
+the old provider's ability to read them after an entry failure. Provider admission
+accepts only an explicit same-thread handoff before foreign opaque input can be
+projected from public history; current policy/context settings and later input stay.
+Unknown public item types refuse; reasoning/internal metadata are excluded.
+The catalog no longer advertises a fabricated opaque compaction compatibility hash;
+token/window compaction remains active. Source TUI waits asynchronously for the
+source Chat Provider's readable summary before reverse entry, retaining the source
+on failure/stop/event loss. These source changes are not an activated composition.
+
 Public output includes initial/intermediate/final reports and actual native tools.
 The app's final channel alone is not a final answer: finished_partial_completion
 with end_turn=true can precede a tool. Stream once and promote an open item only
@@ -168,7 +180,7 @@ conversation also has an unreadable upstream opaque checkpoint. An alias rename
 or the1m setting does not repair either boundary. Keep the conversation.
 
 Source Rust manual compaction and fresh native Chat now have separate real proofs;
-foreign opaque handoff is still unfinished. Obtain an upstream-owned readable
+full foreign opaque TUI handoff admission is still unfinished. Obtain an upstream-owned readable
 handoff at a settled boundary before routing it to another Provider; never decode,
 drop or relabel opaque state or replay tools. Evidence: chat-full60-operating-
 diagnosis.json and chat-full60-cross-provider-admission.json in the acceptance root.
@@ -187,6 +199,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-owned-readiness-full.log |58 Rust/102 Bun/28 Python, fmt/clippy/release build; startup target/auth-loading waits and immediate ambiguity refusal |
 | provider-native-fixture-final.log | Actual Codex0.163 generated profile/auth/catalog, two commands/custom patch/validation, three effects; synthetic app replies, no Chat |
 | provider-phase-native-android.log | Actual native partial-output/final promotion and manual checkpoint→same-thread continuation; synthetic app replies, no Chat |
+| provider-readable-handoff-native.log | Actual Android inject/read/next-turn fixture preserves opaque input, same ID and public turns; hidden user-context projection, no inference at injection, synthetic app replies/no Chat |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |

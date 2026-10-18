@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | catalog | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -28,6 +28,7 @@ fn run() -> Result<(), String> {
     }
     let path = store::config_path().map_err(|e| e.to_string())?;
     match args.first().map(String::as_str) {
+        Some("checkpoint") => checkpoint(&args[1..], &path),
         Some("catalog") if args.len() == 1 => {
             let config = store::Snapshot::open(&path)
                 .and_then(|v| v.config())
@@ -100,6 +101,45 @@ fn run() -> Result<(), String> {
         },
         _ => Err(USAGE.into()),
     }
+}
+fn checkpoint(args: &[String], path: &std::path::Path) -> Result<(), String> {
+    use codex_chatgpt_provider::{config::MAX_DECODED_BYTES, handoff::Handoff};
+    let mut options = std::collections::BTreeMap::new();
+    if args.len() != 8 {
+        return Err(USAGE.into());
+    }
+    for pair in args.as_chunks::<2>().0 {
+        if !matches!(
+            pair[0].as_str(),
+            "--thread" | "--from-model" | "--model" | "--effort"
+        ) || options.insert(pair[0].as_str(), pair[1].as_str()).is_some()
+        {
+            return Err("invalid checkpoint options".into());
+        }
+    }
+    let config = store::Snapshot::open(path)
+        .and_then(|v| v.config())
+        .map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(MAX_DECODED_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "public history unavailable")?;
+    if bytes.len() as u64 > MAX_DECODED_BYTES {
+        return Err("public history exceeds transport limit".into());
+    }
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid public history")?;
+    let value = Handoff::prepare(
+        &snapshot,
+        options["--thread"],
+        options["--from-model"],
+        options["--model"],
+        options["--effort"],
+        &config,
+    )
+    .map_err(|e| e.to_string())?;
+    text(&value.to_string())
 }
 fn runtime_command(args: &[String]) -> Result<(), String> {
     use codex_chatgpt_provider::runtime;

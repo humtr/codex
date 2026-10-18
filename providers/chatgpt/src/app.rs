@@ -506,11 +506,18 @@ async fn exchange(
         return Ok(());
     }
 
+    let readable_handoff = lane.phase == Phase::Idle
+        && new_turn(lane, request)
+        && crate::handoff::latest(&request.input)?.is_some()
+        && lane.prefix.delta(request).map_or(true, |delta| {
+            crate::handoff::latest(delta).is_ok_and(|v| v.is_some())
+        });
     if lane.phase == Phase::Idle
-        && lane
-            .checkpoint
-            .as_ref()
-            .is_some_and(|v| v.acknowledged(request))
+        && (readable_handoff
+            || lane
+                .checkpoint
+                .as_ref()
+                .is_some_and(|v| v.acknowledged(request)))
     {
         bridge
             .operation(json!({"op":"release","lane":lane.marker}))

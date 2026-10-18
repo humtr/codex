@@ -1416,6 +1416,26 @@ history until upstream replaces it with the exact offered checkpoint. Retire tha
 settled remote lane once after replacement, preserving its chat and pending-call
 integrity; an unchanged old prefix containing identical summary text is not an ACK.
 
+Cross-provider entry may use a readable public-history handoff at an idle primary
+thread. TUI reads the complete upstream public transcript and asks the installed
+Provider to encode it; upstream alone persists the resulting contextual user
+message through `thread/inject_items`. This is not a new user turn or inference,
+another history store, a developer instruction, or an opaque checkpoint. Keep
+the original native items and thread ID. The message uses upstream's ordinary
+external-context wrapper and remains readable by the previous provider if entry
+fails. Exclude reasoning and internal metadata; reject unsupported public items,
+incomplete pagination, active work and mismatched thread identity. Imported tool
+events are quoted historical observations, never calls to execute again.
+
+Only an explicit, validated handoff for the same thread can supply the readable
+replacement for preceding foreign opaque input. Preserve current system/developer
+policy and contextual user settings; retain all later input. Never claim to decode
+the old opaque state. The Provider's opaque compaction format is not compatible
+with upstream OpenAI compaction: do not advertise a fabricated common compaction
+hash. Hash absence does not disable token/window compaction. Reverse entry must
+first obtain an upstream-owned readable replacement while the current Provider
+still owns inference; failure or interruption keeps that Provider selected.
+
 First admission may wait for the same owned app target and authentication to
 finish loading. Bound this read-only wait; never create a target, change an
 account, restart a live owner or infer merely to test readiness. Distinguish a

@@ -6,6 +6,51 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn checkpoint_encodes_public_history_without_credentials_or_starting_a_host() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let root = Fixture::new();
+    let snapshot = serde_json::json!({"id":"thread","status":{"type":"idle"},"turns":[{"id":"t","status":"completed","items":[{"type":"userMessage","id":"u","content":[{"type":"text","text":"preserve task"}]},{"type":"reasoning","id":"r","content":["PRIVATE_REASONING"]}]}]});
+    let mut child = root
+        .command()
+        .args([
+            "checkpoint",
+            "--thread",
+            "thread",
+            "--from-model",
+            "gpt-6.1-sol",
+            "--model",
+            "chatgpt-desktop/gpt-6",
+            "--effort",
+            "none",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(snapshot.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let item: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(item["role"], "user");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("PRIVATE_REASONING"));
+    assert!(
+        std::fs::read_dir(&root.0).unwrap().next().is_none(),
+        "checkpoint must not allocate login/host state or write a second history authority"
+    );
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {

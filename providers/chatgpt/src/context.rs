@@ -209,6 +209,7 @@ pub(crate) fn internal_visibility_hint(value: &str) -> bool {
         "<environment_context>",
         "<permissions instructions>",
         "<collaboration_mode>",
+        crate::handoff::OPEN,
     ]
     .iter()
     .any(|prefix| value.starts_with(prefix))
@@ -217,6 +218,8 @@ pub(crate) fn internal_visibility_hint(value: &str) -> bool {
 /// Preserve role/order, but expose only the newest ordinary user request.
 /// Native control-shaped text stays user authority even if its UI is hidden.
 pub fn messages(input: &[Value]) -> Result<Vec<Message>, Error> {
+    let readable = crate::handoff::readable(input)?;
+    let input = &readable;
     let mut result = Vec::new();
     let mut visible = None;
     for item in input {

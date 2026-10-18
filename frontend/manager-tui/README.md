@@ -62,9 +62,16 @@ signed Full requires the paired Manager. Keep the existing source path, helper
 identity, CLI flags and wire markers until a coordinated compatibility change.
 Replace hardcoded Chat model/effort checks with provider-owned configuration/
 capability data; retain upstream session model/effort actions for same-Chat changes.
-Context/project settings and readable cross-provider history transfer are planned
-in [CURRENT](../../CURRENT.md#product-completion-scope-and-work-order), not working
-TUI controls. Provider validation owns settings; this UI must not copy that policy.
+Context/project settings remain Provider configuration, not separate TUI policy.
+The source cross-provider path asks the installed Provider binary to encode a
+complete idle public snapshot and persists it through upstream's existing
+`thread/inject_items`; no Core or Manager changes are involved. Returning from
+Chat first requests one summary on the source Provider, displays its progress and
+waits for the matching compaction item and completed turn before re-entry. Stop,
+error, event loss, changed thread/model or queued input retain the source Provider.
+The old public generation is unchanged. Bidirectional Android/TUI qualification
+and budgeted live admission remain in
+[CURRENT](../../CURRENT.md#product-completion-scope-and-work-order).
 
 Local resume carries the supported Termux permission selection even when Core's
 system default supplied it. Saved approval policy/reviewer remain independent.
