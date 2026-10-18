@@ -139,9 +139,10 @@ async fn encode_checkpoint(
     let mut output = Vec::new();
     let execution = async {
         let (_, _, status) = tokio::try_join!(
-            async {
+            async move {
                 stdin.write_all(&bytes).await?;
-                stdin.shutdown().await
+                drop(stdin); // EOF is required by the Provider's bounded stdin reader.
+                Ok::<_, std::io::Error>(())
             },
             stdout.read_to_end(&mut output),
             child.wait()
@@ -369,6 +370,61 @@ async fn plan(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[tokio::test]
+    async fn termux_chat_models_checkpoint_child_receives_eof_without_starting_auth() {
+        use std::os::unix::fs::PermissionsExt;
+        let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
+        let root = tempfile::tempdir().unwrap();
+        let mut config = app.config.clone();
+        config.codex_home = root.path().to_path_buf();
+        config.model = Some("gpt-6.1-sol".into());
+        let binary = root.path().join("provider");
+        let response = json!({"type":"message","role":"user","content":[{"type":"input_text","text":"readable fixture context"}]});
+        std::fs::write(
+            &binary,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = checkpoint ] || exit 1
+cat >/dev/null
+printf '%s\n' '{}'
+"#,
+                response
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let profile = root.path().join("chatgpt.config.toml");
+        std::fs::write(
+            &profile,
+            format!(
+                r#"# codex-chatgpt-provider generated v1
+model_provider="chatgpt_desktop"
+model_catalog_json="/owned/models.json"
+[model_providers.chatgpt_desktop]
+base_url="http://127.0.0.1:12345/v1"
+wire_api="responses"
+requires_openai_auth=false
+[model_providers.chatgpt_desktop.auth]
+command={:?}
+args=["token","--state","/owned/state"]
+"#,
+                binary.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            encode_checkpoint(
+                &config,
+                &json!({"public":"snapshot"}),
+                ThreadId::new(),
+                "chatgpt-desktop/gpt-6",
+                &ReasoningEffort::None
+            )
+            .await
+            .is_some()
+        );
+    }
     #[tokio::test]
     async fn termux_chat_models_return_waits_for_exact_compaction_completion_and_cancels_failures()
     {

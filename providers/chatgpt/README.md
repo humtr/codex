@@ -40,8 +40,11 @@ Android native manual compaction commits a readable checkpoint and continues the
 same thread; app replies in that separate compaction proof are synthetic. A
 separate Android fixture preserves foreign opaque input and its original public
 history while a readable user-context handoff admits the next native turn, without
-an extra user turn or inference at injection. This is not yet qualification of
-the full bidirectional TUI transition. Permanent operating migration, fresh login/provisioning and reboot
+an extra user turn or inference at injection. Actual native API re-entry in both
+directions also passes with a real GPT-6 response/summary (two app model starts,
+four observed user-role objects, allowance debits unknown). The source provider
+responses were synthetic; actual TUI transition admission remains unfinished.
+Permanent operating migration, fresh login/provisioning and reboot
 remain unfinished. The direct real AI repository development trial is qualified
 within its bounded scope, including a Provider defect repair and same-thread resume. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).

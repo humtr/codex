@@ -70,7 +70,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 2 | Core independence | Core-only, optional absent/broken/hung/config isolation and signed Android57-step proof passed; final composed release still required |
 | 3 | Rust vertical path | Actual native commands/custom patch/results/transcript and authenticated Rust-owned app passed, without Bun/Python host |
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
-| 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and readable public-handoff Android fixture passed; source TUI integration added, bidirectional/automatic/interrupted/downshift admission pending |
+| 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; source TUI integration added, UI/automatic/interrupted/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; full native tool/reviewer/questions/concurrency, output loss, host crash/reboot remain |
 | 8 | Independent MCP and efficiency | Independent MCP still retained legacy source/offline proof, not Rust/admitted fallback; qualify Termux Codex original-call ACK, tool discovery and native host search; improve argument/output overhead |
@@ -137,6 +137,13 @@ The catalog no longer advertises a fabricated opaque compaction compatibility ha
 token/window compaction remains active. Source TUI waits asynchronously for the
 source Chat Provider's readable summary before reverse entry, retaining the source
 on failure/stop/event loss. These source changes are not an activated composition.
+The real summary trial used two app model starts in33.9s, observed four user-role
+objects, no tool return/Pro/retry and unknown Chat allowance debits. Native provider
+responses in that trial were local fixtures; actual Chat inference and both native
+process re-entries were real. It preserved the exact continuation marker, three
+explicit native user messages, original public history and foreign opaque input.
+One separate compaction turn is not another explicit native user request. The
+current native user/context journal remains upstream's authority.
 
 Public output includes initial/intermediate/final reports and actual native tools.
 The app's final channel alone is not a final answer: finished_partial_completion
@@ -200,6 +207,8 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-native-fixture-final.log | Actual Codex0.163 generated profile/auth/catalog, two commands/custom patch/validation, three effects; synthetic app replies, no Chat |
 | provider-phase-native-android.log | Actual native partial-output/final promotion and manual checkpoint→same-thread continuation; synthetic app replies, no Chat |
 | provider-readable-handoff-native.log | Actual Android inject/read/next-turn fixture preserves opaque input, same ID and public turns; hidden user-context projection, no inference at injection, synthetic app replies/no Chat |
+| provider-bidirectional-handoff-native.log | Three actual Android fixtures: manual compact, public handoff, source→Chat→source across process restarts; readable return, same ID, no Chat |
+| provider-handoff-live-native.log / provider-handoff-live-state | Real GPT-6 response and readable summary across native API provider re-entry, two app dispatches/four user objects, source responses synthetic; not yet actual TUI/device activation |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -243,8 +252,9 @@ qualification. Unsupported box components remained in its final transcript.
    qualification. Authenticated Rust boot/inference now works; its reversible
    device test restored the old controller and original home directory inode.
    Permanent operating migration and fresh login/provisioning/viewer remain.
-2. Qualify automatic/interrupted/model-downshift compaction and settled native↔Chat
-   readable context transfer, including pending results and cold resume.
+2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
+   native↔Chat transfer, including pending results/cold resume. Bidirectional API
+   re-entry and actual Chat summary now pass; maintain their narrower scope.
 3. Exercise actual native tool search/MCP discovery, host search, JSON/freeform/batch
    errors, interactive questions and independent reviewer/guardian with sibling
    isolation. The full-permission AI trial did not qualify autoreviewer policy.
