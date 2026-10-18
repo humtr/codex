@@ -1,17 +1,26 @@
 # Codex Termux Rewrite Specification
 
-Status: current product contract
+Status: historical experiment contract snapshot; production authority is rewrite/rust-core
 Repository: `humtr/codex`
 Active implementation branch: `rewrite/rust-core`
 
-## Generation-bound Manager TUI admission (2026-10-10)
+Reviewed2026-10-18: this branch predates current Core/Manager/TUI extraction and
+Base/Full publication. Do not copy its production implementation/contract snapshots
+back over rewrite/rust-core. The current [SPEC](https://github.com/humtr/codex/blob/rewrite/rust-core/SPEC.md)
+owns the approved independent-component, configuration/context and remote-project
+contracts; [CURRENT](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md#product-completion-scope-and-work-order)
+owns the single completion order. Historical identifiers/paths retain their wire
+spelling. This snapshot is retained only for interpretation of old experiments;
+provider operating state and exact evidence are in this branch CURRENT.md.
+
+## Generation-bound TUI admission (2026-10-10)
 
 The signed generation owns the maintained `/switch` frontend. Existing preview
 clients retain their executable until exit; no preview construction or parallel
 update authority is maintained.
 
 - The official adapted `runtime` remains the sole server/execution backend.
-  Qualified Manager TUI selection supports local `--profile`/`-c` launches
+  Qualified TUI selection supports local `--profile`/`-c` launches
   through the same official app-server. The frontend forwards selected user
   profile and invocation settings through upstream thread configuration APIs;
   they never replace the daemon's defaults or another conversation's settings.
@@ -55,7 +64,7 @@ update authority is maintained.
   an account home, preserving existing user-owned profiles, base config and
   authentication. This generic path adaptation is independent of Manager and
   provider lifecycle; no additional daemon, transcript or login authority exists.
-  An optional source-built Manager TUI is the third signed helper at `helpers/2`,
+  An optional source-built TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the
   generation's upstream version and its generation must declare Manager. Local
@@ -1261,7 +1270,7 @@ activation-time candidate integrity remains the signed version/runtime probe.
 The official producer must therefore retain this signal on every public stable
 candidate while the R10 compatibility floor remains supported; dropping it is a
 backward-compatibility failure, not a canonicalization cleanup.
-The admitted Manager TUI may extend this exact numbered bridge with helpers/2,
+The admitted TUI may extend this exact numbered bridge with helpers/2,
 helper_count=3 and its same-version termux-manager-tui-v1 identity/digest. Manager
 is mandatory for that extension; no other additional helper is admitted. Historical
 two-helper releases retain their exact behavior. Stable publication, staging,
