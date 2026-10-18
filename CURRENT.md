@@ -131,11 +131,60 @@ is introduced to make a test pass. The default local return path remains usable.
 
 ## Final Core / Manager responsibility boundary
 
-Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
-responsibility extraction and independent execution are complete. The separately
+The2026-10-16 extraction passed its recorded independence scope. SPEC4.5/4.6 owns
+the contract; the2026-10-18 review below adds unresolved dispatch/configuration
+isolation work and supersedes a blanket claim of completed independence. The separately
 qualified0.163 upgrade is installed as57. The operating baseline records current
 public editions; optional provider improvements remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
+
+### Approved next work: Core independence and optional component integration
+
+User approved the direction on2026-10-18: Manager features should evolve without
+Core/base edits. Preserve one signed entrypoint/lifecycle and Core execution for
+every route. Core may know the optional interface, not Manager preference storage
+or future policies. SPEC's approved-next-architecture section defines the target;
+current behavior below remains evidence, not proof that this target is implemented.
+
+1. Establish explicit no-Manager execution; isolate optional settings and reject
+   malformed upstream configuration without contaminating Core defaults. Cover
+   normal→direct→normal launches with the same home, existing servers and jobs.
+2. Move preference/window/UI policy preparation out of Core's concrete dispatch;
+   separate configuration lookup from profile-file projection. Preserve selected
+   account identity. Change the current corrupt-default→native fallback contract
+   explicitly; pre-work fallback requires known identity/no dispatch, never replay.
+3. Keep server/PID/socket/runtime ownership, opaque catalog isolation and the
+   shared record codec. Actual0.163 retains a startup model manager; model/list
+   cannot replace its catalog. Removal is not an equivalent simplification.
+4. Treat Manager and Manager TUI as one optional product with headless/UI modules,
+   retaining separate executables/builds. Generic provider capability/configuration
+   replaces hardcoded Chat admission; provider transport/lifetime stays separate
+   and usable without either Manager component. Add no always-on supervisor.
+5. Port the qualified provider slice from experiment/web-termux onto current
+   rewrite/rust-core, preserving current Core/Manager/UI/release authority. The
+   experiment fork predates responsibility extraction,0.163 and Full60 automation;
+   its standalone snapshots must not replace current implementations. Preserve
+   unique source/history and inspect uncommitted work before any integration.
+6. Separate runtime/dependencies/licenses, meaningful regression drivers and
+   historical research. Fix/qualify readable native↔Chat history transfer and the
+   current unsupported_desktop_route blocker, fresh Chat/--profile, tool/reviewer
+   loops, visible reports and interrupted/cold resume. Explain live trial budgets;
+   no automatic Pro. Branch closure follows migrated remaining requirements and
+   accepted exact-input proofs, not merely a source merge.
+7. Keep Base free of optional dependencies. Full remains Base+Manager/frontend;
+   provider activation is opt-in. Define authenticated provider payload inventory,
+   compatibility and rollback before replacing the experimental installer; the
+   current eight-file release shape is not assumed sufficient. Source import does
+   not bundle desktop app/rootfs or user auth. Core interface changes require a
+   qualified new Base; subsequent policy/transport-only changes must not alter it.
+
+Read-only review of60907ee re-ran20 affected tests (Manager exchange, server
+isolation/retention, frontend capability, absent/damaged Manager, default-profile
+fallback and public dispatch). All pass; malformed valid-UTF8/TOML/schema responses
+and Manager post-exec failures are not covered by those successes. No architecture
+implementation, operating activation or real Chat inference has occurred for this
+new scope. The experiment has separate uncommitted profile/test edits, which this
+review leaves untouched.
 
 ### Automated publication: shared base and add-ons
 

@@ -1102,6 +1102,79 @@ without Manager. A full installation with unavailable optional Manager still
 identifies as full from its authenticated manifest, not from executable presence.
 Display metadata is informational and never selects components or relaxes admission.
 
+### Approved next architecture: independent execution and optional integrations
+
+This is the approved target, not a claim that the current dispatch/configuration
+paths already implement it. All Termux execution continues through Core and the
+same authenticated installation/update authority. Manager is never an alternative
+unsigned runtime launcher. Core may retain a small versioned optional-component
+dispatch contract; it must not inspect Manager's preference filenames or interpret
+account, window, quota or provider policies to make an execution decision.
+
+Manager prepares account/window policy and requests Core execution with the
+resolved home and invocation settings. Core owns signed runtime/frontend selection,
+required environment/FD preparation and opaque execution-configuration isolation.
+A direct Core path must query no Manager and use no Manager fragment or enhanced
+frontend, while retaining native storage, locks and server identity protections.
+Do not reuse a backend with incompatible effective configuration or rewrite a
+live sibling's defaults. Do not create a second execution or update supervisor.
+
+Optional settings must be isolated from Core's required configuration; their
+upstream syntax/types and application must be qualified before execution. Manager
+configuration discovery must not also project files into an execution home.
+Account preference validation and explicit profile projection remain Manager
+operations. A saved account selection that cannot be fulfilled must not silently
+become another account; implementing this changes the existing optional-default
+fallback contract and requires coordinated tests/documentation. Safe preparation
+failure may continue only with the confirmed execution home and proof that no work
+was dispatched. Failure after handoff or uncertain submission never triggers a
+blind task restart. Explicit user configuration errors remain explicit errors.
+
+Manager and its frontend are one optional product with separate implementation
+boundaries: Manager owns policy and headless commands; the frontend owns upstream
+UI hooks and renders choices through versioned contracts. Preserve separate
+executables/builds where upstream TUI dependencies require them; do not link the
+upstream execution engine into Manager to reduce the artifact count. Generic
+model routing reads the installed provider capability/configuration authority
+rather than duplicating Chat families/efforts in Manager or frontend.
+
+The Chat provider remains an optional adapter process owning authentication,
+transport and host lifetime, usable through upstream configuration without Manager
+or its TUI. Its failure must not disable native Codex, account commands or window
+management. Reuse existing upstream provider configuration and bounded local
+contracts; do not introduce a speculative general plugin framework. Unify component
+discovery/status and lifecycle presentation where appropriate, not credentials,
+transcript storage, process ownership or unqualified update mechanisms.
+
+Experiment integration targets rewrite/rust-core as a repository, not crates/core
+as a code destination. Port exact reviewed provider/runtime sources, dependencies,
+licenses and affected regression drivers onto current authority. Never replace
+current Core, Manager, UI, release workflows or contracts with experiment snapshots.
+Preserve source history and user changes; compare intent and current equivalents
+before replaying a commit. Separate runtime modules from qualification/research
+material. Do not ship historical probes, GUI trials or user app/login data as
+runtime dependencies merely because they share an experiment directory.
+
+First qualify no-Manager execution and configuration isolation, then generic
+Manager/frontend/provider composition. Before stable provider admission, establish
+cross-provider readable-history transfer, fresh/config-profile inference, native
+tools/reviewer, interruption/resume and observed native transcript behavior against
+the exact release inputs. Report live Chat submissions and explain trial budgets
+before execution; Pro is excluded from automatic qualification. Experimental
+source integration is not stable publication or device activation.
+
+Base excludes all optional components. Full composes qualified Manager/frontend;
+the provider remains opt-in and must not require signed desktop app/rootfs download
+or login on ordinary update/startup. A stable provider needs a declared versioned
+payload/dependency inventory, authenticated delivery and tested activation/rollback
+before replacing its experimental installer. Preserve app authentication and user
+state; importing provider source does not authorize redistributing third-party
+desktop software. Choose the bounded packaging extension from its real reachable
+payload; do not assume the current eight-file inventory already supports it.
+Once the Core interface work is admitted, Manager/provider-only changes must leave
+base inputs unchanged. Upstream/backend changes still require the applicable
+frontend and execution-protocol compatibility proof.
+
 ### Automated upstream preparation and base/full publication
 
 Upstream handling must resolve one exact official version/archive/source tuple,
