@@ -376,7 +376,7 @@ mod tests {
         let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
         let root = tempfile::tempdir().unwrap();
         let mut config = app.config.clone();
-        config.codex_home = root.path().to_path_buf();
+        config.codex_home = codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
         config.model = Some("gpt-6.1-sol".into());
         let binary = root.path().join("provider");
         let response = json!({"type":"message","role":"user","content":[{"type":"input_text","text":"readable fixture context"}]});
