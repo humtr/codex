@@ -38,7 +38,7 @@ class SourceAcceptanceTests(unittest.TestCase):
         android_artifact_tests = {
             'test_r6_builder_publish_output_enters_existing_signed_release_admission',
             'test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority',
-            'test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update',
+            'test_tui_public_local_build_preserves_optional_components_and_matching_version',
         }
         self.assertEqual(set(re.findall(r'--skip ([a-z0-9_]+)', isolated)), android_artifact_tests)
         self.assertEqual(set(re.findall(

@@ -18651,7 +18651,7 @@ esac
                 assert_eq!(
                     output.status.code(),
                     Some(0),
-                    "stdout={:?} stderr={:?}",
+                    "{defect}: stdout={:?} stderr={:?}",
                     output.stdout,
                     output.stderr
                 );
