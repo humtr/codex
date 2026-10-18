@@ -86,7 +86,7 @@ pub struct Message {
     pub hidden: bool,
 }
 
-fn internal_visibility_hint(value: &str) -> bool {
+pub(crate) fn internal_visibility_hint(value: &str) -> bool {
     let value = value.trim_start();
     [
         "<environment_context>",

@@ -82,6 +82,22 @@ async function termuxCodexBridge(command) {
     return {ready: true};
   }
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
+  if (command.op === 'dispose') {
+    if (state.lanes.size) fail('app_lanes_active');
+    for (const name of ['prepareCompletionStream','startCompletionStream']) if (state.client[name] === state.hooks[name]) state.client[name] = state.saved[name];
+    if (state.wire.streamPost === state.hooks.streamPost) state.wire.streamPost = state.saved.streamPost;
+    delete globalThis[slot];
+    return {disposed:true};
+  }
+  if (command.op === 'identity') {
+    const auth=state.scope.get(state.shared.xNt);
+    if (!auth || auth.authLoading || auth.accountLoading || auth.authMethod!=='chatgpt' ||
+        typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
+        typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||
+        !['personal','workspace'].includes(auth.accountStructure)) fail('app_auth_context_unavailable');
+    // Return identifiers only; never tokens, email or the complete auth state.
+    return {account:auth.accountId,user:auth.userId,structure:auth.accountStructure,present:state.lanes.has(command.lane)};
+  }
   if (command.op === 'open') {
     const existing=state.lanes.get(command.lane);
     if (existing) {

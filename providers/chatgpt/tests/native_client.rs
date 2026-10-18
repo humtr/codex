@@ -1,6 +1,7 @@
 //! Explicit Android acceptance: a real qualified Codex executable drives the
 //! production Rust Responses/lane stack. Only the app-side replies are synthetic.
-//! No OpenAI/ChatGPT inference, credentials, or user workspace are used.
+//! Default proof uses no inference or user workspace. A separately armed live
+//! mode qualifies the same stack against an authorized app, capped at four starts.
 use codex_chatgpt_provider::{
     app::{AppHost, Bridge},
     cdp::Process,
@@ -13,6 +14,7 @@ use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
 use std::{
     fs::{self, File},
+    io::Write,
     os::{fd::AsRawFd, unix::fs::PermissionsExt},
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -30,6 +32,22 @@ struct State {
 }
 #[derive(Clone, Default)]
 struct App(Arc<Mutex<State>>);
+struct Live {
+    remote: codex_chatgpt_provider::app::Remote,
+    commands: Mutex<Vec<Value>>,
+}
+impl Bridge for Live {
+    fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+        if command["op"] == "submit" {
+            let mut commands = self.commands.lock().unwrap();
+            if commands.iter().filter(|v| v["op"] == "submit").count() >= 4 {
+                return Box::pin(async { Err(Error("qualification_budget_exhausted")) });
+            }
+            commands.push(command.clone());
+        }
+        self.remote.operation(command)
+    }
+}
 impl Bridge for App {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let this = self.clone();
@@ -37,6 +55,9 @@ impl Bridge for App {
             let mut s = this.0.lock().unwrap();
             s.commands.push(command.clone());
             match command["op"].as_str().unwrap() {
+                "identity" => Ok(
+                    json!({"generation":"fixture","account":"fixture-account","user":"fixture-user","structure":"personal","present":!s.gateway.is_empty()}),
+                ),
                 "open" => {
                     s.gateway = command["signature"]["name"].as_str().unwrap().into();
                     Ok(json!({"localId":"fixture"}))
@@ -115,9 +136,16 @@ impl Bridge for App {
         })
     }
 }
-struct Root(PathBuf);
+struct Root(PathBuf, bool);
 impl Drop for Root {
     fn drop(&mut self) {
+        if self.1 {
+            eprintln!(
+                "unfinished live qualification preserved at {}",
+                self.0.display()
+            );
+            return;
+        }
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -129,9 +157,34 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
+    let live_descriptor = std::env::var_os("CODEX_PROVIDER_LIVE_DESCRIPTOR");
+    if live_descriptor.is_some() {
+        assert_eq!(
+            std::env::var("CODEX_PROVIDER_LIVE_CHAT").as_deref(),
+            Ok("qualified-gpt6-no-pro"),
+            "live qualification requires separate explicit arming"
+        );
+    }
+    let mut live_transcript = live_descriptor.as_ref().map(|_| {
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = PathBuf::from(
+            std::env::var_os("CODEX_PROVIDER_LIVE_TRANSCRIPT")
+                .expect("explicit private transcript output required"),
+        );
+        assert!(path.is_absolute());
+        File::options()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .expect("new transcript output required")
+    });
     let prefix = PathBuf::from(std::env::var_os("PREFIX").expect("Termux prefix required"));
     assert!(runtime.is_absolute());
-    let root = Root(std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8])));
+    let mut root = Root(
+        std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8])),
+        live_descriptor.is_some(),
+    );
     use std::os::unix::fs::DirBuilderExt;
     fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
     for name in ["home", "codex", "work", "tmp", "system"] {
@@ -145,7 +198,17 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     .unwrap();
     let app = Arc::new(App::default());
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
-    let host = Arc::new(AppHost::new(app.clone(), journal.clone()));
+    let live = live_descriptor.map(|path| {
+        Arc::new(Live {
+            remote: codex_chatgpt_provider::app::Remote::new(path.into(), journal.owner.clone()),
+            commands: Mutex::new(Vec::new()),
+        })
+    });
+    let bridge: Arc<dyn Bridge> = match &live {
+        Some(live) => live.clone(),
+        None => app.clone(),
+    };
+    let host = Arc::new(AppHost::new(bridge, journal.clone()));
     let token = random_id().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -161,7 +224,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     .unwrap();
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
-    let service = Service::new(Config::default(), token.clone(), host).unwrap();
+    let service = Service::new(Config::default(), token.clone(), host.clone()).unwrap();
     let router = service.router().layer(axum::middleware::from_fn(
         async |request: axum::extract::Request, next: axum::middleware::Next| {
             let (parts, body) = request.into_parts();
@@ -231,7 +294,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             "--dangerously-bypass-approvals-and-sandbox",
             "--profile",
             "chatgpt",
-            "Execute the fixture tools and return the verified result",
+            if live.is_some(){"Run this exact bounded local transport qualification. Use exec_command once to execute: printf 'effect-1\\n' >> effect-count . Then use apply_patch to add patched.txt containing the one line: real custom tool . Then use exec_command to execute: test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count . Do not use any other tools, commands, network or directories. After successful validation, answer exactly: Native executor verified"}else{"Execute the fixture tools and return the verified result"},
         ])
         .kill_on_drop(true);
     unsafe {
@@ -244,12 +307,20 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             Ok(())
         });
     }
-    let result = tokio::time::timeout(std::time::Duration::from_secs(90), command.output())
-        .await
-        .expect("native execution timeout")
-        .unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(if live.is_some() { 240 } else { 90 }),
+        command.output(),
+    )
+    .await
+    .expect("native execution timeout")
+    .unwrap();
     shutdown.cancel();
     server.await.unwrap();
+    host.shutdown().await;
+    if let Some(file) = &mut live_transcript {
+        file.write_all(&result.stdout).unwrap();
+        file.sync_all().unwrap();
+    }
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
@@ -269,6 +340,50 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
         "effect-1\neffect-2\n"
     );
+    if let Some(live) = live {
+        assert_eq!(
+            fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
+            "real custom tool\n"
+        );
+        let submissions = live.commands.lock().unwrap().clone();
+        assert!((2..=4).contains(&submissions.len()));
+        for command in &submissions[1..] {
+            assert!(command["messages"].as_array().unwrap().is_empty());
+            assert!(command["instructions"].as_array().unwrap().is_empty());
+        }
+        let mut observation = None;
+        for entry in fs::read_dir(&journal.root).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|v| v == "json") {
+                let key = path.file_stem().unwrap().to_str().unwrap();
+                if let Some(lane) = journal
+                    .read::<Value>(key)
+                    .unwrap()
+                    .filter(|v| v.get("native_thread").is_some())
+                {
+                    assert_eq!(lane["phase"], "idle");
+                    observation = Some(
+                        json!({"appDispatches":lane["dispatches"],"appUserObjects":lane["user_messages"],"appToolObjects":lane["tool_messages"]}),
+                    );
+                    live.remote
+                        .operation(json!({"op":"release","lane":lane["marker"]}))
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+        live.remote
+            .operation(json!({"op":"dispose"}))
+            .await
+            .unwrap();
+        assert!(observation.is_some());
+        println!(
+            "{}",
+            json!({"accepted":true,"liveNoMcp":true,"nativeEffects":3,"providerSubmissions":submissions.len(),"observation":observation,"proSampled":false,"automaticSubmissionRetry":false})
+        );
+        root.1 = false;
+        return;
+    }
     let s = app.0.lock().unwrap();
     let submissions = s
         .commands

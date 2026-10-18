@@ -144,7 +144,10 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 .and_then(|v| v.config())
                 .map_err(|e| e.to_string())?;
             let status = executor
-                .block_on(runtime::status(&root))
+                .block_on(async {
+                    runtime::ensure_token(&root).await?;
+                    runtime::status(&root).await
+                })
                 .map_err(|e| e.to_string())?;
             let value = codex_chatgpt_provider::registration::prepare(
                 &config,
@@ -192,7 +195,7 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 && !fields.contains_key("--home") =>
         {
             let value = executor
-                .block_on(runtime::token(&root))
+                .block_on(runtime::ensure_token(&root))
                 .map_err(|e| e.to_string())?;
             text(&value)
         }

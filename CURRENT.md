@@ -149,6 +149,10 @@ alone does not preserve uncommitted or untracked files. Give the ChatGPT-backed
 Codex a meaningful real improvement task; it must analyze the repository, implement,
 run relevant tests, diagnose and repair failures, then review the resulting diff.
 Do not implement the change in the supervising agent and present it as model work.
+The supervisor must launch and follow the run, independently inspect its actual
+diff and execute the applicable checks; the model's own success report is not
+acceptance. This trial starts after no-MCP completion, not on the legacy adapter
+as a substitute for qualifying the new Rust path.
 Keep inference submissions/tool returns/retries separately counted, with a stated
 live budget and no automated Pro. Observe the native initial/intermediate/final
 transcript, exact effects, stop/reconnect/latest-state resume and any failed tool
@@ -183,11 +187,15 @@ public transcript projection, lost-observer reconciliation without resubmission,
 private endpoint proof and data-only model-route reload. They are not official-app
 inference or native-executor effect-count proof. A fresh official app now boots and shuts down through Rust-owned PRoot/Xvnc and
 private Chromium pipes without Bun/Python or touching existing profiles. Actual
-Android Codex0.163 drives two dependent native commands through Rust and retains
-the transcript with exactly two effects and no repeated setup/user prompt.
+Android Codex0.163 drives commands, a custom patch and dependent validation through
+Rust, retaining the transcript with three exact effects and no repeated setup/user
+prompt on tool return.
 These are separate proofs: the native-client app replies are synthetic, and the
-fresh official-app trial sends no inference. Real app inference, restart/reboot,
-project placement, opaque compaction and full development qualification remain open. The legacy runtime remains the equivalence reference. Port useful real-Core scenario drivers alongside each
+fresh official-app trial sends no inference. A later actual GPT-6 vertical trial
+through the existing authenticated app's explicit relay also passed, as detailed
+below. Authenticated owned-app migration, restart/reboot, project placement, opaque
+compaction and full development qualification remain open. The legacy runtime
+remains the equivalence reference. Port useful real-Core scenario drivers alongside each
 boundary; do not defer all test migration until experiment closure. Preserve
 attribution for translated/reused dependency code and never replay a live request
 to both implementations for comparison.
@@ -214,21 +222,58 @@ into immutable upstream catalog snapshots; ordinary invocation overrides remain
 upstream-owned. Effective output exposes each model's values/origins. Candidate
 `catalog` emits current upstream JSON, and explicit `prepare --home PATH` writes
 one generated shared profile with no bearer plus a no-replace per-home link.
-It requires an authenticated running endpoint; on-demand bootstrap remains open.
+It authenticates the endpoint and may start the same Rust executable on demand
+using the already configured/provisioned rootfs; it never installs an app, submits
+Chat or restarts a live owner whose readiness failed. Concurrent startup serializes.
+Read-only `status` does not start anything. Actual Android empty-profile proof in
+`provider-auth-bootstrap-android.log` confirms two concurrent auth commands share
+one service, shutdown retains its profile, restart reuses the endpoint and rotates
+the credential; existing-profile access and Chat submissions are both zero. The
+initial proof exposed a concurrent directory-creation race, fixed by revalidating
+the winning private directory. An occupied old port fails before app startup.
 Actual Android Codex0.163 now uses this generated `--profile chatgpt`, command-backed
 auth and native catalog for commands, freeform patch and dependent validation.
 `provider-real-native-catalog.log` records three exact effects, four app-wire
 submissions and no Chat inference; app replies are synthetic. TUI source now reads
 the Rust auth contract and catalog-defined models/efforts, without fixed families
-or Python launcher references. The current catalog gate passes40 Rust cases,100 Bun and28 Python cases; targeted
+or Python launcher references. The catalog gate at310f0f7 passed40 Rust cases,100 Bun and28 Python cases; targeted
 CLI/profile tests and the generated-profile Android test also pass. Python repository
 gates pass18 script,106 workflow and11 frontend tests. The candidate X server uses
 `-rfbport -1` (per its installed manual) and a private Unix viewer socket; X11 TCP
 is disabled. Actual owned-host startup/shutdown was repeated on those arguments.
 The native fixture reports two user-role objects (one visible) in its initial
 synthetic host submission and no repeated user objects on tool return. These
-counts do not establish Chat allowance deductions. Native TUI qualification,
-actual app application and production activation remain pending.
+counts do not establish Chat allowance deductions. Hosted TUI qualification at
+310f0f7 passed in run39107948384; actual Android TUI composition/application and
+production activation remain pending.
+Lane identity now binds the authenticated user/account/workspace and owned host
+generation. App-wire regressions cover account mismatch, refusal to replay pending
+calls into a replacement host, and settled cold reconstruction only at a new native
+user turn. The updated Android generated-profile/native-tool fixture retains three
+exact effects and zero Chat submissions (`provider-real-native-identity.log`).
+Actual read-only inspection of the logged-in app now verifies identity and local
+function/stream capabilities through Rust CDP without installing hooks or submitting
+Chat (`provider-authenticated-app-readonly.log`). A separate real GPT-6 no-MCP
+vertical trial used the Rust Provider, generated profile and Android Codex0.163:
+two native commands, custom patch and dependent validation, three exact effects,
+four actual app dispatches, two user-role objects (one visible) and three tool-role
+returns; no new user objects on warm tool returns and no Pro/automatic resubmission.
+The final `idle` journal and native transcript were rechecked without another
+inference after a test-only uppercase/lowercase assertion error. The owned bridge
+was released/disposed; existing app/authentication and its remote trial chat remain.
+See `provider-live-no-mcp.log`, `provider-live-no-mcp-recheck.log` and the private
+`provider-live-no-mcp-native.jsonl`. These counts do not establish allowance units.
+The settled disposable source/home/journal were archived as
+`provider-live-no-mcp-state` under the same private acceptance root, preserving
+the proof while removing its temporary working root. The latest Provider gate
+passes45 Rust cases,100 Bun and28 Python cases plus formatting/lint/release build
+(`provider-final-identity-lifetime.log`); ignored live/Android cases are separately
+qualified above, never counted as executed by that offline gate.
+This trial explicitly used the existing authenticated app's private relay; owned
+Rust app startup has separate fresh-profile Android proof. It is not yet a complete
+operating migration, long-development qualification or a reason to start the AI
+trial before the remaining no-MCP admission work. Authenticated owned-app migration,
+project/context transitions and unsettled-host-loss reconciliation remain open.
 
 The 1,000,000-token value is the user's policy override, not measured Chat capacity.
 Do not impose it as a maximum or 32k as a minimum. Native token triggers, opaque

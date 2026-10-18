@@ -1165,10 +1165,23 @@ The source candidate may expose `codex-chatgpt-provider serve --descriptor PATH
 --state PATH`. These are Provider-owned operations, not Core dispatch commands.
 Bind only loopback, keep endpoint credentials in private owner-bound state and
 verify a fresh keyed readiness challenge before returning the local token.
+With no explicit port, a restart reuses its private journal's published loopback
+port, retaining generated profile URLs while rotating the local credential. An
+occupied prior port fails before starting an app; it never silently selects a
+different address or trusts the listener at that port. A malformed service record
+is an error, not permission to reset its state.
 Never export official-app credentials. Listener readiness is distinct from app
 connection, model progress and production qualification. A saved unsupported
 feature must fail explicitly before app submission, never silently lose behavior.
 These commands do not qualify the remaining host/project/context lifecycle.
+The generated command-backed `token` authentication and explicit `prepare` may
+start this same Provider executable on demand, using only an already configured
+official-app rootfs and the Provider's own persistent app home. Serialize concurrent
+starts and return credentials only after authenticated readiness. Never restart a
+live lease holder or bypass failed readiness of a recorded live process; preserve
+pending lanes. No Chat is submitted by startup/authentication/preparation. `status`
+remains read-only. Bound startup time and retain content-free errors in a private
+startup log; no alternate launcher, Manager dependency or new supervisor is added.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
@@ -1245,7 +1258,11 @@ repository's AGENTS/contracts and Git baseline, preserve unique uncommitted and
 untracked source, and let the ChatGPT-backed native Codex perform a real sequence
 of analysis, implementation, tests and failure repair. The supervising agent must
 not substitute its own implementation for the evaluated model. Preserve unrelated
-user work and operating authentication/data/runtime. Native transcript, exact
+user work and operating authentication/data/runtime.
+The supervisor launches and follows the trial, independently reviews its actual
+source changes and runs the applicable validation; recording a future task or
+accepting the evaluated model's own success report is insufficient.
+Native transcript, exact
 effects, interruption/reconnection/latest-state continuation and meaningful test
 results qualify the path; synthetic replies alone do not. A live budget and
 separate submission/result/retry counters remain required; automated Pro is
@@ -1312,8 +1329,21 @@ never interpret a configured shell command or bind the user's host home into the
 guest. No implicit app/rootfs installation or profile copying occurs. Preserve
 app home/authentication on shutdown; remove only owned temporary resources.
 A lost host with unsettled lanes is not permission to replay their requests.
+Bind each lane to the app's currently authenticated user/account/workspace and
+owned host generation using identifier-only app state, never a token dump. Check
+that identity before warm submissions/results. An account mismatch refuses before
+sending canonical history or results. A settled lane may be rebuilt from current
+native canonical input at a new native user turn after its app context disappears;
+retain the old remote chat. A model/effort-only change is not a new user turn.
+Pending/uncertain rounds and executable cached calls must not be replayed into a
+replacement host. Report that reconciliation is required and preserve their state.
+A cached settled final response can still be returned locally without inference.
+
 The private relay descriptor remains an explicit qualification connection option,
 not a fallback or required Bun/Python production dependency.
+An explicit owned bridge disposal may restore only its own installed hooks after
+all its lanes have been released. Refuse disposal while any lane remains; never
+remove another owner's hooks/state or close the shared app as qualification cleanup.
 
 The Rust configuration tool remains a candidate developer surface until product
 admission. Its effective output distinguishes file values from defaults and

@@ -31,8 +31,8 @@ async function fixture(run){
  }
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
- writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'};export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:{};},set(){},node:{},chain:{},query:{}};
+ writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export const $wt=globalThis.appBridgeFixture.wire;`);
+ const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
@@ -42,7 +42,9 @@ test('owned app hooks preserve unowned requests, actual feature gates and public
  expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:true});
  const unowned={local_function_signatures:[{name:'unowned'}],messages:[]};
  expect(f.client.prepareCompletionStream(unowned)).toBe(unowned);
+ const identity=await bridge({op:'identity',owner:'owned',lane:'lane'});expect(identity).toEqual({account:'account',user:'user',structure:'personal',present:false});
  await bridge({op:'open',owner:'owned',lane:'lane',signature:{name:'termux_codex_fixture'}});
+ await expect(bridge({op:'dispose',owner:'owned'})).rejects.toThrow('app_lanes_active');
  await bridge({op:'submit',owner:'owned',lane:'lane',round:'round-1',model:'configured-host',messages:[{role:'user',text:'Task',hidden:false},{role:'user',text:'<environment_context>preserved</environment_context>',hidden:true}],instructions:['Native policy']});
  await Promise.resolve();
  const state=await bridge({op:'snapshot',owner:'owned',lane:'lane'});
@@ -60,6 +62,8 @@ test('owned app hooks preserve unowned requests, actual feature gates and public
  await bridge({op:'release',owner:'owned',lane:'lane'});
  expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
  expect(f.wire.streamPost).toBe(original.streamPost);
+ expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+ expect(await bridge({op:'init',owner:'new-owned',bindings})).toEqual({ready:true});
 }));
 
 test('app feature gate is required and owner conflicts do not allocate conversations',async()=>fixture(async({f,bindings})=>{

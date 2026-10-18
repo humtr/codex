@@ -35,10 +35,14 @@ pub(crate) fn private_directory(path: &Path) -> Result<(), Error> {
                 private_directory(parent)?;
             }
             use std::os::unix::fs::DirBuilderExt;
-            fs::DirBuilder::new()
-                .mode(0o700)
-                .create(path)
-                .map_err(|_| Error("state_directory_unavailable"))
+            match fs::DirBuilder::new().mode(0o700).create(path) {
+                Ok(()) => Ok(()),
+                // Concurrent native auth commands can create the same parent
+                // before either obtains its startup lock. Revalidate the winner;
+                // existence alone never admits a symlink or non-private root.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => private_directory(path),
+                Err(_) => Err(Error("state_directory_unavailable")),
+            }
         }
         _ => Err(Error("private_state_directory_required")),
     }

@@ -172,3 +172,90 @@ async fn private_pipe_preserves_fragmented_frames_out_of_order_ids_and_disconnec
         .is_err());
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn remote_reattaches_verified_host_for_identity_without_submitting_work() {
+    use codex_chatgpt_provider::{
+        app::{Bridge, Remote},
+        journal::random_id,
+    };
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let root = std::env::temp_dir().join(format!("remote-{}", random_id().unwrap()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    let descriptor = root.join("descriptor.json");
+    let remote = Remote::new(descriptor.clone(), random_id().unwrap());
+    let mut previous = None;
+    for index in 0..2 {
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let process = Process::read(std::process::id()).unwrap();
+        let d = Descriptor {
+            version: 1,
+            kind: "termux-electron-pipe".into(),
+            endpoint: format!("http://127.0.0.1:{}/", socket.local_addr().unwrap().port()),
+            token: if index == 0 {
+                "a".repeat(43)
+            } else {
+                "b".repeat(43)
+            },
+            host: process.clone(),
+            browser: process,
+        };
+        std::fs::write(&descriptor, serde_json::to_vec(&d).unwrap()).unwrap();
+        std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let peer = tokio::spawn(async move {
+            let (socket, _) = socket.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            for _ in 0..4 {
+                let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+                    panic!("CDP frame required")
+                };
+                let request: Value = serde_json::from_str(&text).unwrap();
+                let result = match request["method"].as_str().unwrap() {
+                    "Target.getTargets" => {
+                        json!({"targetInfos":[{"targetId":"owned","type":"page","url":"app://-/index.html"}]})
+                    }
+                    "Target.attachToTarget" => json!({"sessionId":"owned-session"}),
+                    "Runtime.evaluate" => {
+                        let expression = request["params"]["expression"].as_str().unwrap();
+                        let (_, command) = expression.rsplit_once(")(").unwrap();
+                        let command: Value =
+                            serde_json::from_str(command.strip_suffix(')').unwrap()).unwrap();
+                        let value = match command["op"].as_str().unwrap() {
+                            "init" => json!({"ready":true}),
+                            "identity" => {
+                                json!({"account":"fixture-account","user":"fixture-user","structure":"personal","present":false})
+                            }
+                            _ => panic!("identity reattachment must not submit work"),
+                        };
+                        json!({"result":{"value":value}})
+                    }
+                    _ => panic!("unexpected CDP method"),
+                };
+                socket
+                    .send(Message::Text(
+                        json!({"id":request["id"],"result":result})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+        });
+        let identity = remote
+            .operation(json!({"op":"identity","lane":"fixture-lane"}))
+            .await
+            .unwrap();
+        assert_eq!(identity["account"], "fixture-account");
+        assert_eq!(identity["generation"], d.generation());
+        if let Some(previous) = &previous {
+            assert_ne!(previous, &identity["generation"]);
+        }
+        previous = Some(identity["generation"].clone());
+        peer.await.unwrap();
+    }
+    drop(remote);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -25,6 +25,131 @@ impl Drop for Root {
     }
 }
 
+struct Service(std::process::Child);
+impl Service {
+    fn start(root: &Root) -> (Self, Value) {
+        let mut child = Self(
+            Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+                .args(["serve", "--descriptor"])
+                .arg(root.0.join("descriptor.json"))
+                .arg("--state")
+                .arg(root.0.join("state"))
+                .env("HOME", &root.0)
+                .env("XDG_CONFIG_HOME", root.0.join("config"))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let mut line = String::new();
+        BufReader::new(child.0.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let value = serde_json::from_str(&line).expect("service must publish a listener");
+        (child, value)
+    }
+}
+impl Drop for Service {
+    fn drop(&mut self) {
+        unsafe {
+            libc::kill(self.0.id() as i32, libc::SIGTERM);
+        }
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while self.0.try_wait().unwrap().is_none() && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if self.0.try_wait().unwrap().is_none() {
+            self.0.kill().unwrap();
+        }
+        self.0.wait().unwrap();
+    }
+}
+
+#[test]
+fn restart_retains_registered_endpoint_rotates_credentials_and_refuses_port_collision() {
+    let root = Root::new();
+    std::fs::create_dir(&root.0).unwrap();
+    std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let descriptor = root.0.join("descriptor.json");
+    let process = Process::read(std::process::id()).unwrap();
+    std::fs::write(&descriptor,json!({"version":1,"kind":"termux-electron-pipe","endpoint":"http://127.0.0.1:9/","token":"a".repeat(43),"host":process,"browser":process}).to_string()).unwrap();
+    std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let state = root.0.join("state");
+    let binary = env!("CARGO_BIN_EXE_codex-chatgpt-provider");
+    let credential = || {
+        let output = Command::new(binary)
+            .arg("token")
+            .arg("--state")
+            .arg(&state)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        output.stdout
+    };
+    let (first, original) = Service::start(&root);
+    let old_token = credential();
+    let url = original["base_url"].as_str().unwrap();
+    let home = root.0.join("codex-home");
+    std::fs::create_dir(&home).unwrap();
+    let prepared = Command::new(binary)
+        .arg("prepare")
+        .arg("--home")
+        .arg(&home)
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(prepared.status.success());
+    let profile = std::fs::read(home.join("chatgpt.config.toml")).unwrap();
+    drop(first);
+    let (second, restarted) = Service::start(&root);
+    assert_eq!(restarted["base_url"], url);
+    assert!(
+        credential() != old_token,
+        "a restart must rotate the credential"
+    );
+    assert_eq!(
+        std::fs::read(home.join("chatgpt.config.toml")).unwrap(),
+        profile
+    );
+    drop(second);
+
+    let port = url
+        .strip_prefix("http://127.0.0.1:")
+        .unwrap()
+        .strip_suffix("/v1")
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
+    let collision = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let record = state.join(format!(
+        "{}.json",
+        digest(&"termux-codex-responses-service-v1")
+    ));
+    let before = std::fs::read(&record).unwrap();
+    let failed = Command::new(binary)
+        .arg("serve")
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("provider_port_unavailable"));
+    assert_eq!(std::fs::read(&record).unwrap(), before);
+    assert!(
+        !state.join("desktop").exists(),
+        "collision must precede app startup"
+    );
+    drop(collision);
+    let (last, listener) = Service::start(&root);
+    assert_eq!(listener["base_url"], url);
+    drop(last);
+}
+
 #[test]
 fn source_binary_serves_private_authenticated_endpoint_without_connecting_to_or_spending_chat() {
     let root = Root::new();
@@ -156,4 +281,26 @@ async fn invalid_local_listener_never_receives_our_bearer() {
     });
     assert!(runtime::token(&root.0).await.is_err());
     fake.await.unwrap();
+    assert!(runtime::ensure_token(&root.0).await.is_err());
+    assert!(!root.0.join("startup.log").exists());
+    assert!(!root.0.join("desktop").exists());
+}
+
+#[test]
+fn unconfigured_authentication_never_installs_an_app_or_changes_native_configuration() {
+    let root = Root::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .arg("token")
+        .arg("--state")
+        .arg(root.0.join("state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("host_rootfs_required"));
+    assert!(!root.0.join("state/desktop").exists());
+    assert!(!root.0.join("config").exists());
+    assert!(!root.0.join(".codex").exists());
 }

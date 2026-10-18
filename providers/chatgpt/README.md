@@ -12,7 +12,10 @@ The standalone Rust source candidate (`Cargo.toml`, `src/`) now implements
 configuration/catalog, loopback Responses/SSE, owned CDP, original-call tool
 returns, a private lane journal and a minimal app JavaScript bridge. It offers
 `serve [--descriptor PATH] [--state PATH] [--port PORT]`, `status [--state PATH]`
-and command-backed `token [--state PATH]` for qualification. Readiness verifies
+and command-backed `token [--state PATH]` for qualification. Authentication and
+`prepare` start this executable on demand when its configured rootfs is already
+provisioned; concurrent starts serialize. Failed readiness of a live process or
+writer lease never authorizes restarting it. `status` remains read-only. Readiness verifies
 the local process and a fresh keyed challenge; it does not claim model progress.
 Never paste the token output into chat or logs.
 
@@ -23,8 +26,13 @@ that path. Set `host.rootfs` to an already provisioned rootfs. App home persists
 under provider state (`desktop/home`) with an exclusive lease; temporary display
 resources are owned and cleaned separately. No existing profile is copied or
 modified. `--descriptor` explicitly connects a qualification relay instead.
-The operating adapter is still JS/Bun/Python. Actual Rust app inference, project
-placement, native opaque compaction, reboot and full development qualification
+Normal restart reuses the journal's loopback port, rotates its local credential
+and refuses an occupied port before starting an app. Startup errors append to the
+private state `startup.log`; no Chat message is sent by authentication/startup.
+The operating adapter is still JS/Bun/Python. Rust transport has real GPT-6/native
+command, patch, validation and final-transcript proof through the existing app's
+explicit private relay. This does not qualify the complete owned-app migration.
+Project placement, native opaque compaction, reboot and full development qualification
 remain unfinished. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
 
@@ -51,7 +59,7 @@ The source binary supports `config show`, `config effective`, `config validate`,
 `catalog.models` entry may contain `[catalog.models.context]` overrides for
 `window_tokens` and `auto_compact_token_limit`; effective output reports their
 origin. Explicit upstream invocation overrides still win. `prepare --home PATH`
-requires the running authenticated candidate endpoint and generates immutable
+authenticates or starts the candidate endpoint and generates immutable
 catalog snapshots plus one shared command-auth profile. Its per-home link preserves
 existing user profiles/config/auth. No bearer is written into the profile. Manager
 is not required. Saving settings does not hot-edit an already bound backend;
@@ -146,11 +154,20 @@ with its AGENTS/contracts and existing Git changes preserved. No temporary
 worktree/project copy is used. The ChatGPT-backed Codex must do the actual
 analysis, modifications, tests and failure repair; a supervisor-made patch or
 synthetic app response is not development qualification.
+The supervising agent runs the trial and independently reviews its diff and tests;
+it does not merely leave instructions for a future user-run trial. Start only
+after the Rust no-MCP path is complete, rather than substituting the old adapter.
 
 
 Configuration remains generated upstream `--profile chatgpt` fallback and TUI
 `/model` routing. The Rust candidate generates settings/catalog/profile outputs, and TUI source
-consumes the new contract. Operating-runtime activation, native TUI qualification,
-on-demand bootstrap and configured remote project placement remain unfinished. Host API changes can still require binary/bridge changes.
+consumes the new contract. Hosted TUI qualification at310f0f7 passed. Operating
+activation, actual Android TUI composition and
+configured remote project placement remain unfinished. On-demand authentication
+has actual Android fresh-profile startup/restart proof, without inference or
+existing-profile access. Account/host binding and settled cold-lane reconstruction
+have app-wire fixture proof. Real authenticated inference has explicit relay proof;
+owned-app authentication migration and full lifecycle admission remain separate
+gates. Host API changes can still require binary/bridge changes.
 
 See [NOTICE](NOTICE.md) for dependency provenance and licenses.

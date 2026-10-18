@@ -125,7 +125,7 @@ pub fn prepare(
     } else {
         publish(&catalog, &bytes, None)?;
     }
-    let routing = json!({"model":config.model.default,"model_provider":PROVIDER,"model_reasoning_effort":config.model.reasoning_effort,"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":10000,"refresh_interval_ms":1000}}}});
+    let routing = json!({"model":config.model.default,"model_provider":PROVIDER,"model_reasoning_effort":config.model.reasoning_effort,"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":60000,"refresh_interval_ms":1000}}}});
     let text = MARKER.to_owned()
         + &toml::to_string_pretty(&routing).map_err(|_| Error("profile_serialization_failed"))?;
     // Recheck the local target before changing the shared output. Existing user

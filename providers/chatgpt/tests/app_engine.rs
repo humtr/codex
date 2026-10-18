@@ -28,6 +28,9 @@ struct State {
     hold: bool,
     stopped: bool,
     progress_then_loss: bool,
+    generation: String,
+    account: String,
+    lanes: std::collections::BTreeSet<String>,
 }
 #[derive(Clone, Default)]
 struct App {
@@ -40,7 +43,11 @@ impl Bridge for App {
             let mut state = this.state.lock().unwrap();
             state.commands.push(command.clone());
             match command["op"].as_str().unwrap() {
+                "identity" => Ok(
+                    json!({"generation":if state.generation.is_empty(){"fixture-generation"}else{&state.generation},"account":if state.account.is_empty(){"fixture-account"}else{&state.account},"user":"fixture-user","structure":"personal","present":state.lanes.contains(command["lane"].as_str().unwrap())}),
+                ),
                 "open" => {
+                    state.lanes.insert(command["lane"].as_str().unwrap().into());
                     state.gateway = command["signature"]["name"].as_str().unwrap().into();
                     Ok(json!({"localId":"owned-app-conversation"}))
                 }
@@ -54,7 +61,10 @@ impl Bridge for App {
                         Ok(json!({"started":true}))
                     }
                 }
-                "release" => Ok(json!({"released":true})),
+                "release" => {
+                    state.lanes.remove(command["lane"].as_str().unwrap());
+                    Ok(json!({"released":true}))
+                }
                 "stop" => {
                     state.stopped = true;
                     Ok(json!({}))
@@ -354,6 +364,119 @@ async fn lost_observer_reloads_partial_transcript_then_reconciles_without_a_seco
             .commands
             .iter()
             .filter(|c| c["op"] == "submit")
+            .count(),
+        1
+    );
+}
+
+async fn settled_input(host: &AppHost) -> Value {
+    let mut second = body();
+    let first = execute(host, second.clone()).await;
+    second["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&first));
+    for event in &first {
+        if let Event::Tool(call) = event {
+            second["input"].as_array_mut().unwrap().push(json!({"type":if call.tool.name=="patch"{"custom_tool_call_output"}else{"function_call_output"},"call_id":call.id,"output":"settled native result"}));
+        }
+    }
+    let final_response = execute(host, second.clone()).await;
+    second["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&final_response));
+    second
+}
+fn next_turn(mut input: Value) -> Value {
+    input["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"native-fixture","turn_id":"turn-2"})
+            .to_string()
+            .into();
+    input["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"role":"user","content":"Continue from the checked latest native state"}));
+    input
+}
+
+#[tokio::test]
+async fn settled_native_turn_restores_after_host_restart_without_replaying_tools_or_crossing_accounts(
+) {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let settled = settled_input(&host).await;
+    drop(host);
+    {
+        let mut s = app.state.lock().unwrap();
+        s.generation = "replacement-host".into();
+        s.lanes.clear();
+    }
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let mut setting_only = settled.clone();
+    setting_only["reasoning"] = json!({"effort":"high"});
+    assert_eq!(
+        failure(&host, setting_only, CancellationToken::new())
+            .await
+            .0,
+        Error("owned_app_round_unavailable")
+    );
+    // A changed app account is never an implicit destination for native history.
+    app.state.lock().unwrap().account = "other-account".into();
+    assert_eq!(
+        failure(&host, next_turn(settled.clone()), CancellationToken::new())
+            .await
+            .0,
+        Error("app_account_changed")
+    );
+    app.state.lock().unwrap().account.clear();
+    let result = execute(&host, next_turn(settled)).await;
+    assert_eq!(output(&result)[0]["content"][0]["text"], "Tests passed");
+    let s = app.state.lock().unwrap();
+    let submits = s
+        .commands
+        .iter()
+        .filter(|v| v["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submits.len(), 3);
+    assert_ne!(submits[1]["lane"], submits[2]["lane"]);
+    assert!(submits[2]["results"].as_array().unwrap().is_empty());
+    assert!(submits[2]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["text"] == "Continue from the checked latest native state"));
+}
+
+#[tokio::test]
+async fn host_replacement_never_replays_cached_executable_calls_or_pending_results() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    execute(&host, body()).await;
+    {
+        let mut s = app.state.lock().unwrap();
+        s.generation = "replacement-host".into();
+        s.lanes.clear();
+    }
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("owned_app_round_unavailable")
+    );
+    assert_eq!(
+        failure(&host, next_turn(body()), CancellationToken::new())
+            .await
+            .0,
+        Error("owned_app_round_unavailable")
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
             .count(),
         1
     );

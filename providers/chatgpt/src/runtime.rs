@@ -14,7 +14,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
 use std::{
+    fs::File,
+    os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, OpenOptionsExt},
+    },
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::Arc,
     time::Duration,
 };
@@ -52,6 +58,12 @@ fn binding(root: &Path) -> Result<Binding, Error> {
     let value = Journal::inspect(root, &key())?.ok_or(Error("provider_not_running"))?;
     let value: Binding =
         serde_json::from_value(value).map_err(|_| Error("invalid_service_record"))?;
+    validate_binding(&value)?;
+    value.process.validate()?;
+    Ok(value)
+}
+
+fn validate_binding(value: &Binding) -> Result<(), Error> {
     if value.schema != "termux-codex-responses-service-v1"
         || value.port == 0
         || value.token.len() != 48
@@ -59,8 +71,7 @@ fn binding(root: &Path) -> Result<Binding, Error> {
     {
         return Err(Error("invalid_service_record"));
     }
-    value.process.validate()?;
-    Ok(value)
+    Ok(())
 }
 
 pub async fn token(root: &Path) -> Result<String, Error> {
@@ -89,6 +100,157 @@ pub async fn token(root: &Path) -> Result<String, Error> {
     Ok(selected.token)
 }
 
+/// Authentication owns lazy process startup, never inference or request replay.
+/// Keep `token` itself read-only for readiness/status and internal proof.
+pub async fn ensure_token(root: &Path) -> Result<String, Error> {
+    if !root.is_absolute() {
+        return Err(Error("absolute_state_directory_required"));
+    }
+    if let Ok(value) = token(root).await {
+        return Ok(value);
+    }
+    crate::journal::private_directory(root)?;
+    let lock = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(root.join("startup.lock"))
+        .map_err(|_| Error("provider_start_lock_unavailable"))?;
+    private_regular(&lock)?;
+    let until = tokio::time::Instant::now() + Duration::from_secs(45);
+    loop {
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            break;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EWOULDBLOCK) {
+            return Err(Error("provider_start_lock_unavailable"));
+        }
+        if tokio::time::Instant::now() >= until {
+            return Err(Error("provider_start_timeout"));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if let Ok(value) = token(root).await {
+        return Ok(value);
+    }
+    {
+        // A failed readiness check is never authority to restart a live owner.
+        // The normal writer lease also covers startup before publication.
+        let journal = Journal::open(root)?;
+        if let Some(previous) = journal.read::<Binding>(&key())? {
+            validate_binding(&previous)?;
+            if previous.process.validate().is_ok() {
+                return Err(Error("provider_live_but_unavailable"));
+            }
+        }
+        let path = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
+        let settings = store::Snapshot::open(&path)
+            .and_then(|v| v.config())
+            .map_err(|_| Error("invalid_provider_configuration"))?;
+        if settings.host.rootfs.is_none() {
+            return Err(Error("host_rootfs_required"));
+        }
+    }
+    let log = File::options()
+        .append(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(root.join("startup.log"))
+        .map_err(|_| Error("provider_start_log_unavailable"))?;
+    private_regular(&log)?;
+    let mut command = Command::new(
+        std::env::current_exe().map_err(|_| Error("provider_executable_unavailable"))?,
+    );
+    command
+        .arg("serve")
+        .arg("--state")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log));
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = StartupChild(Some(
+        command
+            .spawn()
+            .map_err(|_| Error("provider_start_failed"))?,
+    ));
+    loop {
+        if let Ok(value) = token(root).await {
+            // The service outlives this short-lived native authentication command.
+            // No separate long-lived launcher or automatic inference is needed.
+            child.0.take();
+            return Ok(value);
+        }
+        if child
+            .0
+            .as_mut()
+            .unwrap()
+            .try_wait()
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return Err(Error("provider_start_failed"));
+        }
+        if tokio::time::Instant::now() >= until {
+            return Err(Error("provider_start_timeout"));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn private_regular(file: &File) -> Result<(), Error> {
+    let m = file
+        .metadata()
+        .map_err(|_| Error("private_file_required"))?;
+    if !m.is_file() || m.uid() != unsafe { libc::geteuid() } || m.mode() & 0o777 != 0o600 {
+        return Err(Error("private_file_required"));
+    }
+    Ok(())
+}
+struct StartupChild(Option<std::process::Child>);
+impl Drop for StartupChild {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.0 {
+            // Prefer owned graceful teardown; only this unreaped child may be
+            // escalated on a failed bootstrap, never an existing service.
+            match child.try_wait() {
+                Ok(None) => (),
+                _ => return,
+            }
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGTERM);
+            }
+            let until = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                match child.try_wait() {
+                    Ok(None) => (),
+                    _ => return,
+                }
+                if std::time::Instant::now() >= until {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 pub async fn status(root: &Path) -> Result<serde_json::Value, Error> {
     let selected = binding(root)?;
     token(root).await?;
@@ -106,6 +268,25 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         Descriptor::read(path)?;
     }
     let journal = Arc::new(Journal::open(&root)?);
+    // A generated upstream profile retains its endpoint across service restarts.
+    // Reclaim only our journal's previously published port; never select a new
+    // random endpoint when that address is now occupied by another listener.
+    let previous = journal.read::<Binding>(&key())?;
+    if let Some(value) = &previous {
+        validate_binding(value)?;
+    }
+    let selected_port = if port == 0 {
+        previous.as_ref().map_or(0, |value| value.port)
+    } else {
+        port
+    };
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", selected_port))
+        .await
+        .map_err(|_| Error("provider_port_unavailable"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|_| Error("provider_port_unavailable"))?
+        .port();
     let mut owned = None;
     let bridge = if let Some(path) = descriptor {
         Remote::new(path, journal.owner.clone())
@@ -118,13 +299,6 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     let host = Arc::new(AppHost::new(Arc::new(bridge), journal.clone()));
     let token = random_id()?;
     let service = Service::configured(config, token.clone(), host.clone())?;
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .map_err(|_| Error("provider_port_unavailable"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|_| Error("provider_port_unavailable"))?
-        .port();
     journal.write(
         &key(),
         &Binding {

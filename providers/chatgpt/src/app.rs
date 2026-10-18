@@ -66,7 +66,10 @@ impl Bridge for Remote {
             };
             let mut guard = connection.lock().await;
             if guard.as_ref().is_some_and(|c| c.generation != generation) {
-                return Err(Error("owned_host_changed"));
+                // Reattach only to the newly verified owned host. Lane-level
+                // identity admission below decides whether a settled turn may
+                // import context; pending work remains non-replayable.
+                *guard = None;
             }
             if guard.is_none() {
                 let client = match (&source, &selected) {
@@ -87,12 +90,23 @@ impl Bridge for Remote {
                     }
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
-                *guard = Some(Connection { generation, app });
+                *guard = Some(Connection {
+                    generation: generation.clone(),
+                    app,
+                });
             }
             let app = guard.as_ref().unwrap().app.clone();
             drop(guard);
             command["owner"] = json!(owner);
-            let result = app.evaluate(&expression(&command)).await;
+            let mut result = app.evaluate(&expression(&command)).await;
+            if command["op"] == "identity" {
+                if let Ok(value) = &mut result {
+                    let object = value
+                        .as_object_mut()
+                        .ok_or(Error("app_identity_unavailable"))?;
+                    object.insert("generation".into(), json!(generation));
+                }
+            }
             if result
                 .as_ref()
                 .is_err_and(|error| error.0.starts_with("cdp_"))
@@ -122,6 +136,51 @@ enum Phase {
     Stopped,
     Unknown,
 }
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct Identity {
+    generation: String,
+    account: String,
+    user: String,
+    structure: String,
+}
+impl Identity {
+    fn parse(value: &Value) -> Result<Self, Error> {
+        let identity: Self =
+            serde_json::from_value(value.clone()).map_err(|_| Error("app_identity_unavailable"))?;
+        if [&identity.generation, &identity.account, &identity.user]
+            .iter()
+            .any(|v| v.is_empty() || v.len() > 512 || v.chars().any(char::is_control))
+            || !matches!(identity.structure.as_str(), "personal" | "workspace")
+        {
+            return Err(Error("app_identity_unavailable"));
+        }
+        Ok(identity)
+    }
+    fn account_matches(&self, other: &Self) -> bool {
+        self.account == other.account
+            && self.user == other.user
+            && self.structure == other.structure
+    }
+}
+
+fn user_input_identity(request: &Request) -> String {
+    context::digest(
+        &request
+            .input
+            .iter()
+            .filter(|v| v["role"] == "user")
+            .filter_map(|v| context::text(v).ok())
+            .filter(|s| !context::internal_visibility_hint(s))
+            .collect::<Vec<_>>(),
+    )
+}
+fn new_turn(lane: &Lane, request: &Request) -> bool {
+    match (&lane.turn, &request.turn) {
+        (Some(old), Some(new)) => old != new,
+        _ => lane.user_input != user_input_identity(request),
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Lane {
     native_thread: String,
@@ -131,6 +190,8 @@ struct Lane {
     prefix: Prefix,
     request: String,
     turn: Option<String>,
+    identity: Option<Identity>,
+    user_input: String,
     round: String,
     pending: Vec<Call>,
     confirmed: BTreeMap<String, String>,
@@ -150,6 +211,8 @@ impl Lane {
             prefix: Prefix::default(),
             request: String::new(),
             turn: None,
+            identity: None,
+            user_input: String::new(),
             round: String::new(),
             pending: Vec::new(),
             confirmed: BTreeMap::new(),
@@ -263,6 +326,7 @@ impl Host for AppHost {
                         | Phase::Stopped
                         | Phase::Unknown
                         | Phase::Opening
+                        | Phase::New
                         | Phase::CancelRequested
                 )
             {
@@ -317,7 +381,7 @@ async fn exchange(
         return Err(Error("cancelled_before_dispatch"));
     }
     let request_digest = context::digest(request);
-    if request_digest == lane.request && matches!(lane.phase, Phase::Idle | Phase::ToolsReady) {
+    if request_digest == lane.request && lane.phase == Phase::Idle {
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -329,11 +393,43 @@ async fn exchange(
     if lane.phase == Phase::CancelRequested {
         return stop_lane(bridge, journal, key, lane).await;
     }
+    let observed = bridge
+        .operation(json!({"op":"identity","lane":lane.marker}))
+        .await?;
+    let current = Identity::parse(&observed)?;
+    if let Some(old) = &lane.identity {
+        if !old.account_matches(&current) {
+            return Err(Error("app_account_changed"));
+        }
+        if old.generation != current.generation || observed["present"] != true {
+            if matches!(lane.phase, Phase::Idle | Phase::Stopped) && new_turn(lane, request) {
+                // Re-import only at a new native user turn after a settled round.
+                // Old remote chats remain intact. No pending call is reissued.
+                *lane = Lane::new(&request.thread)?;
+            } else if !matches!(lane.phase, Phase::New | Phase::Opening) {
+                return Err(Error("owned_app_round_unavailable"));
+            }
+        }
+    } else if lane.phase != Phase::New && lane.phase != Phase::Opening {
+        return Err(Error("app_identity_unavailable"));
+    }
+    lane.identity = Some(current);
+    journal.write(key, lane)?;
+    if request_digest == lane.request && lane.phase == Phase::ToolsReady {
+        for event in &lane.cached {
+            events
+                .send(event.clone())
+                .await
+                .map_err(|_| Error("native_observer_closed"))?;
+        }
+        return Ok(());
+    }
+
     if lane.phase == Phase::Stopped {
         if request_digest == lane.request {
             return Err(Error("previous_round_stopped"));
         }
-        if request.turn.is_none() || request.turn == lane.turn {
+        if !new_turn(lane, request) {
             return Err(Error("new_native_turn_required"));
         }
         // A new native turn owns its next submission. Preserve the old remote
@@ -342,7 +438,9 @@ async fn exchange(
         bridge
             .operation(json!({"op":"release","lane":lane.marker}))
             .await?;
+        let identity = lane.identity.clone();
         *lane = Lane::new(&request.thread)?;
+        lane.identity = identity;
         journal.write(key, lane)?;
     }
     if lane.phase == Phase::Opening {
@@ -447,6 +545,7 @@ async fn exchange(
         }
         lane.request = request_digest;
         lane.turn = request.turn.clone();
+        lane.user_input = user_input_identity(request);
         lane.round = random_id()?;
         lane.cached.clear();
         lane.public.clear();
