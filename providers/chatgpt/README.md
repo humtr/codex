@@ -19,6 +19,15 @@ writer lease never authorizes restarting it. `status` remains read-only. Readine
 the local process and a fresh keyed challenge; it does not claim model progress.
 Never paste the token output into chat or logs.
 
+`status --thread NATIVE_THREAD_ID [--state PATH]` reads the private lane's last
+observation even when its local endpoint is unavailable. It distinguishes app
+running, pending native tool results, stop requested/unconfirmed, acknowledged stop
+and unknown state. Counts separate app dispatches, user-role objects and tool
+returns; they do not measure Chat allowance. It neither starts a service nor
+queries/resumes/cancels the app. No prompt, tool output, account identifiers or
+credential is included. A journal observation is not current remote progress or
+proof that native tools have finished; review canonical native history as well.
+
 These paths have deterministic TCP/app-wire fixtures and actual Android Codex
 native-command/transcript proof. Rust directly boots/stops a fresh official app
 through private Chromium pipes, PRoot and Xvnc; no Bun/Python host is required for

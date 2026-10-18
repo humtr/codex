@@ -1182,6 +1182,16 @@ live lease holder or bypass failed readiness of a recorded live process; preserv
 pending lanes. No Chat is submitted by startup/authentication/preparation. `status`
 remains read-only. Bound startup time and retain content-free errors in a private
 startup log; no alternate launcher, Manager dependency or new supervisor is added.
+`status --thread ID` may additionally inspect that native thread's private lane
+journal without connecting to the app or starting a service. Report observed
+transport phase, pending native call count, cached public event count, separate
+dispatch/user-object/tool-return counters and a bounded static error code; never
+export prompt/result text, account identifiers, host IDs or credentials. Distinguish
+endpoint liveness from the last journal observation. Running/unknown/unconfirmed
+stop state is not completion, and tools-ready means awaiting native execution or
+results. If the local endpoint is unavailable, retain the observed lane state and
+say its current remote activity is unknown. Inspection never resumes or cancels
+work or infers Chat allowance deductions.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter

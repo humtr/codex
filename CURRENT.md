@@ -76,7 +76,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
 | 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; source TUI integration added, UI/automatic/interrupted/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
-| 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny and distinct lanes pass without Chat; questions/concurrency, output loss, host crash/reboot remain |
+| 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native questions, actual host crash/reboot remain |
 | 8 | Independent MCP and efficiency | Independent MCP still retained legacy source/offline proof, not Rust/admitted fallback; qualify Termux Codex original-call ACK, tool discovery and native host search; improve argument/output overhead |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
@@ -219,6 +219,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-gateway-correction.log / provider-native-correction-regressions.log | Rejected gateway batch returns a structured error on its original ID; no partial native execution/new user input. Actual correction→search→MCP→patch/tests passes with six Responses requests/seven fixture app dispatches, five native returns/one error return. Three-correction limit, lost reply/no resend and account-change refusal pass; no Chat |
 | provider-native-reviewer-final.log / provider-native-reviewer-composed.log | Actual Android danger-full-access + on-request + auto_review; two reviewer decisions per case, distinct primary/reviewer gateways, schema-valid allow/deny, three allowed effects versus one permitted patch and zero denied-command effects; synthetic app/no Chat |
 | provider-reviewer-full.log |66 regular Rust/102 Bun/28 Python plus fmt/clippy/release build; actual native companion run separately passes five executor/reviewer/MCP and four context/fork fixtures, no Chat |
+| provider-lane-observation.log | Content-free read-only lane/CLI inspection distinguishes running, native tool-result wait and acknowledged stop without app queries or service startup; concurrent sibling completion/parent stop leaves sibling result and exact retries intact; no Chat |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -228,7 +229,9 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-restored-auth-readonly.log | Existing controller/login restored to the same account; no hooks/inference |
 
 Hosted exact source5e0d396 passed source39117103778, Provider39117103775 and Core/
-runtime39117140293. TUI310f0f7 passed39107948384 with48 focused and94 retained
+runtime39117140293. TUI728cf26 built but39122849434 failed a test-only AbsolutePathBuf assignment;
+ff2682d fixes it and39126312868 is pending. Never admit the failed proof.
+TUI310f0f7 passed39107948384 with48 focused and94 retained
 upstream checks/lint. Later source edits require matching gates; these are not
 proof of a new signed public composition. Ignored Android/live tests count only
 when separately armed and actually run. Failed/zero-test required gates remain open.
@@ -258,8 +261,10 @@ qualification. Unsupported box components remained in its final transcript.
 
 ### Remaining acceptance and delivery
 
-1. Finish startup/identity loading, host-loss/cancellation/concurrent lane/reboot
-   qualification. Authenticated Rust boot/inference now works; its reversible
+1. App-wire concurrent lanes/stop/sibling results now pass; read-only thread
+   status reports last journal phase/counters even without the local endpoint,
+   without claiming fresh app progress. Finish actual startup/identity loading,
+   host-loss/cancellation/concurrency/reboot qualification. Authenticated Rust boot/inference now works; its reversible
    device test restored the old controller and original home directory inode.
    Permanent operating migration and fresh login/provisioning/viewer remain.
 2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
@@ -280,7 +285,10 @@ qualification. Unsupported box components remained in its final transcript.
 4. Qualify the independent MCP return on original host call IDs using configurable
    Termux Codex identity; no automatic unqualified fallback or Codex Native2 naming
    dependency. Keep native executor/transcript ownership upstream.
-5. Reduce setup/context/argument overhead and adapt terminal markup without losing
+5. TUI also starts an auxiliary automatic-title model thread for an unnamed
+   conversation; the terminal fixture names its owned thread to isolate the
+   transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
+   Reduce setup/context/argument overhead and adapt terminal markup without losing
    useful text, exposing hidden reasoning or increasing Chat requests. Count user
    objects/tool returns/model starts/setup/summary/retries separately; Chat debits
    remain unknown. No automated Pro or GPT-5.6 trials.

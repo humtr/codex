@@ -428,6 +428,12 @@ async fn stopped_round_requires_a_new_native_turn_and_never_leaks_tools_or_repla
     cancel.cancel();
     let (error, events) = task.await.unwrap();
     assert_eq!(error, Error("app_stop_acknowledged"));
+    let status = codex_chatgpt_provider::runtime::thread_status(&root.0, "native-fixture")
+        .await
+        .unwrap();
+    assert_eq!(status["lane"]["phase"], "stopped");
+    assert_eq!(status["endpoint_live"], false);
+    assert_eq!(status["remote_current_state"], "not_queried");
     assert!(!events
         .iter()
         .any(|e| matches!(e, Event::Tool(_) | Event::Completed { .. })));
@@ -721,5 +727,197 @@ async fn rejected_gateway_does_not_continue_into_a_changed_account() {
             .filter(|v| v["op"] == "submit")
             .count(),
         1
+    );
+}
+
+/// Each synthetic app conversation has independent remote work, like the real
+/// bridge's lane map. Keep one running while another finishes a native tool batch.
+#[derive(Default)]
+struct IndependentApps(Mutex<std::collections::BTreeMap<String, Arc<App>>>);
+impl Bridge for IndependentApps {
+    fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+        let app = {
+            let mut apps = self.0.lock().unwrap();
+            let first = apps.is_empty();
+            apps.entry(command["lane"].as_str().unwrap().to_owned())
+                .or_insert_with(|| {
+                    let app = Arc::new(App::default());
+                    app.state.lock().unwrap().hold = first;
+                    app
+                })
+                .clone()
+        };
+        app.operation(command)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_lanes_finish_independently_and_stopping_one_preserves_its_sibling() {
+    let root = Root::new();
+    let bridge = Arc::new(IndependentApps::default());
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let host = Arc::new(AppHost::new(bridge.clone(), journal));
+    let cancel = CancellationToken::new();
+    let held = {
+        let host = host.clone();
+        let token = cancel.clone();
+        tokio::spawn(async move { failure(&host, body(), token).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if bridge.0.lock().unwrap().values().any(|app| {
+                app.state
+                    .lock()
+                    .unwrap()
+                    .commands
+                    .iter()
+                    .any(|c| c["op"] == "snapshot")
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("native_lane_busy")
+    );
+    let observed = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(observed["phase"], "running");
+    assert_eq!(observed["app_queried"], false);
+    let mut sibling = body();
+    sibling["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"independent-sibling","turn_id":"sibling-1"})
+            .to_string()
+            .into();
+    let first = execute(&host, sibling.clone()).await;
+    sibling["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&first));
+    for event in &first {
+        if let Event::Tool(call) = event {
+            sibling["input"].as_array_mut().unwrap().push(json!({
+                "type":if call.tool.kind==codex_chatgpt_provider::protocol::ToolKind::Custom{"custom_tool_call_output"}else{"function_call_output"},
+                "call_id":call.id,"output":"sibling-only-result"}));
+        }
+    }
+    let done = execute(&host, sibling.clone()).await;
+    assert_eq!(output(&done)[0]["content"][0]["text"], "Tests passed");
+    assert!(
+        !held.is_finished(),
+        "sibling must complete while parent is still active"
+    );
+    cancel.cancel();
+    let (error, partial) = held.await.unwrap();
+    assert_eq!(error, Error("app_stop_acknowledged"));
+    assert!(partial
+        .iter()
+        .all(|v| !matches!(v, Event::Tool(_) | Event::Completed { .. })));
+    // Exact retry reads the sibling's accepted response even after parent stop.
+    assert_eq!(output(&execute(&host, sibling).await), output(&done));
+    let apps = bridge.0.lock().unwrap();
+    assert_eq!(apps.len(), 2);
+    let states = apps
+        .values()
+        .map(|app| app.state.lock().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(states.iter().filter(|s| s.stopped).count(), 1);
+    let sibling = states.iter().find(|s| !s.hold).unwrap();
+    let submissions = sibling
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submissions.len(), 2, "no concurrent/retry work may replay");
+    assert_eq!(submissions[1]["results"][0]["id"], "host-original");
+    assert!(submissions[1]["results"]
+        .to_string()
+        .contains("sibling-only-result"));
+    assert!(states
+        .iter()
+        .find(|s| s.hold)
+        .unwrap()
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .all(|c| c["results"].as_array().unwrap().is_empty()));
+}
+
+#[tokio::test]
+async fn thread_status_inspects_pending_work_without_exporting_content_or_starting_a_service() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    execute(&host, body()).await;
+    let before = app.state.lock().unwrap().commands.len();
+    let status = codex_chatgpt_provider::runtime::thread_status(&root.0, "native-fixture")
+        .await
+        .unwrap();
+    assert_eq!(
+        app.state.lock().unwrap().commands.len(),
+        before,
+        "inspection must not query the app"
+    );
+    assert_eq!(status["endpoint_live"], false);
+    assert_eq!(status["service_started"], false);
+    let lane = &status["lane"];
+    assert_eq!(lane["phase"], "tools_ready");
+    assert_eq!(lane["pending_native_calls"], 2);
+    assert_eq!(lane["app_dispatches"], 1);
+    assert_eq!(lane["chat_allowance_debits"], "unknown");
+    let binary = std::process::Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args(["status", "--state"])
+        .arg(&root.0)
+        .args(["--thread", "native-fixture"])
+        .output()
+        .unwrap();
+    assert!(
+        binary.status.success(),
+        "{}",
+        String::from_utf8_lossy(&binary.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&binary.stdout).unwrap(),
+        status
+    );
+    assert!(!root.0.join("startup.log").exists());
+    let serialized = status.to_string();
+    for forbidden in [
+        "Improve the copied project",
+        "owned workspace",
+        "functions.exec",
+        "host-original",
+        "fixture-account",
+        "fixture-user",
+        "termux_codex_",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "status leaked private transport context"
+        );
+    }
+    assert_eq!(
+        codex_chatgpt_provider::app::inspect_lane(&root.0, "absent"),
+        Err(Error("native_lane_not_found"))
+    );
+    assert_eq!(
+        codex_chatgpt_provider::app::inspect_lane(&root.0, "invalid\nthread"),
+        Err(Error("invalid_thread_identity"))
+    );
+    // The on-disk diagnostic must also remain content-free on a tampered error.
+    let journal = std::fs::read_dir(&root.0)
+        .unwrap()
+        .map(|v| v.unwrap().path())
+        .find(|p| p.extension().is_some_and(|e| e == "json"))
+        .unwrap();
+    let mut value: Value = serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+    value["payload"]["last_error"] = json!("private credential text");
+    std::fs::write(&journal, value.to_string()).unwrap();
+    assert_eq!(
+        codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap()["last_error"],
+        "provider_error"
     );
 }

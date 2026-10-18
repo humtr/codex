@@ -259,6 +259,15 @@ pub async fn status(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 
+pub async fn thread_status(root: &Path, thread: &str) -> Result<serde_json::Value, Error> {
+    let lane = crate::app::inspect_lane(root, thread)?;
+    let endpoint = status(root).await;
+    Ok(json!({"schema":"termux-codex-provider-thread-status-v1",
+        "endpoint_live":endpoint.is_ok(),"endpoint_error":endpoint.err().map(|e|e.0),
+        "lane":lane,"remote_current_state":"not_queried",
+        "inference_submitted":false,"service_started":false}))
+}
+
 pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Result<(), Error> {
     let config = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
     let settings = store::Snapshot::open(&config)

@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | token [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -150,11 +150,14 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
     for pair in args[1..].as_chunks::<2>().0 {
         if !matches!(
             pair[0].as_str(),
-            "--state" | "--descriptor" | "--port" | "--home"
+            "--state" | "--descriptor" | "--port" | "--home" | "--thread"
         ) || fields.insert(pair[0].as_str(), pair[1].as_str()).is_some()
         {
             return Err("invalid or duplicate runtime option".into());
         }
+    }
+    if fields.contains_key("--thread") && args[0] != "status" {
+        return Err("--thread is only supported by read-only status".into());
     }
     let root = fields
         .get("--state")
@@ -225,7 +228,12 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 && !fields.contains_key("--home") =>
         {
             let value = executor
-                .block_on(runtime::status(&root))
+                .block_on(async {
+                    match fields.get("--thread") {
+                        Some(thread) => runtime::thread_status(&root, thread).await,
+                        None => runtime::status(&root).await,
+                    }
+                })
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }

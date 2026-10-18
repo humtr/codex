@@ -256,6 +256,37 @@ struct Lane {
     #[serde(default)]
     rejected: u8,
 }
+
+/// Read-only, content-free last observation; not a fresh app progress query.
+pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error> {
+    if thread.is_empty() || thread.len() > 256 || thread.chars().any(char::is_control) {
+        return Err(Error("invalid_thread_identity"));
+    }
+    let key = context::digest(&thread);
+    let value = Journal::inspect(root, &key)?.ok_or(Error("native_lane_not_found"))?;
+    let lane: Lane = serde_json::from_value(value).map_err(|_| Error("invalid_lane_record"))?;
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    let meaning = match lane.phase {
+        Phase::New | Phase::Opening => "preparing; remote acceptance may be unknown",
+        Phase::Idle => "last response settled; native work may continue separately",
+        Phase::Dispatching | Phase::Running => "app work was active at last observation",
+        Phase::ToolsReady => "native tool calls emitted; awaiting native execution or results",
+        Phase::CancelRequested => "stop requested; acknowledgment not confirmed",
+        Phase::Stopped => "app acknowledged stop; native effects require native history review",
+        Phase::Unknown => "remote work state unknown; reconcile before continuation",
+    };
+    Ok(
+        json!({"schema":"termux-codex-provider-lane-status-v1","thread":thread,
+        "phase":lane.phase,"meaning":meaning,"observation":"last_private_journal",
+        "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),
+        "app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
+        "tool_return_objects":lane.tool_messages,"last_error":lane.last_error.as_deref()
+            .map(|code| if code.len()<=128 && code.bytes().all(|c|c.is_ascii_lowercase() || c.is_ascii_digit() || c==b'_') {code}else{"provider_error"}),
+        "chat_allowance_debits":"unknown","app_queried":false}),
+    )
+}
 impl Lane {
     fn new(thread: &str) -> Result<Self, Error> {
         Ok(Self {
