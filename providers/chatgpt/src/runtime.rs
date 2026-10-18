@@ -298,7 +298,24 @@ pub async fn stop(root: &Path) -> Result<serde_json::Value, Error> {
         return Err(Error("provider_stop_request_failed"));
     }
     let until = tokio::time::Instant::now() + Duration::from_secs(15);
-    while selected.process.validate().is_ok() {
+    loop {
+        // Losing /proc or executable-path identity after signalling is not an
+        // exit acknowledgment. Only the pinned kernel handle proves this owner
+        // exited, including if its image was replaced during graceful teardown.
+        let mut poll = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let result = unsafe { libc::poll(&mut poll, 1, 0) };
+        if result > 0 && poll.revents & libc::POLLIN != 0 {
+            break;
+        }
+        if (result < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted)
+            || (result > 0 && poll.revents != 0)
+        {
+            return Err(Error("provider_stop_unconfirmed"));
+        }
         if tokio::time::Instant::now() >= until {
             return Err(Error("provider_stop_unconfirmed"));
         }

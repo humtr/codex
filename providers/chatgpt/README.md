@@ -101,6 +101,8 @@ content-free SSE keepalive proves neither current model progress nor task
 completion. Provider service shutdown does not prove a native tool stopped or undo
 its effects; native task control has a separate upstream authority. Physical CLI
 progress and confirmed task Stop remain explicit acceptance requirements.
+Service shutdown is confirmed by the pinned kernel process handle; losing the
+recorded executable path during teardown leaves stop unconfirmed until actual exit.
 
 The optional viewer requires `host.viewer_assets`, shares the owned RFB socket and
 uses a separate temporary capability. Missing assets do not block inference.
@@ -198,6 +200,23 @@ samples Pro or GPT-5.6; live trials first declare purpose, scope and expected
 submissions. Missing Bun is an unfinished
 reference-suite gate, not a Core dependency. Actual Android and app execution
 proof, signed composition/lifecycle and bounded activation remain separate.
+
+The Android qualification job retains an unsigned snapshot for30 days, including
+the executable, exact source/run/toolchain identity, dependency lock and licenses.
+Before copying its executable into a private immutable qualification location,
+read back every declared file against its inventory and source commit:
+
+```sh
+python3 -B providers/chatgpt/candidate.py verify \
+  --artifact /absolute/path/to/provider-android --source . \
+  --source-sha EXACT_40_HEX_COMMIT
+```
+
+The verifier rejects missing/extra/nonregular files, changed content and source
+assets. Its unsigned inventory establishes consistency with the selected build
+record, not publisher authentication or device acceptance. Preserve that record
+with the build/test and disposable restart/rollback proof. It never installs,
+starts a host or changes the operating Provider.
 
 The existing no-MCP Rust path already passed bounded direct `~/prj/ai` development
 and supervisor verification. Future materially different paths need their own real

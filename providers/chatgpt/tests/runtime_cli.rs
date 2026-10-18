@@ -379,6 +379,82 @@ fn source_binary_serves_private_authenticated_endpoint_without_connecting_to_or_
 }
 
 #[tokio::test]
+async fn stop_requires_kernel_exit_confirmation_after_executable_identity_changes() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let root = Root::new();
+    std::fs::create_dir(&root.0).unwrap();
+    let image = root.0.join("owned-shell");
+    let shell = std::env::var_os("PREFIX")
+        .map(PathBuf::from)
+        .map(|p| p.join("bin/sh"))
+        .unwrap_or_else(|| PathBuf::from("/bin/sh"));
+    std::fs::copy(shell, &image).unwrap();
+    // Builtins only: no descendant jobs. Keep stdin open so the owned target
+    // survives SIGTERM, acknowledges it, then waits for another line.
+    let mut target = tokio::process::Command::new(&image)
+        .args([
+            "-c",
+            "trap 'printf \"TERM_RECEIVED\\n\"' TERM; printf 'READY\\n'; while :; do read -r line; done",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(target.stdout.take().unwrap()).lines();
+    assert_eq!(stdout.next_line().await.unwrap().unwrap(), "READY");
+    let process = Process::read(target.id().unwrap()).unwrap();
+    let state = root.0.join("state");
+    let journal = Journal::open(&state).unwrap();
+    journal
+        .write(
+            &digest(&"termux-codex-responses-service-v1"),
+            &json!({"schema":"termux-codex-responses-service-v1","process":process,
+                "port":1,"token":"b".repeat(48)}),
+        )
+        .unwrap();
+    let before = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|p| {
+            let path = p.unwrap().path();
+            (path.clone(), std::fs::read(path).unwrap())
+        })
+        .collect::<Vec<_>>();
+    let stop = tokio::process::Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .arg("stop")
+        .arg("--state")
+        .arg(&state)
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        let changed = async {
+            assert_eq!(stdout.next_line().await.unwrap().unwrap(), "TERM_RECEIVED");
+            std::fs::remove_file(&image).unwrap();
+            assert!(process.validate().is_err());
+            assert!(target.try_wait().unwrap().is_none());
+        };
+        let (output, ()) = tokio::join!(stop, changed);
+        output.unwrap()
+    })
+    .await
+    .expect("stop acknowledgment must remain bounded");
+    assert!(target.try_wait().unwrap().is_none());
+    target.kill().await.unwrap();
+    target.wait().await.unwrap();
+    assert!(
+        !output.status.success(),
+        "a live process with an unlinked image must not be reported stopped"
+    );
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("provider_stop_unconfirmed"));
+    for (path, bytes) in before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}
+
+#[tokio::test]
 async fn invalid_local_listener_never_receives_our_bearer() {
     let root = Root::new();
     let journal = Journal::open(&root.0).unwrap();
