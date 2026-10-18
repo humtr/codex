@@ -90,6 +90,16 @@ and subsequent input remain intact; historical tools are quoted, never replayed.
 The generated catalog omits a compaction compatibility hash because this Provider
 does not share OpenAI's opaque format. Token/window compaction remains enabled.
 
+A definitely rejected single gateway call can receive a structured error on its
+original host call ID. Its entire batch validates before any native effect; no
+user message is added. Up to three correction continuations may run within the
+same Responses request. Each is a real additional model start, not a free retry.
+Lost delivery is observed rather than resent, and changed account/host, compaction
+or ambiguous host calls never use this path. Native malformed function arguments
+remain native errors. Actual Android discovery/correction fixtures pass without
+Chat inference; this does not establish Chat allowance debits or real-model
+correction quality across tasks.
+
 Set related fields together, for example:
 
 ```sh

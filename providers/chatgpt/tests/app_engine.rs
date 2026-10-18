@@ -24,6 +24,9 @@ struct State {
     round: String,
     gateway: String,
     lose_submit_reply: bool,
+    lose_correction_reply: bool,
+    bad_gateway_rounds: usize,
+    change_account_on_rejection: bool,
     lose_snapshot: usize,
     hold: bool,
     stopped: bool,
@@ -54,8 +57,9 @@ impl Bridge for App {
                 "submit" => {
                     state.stage += 1;
                     state.round = command["round"].as_str().unwrap().into();
-                    if state.lose_submit_reply {
+                    if state.lose_submit_reply || (state.lose_correction_reply && state.stage > 1) {
                         state.lose_submit_reply = false;
+                        state.lose_correction_reply = false;
                         Err(Error("cdp_observer_disconnected"))
                     } else {
                         Ok(json!({"started":true}))
@@ -83,7 +87,12 @@ impl Bridge for App {
                             json!({"round":state.round,"messages":[{"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["Inspecting files"]},"end_turn":false}],"terminals":[],"stopped":state.stopped}),
                         );
                     }
-                    let messages = if state.stage == 1 {
+                    let messages = if state.stage <= state.bad_gateway_rounds {
+                        if state.change_account_on_rejection {
+                            state.account = "other-account".into();
+                        }
+                        json!([{ "id":format!("rejected-{}",state.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",state.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"calls":[{"name":"functions.exec","input":"{}"},{"name":"invented.unadvertised","input":"{}"}]}}).to_string()},"status":"finished_successfully","end_turn":false}])
+                    } else if state.stage == 1 {
                         json!([
                             {"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Inspecting files"]},"status":"finished_partial_completion","end_turn":true},
                             {"id":"host-original","author":{"role":"assistant"},"recipient":format!("local.{}",state.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"calls":json!([{"name":"functions.exec","input":"{\"cmd\":\"pwd\"}"},{"name":"functions.patch","input":"exact freeform patch"}]).to_string(),"report":"Applying the reviewed change"}}).to_string()},"status":"finished_successfully","end_turn":false}
@@ -604,6 +613,104 @@ async fn host_replacement_never_replays_cached_executable_calls_or_pending_resul
             .await
             .0,
         Error("owned_app_round_unavailable")
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn rejected_gateway_batch_returns_once_on_original_id_without_user_messages_or_effects() {
+    for (bad, lost_reply) in [(1, false), (1, true), (4, false)] {
+        let root = Root::new();
+        let app = Arc::new(App::default());
+        {
+            let mut state = app.state.lock().unwrap();
+            state.bad_gateway_rounds = bad;
+            state.lose_correction_reply = lost_reply;
+        }
+        let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+        let (events, mut receive) = mpsc::channel(64);
+        let result = host
+            .exchange(
+                Request::parse(body(), &Config::default(), None).unwrap(),
+                events,
+                CancellationToken::new(),
+            )
+            .await;
+        if bad == 4 {
+            assert_eq!(result.unwrap_err(), Error("gateway_correction_limit"));
+        } else {
+            result.unwrap();
+        }
+        let mut emitted = Vec::new();
+        while let Some(event) = receive.recv().await {
+            emitted.push(event)
+        }
+        assert!(
+            !emitted.iter().any(|v| matches!(v, Event::Tool(_))),
+            "a rejected batch must never partly execute its valid first member"
+        );
+        assert_eq!(
+            emitted
+                .iter()
+                .filter(|v| matches!(v,Event::Text{id,..} if id.starts_with("rejected_")))
+                .count(),
+            if bad == 4 { 3 } else { 1 }
+        );
+        if bad == 1 {
+            execute(&host, body()).await;
+        }
+        let commands = app.state.lock().unwrap().commands.clone();
+        let submits = commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            submits.len(),
+            if bad == 4 { 4 } else { 2 },
+            "unknown submit delivery is observed, not resent"
+        );
+        for (index, submit) in submits.iter().enumerate().skip(1) {
+            assert!(submit["messages"].as_array().unwrap().is_empty());
+            assert!(submit["instructions"].as_array().unwrap().is_empty());
+            assert_eq!(submit["results"].as_array().unwrap().len(), 1);
+            assert_eq!(submit["results"][0]["id"], format!("rejected-{index}"));
+            assert_eq!(
+                submit["results"][0]["result"]["error"]["code"],
+                "unadvertised_tool"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn rejected_gateway_does_not_continue_into_a_changed_account() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    {
+        let mut state = app.state.lock().unwrap();
+        state.bad_gateway_rounds = 1;
+        state.change_account_on_rejection = true;
+    }
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let (events, _) = mpsc::channel(64);
+    assert_eq!(
+        host.exchange(
+            Request::parse(body(), &Config::default(), None).unwrap(),
+            events,
+            CancellationToken::new()
+        )
+        .await
+        .unwrap_err(),
+        Error("app_account_changed")
     );
     assert_eq!(
         app.state

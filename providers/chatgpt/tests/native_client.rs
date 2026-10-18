@@ -17,7 +17,10 @@ use std::{
     io::Write,
     os::{fd::AsRawFd, unix::fs::PermissionsExt},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 use tokio_util::sync::CancellationToken;
 
@@ -30,6 +33,7 @@ struct State {
     patch_key: String,
     commands: Vec<Value>,
     mcp: bool,
+    reject_first: bool,
     mcp_key: String,
     search_key: String,
     fail_identity: bool,
@@ -118,13 +122,16 @@ impl Bridge for App {
                     if s.stopped {
                         return Ok(json!({"round":s.round,"stopped":true}));
                     }
+                    let round = s.stage - usize::from(s.reject_first);
                     let stage = if s.mcp {
-                        s.stage.saturating_sub(2)
+                        round.saturating_sub(2)
                     } else {
-                        s.stage
+                        round
                     };
-                    let message = if s.mcp && s.stage <= 2 {
-                        let (name, input) = if s.stage == 1 {
+                    let message = if s.reject_first && s.stage == 1 {
+                        json!({"id":"rejected-host-call","author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":"mcp__fixture.guessed_echo","input":"{}"}}).to_string()},"status":"finished_successfully","end_turn":false})
+                    } else if s.mcp && round <= 2 {
+                        let (name, input) = if round == 1 {
                             (
                                 &s.search_key,
                                 json!({"query":"fixture echo verification","limit":1}).to_string(),
@@ -196,16 +203,22 @@ impl Drop for Root {
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_executes_commands_custom_patch_and_validation_with_generated_catalog()
 {
-    native_fixture(false).await;
+    native_fixture(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_discovers_and_executes_deferred_mcp_tools_before_local_work() {
-    native_fixture(true).await;
+    native_fixture(true, false).await;
 }
 
-async fn native_fixture(mcp: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn actual_native_client_recovers_unadvertised_tool_with_original_call_error_then_discovers() {
+    native_fixture(true, true).await;
+}
+
+async fn native_fixture(mcp: bool, reject_first: bool) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
@@ -293,6 +306,7 @@ async fn native_fixture(mcp: bool) {
     let app = Arc::new(App::default());
     app.0.lock().unwrap().fail_identity = failure_proof;
     app.0.lock().unwrap().mcp = mcp;
+    app.0.lock().unwrap().reject_first = reject_first;
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
     let mut owned = if let Some(state) = owned_state {
         Some(
@@ -432,6 +446,8 @@ async fn native_fixture(mcp: bool) {
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
     let service = Service::new(config.clone(), token.clone(), host.clone()).unwrap();
+    let native_requests = Arc::new(AtomicUsize::new(0));
+    let response_count = native_requests.clone();
     let mcp_calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let recorded = mcp_calls.clone();
     let router = service.router().route("/mcp",axum::routing::post(move |axum::Json(request):axum::Json<Value>| {
@@ -452,10 +468,13 @@ async fn native_fixture(mcp: bool) {
             axum::Json(json!({"jsonrpc":"2.0","id":request["id"],"result":result})).into_response()
         }
     })).layer(axum::middleware::from_fn(
-        async |request: axum::extract::Request, next: axum::middleware::Next| {
+        move |request: axum::extract::Request, next: axum::middleware::Next| {
+          let response_count=response_count.clone();
+          async move {
             let (parts, body) = request.into_parts();
             let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
             if parts.uri.path() == "/v1/responses" {
+                response_count.fetch_add(1,Ordering::Relaxed);
                 let decoded = if parts
                     .headers
                     .get("content-encoding")
@@ -485,6 +504,7 @@ async fn native_fixture(mcp: bool) {
                 axum::body::Body::from(bytes),
             ))
             .await
+          }
         },
     ));
     let server = tokio::spawn(async move {
@@ -727,15 +747,23 @@ async fn native_fixture(mcp: bool) {
         .iter()
         .filter(|c| c["op"] == "submit")
         .collect::<Vec<_>>();
-    assert_eq!(submissions.len(), if mcp { 6 } else { 4 });
+    assert_eq!(
+        submissions.len(),
+        if mcp { 6 } else { 4 } + usize::from(reject_first)
+    );
     assert_eq!(
         fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
         "real custom tool\n"
     );
     assert!(!stdout.contains("Model metadata for"));
+    assert_eq!(
+        native_requests.load(Ordering::Relaxed),
+        if mcp { 6 } else { 4 },
+        "gateway correction stays within the current native Responses request"
+    );
     for (index, command) in submissions[1..].iter().enumerate() {
         assert!(command["messages"].as_array().unwrap().is_empty());
-        if !mcp || index != 0 {
+        if !mcp || index != usize::from(reject_first) {
             assert!(command["instructions"].as_array().unwrap().is_empty());
         } else {
             assert!(
@@ -744,6 +772,14 @@ async fn native_fixture(mcp: bool) {
             );
         }
         assert_eq!(command["results"].as_array().unwrap().len(), 1);
+    }
+    if reject_first {
+        assert_eq!(submissions[1]["results"][0]["id"], "rejected-host-call");
+        assert_eq!(
+            submissions[1]["results"][0]["result"]["error"]["code"],
+            "unadvertised_tool"
+        );
+        assert!(stdout.contains("Provider rejected a tool request before execution"));
     }
     if mcp {
         let calls = mcp_calls.lock().unwrap();
@@ -760,6 +796,6 @@ async fn native_fixture(mcp: bool) {
     }
     println!(
         "{}",
-        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":if mcp{5}else{3},"nativeEffects":if mcp{4}else{3},"nativeMcpDiscovery":mcp,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
+        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"nativeResponsesRequests":native_requests.load(Ordering::Relaxed),"gatewayErrorReturns":usize::from(reject_first),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":if mcp{5}else{3},"nativeEffects":if mcp{4}else{3},"nativeMcpDiscovery":mcp,"rejectedCallCorrected":reject_first,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
     );
 }

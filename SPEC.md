@@ -1339,6 +1339,19 @@ Pending/uncertain rounds and executable cached calls must not be replayed into a
 replacement host. Report that reconciliation is required and preserve their state.
 A cached settled final response can still be returned locally without inference.
 
+A definitely rejected, single local gateway call may receive a structured tool
+error on its original host call ID, allowing the model to correct an unadvertised
+name or malformed gateway envelope. Validate its entire batch before publishing
+any executable call; rejected batches have no partial native effects. This is a
+tool-result continuation, never a new user message or a resend of the original
+request. Permit at most three such correction continuations per Responses request,
+record each rejection before returning it, and expose the rejection in the public
+transcript. Additional model starts remain real usage and must be counted.
+Uncertain delivery, identity/host/protocol failures, ambiguous multiple host calls,
+compaction controls and replayed call IDs never enter this correction path.
+Native function argument validation stays native; ordinary malformed arguments
+are not rewritten by Provider. Exhaustion returns a specific terminal failure.
+
 The private relay descriptor remains an explicit qualification connection option,
 not a fallback or required Bun/Python production dependency.
 An explicit owned bridge disposal may restore only its own installed hooks after

@@ -253,6 +253,8 @@ struct Lane {
     checkpoint: Option<context::Checkpoint>,
     project: Option<String>,
     last_error: Option<String>,
+    #[serde(default)]
+    rejected: u8,
 }
 impl Lane {
     fn new(thread: &str) -> Result<Self, Error> {
@@ -277,6 +279,7 @@ impl Lane {
             checkpoint: None,
             project: None,
             last_error: None,
+            rejected: 0,
         })
     }
 }
@@ -670,6 +673,7 @@ async fn exchange(
         lane.round = random_id()?;
         lane.cached.clear();
         lane.public.clear();
+        lane.rejected = 0;
         lane.phase = Phase::Dispatching;
         journal.write(key, lane)?;
         let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
@@ -800,8 +804,19 @@ async fn exchange(
                 journal.write(key, lane)?;
                 return Err(Error("app_round_incomplete"));
             }
+            lane.user_messages = state["userMessages"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?;
+            lane.tool_messages = state["toolMessages"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?;
+            lane.dispatches = state["dispatches"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?;
             let mut calls = Vec::new();
             let mut reports = Vec::new();
+            let mut host_calls = Vec::new();
+            let mut rejected = None;
             for message in messages {
                 if message["author"]["role"] != "assistant"
                     || message["recipient"] != format!("local.{}", lane.gateway)
@@ -812,17 +827,79 @@ async fn exchange(
                     return Err(Error("incomplete_host_call"));
                 }
                 let id = message["id"].as_str().ok_or(Error("invalid_host_call"))?;
-                let (batch, report) = gateway_calls(
+                host_calls.push(id);
+                let parsed = gateway_calls(
                     id,
                     message["content"]["text"]
                         .as_str()
                         .ok_or(Error("invalid_host_call"))?,
                     &request.tools,
-                )?;
+                );
+                let (batch, report) = match parsed {
+                    Ok(value) => value,
+                    Err(error)
+                        if matches!(
+                            error.0,
+                            "unadvertised_tool"
+                                | "invalid_gateway_arguments"
+                                | "invalid_gateway_batch"
+                                | "invalid_gateway_report"
+                                | "invalid_tool_search_arguments"
+                        ) =>
+                    {
+                        rejected = Some(error);
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 calls.extend(batch);
                 if let Some(report) = report.filter(|r| !r.trim().is_empty()) {
                     reports.push((format!("report_{id}"), report));
                 }
+            }
+            if let Some(error) = rejected {
+                if request.compaction.is_some() || final_seen || host_calls.len() != 1 {
+                    return Err(error);
+                }
+                if lane.rejected >= 3 {
+                    return Err(Error("gateway_correction_limit"));
+                }
+                let observed = bridge
+                    .operation(json!({"op":"identity","lane":lane.marker}))
+                    .await?;
+                let current = Identity::parse(&observed)?;
+                let same_account = lane
+                    .identity
+                    .as_ref()
+                    .is_some_and(|old| old.account_matches(&current));
+                if !same_account {
+                    return Err(Error("app_account_changed"));
+                }
+                if lane.identity.as_ref() != Some(&current) || observed["present"] != true {
+                    return Err(Error("owned_app_round_unavailable"));
+                }
+                let id = host_calls[0];
+                if lane.confirmed.contains_key(id) || lane.pending.iter().any(|v| v.id == id) {
+                    return Err(Error("host_call_replayed"));
+                }
+                let result = json!({"error":{"code":error.0,"message":"The gateway request was rejected before execution. Use exact keys from the Native tool catalog; use tool_search to discover deferred tools. No part of this rejected batch executed."}});
+                lane.confirmed.insert(id.into(), context::digest(&result));
+                lane.rejected += 1;
+                let report=Event::Text{id:format!("rejected_{id}"),phase:"commentary".into(),delta:format!("Provider rejected a tool request before execution: {}. Returning the error for correction.\n",error.0)};
+                lane.cached.push(report.clone());
+                lane.round = random_id()?;
+                lane.phase = Phase::Dispatching;
+                journal.write(key, lane)?;
+                events
+                    .send(report)
+                    .await
+                    .map_err(|_| Error("native_observer_closed"))?;
+                let submitted=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]})).await;
+                if submitted.is_ok() {
+                    lane.phase = Phase::Running
+                }
+                journal.write(key, lane)?;
+                continue;
             }
             if final_seen && !calls.is_empty() {
                 return Err(Error("final_with_pending_calls"));
@@ -910,15 +987,6 @@ async fn exchange(
             } else {
                 Phase::ToolsReady
             };
-            lane.user_messages = state["userMessages"]
-                .as_u64()
-                .ok_or(Error("invalid_submission_counters"))?;
-            lane.tool_messages = state["toolMessages"]
-                .as_u64()
-                .ok_or(Error("invalid_submission_counters"))?;
-            lane.dispatches = state["dispatches"]
-                .as_u64()
-                .ok_or(Error("invalid_submission_counters"))?;
             let completed = Event::Completed {
                 input_tokens: (serde_json::to_vec(request).unwrap().len() / 4) as u64,
                 output_tokens: (serde_json::to_vec(&output).unwrap().len() / 4) as u64,
