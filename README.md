@@ -43,6 +43,16 @@ Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
 Exact contracts belong to `SPEC.md`.
 
+To run the direct Core path for one invocation while Manager is installed:
+
+```sh
+CODEX_TERMUX_CORE_ONLY=1 codex
+```
+
+This keeps signed Core execution and its safety preparation while skipping
+Manager profile/window policy, the optional TUI and Manager notification hooks
+for that run.
+
 Profiles support creation, deletion, renaming and a saved default. A damaged saved account choice stops launch with an error; it never silently selects a different account. All lifecycle commands are available in the installed Manager:
 
 ```sh

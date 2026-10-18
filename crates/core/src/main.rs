@@ -29,6 +29,12 @@ enum PublicDispatchRoute {
 }
 
 const TERMUX_DAEMON_UNSUPPORTED: &str = "upstream app-server daemon lifecycle is unsupported on Termux because it is bound to standalone installer/update authority; use foreground 'codex remote-control' when remote control is needed";
+const CORE_ONLY_ENV: &str = "CODEX_TERMUX_CORE_ONLY";
+
+#[cfg(unix)]
+fn core_only_requested() -> bool {
+    std::env::var_os(CORE_ONLY_ENV).as_deref() == Some(OsStr::new("1"))
+}
 
 fn upstream_global_option_takes_separate_value(value: &str) -> bool {
     matches!(value, "-c" | "--config" | "--enable" | "--disable")
@@ -446,6 +452,7 @@ fn apply_child_env_plan_and_fence(
     cmd.env_remove("CODEX_MANAGED_BY_NPM")
         .env_remove("CODEX_MANAGED_BY_BUN")
         .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
+        .env_remove(CORE_ONLY_ENV)
         .env_remove("LD_PRELOAD")
         .env_remove("LD_LIBRARY_PATH");
 }
@@ -2990,9 +2997,19 @@ fn execute_public_dispatch<
         .map_err(PublicDispatchExecutionError::Manager),
         PublicDispatchRoute::Upstream(args) => {
             use std::io::IsTerminal as _;
+            // An explicit escape hatch proves the Core path without consulting
+            // optional policy/UI/configuration components. The flag never reaches
+            // upstream Codex and never skips Core's runtime/security preparation.
+            let core_only = core_only_requested();
+            let manager_artifact = if core_only {
+                ManagerArtifact::Unavailable
+            } else {
+                context.manager_artifact
+            };
             // The optional component decides its policies; Core advertises only
             // the interactive frontend capability it can actually provide.
-            let capability = if context.manager_tui_available
+            let manager_tui_available = !core_only && context.manager_tui_available;
+            let capability = if manager_tui_available
                 && std::io::stdin().is_terminal()
                 && std::io::stdout().is_terminal()
                 && std::io::stderr().is_terminal()
@@ -3003,13 +3020,13 @@ fn execute_public_dispatch<
             } else {
                 "runtime"
             };
-            match manager_dispatch::prepare(context.manager_artifact, capability, &args) {
+            match manager_dispatch::prepare(manager_artifact, capability, &args) {
                 manager_dispatch::Preparation::Current => (),
                 manager_dispatch::Preparation::Blocked => return Err(PublicDispatchExecutionError::Manager(std::io::Error::other("optional Manager launch preparation refused; inspect Manager settings before retrying"))),
                 manager_dispatch::Preparation::Handoff => {
                     let mut selected = vec![OsString::from("__execute-launch-v1"), capability.into(), "--".into()];
                     selected.extend_from_slice(&args);
-                    return execute_termux_manager(context.manager_artifact, selected)
+                    return execute_termux_manager(manager_artifact, selected)
                         .map(PublicDispatchCompletion::TermuxUnavailable)
                         .map_err(PublicDispatchExecutionError::Manager);
                 }
@@ -3024,8 +3041,8 @@ fn execute_public_dispatch<
                     context.config_dir,
                     QualifiedRuntimeLaunchOptions {
                         planned_args: &args,
-                        manager: context.manager_artifact,
-                        manager_tui_available: context.manager_tui_available,
+                        manager: manager_artifact,
+                        manager_tui_available,
                     },
                 ),
             ))
@@ -13165,6 +13182,7 @@ mod tests {
         let path = root.join("fake-codex");
         let body = r#"
 if [ "$1" = "__prepare-launch-v1" ]; then
+  if [ -n "${CODEX_TEST_MANAGER_CALL_FILE:-}" ]; then printf '%s\n' "$1" >> "$CODEX_TEST_MANAGER_CALL_FILE"; fi
   decision=current
   if [ -z "$CODEX_HOME" ] && [ -f "$HOME/manager-launch-handoff" ]; then
     decision=handoff
@@ -13175,10 +13193,12 @@ if [ "$1" = "__prepare-launch-v1" ]; then
   exit 0
 fi
 if [ "$1" = "__prepare-runtime-v1" ]; then
+  if [ -n "${CODEX_TEST_MANAGER_CALL_FILE:-}" ]; then printf '%s\n' "$1" >> "$CODEX_TEST_MANAGER_CALL_FILE"; fi
   printf 'codex-manager-runtime-config-v1\n'
   if [ -f "$HOME/manager-fragment" ]; then cat "$HOME/manager-fragment"; fi
   exit 0
 fi
+if [ -n "${CODEX_TERMUX_CORE_ONLY+x}" ]; then printf '%s\n' 'Core-only flag leaked to upstream'; exit 97; fi
 if [ -n "${CODEX_TEST_ARGS_FILE:-}" ]; then
   printf '%s\n' "$@" > "$CODEX_TEST_ARGS_FILE"
 fi
@@ -13301,6 +13321,7 @@ exit 73
         let cert_dir = root.join("certs");
         let scenario = std::env::var(PROBE_SCENARIO).unwrap();
         let manager_enabled = scenario == "manager"
+            || scenario == "core-only-version"
             || scenario == "notify-projection"
             || (scenario.starts_with("window-") && scenario != "window-manager-absent");
         let manifest = tc2_manifest(manager_enabled);
@@ -13347,7 +13368,9 @@ exit 73
             observed_digest: "manager-digest",
         };
         let raw_args = match scenario.as_str() {
-            "version" | "window-version" => vec![OsString::from("--version")],
+            "version" | "window-version" | "core-only-version" => {
+                vec![OsString::from("--version")]
+            }
             "window-bare" | "window-ready" | "window-manager-absent" | "window-non-tty" => vec![],
             "window-resume" => vec![OsString::from("resume"), OsString::from("owned title")],
             "window-exec" => vec![OsString::from("exec"), OsString::from("owned")],
@@ -14487,7 +14510,7 @@ exit 73
         let scenario = std::env::var(MAIN_PROBE_ARGS).unwrap();
         let args = match scenario.as_str() {
             "bare" => vec![],
-            "version" => vec![OsString::from("--version")],
+            "version" | "core-only-version" => vec![OsString::from("--version")],
             "update" => vec![
                 OsString::from("update"),
                 OsString::from("--help"),
@@ -14869,6 +14892,41 @@ snooze_until	0
             }
             remove_temp_root(root);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_explicit_core_only_execution_skips_manager_policy_ui_and_config() {
+        let root = b2_public_main_fixture("core-only-execution", true);
+        let home = root.join("home");
+        let manager_calls = root.join("manager-calls");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("manager-launch-handoff"), b"would hand off").unwrap();
+        std::fs::write(home.join("manager-fragment"), b"manager_fixture = true\n").unwrap();
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["tests::public_main_probe", "--exact", "--nocapture"])
+            .env(MAIN_PROBE_ROLE, "1")
+            .env(MAIN_PROBE_ARGS, "core-only-version")
+            .env("HOME", &home)
+            .env("PREFIX", root.join("prefix"))
+            .env("TMPDIR", root.join("tmp"))
+            .env(CORE_ONLY_ENV, "1")
+            .env("CODEX_TEST_MANAGER_CALL_FILE", &manager_calls)
+            .env_remove("CODEX_HOME")
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+        assert!(!manager_calls.exists(), "Core queried optional Manager");
+        let config = home.join(".local/share/codex/core/config/config.toml");
+        assert_eq!(std::fs::read(config).unwrap(), render_core_config(&[]));
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]

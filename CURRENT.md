@@ -55,9 +55,12 @@ request to Core. Manager is never an unverified alternative launcher. Basic Core
 execution must require no Manager query, fragment or enhanced TUI. Keep one
 installation authority, no permanent supervisor and no second transcript store.
 
-Existing no-Manager and damaged-optional-file paths pass. Remaining debt concerns
-an available Manager's preparation/exec failure and valid-envelope but invalid
-upstream settings. The source now uses a bounded versioned Manager launch preparation/handoff
+Existing no-Manager and damaged-optional-file paths pass. The explicit
+`CODEX_TERMUX_CORE_ONLY=1` path now runs signed Core without querying an installed
+Manager, injecting its config or selecting its frontend; a public-entrypoint test
+checks all three and confirms the switch is removed before upstream exec. Remaining
+debt concerns an available Manager's preparation/exec failure and valid-envelope
+but invalid upstream settings. The source uses a bounded versioned Manager launch preparation/handoff
 instead of inspecting a preference filename or choosing a window-specific command.
 The operating Full60 still uses the previous dispatch until a qualified release.
 The optional config fragment remains opaque. The
@@ -91,7 +94,7 @@ preserved output file alone is insufficient.
 | Phase | Owner and work | Exit evidence / dependency |
 | --- | --- | --- |
 | 0. Close current TUI regression | TUI: correct the overlength account-ID fixture; complete the existing compact /switch settings work | Actual48 focused native tests,94 upstream checks/lint,24/32/40/80-column rendering, selection/tab preservation and affected Android UI proof. A failed candidate is not releasable. |
-| 1. Core independence | Core/Manager/TUI: finish explicit direct execution and optional-setting isolation; retain versioned preparation/handoff and explicit projection | Same-home normal→direct→normal; absent/damaged/malformed/hung Manager; invalid upstream settings; exact account identity; no duplicate effects or configuration changes. No real Chat required. |
+| 1. Core independence | Core/Manager/TUI: finish optional-setting isolation and preparation/exec failure boundaries; retain versioned preparation/handoff and explicit projection | Same-home normal→direct→normal (direct path now exists); absent/damaged/malformed/hung Manager; invalid upstream settings; exact account identity; no duplicate effects or configuration changes. No real Chat required. |
 | 2. Rust Provider foundation and transport migration | Provider: independent Cargo package, one adapter process; Rust Responses/parser/SSE/tools, CDP, context correlation and owned-host/cancel/reconnect; minimal versioned app JS bridge | Port relevant experimental drivers alongside code; deterministic legacy/Rust contract comparison without submitting to both; original call IDs, streaming/errors, warm deltas, checkpoints, capability mismatch, unknown dispatch and sibling isolation; actual Android binary/app-bridge proof. |
 | 3. Provider settings and generic TUI | Rust Provider: one config/validator, show/effective/edit/set/validate and catalog/profile projection; TUI reads capabilities instead of hardcoded Chat families/efforts | File-only use without Manager; convenience surfaces share the validator; invalid edit/no-op/default precedence and1m preservation; no public command advertised before implementation. |
 | 4. Context and native↔Chat handoff | Rust Provider/TUI/upstream APIs: repair unsupported_desktop_route at its actual previous-model/opaque-history boundary; reduce reply→compaction→new-Chat cycles; separate thresholds/wire limits | Fresh/existing long threads, both directions, readable canonical transfer, saved opaque checkpoints, hash/downshift, manual/automatic/interrupted/repeated compaction, cold resume, in-place Chat model/effort. No alias-only repair, lost history or blind replay. |

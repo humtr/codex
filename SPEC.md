@@ -1115,12 +1115,18 @@ Display metadata is informational and never selects components or relaxes admiss
 
 ### Approved next architecture: independent execution and optional integrations
 
-This is the approved target, not a claim that the current dispatch/configuration
-paths already implement it. All Termux execution continues through Core and the
+All Termux execution continues through Core and the
 same authenticated installation/update authority. Manager is never an alternative
 unsigned runtime launcher. Core may retain a small versioned optional-component
 dispatch contract; it must not inspect Manager's preference filenames or interpret
 account, window, quota or provider policies to make an execution decision.
+
+`CODEX_TERMUX_CORE_ONLY=1 codex ...` selects the direct path when Manager is
+installed but not wanted. It skips Manager preparation, launch policy, optional
+TUI and Manager-provided configuration for that invocation. Core still performs
+its signed-runtime, environment, sandbox, shared-state and server preparation.
+Core consumes and removes the switch before starting upstream; it is not an
+upstream setting and does not alter saved Manager preferences.
 
 Manager prepares account/window policy and requests Core execution with the
 resolved home and invocation settings. Core owns signed runtime/frontend selection,
