@@ -2,15 +2,18 @@
 
 Reviewed2026-10-18. The current production [SPEC](https://github.com/humtr/codex/blob/rewrite/rust-core/SPEC.md)
 owns behavior and approved targets; the production [completion plan](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md#product-completion-scope-and-work-order)
-is the single ordered product backlog. This branch owns provider implementation
-and retained proof until selective integration. Historical production snapshots
+is the single ordered product backlog. Maintained provider source now lives in
+rewrite/rust-core/providers/chatgpt; this branch retains historical implementation,
+unique work and technical proof until final integration. Historical production snapshots
 here predate current Core/Manager/TUI and release automation; never copy them over
 current rewrite/rust-core. AGENTS.md remains unchanged.
 
 ## Current integration work
 
-The active provider runtime is being selectively integrated into rewrite/rust-core
-under providers/chatgpt. That branch remains the product/contract authority; do
+The active JS/Python runtime, focused tests and licenses have been selectively
+integrated into rewrite/rust-core under providers/chatgpt. The approved next target
+is an independent Rust Provider with a minimal app-side JS bridge; conversion is
+not implemented yet. That branch remains the product/contract authority; do
 not merge this experiment's historical Core, Manager, TUI or release snapshots.
 Preserve the existing uncommitted1m catalog/profile test changes.
 
@@ -37,8 +40,9 @@ context-local-regression.log and context-provider-all-{js,python}.log.
 - The user changed the generated5-model catalog to context_window and
   max_context_window=1,000,000, with auto_compact_token_limit=null. The two existing
   uncommitted profile generator/test edits make the same32,768→1m change. Preserve
-  both source edits, user config/auth and running jobs. This documentation work
-  neither integrates those source changes nor activates a provider payload.
+  both source edits, user config/auth and running jobs. Their intended1m values
+  are also preserved in the integrated source; neither source port nor this
+  documentation revision activates a provider payload.
 -1m is a local scheduling/context override, not demonstrated host capacity. No
   current1m/project/Full60 long-development qualification is established by prior
  32k/stable53/54 trials. Current source tests hardcode this value; the product
@@ -52,11 +56,10 @@ context-local-regression.log and context-provider-all-{js,python}.log.
 
 ## Active remaining work
 
-The complete execution order and exit criteria are the production completion plan:
-Core preparation/configuration isolation first, provider configuration/generic TUI,
-context and readable handoff, project-backed history, development/lifetime proof,
-cost/output and independent MCP, selective source integration, signed release and
-bounded activation. TUI is an independent upstream-based frontend, not Manager's
+The production completion plan owns the complete execution order and exit
+criteria, including Core isolation before Rust Provider migration, the subsequent
+features, integration closure and release. Do not maintain a competing ordered
+roadmap here. TUI is an independent upstream-based frontend, not Manager's
 private UI. The provider remains usable without Manager or enhanced TUI.
 
 This branch contributes its active modules, dependencies/licenses and meaningful

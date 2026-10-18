@@ -1,5 +1,14 @@
 # Codex for Termux
 
+This is the experimental branch's historical product snapshot, not the current
+installation or development authority. See the current
+[product README](https://github.com/humtr/codex/blob/rewrite/rust-core/README.md),
+[completion plan](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md#product-completion-scope-and-work-order)
+and [integrated Provider](https://github.com/humtr/codex/tree/rewrite/rust-core/providers/chatgpt).
+The approved target is an independent Rust Provider with minimal app-side JS.
+This branch retains unique source and technical evidence until reviewed integration;
+its older Core/TUI/release snapshots must not replace current authority.
+
 This repository is the clean rewrite of the Termux compatibility layer for the
 upstream Codex CLI.
 
