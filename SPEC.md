@@ -1311,6 +1311,15 @@ Loopback SSE keepalive uses a content-free data `ping` event: upstream's parsed
 SSE idle deadline ignores comment-only heartbeats. This proves transport
 liveness only, not model or native work progress. It adds no transcript item,
 Chat submission or retry; ordinary observer cancellation still reaches the host.
+An explicit host permission/authentication reply may use the signed app's separate
+tool-role continuation. Admit only a response correlated to an observed pending
+host action in this lane; never create that reply on the user's behalf. Count
+those actual host requests/reply objects separately from native tool returns and
+user-role objects. They are not automatic retries or proof of allowance debits.
+A retained renderer bridge is bound to the exact Provider bridge-source revision.
+A different revision refuses admission without replacing hooks or pending work;
+explicit settled qualification cleanup or a newly owned host establishes the new
+revision. A new binary must never silently keep executing old renderer hooks.
 
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,

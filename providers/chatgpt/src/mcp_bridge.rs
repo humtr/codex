@@ -90,6 +90,16 @@ fn changed_policy(lane: &Lane, command: &Value) -> bool {
         .is_empty()
     }
 }
+fn valid_dispatches(snapshot: &Value) -> bool {
+    let replies = match snapshot.get("roundHostReplies") {
+        None => 0,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return false,
+        },
+    };
+    matches!(replies.checked_add(1), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
+}
 fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
     if responses
         .as_array()
@@ -403,7 +413,7 @@ impl Bridge for McpBridge {
                 {
                     return Err(Error("mcp_terminal_with_pending_calls"));
                 }
-                if snapshot["roundStarts"] != 1 {
+                if !valid_dispatches(&snapshot) {
                     return Err(Error("mcp_dispatch_unobserved"));
                 }
                 for call in &lane.offered {
@@ -417,7 +427,8 @@ impl Bridge for McpBridge {
             snapshot["round"] = json!(lane.round);
             snapshot["messages"] = json!(visible);
             // This count represents actual app requests, not virtual Responses
-            // boundaries or MCP JSON-RPC calls. No tool-role message was submitted.
+            // boundaries or MCP JSON-RPC calls. Host permission replies have
+            // their own hostReplyMessages counter; MCP results return in place.
             snapshot["toolMessages"] = json!(0);
             if before != digest(&*lane) {
                 journal.write(&key, &*lane)?;
@@ -430,6 +441,22 @@ impl Bridge for McpBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_explicitly_counted_host_replies_extend_the_original_dispatch() {
+        assert!(valid_dispatches(&json!({"roundStarts":1})));
+        assert!(valid_dispatches(
+            &json!({"roundStarts":2,"roundHostReplies":1})
+        ));
+        assert!(!valid_dispatches(
+            &json!({"roundStarts":2,"roundHostReplies":0})
+        ));
+        assert!(!valid_dispatches(
+            &json!({"roundStarts":1,"roundHostReplies":"wrong"})
+        ));
+        assert!(!valid_dispatches(
+            &json!({"roundStarts":0,"roundHostReplies":u64::MAX})
+        ));
+    }
     #[test]
     fn only_unresolved_matching_host_actions_block_the_retained_request() {
         let mut item = json!({"id":"confirmation","metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}});

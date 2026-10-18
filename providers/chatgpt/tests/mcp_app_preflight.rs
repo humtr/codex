@@ -30,18 +30,54 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
         .await
         .unwrap();
     let app = client.app().await.unwrap();
-    let released_settled = if std::env::var("CODEX_PROVIDER_RELEASE_SETTLED_FIXTURE").as_deref()
-        == Ok("1")
+    // Explicit qualification cleanup only: the real service must have released
+    // its writer lease and every retained app lane must have acknowledged stop.
+    // Neither private native records nor saved remote conversations are removed.
+    let stopped_journal = std::env::var_os("CODEX_PROVIDER_RELEASE_STOPPED_FIXTURE")
+        .map(|p| codex_chatgpt_provider::journal::Journal::open(&PathBuf::from(p)).unwrap());
+    let mut stopped_markers = Vec::new();
+    if let Some(journal) = &stopped_journal {
+        for file in std::fs::read_dir(&journal.root).unwrap() {
+            let name = file.unwrap().file_name();
+            let Some(key) = name.to_str().and_then(|s| s.strip_suffix(".json")) else {
+                continue;
+            };
+            let record = journal.read::<Value>(key).unwrap().unwrap();
+            if record.get("native_thread").is_none() {
+                continue;
+            }
+            assert!(record["pending"].as_array().unwrap().is_empty());
+            if record["phase"] == "new" && record["dispatches"] == 0 {
+                continue;
+            }
+            assert_eq!(
+                record["phase"], "stopped",
+                "preserve any unsettled native work"
+            );
+            stopped_markers.push(record["marker"].as_str().unwrap().to_owned());
+        }
+    }
+    let release_stopped = stopped_journal
+        .as_ref()
+        .map(|j| serde_json::json!({"owner":j.owner,"markers":stopped_markers}))
+        .unwrap_or(Value::Null);
+    let released_settled = if !release_stopped.is_null()
+        || std::env::var("CODEX_PROVIDER_RELEASE_SETTLED_FIXTURE").as_deref() == Ok("1")
     {
         let script = include_str!("../src/app_bridge.js");
         app.evaluate(&format!(r#"(async()=>{{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)return false;
           if(!(s.lanes instanceof Map)||typeof s.owner!=='string'||!s.owner||s.owner.length>256)throw Error('owned_fixture_required');
-          const expected={expected},auth=s.scope.get(s.shared.xNt);
+          const expected={expected},stopped={release_stopped},auth=s.scope.get(s.shared.xNt);
+          if(stopped&&s.owner!==stopped.owner)throw Error('fixture_native_owner_mismatch');
           if(s.lanes.size>0&&(auth?.accountId!==expected.account||auth?.userId!==expected.user||auth?.accountStructure!==expected.structure||auth.authLoading||auth.accountLoading))throw Error('fixture_account_changed');
           for(const k of ['prepareCompletionStream','startCompletionStream'])if(typeof s.saved?.[k]!=='function'||![s.saved[k],s.hooks?.[k]].includes(s.client?.[k]))throw Error('owned_fixture_hooks_required');
           if(typeof s.saved?.streamPost!=='function'||![s.saved.streamPost,s.hooks?.streamPost].includes(s.wire?.streamPost))throw Error('owned_fixture_hooks_required');
           for(const l of s.lanes.values()){{
             const messages=[...(l.messages?.values()||[])];
+            if(stopped){{
+              if(!stopped.markers.includes(l.marker)||l.pending||l.streamActive||!l.stopRequested||!l.terminals.some(v=>['done','abort','aborted','cancelled','canceled'].includes(v)))throw Error('stopped_fixture_required');
+              continue;
+            }}
             if(l.pending||l.streamActive||JSON.stringify(l.terminals)!=='["done"]'||messages.some(m=>m.recipient==='local.'+l.signature?.name)||!messages.some(m=>m.author?.role==='assistant'&&(m.recipient==null||m.recipient==='all')&&m.channel==='final'&&m.status==='finished_successfully'&&m.end_turn===true))throw Error('settled_fixture_required');
           }}
           for(const lane of [...s.lanes.keys()])await ({script})({{op:'release',lane,owner:s.owner}});

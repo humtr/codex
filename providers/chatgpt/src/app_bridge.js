@@ -7,7 +7,12 @@ async function termuxCodexBridge(command) {
   if (command.op === 'init') {
     const mode=command.returnPath??'local_function';
     if (!['local_function','mcp'].includes(mode)) fail('app_return_path_invalid');
-    if (state) return state.owner === command.owner && state.mode===mode ? {ready: true} : fail('app_bridge_owned');
+    if(typeof command.bridgeRevision!=='string'||!/^[0-9a-f]{64}$/.test(command.bridgeRevision))fail('app_bridge_revision_required');
+    if (state) {
+      if(state.owner!==command.owner||state.mode!==mode)fail('app_bridge_owned');
+      if(state.revision!==command.bridgeRevision)fail('app_bridge_revision_conflict');
+      return {ready:true};
+    }
     let node = document.querySelector('[contenteditable=true]') || document.querySelector('button');
     while (node && !Object.keys(node).some(k => k.startsWith('__reactFiber'))) node = node.parentElement;
     let fiber = node?.[Object.keys(node).find(k => k.startsWith('__reactFiber'))], scope;
@@ -30,7 +35,7 @@ async function termuxCodexBridge(command) {
     }
     const client = scope.get(api.oMn), wire = shared.$wt;
     if (!['prepareCompletionStream','startCompletionStream'].every(k => typeof client?.[k] === 'function') || typeof wire?.streamPost !== 'function') fail('app_stream_unavailable');
-    state = {owner: command.owner, mode, scope, api, shared, client, wire, lanes: new Map(), saved: {}, hooks: {}};
+    state = {owner: command.owner, revision:command.bridgeRevision, mode, scope, api, shared, client, wire, lanes: new Map(), saved: {}, hooks: {}};
     const owner = request => [...state.lanes.values()].find(l =>
       request?.conversation_id != null && [l.localId,l.serverId].includes(request.conversation_id) ||
       request?.local_function_signatures?.some(f => f.name === l.signature.name) ||
@@ -72,10 +77,17 @@ async function termuxCodexBridge(command) {
       const lane = owner(request);
       if (!lane) return state.saved.streamPost.call(this,path,options);
       const ids = request.messages?.map(m => m.id).join(',');
-      if (!ids || lane.sent.has(ids) || lane.roundPrepared) fail('app_dispatch_replayed');
-      lane.roundPrepared = true;
-      const roles = request.messages.map(m => m.author?.role);
-      if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !roles.includes('user') || roles.includes('tool'))) fail('app_dispatch_invalid');
+      const roles = request.messages?.map(m => m.author?.role) || [];
+      const reply=request.messages?.length===1?request.messages[0]:null;
+      const metadata=reply?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
+      const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
+      const prompt=typeof target==='string'?lane.messages.get(target):null;
+      const promptPlugin=prompt?.metadata?.jit_plugin_data??prompt?.metadata?.elicitation_metadata?.plugin_data;
+      const hostReply=mode==='mcp'&&!lane.stopRequested&&reply?.author?.role==='tool'&&prompt?.author?.role==='tool'&&
+        (['confirm_action','approve_tool_in_context_scope','plugin_auth_required','oauth_required','link_required'].includes(promptPlugin?.from_server?.type)||prompt.metadata?.codex_plugin_auth_required?.status==='pending');
+      if (!ids || lane.sent.has(ids) || lane.roundPrepared&&!hostReply || hostReply&&lane.hostReplies.has(target)) fail('app_dispatch_replayed');
+      if (!hostReply) lane.roundPrepared = true;
+      if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !hostReply&&(!roles.includes('user') || roles.includes('tool')))) fail('app_dispatch_invalid');
       if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) fail('app_dispatch_invalid');
       lane.sent.add(ids);
       const before = options.chatgptSse?.onBeforeRequestStart;
@@ -83,8 +95,9 @@ async function termuxCodexBridge(command) {
         if (lane.starts.has(ids)) fail('app_dispatch_replayed');
         before?.(value);
         lane.starts.add(ids); lane.roundStarts++;
+        if(hostReply){lane.hostReplies.add(target);lane.hostReplyMessages++;lane.roundHostReplies++;lane.terminals=[];lane.error=null;}
         lane.userMessages += roles.filter(r => r === 'user').length;
-        lane.toolMessages += roles.filter(r => r === 'tool').length;
+        if(!hostReply)lane.toolMessages += roles.filter(r => r === 'tool').length;
       }}});
     };
     wire.streamPost = state.hooks.streamPost;
@@ -165,7 +178,7 @@ async function termuxCodexBridge(command) {
     if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
     state.wire.streamPost = state.hooks.streamPost;
     const localId = state.api.aCn(state.scope);
-    state.lanes.set(command.lane,{localId,marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,terminals: []});
+    state.lanes.set(command.lane,{localId,marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,hostReplyMessages:0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
     return {localId};
   }
   const lane = state.lanes.get(command.lane);
@@ -179,7 +192,7 @@ async function termuxCodexBridge(command) {
       const message = node.message;
       const metadata=message?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
       const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
-      if(typeof target==='string'&&target.length>0)hostResponses.add(target);
+      if(typeof target==='string'){if(target.length>0&&lane.hostReplies.has(target))hostResponses.add(target);continue;}
       if (message?.id && (message.author?.role === 'assistant' || state.mode==='mcp'&&message.author?.role==='tool') && !lane.older.has(message.id)) lane.messages.set(message.id,message);
     }
     // Public messages and our own tool calls only; never export hidden reasoning.
@@ -187,7 +200,7 @@ async function termuxCodexBridge(command) {
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
        [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,hostResponses:[...hostResponses],accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
-      dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,serverId: lane.serverId,
+      dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
       stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
   };
   if (command.op === 'snapshot') return snapshot();
@@ -211,7 +224,7 @@ async function termuxCodexBridge(command) {
     if (lane.round === command.round) return {started:true,reused:true};
     if (lane.pending) fail('app_lane_busy');
     lane.round = command.round;
-    lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundPrepared = false;
+    lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundHostReplies=0; lane.hostReplies.clear(); lane.roundPrepared = false;
     lane.older = new Set(Object.values(state.scope.get(state.api.JRn,lane.localId) || {}).map(n => n.message?.id).filter(Boolean));
     lane.controller = new AbortController();
     const message = ({role,text,hidden}) => ({id: crypto.randomUUID(),author: {role: role === 'developer' ? 'system' : role},content: {content_type: 'text',parts: [text]},metadata: {is_visually_hidden_from_conversation: hidden || role === 'developer',termux_codex_lane:command.lane},recipient: 'all',status: 'finished_successfully',end_turn: role === 'assistant' ? true : null});

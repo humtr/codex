@@ -3,7 +3,8 @@ import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const bridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
+const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
+const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
 async function fixture(run){
  const root=mkdtempSync(join(process.env.TMPDIR,'app-bridge-'));
@@ -86,14 +87,48 @@ test('project operations preserve app credentials and verify membership before i
  expect(f.sent.length).toBe(before);
 }));
 
-test('host approval correlation exports target IDs without user text or action arguments',async()=>fixture(async({f,bindings})=>{
+test('only an observed host permission reply continues MCP without a new user object or native return',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'host-action',signature:{name:'unused'}});
- f.nodes={response:{message:{id:'private-reply',author:{role:'user'},content:{parts:['PRIVATE_USER_TEXT']},metadata:{jit_plugin_data:{from_client:{target_message_id:'host-confirm',type:'allow',private:'PRIVATE_ARGUMENT'}}}}}};
+ await bridge({op:'submit',owner:'owned',lane:'host-action',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
+ await Promise.resolve();
+ const state=globalThis[slot],lane=state.lanes.get('host-action');
+ const response={id:'host-reply',author:{role:'tool'},content:{parts:['PRIVATE_USER_TEXT']},metadata:{jit_plugin_data:{from_client:{target_message_id:'host-confirm',type:'allow',private:'PRIVATE_ARGUMENT'}}}};
+ f.nodes={response:{message:response}};
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'host-action'})).hostResponses).toEqual([]);
+ const send=message=>f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[message]}});
+ expect(()=>send(response)).toThrow('app_dispatch_replayed');
+ lane.messages.set('host-confirm',{id:'host-confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
+ expect(()=>send({...response,id:'unrelated',metadata:{jit_plugin_data:{from_client:{target_message_id:'wrong'}}}})).toThrow('app_dispatch_replayed');
+ send(response);
  const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'host-action'});
  expect(snapshot.hostResponses).toEqual(['host-confirm']);
+ expect(snapshot.dispatches).toBe(2);expect(snapshot.userMessages).toBe(1);
+ expect(snapshot.hostReplyMessages).toBe(1);expect(snapshot.roundHostReplies).toBe(1);expect(snapshot.toolMessages).toBe(0);
+ expect(snapshot.roundStarts).toBe(2);expect(snapshot.terminals).toEqual(['done']);
+ expect(()=>send(response)).toThrow('app_dispatch_replayed');
+ expect(()=>send({...response,id:'duplicate-target'})).toThrow('app_dispatch_replayed');
+ expect(()=>send({id:'native-result',author:{role:'tool'},metadata:{},content:{text:'native result'}})).toThrow('app_dispatch_replayed');
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_USER_TEXT');
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_ARGUMENT');
+ lane.messages.set('stopped-confirm',{id:'stopped-confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
+ lane.stopRequested=true;
+ expect(()=>send({...response,id:'late-reply',metadata:{jit_plugin_data:{from_client:{target_message_id:'stopped-confirm',type:'allow'}}}})).toThrow('app_dispatch_replayed');
+ expect(f.sent.length).toBe(2);
+}));
+
+test('a new bridge revision refuses old hooks without replacing active or idle lanes',async()=>fixture(async({bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ const original=globalThis[slot];
+ await expect(bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)})).rejects.toThrow('app_bridge_revision_conflict');
+ expect(globalThis[slot]).toBe(original);
+ await bridge({op:'open',owner:'owned',lane:'active',signature:{name:'owned'}});
+ await expect(bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)})).rejects.toThrow('app_bridge_revision_conflict');
+ expect(globalThis[slot]).toBe(original);expect(original.lanes.size).toBe(1);
+ await expect(rawBridge({op:'init',owner:'owned',bindings})).rejects.toThrow('app_bridge_revision_required');
+ await bridge({op:'release',owner:'owned',lane:'active'});await bridge({op:'dispose',owner:'owned'});
+ await bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)});
+ expect(globalThis[slot].revision).toBe('2'.repeat(64));
 }));
 
 test('owned private project keeps its memory scope while ownership and sharing still gate admission',async()=>fixture(async({f,bindings})=>{

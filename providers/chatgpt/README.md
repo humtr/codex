@@ -24,14 +24,22 @@ not a Cargo target path that a later build can replace. Replacing a running imag
 invalidates its recorded process identity; neither a live listener nor its writer
 lease authorizes bypassing that check or restarting it. `status` is read-only;
 `token` can bootstrap a missing service and is not a read-only diagnostic.
+The renderer bridge is pinned to this binary's bridge-source digest. A different
+revision refuses before inference and preserves old hooks/lanes; it never silently
+runs the prior implementation. A newly owned app establishes a fresh bridge.
+Shared-desktop qualification cleanup requires explicit settled/acknowledged-stop,
+account and owner proof and does not delete saved conversations or native state.
 
 `status --thread NATIVE_THREAD_ID [--state PATH]` reads the private lane's last
 observation even when its local endpoint is unavailable. It distinguishes app
 running, pending native tool results, stop requested/unconfirmed, acknowledged stop
 and unknown state. A pending host confirmation/authentication retains the same
 request, emits one waiting report and exposes `host_block`; approve/reject in ChatGPT itself. A host
-reply resolves only its matching prompt. No automatic approval or new user
-submission continues the wait. Content-free SSE data pings keep Codex's parsed-event
+reply resolves only its matching prompt. The signed app may submit the user's
+permission choice as a correlated tool-role continuation; status counts those as
+`host_action_reply_objects`, separately from native returns and user-role objects.
+Unrelated, repeated or stopped-lane replies refuse. No automatic approval or new
+user submission continues the wait. Content-free SSE data pings keep Codex's parsed-event
 idle deadline alive during silent waits; they establish transport liveness, not
 actual model progress, and add no Chat or native transcript item. Counts separate
 app dispatches, user-role objects and tool returns; they do not measure Chat

@@ -10,9 +10,10 @@ audit narratives and plans remain in Git.
 | Component | Current authority |
 | --- | --- |
 | Upstream | Qualified0.163.0, source83086188ae0614bd882818ff1aa23f3194962012; release/upstream.json |
-| Public/user Full | local-relay-hosted-0-163-0-54f926437ad5-s60; source54f926437ad5093bb11e8d53c3502b810e514071; published2026-10-17T12:42:39Z |
+| Installed Full | Actual activation-state and generation inventory select local-relay-hosted-0-163-0-0ec0389aef99-s76; upstream0.163.0; previous Full60 retained |
+| Earlier public Full proof | local-relay-hosted-0-163-0-54f926437ad5-s60; source54f926437ad5093bb11e8d53c3502b810e514071; published2026-10-17T12:42:39Z |
 | Base used by Full60 | local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58, reused byte for byte; previous user Full57 retained |
-| Published TUI | Source1c413cf, qualification39027733603 |
+| Earlier Full60 TUI proof | Source1c413cf, qualification39027733603; installed Full76 helper is a different signed inventory entry |
 | Retained prior TUI candidate | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384; old binding invalidated by changed source recipe, artifact retained/not activated |
 | Installed Chat adapter | Immutable c3642b19a87cdace158f; sourceBase9a5436a plus preserved user1m setting; JS/Bun/Python; app-local function returns |
 | Rust Provider candidate | Independent Responses/CDP/tool-return/config/catalog/owned-host/lane implementation; actual authenticated Rust host and bounded direct AI development qualified; not installed publicly |
@@ -248,6 +249,8 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-mcp-host-wait-full.log / provider-mcp-preflight-review.log |88 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Immutable versus replaced process owner, observed error-path counts, retained confirmation resolve/cancel and reply correlation regressions pass. Corrected actual-app request preparation passes with zero posts; real host approval/return remains separate |
 | provider-sse-idle-regression-before-corrected.log / provider-sse-idle-android-fixed.log / provider-sse-idle-full.log |Actual native 2.5s SSE-idle regression fails with comment-only keepalive; data pings complete four six-second silent fixture waits/three native effects, zero Chat. Wire ping/cancel proof plus89 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Source-only fix, not an activated public runtime |
 | provider-sse-android-composed.log |14 actual Android native regressions pass against the current installed0.163 runtime: retained MCP three-tool return, six executor/search/correction/reviewer/silent-wait fixtures and seven context/fork/question/automatic-interrupted compaction fixtures. All app replies synthetic; zero Chat |
+| provider-mcp-host-reply-revision-full.log / provider-mcp-revision-preflight.log |90 regular Rust/106 Bun/30 Python, fmt/clippy/release pass. Correlated explicit host-reply admission/counting, unrelated/duplicate/late refusal and bridge revision isolation pass. Actual authenticated app request construction/owned stopped-fixture cleanup pass with zero Chat posts and no saved history deletion; actual host-to-native return still unqualified |
+| provider-host-reply-android-composed.log / installed-full76-inventory-readback.json |All14 actual Android native regressions pass after host-reply/revision changes, using synthetic app replies/no Chat. Actual active Full76 inventory hashes match all8 files and preserves previous Full60; signature not independently reverified in this readback |
 | desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
 | provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
@@ -390,12 +393,28 @@ qualification. Unsupported box components remained in its final transcript.
    viewer-to-native-lane selection remains an integration task; opening the app
    alone does not guarantee its pending consent is visible. Preserve stopped or
    unknown attempts instead of replaying them. Fixes `ea954ae` and `7f02db9` are
-   pushed. The latter's immutable device candidate is running in the isolated MCP
-   trial; one new app dispatch/one user object is at host confirmation with zero
-   native effects. The actual latest project chat is selected and a fresh viewer
-   notification requests the user's host consent. No automatic approval/retry is
-   used. Full source validation passes; hosted qualification `39146010553` has
-   passed its source gate and is still building the independent Android artifact.
+   pushed. Hosted qualification `39146010553` passes both source and Android jobs;
+   its exact unsigned API24 inventory is hash-checked and `models`/config validation
+   run on Android with zero state writes/Chat. Receipt: acceptance/
+   `provider-android-7f02-_65ovafp/device-smoke.json`. This is not stable activation.
+   The second retained-wait trial was explicitly stopped and acknowledged before
+   the next repair, preserving its chat; one app dispatch/one user object, no
+   native effect. Neither waiting trial established a completed MCP round trip.
+
+   Signed-app source inspection additionally established that the user's actual
+   Allow/Deny choice is a tool-role `toolApproval` continuation, not another user
+   prompt. The original blanket replay guard would reject that legitimate POST.
+   The repair admits only an observed matching host action once, rejects unrelated,
+   duplicate or stopped-lane replies, resets the preceding terminal observation
+   only when its POST starts, and counts host action replies independently from
+   user objects/native returns. MCP dispatch admission accounts for those explicit
+   replies without authorizing automatic resubmission. Chat debits remain unknown.
+   Renderer hooks are now pinned to the Provider bridge-source digest: a new binary
+   refuses stale hooks rather than silently keeping their old implementation.
+   Actual zero-post preflight releases only same-owner, same-account, acknowledged
+   stopped qualification lanes while holding their native writer lease, preserves
+   journal and saved chats, then installs/tests/removes the new bridge. New owned
+   hosts naturally start a new renderer; this cleanup is not a product auto-repair.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.

@@ -31,6 +31,7 @@ struct State {
     lose_snapshot: usize,
     hold: bool,
     host_block: Option<String>,
+    host_replies: u64,
     stopped: bool,
     progress_then_loss: bool,
     public_markup: bool,
@@ -119,7 +120,7 @@ impl Bridge for App {
                         state.account = "other-account".into();
                     }
                     Ok(
-                        json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"dispatches":state.stage}),
+                        json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"hostReplyMessages":state.host_replies,"dispatches":state.stage as u64+state.host_replies}),
                     )
                 }
                 _ => Err(Error("unexpected_fixture_operation")),
@@ -465,7 +466,9 @@ async fn host_confirmation_wait_is_visible_and_resolves_or_cancels_without_resub
         if cancel_wait {
             cancel.cancel();
         } else {
-            app.state.lock().unwrap().host_block = None;
+            let mut state = app.state.lock().unwrap();
+            state.host_block = None;
+            state.host_replies = 1;
         }
         let (result, events) = tokio::time::timeout(std::time::Duration::from_secs(3), task)
             .await
@@ -491,7 +494,13 @@ async fn host_confirmation_wait_is_visible_and_resolves_or_cancels_without_resub
         let observed =
             codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
         assert!(observed["host_block"].is_null());
-        assert_eq!(observed["app_dispatches"], 1);
+        assert_eq!(observed["app_dispatches"], if cancel_wait { 1 } else { 2 });
+        assert_eq!(
+            observed["host_action_reply_objects"],
+            if cancel_wait { 0 } else { 1 }
+        );
+        assert_eq!(observed["user_role_objects"], 1);
+        assert_eq!(observed["tool_return_objects"], 0);
     }
 }
 

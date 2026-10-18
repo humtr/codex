@@ -102,7 +102,7 @@ impl Bridge for Remote {
                         Err(error) => return Err(error),
                     }
                 };
-                let init = json!({"op":"init","owner":owner,"returnPath":if mcp {"mcp"}else{"local_function"},"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
+                let init = json!({"op":"init","owner":owner,"bridgeRevision":context::digest(&include_str!("app_bridge.js")),"returnPath":if mcp {"mcp"}else{"local_function"},"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
                     let value = evaluate_bridge(&app, &init).await?;
@@ -168,6 +168,8 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_auth_loading",
         "app_lane_busy",
         "app_bridge_owned",
+        "app_bridge_revision_required",
+        "app_bridge_revision_conflict",
         "app_local_functions_unavailable",
     ];
     let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known).unwrap());
@@ -269,6 +271,8 @@ struct Lane {
     #[serde(default)]
     host_block: Option<String>,
     #[serde(default)]
+    host_reply_messages: u64,
+    #[serde(default)]
     rejected: u8,
 }
 
@@ -300,7 +304,7 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
         json!({"schema":"termux-codex-provider-lane-status-v1","thread":thread,
         "phase":lane.phase,"meaning":meaning,"observation":"last_private_journal",
         "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),
-        "host_block":lane.host_block,"app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
+        "host_block":lane.host_block,"host_action_reply_objects":lane.host_reply_messages,"app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
         "tool_return_objects":lane.tool_messages,"last_error":lane.last_error.as_deref()
             .map(|code| if code.len()<=128 && code.bytes().all(|c|c.is_ascii_lowercase() || c.is_ascii_digit() || c==b'_') {code}else{"provider_error"}),
         "chat_allowance_debits":"unknown","app_queried":false}),
@@ -330,6 +334,7 @@ impl Lane {
             project: None,
             last_error: None,
             host_block: None,
+            host_reply_messages: 0,
             rejected: 0,
         })
     }
@@ -356,8 +361,16 @@ fn observe_counts(
                 .as_u64()
                 .ok_or(Error("invalid_submission_counters"))?,
         );
-        if counts != (lane.dispatches, lane.user_messages, lane.tool_messages) {
+        let host_replies = state
+            .get("hostReplyMessages")
+            .map(|v| v.as_u64().ok_or(Error("invalid_submission_counters")))
+            .transpose()?
+            .unwrap_or(lane.host_reply_messages);
+        if counts != (lane.dispatches, lane.user_messages, lane.tool_messages)
+            || host_replies != lane.host_reply_messages
+        {
             (lane.dispatches, lane.user_messages, lane.tool_messages) = counts;
+            lane.host_reply_messages = host_replies;
             journal.write(key, lane)?;
         }
     }
