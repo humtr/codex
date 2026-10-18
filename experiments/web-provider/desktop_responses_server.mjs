@@ -10,7 +10,7 @@ import {DesktopLocalTransport} from './desktop_local_transport.mjs';
 import {DesktopMcpTransport} from './desktop_mcp_transport.mjs';
 import {DesktopMcpBroker,serveMcpBroker} from './desktop_mcp_broker.mjs';
 import {readDesktopRequest,DesktopBodyError,DESKTOP_DECODED_LIMIT} from './desktop_http.mjs';
-import {DesktopRequestTiming,DesktopTranscript,admitDesktopRequest,recordDesktopSubmission,validateEnvelope,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
+import {DesktopRequestTiming,DesktopTranscript,admitDesktopRequest,recordDesktopSubmission,recordDesktopContext,validateEnvelope,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath,runtimePath]=process.argv.slice(2);
 process.umask(0o077);
 const source=resolve(candidate,'src');
@@ -106,7 +106,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
    lane.resultCount=Math.max(lane.resultCount,parsed.context.messages.filter(m=>m.role==='toolResult').length);report.returnedNativeResults=[...lanes.values()].reduce((n,l)=>n+l.resultCount,0);const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
    const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools,compaction:compact,...returnTransport==='mcp'?{owner:{backend:statePath,thread:key,turn:identity.turnId}}:{}};
    await ensureDesktop(abort.signal);timing.mark('desktopReady');
-   const response=await transport.exchange(payload,abort.signal,event=>{timing.mark('firstDispatchObserved');recordDesktopSubmission(report,event,route);save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route,event=>{if(event.type==='text_delta'&&event.text)timing.mark('firstPublicOutputObserved');queue.push(event);});
+   const response=await transport.exchange(payload,abort.signal,event=>{timing.mark('firstDispatchObserved');recordDesktopSubmission(report,event,route);save();},()=>{report.retryAttempts++;save();},event=>{recordDesktopContext(report,event);save();},route,event=>{if(event.type==='text_delta'&&event.text)timing.mark('firstPublicOutputObserved');queue.push(event);});
    report.selectedControl=transport.selectedControl;
    if(response.type==='tools'){
     if(compact)throw Error('desktop_compaction_must_not_call_tools');

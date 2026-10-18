@@ -151,6 +151,23 @@ export class DesktopPromptContext{
  accept(current,boundary){this.previous=current;this.boundary=boundary===undefined?undefined:JSON.parse(JSON.stringify(boundary));}
 }
 
+// Content-free observations; these do not claim any allowance deduction.
+export function recordDesktopContext(report,event){
+ if(event?.type==='host_conversations'){
+  if(!Number.isSafeInteger(event.count)||event.count<1)throw Error('invalid_desktop_context_observation');
+  report.observedHostConversations=(report.observedHostConversations||0)+event.count;return;
+ }
+ if(event?.type!=='local_context'){
+  report.contextPackets=(report.contextPackets||0)+1;return;
+ }
+ const {mode,reason,historyMessages,deltaMessages,instructionsChanged,toolsChanged,compaction}=event;
+ if(!['append','replay'].includes(mode)||!['owned_prefix_matches','no_resident_context','route_or_transport_changed'].includes(reason)||
+  ![historyMessages,deltaMessages].every(n=>Number.isSafeInteger(n)&&n>=0)||deltaMessages>historyMessages||
+  ![instructionsChanged,toolsChanged,compaction].every(v=>typeof v==='boolean'))throw Error('invalid_desktop_context_observation');
+ const key=mode==='append'?'warmContextAppends':'coldContextReplays';report[key]=(report[key]||0)+1;
+ report.contextSamples=[...(report.contextSamples||[]).slice(-31),{mode,reason,historyMessages,deltaMessages,instructionsChanged,toolsChanged,compaction}];
+}
+
 // Pack ordered context into bounded packets; only the final packet starts work.
 export function desktopStages(delta,limit=40000){
  if(!Number.isSafeInteger(limit)||limit<256)throw Error('invalid_desktop_stage_limit');

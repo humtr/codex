@@ -388,6 +388,21 @@ test('warm deduplication preserves unseen assistant history; a cold lane replays
  assert.ok(f.submits[2].developerInstructions.length>0);
  await f.transport.close();
 });
+test('an uncommitted successful summary does not poison the warm native prefix or create another conversation',async()=>{
+ const f=fixture([[publicText('first','completed work','final')],[publicText('summary','checkpoint text','final')],[publicText('last','continued work','final')]]);
+ const contexts=[];
+ const exchange=payload=>f.transport.exchange(payload,undefined,undefined,undefined,event=>contexts.push(event),route);
+ await exchange(task);
+ const history=[...task.messages,{role:'assistant',content:'completed work'}];
+ await exchange({...task,compaction:true,messages:[...history,{role:'user',content:'Transient native summary instruction'}]});
+ const result=await exchange({...task,messages:[...history,{role:'user',content:'Next real development task'}]});
+ assert.equal(result.text,'continued work');
+ assert.equal(f.operations.filter(m=>m==='create').length,1);
+ assert.deepEqual(f.submits[2].taskMessages,[{role:'user',text:'Next real development task'}]);
+ assert.equal(f.submits[2].developerInstructions.length,0);
+ assert.deepEqual(contexts.map(e=>[e.mode,e.deltaMessages,e.compaction]),[['replay',1,false],['append',2,true],['append',1,false]]);
+ await f.transport.close();
+});
 test('cancelled compaction excludes its transient prompt, but cannot automatically retry itself',async()=>{
  const f=fixture([[publicText('first','completed work','final')],[],[publicText('last','recovered','final')]]);
  await f.exchange();

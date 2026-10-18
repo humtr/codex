@@ -1,4 +1,4 @@
-import {isGuardianContinuation,desktopOutputInstructions,admitDesktopRequest,recordDesktopSubmission} from './desktop_protocol.mjs';
+import {isGuardianContinuation,desktopOutputInstructions,admitDesktopRequest,recordDesktopSubmission,recordDesktopContext} from './desktop_protocol.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {mkdtempSync,writeFileSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
@@ -241,4 +241,17 @@ test('request timings retain first observations, distinguish owners and bound pr
  expect(report.latencySamples.length).toBe(32);expect(report.latencySamples[0].request).toBe(9);
  expect(()=>b.mark('heartbeat')).toThrow('invalid_desktop_timing_phase');
  expect(()=>new DesktopRequestTiming(41,clock).finish(report,'guess')).toThrow('invalid_desktop_timing_outcome');
+});
+
+
+test('context observations separate warm deltas, packets and actual host conversation acknowledgements without content',()=>{
+ const report={contextPackets:0};
+ const event={type:'local_context',mode:'append',reason:'owned_prefix_matches',historyMessages:100,deltaMessages:1,instructionsChanged:false,toolsChanged:false,compaction:false,privatePrompt:'never retained'};
+ for(let i=0;i<40;i++)recordDesktopContext(report,event);
+ recordDesktopContext(report,{type:'host_conversations',count:1});
+ recordDesktopContext(report);
+ expect(report.warmContextAppends).toBe(40);expect(report.contextSamples.length).toBe(32);
+ expect(report.contextPackets).toBe(1);expect(report.observedHostConversations).toBe(1);
+ expect(JSON.stringify(report)).not.toContain('never retained');
+ for(const bad of [{...event,deltaMessages:101},{...event,reason:'private data'},{type:'host_conversations',count:0}])expect(()=>recordDesktopContext(report,bad)).toThrow();
 });

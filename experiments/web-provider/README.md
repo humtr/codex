@@ -31,6 +31,13 @@ The actual host currently reaches confirm_action before native tool execution.
 Count user objects, tool messages, starts, HTTP and allowance deductions separately.
 No Codex-quota experiment establishes Chat message-limit savings.
 
+The current source also records bounded, content-free warm-context/host-creation
+observations. A successful summary instruction is transient until native history
+accepts its checkpoint; an uncommitted summary must not poison the next prefix.
+These observations do not establish allowance deductions. Active runtime sources
+are being integrated as the optional providers/chatgpt component on rewrite/rust-core;
+this experimental checkout is not the production Core or release authority.
+
 ## Ownership and dependencies
 
 | Component | Owner |

@@ -7,6 +7,24 @@ and retained proof until selective integration. Historical production snapshots
 here predate current Core/Manager/TUI and release automation; never copy them over
 current rewrite/rust-core. AGENTS.md remains unchanged.
 
+## Current integration work
+
+The active provider runtime is being selectively integrated into rewrite/rust-core
+under providers/chatgpt. That branch remains the product/contract authority; do
+not merge this experiment's historical Core, Manager, TUI or release snapshots.
+Preserve the existing uncommitted1m catalog/profile test changes.
+
+A no-Chat regression now fixes successful-but-uncommitted compaction: transient
+summary instructions no longer enter the resident canonical prefix. The previous
+source fails the same trial with desktop_context_replaced; the candidate reuses
+one conversation and sends only the next real user delta, without tool replay.
+This is one confirmed defect, not proof of the cause of every observed compaction.
+Content-free context samples distinguish append/replay, changed instructions/tools,
+compaction and host-acknowledged new-conversation counts. These are separate from
+Chat allowance deductions. Candidate tests:105 JS and45 Python pass; no real Chat,
+operating runtime change or device activation. Private proof: context-prefix-negative.log,
+context-local-regression.log and context-provider-all-{js,python}.log.
+
 ## Operating baseline
 
 - Public/user Full60/source54f9264 pins Base58 on qualified upstream0.163.0.

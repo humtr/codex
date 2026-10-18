@@ -150,7 +150,7 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
   l.olderIds=new Set(Object.values(s.scope.get(s.m.JRn,l.id)||{}).map(n=>n.message?.id).filter(Boolean));
   l.messages.clear();l.terminals=[];l.roundDispatched=0;l.accepted=false;l.error=undefined;
   l.requestKind=data.results?.length?(data.contextMessages?.some(m=>m.role==='user')?'mixed':'tool'):'user';
-  const model=data.model,onServerThreadIdChange=id=>{l.serverId=id;};
+  const model=data.model,onServerThreadIdChange=id=>{l.serverId=id;if(typeof id==='string'&&id)(l.serverConversations??=new Set()).add(id);};
   l.controller=new AbortController();
   const options={conversationId:l.id,isTemporaryChat:false,...model,onServerThreadIdChange};
   let pending;
@@ -203,7 +203,7 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
    const m=node.message;if(m?.id&&!l.olderIds.has(m.id)&&m.author?.role==='assistant')l.messages.set(m.id,m);
   }
   return {messages:[...l.messages.values()],error:l.error,submitFailure:l.submitFailure,accepted:l.accepted,roundDispatched:l.roundDispatched,terminals:l.terminals,
-   userSubmissions:l.userSubmissions,toolSubmissions:l.toolSubmissions,dispatches:l.starts.size};
+   userSubmissions:l.userSubmissions,toolSubmissions:l.toolSubmissions,dispatches:l.starts.size,serverConversations:l.serverConversations?.size||0};
  }
  if(operation==='close'){
   l.controller?.abort();s.m.eHt(s.scope,l.id);state.lanes.delete(lane);
@@ -235,7 +235,7 @@ export class DesktopLocalTransport{
   const lease=this.lease;if(!lease)return;
   this.lease=undefined;
   this.closing=(async()=>{try{await this.invoke(lease,this.lane,'close');}
-   finally{lease.release();this.dispatched=0;this.observedCounts=undefined;}})();
+   finally{lease.release();this.dispatched=0;this.observedCounts=undefined;this.observedServerConversations=0;}})();
   try{await this.closing;}finally{this.closing=undefined;}
  }
  async prepare(){
@@ -246,7 +246,7 @@ export class DesktopLocalTransport{
   catch(error){await this.close().catch(()=>{});throw error;}
  }
  retire(){this.retiring=this.close().catch(()=>{});this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;}
- async exchange(payload,signal,onSubmitted=()=>{},_onRetry=()=>{},_onContext=()=>{},route,emit=()=>{}){
+ async exchange(payload,signal,onSubmitted=()=>{},_onRetry=()=>{},onContext=()=>{},route,emit=()=>{}){
   if(this.busy)throw Error('desktop_chat_busy');this.busy=true;
   let sent=false,settled=false,published=false,prepared;
   try{
@@ -255,7 +255,7 @@ export class DesktopLocalTransport{
     // A positively identified new app generation cannot receive returns on the
     // old local-function lane. Reconstruct from Core's canonical history before
     // dispatch; never replay a native command or retry uncertain delivery.
-    this.lease.release();this.lease=undefined;this.dispatched=0;this.observedCounts=undefined;
+    this.lease.release();this.lease=undefined;this.dispatched=0;this.observedCounts=undefined;this.observedServerConversations=0;
     this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;
    }
    if(this.rejectedContext){
@@ -275,6 +275,8 @@ export class DesktopLocalTransport{
    const boundary={transport:'signed-app-local',generation:this.lease.client.generation};
    prepared=this.context.prepare(payload,boundary);const batch=this.projection.results(payload.messages);
    const contextMessages=pendingNativeContext(prepared.delta.messages,batch);
+   onContext({type:'local_context',mode:prepared.mode,reason:prepared.reason,historyMessages:prepared.current.messages.length,deltaMessages:prepared.delta.messages.length,
+    instructionsChanged:prepared.delta.instructions!==undefined,toolsChanged:prepared.delta.tools!==undefined,compaction:payload.compaction===true});
    const instructions=[];
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
    if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (call the exact name; preserve schemas and custom input):\n'+JSON.stringify(localToolCatalog(payload.tools)));
@@ -290,6 +292,9 @@ export class DesktopLocalTransport{
    let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=new Map();
    while(Date.now()<deadline){
     signal?.throwIfAborted();const state=await op('snapshot');
+    if(Number.isSafeInteger(state.serverConversations)&&state.serverConversations>(this.observedServerConversations||0)){
+     onContext({type:'host_conversations',count:state.serverConversations-(this.observedServerConversations||0)});this.observedServerConversations=state.serverConversations;
+    }
     if(state.dispatches>(this.dispatched||0)&&!acknowledged){
      const userMessages=state.userSubmissions-(this.observedCounts?.user||0),toolMessages=state.toolSubmissions-(this.observedCounts?.tool||0);
      acknowledged=true;onSubmitted({phase:'request',source:'app_dispatched',kind:toolMessages?(userMessages?'mixed':'tool'):'user',userMessages,toolMessages,dispatchedAt:Date.now()});
@@ -320,7 +325,10 @@ export class DesktopLocalTransport{
     }
     if(settled){
      this.dispatched=state.dispatches;
-     this.context.accept(prepared.current,boundary);this.routeIdentity=identity;
+     // A successful summary request is not committed native user history. If
+     // upstream does not accept its checkpoint, a later real user turn must still
+     // match the owned prefix, without retiring/replaying this conversation.
+     this.context.accept({...prepared.current,messages:recoveryMessages(prepared.current)},boundary);this.routeIdentity=identity;
      this.selectedControl={...model,transport:'signed-app-local',ordinaryChat:true,independentConversation:true,userSubmissions:state.userSubmissions,toolSubmissions:state.toolSubmissions,dispatches:state.dispatches};
      if(final!==undefined){if(roundCalls.size)throw Error('desktop_native_final_with_pending_calls');return {type:'final',text:final,streamed:true};}
      if(roundCalls.size){
