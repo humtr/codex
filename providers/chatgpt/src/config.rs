@@ -12,6 +12,8 @@ pub const FIELDS: &[&str] = &[
     "context.auto_compact_token_limit",
     "transport.max_wire_bytes",
     "transport.max_decoded_bytes",
+    "transport.return_path",
+    "transport.connector_name",
     "history.mode",
     "history.project_name",
     "history.project_id",
@@ -92,12 +94,23 @@ impl Default for ContextConfig {
 pub struct TransportConfig {
     pub max_wire_bytes: u64,
     pub max_decoded_bytes: u64,
+    pub return_path: ReturnPath,
+    pub connector_name: String,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReturnPath {
+    #[default]
+    LocalFunction,
+    Mcp,
 }
 impl Default for TransportConfig {
     fn default() -> Self {
         Self {
             max_wire_bytes: MAX_WIRE_BYTES,
             max_decoded_bytes: MAX_DECODED_BYTES,
+            return_path: ReturnPath::LocalFunction,
+            connector_name: "Termux Codex".into(),
         }
     }
 }
@@ -210,6 +223,12 @@ impl Config {
                 "transport bounds exceed the provider limits",
             ));
         }
+        if self.transport.connector_name.trim().is_empty()
+            || self.transport.connector_name.len() > 160
+            || self.transport.connector_name.chars().any(char::is_control)
+        {
+            return Err(ConfigError::Invalid("connector display name is invalid"));
+        }
         if self.history.project_name.as_deref().is_some_and(|v| {
             v.trim().is_empty() || v.len() > 1024 || v.chars().any(char::is_control)
         }) {
@@ -306,5 +325,24 @@ mod tests {
         value.history.mode = HistoryMode::Project;
         value.validate().unwrap();
         assert!(value.history.create_if_missing);
+    }
+    #[test]
+    fn return_transport_is_explicit_and_connector_branding_is_configurable() {
+        assert_eq!(
+            Config::default().transport.return_path,
+            ReturnPath::LocalFunction
+        );
+        let settings =
+            Config::parse(b"[transport]\nreturn_path='mcp'\nconnector_name='My Owned Connector'\n")
+                .unwrap();
+        assert_eq!(settings.transport.return_path, ReturnPath::Mcp);
+        assert_eq!(settings.transport.connector_name, "My Owned Connector");
+        for text in [
+            "[transport]\nreturn_path='automatic'",
+            "[transport]\nconnector_name=''",
+            "[transport]\nconnector_name=\"bad\\u0000name\"",
+        ] {
+            assert!(Config::parse(text.as_bytes()).is_err());
+        }
     }
 }

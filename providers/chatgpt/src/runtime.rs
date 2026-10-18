@@ -334,6 +334,11 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
         "url_exported":false,"inference_submitted":false}),
     )
 }
+pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
+    token(root).await?;
+    let selected = binding(root)?;
+    crate::mcp_stdio::run(tokio::io::stdin(), tokio::io::stdout(), selected.port).await
+}
 async fn request_viewer_activity(program: &Path, url: &str) -> Result<(), Error> {
     let mut command = tokio::process::Command::new(program);
     command
@@ -408,9 +413,23 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         owned = Some(host);
         remote
     };
-    let host = Arc::new(AppHost::new(Arc::new(bridge), journal.clone()));
+    let mcp = (settings.transport.return_path == crate::config::ReturnPath::Mcp)
+        .then(|| crate::mcp::Broker::new(journal.clone()));
+    let bridge: Arc<dyn crate::app::Bridge> = match &mcp {
+        Some(broker) => Arc::new(crate::mcp_bridge::McpBridge::new(
+            Arc::new(bridge.with_mcp()),
+            broker.clone(),
+            journal.clone(),
+            settings.transport.connector_name.clone(),
+        )?),
+        None => Arc::new(bridge),
+    };
+    let host = Arc::new(AppHost::new(bridge, journal.clone()));
     let token = random_id()?;
     let mut service = Service::configured(config, token.clone(), host.clone())?;
+    if let Some(mcp) = mcp {
+        service = service.with_mcp(mcp)?;
+    }
     let mut viewer_capability = None;
     if let (Some(owned), Some(assets)) = (&owned, &settings.host.viewer_assets) {
         match crate::viewer::Viewer::new(owned.viewer_socket(), assets.clone(), port) {

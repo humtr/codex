@@ -50,6 +50,7 @@ pub struct Service {
     host: Arc<dyn Host>,
     sequence: AtomicU64,
     viewer: Option<Arc<crate::viewer::Viewer>>,
+    mcp: Option<Arc<crate::mcp::Broker>>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -72,6 +73,7 @@ impl Service {
             host,
             sequence: AtomicU64::new(0),
             viewer: None,
+            mcp: None,
         }))
     }
     pub fn configured(
@@ -90,17 +92,37 @@ impl Service {
         match &self.config_path {
             Some(path) => crate::store::Snapshot::open(path)
                 .and_then(|v| v.config())
-                .map_err(|_| Error("invalid_provider_configuration")),
+                .map_err(|_| Error("invalid_provider_configuration"))
+                .and_then(|value| {
+                    if value.transport.return_path != self.config.transport.return_path
+                        || value.transport.connector_name != self.config.transport.connector_name
+                    {
+                        Err(Error("provider_transport_restart_required"))
+                    } else {
+                        Ok(value)
+                    }
+                }),
             None => Ok(self.config.clone()),
         }
     }
     pub fn router(self: Arc<Self>) -> Router {
         let viewer = self.viewer.clone();
+        let mcp = self.mcp.clone();
         let router = Router::new().fallback(handler).with_state(self);
+        let router = match mcp {
+            Some(mcp) => router.merge(mcp.router()),
+            None => router,
+        };
         match viewer {
             Some(viewer) => router.merge(viewer.router()),
             None => router,
         }
+    }
+    pub fn with_mcp(mut self: Arc<Self>, mcp: Arc<crate::mcp::Broker>) -> Result<Arc<Self>, Error> {
+        Arc::get_mut(&mut self)
+            .ok_or(Error("provider_already_shared"))?
+            .mcp = Some(mcp);
+        Ok(self)
     }
     pub fn with_viewer(
         mut self: Arc<Self>,
@@ -360,10 +382,14 @@ pub async fn serve(
     }
     let stop = service.shutdown.clone();
     let viewer = service.viewer.clone();
+    let mcp = service.mcp.clone();
     axum::serve(listener, service.router())
         .with_graceful_shutdown(async move {
             shutdown.cancelled().await;
             stop.cancel();
+            if let Some(mcp) = mcp {
+                mcp.close().await;
+            }
             if let Some(viewer) = viewer {
                 viewer.close();
             }

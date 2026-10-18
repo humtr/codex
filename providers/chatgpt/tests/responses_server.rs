@@ -252,6 +252,18 @@ async fn config_file_changes_routes_at_next_request_without_rebuild_or_restart()
         "chatgpt-desktop/configured"
     );
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    config.transport.return_path = codex_chatgpt_provider::config::ReturnPath::Mcp;
+    codex_chatgpt_provider::store::Snapshot::open(&path)
+        .unwrap()
+        .commit_bytes(config.render().unwrap().as_bytes())
+        .unwrap();
+    let rejected = collect(send(address, value.to_string().as_bytes(), "").await).await;
+    assert!(rejected.contains("provider_transport_restart_required"));
+    assert_eq!(
+        fixture.calls.load(Ordering::SeqCst),
+        1,
+        "transport changes never switch an active service"
+    );
     std::fs::write(&path, "invalid = [").unwrap();
     let rejected = collect(send(address, value.to_string().as_bytes(), "").await).await;
     assert!(rejected.starts_with("HTTP/1.1 503"));

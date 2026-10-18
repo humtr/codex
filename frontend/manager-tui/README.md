@@ -47,7 +47,7 @@ preview assets remain protected until their clients exit.
 The frontend passes its upstream-resolved model catalog to Core's existing
 backend coordinator before local startup. Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
-Manager discovers both native and catalog-bound writers. The current48-test native
+Manager discovers both native and catalog-bound writers. The current50-test native
 gate includes catalog handoff, socket-output rejection and Core daemon ownership
 alongside profile, permission, window and upstream command regressions. Separate
 upstream-feature gates exercise0.162's managed worktrees, shared pinning, copy/

@@ -17,6 +17,11 @@ use tokio_util::sync::CancellationToken;
 
 pub trait Bridge: Send + Sync + 'static {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>>;
+    /// Read-only transport admission before common journal state is advanced.
+    /// A known rejection is distinct from an uncertain dispatched operation.
+    fn admit_submission(&self, _command: Value) -> BoxFuture<'static, Result<(), Error>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 struct Connection {
@@ -32,6 +37,7 @@ pub struct Remote {
     source: Source,
     owner: String,
     connection: Arc<Mutex<Option<Connection>>>,
+    mcp: bool,
 }
 impl Remote {
     pub fn new(descriptor: PathBuf, owner: String) -> Self {
@@ -39,6 +45,7 @@ impl Remote {
             source: Source::Relay(descriptor),
             owner,
             connection: Arc::new(Mutex::new(None)),
+            mcp: false,
         }
     }
     pub fn pipe(client: Client, owner: String) -> Self {
@@ -46,7 +53,12 @@ impl Remote {
             source: Source::Pipe(client),
             owner,
             connection: Arc::new(Mutex::new(None)),
+            mcp: false,
         }
+    }
+    pub fn with_mcp(mut self) -> Self {
+        self.mcp = true;
+        self
     }
 }
 impl Bridge for Remote {
@@ -54,6 +66,7 @@ impl Bridge for Remote {
         let source = self.source.clone();
         let owner = self.owner.clone();
         let connection = self.connection.clone();
+        let mcp = self.mcp;
         Box::pin(async move {
             let selected = match &source {
                 Source::Relay(path) => Some(Descriptor::read(path)?),
@@ -89,7 +102,7 @@ impl Bridge for Remote {
                         Err(error) => return Err(error),
                     }
                 };
-                let init = json!({"op":"init","owner":owner,"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
+                let init = json!({"op":"init","owner":owner,"returnPath":if mcp {"mcp"}else{"local_function"},"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
                     let value = evaluate_bridge(&app, &init).await?;
@@ -704,6 +717,7 @@ async fn exchange(
         if messages.is_empty() && results.is_empty() {
             return Err(Error("native_request_has_no_new_input"));
         }
+        bridge.admit_submission(json!({"lane":lane.marker,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await?;
         lane.request = request_digest;
         lane.turn = request.turn.clone();
         lane.user_input = user_input_identity(request);
@@ -713,7 +727,7 @@ async fn exchange(
         lane.rejected = 0;
         lane.phase = Phase::Dispatching;
         journal.write(key, lane)?;
-        let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
+        let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
         if result.is_err() {
             // Snapshot the same app round below. Do not replay submit after a
             // lost evaluate reply; it may already have sent the model request.
@@ -761,7 +775,11 @@ async fn exchange(
         if state["error"].is_string() {
             lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
-            return Err(Error("app_round_failed"));
+            return Err(Error(match state["error"].as_str() {
+                Some("mcp_host_authentication_required") => "mcp_host_authentication_required",
+                Some("mcp_host_confirmation_required") => "mcp_host_confirmation_required",
+                _ => "app_round_failed",
+            }));
         }
         let messages = state["messages"]
             .as_array()

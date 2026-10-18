@@ -1263,6 +1263,28 @@ an outstanding native tool call/result identity. Reuse authorized existing admin
 and computer-use access when exercising this path; actual connector ACK remains
 an independent gate from discovery and the local-function transport.
 
+The Rust MCP return path is explicitly selected at service startup through
+transport.return_path=mcp and a configurable transport.connector_name (default
+Termux Codex). Local functions remain the default; never switch transports after
+uncertain dispatch. The same Provider service exposes a bounded streamable-HTTP
+/mcp endpoint; it is not a second executor. Static discovery discloses no native
+state. The same binary's optional mcp-stdio command verifies an already running
+owned Provider and forwards bounded multiplexed JSON-RPC for an existing tunnel;
+it never starts an app/service, repeats delivery or executes tools. EOF/request
+cancellation detaches only that observer. A random per-app-turn capability authorizes native_catalog/native_tool;
+each logical call ID binds exact tool/input/report, independently of JSON-RPC IDs.
+Native execution/results still pass through the common Responses/lane journal.
+Persist invocation intent and native results before publication/delivery. Peer
+loss detaches its waiter, not the native action; an exact retry receives the same
+result. Changed IDs/arguments, stopped turns and unresolved owner changes refuse.
+Return native results to the retained original MCP invocation, never submit them
+as a new Chat user/tool message. A retained app turn cannot silently change model,
+effort or developer policy. Catalog discovery may extend declared native tools;
+new user input waits for a settled boundary. Account/project/stop/transcript rules
+are identical to the local-function path. Host confirmation/authentication must
+surface as blocked state, never be bypassed. Rust wire fixtures alone do not admit
+this route for live use; actual connector ACK is required before activation.
+
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,
 licenses and affected regression drivers onto current authority. Never replace

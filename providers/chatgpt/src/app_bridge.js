@@ -5,7 +5,9 @@ async function termuxCodexBridge(command) {
   const fail = code => { throw Error(code); };
   let state = globalThis[slot];
   if (command.op === 'init') {
-    if (state) return state.owner === command.owner ? {ready: true} : fail('app_bridge_owned');
+    const mode=command.returnPath??'local_function';
+    if (!['local_function','mcp'].includes(mode)) fail('app_return_path_invalid');
+    if (state) return state.owner === command.owner && state.mode===mode ? {ready: true} : fail('app_bridge_owned');
     let node = document.querySelector('[contenteditable=true]') || document.querySelector('button');
     while (node && !Object.keys(node).some(k => k.startsWith('__reactFiber'))) node = node.parentElement;
     let fiber = node?.[Object.keys(node).find(k => k.startsWith('__reactFiber'))], scope;
@@ -20,11 +22,15 @@ async function termuxCodexBridge(command) {
     const shared = await import(command.bindings.shared);
     const auth=scope.get(shared.xNt);
     if(!auth||auth.authLoading||auth.accountLoading)return {ready:false};
-    api.gRt();
-    if (!['aCn','bRt','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind || !scope.get(shared.HAt)) fail('app_local_functions_unavailable');
+    if (!['aCn','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind) fail('app_local_functions_unavailable');
+    if (mode==='local_function') {
+      if (typeof api.gRt!=='function'||typeof api.bRt!=='function') fail('app_local_functions_unavailable');
+      api.gRt();
+      if (!scope.get(shared.HAt)) fail('app_local_functions_unavailable');
+    }
     const client = scope.get(api.oMn), wire = shared.$wt;
     if (!['prepareCompletionStream','startCompletionStream'].every(k => typeof client?.[k] === 'function') || typeof wire?.streamPost !== 'function') fail('app_stream_unavailable');
-    state = {owner: command.owner, scope, api, shared, client, wire, lanes: new Map(), saved: {}, hooks: {}};
+    state = {owner: command.owner, mode, scope, api, shared, client, wire, lanes: new Map(), saved: {}, hooks: {}};
     const owner = request => [...state.lanes.values()].find(l =>
       request?.conversation_id != null && [l.localId,l.serverId].includes(request.conversation_id) ||
       request?.local_function_signatures?.some(f => f.name === l.signature.name) ||
@@ -37,9 +43,9 @@ async function termuxCodexBridge(command) {
         if (lane.project && request.gizmo_id !== lane.project) fail('project_membership_unconfirmed');
         const template = request.local_function_signatures?.some(f => f.name === 'handoff');
         const prepared = lane.declared && request.local_function_signatures?.length === 1 && JSON.stringify(request.local_function_signatures[0]) === JSON.stringify(lane.signature);
-        if (!scope.get(shared.HAt) || !template && !prepared) fail('app_local_declaration_unavailable');
+        if (mode==='local_function' && (!scope.get(shared.HAt) || !template && !prepared)) fail('app_local_declaration_unavailable');
         if (template) lane.declared = true;
-        const owned = {...request, local_function_signatures: [lane.signature]};
+        const owned = {...request, local_function_signatures: mode==='mcp'?[]:[lane.signature],...(mode==='mcp'?{local_function_names:[]}:{})};
         if (name === 'prepareCompletionStream') return state.saved[name].call(this,owned,args[1]);
         const options = {...args[0],request: owned}, epoch = lane.epoch;
         lane.streamActive = true;
@@ -69,6 +75,7 @@ async function termuxCodexBridge(command) {
       if (!ids || lane.sent.has(ids) || lane.roundPrepared) fail('app_dispatch_replayed');
       lane.roundPrepared = true;
       const roles = request.messages.map(m => m.author?.role);
+      if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !roles.includes('user') || roles.includes('tool'))) fail('app_dispatch_invalid');
       if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) fail('app_dispatch_invalid');
       lane.sent.add(ids);
       const before = options.chatgptSse?.onBeforeRequestStart;
@@ -169,10 +176,10 @@ async function termuxCodexBridge(command) {
   const snapshot = () => {
     for (const node of Object.values(state.scope.get(state.api.JRn,lane.localId) || {})) {
       const message = node.message;
-      if (message?.id && message.author?.role === 'assistant' && !lane.older.has(message.id)) lane.messages.set(message.id,message);
+      if (message?.id && (message.author?.role === 'assistant' || state.mode==='mcp'&&message.author?.role==='tool') && !lane.older.has(message.id)) lane.messages.set(message.id,message);
     }
     // Public messages and our own tool calls only; never export hidden reasoning.
-    const messages = [...lane.messages.values()].filter(m => m.author?.role === 'assistant' &&
+    const messages = [...lane.messages.values()].filter(m => state.mode==='mcp'&&m.author?.role==='tool' || m.author?.role === 'assistant' &&
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
        [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
@@ -196,6 +203,7 @@ async function termuxCodexBridge(command) {
     return snapshot();
   }
   if (command.op === 'submit') {
+    if (state.mode==='mcp' && command.results?.length) fail('app_mcp_result_resubmit_forbidden');
     if (lane.round === command.round) return {started:true,reused:true};
     if (lane.pending) fail('app_lane_busy');
     lane.round = command.round;

@@ -359,4 +359,18 @@ fn unconfigured_authentication_never_installs_an_app_or_changes_native_configura
         !root.0.join("view-state").exists(),
         "unconfigured viewing must not start an app or service"
     );
+    let stdio = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .arg("mcp-stdio")
+        .arg("--state")
+        .arg(root.0.join("mcp-state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!stdio.status.success());
+    assert!(stdio.stdout.is_empty());
+    assert!(
+        !root.0.join("mcp-state").exists(),
+        "stdio never starts an app or service"
+    );
 }

@@ -118,3 +118,19 @@ test('initial auth loading installs no hooks and identity refresh is read-only',
  f.authLoading=false;expect((await bridge({op:'identity',owner:'owned',lane:'not-opened'})).account).toBe('account');
  expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);
 }));
+
+test('MCP mode uses no local function feature gate or result resubmission',async()=>fixture(async({f,bindings,original})=>{
+ f.gate=false;
+ expect(await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings})).toEqual({ready:true});
+ await expect(bridge({op:'init',owner:'owned',returnPath:'local_function',bindings})).rejects.toThrow('app_bridge_owned');
+ await bridge({op:'open',owner:'owned',lane:'mcp-lane',signature:{name:'virtual_gateway'}});
+ const command={op:'submit',owner:'owned',lane:'mcp-lane',round:'first',model:'configured',messages:[{role:'user',text:'Owned task',hidden:false}],instructions:['MCP native turn policy']};
+ await bridge(command);await Promise.resolve();
+ expect(f.sent.length).toBe(1);expect(f.sent[0].local_function_signatures).toEqual([]);expect(f.sent[0].local_function_names).toEqual([]);
+ const observed=await bridge({op:'snapshot',owner:'owned',lane:'mcp-lane'});
+ expect(observed.dispatches).toBe(1);expect(observed.userMessages).toBe(1);expect(observed.toolMessages).toBe(0);
+ await expect(bridge({...command,round:'forbidden',results:[{id:'original-mcp-call',result:'must use retained HTTP response'}]})).rejects.toThrow('app_mcp_result_resubmit_forbidden');
+ expect(f.sent.length).toBe(1);expect((await bridge({op:'snapshot',owner:'owned',lane:'mcp-lane'})).round).toBe('first');
+ await bridge({op:'release',owner:'owned',lane:'mcp-lane'});
+ expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
+}));

@@ -45,6 +45,28 @@ and manual controls, scrolling/drag, Esc and fullscreen assets are retained.
 Actual private RFB/version and capability-revocation proof is separate from fresh
 login and physical screen/keyboard acceptance.
 
+The Rust candidate also supports explicit `transport.return_path = "mcp"`, with
+`transport.connector_name = "Termux Codex"` configurable for the installed Chat
+connector. The default remains `local_function`; changing the return path or
+connector name requires a service restart at a settled boundary. No automatic
+fallback follows an uncertain request. Its `/mcp` HTTP endpoint shares the Provider
+process and common native lane/executor/transcript path. Static discovery reveals
+no native state; a random per-turn capability gates catalog and tool operations.
+Existing stdio tunnels can invoke this same binary's `mcp-stdio --state PATH`;
+it verifies the already running owned service and forwards bounded JSON-RPC,
+without starting an app or running native tools. Losing/cancelling a tunnel
+observer leaves the original native action/result available for exact retry.
+Logical call IDs retain exact inputs/results across disconnected HTTP observers.
+Tool results complete original MCP invocations, without another app/user message.
+An active MCP turn refuses new user input, model/effort or developer-policy changes
+until settled. Deferred native tool catalogs update before results wake the model.
+Account, project, native approval and cancellation checks remain in force.
+Three actual Android command/patch/verification returns pass with one synthetic app
+submission; real connector ACK/auth/confirmation is still required for live
+admission. Fixtures do not establish actual Chat message-limit debits. A restarted
+service never reactivates old pending MCP capabilities or replays native actions;
+generation-bound reconciliation remains explicit.
+
 These paths have deterministic TCP/app-wire fixtures and actual Android Codex
 native-command/transcript proof. Rust directly boots/stops a fresh official app
 through private Chromium pipes, PRoot and Xvnc; no Bun/Python host is required for
@@ -191,7 +213,8 @@ remaining configuration, project placement, context and release requirements.
 
 The local-function transport returns native tool outputs on the original Chat
 call. Native Codex owns approval, actual tool execution, writer locks and history.
-Independent MCP transport is retained in source with offline tests; it is not an
+Independent Rust MCP transport also has actual Android executor/HTTP return proof;
+actual Chat connector admission remains unfinished, and it is not an
 automatically admitted live fallback. User submissions, tool returns, model starts
 and Chat allowance deductions are different quantities.
 
