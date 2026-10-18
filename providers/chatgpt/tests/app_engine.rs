@@ -30,6 +30,7 @@ struct State {
     change_account_before_tools: bool,
     lose_snapshot: usize,
     hold: bool,
+    host_block: Option<String>,
     stopped: bool,
     progress_then_loss: bool,
     public_markup: bool,
@@ -76,6 +77,11 @@ impl Bridge for App {
                     Ok(json!({}))
                 }
                 "snapshot" => {
+                    if let Some(code) = &state.host_block {
+                        return Ok(
+                            json!({"round":state.round,"messages":[],"error":code,"terminals":[],"dispatches":1,"userMessages":1,"toolMessages":0,"stopped":state.stopped}),
+                        );
+                    }
                     if state.lose_snapshot > 0 {
                         state.lose_snapshot -= 1;
                         return Err(Error("cdp_observer_disconnected"));
@@ -407,6 +413,102 @@ async fn failure(host: &AppHost, body: Value, cancel: CancellationToken) -> (Err
         out.push(event);
     }
     (error, out)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_confirmation_wait_is_visible_and_resolves_or_cancels_without_resubmission() {
+    for cancel_wait in [false, true] {
+        let root = Root::new();
+        let app = Arc::new(App::default());
+        app.state.lock().unwrap().host_block = Some("mcp_host_confirmation_required".into());
+        let host = Arc::new(AppHost::new(
+            app.clone(),
+            Arc::new(Journal::open(&root.0).unwrap()),
+        ));
+        let cancel = CancellationToken::new();
+        let task = {
+            let host = host.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                let request = Request::parse(body(), &Config::default(), None).unwrap();
+                let (events, mut receive) = mpsc::channel(64);
+                let result = host.exchange(request, events, cancel).await;
+                let mut collected = Vec::new();
+                while let Some(event) = receive.recv().await {
+                    collected.push(event);
+                }
+                (result, collected)
+            })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                if codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture")
+                    .ok()
+                    .is_some_and(|v| {
+                        v["host_block"] == "mcp_host_confirmation_required"
+                            && v["public_event_count"] == 1
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let observed =
+            codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+        assert_eq!(observed["phase"], "running");
+        assert_eq!(observed["app_dispatches"], 1);
+        assert_eq!(observed["user_role_objects"], 1);
+        assert!(!task.is_finished());
+        if cancel_wait {
+            cancel.cancel();
+        } else {
+            app.state.lock().unwrap().host_block = None;
+        }
+        let (result, events) = tokio::time::timeout(std::time::Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        if cancel_wait {
+            assert_eq!(result, Err(Error("app_stop_acknowledged")));
+        } else {
+            assert!(result.is_ok());
+            assert!(events.iter().any(|e| matches!(e, Event::Tool(_))));
+        }
+        assert_eq!(events.iter().filter(|e|matches!(e,Event::Text{delta,..} if delta.contains("waiting for your confirmation"))).count(),1);
+        assert_eq!(
+            app.state
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|c| c["op"] == "submit")
+                .count(),
+            1
+        );
+        let observed =
+            codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+        assert!(observed["host_block"].is_null());
+        assert_eq!(observed["app_dispatches"], 1);
+    }
+}
+
+#[tokio::test]
+async fn failed_app_snapshot_preserves_observed_submission_counts() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().host_block = Some("fixture_failure".into());
+    let host = AppHost::new(app, Arc::new(Journal::open(&root.0).unwrap()));
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("app_round_failed")
+    );
+    let state = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(state["app_dispatches"], 1);
+    assert_eq!(state["user_role_objects"], 1);
+    assert_eq!(state["phase"], "unknown");
 }
 
 #[tokio::test]

@@ -79,6 +79,11 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
         "authenticated account differs; no request authorized"
     );
     remote.operation(json!({"op":"open","lane":"mcp-preflight","signature":{"name":"unused_virtual_gateway"}})).await.unwrap();
+    let messages = codex_chatgpt_provider::context::messages(&[
+        json!({"role":"user","content":"<environment_context>owned synthetic fixture</environment_context>"}),
+        json!({"role":"user","content":"literal <environment_context /> request"}),
+    ])
+    .unwrap();
     let guarded=app.evaluate(r#"(()=>{
       const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];
       const start=s.saved.startCompletionStream,post=s.wire.streamPost;
@@ -100,9 +105,9 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
     })()"#).await.unwrap();
     assert_eq!(guarded["mode"], "mcp");
     let result: Result<Value,Error>=async {
-        remote.operation(json!({"op":"submit","lane":"mcp-preflight","round":"owned-preflight","model":"gpt-6","messages":[{"role":"user","text":"<environment_context>owned synthetic fixture</environment_context>","hidden":true},{"role":"user","text":"literal <environment_context /> request","hidden":false}],"instructions":["Synthetic request preparation only. No inference."],"results":[]})).await?;
+        remote.operation(json!({"op":"submit","lane":"mcp-preflight","round":"owned-preflight","model":"gpt-6","messages":messages,"instructions":["Synthetic request preparation only. No inference."],"results":[]})).await?;
         let proof=tokio::time::timeout(std::time::Duration::from_secs(20),async{loop{
-            let proof=app.evaluate("(()=>{const p=globalThis[Symbol.for('termux.codex.app.bridge.v1')].preflight;return {starts:p.starts,posts:p.posts,localSignatures:p.localSignatures,localNames:p.localNames,users:p.users,hiddenEnvironment:p.hiddenEnvironment,literalUserVisible:p.literalUserVisible};})()").await?;
+            let proof=app.evaluate("(()=>{const p=globalThis[Symbol.for('termux.codex.app.bridge.v1')].preflight;return {starts:p.starts,posts:p.posts,localSignatures:p.localSignatures,localNames:p.localNames,users:p.users,hiddenEnvironment:p.hiddenEnvironment,environmentIsUser:p.environmentIsUser,literalUserVisible:p.literalUserVisible};})()").await?;
             if proof["starts"].as_u64().unwrap()>0||proof["posts"].as_u64().unwrap()>0{break Ok(proof);}
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }}).await;

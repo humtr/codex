@@ -111,7 +111,7 @@ async function termuxCodexBridge(command) {
       const user=auth.accountStructure==='personal'?auth.accountUserId?.split('__')[0]:auth.accountUserId;
       return {id:g.id,name:g.display.name,compatible:g.id.startsWith('g-p-')&&g.author?.user_id===user&&
         !g.first_party_project_type&&!g.gizmo_snorlax_type&&g.share_recipient==='private'&&
-        value.hasSharingSubjects!==true&&(g.sharing?.subjects?.length??0)===0&&g.memory_scope!=='project_v2'};
+        value.hasSharingSubjects!==true&&(g.sharing?.subjects?.length??0)===0};
     };
     check();
     if(command.op==='project_read') {
@@ -174,15 +174,19 @@ async function termuxCodexBridge(command) {
     fail('app_lane_missing');
   }
   const snapshot = () => {
+    const hostResponses = new Set();
     for (const node of Object.values(state.scope.get(state.api.JRn,lane.localId) || {})) {
       const message = node.message;
+      const metadata=message?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
+      const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
+      if(typeof target==='string'&&target.length>0)hostResponses.add(target);
       if (message?.id && (message.author?.role === 'assistant' || state.mode==='mcp'&&message.author?.role==='tool') && !lane.older.has(message.id)) lane.messages.set(message.id,message);
     }
     // Public messages and our own tool calls only; never export hidden reasoning.
     const messages = [...lane.messages.values()].filter(m => state.mode==='mcp'&&m.author?.role==='tool' || m.author?.role === 'assistant' &&
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
        [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
-    return {round:lane.round,messages,accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
+    return {round:lane.round,messages,hostResponses:[...hostResponses],accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
       dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,serverId: lane.serverId,
       stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
   };

@@ -19,10 +19,19 @@ writer lease never authorizes restarting it. `status` remains read-only. Readine
 the local process and a fresh keyed challenge; it does not claim model progress.
 Never paste the token output into chat or logs.
 
+Run long-lived qualification services from a private immutable candidate snapshot,
+not a Cargo target path that a later build can replace. Replacing a running image
+invalidates its recorded process identity; neither a live listener nor its writer
+lease authorizes bypassing that check or restarting it. `status` is read-only;
+`token` can bootstrap a missing service and is not a read-only diagnostic.
+
 `status --thread NATIVE_THREAD_ID [--state PATH]` reads the private lane's last
 observation even when its local endpoint is unavailable. It distinguishes app
 running, pending native tool results, stop requested/unconfirmed, acknowledged stop
-and unknown state. Counts separate app dispatches, user-role objects and tool
+and unknown state. A pending host confirmation/authentication retains the same request, emits one
+waiting report and exposes `host_block`; approve/reject in ChatGPT itself. A host
+reply resolves only its matching prompt. No automatic approval or new user
+submission continues the wait. Counts separate app dispatches, user-role objects and tool
 returns; they do not measure Chat allowance. It neither starts a service nor
 queries/resumes/cancels the app. No prompt, tool output, account identifiers or
 credential is included. A journal observation is not current remote progress or

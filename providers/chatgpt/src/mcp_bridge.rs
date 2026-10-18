@@ -90,6 +90,53 @@ fn changed_policy(lane: &Lane, command: &Value) -> bool {
         .is_empty()
     }
 }
+fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
+    if responses
+        .as_array()
+        .is_some_and(|v| v.iter().any(|id| id == &item["id"]))
+    {
+        return None;
+    }
+    let metadata = &item["metadata"];
+    let server = metadata
+        .get("jit_plugin_data")
+        .or_else(|| metadata.get("elicitation_metadata"))
+        .and_then(|v| v.get("plugin_data").or(Some(v)))
+        .and_then(|v| v.get("from_server"));
+    let elicitation = metadata.get("codex_mcp_elicitation").or_else(|| {
+        server
+            .and_then(|v| v.get("body"))
+            .and_then(|v| v.get("codex_mcp_elicitation"))
+    });
+    if metadata
+        .get("codex_mcp_elicitation_response")
+        .is_some_and(|v| !v.is_null())
+        || elicitation.is_some_and(|v| v["status"].as_str().is_some_and(|s| s != "pending"))
+    {
+        return None;
+    }
+    if metadata
+        .get("codex_plugin_auth_required")
+        .is_some_and(|v| v["status"].as_str().is_none_or(|s| s == "pending"))
+        || server.is_some_and(|v| {
+            matches!(
+                v["type"].as_str(),
+                Some("plugin_auth_required" | "oauth_required" | "link_required")
+            )
+        })
+    {
+        Some("mcp_host_authentication_required")
+    } else if server.is_some_and(|v| {
+        matches!(
+            v["type"].as_str(),
+            Some("confirm_action" | "approve_tool_in_context_scope")
+        )
+    }) {
+        Some("mcp_host_confirmation_required")
+    } else {
+        None
+    }
+}
 impl Bridge for McpBridge {
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
@@ -310,20 +357,8 @@ impl Bridge for McpBridge {
             let mut observed = BTreeMap::new();
             for item in &raw {
                 if item["author"]["role"] == "tool" {
-                    let metadata = &item["metadata"];
-                    let server = metadata
-                        .get("jit_plugin_data")
-                        .or_else(|| metadata.get("elicitation_metadata"))
-                        .and_then(|v| v.get("plugin_data").or(Some(v)))
-                        .and_then(|v| v.get("from_server"));
-                    if metadata
-                        .get("codex_plugin_auth_required")
-                        .is_some_and(|v| v["status"].as_str().is_none_or(|v| v == "pending"))
-                        || server.is_some_and(|v| v["type"] == "plugin_auth_required")
-                    {
-                        snapshot["error"] = json!("mcp_host_authentication_required");
-                    } else if server.is_some_and(|v| v["type"] == "confirm_action") {
-                        snapshot["error"] = json!("mcp_host_confirmation_required");
+                    if let Some(code) = host_block(item, &snapshot["hostResponses"]) {
+                        snapshot["error"] = json!(code);
                     }
                     continue;
                 }
@@ -389,5 +424,44 @@ impl Bridge for McpBridge {
             }
             Ok(snapshot)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_unresolved_matching_host_actions_block_the_retained_request() {
+        let mut item = json!({"id":"confirmation","metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}});
+        assert_eq!(
+            host_block(&item, &json!([])),
+            Some("mcp_host_confirmation_required")
+        );
+        assert_eq!(
+            host_block(&item, &json!(["unrelated"])),
+            Some("mcp_host_confirmation_required")
+        );
+        assert_eq!(host_block(&item, &json!(["confirmation"])), None);
+        item["metadata"]["codex_mcp_elicitation_response"] =
+            json!({"target_message_id":"confirmation"});
+        assert_eq!(host_block(&item, &json!([])), None);
+        item["metadata"]
+            .as_object_mut()
+            .unwrap()
+            .remove("codex_mcp_elicitation_response");
+        item["metadata"]["codex_mcp_elicitation"] = json!({"status":"accepted"});
+        assert_eq!(host_block(&item, &json!([])), None);
+        item["metadata"]["codex_mcp_elicitation"] = json!({"status":"pending"});
+        assert_eq!(
+            host_block(&item, &json!([])),
+            Some("mcp_host_confirmation_required")
+        );
+        let auth = json!({"metadata":{"codex_plugin_auth_required":{"status":"pending"}}});
+        assert_eq!(
+            host_block(&auth, &json!([])),
+            Some("mcp_host_authentication_required")
+        );
+        let resolved = json!({"metadata":{"codex_plugin_auth_required":{"status":"completed"}}});
+        assert_eq!(host_block(&resolved, &json!([])), None);
     }
 }

@@ -28,8 +28,14 @@ impl Drop for Root {
 struct Service(std::process::Child);
 impl Service {
     fn start(root: &Root) -> (Self, Value) {
+        Self::start_from(
+            root,
+            std::path::Path::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider")),
+        )
+    }
+    fn start_from(root: &Root, binary: &std::path::Path) -> (Self, Value) {
         let mut child = Self(
-            Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            Command::new(binary)
                 .args(["serve", "--descriptor"])
                 .arg(root.0.join("descriptor.json"))
                 .arg("--state")
@@ -63,6 +69,64 @@ impl Drop for Service {
         }
         self.0.wait().unwrap();
     }
+}
+
+#[test]
+fn immutable_service_snapshot_survives_build_replacement_while_mutable_owner_refuses_reentry() {
+    let root = Root::new();
+    std::fs::create_dir(&root.0).unwrap();
+    std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let process = Process::read(std::process::id()).unwrap();
+    let descriptor = root.0.join("descriptor.json");
+    std::fs::write(&descriptor, json!({"version":1,"kind":"termux-electron-pipe","endpoint":"http://127.0.0.1:9/","token":"a".repeat(43),"host":process,"browser":process}).to_string()).unwrap();
+    std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let build = root.0.join("build-provider");
+    let snapshot = root.0.join("immutable-provider");
+    std::fs::copy(env!("CARGO_BIN_EXE_codex-chatgpt-provider"), &build).unwrap();
+    std::fs::copy(&build, &snapshot).unwrap();
+    let replace_build = || {
+        let next = root.0.join("next-build");
+        std::fs::copy(&snapshot, &next).unwrap();
+        std::fs::rename(next, &build).unwrap();
+    };
+    let command = |operation: &str| {
+        Command::new(&snapshot)
+            .arg(operation)
+            .arg("--state")
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap()
+    };
+    let (service, _) = Service::start_from(&root, &snapshot);
+    replace_build();
+    assert!(command("status").status.success());
+    assert!(command("token").status.success());
+    drop(service);
+
+    let (mut service, _) = Service::start_from(&root, &build);
+    let before = Process::read(service.0.id()).unwrap();
+    replace_build();
+    assert!(
+        before.validate().is_err(),
+        "an unlinked executable is not an unchanged owner"
+    );
+    let status = command("status");
+    assert!(!status.status.success());
+    assert!(String::from_utf8_lossy(&status.stderr).contains("stale_process_owner"));
+    let token = command("token");
+    assert!(!token.status.success());
+    assert!(
+        token.stdout.is_empty(),
+        "failed admission must not export a credential"
+    );
+    assert!(
+        service.0.try_wait().unwrap().is_none(),
+        "failed auth must not restart or stop the existing writer"
+    );
+    assert!(!root.0.join("state/desktop").exists());
+    drop(service);
 }
 
 #[test]

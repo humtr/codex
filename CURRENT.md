@@ -84,7 +84,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 5 | Native context transitions | Manual/automatic/interrupted compact, one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; final TUI artifact and pending-result/cold-resume/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native blocking question/answer passes at the app-server API; actual question TUI and host crash/reboot remain |
-| 8 | Independent MCP and efficiency | Rust MCP original-call return shares the common lane/journal; actual native three-tool HTTP return passes with one synthetic app submission. The dedicated Rust trial tunnel and Tdev production tunnel were observed running concurrently with separate tunnel IDs and the existing runtime-key reference; Tdev was not reconfigured. ChatGPT connector installation and discovery pass. Commit `1cb0a4d` passed host regression and Android API24 candidate CI (`39140919784`); its 6.96 MB candidate runs on-device, lists the configured models, and accepts an isolated `mcp`/connector configuration. Actual Codex Provider model/tool call and host search remain; improve argument/output overhead |
+| 8 | Independent MCP and efficiency | Native three-tool retained HTTP fixture passes. Dedicated tunnel/app installation, discovery and immutable runtime recovery pass alongside Tdev. Actual app submission reached host confirmation; no native MCP effect yet. Audit repairs project-memory admission, live preflight, confirmation waiting/correlation and counters; final live return remains pending |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
 
@@ -173,8 +173,8 @@ Retain history by default. Project mode uses history.mode, history.project_name,
 optional exact history.project_id and history.create_if_missing (true by default).
 This is a remote ChatGPT project, not CWD, Manager profile or API project.
 The bridge uses the installed app's authenticated list/read/create operations;
-no account bearer is exported. Current qualified destinations are owned private
-projects with default memory semantics; shared/project-only-memory routes refuse.
+no account bearer is exported. Current admitted destinations are owned, private, unshared
+projects; their existing memory scope is preserved. Shared destinations refuse.
 
 Bindings include account/user/workspace and exact project ID. Reuse an unambiguous
 name, or select its configured ID. Duplicate/deleted/inaccessible destinations do
@@ -245,9 +245,10 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-mcp-native-return.log / provider-mcp-composed-regressions.log | Rust HTTP MCP returns actual Android command/patch/verification results on three retained calls with one synthetic app submission. Exact retry, changed arguments, batch atomicity, deferred-catalog wake ordering, sibling stop and active input/policy/route refusal pass; no Chat. Real connector and complete source gates remain separate |
 | provider-mcp-qualified-full.log / provider-mcp-complete-native.log / provider-mcp-final-lint.log |83 regular Rust/103 Bun/28 Python, fmt/clippy/release and13 actual Android executor/reviewer/MCP/context fixtures pass. One synthetic app submission returns three actual native effects on original MCP HTTP calls. Stdio multiplex/cancel/fragment preservation, service shutdown, pending owner-generation refusal and settled cold re-entry pass; no Chat |
 | provider-panel-target-full.log / provider-mcp-multiple-index-preflight.log |84 regular Rust/103 Bun/30 Python, fmt/clippy/release pass. Real reauthenticated app with auxiliary index targets passes zero-inference MCP preparation, hidden automatic environment/user-literal preservation and hook cleanup. Connector inference ACK remains separate |
+| provider-mcp-host-wait-full.log / provider-mcp-preflight-review.log |88 regular Rust/105 Bun/30 Python, fmt/clippy/release pass. Immutable versus replaced process owner, observed error-path counts, retained confirmation resolve/cancel and reply correlation regressions pass. Corrected actual-app request preparation passes with zero posts; real host approval/return remains separate |
 | desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
-| provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Need an authorized Read/Use runtime-key file before connector inference |
+| provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
 | provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
@@ -260,8 +261,9 @@ publish them wholesale. Repository records contain only safe scope/results.
 Hosted exact source5e0d396 passed source39117103778, Provider39117103775 and Core/
 runtime39117140293. TUI728cf26 built but39122849434 failed a test-only AbsolutePathBuf assignment;
 ff2682d fixed compilation;39126312868 passed50 focused +94 retained upstream
-checks but failed a test-only format lint.15da596 fixes that lint;39129327503 is
-pending. Never admit either failed proof.
+checks but failed a test-only format lint.15da596 fixes that lint;39129327503
+passed and its exact artifact passed the no-Manager Android TUI trial above.
+Neither failed prior candidate is admitted by that later success.
 TUI310f0f7 passed39107948384 with48 focused and94 retained
 upstream checks/lint. Later source edits require matching gates; these are not
 proof of a new signed public composition. Ignored Android/live tests count only
@@ -323,46 +325,59 @@ qualification. Unsupported box components remained in its final transcript.
    upstream shell-command/src/bash.rs accepts command_name only as a word. The
    prompt-rule fixture uses a plain owned path; do not generalize that proof to
    quoted paths or rewrite model commands in Provider to hide this upstream issue.
-4. Rust MCP now returns actual native command/patch/test results on retained HTTP
-   calls, sharing the common lane/executor/transcript; local functions remain the
-   default. Rust stdio/source gates pass; complete actual connector ACK using
-   configurable Termux Codex identity; no automatic fallback or Codex Native2
-   naming dependency. Preserve stopped/unknown turns rather than replaying them.
-   App auth/request preparation is reestablished. The installed legacy
-   `Termux Codex` connector still points at the dedicated prior probe tunnel,
-   which the current Platform account no longer finds; it is unchanged. A
-   separate Rust Provider trial tunnel is
-   associated with the target organization/workspace and reuses the existing
-   Tdev runtime-key reference. That key reads its metadata and the live Rust
-   runtime passes `health --require-control-plane-poll`; no new runtime key is
-   needed for this trial. The control-plane DNS failure is isolated to the
-   container resolver and is handled by a trial-only CONNECT relay over Android
-   DNS with end-to-end TLS; no resolver file is changed and no payloads are
-   logged. The Tdev production tunnel/service remains untouched. A saved admin
-   key is now restored for tunnel management; it is separate from the runtime key
-   and is not used by the running MCP server. Signed-in ChatGPT web now has the
-   separately installed `Termux Codex Provider` development app, using this
-   trial tunnel and `No authentication`; its app/version IDs are in the private
-   acceptance receipt. This does not repoint the existing `Termux Codex` app or
-   Tdev. The tunnel recorded successful ChatGPT `server/discover` and `tools/list`
-   requests (HTTP 200). No model turn or `tools/call` has been sampled yet:
-   `native_catalog` requires a per-Codex-turn capability, so test it from an
-   actual Codex Provider turn, not as a standalone ChatGPT chat prompt. Native
-   local-function work is independent of this optional fallback's tunnel
-   permission. The exact API24 artifact from run `39140919784` was downloaded
-   to the private acceptance cache, hash-checked against its unsigned inventory,
-   identified as AArch64 Android/API24, and executed in Termux for `models` and
-   `catalog` (GPT-6, Pro, Instant; 1,000,000-token configured windows). This is
-   artifact smoke only, not installation or live inference. A private isolated
-   XDG config also passed Android `config set` and `config validate` for
-   `return_path=mcp`, `connector_name=Termux Codex Provider`; the operating
-   config remains unchanged. Tdev and the trial tunnel were simultaneously
-   present; neither shares a tunnel ID nor requires changing the other's route.
-   Receipt: `~/.cache/codex/acceptance/provider-android-smoke-UqQrXy/
-   provider-android-smoke.json` (SHA-256
-   `4b4af90a88da3091b3b18937d2f326782d724fbf8cd28c683ed0a2ddee00a308`). A
-   read-only auth preflight returned `provider_already_running` and zero token
-   bytes; no model request or native call was sent. Cause is undetermined.
+4. Rust MCP returns actual native command/patch/test results on retained HTTP
+   fixture calls, sharing the common lane/executor/transcript. Local functions
+   remain the default. The independent `Termux Codex Provider` ChatGPT development
+   app is installed against a dedicated Rust trial tunnel; its IDs are in
+   `chatgpt-connector-registration.json`. Tdev's runtime-key file reference is
+   reused, while tunnel IDs, targets and clients remain separate. Tdev's production
+   services and the legacy `Termux Codex` connector were not changed. Metadata,
+   control-plane polling and ChatGPT discovery pass. A trial-only CONNECT relay
+   handles container DNS through Android without resolver changes or TLS decryption.
+
+   The MCP-onward audit found the trial was running from a mutable Cargo target:
+   rebuilding unlinked its live image, causing `stale_process_owner`; lazy auth
+   then refused the held writer as `provider_already_running`. This was not a
+   missing global config: the service already used its own XDG MCP configuration.
+   Zero active lanes were verified, the exact old process was pinned/signalled
+   gracefully, and the same endpoint recovered from an immutable candidate. The
+   active connector name was corrected to `Termux Codex Provider`. Process identity
+   checks remain strict; never normalize away a deleted image to bypass them.
+   `token` may bootstrap and is not a read-only diagnostic; use `status` for that.
+
+   The previous environment fix's ignored live test bypassed the Rust projector
+   and omitted one returned assertion field. Corrected actual-app pre-send proof
+   now runs the real projector, observes one user object, preserves literal text,
+   and keeps environment metadata in hidden system context with zero posts.
+   This is request-construction evidence; physical app transcript acceptance is
+   separate. The exact API24 artifact/source `1cb0a4d` from CI `39140919784` also
+   passed hash-checked Android `models`/`catalog` and isolated configuration smoke;
+   its receipt is under the acceptance cache's `provider-android-smoke-UqQrXy/`.
+   These are executable smoke results, not stable installation admission.
+
+   The first native MCP request failed before app submission because a private
+   owned project used `project_v2` memory. Read-only sidebar/exact-resource proof
+   confirmed matching owner, private sharing and no sharing subjects. Rejecting
+   that memory scope was an extra unsupported restriction; admission now preserves
+   the project's existing mode and retains ownership/privacy checks. A subsequent
+   native attempt submitted one app request/one user object and reached the
+   host's explicit allow/deny confirmation for this connector, with no native
+   effects. The old error path lost these counts; its zero counters are not proof
+   of zero Chat submissions or allowance use. Chat allowance debits remain unknown.
+
+   Host-confirmation waiting now keeps the same request attached, emits one public
+   waiting item and records a content-free block plus counters before failures.
+   Correlate host responses by target message ID; no private user reply or action
+   arguments are exported. Resolved prompts do not block forever; cancellation
+   remains acknowledged/unconfirmed as appropriate. Native tools and the host's
+   approval are never synthesized. Actual host resolution and retained native MCP
+   tool return still require live proof before admission. The refreshed immutable
+   candidate now retains one live trial at host confirmation (one observed app
+   dispatch/one user object, no native effect); a one-tap viewer notification was
+   sent for the user to resolve the host prompt. Its original app/relay had exited
+   between sessions; restarting reused the same persistent profile without
+   copying credentials or changing Tdev. Preserve stopped/unknown attempts and do
+   not replay them while another generation owns a pending action.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.

@@ -1301,6 +1301,12 @@ new user input waits for a settled boundary. Account/project/stop/transcript rul
 are identical to the local-function path. Host confirmation/authentication must
 surface as blocked state, never be bypassed. Rust wire fixtures alone do not admit
 this route for live use; actual connector ACK is required before activation.
+Pending host authentication/confirmation keeps the original request attached and
+emits one public waiting report; status records the blocking reason and observed
+submission counters. Poll the same invocation until the host resolves it or the
+user cancels. A correlated host response clears only its own confirmation; never
+click approval automatically or submit another Chat message to continue. Record
+observed counters before reporting a host block or stream failure.
 
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,
@@ -1598,6 +1604,9 @@ Projects may add shared instructions/files/memory and therefore affect model
 behavior. Do not silently change global personalization, shared-project access,
 MCP permissions or the native reviewer policy. Verify tool declarations and
 instruction priority with project context, including guardian child isolation.
+An otherwise owned, private, unshared project retains its existing memory scope;
+that scope alone does not make the configured destination incompatible. Never
+change project memory settings merely to qualify the transport.
 Temporary chat and retained project history are alternative modes; do not claim
 their combination is available before the signed host proves it. Project grouping
 reduces sidebar clutter, not message count, stored history size or allowance use.

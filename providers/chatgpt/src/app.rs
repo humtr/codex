@@ -267,6 +267,8 @@ struct Lane {
     project: Option<String>,
     last_error: Option<String>,
     #[serde(default)]
+    host_block: Option<String>,
+    #[serde(default)]
     rejected: u8,
 }
 
@@ -281,20 +283,24 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
     if lane.native_thread != thread {
         return Err(Error("native_thread_identity_conflict"));
     }
-    let meaning = match lane.phase {
-        Phase::New | Phase::Opening => "preparing; remote acceptance may be unknown",
-        Phase::Idle => "last response settled; native work may continue separately",
-        Phase::Dispatching | Phase::Running => "app work was active at last observation",
-        Phase::ToolsReady => "native tool calls emitted; awaiting native execution or results",
-        Phase::CancelRequested => "stop requested; acknowledgment not confirmed",
-        Phase::Stopped => "app acknowledged stop; native effects require native history review",
-        Phase::Unknown => "remote work state unknown; reconcile before continuation",
+    let meaning = if lane.host_block.is_some() {
+        "waiting for user authentication or confirmation in ChatGPT; original request retained"
+    } else {
+        match lane.phase {
+            Phase::New | Phase::Opening => "preparing; remote acceptance may be unknown",
+            Phase::Idle => "last response settled; native work may continue separately",
+            Phase::Dispatching | Phase::Running => "app work was active at last observation",
+            Phase::ToolsReady => "native tool calls emitted; awaiting native execution or results",
+            Phase::CancelRequested => "stop requested; acknowledgment not confirmed",
+            Phase::Stopped => "app acknowledged stop; native effects require native history review",
+            Phase::Unknown => "remote work state unknown; reconcile before continuation",
+        }
     };
     Ok(
         json!({"schema":"termux-codex-provider-lane-status-v1","thread":thread,
         "phase":lane.phase,"meaning":meaning,"observation":"last_private_journal",
         "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),
-        "app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
+        "host_block":lane.host_block,"app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
         "tool_return_objects":lane.tool_messages,"last_error":lane.last_error.as_deref()
             .map(|code| if code.len()<=128 && code.bytes().all(|c|c.is_ascii_lowercase() || c.is_ascii_digit() || c==b'_') {code}else{"provider_error"}),
         "chat_allowance_debits":"unknown","app_queried":false}),
@@ -323,9 +329,39 @@ impl Lane {
             checkpoint: None,
             project: None,
             last_error: None,
+            host_block: None,
             rejected: 0,
         })
     }
+}
+
+fn observe_counts(
+    journal: &Journal,
+    key: &str,
+    lane: &mut Lane,
+    state: &Value,
+) -> Result<(), Error> {
+    if state.get("dispatches").is_some()
+        || state.get("userMessages").is_some()
+        || state.get("toolMessages").is_some()
+    {
+        let counts = (
+            state["dispatches"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?,
+            state["userMessages"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?,
+            state["toolMessages"]
+                .as_u64()
+                .ok_or(Error("invalid_submission_counters"))?,
+        );
+        if counts != (lane.dispatches, lane.user_messages, lane.tool_messages) {
+            (lane.dispatches, lane.user_messages, lane.tool_messages) = counts;
+            journal.write(key, lane)?;
+        }
+    }
+    Ok(())
 }
 
 pub struct AppHost {
@@ -726,6 +762,8 @@ async fn exchange(
         lane.public.clear();
         lane.rejected = 0;
         lane.phase = Phase::Dispatching;
+        lane.host_block = None;
+        lane.last_error = None;
         journal.write(key, lane)?;
         let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
         if result.is_err() {
@@ -771,6 +809,35 @@ async fn exchange(
             lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
             return Err(Error("app_round_identity_unconfirmed"));
+        }
+        observe_counts(journal, key, lane, &state)?;
+        if let Some(
+            code @ ("mcp_host_authentication_required" | "mcp_host_confirmation_required"),
+        ) = state["error"].as_str()
+        {
+            if lane.host_block.as_deref() != Some(code) {
+                lane.host_block = Some(code.into());
+                lane.phase = Phase::Running;
+                let event = Event::Text {
+                    id: format!("host-wait-{}-{}", lane.round, code), phase:"commentary".into(),
+                    delta: if code == "mcp_host_confirmation_required" {
+                        "ChatGPT is waiting for your confirmation to use the connected app. Open ChatGPT to approve or reject; this request remains attached."
+                    } else {
+                        "ChatGPT is waiting for you to authenticate the connected app. Complete its sign-in in ChatGPT; this request remains attached."
+                    }.into(),
+                };
+                lane.cached.push(event.clone());
+                journal.write(key, lane)?;
+                events
+                    .send(event)
+                    .await
+                    .map_err(|_| Error("native_observer_closed"))?;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            continue;
+        }
+        if lane.host_block.take().is_some() {
+            journal.write(key, lane)?;
         }
         if state["error"].is_string() {
             lane.phase = Phase::Unknown;
@@ -1114,6 +1181,7 @@ async fn stop_lane(
     lane: &mut Lane,
 ) -> Result<(), Error> {
     lane.phase = Phase::CancelRequested;
+    lane.host_block = None;
     journal.write(key, lane)?;
     let _ = bridge
         .operation(json!({"op":"stop","lane":lane.marker}))
@@ -1124,6 +1192,9 @@ async fn stop_lane(
             .operation(json!({"op":"snapshot","lane":lane.marker}))
             .await
         {
+            if state["round"] == lane.round {
+                observe_counts(journal, key, lane, &state)?;
+            }
             if state["round"] == lane.round && state["stopped"] == true {
                 lane.phase = Phase::Stopped;
                 journal.write(key, lane)?;

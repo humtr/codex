@@ -32,7 +32,7 @@ async function fixture(run){
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
@@ -84,6 +84,30 @@ test('project operations preserve app credentials and verify membership before i
  const before=f.sent.length;
  expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',local_function_signatures:[{name:'termux_codex_project'}],messages:[]})).toThrow('project_membership_unconfirmed');
  expect(f.sent.length).toBe(before);
+}));
+
+test('host approval correlation exports target IDs without user text or action arguments',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'host-action',signature:{name:'unused'}});
+ f.nodes={response:{message:{id:'private-reply',author:{role:'user'},content:{parts:['PRIVATE_USER_TEXT']},metadata:{jit_plugin_data:{from_client:{target_message_id:'host-confirm',type:'allow',private:'PRIVATE_ARGUMENT'}}}}}};
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'host-action'});
+ expect(snapshot.hostResponses).toEqual(['host-confirm']);
+ expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_USER_TEXT');
+ expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_ARGUMENT');
+}));
+
+test('owned private project keeps its memory scope while ownership and sharing still gate admission',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ const identity={account:'account',structure:'personal',user:'user'};
+ const gizmo={id:'g-p-memory',display:{name:'Codex'},author:{user_id:'user'},share_recipient:'private',memory_scope:'project_v2'};
+ f.projects.push({gizmo});
+ const read=()=>bridge({op:'project_read',owner:'owned',identity,project:gizmo.id});
+ expect((await read()).compatible).toBe(true);
+ expect(gizmo.memory_scope).toBe('project_v2');
+ gizmo.share_recipient='shared';expect((await read()).compatible).toBe(false);
+ gizmo.share_recipient='private';gizmo.author.user_id='other';expect((await read()).compatible).toBe(false);
+ gizmo.author.user_id='user';gizmo.sharing={subjects:[{id:'other'}]};expect((await read()).compatible).toBe(false);
+ expect(f.sent.length).toBe(0);expect(f.projects.length).toBe(1);
 }));
 
 test('app feature gate is required and owner conflicts do not allocate conversations',async()=>fixture(async({f,bindings})=>{
