@@ -406,6 +406,9 @@ impl Call {
                 item["input"] = json!(self.input);
             }
             ToolKind::Search => {
+                // Unlike function/custom calls, the upstream search item has
+                // no name. Extra fields disappear at canonical persistence.
+                item.as_object_mut().unwrap().remove("name");
                 item["type"] = json!("tool_search_call");
                 item["execution"] = json!("client");
                 item["arguments"] = serde_json::from_str(&self.input)

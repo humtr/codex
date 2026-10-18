@@ -35,8 +35,11 @@ pub fn text(item: &Value) -> Result<String, Error> {
 fn canonical(item: &Value) -> Value {
     match item["type"].as_str().unwrap_or("message") {
         "message" => json!({"type":"message","role":item["role"],"text":text(item).ok()}),
-        "function_call" | "custom_tool_call" | "tool_search_call" => {
+        "function_call" | "custom_tool_call" => {
             json!({"type":item["type"],"call_id":item["call_id"],"name":item["name"],"namespace":item["namespace"],"arguments":item["arguments"],"input":item["input"]})
+        }
+        "tool_search_call" => {
+            json!({"type":"tool_search_call","call_id":item["call_id"],"execution":item["execution"],"arguments":item["arguments"]})
         }
         _ => item.clone(),
     }
@@ -346,6 +349,23 @@ mod tests {
         let projected=messages(&[json!({"type":"compaction","encrypted_content":format!("ocx1:{}",STANDARD.encode("public summary"))})]).unwrap();
         assert!(projected[0].hidden);
         assert_eq!(projected[0].role, "user");
+    }
+    #[test]
+    fn native_search_item_field_normalization_preserves_the_warm_prefix() {
+        let initial = request(json!([{"role":"user","content":"discover a tool"}]), false);
+        let mut output = json!({"id":"search-output","call_id":"search-call","type":"tool_search_call","name":"tool_search","execution":"client","arguments":{"query":"fixture echo","limit":1},"status":"completed"});
+        let mut prefix = Prefix::default();
+        prefix.accept(&initial, &[output.clone()]);
+        // Actual native ResponseItem serialization drops this function-only
+        // field; the search identity is its type/execution/arguments/call_id.
+        output.as_object_mut().unwrap().remove("name");
+        let continued = request(
+            json!([initial.input[0],output,{"type":"tool_search_output","call_id":"search-call","tools":[]}]),
+            false,
+        );
+        let delta = prefix.delta(&continued).unwrap();
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta[0]["type"], "tool_search_output");
     }
     #[test]
     fn responses_lite_catalog_removal_and_reinjection_do_not_replace_history() {

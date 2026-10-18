@@ -213,6 +213,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-readable-handoff-native.log | Actual Android inject/read/next-turn fixture preserves opaque input, same ID and public turns; hidden user-context projection, no inference at injection, synthetic app replies/no Chat |
 | provider-bidirectional-handoff-native.log | Three actual Android fixtures: manual compact, public handoff, source→Chat→source across process restarts; readable return, same ID, no Chat |
 | provider-handoff-live-native.log / provider-handoff-live-state | Real GPT-6 response and readable summary across native API provider re-entry, two app dispatches/four user objects, source responses synthetic; not yet actual TUI/device activation |
+| provider-native-mcp-discovery.log / provider-native-mcp-discovery-fixed.log | Actual native deferred search first exposed a prefix defect: upstream drops function-only name from a search item. After canonical normalization, discovery→one MCP effect→commands/custom patch/validation→final passed; six fixture dispatches, five returns, no Chat |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -259,8 +260,10 @@ qualification. Unsupported box components remained in its final transcript.
 2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
    native↔Chat transfer, including pending results/cold resume. Bidirectional API
    re-entry and actual Chat summary now pass; maintain their narrower scope.
-3. Exercise actual native tool search/MCP discovery, host search, JSON/freeform/batch
-   errors, interactive questions and independent reviewer/guardian with sibling
+3. Native tool search/MCP discovery now passes against an owned local MCP fixture;
+   its tool executes once and appears with its result in the native transcript.
+   This is native Codex MCP, not the separate Chat-side MCP return fallback.
+   Finish host search, JSON/freeform/batch errors, interactive questions and independent reviewer/guardian with sibling
    isolation. The full-permission AI trial did not qualify autoreviewer policy.
 4. Qualify the independent MCP return on original host call IDs using configurable
    Termux Codex identity; no automatic unqualified fallback or Codex Native2 naming

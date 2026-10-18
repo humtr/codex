@@ -29,6 +29,9 @@ struct State {
     key: String,
     patch_key: String,
     commands: Vec<Value>,
+    mcp: bool,
+    mcp_key: String,
+    search_key: String,
     fail_identity: bool,
     stopped: bool,
 }
@@ -71,6 +74,15 @@ impl Bridge for App {
                 "submit" => {
                     s.stage += 1;
                     s.round = command["round"].as_str().unwrap().into();
+                    if s.mcp {
+                        if let Some(catalog)=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")) {
+                            let tools:Value=serde_json::from_str(catalog).unwrap();
+                            s.search_key=tools.as_object().unwrap().keys().find(|k|k.rsplit('.').next()==Some("tool_search")).ok_or(Error("fixture_search_unavailable"))?.clone();
+                            let found=tools.as_object().unwrap().keys().find(|k|k.contains("fixture") && (k.ends_with(".echo") || k.ends_with("__echo"))).cloned();
+                            if s.stage==1 {assert!(found.is_none(),"fixture MCP tools must actually start deferred")}
+                            if let Some(key)=found {s.mcp_key=key;}
+                        }
+                    }
                     if s.stage == 1 {
                         let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
                         let tools: Value = serde_json::from_str(catalog).unwrap();
@@ -106,8 +118,29 @@ impl Bridge for App {
                     if s.stopped {
                         return Ok(json!({"round":s.round,"stopped":true}));
                     }
-                    let message = if s.stage < 4 {
-                        let script = if s.stage == 1 {
+                    let stage = if s.mcp {
+                        s.stage.saturating_sub(2)
+                    } else {
+                        s.stage
+                    };
+                    let message = if s.mcp && s.stage <= 2 {
+                        let (name, input) = if s.stage == 1 {
+                            (
+                                &s.search_key,
+                                json!({"query":"fixture echo verification","limit":1}).to_string(),
+                            )
+                        } else {
+                            if s.mcp_key.is_empty() {
+                                return Err(Error("fixture_discovered_mcp_unavailable"));
+                            }
+                            (
+                                &s.mcp_key,
+                                json!({"text":"native_mcp_verified"}).to_string(),
+                            )
+                        };
+                        json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":name,"input":input,"report":"Discover and verify the native MCP tool"}}).to_string()},"status":"finished_successfully","end_turn":false})
+                    } else if stage < 4 {
+                        let script = if stage == 1 {
                             "printf 'effect-1\\n' >> effect-count; printf 'first result'"
                         } else {
                             "test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count && printf 'verified'"
@@ -119,7 +152,7 @@ impl Bridge for App {
                         } else {
                             json!({"command":["bash","-c",script],"timeout_ms":10000})
                         };
-                        let (key, input) = if s.stage == 2 {
+                        let (key, input) = if stage == 2 {
                             (&s.patch_key,"*** Begin Patch\n*** Add File: patched.txt\n+real custom tool\n*** End Patch".to_string())
                         } else {
                             (&s.key, args.to_string())
@@ -151,7 +184,7 @@ impl Bridge for App {
 struct Root(PathBuf, bool);
 impl Drop for Root {
     fn drop(&mut self) {
-        if self.1 {
+        if self.1 || std::thread::panicking() {
             eprintln!("qualification state retained at {}", self.0.display());
             return;
         }
@@ -163,6 +196,16 @@ impl Drop for Root {
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_executes_commands_custom_patch_and_validation_with_generated_catalog()
 {
+    native_fixture(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn actual_native_client_discovers_and_executes_deferred_mcp_tools_before_local_work() {
+    native_fixture(true).await;
+}
+
+async fn native_fixture(mcp: bool) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
@@ -170,6 +213,10 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     let owned_state = std::env::var_os("CODEX_PROVIDER_OWNED_STATE").map(PathBuf::from);
     assert!(!(live_descriptor.is_some() && owned_state.is_some()));
     let is_live = live_descriptor.is_some() || owned_state.is_some();
+    assert!(
+        !mcp || !is_live,
+        "MCP discovery fixture never enables live inference"
+    );
     let failure_proof = std::env::var_os("CODEX_PROVIDER_EXPECT_FAILURE").is_some_and(|value| {
         assert_eq!(value, "qualification_expected_failure");
         assert!(!is_live);
@@ -245,6 +292,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     .unwrap();
     let app = Arc::new(App::default());
     app.0.lock().unwrap().fail_identity = failure_proof;
+    app.0.lock().unwrap().mcp = mcp;
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
     let mut owned = if let Some(state) = owned_state {
         Some(
@@ -362,6 +410,15 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         .await
         .unwrap();
     let port = listener.local_addr().unwrap().port();
+    if mcp {
+        use std::fs::OpenOptions;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(root.0.join("system/config.toml"))
+            .unwrap();
+        writeln!(file,"\n[mcp_servers.fixture]\nurl=\"http://127.0.0.1:{port}/mcp\"\nstartup_timeout_sec=15\ntool_timeout_sec=15\n").unwrap();
+    }
+
     journal.write(&codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1"),&json!({"schema":"termux-codex-responses-service-v1","process":Process::read(std::process::id()).unwrap(),"port":port,"token":token})).unwrap();
     codex_chatgpt_provider::registration::prepare(
         &config,
@@ -375,7 +432,26 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
     let service = Service::new(config.clone(), token.clone(), host.clone()).unwrap();
-    let router = service.router().layer(axum::middleware::from_fn(
+    let mcp_calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let recorded = mcp_calls.clone();
+    let router = service.router().route("/mcp",axum::routing::post(move |axum::Json(request):axum::Json<Value>| {
+        let recorded=recorded.clone();
+        async move {
+            use axum::response::IntoResponse;
+            if request.get("id").is_none() {return axum::http::StatusCode::ACCEPTED.into_response()}
+            recorded.lock().unwrap().push(request.clone());
+            let result=match request["method"].as_str().unwrap() {
+                "initialize"=>json!({"protocolVersion":request["params"]["protocolVersion"],"capabilities":{"tools":{}},"serverInfo":{"name":"Termux Native MCP Fixture","version":"1.0.0"}}),
+                "tools/list"=>json!({"tools":[{"name":"echo","description":"Fixture echo verification of native deferred discovery and exact tool result","inputSchema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}}]}),
+                "tools/call"=>{
+                    assert_eq!(request["params"]["name"],"echo");assert_eq!(request["params"]["arguments"]["text"],"native_mcp_verified");
+                    json!({"content":[{"type":"text","text":"native_mcp_verified"}],"isError":false})
+                },
+                _=>panic!("unexpected MCP fixture method {}",request["method"]),
+            };
+            axum::Json(json!({"jsonrpc":"2.0","id":request["id"],"result":result})).into_response()
+        }
+    })).layer(axum::middleware::from_fn(
         async |request: axum::extract::Request, next: axum::middleware::Next| {
             let (parts, body) = request.into_parts();
             let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
@@ -651,19 +727,39 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         .iter()
         .filter(|c| c["op"] == "submit")
         .collect::<Vec<_>>();
-    assert_eq!(submissions.len(), 4);
+    assert_eq!(submissions.len(), if mcp { 6 } else { 4 });
     assert_eq!(
         fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
         "real custom tool\n"
     );
     assert!(!stdout.contains("Model metadata for"));
-    for command in &submissions[1..] {
+    for (index, command) in submissions[1..].iter().enumerate() {
         assert!(command["messages"].as_array().unwrap().is_empty());
-        assert!(command["instructions"].as_array().unwrap().is_empty());
+        if !mcp || index != 0 {
+            assert!(command["instructions"].as_array().unwrap().is_empty());
+        } else {
+            assert!(
+                !command["instructions"].as_array().unwrap().is_empty(),
+                "new deferred declarations must reach the model before it invokes them"
+            );
+        }
         assert_eq!(command["results"].as_array().unwrap().len(), 1);
+    }
+    if mcp {
+        let calls = mcp_calls.lock().unwrap();
+        assert_eq!(
+            calls.iter().filter(|v| v["method"] == "tools/call").count(),
+            1,
+            "native MCP effect executes exactly once"
+        );
+        assert!(calls.iter().any(|v| v["method"] == "tools/list"));
+        assert!(
+            stdout.contains("mcp_tool_call") && stdout.contains("native_mcp_verified"),
+            "native transcript must expose the actual tool/result"
+        );
     }
     println!(
         "{}",
-        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":3,"nativeEffects":3,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
+        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":if mcp{5}else{3},"nativeEffects":if mcp{4}else{3},"nativeMcpDiscovery":mcp,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
     );
 }
