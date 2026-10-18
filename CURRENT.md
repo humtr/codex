@@ -74,97 +74,180 @@ Public naming is TUI. Existing frontend/manager-tui paths and signed markers ret
 their spelling until a qualified migration. Catalog model/effort/context data
 belongs to Provider configuration; neither Manager nor Core maintains its own list.
 
-## Reviewed dual entry, not yet implemented
+## Proposed ChatGPT control through MCP
 
-The Codex-first MCP workflow is already the bounded R11 proof recorded here: native
-Codex requests inference, ChatGPT calls MCP, the Provider projects real native
-calls, native Codex executes and records them, and results settle the original
-MCP calls before ChatGPT continues/finalizes. It does not launch a second agent.
-This proves the two-command trial, not arbitrary long-development qualification.
+Status: proposal and work-order recommendation; implementation decision pending.
 
-A ChatGPT-first entry is a proposed Provider extension, not an existing public
-endpoint. Current native_catalog/native_tool require a capability bound to an
-already-started native inference lane. Adding arbitrary shell access or running
-codex exec with the same ChatGPT driver does not supply the missing bootstrap;
-the latter can recursively wait on the host that is awaiting its MCP result.
+This proposal supersedes the earlier interpretation of dual entry as just a
+ChatGPT-first bootstrap for the existing per-inference tool loop. The user wants
+ChatGPT to operate local Codex through MCP: discover tools, inspect/manage work
+and sessions, execute development, choose context/checkpoint/handoff operations,
+publish public reports and finish the task. Codex is the local execution/recording
+system; the Provider is its transport/control adapter, not a second planning agent.
+No implementation/default/activation change is approved by this documentation
+review alone. Current product behavior remains SPEC's existing model-adapter path.
 
-Recommended review direction: one upstream thread/turn/executor/history with
-one active model driver and two entry clients. A short authenticated MCP bootstrap
-would establish an explicitly selected local execution home/root and a passive
-Provider driver; it returns a native binding/catalog instead of waiting for the
-whole task or posting another Chat user message. Existing native-call/result
-projection is shared. Public reports and explicit finalization enter the normal
-native Responses stream; no fabricated history, duplicate goal submission or
-second execution authority. Native status/stop stays on app-server RPC. Core
-still only validates/launches/binds; optional Manager/TUI own selection/display.
-An admin/tunnel key alone does not establish the requesting Chat user's identity.
+Two entrances converge on the same control workflow:
 
-The actual installed0.163 runtime's generated experimental schema includes
-command/exec, thread/shellCommand, thread/inject_items and turn/interrupt.
-Schema generation makes no inference. Direct command/exec creates no thread;
-thread/shellCommand can record a user shell action in a thread but bypasses its
-sandbox policy, and is not a general model-tool dispatcher. Neither provides
-complete native model/tool/report semantics merely by forwarding arbitrary MCP
-calls. Keep normal Responses tool admission/execution as the preferred full path.
-A bootstrap goal is the supplied goal, not an invented exact copy of the host's
-original user message. Native policy arriving in an external MCP result also
-does not acquire the priority of a ChatGPT system instruction; qualify instruction
-priority and keep native approvals/reviewer authoritative. Explicit report/final
-MCP actions are necessary when no app transport observes public host messages;
-ordinary ChatGPT prose is not automatically part of native history.
+- Codex entrance: Provider applies selected model/effort, starts the Chat task and
+  keeps the original native request connected to that task's output/completion.
+- ChatGPT entrance: the user starts Chat directly; MCP opens/attaches local work.
+  No recursive Chat initiation or second Codex model is required for primary work.
+- Common path: ChatGPT controls local Codex through MCP, receives real execution
+  results on original tool calls, emits reports and explicitly finishes. Native
+  events/records remain available from either entrance; only a Codex-origin request
+  has an original CLI response to settle. Another CLI may observe the same work.
 
-The user's rejection of blind continuation after observation loss is binding.
-No cancellation behavior changes in this review. Current Responses SSE Drop
-cancels its host exchange; detaching an individual MCP waiter is a narrower
-transport event. A future dual entry must expose actual native activity, stop
-requested versus confirmed, result delivery and observation freshness. MCP alone
-cannot distinguish host thinking from host idle between tool calls or guarantee
-that the ChatGPT Stop button interrupts the native turn. Unknown must stay
-explicitly unknown; a live worker/HTTP response is not visible progress or goal
-completion. Native Stop must fence new calls, interrupt the correct turn and
-confirm settlement/remaining processes before reporting stopped. Resume reads
-latest native history and unresolved original calls; it never replays uncertain
-side effects. Entry transfer requires a settled boundary and one active driver.
+### Origin and return routing without another Chat user turn
 
-A small MCP Apps status/stop UI could use tools/call directly rather than posting
-follow-up Chat messages, while local Codex observes the same native events.
-This is a candidate needing real host visibility/control qualification, not a
-claim of model-idle telemetry or verified allowance savings. ChatGPT-first can
-avoid the local Linux app/CDP dependency; Codex-first automatic initiation still
-needs a model-initiation transport. In external entry, ChatGPT selects the model;
-local /model must not claim to change an unobserved external host model.
+The user did not request an origin marker in the user prompt. Persist the binding
+in the existing Provider journal: origin, a stable run/request identity, confirmed
+execution home/account, native thread/turn associations, outstanding calls and the
+local reply sink. These are proposed fields/semantics, not an implemented schema.
+Keep one run identity across model-request rounds and explicit thread handoffs;
+thread_id, response_id and JSON-RPC id alone are not the whole task identity.
 
-External entry also needs explicit context/compaction and independent-reviewer
-handling. The current retained MCP turn refuses active policy/model changes;
-sharing its tool return codec does not qualify host-context replacement. A native
-auto_review request cannot obtain an independent judgment by asking the primary
-Chat conversation to review itself. It needs a separately configured independent
-model transport/context or an explicit user-selected approval mode. If that
-reviewer still uses the Linux app, the app dependency remains for that capability.
-Never downgrade approval policy or deadlock a pending primary tool while waiting
-for the same host to answer its nested reviewer. Full feature parity, including
-compaction/child agents, therefore exceeds a small MCP bootstrap patch.
+If ChatGPT needs origin/control context, return a compact model-visible record on
+an existing non-user return path: the original local-function return or MCP result,
+preferably the already-needed attach/catalog response. This reuses the demonstrated
+same-call return mechanism; the new origin/context payload itself is not qualified.
+Do not append a user-role environment block, resend previous answers, or post a
+follow-up user message merely to supply routing information. If context is needed
+before a first return exists, establish that bootstrap explicitly; do not invent a
+server push into a nonexistent tool call. Avoid a separate model round just for
+origin when an existing result can carry it.
 
-Proposed gates, before adopting the extension:
-1. Synthetic external entry boots the actual Android native engine, executes
-   multiple calls with one effect each, streams reports/final and keeps the
-   canonical transcript. No Chat, no recursive app submit, no extra agent.
-2. Interrupt during model wait/native execution/approval and disconnect each
-   observer separately. Confirm native stopping/stopped events, remaining owned
-   jobs, stale/unknown UI state and no new admission after explicit Stop.
-3. Same-thread attach/recovery across clients and Provider failure, pending
-   original-call reconciliation, catalog/context refresh, independent reviewer
-   admission, account isolation and conflicting
-   entry rejection. An observing TUI must not resume a second writer.
-4. After declaring scope/estimated Chat consumption, one bounded Instant external
-   trial: physical progress, deliberate interrupted display, Stop and same-thread
-   recovery. Count actual submissions/returns separately; charged Chat message
-   debits remain unknown. No Pro trial or silent transport fallback.
+Responses-compatible wire format is our local adapter interface, not proof that
+arbitrary Responses metadata reaches ChatGPT. MCP content/structuredContent is
+model-visible; _meta is UI-only. Keep private paths, credentials and the actual
+reply channel local. Report/final calls resolve through the saved binding, not a
+model-selected URL or guessed destination. Model-visible does not mean absent
+from Chat history, free of context cost, or uncharged by Chat message limits.
+Reference: https://developers.openai.com/plugins/reference#tool-results
 
-This adds a Provider bootstrap/driver and observer/control integration, not a
-Tdev workflow/SQLite/deployment migration. Keep no-MCP and MCP return transports
-on the same native execution boundary. Do not make this optional extension a
-prerequisite for finishing the already-qualified path's signed composition.
+### Responsibility and observable behavior
+
+| Owner | Proposed responsibility | Remains outside it |
+| --- | --- | --- |
+| ChatGPT | Development decisions, discovery, session/context strategy, public reports and completion requests through MCP | Fabricating execution receipts or declaring an unconfirmed stop |
+| Provider | Model/effort initiation for Codex entry, bound MCP/API controls, exact-call correlation, return routing, event projection and host lifetime | A competing planner, shell executor, canonical history store or silent account selection |
+| Upstream Codex | Actual tools, configured approvals/reviewer, writer ownership, authoritative native records and execution/control primitives | Chat transport and UI-entry routing policy |
+| Core | Verified runtime/environment/server binding and generation lifecycle | New ChatGPT control policy or Provider dependencies |
+| Optional Manager/TUI | Profile/window selection and displaying/controlling the bound native work | A second work owner or duplicate transcript authority |
+
+Inventory the full requested Codex control surface before freezing MCP tools.
+Expose supported native operations, including necessary context/session controls;
+existing native_catalog/native_tool alone do not constitute this capability. A
+missing general native-tool/control API may require a Provider/TUI integration or
+small upstream adapter; do not move orchestration into Termux Core to bypass it.
+The installed0.163 experimental schema includes command/exec, thread/shellCommand,
+thread/inject_items, thread/compact/start and turn/interrupt. Schema existence is
+not runtime qualification: command/exec has no thread, thread/shellCommand is a
+user command with different policy, and history injection alone does not update
+a live TUI. Prefer reuse of actual native execution and existing Responses/event
+projection over arbitrary rollout-file edits or an unverified second executor.
+Reference: https://learn.chatgpt.com/docs/app-server
+
+ChatGPT chooses when/what to summarize or hand off; local code still validates and
+commits checkpoint data and preserves unreturned calls. Native automatic context
+limits and foreign opaque state do not disappear. A control command targeting an
+active turn can require a deferred/settled transition, not a synchronous recursive
+wait while that same turn awaits the command's MCP result. Independent review and
+child agents need their own real contexts/transports; do not replace auto_review
+with self-review or silently weaken the configured approval mode. If a reviewer
+still uses the Linux app, that capability retains the dependency even when the
+primary ChatGPT-first path does not.
+
+Execution/output events must stream to an attached CLI and durable native history.
+Public report/final MCP calls enter that same output path; an optional host-text
+observer can add token-level streaming. MCP alone does not copy all Chat UI prose.
+An actual command receipt is recorded by native execution, not retroactively
+invented by ChatGPT. Completion resolves once only after outstanding calls settle.
+Neither a report stored on disk nor an HTTP200 proves the user saw live progress.
+
+Do not adopt blind continuation after observer loss. Show actual native activity,
+last-observed host state/freshness, unknown versus idle, and stop requested versus
+confirmed. MCP-only observation cannot establish whether ChatGPT is thinking or
+idle between calls, nor guarantee its Stop button stops local work. Explicit Stop
+must fence new actions and confirm the affected native turn/jobs. Resume reads the
+latest history and unresolved original calls; it must not replay uncertain effects.
+One active controller owns each work binding even if both UIs observe it. Separate
+work can run concurrently; a second entrance cannot silently become a second writer.
+
+### Timing, fallback and proposed revised order
+
+Recommendation: first freeze a useful, recoverable Rust baseline from existing
+work, then qualify this alternative before expanding orchestration that it may
+replace. Finishing every existing optimization and publishing a final legacy-shaped
+Provider first risks duplicate development; replacing the working path immediately
+risks losing its broader native/AI-development proof. A full public release is not
+a prerequisite for the new bounded experiment. Base/Full automation and unrelated
+Core/Manager fixes remain independent and may ship with their own acceptance.
+
+| Phase | Recommended work | Completion/decision gate |
+| --- | --- | --- |
+| A | Stabilize common current primitives: identity/auth, original-call return, exact execution/history, visible status/stop/recovery, config and immutable candidate packaging | Preserve exact source/artifact/proof and exercise disposable install/restart/rollback; explicitly list unqualified capabilities. Do not claim final product acceptance |
+| B | Design the full MCP control surface and smallest end-to-end driver using those primitives | After the user's architecture decision: synthetic actual-Android proof must include tool discovery, real development, reports, a requested context/session transition and final routing for both entrances |
+| C | Qualify real ChatGPT control and compare with the retained Rust path | Declare expected Chat consumption first; count actual starts/user objects/returns/setup/summary/retries separately, run matched owned tasks, preserve work and verify physical CLI progress/stop/recovery |
+| D | Choose default and retained fallback from proof | Compare quality, long-task continuity, latency, dependency count and maintenance surface; more rights or fewer prompt bytes alone do not prove a better default |
+| E | Finish the shared product and publish the selected composition | Close applicable TUI/context/project/reviewer/concurrency/reboot and package/install/update/rollback gates, then build/sign/readback/disposable update/non-forced promotion; activate separately |
+| F | Retire superseded experiment and implementation-specific policy | Preserve unique source/user1m edits/licenses/proofs first; retain admitted rollback targets, one Rust config/executor/history authority and no new product Bun/Python dependency |
+
+A baseline checkpoint is not a demand to polish every old feature. Fix shared
+correctness defects first. Defer new Provider-side planning/context heuristics,
+transport-specific micro-optimization and broad cosmetic work until the alternative
+comparison, unless required for the baseline. Do not defer required failure/stop
+visibility, exact-call correctness or account/data preservation as cosmetics.
+
+Retain the existing Rust model-adapter/local-function path as an explicit fallback
+candidate while qualifying the new operator path. Existing MCP return is a
+transport on that same adapter, not the new full-control workflow. Do not overload
+transport.return_path to pretend execution policy and result transport are the
+same setting; final naming/schema waits for design. Keep only deliberately
+supported combinations, not a general cross-product routing framework.
+Fallback retention is not a permanent promise to maintain two orchestration
+implementations. Keep it only if it offers distinct useful coverage, such as work
+without an available Chat-side MCP connector, at acceptable shared-test cost.
+Remove obsolete path-specific policy after replacement proof and an explicit
+product decision; keep common codecs/execution/history instead of duplicating them.
+
+No automatic path switch after uncertain dispatch, active tools or an unresolved
+writer. Choose before starting; change paths only with settled/reconciled state
+and an explicit handoff. Rollback preserves checkpoints/history; it never replays
+a task. Installed JS/Bun/Python remains the protected current installation and
+migration reference, not a newly supported fallback implementation. Never silently
+select it because the Rust/new MCP route fails.
+
+### Required proof before choosing the new default
+
+- Zero-Chat fixtures: origin/context travels through non-user returns; no extra
+  user-role environment/previous-answer block. Origin and reply binding survive
+  reconnect/handoff without exposing private return destinations.
+- Actual Android: discover a tool, run commands/patch/tests once, request context
+  and session controls at a valid boundary, retain native history and stream public
+  initial/intermediate/final reports to the original CLI. A no-observer Chat entry
+  still records execution without creating a dummy CLI-origin request.
+- Interrupt and disconnect during model wait, execution, approval, checkpoint and
+  handoff. Verify observed stale/unknown state, the exact stopped work, remaining
+  owned jobs, result reconciliation and no new effects after confirmed Stop.
+- Two entry clients observe/control one task without duplicate writers; independent
+  tasks/reviewers remain isolated. Prove compaction, restart and return-to-native
+  context rather than relying on the earlier two-command MCP result.
+- A matched real development task, including direct ~/prj/ai under its AGENTS and
+  preserved user changes, must show analysis, actual failure/correction, tests and
+  same-task resume. Supervisor evaluates the real diff/tests and physical CLI
+  transcript, not just Provider delivery logs. Existing AI proof is retained as
+  baseline evidence, not reassigned to the new workflow.
+  Compare repeated fixtures with equivalent inputs for latency/call overhead;
+  use sequential legitimate AI changes for real development, not simultaneous
+  writers or repeating an already-completed patch. Do not infer efficiency from
+  the unmatched earlier AI-development and two-command MCP trials.
+- Reuse prior acceptance only at its exact scope. Non-user tool returns are proved;
+  general task controls, new origin payload, automatic real-time transcript and
+  charged Chat message savings are not. No Pro/GPT-5.6 trial or silent retry.
+
+Current request is documentation/review only. No live Chat trial, model/provider
+change, new MCP control code, automatic fallback or runtime activation was performed.
 
 ## Product completion scope and work order
 
@@ -177,9 +260,15 @@ prerequisite for finishing the already-qualified path's signed composition.
 | 5 | Native context transitions | Manual/automatic/interrupted compact, one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; final TUI artifact and pending-result/cold-resume/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native blocking question/answer passes at the app-server API; actual question TUI and host crash/reboot remain |
-| 8 | Independent MCP and efficiency | Actual signed Chat app→dedicated tunnel→Rust Provider→Android Codex two-command/write-and-verify→original MCP returns→exact native final passes. One user object, two app dispatches including one real approval reply; Chat debits unknown. Local functions remain default; final signed composition/activation and efficiency work remain |
+| 8 | Independent MCP and efficiency | Bounded R11 actual MCP return passes; Chat debits unknown. This is the existing model adapter, not the proposed ChatGPT-operated control workflow. Local functions remain default; shared correctness/packaging precede the pending alternative decision |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
+
+The table records the approved capability baseline and its unfinished gates, not
+an instruction to finish every old-path optimization before evaluating the new
+proposal. The proposed A–F order above is decision-pending; in particular final
+publication does not precede all experimentation by necessity. Preserve completed
+proof and pending product obligations when revising implementation order.
 
 The user's required AI trial was run directly in ~/prj/ai, not a copied project or
 worktree, after the Rust no-MCP execution/context/project path was established.

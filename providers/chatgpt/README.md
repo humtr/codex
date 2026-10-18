@@ -6,6 +6,13 @@ authentication context and host/conversation lifetime. Manager is not required.
 TUI supplies native transcript/model-selection integration. No provider code is
 linked into Core or Manager.
 
+A [proposed ChatGPT-operated MCP workflow](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
+would move session/context/development decisions to ChatGPT with both Codex and
+ChatGPT entrances. It is under review, not the current two-tool MCP return path
+or an installed/default mode. Origin context is proposed for non-user tool returns,
+not extra user prompts. The linked review defines baseline work, explicit fallback,
+validation and the decision required before implementation.
+
 ## Approved Rust migration
 
 The standalone Rust source candidate (`Cargo.toml`, `src/`) now implements
