@@ -31,10 +31,12 @@ Android no-Manager /model round trip passed. This does not activate a public
 generation. Automatic source commits may invalidate obsolete bindings while
 retaining published Base/Full and prior immutable artifacts.
 
-The provisioned app remains26.1007.21434 with Chromium155.0.8059.40. The latest
-zero-inference MCP preflight now observes ChatGPT auth mode but no authenticated
-account/user/structure, so live admission refuses; preserve its profile and
-reestablish login before more model trials. Its observed
+The provisioned app remains26.1007.21434 with Chromium155.0.8059.40. The user
+reestablished login after revocation/logout. Authenticated request construction
+now passes against the expected private account with zero Chat submissions,
+including after Electron creates auxiliary index-page targets. Read-only DOM
+selection admits the sole main Chat/Work surface; multiple real main surfaces
+still refuse. Its observed
 app-initial-ed5807835d97.js/app-shared-2d77298f0100.js capabilities define this
 bridge's qualified host boundary. App binaries, rootfs, login and account data are
 not bundled into the repository or implied by a model listing.
@@ -75,7 +77,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 
 | Order | Work | Current result and next gate |
 | --- | --- | --- |
-| 1 | Correct source/contracts, settings and /switch presentation | One-line narrow rows, config/catalog CLI and source audit corrected; native TUI48 focused +94 retained upstream tests/lint passed |
+| 1 | Correct source/contracts, settings and /switch presentation | One-line narrow rows, config/catalog CLI and source audit corrected; native TUI50 focused +94 retained upstream tests/lint passed |
 | 2 | Core independence | Core-only, optional absent/broken/hung/config isolation and signed Android57-step proof passed; final composed release still required |
 | 3 | Rust vertical path | Actual native commands/custom patch/results/transcript and authenticated Rust-owned app passed, without Bun/Python host |
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
@@ -242,7 +244,10 @@ publish them wholesale. Repository records contain only safe scope/results.
 | tui-admission-39129327503.log / provider-tui-accepted-no-manager.json | Successful final TUI source15da596 matches the current recipe and exact8d84f1dd binary. Current Core e83083 with Manager absent passes actual Android native↔Chat /model, same thread/permissions, four synthetic responses/one source summary and real Provider checkpoint; no Chat or operating activation |
 | provider-mcp-native-return.log / provider-mcp-composed-regressions.log | Rust HTTP MCP returns actual Android command/patch/verification results on three retained calls with one synthetic app submission. Exact retry, changed arguments, batch atomicity, deferred-catalog wake ordering, sibling stop and active input/policy/route refusal pass; no Chat. Real connector and complete source gates remain separate |
 | provider-mcp-qualified-full.log / provider-mcp-complete-native.log / provider-mcp-final-lint.log |83 regular Rust/103 Bun/28 Python, fmt/clippy/release and13 actual Android executor/reviewer/MCP/context fixtures pass. One synthetic app submission returns three actual native effects on original MCP HTTP calls. Stdio multiplex/cancel/fragment preservation, service shutdown, pending owner-generation refusal and settled cold re-entry pass; no Chat |
-| provider-mcp-app-auth-admission.log | Actual app preparation remains unqualified: first an old settled fixture was preserved, then explicitly released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay connection ownership and pre-send guard placement were corrected in the fixture. The latest preflight refuses missing authenticated account/user/structure before submission; no Chat, no permanent Provider activation. Preserve earlier failed logs rather than treating offline proof as connector ACK |
+| provider-panel-target-full.log / provider-mcp-multiple-index-preflight.log |84 regular Rust/103 Bun/30 Python, fmt/clippy/release pass. Real reauthenticated app with auxiliary index targets passes zero-inference MCP preparation, hidden automatic environment/user-literal preservation and hook cleanup. Connector inference ACK remains separate |
+| desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
+| provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
+| provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Need an authorized Read/Use runtime-key file before connector inference |
 | provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
@@ -323,10 +328,19 @@ qualification. Unsupported box components remained in its final transcript.
    default. Rust stdio/source gates pass; complete actual connector ACK using
    configurable Termux Codex identity; no automatic fallback or Codex Native2
    naming dependency. Preserve stopped/unknown turns rather than replaying them.
-   Actual app auth must first be reestablished. Saved tdev-surface-probe admin
-   metadata refers to a missing local key file; no process OPENAI_ADMIN_KEY is
-   present. Reuse an authorized existing tunnel or recover its owned key before
-   creating a new tunnel; never repoint a running unrelated service.
+   App auth/request preparation is reestablished. The installed Termux Codex
+   connector has exact native_catalog/native_tool schemas and points at the
+   dedicated prior probe tunnel. Its runtime-key file exists; the separate saved
+   admin-key file remains absent and is not required merely to reuse this tunnel.
+   Local health/tool discovery does not establish external permission: the Linux
+   Go tunnel client first failed localhost DNS. A bounded trial-only CONNECT relay
+   uses Android DNS with end-to-end TLS, no resolver-file change or payload logs;
+   external polling still reports401 tunnel_use_forbidden with recorded owner
+   scope. The trial service/alias/proxy were stopped and cleaned. Need a runtime
+   key with Read/Use rights in the owning organization/workspace; its private file
+   path was requested. Verify external poll before spending Chat starts; never
+   repoint an unrelated service. Native local-function work is independent of
+   this optional fallback's tunnel permission.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.

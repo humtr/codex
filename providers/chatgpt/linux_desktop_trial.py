@@ -86,41 +86,38 @@ def authorization_url(url, *, nested=False):
         return False
 
 
-def panel_config(root, prefix):
-    action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_linux_browser.py'), str(Path.home()/'.local/share/codex-web-experiment/linux-desktop/session.json')])
+def panel_config(root, prefix, rootfs):
+    marker = Path.home()/'.local/share/codex-web-experiment/linux-desktop/session.json'
+    buttons = []
+    # Read official package assets already installed on this device. Do not
+    # redraw the brands or redistribute the proprietary app's artwork.
+    icons = [('chatgpt', 'ChatGPT', rootfs/'usr/share/pixmaps/chatgpt.png'),
+             ('browser', 'Chromium', rootfs/'usr/share/icons/hicolor/48x48/apps/chromium.png')]
+    for app, label, image in icons:
+        assert image.is_file(), 'installed_app_icon_required'
+        action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_linux_browser.py'), str(marker), app])
+        buttons.append(f'''button = new
+button_icon = {image}
+button_max_icon_size = 28
+button_tooltip = {label}: open / minimize / restore
+button_padding = 12 4
+button_lclick_command = {action}
+''')
     config = root/'tint2rc'
     config.write_text(f"""rounded = 0
 border_width = 0
 background_color = #20252c 100
-panel_items = PTC
+panel_items = PP
 panel_size = 100% 42
 panel_position = bottom center horizontal
-panel_padding = 6 4 6
+panel_padding = 6 0 4
 panel_background_id = 1
 panel_layer = top
 panel_dock = 0
 strut_policy = follow_size
 autohide = 0
-taskbar_mode = single_desktop
-taskbar_padding = 4 0 4
-task_text = 1
-task_icon = 0
-task_font = sans 11
-task_font_color = #ffffff 100
-task_active_font_color = #ffffff 100
-task_maximum_size = 250 34
-mouse_left = toggle_iconify
-button = new
-button_text = Browser
-button_tooltip = Open Chromium in this Linux desktop
-button_font = sans bold 11
-button_font_color = #ffffff 100
-button_padding = 10 0 0
-button_lclick_command = {action}
-time1_format = %H:%M
-time1_font = sans 11
-clock_font_color = #ffffff 100
-clock_padding = 8 0
+mouse_effects = 1
+{''.join(buttons)}
 """)
     config.chmod(0o600)
     return config
@@ -218,7 +215,8 @@ def serve(args):
                 assert x.poll() is None; time.sleep(.1)
             else: raise RuntimeError('private display unavailable')
             start([str(prefix/'bin/openbox')], native, 'openbox.log')
-            start([str(prefix/'bin/tint2'), '-c', str(panel_config(root, prefix))], native, 'panel.log')
+            rootfs = cache/'trial-prefix/var/lib/proot-distro/containers/chatgpt-trial/rootfs'
+            start([str(prefix/'bin/tint2'), '-c', str(panel_config(root, prefix, rootfs))], native, 'panel.log')
             viewer = start([str(args.bun), str(SOURCE/'termux_viewer.ts'), str(args.novnc), str(root/'rfb.sock'), str(root/'viewer.json')], native, 'viewer.log')
             cmd = base+['login', '--isolated', '--bind', str(prefix/'tmp/.X11-unix')+':/tmp/.X11-unix', '--bind', str(root)+':/ui', '--bind', str(home)+':/root', '--env', f'DISPLAY=:{display}', '--env', 'XAUTHORITY=/ui/xauthority', '--env', 'BROWSER=/ui/bin/xdg-open', '--env', 'PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'chatgpt-trial', '--', '/usr/bin/dbus-run-session', '--', '/usr/bin/chatgpt', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--user-data-dir=/root/profile']
             if args.inspect:
@@ -240,7 +238,7 @@ def serve(args):
             stat = (Path('/proc')/str(os.getpid())/'stat').read_text()
             write(data/'session.json', {'pid': os.getpid(), 'start': int(stat[stat.rfind(')')+2:].split()[19]), 'image': os.readlink(Path('/proc')/str(os.getpid())/'exe'), 'root': str(root), 'display': display, 'seconds': args.seconds, 'started': time.time(), 'production': False})
             action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_dual_trial.py'), 'linux'])
-            subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 화면 복귀', '--content', '한 번 터치해 Linux 화면을 여세요. Browser 버튼은 Linux Chromium을 엽니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
+            subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 화면 복귀', '--content', '한 번 터치해 Linux 화면을 여세요. 하단 아이콘으로 앱을 열거나 최소화·복귀합니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
             print(json.dumps({'linuxViewerReady': True, 'notificationSent': True, 'production': False}), flush=True)
             browser = None
             def show_browser():

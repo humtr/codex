@@ -83,6 +83,15 @@ explicit private relay. A separate bounded device proof now also starts the auth
 from Rust, verifies the same account and executes native commands/patch/validation
 without a Bun/Python host. It restores the original profile inode and controller
 afterward; this does not activate a permanent operating migration.
+The retained qualification desktop pins ChatGPT/browser icons: tap to launch an
+absent app, minimize its focused window or restore an unfocused/minimized window.
+Existing windows switch directly; duplicate startup taps coalesce. These icons
+and their Python/tint2 helpers belong to the retiring qualification desktop, not
+the Rust Provider payload or Core. Icons come directly from the installed official
+ChatGPT/Chromium packages; they are not redrawn or bundled here. A live panel
+reload preserves the app/login.
+Electron's auxiliary index pages are excluded by read-only main-surface probing;
+multiple real main surfaces still refuse instead of selecting by target order.
 Actual project create/reuse/readback and project-bound GPT-6 native tools now pass.
 Android native manual compaction commits a readable checkpoint and continues the
 same thread; app replies in that separate compaction proof are synthetic. A

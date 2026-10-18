@@ -1215,6 +1215,17 @@ neither logs that URL nor submits Chat messages. Preserve mobile keyboard toggle
 manual keyboard, scroll/drag, Esc and fullscreen controls. Viewing is optional for
 inference and does not establish successful fresh login or correct physical UI.
 
+The retained Linux qualification desktop exposes compact pinned ChatGPT/browser
+icons from the installed official packages. A single tap launches an absent application, minimizes its focused window,
+or restores/activates an unfocused or minimized window. Existing-window actions
+are immediate, not queued through the half-second controller loop. Match the
+private desktop's exact app class and controller ancestry, never a window title
+or another desktop/profile. Serialize duplicate launch taps, preserve authentication
+and running work, and do not submit Chat or create a conversation by switching
+windows. This qualification UI is not a Core dependency or a second Provider
+execution path; retained Python/Bun qualification helpers are retired with the
+experiment, not added to the Rust Provider payload.
+
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
 process, usable through upstream configuration without Manager or enhanced TUI.
@@ -1223,6 +1234,12 @@ conversation/context correlation, cancellation/reconnect/retry policy, CDP
 communication and owned-host lifetime. The provider may use the signed app's
 authenticated context; it does not replace that app's login or inference.
 Its failure must not disable native Codex, account commands or window management.
+When Electron retains several index-page targets after sign-in, select the sole
+main Chat/Work surface through read-only DOM capability inspection. Do not select
+by target order, activate/create a chat, or attach inference to an auxiliary
+window. Duplicate target identities or multiple eligible main surfaces refuse;
+an unready surface remains a readiness failure. App account and bridge admission
+still run after target selection.
 Reuse existing upstream provider configuration and bounded local contracts; do
 not introduce a speculative general plugin framework. Unify component discovery/
 status and lifecycle presentation where appropriate, not credentials, transcript

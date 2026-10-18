@@ -11,6 +11,89 @@ use tokio_tungstenite::{
 };
 
 #[tokio::test]
+async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous_main() {
+    use codex_chatgpt_provider::protocol::Error;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    // 0: one main; 1: two main surfaces; 2: startup not ready; 3: lost renderer.
+    for case in 0..4 {
+        let (native, peer) = tokio::io::duplex(65536);
+        let (read, write) = tokio::io::split(native);
+        let client = Client::pipe(read, write, "owned-index-fixture".into());
+        let peer = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(peer);
+            let mut reader = BufReader::new(read);
+            let mut detached = Vec::new();
+            let mut probes = 0;
+            loop {
+                let mut bytes = Vec::new();
+                reader.read_until(0, &mut bytes).await.unwrap();
+                assert_eq!(bytes.pop(), Some(0));
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                let result = match request["method"].as_str().unwrap() {
+                    "Target.getTargets" => json!({"targetInfos":[
+                        {"targetId":"aux","type":"page","url":"app://-/index.html"},
+                        {"targetId":"main","type":"page","url":"app://-/index.html"},
+                        {"targetId":"foreign","type":"page","url":"https://private.invalid/"}]}),
+                    "Target.attachToTarget" => {
+                        let id = request["params"]["targetId"].as_str().unwrap();
+                        assert!(matches!(id, "aux" | "main"));
+                        json!({"sessionId":id})
+                    }
+                    "Runtime.evaluate" => {
+                        let text = request["params"]["expression"].as_str().unwrap();
+                        if text == "verify_selected" {
+                            assert_eq!(request["sessionId"], "main");
+                            json!({"result":{"value":true}})
+                        } else {
+                            assert!(text.contains("labels.has('Chat')&&labels.has('Work')"));
+                            assert!(!text.contains(".click(") && !text.contains("fetch("));
+                            probes += 1;
+                            if case == 3 && request["sessionId"] == "main" {
+                                json!({"exceptionDetails":{"text":"fixture renderer unavailable"}})
+                            } else {
+                                json!({"result":{"value":case==1||case==0&&request["sessionId"]=="main"}})
+                            }
+                        }
+                    }
+                    "Target.detachFromTarget" => {
+                        detached.push(request["params"]["sessionId"].as_str().unwrap().to_owned());
+                        json!({})
+                    }
+                    _ => panic!("selection must not create, navigate or activate a target"),
+                };
+                write
+                    .write_all(
+                        format!("{}\0", json!({"id":request["id"],"result":result})).as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                if case == 0
+                    && request["method"] == "Runtime.evaluate"
+                    && request["params"]["expression"] == "verify_selected"
+                    || case != 0 && detached.len() == 2
+                {
+                    break;
+                }
+            }
+            assert_eq!(probes, 2);
+            if case == 0 {
+                assert_eq!(detached, vec!["aux"]);
+            } else {
+                assert_eq!(detached, vec!["aux", "main"]);
+            }
+        });
+        match (case, client.app().await) {
+            (0, Ok(app)) => assert_eq!(app.evaluate("verify_selected").await.unwrap(), true),
+            (1, Err(e)) => assert_eq!(e, Error("unique_app_target_required")),
+            (2, Err(e)) => assert_eq!(e, Error("app_target_unavailable")),
+            (3, Err(e)) => assert_eq!(e, Error("app_bridge_evaluation_failed")),
+            _ => panic!("incorrect main target admission"),
+        }
+        peer.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_targets() {
     use codex_chatgpt_provider::{
         app::{Bridge, Remote},

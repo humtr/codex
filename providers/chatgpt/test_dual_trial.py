@@ -7,11 +7,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import quote
 
 SOURCE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('linux_trial', SOURCE/'linux_desktop_trial.py')
 linux = importlib.util.module_from_spec(spec); spec.loader.exec_module(linux)
+import open_linux_browser as panel
 
 
 class TrialTests(unittest.TestCase):
@@ -70,15 +73,58 @@ class TrialTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
             root=Path(temporary);root.chmod(0o700)
             stat=(Path('/proc')/str(os.getpid())/'stat').read_text();start=int(stat[stat.rfind(')')+2:].split()[19])
-            state={'pid':os.getpid(),'start':start,'image':os.readlink(Path('/proc')/str(os.getpid())/'exe'),'root':str(root)}
+            state={'pid':os.getpid(),'start':start,'image':os.readlink(Path('/proc')/str(os.getpid())/'exe'),'root':str(root),'display':139}
             marker=root/'session.json';marker.write_text(json.dumps(state));marker.chmod(0o600)
-            guest=root/'guest-home';guest.mkdir();env={**os.environ,'HOME':str(guest)}
+            guest=root/'guest-home';guest.mkdir();env={**os.environ,'HOME':str(guest),'FIXTURE_ROOT':str(root),'FIXTURE_OWNER':str(os.getpid())}
+            prefix=root/'prefix';(prefix/'bin').mkdir(parents=True)
+            fake='''#!'''+sys.executable+'''
+import os,sys,json
+from pathlib import Path
+r=Path(os.environ['FIXTURE_ROOT']);n=Path(sys.argv[0]).name
+if n=='xwininfo':
+ if (r/'open-browser.json').exists():print('0xe00002 "fixture": ("chromium (/root/browser-profile)" "Chromium") 480x743+0+0')
+elif n=='xprop':
+ if '-root' in sys.argv:print('_NET_ACTIVE_WINDOW(WINDOW): window id # 0xe00002')
+ else:print('_NET_WM_PID(CARDINAL) = '+os.environ['FIXTURE_OWNER']+'\\nWM_STATE(WM_STATE):\\n    window state: Normal')
+elif n=='xdotool':
+ with (r/'actions.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
+'''
+            for name in ['xwininfo','xprop','xdotool','wmctrl']:
+                executable=prefix/'bin'/name;executable.write_text(fake);executable.chmod(0o700)
+            linux.write(root/'environment.json',{'PREFIX':str(prefix),'DISPLAY':':139','XAUTHORITY':str(root/'xauthority')})
             command=[sys.executable,'-B',str(SOURCE/'open_linux_browser.py'),str(marker)]
             for _ in range(2):
-                valid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(valid.returncode,0)
+                valid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(valid.returncode,0,valid.stderr.decode())
+            self.assertIn('minimize',(root/'actions.jsonl').read_text())
             request=root/'open-browser.json';self.assertEqual(json.loads(request.read_text()),{'show':True});self.assertEqual(request.stat().st_mode & 0o777,0o600)
             request.unlink();state['start']+=1;marker.write_text(json.dumps(state))
             stale=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(stale.returncode,0);self.assertFalse(request.exists())
+
+    def test_panel_excludes_withdrawn_dialog_and_foreign_windows_with_identical_class(self):
+        tree='\n'.join(f'0x{w} "private title": ("chatgpt (/root/profile)" "Chatgpt") 480x743+0+0'
+                       for w in ['10','20','30','40'])
+        def command(env, *args):
+            if args[0]=='xwininfo':
+                text=tree
+            else:
+                w=args[2];text='_NET_WM_PID(CARDINAL) = '+('999' if w=='0x40' else str(os.getpid()))
+                if w!='0x20':text+='\nwindow state: Normal'
+                if w=='0x30':text+='\nWM_TRANSIENT_FOR(WINDOW): window id # 0x10'
+            return SimpleNamespace(returncode=0,stdout=text)
+        with patch.object(panel,'command',side_effect=command):
+            self.assertEqual(panel.windows({}, {'pid':os.getpid()}, 'chatgpt'), ['0x10'])
+
+    def test_duplicate_launch_tap_does_not_spawn_or_touch_the_display(self):
+        import fcntl
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
+            root=Path(temporary);root.chmod(0o700)
+            state={'pid':os.getpid(),'root':str(root)}
+            with (root/'.panel-browser.lock').open('w') as lock:
+                lock_path=Path(lock.name);lock_path.chmod(0o600)
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                with patch.object(panel,'record',return_value=state),patch.object(panel,'owner'),patch.object(panel,'command') as command,patch.object(panel.subprocess,'Popen') as spawn:
+                    self.assertEqual(panel.toggle(root/'session.json'),'pending')
+                    command.assert_not_called();spawn.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
