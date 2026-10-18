@@ -150,6 +150,16 @@ impl Bridge for Remote {
         })
     }
 }
+pub(crate) fn valid_dispatches(snapshot: &Value) -> bool {
+    let replies = match snapshot.get("roundHostReplies") {
+        None => 0,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return false,
+        },
+    };
+    matches!(replies.checked_add(1), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
+}
 async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
     // Export only our own static bridge codes. Host exception text may include
     // account details, request bodies or credentials and never crosses here.
@@ -977,7 +987,7 @@ async fn exchange(
             }
         }
         if !state["terminals"].as_array().is_some_and(|v| v.is_empty()) {
-            if state["terminals"] != json!(["done"]) || state["roundStarts"] != 1 {
+            if state["terminals"] != json!(["done"]) || !valid_dispatches(&state) {
                 lane.phase = Phase::Unknown;
                 journal.write(key, lane)?;
                 return Err(Error("app_round_incomplete"));

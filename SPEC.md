@@ -1320,6 +1320,10 @@ host action in this lane, including a target explicitly offered in that action's
 server metadata which addresses the invoking message instead of the confirmation
 message. Unrelated ancestors, ambiguous matches and a second response to the same
 action refuse. A failed stream takes precedence over a historical host wait.
+The permission stream's `done` does not retire its retained MCP capability.
+Native round admission accepts the original dispatch plus exactly the observed
+host replies; it never normalizes away actual request counts. Late callbacks from
+a prior permission stream cannot terminate the current continuation.
 Never fabricate a reply instead of the signed app's real consent control. Count
 those actual host requests/reply objects separately from native tool returns and
 user-role objects. They are not automatic retries or proof of allowance debits.

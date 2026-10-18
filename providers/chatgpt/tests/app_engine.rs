@@ -121,7 +121,7 @@ impl Bridge for App {
                         state.account = "other-account".into();
                     }
                     Ok(
-                        json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"hostReplyMessages":state.host_replies,"dispatches":state.stage as u64+state.host_replies}),
+                        json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1+state.host_replies,"roundHostReplies":state.host_replies,"userMessages":1,"toolMessages":state.stage-1,"hostReplyMessages":state.host_replies,"dispatches":state.stage as u64+state.host_replies}),
                     )
                 }
                 _ => Err(Error("unexpected_fixture_operation")),

@@ -1,7 +1,7 @@
 //! Adapt retained MCP calls to the same lane protocol used by local functions.
 //! No native execution, alternate transcript or repeated Chat submissions.
 use crate::{
-    app::Bridge,
+    app::{valid_dispatches, Bridge},
     context::digest,
     journal::{random_id, Journal},
     mcp::Broker,
@@ -89,16 +89,6 @@ fn changed_policy(lane: &Lane, command: &Value) -> bool {
         )
         .is_empty()
     }
-}
-fn valid_dispatches(snapshot: &Value) -> bool {
-    let replies = match snapshot.get("roundHostReplies") {
-        None => 0,
-        Some(value) => match value.as_u64() {
-            Some(value) => value,
-            None => return false,
-        },
-    };
-    matches!(replies.checked_add(1), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
 }
 fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
     if responses
@@ -426,7 +416,7 @@ impl Bridge for McpBridge {
                     visible.push(json!({"id":call["id"],"author":{"role":"assistant"},"recipient":format!("local.{}",lane.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":call["name"],"input":call["input"],"report":call["report"]}}).to_string()},"status":"finished_successfully","end_turn":false}));
                 }
                 snapshot["terminals"] = json!(["done"]);
-            } else if snapshot["terminals"] == json!(["done"]) {
+            } else if !snapshot["error"].is_string() && snapshot["terminals"] == json!(["done"]) {
                 broker.retire(&token, false).await?;
                 lane.complete = true;
             }

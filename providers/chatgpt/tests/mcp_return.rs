@@ -338,6 +338,93 @@ fn native_output(events: &[Event]) -> Vec<Value> {
         .unwrap()
         .clone()
 }
+#[tokio::test]
+async fn actual_host_confirmation_stream_end_keeps_catalog_capability_until_real_completion() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let broker = Broker::new(journal.clone());
+    let state = Arc::new(Mutex::new(AppState::default()));
+    let bridge = McpBridge::new(
+        Arc::new(App {
+            state: state.clone(),
+            address: "127.0.0.1:9".parse().unwrap(),
+            native: false,
+            hold: true,
+        }),
+        broker.clone(),
+        journal,
+        "My Owned Connector".into(),
+    )
+    .unwrap();
+    bridge
+        .operation(json!({"op":"open","lane":"wait","signature":{"name":"gateway"}}))
+        .await
+        .unwrap();
+    bridge.operation(json!({"op":"submit","lane":"wait","round":"round","model":"host","thinkingEffort":null,"messages":[{"role":"user","text":"task"}],"instructions":[],"results":[]})).await.unwrap();
+    let token = {
+        let mut app = state.lock().unwrap();
+        let instruction = app.commands.iter().find(|v| v["op"] == "submit").unwrap()
+            ["instructions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap();
+        let token = instruction
+            .split("Exact turn_token: ")
+            .nth(1)
+            .unwrap()
+            .split('\n')
+            .next()
+            .unwrap()
+            .to_owned();
+        let lane = app.lanes.get_mut("wait").unwrap();
+        lane["messages"] = json!([{"id":"confirmation","author":{"role":"tool"},"metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}}]);
+        lane["terminals"] = json!(["done"]);
+        token
+    };
+    let blocked = bridge
+        .operation(json!({"op":"snapshot","lane":"wait"}))
+        .await
+        .unwrap();
+    assert_eq!(blocked["error"], "mcp_host_confirmation_required");
+    broker
+        .catalog(&token)
+        .await
+        .expect("confirmation pause must not retire the actual MCP return path");
+    {
+        let mut app = state.lock().unwrap();
+        let lane = app.lanes.get_mut("wait").unwrap();
+        lane["hostResponses"] = json!(["confirmation"]);
+        lane["terminals"] = json!([]);
+        lane["roundStarts"] = json!(2);
+        lane["roundHostReplies"] = json!(1);
+    }
+    let continued = bridge
+        .operation(json!({"op":"snapshot","lane":"wait"}))
+        .await
+        .unwrap();
+    assert!(!continued["error"].is_string());
+    broker.catalog(&token).await.unwrap();
+    {
+        let mut app = state.lock().unwrap();
+        let lane = app.lanes.get_mut("wait").unwrap();
+        lane["messages"] = json!([{"id":"final","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Finished"]},"status":"finished_successfully","end_turn":true}]);
+        lane["terminals"] = json!(["done"]);
+    }
+    let done = bridge
+        .operation(json!({"op":"snapshot","lane":"wait"}))
+        .await
+        .unwrap();
+    assert_eq!(done["roundStarts"], 2);
+    assert_eq!(done["roundHostReplies"], 1);
+    assert_eq!(
+        broker.catalog(&token).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn two_http_tool_round_trips_share_one_app_submission_and_the_native_transcript() {
     let root = Root::new();

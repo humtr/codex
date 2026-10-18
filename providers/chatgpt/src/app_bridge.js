@@ -62,6 +62,7 @@ async function termuxCodexBridge(command) {
         const owned = {...request, local_function_signatures: mode==='mcp'?[]:[lane.signature],...(mode==='mcp'?{local_function_names:[]}:{})};
         if (name === 'prepareCompletionStream') return state.saved[name].call(this,owned,args[1]);
         const options = {...args[0],request: owned}, epoch = lane.epoch;
+        const serial=lane.streamSerial=(lane.streamSerial??0)+1;
         lane.streamActive = true;
         for (const event of ['onDecodedEvent','onUpdate']) {
           const previous = options[event];
@@ -73,10 +74,10 @@ async function termuxCodexBridge(command) {
           };
         }
         const previousDone = options.onComplete, previousError = options.onError;
-        options.onComplete = value => { if (lane.epoch === epoch) { lane.terminals.push(value.reason); lane.streamActive = false; } return previousDone?.(value); };
-        options.onError = value => { if (lane.epoch === epoch) {lane.error = 'app_stream_failed';lane.streamActive=false;} return previousError?.(value); };
+        options.onComplete = value => { if (lane.epoch === epoch&&lane.streamSerial===serial) { lane.terminals.push(value.reason); lane.streamActive = false; } return previousDone?.(value); };
+        options.onError = value => { if (lane.epoch === epoch&&lane.streamSerial===serial) {lane.error = 'app_stream_failed';lane.streamActive=false;} return previousError?.(value); };
         try {return state.saved[name].call(this,options);}
-        catch(error){if(lane.epoch===epoch){lane.error='app_stream_failed';lane.streamActive=false;}throw error;}
+        catch(error){if(lane.epoch===epoch&&lane.streamSerial===serial){lane.error='app_stream_failed';lane.streamActive=false;}throw error;}
       };
       client[name] = state.hooks[name];
     }

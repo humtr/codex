@@ -11,13 +11,14 @@ async function fixture(run){
  const oldDocument=globalThis.document;
  const wire={async safeGet(path,options){const f=globalThis.appBridgeFixture;if(path==='/conversation/{conversation_id}')return {gizmo_id:f.membership};return path==='/gizmos/snorlax/sidebar'?{items:f.projects.map(gizmo=>({gizmo})),cursor:null}:f.projects.find(v=>v.gizmo.id===options.parameters.path.gizmo_id_or_short_url);},async safePost(path,options){const f=globalThis.appBridgeFixture;expect(path).toBe('/projects');expect(options.retry).toBe('never');expect(options.requestBody).toEqual({name:options.requestBody.name,instructions:''});options.assertRequestCurrent();const p={gizmo:{id:'g-p-fixture',display:{name:options.requestBody.name},author:{user_id:'user'},share_recipient:'private'}};f.projects.push(p);return {resource:p};},streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
  const client={prepareCompletionStream(request){return request;},startCompletionStream(options){
+  globalThis.appBridgeFixture.options.push(options);
   wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});
   options.onDecodedEvent?.({message:{id:'analysis',author:{role:'assistant'},recipient:'all',channel:'analysis',content:{content_type:'text',parts:['private reasoning']}}});
   options.onUpdate?.({message:{id:'public',author:{role:'assistant'},recipient:'all',channel:'final',content:{content_type:'text',parts:['Visible result']},status:'finished_successfully',end_turn:true}});
   options.onComplete?.({reason:'done'});return true;
  }};
  const original={...client,streamPost:wire.streamPost};
- const f=globalThis.appBridgeFixture={wire,client,sent:[],created:0,gate:true,projects:[]};
+ const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[]};
  writeFileSync(join(root,'initial.mjs'),`
  export const oMn={kind:'client'},JRn={kind:'messages'};
  export function gRt(){}
@@ -109,6 +110,9 @@ test('only an observed host permission reply continues MCP without a new user ob
  expect(snapshot.dispatches).toBe(2);expect(snapshot.userMessages).toBe(1);
  expect(snapshot.hostReplyMessages).toBe(1);expect(snapshot.roundHostReplies).toBe(1);expect(snapshot.toolMessages).toBe(0);
  expect(snapshot.roundStarts).toBe(2);expect(snapshot.terminals).toEqual(['done']);
+ lane.streamActive=true;lane.terminals=[];f.options[0].onComplete({reason:'done'});f.options[0].onError(new Error('old stream'));
+ expect(lane.streamActive).toBe(true);expect(lane.terminals).toEqual([]);expect(lane.error).toBe(null);
+ f.options.at(-1).onComplete({reason:'done'});expect(lane.streamActive).toBe(false);
  expect(()=>send(response)).toThrow('app_dispatch_replayed');
  expect(()=>send({...response,id:'duplicate-target'})).toThrow('app_dispatch_replayed');
  expect(()=>send({id:'native-result',author:{role:'tool'},metadata:{},content:{text:'native result'}})).toThrow('app_dispatch_replayed');

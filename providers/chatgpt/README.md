@@ -76,7 +76,10 @@ login and physical screen/keyboard acceptance.
 The Rust candidate also supports explicit `transport.return_path = "mcp"`, with
 `transport.connector_name = "Termux Codex"` configurable for the installed Chat
 connector. The default remains `local_function`; changing the return path or
-connector name requires a service restart at a settled boundary. No automatic
+connector name requires a service restart at a settled boundary. When a tunnel stdio
+command/state changes, stop and reconnect only its owned alias after work settles.
+`runtimes connect` may reuse the old child even while updating profile metadata;
+verify the actual child executable/arguments and endpoint, not just ready status. No automatic
 fallback follows an uncertain request. Its `/mcp` HTTP endpoint shares the Provider
 process and common native lane/executor/transcript path. Static discovery reveals
 no native state; a random per-turn capability gates catalog and tool operations.

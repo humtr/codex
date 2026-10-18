@@ -255,6 +255,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-offered-target-full.log / provider-mcp-v7-rejected-targets.log |96 regular Rust/108 Bun/30 Python, fmt/clippy/release pass before the R8 content-type repair. Actual signed-app Allow addresses an assistant invocation offered by the tool confirmation. Source admits that exact correlation and rejects unrelated/duplicate targets; synchronous stream failure/host-wait precedence, long human waits and exact reveal are covered. Live final MCP return remains pending |
 | provider-offered-target-android-composed.log |All14 actual Android native retained-MCP/executor/search/correction/reviewer/silent-wait/context/fork/question/compaction fixtures pass after approval/reveal/wait changes. Synthetic app replies; zero Chat. R8 content-type filter requires its own final gate |
 | provider-public-content-full.log |96 regular Rust/108 Bun/30 Python plus fmt/clippy/release pass after actual R8 channel-less reasoning/context exposed a public-projection defect. Actual text-only projection and private-reasoning exclusion are covered, along with approval/reveal/wait/error repairs. No fixture is counted as live MCP return |
+| provider-consent-lifetime-full.log / provider-v10-settled-release-preflight.log / provider-font-physical-proof.json |97 regular Rust/108 Bun/30 Python, fmt/clippy/release pass. Actual wrapper retains the catalog through permission `done`, common native admission accepts exact host-reply counts, stale callbacks cannot end a continuation. Same-account settled hook cleanup/request construction makes zero posts. Physical R10 Hangul renders; final MCP effect remains a separate gate |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
 | provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
 | provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
@@ -444,6 +445,24 @@ qualification. Unsupported box components remained in its final transcript.
    code calls and excluding private reasoning/context. R8 ended after one app
    dispatch/one user object and no native effects; this is not MCP return proof.
    Static Provider observation failure codes are retained in private service logs.
+   R9 subsequently delivered the model's public failure to native Codex without
+   observation loss, but correctly made zero effects: `mcp_provider_unavailable`.
+   Actual process inspection found the tunnel helper's reuse path updated profile
+   metadata while keeping the old state-v7 stdio child. The dedicated alias was
+   explicitly restarted; its actual immutable executable/state-v9 argv now matches
+   the live Provider and Tdev process identities are unchanged. This stale trial
+   wiring is separate from Chat account permission and a Provider transport defect.
+   R10 physically confirmed the corrected real Allow continuation: two actual app
+   dispatches, one host reply, one user object. Hangul rendered correctly in that
+   same saved chat. The model then reported `mcp_turn_unavailable`, with no effects.
+   The wrapper had retired the MCP capability on the permission stream's `done`
+   despite a retained host block; native completion also still required exactly
+   one dispatch. Both now use the real host lifecycle/count contract. An actual
+   wrapper regression proves catalog access remains live across host confirmation
+   and retires only after real completion; the host-wait fixture now uses the real
+   two-dispatch/one-reply shape. Late prior-stream terminal/error callbacks cannot
+   terminate its new continuation. Same-account settled hooks were explicitly
+   released with zero Chat posts, preserving all native journals/saved chats.
    Actual final host-to-native return is still pending.
    Previous transcripts and unresolved journal states are retained without
    rewriting/replay; old native/service/controller processes were explicitly
