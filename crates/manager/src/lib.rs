@@ -6,6 +6,7 @@ mod profile_view;
 mod quota;
 mod quota_rpc;
 use profile_view::format_current;
+mod launch_policy;
 mod origin;
 mod runtime_config;
 mod shared_profiles;
@@ -326,8 +327,17 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
     }) {
         return quota::run(&capture_context()?, &args);
     }
+    if is_exact(args.first(), "__prepare-launch-v1") {
+        return launch_policy::prepare(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "__execute-launch-v1") {
+        return launch_policy::execute(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__runtime-config-v1") {
-        return runtime_config::prepare(&capture_context()?, &args[1..]);
+        return runtime_config::prepare(&capture_context()?, &args[1..], false);
+    }
+    if is_exact(args.first(), "__prepare-runtime-v1") {
+        return runtime_config::prepare(&capture_context()?, &args[1..], true);
     }
     if is_exact(args.first(), "__terminal-capabilities-v1") {
         if !is_exact(args.get(2), "--") {

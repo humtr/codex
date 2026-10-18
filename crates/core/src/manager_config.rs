@@ -42,11 +42,29 @@ fn fragment(bytes: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 fn query(program: &Path, config: &Path, deadline: Duration) -> io::Result<Vec<u8>> {
+    let bytes = exchange(
+        program,
+        &[
+            std::ffi::OsStr::new("__prepare-runtime-v1"),
+            config.as_os_str(),
+        ],
+        LIMIT,
+        deadline,
+    )?;
+    fragment(&bytes)
+}
+
+/// Bounded admitted-component exchange. No request may inherit workload input.
+pub(super) fn exchange(
+    program: &Path,
+    args: &[&std::ffi::OsStr],
+    limit: usize,
+    deadline: Duration,
+) -> io::Result<Vec<u8>> {
     let (mut reader, writer) = UnixStream::pair()?;
     reader.set_nonblocking(true)?;
     let mut child = Command::new(program)
-        .arg("__runtime-config-v1")
-        .arg(config)
+        .args(args)
         .env(MANAGER_CORE_API_ENV, MANAGER_CORE_API)
         .env(MANAGER_CORE_ENTRYPOINT_ENV, validated_core_entrypoint()?)
         .env_remove(MANAGER_ARTIFACT_PROBE_ENV)
@@ -66,7 +84,7 @@ fn query(program: &Path, config: &Path, deadline: Duration) -> io::Result<Vec<u8
                 Ok(0) => eof = true,
                 Ok(n) => {
                     bytes.extend_from_slice(&buffer[..n]);
-                    if bytes.len() > LIMIT {
+                    if bytes.len() > limit {
                         return Err(invalid());
                     }
                 }
@@ -79,7 +97,7 @@ fn query(program: &Path, config: &Path, deadline: Duration) -> io::Result<Vec<u8
                     return Err(invalid());
                 }
                 if eof {
-                    return fragment(&bytes);
+                    return Ok(bytes);
                 }
             }
             if started.elapsed() >= deadline {

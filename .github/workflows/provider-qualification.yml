@@ -1,0 +1,53 @@
+name: Optional ChatGPT provider source qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [rewrite/rust-core]
+    paths:
+      - providers/chatgpt/**
+      - scripts/check.sh
+      - .github/workflows/provider-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: provider-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  provider:
+    name: Offline provider runtime and package regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact product source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Provision pinned optional-provider test runtime
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Run provider tests without real Chat or device state
+        shell: bash
+        env:
+          BUN: ${{ steps.bun.outputs.bun-path }}
+          TMPDIR: ${{ runner.temp }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          cd source
+          test "$("$BUN" --version)" = 1.4.0
+          scripts/check.sh provider 2>&1 | tee "$RUNNER_TEMP/provider-check.log"
+      - name: Retain exact-input qualification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: provider-source-proof
+          path: ${{ runner.temp }}/provider-check.log
+          if-no-files-found: error
+          retention-days: 3

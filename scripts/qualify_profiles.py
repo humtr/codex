@@ -277,7 +277,8 @@ requires_openai_auth = false
             print("PASS native prepared-home rename, inode preservation and delete without shared-history changes")
             preference = home / ".local/share/codex/manager/default-profile-v1"
             preference.write_bytes(b"invalid-owned-preference")
-            assert run("--version").stdout == expected_version
+            assert run("--version", success=False).returncode == 1
+            assert run("--version", account=home / ".codex").stdout == expected_version
             assert profile("default", success=False).returncode == 1
             assert preference.read_bytes() == b"invalid-owned-preference"
             preference.write_bytes(b"codex-manager-default-profile-v1\nprofile\tdefault\n")
@@ -319,7 +320,7 @@ requires_openai_auth = false
                         assert not (account / "state_5.sqlite").exists()
             finally:
                 (native / "manager.unavailable").rename(manager)
-            print("PASS native malformed preference and optional Manager absence preserve ordinary launch")
+            print("PASS invalid saved account blocks launch; explicit home and absent Manager retain native execution")
             print("PASS Manager shared profile projection, local override and native profile use without Manager")
             print("PASS Core-only default/isolated/external server leases and shared-store isolation")
         finally:

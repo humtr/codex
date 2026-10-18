@@ -115,6 +115,10 @@ fn item(
     event: impl Fn() -> AppEvent + Send + Sync + 'static,
 ) -> SelectionItem {
     SelectionItem {
+        search_value: Some(format!(
+            "{name} {}",
+            description.as_deref().unwrap_or_default()
+        )),
         name,
         description,
         actions: vec![Box::new(move |tx| tx.send(event()))],
@@ -129,18 +133,12 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
     if settings {
         let enabled = !policy["enabled"].as_bool().unwrap_or(false);
         items.push(item(
-            format!(
-                "Automatic switching: {}",
-                if enabled { "off" } else { "on" }
-            ),
+            format!("Auto: {}", if enabled { "off" } else { "on" }),
             None,
             move || AppEvent::EditQuotaPolicy(json!({"enabled":enabled})),
         ));
         items.push(item(
-            format!(
-                "Session override: {}",
-                if session_off { "paused" } else { "allow" }
-            ),
+            format!("Here: {}", if session_off { "paused" } else { "allow" }),
             None,
             || AppEvent::ToggleQuotaSession,
         ));
@@ -149,17 +147,32 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         let next = policies
             [(policies.iter().position(|p| *p == current).unwrap_or(0) + 1) % policies.len()]
         .to_owned();
-        items.push(item(format!("Ranking: {current}"), None, move || {
-            AppEvent::EditQuotaPolicy(json!({"policy":next}))
-        }));
-        for (key, label, step, max) in [
-            ("reserve", "Reserve", 5, 50),
-            ("proactive", "Switch below (0 = off)", 5, 50),
-        ] {
+        items.push(item(
+            format!(
+                "{} · rank",
+                match current {
+                    "combined" => "balanced",
+                    "5h" => "5h reset",
+                    "weekly" => "week reset",
+                    other => other,
+                }
+            ),
+            None,
+            move || AppEvent::EditQuotaPolicy(json!({"policy":next})),
+        ));
+        for (key, label, step, max) in
+            [("reserve", "Reserve", 5, 50), ("proactive", "Early", 5, 50)]
+        {
             let next = (policy[key].as_i64().unwrap_or(0) + step) % (max + step);
             let key = key.to_owned();
             items.push(item(
-                format!("{label}: {}%", policy[&key]),
+                format!(
+                    "{label}: {}",
+                    match policy[&key].as_i64().unwrap_or(0) {
+                        0 if key == "proactive" => "off".to_owned(),
+                        value => format!("{value}%"),
+                    }
+                ),
                 None,
                 move || AppEvent::EditQuotaPolicy(json!({(key.clone()):next})),
             ));
@@ -174,19 +187,25 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         let current = policy["cooldown"].as_u64().unwrap_or(300);
         let next = cooldowns
             [(cooldowns.iter().position(|v| *v == current).unwrap_or(2) + 1) % cooldowns.len()];
-        items.push(item(format!("Cooldown: {current}s"), None, move || {
-            AppEvent::EditQuotaPolicy(json!({"cooldown":next}))
-        }));
+        items.push(item(
+            format!(
+                "Wait: {}",
+                if current >= 60 {
+                    format!("{}m", current / 60)
+                } else {
+                    format!("{current}s")
+                }
+            ),
+            None,
+            move || AppEvent::EditQuotaPolicy(json!({"cooldown":next})),
+        ));
         let mut custom = Vec::new();
         if policy["policy"] == "custom" {
             let weights = policy["weights"]
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![json!(1); 3]);
-            for (index, label) in ["Weight · 5h", "Weight · weekly", "Weight · reset"]
-                .iter()
-                .enumerate()
-            {
+            for (index, label) in ["5h", "week", "reset"].iter().enumerate() {
                 let mut next = weights.clone();
                 let current = weights.get(index).and_then(Value::as_i64).unwrap_or(1);
                 let values = [0, 1, 2, 5, 10];
@@ -194,7 +213,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
                     values[(values.iter().position(|v| *v == current).unwrap_or(1) + 1)
                         % values.len()]
                 );
-                custom.push(item(format!("{label}: {current}"), None, move || {
+                custom.push(item(format!("{current} × {label}"), None, move || {
                     AppEvent::EditQuotaPolicy(json!({"weights":next}))
                 }));
             }
@@ -315,7 +334,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         ));
         items.push(item(
             format!(
-                "Automatic switching: {} · settings",
+                "Auto: {} · settings",
                 if policy["enabled"] == true && !session_off {
                     "on"
                 } else {
@@ -344,7 +363,7 @@ fn picker(view: &Value, settings: bool, session_off: bool) -> SelectionViewParam
         items,
         tabs,
         row_display: SelectionRowDisplay::SingleLine,
-        footer_note: settings.then(|| "Enter changes · Tab changes section".into()),
+        footer_note: settings.then(|| "←/→ section · Enter changes".into()),
         is_searchable: true,
         on_cancel: Some(Box::new(|tx| tx.send(AppEvent::CloseQuotaView))),
         ..SelectionViewParams::picker()
@@ -766,7 +785,7 @@ mod tests {
             .join("\n");
         assert!(screen.contains("5h 72%"), "{screen}");
         assert!(screen.contains("weekly 12%"), "{screen}");
-        assert!(screen.contains("Automatic switching"), "{screen}");
+        assert!(screen.contains("Auto:"), "{screen}");
         let settings = picker(&value, true, false);
         assert!(
             settings.tabs[1]
@@ -822,6 +841,12 @@ mod tests {
                     .join("\n");
                 if width == 24 {
                     assert!(screen.contains('…'), "tab {tab_index}: {screen}");
+                    if tab_index == 0 {
+                        assert!(
+                            screen.contains("Auto: off"),
+                            "setting value clipped: {screen}"
+                        );
+                    }
                 }
             }
         }
@@ -894,7 +919,35 @@ mod tests {
             .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.chat_widget.has_active_modal());
         close(&mut app);
-        ready(&mut app, 0, Some(value));
+        ready(&mut app, 0, Some(value.clone()));
+        assert!(!app.chat_widget.has_active_modal());
+        app.quota_switch.settings = true;
+        app.quota_switch.visible = true;
+        app.quota_switch.view = Some(value.clone());
+        render(&mut app, false);
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let generation = app.quota_switch.generation;
+        ready(&mut app, generation, Some(value));
+        let screen = crate::chatwidget::tests::helpers::render_bottom_popup(&app.chat_widget, 80);
+        assert!(
+            screen.contains("[ ] next"),
+            "account tab lost on refresh: {screen}"
+        );
+        assert_eq!(
+            app.chat_widget.selected_index_for_active_view(VIEW_ID),
+            Some(1)
+        );
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            app.chat_widget.has_active_modal(),
+            "saving a setting must preserve its tab"
+        );
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.chat_widget.has_active_modal());
     }
 }

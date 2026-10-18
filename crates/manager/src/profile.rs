@@ -158,11 +158,9 @@ pub(super) fn launch_default(
     {
         return Err(ERR_USAGE);
     }
-    // Invalid optional settings cannot make ordinary native launch unavailable.
-    let target = read_default(context)
-        .ok()
-        .flatten()
-        .unwrap_or(ProfileTarget::Default);
+    // Absence means native default. A broken saved choice must never silently
+    // change the account under which a task runs.
+    let target = read_default(context)?.unwrap_or(ProfileTarget::Default);
     launch_core(context, &target, args)?;
     Ok(None)
 }

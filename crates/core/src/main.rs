@@ -7,6 +7,8 @@ mod maintenance;
 #[cfg(unix)]
 mod manager_config;
 #[cfg(unix)]
+mod manager_dispatch;
+#[cfg(unix)]
 mod manager_tui;
 #[cfg(unix)]
 mod release_display;
@@ -2988,22 +2990,29 @@ fn execute_public_dispatch<
         .map_err(PublicDispatchExecutionError::Manager),
         PublicDispatchRoute::Upstream(args) => {
             use std::io::IsTerminal as _;
-            // Manager owns optional Android routing. This guard suppresses only
-            // recursive convenience dispatch; it grants no profile/window authority.
-            if context.manager_tui_available
-                && matches!(context.manager_artifact, ManagerArtifact::Available(_))
+            // The optional component decides its policies; Core advertises only
+            // the interactive frontend capability it can actually provide.
+            let capability = if context.manager_tui_available
                 && std::io::stdin().is_terminal()
                 && std::io::stdout().is_terminal()
                 && std::io::stderr().is_terminal()
                 && shared_server::eligible(&args)
                 && manager_tui::supported(&args)
-                && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none()
             {
-                let mut selected = vec![OsString::from("__terminal-auto-launch-v1")];
-                selected.extend_from_slice(&args);
-                return execute_termux_manager(context.manager_artifact, selected)
-                    .map(PublicDispatchCompletion::TermuxUnavailable)
-                    .map_err(PublicDispatchExecutionError::Manager);
+                "local-frontend"
+            } else {
+                "runtime"
+            };
+            match manager_dispatch::prepare(context.manager_artifact, capability, &args) {
+                manager_dispatch::Preparation::Current => (),
+                manager_dispatch::Preparation::Blocked => return Err(PublicDispatchExecutionError::Manager(std::io::Error::other("optional Manager launch preparation refused; inspect Manager settings before retrying"))),
+                manager_dispatch::Preparation::Handoff => {
+                    let mut selected = vec![OsString::from("__execute-launch-v1"), capability.into(), "--".into()];
+                    selected.extend_from_slice(&args);
+                    return execute_termux_manager(context.manager_artifact, selected)
+                        .map(PublicDispatchCompletion::TermuxUnavailable)
+                        .map_err(PublicDispatchExecutionError::Manager);
+                }
             }
             Err(PublicDispatchExecutionError::Upstream(
                 launch_qualified_runtime(
@@ -12099,32 +12108,6 @@ where
         }
     };
     let process_env = capture_termux_process_env();
-    // Only the admitted optional Manager interprets its explicit preference.
-    // The selected child has an explicit CODEX_HOME, preventing re-delegation.
-    if let PublicDispatchRoute::Upstream(args) = &route {
-        let inherited = std::env::var("CODEX_HOME")
-            .ok()
-            .is_some_and(|v| !v.is_empty());
-        let preference = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .map(|h| h.join(".local/share/codex/manager/default-profile-v1"));
-        if !inherited && preference.is_some_and(|p| std::fs::symlink_metadata(p).is_ok()) {
-            let mut selected = vec![OsString::from("__profile-launch")];
-            selected.extend_from_slice(args);
-            match execute_activated_route(
-                PublicDispatchRoute::Termux(selected),
-                &roots,
-                &process_env,
-            ) {
-                Ok(PublicDispatchCompletion::TermuxUnavailable(_)) => (),
-                Err(err) => {
-                    eprintln!("codex: {err}");
-                    return 1;
-                }
-                _ => return 1,
-            }
-        }
-    }
     if bare && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none() {
         use std::io::IsTerminal as _;
         if startup_update_discovery_enabled(
@@ -13181,7 +13164,17 @@ mod tests {
         let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
         let path = root.join("fake-codex");
         let body = r#"
-if [ "$1" = "__runtime-config-v1" ]; then
+if [ "$1" = "__prepare-launch-v1" ]; then
+  decision=current
+  if [ -z "$CODEX_HOME" ] && [ -f "$HOME/manager-launch-handoff" ]; then
+    decision=handoff
+  elif [ "$2" = "local-frontend" ] && [ -z "${CODEX_TERMUX_WINDOW_READY+x}" ]; then
+    decision=handoff
+  fi
+  printf 'codex-manager-launch-v1\n%s\n' "$decision"
+  exit 0
+fi
+if [ "$1" = "__prepare-runtime-v1" ]; then
   printf 'codex-manager-runtime-config-v1\n'
   if [ -f "$HOME/manager-fragment" ]; then cat "$HOME/manager-fragment"; fi
   exit 0
@@ -13706,10 +13699,10 @@ exit 73
         use std::ffi::CStr;
         use std::os::fd::{FromRawFd, OwnedFd};
         for (scenario, expected) in [
-            ("window-bare", "__terminal-auto-launch-v1\n"),
+            ("window-bare", "__execute-launch-v1\nlocal-frontend\n--\n"),
             (
                 "window-resume",
-                "__terminal-auto-launch-v1\nresume\nowned title\n",
+                "__execute-launch-v1\nlocal-frontend\n--\nresume\nowned title\n",
             ),
             ("window-ready", "NO_MANAGER_EXEC"),
             ("window-manager-absent", "NO_MANAGER_EXEC"),
@@ -14832,12 +14825,12 @@ snooze_until	0
 
     #[cfg(unix)]
     #[test]
-    fn test_profile_saved_default_delegation_preserves_core_routes_and_fallback() {
+    fn test_optional_launch_handoff_preserves_core_routes_home_and_prework_fallback() {
         for (manager, inherited) in [(true, false), (true, true), (false, false)] {
             let root = b2_public_main_fixture("profile-default-delegation", manager);
-            let preference = root.join("home/.local/share/codex/manager/default-profile-v1");
+            let preference = root.join("home/manager-launch-handoff");
             std::fs::create_dir_all(preference.parent().unwrap()).unwrap();
-            // Core only detects presence. Parsing belongs to Manager.
+            // Only the fake component interprets this fixture; Core knows no filename.
             std::fs::write(preference, b"opaque-manager-owned").unwrap();
             let mut probe = std::process::Command::new(std::env::current_exe().unwrap());
             probe
@@ -14856,8 +14849,8 @@ snooze_until	0
                 assert_eq!(output.status.code(), Some(73));
                 assert!(output
                     .stdout
-                    .windows(b"ARGS:<__profile-launch><--version>".len())
-                    .any(|w| w == b"ARGS:<__profile-launch><--version>"));
+                    .windows(b"ARGS:<__execute-launch-v1><runtime><--><--version>".len())
+                    .any(|w| w == b"ARGS:<__execute-launch-v1><runtime><--><--version>"));
             } else {
                 assert_eq!(
                     output.status.code(),
@@ -14871,8 +14864,8 @@ snooze_until	0
                 let output = run_public_main_probe(&root, scenario);
                 assert!(!output
                     .stdout
-                    .windows(b"__profile-launch".len())
-                    .any(|w| w == b"__profile-launch"));
+                    .windows(b"__execute-launch-v1".len())
+                    .any(|w| w == b"__execute-launch-v1"));
             }
             remove_temp_root(root);
         }

@@ -1152,7 +1152,8 @@ in Manager or TUI. Optional capability absence removes only the affected extensi
 native UI and basic Core execution remain usable. Final TUI-without-Manager
 admission requires tests; the current signed full pairing is not already relaxed.
 
-The Chat provider remains an optional adapter process owning authentication,
+The Chat provider source lives under `providers/chatgpt`, outside crates/core,
+Manager and TUI. It remains an optional adapter process owning authentication,
 transport and host lifetime, usable through upstream configuration without Manager
 or TUI. Its failure must not disable native Codex, account commands or window
 management. Reuse existing upstream provider configuration and bounded local
@@ -1447,8 +1448,31 @@ overrides to make notification changes visible.
 
 #### Optional Manager configuration preparation
 
+Optional launch policy is queried only from the admitted Manager through
+`__prepare-launch-v1 CAPABILITY -- ORIGINAL_ARGS`. CAPABILITY is `local-frontend`
+only when Core can offer that qualified interactive frontend; otherwise `runtime`.
+The bounded, no-work query returns exactly `codex-manager-launch-v1\n` followed by
+`current\n`, `handoff\n` or `blocked\n`. Manager alone reads account preferences
+and decides whether its convenience launcher is needed. Core reads no Manager
+preference filename or window recursion marker for that decision. `blocked` stops
+without executing another account; unavailable optional preparation falls back
+only before handoff, with the unchanged current execution home and arguments.
+`handoff` replaces Core with the same admitted Manager's `__execute-launch-v1`
+using the original capability/arguments and existing authenticated Core handoff.
+There is no post-handoff retry or alternate-account fallback. Manager's explicit
+launcher revalidates its selected account before requesting Core execution.
+
+The explicit `__prepare-runtime-v1 CONFIG_DIRECTORY` operation performs best-effort
+shared profile projection and returns the configuration envelope below. Core calls
+this operation before execution. `__runtime-config-v1` remains a read-only lookup:
+it returns the same envelope without creating profile links or changing account
+files. Both require the admitted Core handoff and share the same bounds. Neither
+starts jobs or performs inference. A malformed saved account preference is an
+execution error; it must not fall back to another account. An absent preference
+continues to use the native default.
+
 Before final runtime execution, Core may call the admitted generation's Manager
-with `__runtime-config-v1 CONFIG_DIRECTORY`. This private endpoint requires the
+with `__prepare-runtime-v1 CONFIG_DIRECTORY`. This private endpoint requires the
 existing Core handoff, never starts a runtime or performs inference/network work,
 and receives no upstream workload arguments. It returns UTF-8 bytes beginning with
 `codex-manager-runtime-config-v1\n`, followed by the Manager-owned upstream TOML
@@ -1467,7 +1491,7 @@ Its system-layer fragment also supplies `approval_policy = "on-request"` and
 keeps account/project/config-profile/CLI choices authoritative, including explicit
 user review or full access. Core neither selects this reviewer nor interprets
 these fields; without Manager, ordinary upstream approval defaults remain usable.
-The same preparation owns optional shared `*.config.toml` projection from the
+The explicit preparation owns optional shared `*.config.toml` projection from the
 private CONFIG_DIRECTORY/profiles registry into the selected upstream home.
 Existing local files and dangling links take precedence, and projection does not
 copy authentication or conversation data. Projection remains best effort.

@@ -42,7 +42,7 @@ Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
 Exact contracts belong to `SPEC.md`.
 
-Profiles support creation, deletion, renaming and a saved default. All lifecycle commands are available in the installed Manager:
+Profiles support creation, deletion, renaming and a saved default. A damaged saved account choice stops launch with an error; it never silently selects a different account. All lifecycle commands are available in the installed Manager:
 
 ```sh
 codex termux profile create work
@@ -67,8 +67,9 @@ and account-local upstream profiles work without Manager; new shared registratio
 requires Manager. The opt-in ChatGPT pilot
 uses this common registration; `/model` selects its model and supported effort,
 while `--profile chatgpt` remains the fallback. The pilot's signed Linux app still
-owns its login and Chat inference. Setup/qualification is maintained on
-[experiment/web-termux](https://github.com/humtr/codex/blob/experiment/web-termux/experiments/web-provider/README.md).
+owns its login and Chat inference. Active source and focused qualification now live in
+[the optional Provider](providers/chatgpt/README.md); remaining historical real-host
+evidence stays on experiment/web-termux until its relevant drivers are ported.
 
 The current pilot cannot safely continue every long native Codex conversation:
 previous-model compaction can fail with `unsupported_desktop_route`, and opaque
@@ -313,3 +314,10 @@ manual `publish` defaults to false. `variant` selects base, full, or both. No
 signing, Release, Pages or stable mutation occurs in a dry run. Initial controller
 installation and caller pinning use an accepted exact source; no signing key is
 available to the input controller.
+
+
+The optional [ChatGPT provider source](providers/chatgpt/README.md) is integrated
+under providers/chatgpt, with its own offline source qualification. Its development
+installer and existing app/user data remain separate from signed Base/Full delivery.
+Source integration does not activate a new operating provider. See CURRENT for the
+remaining configuration, context/project and authenticated packaging work.

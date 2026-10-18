@@ -1,0 +1,15 @@
+:root{--owned-toolbar-height:40px;color-scheme:dark}
+#noVNC_container{height:calc(var(--owned-desktop-height,calc(100dvh - var(--owned-toolbar-height))) - env(safe-area-inset-bottom,0px))!important}
+#owned_mobile_controls{position:fixed;bottom:0;left:0;right:0;z-index:9999;box-sizing:border-box;height:calc(var(--owned-toolbar-height) + env(safe-area-inset-bottom,0px));padding:2px 8px calc(2px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;justify-content:center;gap:6px;background:#121820;border-top:1px solid #2a3442;color:#c9d4e3;font:12px system-ui,-apple-system,sans-serif}
+#owned_mobile_controls button{box-sizing:border-box;height:34px;min-width:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:7px;padding:0 8px;background:transparent;color:inherit;font:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#owned_mobile_controls button:active{background:#29384d}
+#owned_mobile_controls button:focus-visible{outline:2px solid #7baaff;outline-offset:-2px}
+#owned_scroll[aria-pressed=true],#owned_keyboard[aria-pressed=true]{color:#b4d0ff;background:#213149}
+#owned_mobile_controls svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#owned_mobile_controls #owned_keyboard_auto{gap:6px;padding:0 6px}
+.owned_switch{box-sizing:border-box;width:28px;height:16px;border-radius:9px;background:#46515f;padding:2px;display:block;transition:background .15s}
+.owned_switch::before{content:"";display:block;width:12px;height:12px;border-radius:50%;background:#e1e7ef;transition:transform .15s}
+#owned_keyboard_auto[aria-checked=true] .owned_switch{background:#5286d6}
+#owned_keyboard_auto[aria-checked=true] .owned_switch::before{transform:translateX(12px);background:white}
+.owned_divider{width:1px;height:16px;background:#344152}
+@media(prefers-reduced-motion:reduce){.owned_switch,.owned_switch::before{transition:none}}

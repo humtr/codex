@@ -2,7 +2,7 @@
 # Select a gate deliberately; compiler output is reusable, test roots are not.
 set -eu
 scope=${1:-full}
-case "$scope" in docs|python|rust|full) ;; *) echo 'usage: scripts/check.sh [docs|python|rust|full]' >&2; exit 2 ;; esac
+case "$scope" in docs|python|rust|provider|full) ;; *) echo 'usage: scripts/check.sh [docs|python|rust|provider|full]' >&2; exit 2 ;; esac
 test "$#" -le 1 || { echo 'unexpected arguments' >&2; exit 2; }
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
@@ -20,5 +20,10 @@ if [ "$scope" = rust ] || [ "$scope" = full ]; then
   # /proc reference tests must not observe unrelated parallel test processes.
   cargo test --workspace --locked -- --test-threads=1
   cargo clippy --workspace --all-targets --locked -- -D warnings
+fi
+if [ "$scope" = provider ]; then
+  : "${BUN:?set BUN to the qualified optional-provider Bun executable}"
+  "$BUN" test ./providers/chatgpt/*.test.mjs
+  python3 -B -m unittest discover -s providers/chatgpt -p 'test_*.py'
 fi
 git diff --check

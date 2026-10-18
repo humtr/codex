@@ -90,7 +90,7 @@ fn base_manager_command(home: &Path, core: &Path) -> Command {
 }
 
 #[test]
-fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_work() {
+fn runtime_config_lookup_is_read_only_and_explicit_preparation_projects_without_work() {
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);
     let home = root.0.join("home");
@@ -141,6 +141,14 @@ fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_w
     assert!(text.contains("matcher = \"^(functions\\\\.)?request_user_input(_async)?$\""));
     assert!(!text.contains("hooks.Stop"));
     assert!(!text.contains("sandbox_mode"));
+    assert!(!account.join("shared.config.toml").exists());
+    let projection = base_manager_command(&home, &core)
+        .arg("__prepare-runtime-v1")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(projection.status.success(), "{projection:?}");
+    assert_eq!(projection.stdout, text.as_bytes());
     assert_eq!(
         fs::read_link(account.join("shared.config.toml")).unwrap(),
         source
@@ -165,7 +173,7 @@ fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_w
     fs::write(other.join("shared.config.toml"), b"# local override\n").unwrap();
     let selected = base_manager_command(&home, &core)
         .env("CODEX_HOME", &other)
-        .arg("__runtime-config-v1")
+        .arg("__prepare-runtime-v1")
         .arg(&config)
         .output()
         .unwrap();
@@ -185,35 +193,39 @@ fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_w
 fn runtime_config_endpoint_requires_exact_handoff_and_safe_directory() {
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);
-    let denied = Command::new(manager_binary())
-        .env_clear()
-        .arg("__runtime-config-v1")
-        .arg(&root.0)
-        .output()
-        .unwrap();
-    assert!(!denied.status.success());
-    assert!(denied.stdout.is_empty());
-    for args in [
-        vec![],
-        vec![root.0.as_os_str(), std::ffi::OsStr::new("extra")],
-    ] {
-        let result = base_manager_command(&root.0, &core)
-            .arg("__runtime-config-v1")
-            .args(args)
+    for operation in ["__runtime-config-v1", "__prepare-runtime-v1"] {
+        let denied = Command::new(manager_binary())
+            .env_clear()
+            .arg(operation)
+            .arg(&root.0)
             .output()
             .unwrap();
-        assert_eq!(result.status.code(), Some(2));
-        assert!(result.stdout.is_empty());
+        assert!(!denied.status.success());
+        assert!(denied.stdout.is_empty());
+        for args in [
+            vec![],
+            vec![root.0.as_os_str(), std::ffi::OsStr::new("extra")],
+        ] {
+            let result = base_manager_command(&root.0, &core)
+                .arg(operation)
+                .args(args)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(2));
+            assert!(result.stdout.is_empty());
+        }
+        let link = root.0.join("linked-config");
+        if !link.exists() {
+            std::os::unix::fs::symlink(&root.0, &link).unwrap();
+        }
+        let invalid = base_manager_command(&root.0, &core)
+            .arg(operation)
+            .arg(&link)
+            .output()
+            .unwrap();
+        assert_eq!(invalid.status.code(), Some(1));
+        assert!(invalid.stdout.is_empty());
     }
-    let link = root.0.join("linked-config");
-    std::os::unix::fs::symlink(&root.0, &link).unwrap();
-    let invalid = base_manager_command(&root.0, &core)
-        .arg("__runtime-config-v1")
-        .arg(link)
-        .output()
-        .unwrap();
-    assert_eq!(invalid.status.code(), Some(1));
-    assert!(invalid.stdout.is_empty());
 }
 
 fn run_manager(
@@ -491,7 +503,7 @@ fn profile_saved_default_is_explicit_private_and_preserves_exec_arguments() {
 }
 
 #[test]
-fn profile_saved_default_rejects_bad_records_but_optional_launch_remains_usable() {
+fn profile_saved_default_rejects_bad_records_without_executing_another_account() {
     use std::os::unix::fs::symlink;
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);
@@ -520,9 +532,11 @@ fn profile_saved_default_rejects_bad_records_but_optional_launch_remains_usable(
                 .success()
         );
         let output = run_manager(&root.0, &core, &["__profile-launch", "--version"], None);
-        assert_eq!(output.status.code(), Some(37));
-        assert!(String::from_utf8_lossy(&output.stdout)
-            .contains(&format!("HOME_VALUE={}\n", root.0.join(".codex").display())));
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            output.stdout.is_empty(),
+            "a different account must never execute"
+        );
         assert_eq!(fs::read(&preference).unwrap(), bytes);
     }
     fs::write(
@@ -2818,6 +2832,94 @@ fn active_task_interactive_menu_allows_selection_cancel_and_current_account_take
         assert!(text.contains("Reconnect to owner") || text.contains("Task number"));
         if expected == 37 {
             assert!(text.contains(&format!("HOME_VALUE={}", current.display())));
+        }
+    }
+}
+
+#[test]
+fn optional_launch_preparation_is_read_only_and_revalidates_account_before_handoff() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let query = |capability: &str, inherited: Option<&Path>| {
+        let mut command = base_manager_command(&root.0, &core);
+        if let Some(home) = inherited {
+            command.env("CODEX_HOME", home);
+        }
+        command
+            .args(["__prepare-launch-v1", capability, "--", "--version"])
+            .output()
+            .unwrap()
+    };
+    let current = query("runtime", None);
+    assert!(current.status.success());
+    assert_eq!(current.stdout, b"codex-manager-launch-v1\ncurrent\n");
+    assert!(!root.0.join(".local").exists());
+    assert!(
+        run_manager(&root.0, &core, &["profile", "create", "work"], None)
+            .status
+            .success()
+    );
+    assert!(
+        run_manager(&root.0, &core, &["profile", "default", "work"], None)
+            .status
+            .success()
+    );
+    let preference = root.0.join(".local/share/codex/manager/default-profile-v1");
+    let before = fs::read(&preference).unwrap();
+    assert_eq!(
+        query("runtime", None).stdout,
+        b"codex-manager-launch-v1\nhandoff\n"
+    );
+    let explicit = root.0.join(".codex");
+    assert_eq!(
+        query("runtime", Some(&explicit)).stdout,
+        b"codex-manager-launch-v1\ncurrent\n"
+    );
+    let execute = run_manager(
+        &root.0,
+        &core,
+        &["__execute-launch-v1", "runtime", "--", "--version"],
+        None,
+    );
+    assert_eq!(execute.status.code(), Some(37));
+    let selected = root.0.join(".local/share/codex/manager/profiles/work/home");
+    assert!(String::from_utf8_lossy(&execute.stdout)
+        .contains(&format!("HOME_VALUE={}\n", selected.display())));
+    assert_eq!(fs::read(&preference).unwrap(), before);
+    // Between preparation and execution the choice can become invalid. No
+    // alternate account or workload may be started in that case.
+    fs::write(&preference, b"invalid saved choice").unwrap();
+    assert_eq!(
+        query("runtime", None).stdout,
+        b"codex-manager-launch-v1\nblocked\n"
+    );
+    let execute = run_manager(
+        &root.0,
+        &core,
+        &["__execute-launch-v1", "runtime", "--", "--version"],
+        None,
+    );
+    assert!(!execute.status.success());
+    assert!(execute.stdout.is_empty());
+    assert_eq!(
+        query("runtime", Some(&explicit)).stdout,
+        b"codex-manager-launch-v1\ncurrent\n"
+    );
+    let local = base_manager_command(&root.0, &core)
+        .env("CODEX_HOME", &explicit)
+        .env("CODEX_TERMUX_WINDOW_READY", "1")
+        .args(["__prepare-launch-v1", "local-frontend", "--"])
+        .output()
+        .unwrap();
+    assert_eq!(local.stdout, b"codex-manager-launch-v1\ncurrent\n");
+    for capability in ["unknown", "", "local-frontend\n"] {
+        assert!(!query(capability, None).status.success());
+    }
+    for operation in ["__prepare-launch-v1", "__execute-launch-v1"] {
+        for command in ["termux", "doctor", "update"] {
+            let result = run_manager(&root.0, &core, &[operation, "runtime", "--", command], None);
+            assert_eq!(result.status.code(), Some(2));
+            assert!(result.stdout.is_empty());
         }
     }
 }

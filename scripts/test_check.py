@@ -15,7 +15,7 @@ class CheckTests(unittest.TestCase):
             root = Path(tmp)
             tools = root / 'bin'; tools.mkdir()
             log = root / 'calls'
-            for name in ('cargo', 'python3', 'git'):
+            for name in ('cargo', 'python3', 'git', 'bun'):
                 p = tools / name
                 p.write_text('#!' + sys.executable + '\n' + '''\
 import os,sys
@@ -29,9 +29,9 @@ if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
 ''')
                 p.chmod(0o755)
             env = {**os.environ, 'PATH':str(tools)+os.pathsep+os.environ['PATH'],
-                   'XDG_CACHE_HOME':str(root/'cache'), 'CALLS':str(log)}
+                   'XDG_CACHE_HOME':str(root/'cache'), 'CALLS':str(log), 'BUN':str(tools/'bun')}
             env.pop('CARGO_TARGET_DIR', None)
-            for scope, cargo, python in [('docs',False,False),('python',False,True),('rust',True,False),('full',True,True)]:
+            for scope, cargo, python in [('docs',False,False),('python',False,True),('rust',True,False),('full',True,True),('provider',False,True)]:
                 log.unlink(missing_ok=True)
                 r=subprocess.run(['sh',str(CHECK),scope],env=env,capture_output=True,text=True)
                 self.assertEqual(r.returncode,0,r.stderr)
@@ -39,8 +39,9 @@ if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
                 self.assertEqual(any(x.startswith('cargo ') for x in calls),cargo)
                 self.assertEqual(any(x.startswith('python3 ') for x in calls),python)
                 self.assertEqual(calls[-1],'git diff --check')
+                self.assertEqual(any(x.startswith('bun ') for x in calls),scope=='provider')
                 if cargo:self.assertTrue((root/'cache/codex/check-target/retained').exists())
-            for scope, command in [('rust','cargo'),('python','python3'),('docs','git')]:
+            for scope, command in [('rust','cargo'),('python','python3'),('docs','git'),('provider','bun')]:
                 log.unlink()
                 r=subprocess.run(['sh',str(CHECK),scope],env={**env,'FAIL_COMMAND':command})
                 self.assertEqual(r.returncode,19)

@@ -6,6 +6,7 @@ const HEADER: &str = "codex-manager-runtime-config-v1\n";
 pub(super) fn prepare(
     context: &Context,
     args: &[OsString],
+    project_profiles: bool,
 ) -> Result<Option<String>, ManagerError> {
     if args.len() != 1 || !is_safe_absolute_path(Path::new(&args[0])) {
         return Err(ERR_USAGE);
@@ -21,7 +22,7 @@ pub(super) fn prepare(
         .map(PathBuf::from)
         .unwrap_or_else(|| context.home.join(".codex"));
     // Same no-replace optional projection as before, now owned by Manager.
-    if is_existing_directory(&home).unwrap_or(false) {
+    if project_profiles && is_existing_directory(&home).unwrap_or(false) {
         let _ = crate::shared_profiles::project(config, &home);
     }
     let events = match existing_notify_directory(context)? {
