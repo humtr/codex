@@ -63,6 +63,8 @@ async fn native_auth_bootstraps_one_rust_service_and_reclaims_endpoint_without_c
             .expect("qualified rootfs required")
             .into(),
     );
+    settings.host.viewer_assets =
+        std::env::var_os("CHATGPT_PROVIDER_VIEWER_ASSETS").map(Into::into);
     let file = config.join("chatgpt.toml");
     std::fs::write(&file, settings.render().unwrap()).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -93,6 +95,48 @@ async fn native_auth_bootstraps_one_rust_service_and_reclaims_endpoint_without_c
         "concurrent auth must reuse one service credential"
     );
     let status = runtime::status(&root.join("state")).await.unwrap();
+    let viewer_capability = if settings.host.viewer_assets.is_some() {
+        use futures_util::StreamExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let key = codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1");
+        let record = Journal::inspect(&root.join("state"), &key)
+            .unwrap()
+            .unwrap();
+        let capability = record["viewer_capability"]
+            .as_str()
+            .expect("owned viewer must be configured");
+        let port = record["port"].as_u64().unwrap();
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port as u16))
+            .await
+            .unwrap();
+        stream.write_all(format!("GET /viewer/{capability}/vnc.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).await.unwrap();
+        let html = String::from_utf8(bytes).unwrap();
+        assert!(html.starts_with("HTTP/1.1 200") && html.contains("owned_keyboard_auto"));
+        let mut request = format!("ws://127.0.0.1:{port}/viewer/{capability}/websock")
+            .into_client_request()
+            .unwrap();
+        request.headers_mut().insert(
+            "origin",
+            format!("http://127.0.0.1:{port}").parse().unwrap(),
+        );
+        let (mut ws, _) = tokio_tungstenite::connect_async(request)
+            .await
+            .expect("private viewer handshake");
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.into_data().as_ref(), b"RFB 003.008\n");
+        ws.close(None).await.unwrap();
+        Some(capability.to_owned())
+    } else {
+        None
+    };
+    runtime::stop(&root.join("state")).await.unwrap();
     cleanup.stop();
     assert!(root.join("state/desktop/home").is_dir());
     assert!(
@@ -112,10 +156,22 @@ async fn native_auth_bootstraps_one_rust_service_and_reclaims_endpoint_without_c
     let restarted = runtime::status(&root.join("state")).await.unwrap();
     assert_eq!(status["base_url"], restarted["base_url"]);
     assert_ne!(status["process"], restarted["process"]);
+    if let Some(capability) = viewer_capability {
+        let key = codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1");
+        let record = Journal::inspect(&root.join("state"), &key)
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            record["viewer_capability"].as_str(),
+            Some(capability.as_str()),
+            "restart must revoke the previous viewer capability"
+        );
+    }
+    runtime::stop(&root.join("state")).await.unwrap();
     cleanup.stop();
     println!(
         "{}",
-        json!({"accepted":true,"concurrentAuthOneService":true,"sameEndpointAfterRestart":true,"credentialRotated":true,"readonlyStatus":true,"chatSubmissions":0,"existingProfilesRead":false})
+        json!({"accepted":true,"concurrentAuthOneService":true,"sameEndpointAfterRestart":true,"credentialRotated":true,"readonlyStatus":true,"actualPrivateRfbViewer":settings.host.viewer_assets.is_some(),"physicalUiObserved":false,"chatSubmissions":0,"existingProfilesRead":false})
     );
 }
 
@@ -136,6 +192,7 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
                 .expect("qualified official app rootfs required")
                 .into(),
         ),
+        ..Default::default()
     };
     let mut host = OwnedHost::start(&config, &root).await.unwrap();
     assert_eq!(

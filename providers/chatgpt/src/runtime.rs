@@ -34,6 +34,8 @@ struct Binding {
     process: Process,
     port: u16,
     token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    viewer_capability: Option<String>,
 }
 fn key() -> String {
     digest(&"termux-codex-responses-service-v1")
@@ -68,6 +70,10 @@ fn validate_binding(value: &Binding) -> Result<(), Error> {
         || value.port == 0
         || value.token.len() != 48
         || !value.token.bytes().all(|b| b.is_ascii_hexdigit())
+        || value
+            .viewer_capability
+            .as_ref()
+            .is_some_and(|v| v.len() != 48 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
     {
         return Err(Error("invalid_service_record"));
     }
@@ -305,6 +311,66 @@ pub async fn stop(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 
+pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
+    if binding(root).is_err() {
+        let path = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
+        let settings = store::Snapshot::open(&path)
+            .and_then(|v| v.config())
+            .map_err(|_| Error("invalid_provider_configuration"))?;
+        if settings.host.viewer_assets.is_none() {
+            return Err(Error("viewer_assets_required"));
+        }
+    }
+    ensure_token(root).await?;
+    let selected = binding(root)?;
+    let capability = selected
+        .viewer_capability
+        .ok_or(Error("provider_viewer_unavailable"))?;
+    let url=format!("http://127.0.0.1:{}/viewer/{capability}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{capability}%2Fwebsock",selected.port);
+    let prefix = PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
+    request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await?;
+    Ok(
+        json!({"viewer_open_requested":true,"physical_ui_confirmed":false,
+        "url_exported":false,"inference_submitted":false}),
+    )
+}
+async fn request_viewer_activity(program: &Path, url: &str) -> Result<(), Error> {
+    let mut command = tokio::process::Command::new(program);
+    command
+        .arg(format!("start -a android.intent.action.VIEW -d {url}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command
+        .spawn()
+        .map_err(|_| Error("viewer_open_unavailable"))?;
+    async fn read(pipe: impl AsyncReadExt + Unpin) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        pipe.take(8193).read_to_end(&mut bytes).await?;
+        if bytes.len() > 8192 {
+            return Err(std::io::Error::other("activity response too large"));
+        }
+        Ok(bytes)
+    }
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let output = tokio::time::timeout(Duration::from_secs(20), async {
+        tokio::try_join!(read(stdout), read(stderr), child.wait())
+    })
+    .await
+    .map_err(|_| Error("viewer_open_unconfirmed"))?
+    .map_err(|_| Error("viewer_open_unconfirmed"))?;
+    if !output.2.success()
+        || [&output.0, &output.1]
+            .iter()
+            .any(|v| String::from_utf8_lossy(v).contains("Error:"))
+    {
+        return Err(Error("viewer_open_unconfirmed"));
+    }
+    Ok(())
+}
+
 pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Result<(), Error> {
     let config = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
     let settings = store::Snapshot::open(&config)
@@ -344,7 +410,17 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     };
     let host = Arc::new(AppHost::new(Arc::new(bridge), journal.clone()));
     let token = random_id()?;
-    let service = Service::configured(config, token.clone(), host.clone())?;
+    let mut service = Service::configured(config, token.clone(), host.clone())?;
+    let mut viewer_capability = None;
+    if let (Some(owned), Some(assets)) = (&owned, &settings.host.viewer_assets) {
+        match crate::viewer::Viewer::new(owned.viewer_socket(), assets.clone(), port) {
+            Ok(viewer) => {
+                viewer_capability = Some(viewer.capability.clone());
+                service = service.with_viewer(viewer)?;
+            }
+            Err(error) => eprintln!("optional viewer unavailable: {}", error.0),
+        }
+    }
     journal.write(
         &key(),
         &Binding {
@@ -352,6 +428,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
             process: Process::read(std::process::id())?,
             port,
             token,
+            viewer_capability,
         },
     )?;
     println!(
@@ -375,4 +452,49 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         host.shutdown().await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn viewer_activity_errors_remain_bounded_static_and_do_not_export_the_url() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root =
+            Cleanup(std::env::temp_dir().join(format!("viewer-activity-{}", random_id().unwrap())));
+        std::fs::create_dir(&root.0).unwrap();
+        let program = root.0.join("am");
+        let shell = std::env::var_os("PREFIX")
+            .map(|v| PathBuf::from(v).join("bin/sh"))
+            .unwrap_or_else(|| PathBuf::from("/bin/sh"));
+        let url = "http://127.0.0.1:1234/private-fixture-capability";
+        std::fs::write(
+            &program,
+            format!(
+                "#!{}\nprintf '%s\\n' \"$1\"\nprintf 'Error: fixture activity rejected\\n'\n",
+                shell.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            request_viewer_activity(&program, url).await,
+            Err(Error("viewer_open_unconfirmed"))
+        );
+        std::fs::write(
+            &program,
+            format!(
+                "#!{}\n[ \"$#\" -eq 1 ] || exit 1\nprintf 'Starting: owned activity\\n'\n",
+                shell.display()
+            ),
+        )
+        .unwrap();
+        assert_eq!(request_viewer_activity(&program, url).await, Ok(()));
+    }
 }

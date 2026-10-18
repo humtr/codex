@@ -369,6 +369,9 @@ impl OwnedHost {
         self.app.stop().await;
         self.display.stop().await;
     }
+    pub fn viewer_socket(&self) -> PathBuf {
+        self._temporary.0.join("viewer")
+    }
 }
 
 #[cfg(test)]

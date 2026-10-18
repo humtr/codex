@@ -49,6 +49,7 @@ pub struct Service {
     token: String,
     host: Arc<dyn Host>,
     sequence: AtomicU64,
+    viewer: Option<Arc<crate::viewer::Viewer>>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -70,6 +71,7 @@ impl Service {
             token,
             host,
             sequence: AtomicU64::new(0),
+            viewer: None,
         }))
     }
     pub fn configured(
@@ -93,7 +95,21 @@ impl Service {
         }
     }
     pub fn router(self: Arc<Self>) -> Router {
-        Router::new().fallback(handler).with_state(self)
+        let viewer = self.viewer.clone();
+        let router = Router::new().fallback(handler).with_state(self);
+        match viewer {
+            Some(viewer) => router.merge(viewer.router()),
+            None => router,
+        }
+    }
+    pub fn with_viewer(
+        mut self: Arc<Self>,
+        viewer: Arc<crate::viewer::Viewer>,
+    ) -> Result<Arc<Self>, Error> {
+        Arc::get_mut(&mut self)
+            .ok_or(Error("provider_already_shared"))?
+            .viewer = Some(viewer);
+        Ok(self)
     }
 }
 
@@ -343,10 +359,14 @@ pub async fn serve(
         return Err(std::io::Error::other("provider must bind loopback"));
     }
     let stop = service.shutdown.clone();
+    let viewer = service.viewer.clone();
     axum::serve(listener, service.router())
         .with_graceful_shutdown(async move {
             shutdown.cancelled().await;
             stop.cancel();
+            if let Some(viewer) = viewer {
+                viewer.close();
+            }
         })
         .await
 }

@@ -18,6 +18,7 @@ pub const FIELDS: &[&str] = &[
     "history.create_if_missing",
     "catalog",
     "host.rootfs",
+    "host.viewer_assets",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,8 @@ impl Default for Config {
 pub struct HostConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rootfs: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer_assets: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,14 +162,18 @@ impl Config {
             return Err(ConfigError::Invalid("unsupported configuration version"));
         }
         self.catalog.validate()?;
-        if self.host.rootfs.as_ref().is_some_and(|p| {
-            !p.is_absolute()
-                || p.to_str().is_none_or(|s| s.contains([':', '\0']))
-                || p.components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-        }) {
+        if [&self.host.rootfs, &self.host.viewer_assets]
+            .into_iter()
+            .flatten()
+            .any(|p| {
+                !p.is_absolute()
+                    || p.to_str().is_none_or(|s| s.contains([':', '\0']))
+                    || p.components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+            })
+        {
             return Err(ConfigError::Invalid(
-                "host rootfs must be an absolute unambiguous path",
+                "host paths must be absolute and unambiguous",
             ));
         }
 

@@ -17,3 +17,4 @@ pub mod responses;
 pub mod runtime;
 pub mod server;
 pub mod store;
+pub mod viewer;

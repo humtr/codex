@@ -1202,6 +1202,19 @@ Existing bounded teardown of that service's own child groups is unchanged.
 An unavailable kernel signaling capability fails explicitly. Stopping this service
 does not stop the native Codex engine or undo completed native tool effects.
 
+The optional Rust-host viewer reuses that Provider service and its owned private
+RFB Unix socket; no Bun/Python daemon or second app process is introduced. An
+explicit host.viewer_assets setting selects already provisioned noVNC assets.
+Absent/broken viewer assets must not prevent inference. Expose viewer HTTP and
+WebSocket only on loopback behind a separate random capability, with no-store and
+no-referrer headers and exact local-origin checks on WebSocket/control requests.
+Reject traversal, symlinks and unexpected/oversized assets. The viewer capability
+never authenticates Responses or general app/CDP operations. An explicit `view`
+may start the Provider and open its private URL in Android through Termux; it
+neither logs that URL nor submits Chat messages. Preserve mobile keyboard toggle,
+manual keyboard, scroll/drag, Esc and fullscreen controls. Viewing is optional for
+inference and does not establish successful fresh login or correct physical UI.
+
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
 process, usable through upstream configuration without Manager or enhanced TUI.

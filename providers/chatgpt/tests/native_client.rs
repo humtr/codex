@@ -420,6 +420,7 @@ fi
                             .expect("qualified app rootfs required")
                             .into(),
                     ),
+                    ..Default::default()
                 },
                 &state,
             )

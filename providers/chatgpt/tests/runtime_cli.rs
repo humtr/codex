@@ -345,4 +345,18 @@ fn unconfigured_authentication_never_installs_an_app_or_changes_native_configura
     assert!(!root.0.join("state/desktop").exists());
     assert!(!root.0.join("config").exists());
     assert!(!root.0.join(".codex").exists());
+    let viewer = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .arg("view")
+        .arg("--state")
+        .arg(root.0.join("view-state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!viewer.status.success());
+    assert!(String::from_utf8_lossy(&viewer.stderr).contains("viewer_assets_required"));
+    assert!(
+        !root.0.join("view-state").exists(),
+        "unconfigured viewing must not start an app or service"
+    );
 }

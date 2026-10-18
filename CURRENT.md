@@ -229,6 +229,10 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-native-question.log / provider-presentation-native-composed.log | Actual Android blocking native question answers Alpha on original host call; one native user turn, two synthetic app dispatches, no user resubmission. All five native executor/reviewer/MCP plus five context/fork/question fixtures pass. Physical question TUI not observed |
 | provider-android-executable-smoke.json | Hosted39127309252/source45a500e Android API24/Rust1.98 candidate inventory matches and executes help/models/config validate on Android without config/app/state writes or Chat. Unsigned, not stable install admission |
 | provider-explicit-stop-android.log / provider-explicit-stop-full.log | PID-bound explicit service stop works on Android, rejects a forged start-time record without stopping the real owner, preserves journal/profile and supports same-endpoint restart;72 Rust/102 Bun/28 Python plus fmt/clippy/release; no Chat |
+| provider-tui-handoff-final-android.json | Actual same-thread PTY round trip with ff2682d executable8d84f1dd…, real checkpoint encoding, four synthetic Responses including exactly one reverse summary; no Chat/operating mutation. Exact composed input digests retained; hosted full TUI acceptance still finishing |
+| provider-viewer-wire.log / provider-viewer-owned-android-final.log | Actual Rust HTTP/WebSocket/private RFB; capability versus Responses auth, origin/traversal/symlink boundaries, controls and peer shutdown. Fresh official-app profile boots/serves actual RFB from the same service, concurrent auth coalesces, service/viewer credentials rotate on restart; no existing profile or Chat, physical UI not observed |
+| provider-viewer-qualified-serial.log / provider-viewer-cdp-auth-readonly.log |74 regular Rust/102 Bun/28 Python plus fmt/clippy/release; WebSocket stack unified at0.29, actual authenticated relay capability/identity preflight stays green without hooks or Chat. An earlier parallel-Cargo run hit generated executable ETXTBSY; serialized full gate passes |
+| provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -239,7 +243,9 @@ publish them wholesale. Repository records contain only safe scope/results.
 
 Hosted exact source5e0d396 passed source39117103778, Provider39117103775 and Core/
 runtime39117140293. TUI728cf26 built but39122849434 failed a test-only AbsolutePathBuf assignment;
-ff2682d fixes it and39126312868 is pending. Never admit the failed proof.
+ff2682d fixed compilation;39126312868 passed50 focused +94 retained upstream
+checks but failed a test-only format lint.15da596 fixes that lint;39129327503 is
+pending. Never admit either failed proof.
 TUI310f0f7 passed39107948384 with48 focused and94 retained
 upstream checks/lint. Later source edits require matching gates; these are not
 proof of a new signed public composition. Ignored Android/live tests count only
@@ -276,7 +282,9 @@ qualification. Unsupported box components remained in its final transcript.
    host-loss/cancellation/concurrency/reboot qualification. Authenticated Rust boot/inference now works; its reversible
    device test restored the old controller and original home directory inode.
    Explicit PID-bound Provider service stop now passes without altering native
-   history; permanent operating migration and fresh login/provisioning/viewer remain.
+   history; permanent operating migration and fresh login/provisioning remain. Optional
+   Rust viewer now reuses the service/private RFB with configured noVNC assets;
+   actual fresh-profile RFB and restart/revocation pass, physical UI remains.
 2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
    native↔Chat transfer with pending results/cold resume. An actual Android PTY
    /model round trip now passes with real checkpoint encoding and synthetic
@@ -311,8 +319,9 @@ qualification. Unsupported box components remained in its final transcript.
 6. Provider CI now defines an independent Android/API24 NDK candidate after the
    offline gate, with exact source/lock/toolchain/digest inventory, no Core/Manager
    linkage or bundled app/auth. It is explicitly unsigned and not device-admitted.
-   Finish optional signed package/provisioning inventory and composition: Base alone,
-   Manager without TUI, TUI/Provider without Manager, direct --profile and Full opt-in
+   TUI/Provider without Manager now passes an actual Android same-thread round trip
+   against current Core; final signed composition remains. Finish optional signed
+   package/provisioning inventory, Base alone, Manager without TUI, direct --profile and Full opt-in
    /model; missing/incompatible artifacts and install/reinstall/update/rollback.
 7. Preserve unique experiment probes, licenses and uncommitted1m edits before
    removing superseded runtime/closing its branch. Retain admitted signed rollback

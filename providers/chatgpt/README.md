@@ -34,6 +34,17 @@ and configuration, refuses a mismatched/reused process and reports an unconfirme
 stop without force-killing the service. Native Codex and completed tool effects
 are not rolled back. Older kernels without the handle capability fail explicitly.
 
+The candidate optional `view [--state PATH]` uses configured `host.viewer_assets`
+(an already provisioned noVNC tree). It reuses the Rust service and private RFB
+socket, with a separate temporary viewer capability; no Bun/Python viewer process
+is needed. The URL is neither printed nor logged. `view` can start a configured
+Provider but sends no Chat message; missing viewer settings refuse before startup.
+An absent/broken viewer never prevents ordinary inference. Save host settings
+before startup; changing them does not restart a live owner. Mobile keyboard auto
+and manual controls, scrolling/drag, Esc and fullscreen assets are retained.
+Actual private RFB/version and capability-revocation proof is separate from fresh
+login and physical screen/keyboard acceptance.
+
 These paths have deterministic TCP/app-wire fixtures and actual Android Codex
 native-command/transcript proof. Rust directly boots/stops a fresh official app
 through private Chromium pipes, PRoot and Xvnc; no Bun/Python host is required for

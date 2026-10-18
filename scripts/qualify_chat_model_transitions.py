@@ -35,6 +35,11 @@ def probe(args):
     home = None
     try:
         home, prefix, env = fixture(root, args.core, args.frontend)
+        if args.without_manager:
+            # Verified generated fixture copy only; never the installed Manager.
+            manager=home/'.local/lib/codex/core/generations/local-permission-fixture/manager'
+            assert manager.is_file() and not manager.is_symlink()
+            manager.unlink()
         env['XDG_CONFIG_HOME'] = str(root / 'config')
         for name in ['native-models.json', 'models_cache.json']:
             path = home / '.codex' / name
@@ -173,14 +178,25 @@ def probe(args):
             # Whitespace closes slash-name completion before submitting the
             # command, so Enter cannot merely accept an autocomplete candidate.
             submit('/model ')
-            wait(lambda: 'Select Model and Effort' in screen)
-            assert 'ChatGPT · GPT-6' in screen and 'GPT-6.1-Sol' in screen
+            wait(lambda: 'Select Model and Effort' in screen and
+                 'ChatGPT · GPT-6' in screen and 'GPT-6.1-Sol' in screen)
             os.write(master, b'\x1b[F')
             drain(.3)
             os.write(master, b'\r')
 
         wait(lambda: len(loaded()) == 1)
         thread = loaded()[0]
+        diagnostics=[]
+        for proc in Path('/proc').glob('[0-9]*'):
+            try:
+                if Path(os.readlink(proc/'exe'))!=home/'.local/lib/codex/core/generations/local-permission-fixture/helpers/2':
+                    continue
+                values=dict(v.split(b'=',1) for v in (proc/'environ').read_bytes().split(b'\0') if b'=' in v)
+                diagnostics.append({k:values.get(k.encode(),b'').decode(errors='replace')
+                    for k in ['HOME','CODEX_HOME','CODEX_PROFILE_CORE','CODEX_TERMUX_BACKEND_STARTUP']})
+            except (OSError,ValueError):pass
+        (root/'safe-runtime.json').write_text(json.dumps(diagnostics,indent=2)+'\n')
+        assert len(diagnostics)==1, 'the selected Core did not execute the qualified frontend; use --build-core or verify the artifact source'
         rpc(home, 'thread/name/set', {'threadId': thread, 'name': 'Owned transition fixture'})
         drain(.5)
         submit('Keep OWNED_PUBLIC_WORK_STATE_7K2Q while changing providers')
@@ -215,6 +231,8 @@ def probe(args):
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,
+                'managerAbsent': args.without_manager,
+                'coreBuiltFromCurrentSource': args.build_core,
                 'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'),
                     'sha256').hexdigest() for name in ['core', 'frontend', 'provider']}}
     finally:
@@ -249,9 +267,18 @@ def probe(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ['core', 'frontend', 'provider', 'report']:
+    core=parser.add_mutually_exclusive_group(required=True)
+    core.add_argument('--core',type=Path,help='Explicit prequalified Core artifact; does not assert current source')
+    core.add_argument('--build-core',action='store_true',help='Build this checkout Core into XDG cache before qualification')
+    for name in ['frontend', 'provider', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--without-manager', action='store_true')
     args = parser.parse_args()
+    if args.build_core:
+        source=Path(__file__).resolve().parents[1]
+        target=Path(os.environ.get('XDG_CACHE_HOME',str(Path.home()/'.cache')))/'codex/check-target'
+        subprocess.run(['cargo','build','--locked','-p','codex','--target-dir',str(target)],cwd=source,check=True)
+        args.core=target/'debug/codex'
     for name in ['core', 'frontend', 'provider']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
     report = probe(args)
