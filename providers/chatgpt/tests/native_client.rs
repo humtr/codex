@@ -26,6 +26,10 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct State {
+    lanes: std::collections::BTreeMap<String, State>,
+    review_program: String,
+    reviewer: bool,
+    deny_review: bool,
     gateway: String,
     round: String,
     stage: usize,
@@ -62,132 +66,171 @@ impl Bridge for App {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let this = self.clone();
         Box::pin(async move {
-            let mut s = this.0.lock().unwrap();
-            s.commands.push(command.clone());
-            if s.fail_identity && command["op"] == "identity" {
-                return Err(Error("qualification_expected_failure"));
-            }
-            match command["op"].as_str().unwrap() {
-                "identity" => Ok(
-                    json!({"generation":"fixture","account":"fixture-account","user":"fixture-user","structure":"personal","present":!s.gateway.is_empty()}),
-                ),
-                "open" => {
-                    s.gateway = command["signature"]["name"].as_str().unwrap().into();
-                    Ok(json!({"localId":"fixture"}))
-                }
-                "submit" => {
-                    s.stage += 1;
-                    s.round = command["round"].as_str().unwrap().into();
-                    if s.mcp {
-                        if let Some(catalog)=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")) {
+            let mut all = this.0.lock().unwrap();
+            all.commands.push(command.clone());
+            let key = command["lane"].as_str().unwrap_or("service").to_owned();
+            let mut lane = all.lanes.remove(&key).unwrap_or_default();
+            lane.mcp = all.mcp;
+            lane.reject_first = all.reject_first;
+            lane.fail_identity = all.fail_identity;
+            lane.review_program = all.review_program.clone();
+            lane.deny_review = all.deny_review;
+            let result = fixture_operation(&mut lane, command);
+            all.lanes.insert(key, lane);
+            result
+        })
+    }
+}
+fn fixture_operation(s: &mut State, command: Value) -> Result<Value, Error> {
+    s.commands.push(command.clone());
+    if s.fail_identity && command["op"] == "identity" {
+        return Err(Error("qualification_expected_failure"));
+    }
+    match command["op"].as_str().unwrap() {
+        "identity" => Ok(
+            json!({"generation":"fixture","account":"fixture-account","user":"fixture-user","structure":"personal","present":!s.gateway.is_empty()}),
+        ),
+        "open" => {
+            s.gateway = command["signature"]["name"].as_str().unwrap().into();
+            Ok(json!({"localId":"fixture"}))
+        }
+        "submit" => {
+            s.stage += 1;
+            s.reviewer |= command["instructions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|v| {
+                    v.starts_with("Return only JSON conforming to this schema")
+                        && v.contains("\"outcome\"")
+                });
+            s.round = command["round"].as_str().unwrap().into();
+            if s.mcp {
+                if let Some(catalog)=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")) {
                             let tools:Value=serde_json::from_str(catalog).unwrap();
                             s.search_key=tools.as_object().unwrap().keys().find(|k|k.rsplit('.').next()==Some("tool_search")).ok_or(Error("fixture_search_unavailable"))?.clone();
                             let found=tools.as_object().unwrap().keys().find(|k|k.contains("fixture") && (k.ends_with(".echo") || k.ends_with("__echo"))).cloned();
                             if s.stage==1 {assert!(found.is_none(),"fixture MCP tools must actually start deferred")}
                             if let Some(key)=found {s.mcp_key=key;}
                         }
-                    }
-                    if s.stage == 1 {
-                        let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
-                        let tools: Value = serde_json::from_str(catalog).unwrap();
-                        s.patch_key = tools
-                            .as_object()
-                            .unwrap()
-                            .keys()
-                            .find(|k| k.rsplit('.').next() == Some("apply_patch"))
-                            .ok_or(Error("fixture_custom_patch_unavailable"))?
-                            .clone();
-                        s.key = tools
-                            .as_object()
-                            .unwrap()
-                            .keys()
-                            .find(|k| {
-                                matches!(
-                                    k.rsplit('.').next(),
-                                    Some("exec_command" | "shell_command" | "shell")
-                                )
-                            })
-                            .ok_or_else(|| {
-                                eprintln!(
-                                    "fixture tool names: {:?}",
-                                    tools.as_object().unwrap().keys().collect::<Vec<_>>()
-                                );
-                                Error("fixture_shell_unavailable")
-                            })?
-                            .clone();
-                    }
-                    Ok(json!({"started":true}))
-                }
-                "snapshot" => {
-                    if s.stopped {
-                        return Ok(json!({"round":s.round,"stopped":true}));
-                    }
-                    let round = s.stage - usize::from(s.reject_first);
-                    let stage = if s.mcp {
-                        round.saturating_sub(2)
-                    } else {
-                        round
-                    };
-                    let message = if s.reject_first && s.stage == 1 {
-                        json!({"id":"rejected-host-call","author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":"mcp__fixture.guessed_echo","input":"{}"}}).to_string()},"status":"finished_successfully","end_turn":false})
-                    } else if s.mcp && round <= 2 {
-                        let (name, input) = if round == 1 {
-                            (
-                                &s.search_key,
-                                json!({"query":"fixture echo verification","limit":1}).to_string(),
-                            )
-                        } else {
-                            if s.mcp_key.is_empty() {
-                                return Err(Error("fixture_discovered_mcp_unavailable"));
-                            }
-                            (
-                                &s.mcp_key,
-                                json!({"text":"native_mcp_verified"}).to_string(),
-                            )
-                        };
-                        json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":name,"input":input,"report":"Discover and verify the native MCP tool"}}).to_string()},"status":"finished_successfully","end_turn":false})
-                    } else if stage < 4 {
-                        let script = if stage == 1 {
-                            "printf 'effect-1\\n' >> effect-count; printf 'first result'"
-                        } else {
-                            "test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count && printf 'verified'"
-                        };
-                        let args = if s.key.ends_with("exec_command") {
-                            json!({"cmd":script,"max_output_tokens":1000})
-                        } else if s.key.ends_with("shell_command") {
-                            json!({"command":script,"timeout_ms":10000,"max_output_chars":1000})
-                        } else {
-                            json!({"command":["bash","-c",script],"timeout_ms":10000})
-                        };
-                        let (key, input) = if stage == 2 {
-                            (&s.patch_key,"*** Begin Patch\n*** Add File: patched.txt\n+real custom tool\n*** End Patch".to_string())
-                        } else {
-                            (&s.key, args.to_string())
-                        };
-                        json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":key,"input":input,"report":format!("Native fixture step {}",s.stage)}}).to_string()},"status":"finished_successfully","end_turn":false})
-                    } else {
-                        json!({"id":"final","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Native executor verified"]},"status":"finished_successfully","end_turn":true})
-                    };
-                    let user_objects = s
-                        .commands
-                        .iter()
-                        .filter(|v| v["op"] == "submit")
-                        .flat_map(|v| v["messages"].as_array().unwrap().iter())
-                        .filter(|v| v["role"] == "user")
-                        .count();
-                    Ok(
-                        json!({"round":s.round,"messages":[message],"terminals":["done"],"roundStarts":1,"userMessages":user_objects,"toolMessages":s.stage-1,"dispatches":s.stage}),
-                    )
-                }
-                "stop" => {
-                    s.stopped = true;
-                    Ok(json!({}))
-                }
-                _ => Err(Error("fixture_unexpected_operation")),
             }
-        })
+            if s.stage == 1 && !s.reviewer {
+                let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
+                let tools: Value = serde_json::from_str(catalog).unwrap();
+                s.patch_key = tools
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .find(|k| k.rsplit('.').next() == Some("apply_patch"))
+                    .ok_or(Error("fixture_custom_patch_unavailable"))?
+                    .clone();
+                s.key = tools
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .find(|k| {
+                        matches!(
+                            k.rsplit('.').next(),
+                            Some("exec_command" | "shell_command" | "shell")
+                        )
+                    })
+                    .ok_or_else(|| {
+                        eprintln!(
+                            "fixture tool names: {:?}",
+                            tools.as_object().unwrap().keys().collect::<Vec<_>>()
+                        );
+                        Error("fixture_shell_unavailable")
+                    })?
+                    .clone();
+            }
+            Ok(json!({"started":true}))
+        }
+        "snapshot" => {
+            if s.stopped {
+                return Ok(json!({"round":s.round,"stopped":true}));
+            }
+            let round = s.stage - usize::from(s.reject_first);
+            let stage = if s.mcp {
+                round.saturating_sub(2)
+            } else {
+                round
+            };
+            let message = if s.reviewer {
+                let assessment = json!({"risk_level":"low","user_authorization":"high","outcome":if s.deny_review{"deny"}else{"allow"},"rationale":"Only the operator-owned disposable fixture program is in scope; apply this qualification decision."});
+                json!({"id":format!("review-{}",s.stage),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[assessment.to_string()]},"status":"finished_successfully","end_turn":true})
+            } else if s.reject_first && s.stage == 1 {
+                json!({"id":"rejected-host-call","author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":"mcp__fixture.guessed_echo","input":"{}"}}).to_string()},"status":"finished_successfully","end_turn":false})
+            } else if s.mcp && round <= 2 {
+                let (name, input) = if round == 1 {
+                    (
+                        &s.search_key,
+                        json!({"query":"fixture echo verification","limit":1}).to_string(),
+                    )
+                } else {
+                    if s.mcp_key.is_empty() {
+                        return Err(Error("fixture_discovered_mcp_unavailable"));
+                    }
+                    (
+                        &s.mcp_key,
+                        json!({"text":"native_mcp_verified"}).to_string(),
+                    )
+                };
+                json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":name,"input":input,"report":"Discover and verify the native MCP tool"}}).to_string()},"status":"finished_successfully","end_turn":false})
+            } else if stage < 4 {
+                let script = if !s.review_program.is_empty() {
+                    format!(
+                        "{} {}",
+                        s.review_program,
+                        if stage == 1 { "first" } else { "verify" }
+                    )
+                } else if stage == 1 {
+                    "printf 'effect-1\\n' >> effect-count; printf 'first result'".to_owned()
+                } else {
+                    "test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count && printf 'verified'".to_owned()
+                };
+                let mut args = if s.key.ends_with("exec_command") {
+                    json!({"cmd":script,"max_output_tokens":1000})
+                } else if s.key.ends_with("shell_command") {
+                    json!({"command":script,"timeout_ms":10000,"max_output_chars":1000})
+                } else {
+                    json!({"command":["bash","-c",script],"timeout_ms":10000})
+                };
+                if !s.review_program.is_empty() {
+                    args["sandbox_permissions"] = json!("require_escalated");
+                    args["justification"]=json!("Execute only the operator-owned disposable qualification program under native automatic review.");
+                    if s.key.ends_with("exec_command") {
+                        args["login"] = json!(false);
+                    }
+                }
+                let (key, input) = if stage == 2 {
+                    (&s.patch_key,"*** Begin Patch\n*** Add File: patched.txt\n+real custom tool\n*** End Patch".to_string())
+                } else {
+                    (&s.key, args.to_string())
+                };
+                json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":key,"input":input,"report":format!("Native fixture step {}",s.stage)}}).to_string()},"status":"finished_successfully","end_turn":false})
+            } else {
+                json!({"id":"final","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[if s.deny_review{"Native denial enforced"}else{"Native executor verified"}]},"status":"finished_successfully","end_turn":true})
+            };
+            let user_objects = s
+                .commands
+                .iter()
+                .filter(|v| v["op"] == "submit")
+                .flat_map(|v| v["messages"].as_array().unwrap().iter())
+                .filter(|v| v["role"] == "user")
+                .count();
+            Ok(
+                json!({"round":s.round,"messages":[message],"terminals":["done"],"roundStarts":1,"userMessages":user_objects,"toolMessages":s.stage-1,"dispatches":s.stage}),
+            )
+        }
+        "stop" => {
+            s.stopped = true;
+            Ok(json!({}))
+        }
+        _ => Err(Error("fixture_unexpected_operation")),
     }
 }
+
 struct Root(PathBuf, bool);
 impl Drop for Root {
     fn drop(&mut self) {
@@ -203,22 +246,34 @@ impl Drop for Root {
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_executes_commands_custom_patch_and_validation_with_generated_catalog()
 {
-    native_fixture(false, false).await;
+    native_fixture(false, false, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_discovers_and_executes_deferred_mcp_tools_before_local_work() {
-    native_fixture(true, false).await;
+    native_fixture(true, false, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn actual_native_client_recovers_unadvertised_tool_with_original_call_error_then_discovers() {
-    native_fixture(true, true).await;
+    native_fixture(true, true, false, false).await;
 }
 
-async fn native_fixture(mcp: bool, reject_first: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn actual_native_client_auto_reviewer_uses_independent_provider_lane_and_json_contract() {
+    native_fixture(false, false, true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn actual_native_client_auto_reviewer_denial_prevents_the_owned_commands() {
+    native_fixture(false, false, true, true).await;
+}
+
+async fn native_fixture(mcp: bool, reject_first: bool, reviewer: bool, deny_review: bool) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
@@ -227,8 +282,8 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
     assert!(!(live_descriptor.is_some() && owned_state.is_some()));
     let is_live = live_descriptor.is_some() || owned_state.is_some();
     assert!(
-        !mcp || !is_live,
-        "MCP discovery fixture never enables live inference"
+        !(mcp || reviewer) || !is_live,
+        "MCP/reviewer fixtures never enable live inference"
     );
     let failure_proof = std::env::var_os("CODEX_PROVIDER_EXPECT_FAILURE").is_some_and(|value| {
         assert_eq!(value, "qualification_expected_failure");
@@ -307,6 +362,47 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
     app.0.lock().unwrap().fail_identity = failure_proof;
     app.0.lock().unwrap().mcp = mcp;
     app.0.lock().unwrap().reject_first = reject_first;
+    app.0.lock().unwrap().deny_review = deny_review;
+    if reviewer {
+        let program = root.0.join("work/reviewed-fixture");
+        fs::write(&program,format!(r#"#!{}/bin/sh
+if [ "$1" = first ]; then
+  printf 'effect-1\n' >> effect-count
+  printf 'first result'
+else
+  test "$(wc -l < effect-count)" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\n' >> effect-count && printf 'verified'
+fi
+"#,prefix.display())).unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        let program_text = program.display().to_string();
+        assert!(
+            program_text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b)),
+            "fixture requires a plain literal program path for native prefix-rule matching"
+        );
+        app.0.lock().unwrap().review_program = program_text;
+        let rules = root.0.join("codex/rules");
+        fs::create_dir(&rules).unwrap();
+        fs::write(
+            rules.join("fixture.rules"),
+            format!(
+                "prefix_rule(pattern = [{}], decision = \"prompt\")\n",
+                json!(program)
+            ),
+        )
+        .unwrap();
+        fs::write(root.0.join("system/config.toml"),"sandbox_mode=\"danger-full-access\"\napproval_policy=\"on-request\"\napprovals_reviewer=\"auto_review\"\n[features]\nguardian_approval=true\n").unwrap();
+        fs::write(
+            root.0.join("codex/config.toml"),
+            format!(
+                "[projects.{}]\ntrust_level=\"trusted\"\n",
+                json!(root.0.join("work"))
+            ),
+        )
+        .unwrap();
+    }
+
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
     let mut owned = if let Some(state) = owned_state {
         Some(
@@ -443,6 +539,25 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
         &format!("http://127.0.0.1:{port}/v1"),
     )
     .unwrap();
+    if reviewer {
+        // Match /model's routing overlay: keep the existing native user config
+        // and its rules instead of selecting another upstream config profile.
+        let mut settings: toml::Table =
+            toml::from_str(&fs::read_to_string(root.0.join("codex/chatgpt.config.toml")).unwrap())
+                .unwrap();
+        settings.insert("sandbox_mode".into(), "danger-full-access".into());
+        settings.insert("approval_policy".into(), "on-request".into());
+        settings.insert("approvals_reviewer".into(), "auto_review".into());
+        settings.insert(
+            "features".into(),
+            toml::Value::try_from(json!({"guardian_approval":true})).unwrap(),
+        );
+        fs::write(
+            root.0.join("system/config.toml"),
+            toml::to_string(&settings).unwrap(),
+        )
+        .unwrap();
+    }
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
     let service = Service::new(config.clone(), token.clone(), host.clone()).unwrap();
@@ -527,6 +642,7 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
     command
         .env_clear()
         .env("PATH", prefix.join("bin"))
+        .env("SHELL", prefix.join("bin/bash"))
         .env("PREFIX", &prefix)
         .env("HOME", root.0.join("home"))
         .env("CODEX_HOME", root.0.join("codex"))
@@ -538,14 +654,13 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
                 .map(|v| v.0.clone())
                 .unwrap_or_else(|| root.0.join("work")),
         )
-        .args([
-            "exec",
-            "--json",
-            "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--profile",
-            "chatgpt",
-        ]);
+        .args(["exec", "--json", "--skip-git-repo-check"]);
+    if !reviewer {
+        command.args(["--profile", "chatgpt"]);
+        command.arg("--dangerously-bypass-approvals-and-sandbox");
+    } else {
+        command.env("RUST_LOG","codex_core::exec_policy=trace,codex_core::guardian=trace,codex_core::tools::orchestrator=trace");
+    }
     if resume.is_some() {
         command.arg("resume").arg(
             std::env::var("CODEX_PROVIDER_RESUME_THREAD").expect("exact native thread required"),
@@ -624,6 +739,10 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
     }
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
+    if reviewer {
+        fs::write(root.0.join("native.stderr"), &result.stderr).unwrap();
+        fs::write(root.0.join("native.stdout"), &result.stdout).unwrap();
+    }
     if failure_proof {
         assert!(!result.status.success());
         assert!(
@@ -644,7 +763,11 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
     );
     if development.is_none() {
         assert!(
-            stdout.contains("Native executor verified"),
+            stdout.contains(if deny_review {
+                "Native denial enforced"
+            } else {
+                "Native executor verified"
+            }),
             "{stdout}\n{stderr}"
         );
     } else {
@@ -660,7 +783,7 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
         stdout.contains("command_execution"),
         "native transcript omitted tool execution: {stdout}"
     );
-    if development.is_none() {
+    if development.is_none() && !deny_review {
         assert_eq!(
             fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
             "effect-1\neffect-2\n"
@@ -742,6 +865,33 @@ async fn native_fixture(mcp: bool, reject_first: bool) {
         return;
     }
     let s = app.0.lock().unwrap();
+    if reviewer {
+        if deny_review {
+            assert!(
+                !root.0.join("work/effect-count").exists(),
+                "denied native commands must never execute"
+            );
+        }
+        let reviewers = s.lanes.values().filter(|v| v.reviewer).collect::<Vec<_>>();
+        assert!(
+            !reviewers.is_empty(),
+            "actual native approvals must invoke the reviewer"
+        );
+        assert!(reviewers.iter().map(|v| v.stage).sum::<usize>() >= 2);
+        assert!(
+            s.lanes
+                .values()
+                .map(|v| &v.gateway)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                >= 2
+        );
+        println!(
+            "{}",
+            json!({"accepted":true,"actualNativeAutoReview":true,"reviewerModelStarts":reviewers.iter().map(|v|v.stage).sum::<usize>(),"independentLanes":true,"reviewerDenied":deny_review,"nativeEffects":if deny_review{1}else{3},"chatSubmissions":0})
+        );
+        return;
+    }
     let submissions = s
         .commands
         .iter()

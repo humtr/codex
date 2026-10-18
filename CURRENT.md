@@ -76,7 +76,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 4 | Shared config/catalog and TUI | Mutable data authority, generated command-auth profile/catalog and same-provider model/effort source passed; actual admitted TUI composition/activation pending |
 | 5 | Native context transitions | Manual compact/one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; source TUI integration added, UI/automatic/interrupted/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
-| 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; full native tool/reviewer/questions/concurrency, output loss, host crash/reboot remain |
+| 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny and distinct lanes pass without Chat; questions/concurrency, output loss, host crash/reboot remain |
 | 8 | Independent MCP and efficiency | Independent MCP still retained legacy source/offline proof, not Rust/admitted fallback; qualify Termux Codex original-call ACK, tool discovery and native host search; improve argument/output overhead |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
@@ -217,6 +217,8 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-handoff-live-native.log / provider-handoff-live-state | Real GPT-6 response and readable summary across native API provider re-entry, two app dispatches/four user objects, source responses synthetic; not yet actual TUI/device activation |
 | provider-native-mcp-discovery.log / provider-native-mcp-discovery-fixed.log | Actual native deferred search first exposed a prefix defect: upstream drops function-only name from a search item. After canonical normalization, discovery→one MCP effect→commands/custom patch/validation→final passed; six fixture dispatches, five returns, no Chat |
 | provider-gateway-correction.log / provider-native-correction-regressions.log | Rejected gateway batch returns a structured error on its original ID; no partial native execution/new user input. Actual correction→search→MCP→patch/tests passes with six Responses requests/seven fixture app dispatches, five native returns/one error return. Three-correction limit, lost reply/no resend and account-change refusal pass; no Chat |
+| provider-native-reviewer-final.log / provider-native-reviewer-composed.log | Actual Android danger-full-access + on-request + auto_review; two reviewer decisions per case, distinct primary/reviewer gateways, schema-valid allow/deny, three allowed effects versus one permitted patch and zero denied-command effects; synthetic app/no Chat |
+| provider-reviewer-full.log |66 regular Rust/102 Bun/28 Python plus fmt/clippy/release build; actual native companion run separately passes five executor/reviewer/MCP and four context/fork fixtures, no Chat |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -266,8 +268,15 @@ qualification. Unsupported box components remained in its final transcript.
 3. Native tool search/MCP discovery now passes against an owned local MCP fixture;
    its tool executes once and appears with its result in the native transcript.
    This is native Codex MCP, not the separate Chat-side MCP return fallback.
-   Finish host search, JSON/freeform/batch errors, interactive questions and independent reviewer/guardian with sibling
-   isolation. The full-permission AI trial did not qualify autoreviewer policy.
+   Actual native auto_review now invokes independent Provider reviewer lanes with
+   schema-valid decisions: allow executes the owned commands, deny prevents both;
+   the separately permitted patch remains. Replies are synthetic, not Chat judgment
+   qualification. Finish host search, JSON/freeform/batch errors, interactive
+   questions, real reviewer judgment and project/guardian/sibling isolation.
+   Native prefix-rule matching currently misses double-quoted executable paths:
+   upstream shell-command/src/bash.rs accepts command_name only as a word. The
+   prompt-rule fixture uses a plain owned path; do not generalize that proof to
+   quoted paths or rewrite model commands in Provider to hide this upstream issue.
 4. Qualify the independent MCP return on original host call IDs using configurable
    Termux Codex identity; no automatic unqualified fallback or Codex Native2 naming
    dependency. Keep native executor/transcript ownership upstream.

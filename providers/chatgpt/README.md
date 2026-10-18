@@ -100,6 +100,13 @@ remain native errors. Actual Android discovery/correction fixtures pass without
 Chat inference; this does not establish Chat allowance debits or real-model
 correction quality across tasks.
 
+Actual native automatic-review fixtures also use independent Provider lanes for
+primary and reviewer requests, preserve the native JSON decision schema, execute
+allowed owned commands and prevent denied commands. These use synthetic replies,
+not qualified real-Chat judgment. Upstream prefix-rule matching misses quoted
+executable paths; the fixture uses a plain owned program path. Provider never
+rewrites command arguments or takes over native approval policy.
+
 Set related fields together, for example:
 
 ```sh
