@@ -358,6 +358,11 @@ qualification. Unsupported box components remained in its final transcript.
    `return_path=mcp`, `connector_name=Termux Codex Provider`; the operating
    config remains unchanged. Tdev and the trial tunnel were simultaneously
    present; neither shares a tunnel ID nor requires changing the other's route.
+   Receipt: `~/.cache/codex/acceptance/provider-android-smoke-UqQrXy/
+   provider-android-smoke.json` (SHA-256
+   `4b4af90a88da3091b3b18937d2f326782d724fbf8cd28c683ed0a2ddee00a308`). A
+   read-only auth preflight returned `provider_already_running` and zero token
+   bytes; no model request or native call was sent. Cause is undetermined.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
