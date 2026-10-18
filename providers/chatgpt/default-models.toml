@@ -1,0 +1,39 @@
+version = 1
+
+[[models]]
+id = "chatgpt-desktop/gpt-6"
+family = "GPT-6"
+display_name = "ChatGPT · GPT-6"
+[[models.routes]]
+effort = "none"
+host_model = "gpt-6"
+[[models.routes]]
+effort = "medium"
+host_model = "gpt-6-thinking"
+thinking_effort = "standard"
+[[models.routes]]
+effort = "high"
+host_model = "gpt-6-thinking"
+thinking_effort = "extended"
+[[models.routes]]
+effort = "xhigh"
+host_model = "gpt-6-thinking"
+thinking_effort = "max"
+
+[[models]]
+id = "chatgpt-desktop/gpt-6-pro"
+family = "GPT-6"
+display_name = "ChatGPT · GPT-6 Pro"
+pro = true
+[[models.routes]]
+effort = "none"
+host_model = "gpt-6-pro"
+
+[[models]]
+id = "chatgpt-desktop/instant"
+family = "GPT-6"
+display_name = "ChatGPT · Instant"
+hidden = true
+[[models.routes]]
+effort = "none"
+host_model = "gpt-6"

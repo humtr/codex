@@ -1,71 +1,142 @@
-//! Provider-owned model capabilities. This describes adapter support, not account entitlement.
-use serde::Serialize;
+//! Model routing is configuration data; it is not proof of host entitlement.
+use crate::config::ConfigError;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ModelCapability {
-    pub id: &'static str,
-    pub family: &'static str,
-    pub display_name: &'static str,
-    pub efforts: &'static [&'static str],
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Catalog {
+    pub version: u32,
+    pub models: Vec<Model>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Model {
+    pub id: String,
+    pub family: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
     pub pro: bool,
-    pub execution_unverified: bool,
+    pub routes: Vec<Route>,
 }
 
-const GPT6_EFFORTS: &[&str] = &["none", "medium", "high", "xhigh"];
-const PRO_EFFORTS: &[&str] = &["none"];
-
-pub const CATALOG: &[ModelCapability] = &[
-    ModelCapability {
-        id: "chatgpt-desktop/gpt-6",
-        family: "GPT-6",
-        display_name: "ChatGPT · GPT-6",
-        efforts: GPT6_EFFORTS,
-        pro: false,
-        execution_unverified: false,
-    },
-    ModelCapability {
-        id: "chatgpt-desktop/gpt-6-pro",
-        family: "GPT-6",
-        display_name: "ChatGPT · GPT-6 Pro",
-        efforts: PRO_EFFORTS,
-        pro: true,
-        execution_unverified: true,
-    },
-];
-
-pub fn find(id: &str) -> Option<&'static ModelCapability> {
-    CATALOG.iter().find(|model| model.id == id)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Route {
+    pub effort: String,
+    pub host_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_effort: Option<String>,
 }
 
-pub fn supports(id: &str, effort: &str) -> bool {
-    find(id).is_some_and(|model| model.efforts.contains(&effort))
+impl Default for Catalog {
+    fn default() -> Self {
+        toml::from_str(include_str!("../default-models.toml"))
+            .expect("bundled default catalog is tested")
+    }
+}
+
+fn label(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+fn identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-:/".contains(&b))
+}
+
+impl Catalog {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.version != 1 || self.models.is_empty() || self.models.len() > 128 {
+            return Err(ConfigError::Invalid("catalog version or size is invalid"));
+        }
+        let mut ids = BTreeSet::new();
+        for model in &self.models {
+            if !identifier(&model.id)
+                || !model.id.starts_with("chatgpt-desktop/")
+                || model.id.len() <= "chatgpt-desktop/".len()
+                || !ids.insert(&model.id)
+                || !label(&model.family)
+                || !label(&model.display_name)
+                || model.routes.is_empty()
+                || model.routes.len() > 16
+            {
+                return Err(ConfigError::Invalid(
+                    "catalog model identity or routes are invalid",
+                ));
+            }
+            let mut efforts = BTreeSet::new();
+            for route in &model.routes {
+                if !identifier(&route.effort)
+                    || !efforts.insert(&route.effort)
+                    || !identifier(&route.host_model)
+                    || route
+                        .thinking_effort
+                        .as_deref()
+                        .is_some_and(|v| !identifier(v))
+                {
+                    return Err(ConfigError::Invalid(
+                        "catalog route is invalid or duplicated",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn find(&self, id: &str) -> Option<&Model> {
+        self.models.iter().find(|model| model.id == id)
+    }
+    pub fn route(&self, id: &str, effort: &str) -> Option<&Route> {
+        self.find(id)?
+            .routes
+            .iter()
+            .find(|route| route.effort == effort)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn catalog_contains_only_currently_admitted_rust_models() {
-        assert_eq!(CATALOG.len(), 2);
-        assert!(find("chatgpt-desktop/gpt-6").is_some());
-        assert!(find("chatgpt-desktop/gpt-5.6-sol").is_none());
-        assert!(find("chatgpt-desktop/gpt-6-sol").is_none());
-        assert!(
-            find("chatgpt-desktop/gpt-6-pro")
+    fn defaults_preserve_current_gpt6_routes_and_legacy_alias_without_56() {
+        let catalog = Catalog::default();
+        catalog.validate().unwrap();
+        assert_eq!(catalog.models.len(), 3);
+        assert!(catalog.models.iter().all(|m| !m.id.contains("5.6")));
+        assert!(catalog.find("chatgpt-desktop/instant").unwrap().hidden);
+        assert!(catalog.find("chatgpt-desktop/gpt-6-pro").unwrap().pro);
+        assert_eq!(
+            catalog
+                .route("chatgpt-desktop/gpt-6", "xhigh")
                 .unwrap()
-                .execution_unverified
+                .thinking_effort
+                .as_deref(),
+            Some("max")
         );
     }
-
     #[test]
-    fn effort_combinations_match_public_app_controls() {
-        for effort in GPT6_EFFORTS {
-            assert!(supports("chatgpt-desktop/gpt-6", effort));
-        }
-        assert!(!supports("chatgpt-desktop/gpt-6", "instant"));
-        assert!(supports("chatgpt-desktop/gpt-6-pro", "none"));
-        assert!(!supports("chatgpt-desktop/gpt-6-pro", "high"));
-        assert!(!supports("chatgpt-desktop/gpt-6", "toString"));
+    fn edited_data_can_add_model_or_effort_without_rust_changes() {
+        let mut catalog = Catalog::default();
+        let mut model = catalog.models[0].clone();
+        model.id = "chatgpt-desktop/configured-model".into();
+        model.routes[0].host_model = "configured-host-model".into();
+        model.routes[0].effort = "low".into();
+        catalog.models.push(model);
+        catalog.validate().unwrap();
+        assert_eq!(
+            catalog
+                .route("chatgpt-desktop/configured-model", "low")
+                .unwrap()
+                .host_model,
+            "configured-host-model"
+        );
+        let duplicate = catalog.models[0].routes[0].clone();
+        catalog.models[0].routes.push(duplicate);
+        assert!(catalog.validate().is_err());
     }
 }

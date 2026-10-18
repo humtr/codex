@@ -7,7 +7,7 @@ def scope(paths):
     result='docs'
     for path in paths:
         if path.endswith('.md') or path=='.gitignore':continue
-        if path.startswith('providers/chatgpt/'):
+        if path.startswith('providers/chatgpt/') or path=='.github/workflows/provider-qualification.yml':
             if result=='docs':result='provider'
             continue
         if path.endswith('.py') and path.startswith(('scripts/','.github/scripts/','frontend/')) or path=='scripts/check.sh':

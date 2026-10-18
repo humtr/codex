@@ -43,6 +43,13 @@ jobs:
           chmod 0700 "$tool/bun"
           test "$("$tool/bun" --version)" = 1.4.0
           echo "binary_path=$tool/bun" >> "$GITHUB_OUTPUT"
+      - name: Provision provider Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("source/providers/chatgpt/Cargo.toml", "rb"))["package"]["rust-version"])')
+          rustup toolchain install "$version" --profile minimal --component rustfmt,clippy
+          echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
       - name: Run provider tests without real Chat or device state
         shell: bash
         env:

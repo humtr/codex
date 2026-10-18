@@ -26,12 +26,28 @@ this file does not define a competing roadmap.
 | Optional remote viewer | Browser JS/TS/CSS assets; not a mandatory inference path |
 | Build/research/qualification helpers | Rust, Python or shell as appropriate; not product runtime dependencies |
 
-The candidate binary's `models` command emits its provider capability catalog;
-`config show`, `config effective`, `config validate` and `config set FIELD VALUE`
-operate on the same XDG-owned file. It currently exposes GPT-6 standard controls
-and a Pro entry marked execution-unverified. GPT-5.6 stays deferred in this Rust
-catalog. These commands are source qualification surfaces, not installed public
-commands or proof of account entitlement.
+The candidate `models` command reads `catalog.models` from the same user-owned
+configuration as settings. Initial routes live in `default-models.toml`; they are
+bootstrap defaults, not a fixed Rust model list. Configuration can add a model or
+change host-model/thinking-effort mapping without rebuilding. Defaults include
+GPT-6 and Pro plus a hidden Instant compatibility alias; GPT-5.6 is excluded.
+Catalog metadata does not establish entitlement or runtime qualification.
+
+The source binary supports `config show`, `config effective`, `config validate`,
+`config set FIELD VALUE [FIELD VALUE ...]`, `config unset FIELD ...` and
+`config edit` (`VISUAL`/`EDITOR`). Structured catalog entries are edited in TOML.
+Set related fields together, for example:
+
+```sh
+codex-chatgpt-provider config set history.mode project history.project_name "Codex"
+```
+
+These are candidate source commands, not installed public commands. Effective
+output reports file/default origins and `applied_to_runtime=false`: the existing
+JS adapter does not consume this draft configuration. New files/locks are private;
+invalid edits preserve the old file, cooperating writers serialize and stale
+editor snapshots refuse to overwrite a newer edit. Unsetting an explicit token
+threshold delegates to upstream defaults; it does not disable all compaction.
 
 Current code demonstrates an app JS/React connection point; it does not establish
 the language of every part of the desktop app. Moving the adapter to Rust must not
@@ -104,7 +120,8 @@ A live trial requires explaining its purpose, scope and expected submissions;
 automated tests never sample Pro or replay an uncertain submission.
 
 Configuration remains generated upstream `--profile chatgpt` fallback and TUI
-`/model` routing. One user-owned provider settings file and configured remote
-ChatGPT project placement are approved work, not implemented features yet.
+`/model` routing. The candidate settings/catalog tool exists, while operating-runtime settings
+projection, generic TUI consumption and configured remote project placement remain
+unimplemented. Host API changes can still require binary/bridge changes.
 
 See [NOTICE](NOTICE.md) for dependency provenance and licenses.

@@ -1192,6 +1192,13 @@ explicit rollback targets. Preserve installation identities, login/profile data,
 remote conversation associations, live jobs and current configuration overrides
 through bounded migration; source integration alone never activates a replacement.
 
+New independent MCP trials use the repository's `Termux Codex` connector display
+name, with display/connector identity configurable rather than hardcoded branding.
+Historical `Codex Native2` references remain provenance only. Renaming never changes
+an outstanding native tool call/result identity. Reuse authorized existing admin
+and computer-use access when exercising this path; actual connector ACK remains
+an independent gate from discovery and the local-function transport.
+
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,
 licenses and affected regression drivers onto current authority. Never replace
@@ -1261,11 +1268,44 @@ Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
 
+The initial Rust configuration tool is a candidate developer surface until the
+transport consumes it. Its effective output must explicitly say settings are not
+yet applied to a runtime and distinguish file values from defaults. A field
+transaction may set several dependent values together, validated once before
+commit. Unsetting a field restores its declared default. Concurrent tool edits
+serialize; an external editor changed since opening must cause a conflict rather
+than silently overwrite newer content. No-op changes preserve the existing file.
+An editor failure or invalid buffer preserves the original. Use private bounded
+files, reject symlink/nonregular destinations, and publish without hard links.
+The draft project fields are history.mode, history.project_name and
+history.create_if_missing; project_id and account/workspace-scoped bindings are
+added only with qualified host discovery. Retained history remains the migration
+default; choosing project mode requires a name and defaults creation to enabled.
+Neither saving that choice nor listing models proves a host operation is available.
+
+The model catalog is validated data in the same provider configuration, under
+catalog.models, rather than a Rust list of model families or effort mappings.
+Each entry declares its public ID/display name and effort-to-host-model route,
+with an optional host thinking-effort value. Supply initial defaults as a data
+resource; users can add or correct mappings through configuration without a
+binary rebuild. The binary owns protocol/schema validation and lifecycle safety,
+not the list of models. Listing a configured route proves neither account
+entitlement nor successful execution. The initial Rust runtime remains unavailable
+until actual transport acceptance. Exclude GPT-5.6 per the latest user decision;
+retain GPT-6, manual-only Pro use and the hidden legacy Instant alias. A host API
+or tool-return protocol change can still require a new binary/bridge version.
+Use the selected model's effective catalog record at an idle boundary; changing
+catalog data must not mutate an active lane or replay a pending request.
+
 Editable context controls distinguish native context_window_tokens (also projected
 to the appropriate upstream catalog fields), automatic-compaction trigger/headroom,
 and encoded/decoded transport byte limits. Support model-specific values. The
 user's current1,000,000-token override is preserved as an explicit override; it is
 not a verified hosted Chat context capacity or proof that no compaction is needed.
+Do not treat the user's 1m override as a measured maximum or impose an arbitrary
+32k minimum. Validate positive upstream-compatible integer values separately from
+the hard encoded/decoded transport ceilings. An absent token threshold delegates
+to upstream defaults; it is not an automatic-compaction disable switch.
 No proven transport/model limit is bypassed by inflating a catalog number. Native
 compaction caused by model/hash changes is separate from token thresholds; a
 disabled token-trigger setting must not promise to suppress every compaction.
@@ -1290,7 +1330,7 @@ The provider should accept a ChatGPT project destination, resolve it in the
 currently authenticated Chat account/workspace and create it when absent, as
 configured. This is a remote ChatGPT project, not the local CWD, a Manager login
 profile or an OpenAI API project. Proposed fields include history.mode=project,
-history.project.name and history.project.create_if_missing; an optional exact ID
+history.project_name and history.create_if_missing; an optional exact ID
 disambiguates existing projects. The configured destination is the default for
 new provider-owned conversations. Existing conversations are not moved/deleted
 implicitly. A project/retention change applies to new lanes at a safe boundary;

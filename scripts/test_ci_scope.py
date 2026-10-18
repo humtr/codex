@@ -14,6 +14,8 @@ class ScopeTests(unittest.TestCase):
                            (['Cargo.lock'],'full'),(['install.sh'],'full'),
                            (['.github/workflows/auto-release-termux.yml'],'full'),
                            (['providers/chatgpt/desktop_protocol.mjs'],'provider'),
+                           (['.github/workflows/provider-qualification.yml'],'provider'),
+                           (['.github/workflows/provider-qualification.yml','crates/core/src/main.rs'],'full'),
                            (['providers/chatgpt/desktop_protocol.mjs','SPEC.md'],'provider'),
                            (['providers/chatgpt/test_desktop_profile.py','scripts/test_check.py'],'python'),
                            (['scripts/test_check.py','providers/chatgpt/desktop_protocol.mjs'],'python'),
