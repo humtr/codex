@@ -70,6 +70,8 @@ configuration lookup is read-only. Safe fallback must know the
 same account/home and that no work started; a post-exec/uncertain failure is never
 permission to replay. Invalid saved defaults now report the unfulfillable account choice instead of
 launching the native default. These source changes are not installed yet.
+Exact-source Core/runtime qualification39095043381 passes Android/aarch64 candidate
+build and executable smoke; the candidate was not installed or activated.
 
 Keep shared_server, signed-runtime/PID/socket checks, writer/client retention and
 opaque catalog isolation. Actual0.163 retains a startup model manager; model/list
