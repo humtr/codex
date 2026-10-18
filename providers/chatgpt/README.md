@@ -93,8 +93,12 @@ An active MCP turn refuses new user input, model/effort or developer-policy chan
 until settled. Deferred native tool catalogs update before results wake the model.
 Account, project, native approval and cancellation checks remain in force.
 Three actual Android command/patch/verification returns pass with one synthetic app
-submission; real connector ACK/auth/confirmation is still required for live
-admission. Fixtures do not establish actual Chat message-limit debits. A restarted
+submission. A separate bounded live qualification now passes the actual signed
+Chat app, dedicated tunnel, two native commands/results and exact native final:
+one user-role object, two actual app dispatches including one real Allow reply,
+and no tool-result Chat submissions. The app's permission pause retains the MCP
+capability; actual request/reply counts remain distinct. These observations do not
+establish Chat message-limit debits or qualify another account/runtime. A restarted
 service never reactivates old pending MCP capabilities or replays native actions;
 generation-bound reconciliation remains explicit.
 
@@ -257,8 +261,8 @@ remaining configuration, project placement, context and release requirements.
 The local-function transport returns native tool outputs on the original Chat
 call. Native Codex owns approval, actual tool execution, writer locks and history.
 Independent Rust MCP transport also has actual Android executor/HTTP return proof;
-actual Chat connector admission remains unfinished, and it is not an
-automatically admitted live fallback. User submissions, tool returns, model starts
+bounded actual Chat connector return is independently qualified, without making
+it an automatic fallback or activating a permanent operating migration. User submissions, tool returns, model starts
 and Chat allowance deductions are different quantities.
 
 Warm requests reuse their owned prefix. A successful summary instruction remains
