@@ -22,7 +22,7 @@ pub fn random_id() -> Result<String, Error> {
         .map_err(|_| Error("randomness_unavailable"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-fn private_directory(path: &Path) -> Result<(), Error> {
+pub(crate) fn private_directory(path: &Path) -> Result<(), Error> {
     match fs::symlink_metadata(path) {
         Ok(m)
             if m.is_dir() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o777 == 0o700 =>

@@ -11,15 +11,21 @@ linked into Core or Manager.
 The standalone Rust source candidate (`Cargo.toml`, `src/`) now implements
 configuration/catalog, loopback Responses/SSE, owned CDP, original-call tool
 returns, a private lane journal and a minimal app JavaScript bridge. It offers
-`serve --descriptor PATH [--state PATH] [--port PORT]`, `status [--state PATH]`
+`serve [--descriptor PATH] [--state PATH] [--port PORT]`, `status [--state PATH]`
 and command-backed `token [--state PATH]` for qualification. Readiness verifies
 the local process and a fresh keyed challenge; it does not claim model progress.
 Never paste the token output into chat or logs.
 
-These paths have deterministic TCP/app-wire fixtures; the operating adapter is
-still JS/Bun/Python. Official-app process lifetime, project placement, stopped-lane
-recovery, native opaque compaction and full native-client execution remain
-unfinished. No production fallback silently selects the Rust candidate. The
+These paths have deterministic TCP/app-wire fixtures and actual Android Codex
+native-command/transcript proof. Rust directly boots/stops a fresh official app
+through private Chromium pipes, PRoot and Xvnc; no Bun/Python host is required for
+that path. Set `host.rootfs` to an already provisioned rootfs. App home persists
+under provider state (`desktop/home`) with an exclusive lease; temporary display
+resources are owned and cleaned separately. No existing profile is copied or
+modified. `--descriptor` explicitly connects a qualification relay instead.
+The operating adapter is still JS/Bun/Python. Actual Rust app inference, project
+placement, native opaque compaction, reboot and full development qualification
+remain unfinished. No production fallback silently selects the Rust candidate. The
 repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
 
 | Responsibility | Target implementation |

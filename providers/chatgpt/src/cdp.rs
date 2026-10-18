@@ -209,6 +209,78 @@ impl Client {
             generation: descriptor.generation().into(),
         })
     }
+    /// Chromium's private FD3/FD4 protocol. The caller owns the child and both
+    /// endpoints; no debug TCP listener, relay, token extraction or JS host.
+    pub fn pipe<R, W>(reader: R, mut writer: W, generation: String) -> Self
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+        W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let (queue, mut input) = mpsc::channel::<Command>(128);
+        let (frames, mut output) = mpsc::channel::<Value>(128);
+        let reader = tokio::spawn(async move {
+            let mut reader = BufReader::new(reader);
+            loop {
+                let mut bytes = Vec::new();
+                let result = (&mut reader)
+                    .take((LIMIT + 1) as u64)
+                    .read_until(0, &mut bytes)
+                    .await;
+                if result.is_err()
+                    || bytes.is_empty()
+                    || bytes.len() > LIMIT
+                    || bytes.pop() != Some(0)
+                {
+                    break;
+                }
+                if bytes.is_empty() {
+                    continue;
+                }
+                let Ok(value) = serde_json::from_slice(&bytes) else {
+                    break;
+                };
+                if frames.send(value).await.is_err() {
+                    break;
+                }
+            }
+        });
+        tokio::spawn(async move {
+            let mut sequence = 0_u64;
+            let mut pending = BTreeMap::<u64, oneshot::Sender<Result<Value, Error>>>::new();
+            loop {
+                tokio::select! {
+                    command=input.recv()=>{
+                        let Some(command)=command else {break;};
+                        pending.retain(|_,sender|!sender.is_closed());
+                        if pending.len()>=128 {let _=command.reply.send(Err(Error("cdp_queue_full")));continue;}
+                        sequence+=1;
+                        let mut value=json!({"id":sequence,"method":command.method,"params":command.params});
+                        if let Some(session)=command.session {value["sessionId"]=json!(session);}
+                        let mut bytes=serde_json::to_vec(&value).unwrap();
+                        if bytes.len()>=LIMIT {let _=command.reply.send(Err(Error("cdp_request_too_large")));continue;}
+                        bytes.push(0);pending.insert(sequence,command.reply);
+                        if writer.write_all(&bytes).await.is_err() {break;}
+                    },
+                    frame=output.recv()=>{
+                        let Some(value)=frame else {break;};
+                        if let Some(sender)=value["id"].as_u64().and_then(|id|pending.remove(&id)) {
+                            let _=sender.send(if value.get("error").is_some(){Err(Error("cdp_operation_rejected"))}else{Ok(value["result"].clone())});
+                        }
+                    },
+                }
+            }
+            reader.abort();
+            for (_, sender) in pending {
+                let _ = sender.send(Err(Error("cdp_observer_disconnected")));
+            }
+            let _ = writer.shutdown().await;
+        });
+        Self {
+            queue,
+            generation: generation.into(),
+        }
+    }
     pub async fn request(
         &self,
         method: &str,

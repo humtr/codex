@@ -69,3 +69,18 @@ test('app feature gate is required and owner conflicts do not allocate conversat
  await expect(bridge({op:'init',owner:'other',bindings})).rejects.toThrow('app_bridge_owned');
  expect(f.created).toBe(0);
 }));
+
+
+test('opening and release reconcile lost replies and reattach the same owned app',async()=>fixture(async({f,bindings,original})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ const open={op:'open',owner:'owned',lane:'lane',signature:{name:'termux_codex_fixture'}};
+ const first=await bridge(open);expect(await bridge(open)).toEqual(first);expect(f.created).toBe(1);
+ await expect(bridge({...open,signature:{name:'changed'}})).rejects.toThrow('app_lane_declaration_changed');
+ await bridge({op:'release',owner:'owned',lane:'lane'});
+ await bridge({op:'release',owner:'owned',lane:'lane'});
+ expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
+ await bridge({...open,lane:'next'});
+ await bridge({op:'submit',owner:'owned',lane:'next',round:'new',model:'configured-host',messages:[{role:'user',text:'Resume latest',hidden:false}]});
+ await Promise.resolve();expect(f.sent).toHaveLength(1);expect(f.created).toBe(2);
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'next'})).roundStarts).toBe(1);
+}));

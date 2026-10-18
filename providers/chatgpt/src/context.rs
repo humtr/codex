@@ -60,7 +60,7 @@ impl Prefix {
         self.count = values.len();
         self.digest = digest(&values);
         self.instructions = digest(&request.instructions);
-        self.tools = digest(&request.tools);
+        self.tools = digest(&(&request.tools, &request.host_tools));
     }
     pub fn delta<'a>(&self, request: &'a Request) -> Result<&'a [Value], Error> {
         if self.count == 0 {

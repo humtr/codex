@@ -15,7 +15,7 @@ work. Git retains superseded plans and trial narratives.
 | Published TUI | Source `1c413cf`, qualification 39027733603: 48 maintained native tests, 94 retained upstream checks and lint |
 | Installed opt-in Chat adapter | Payload `c3642b19a87cdace158f`; sourceBase `9a5436a` plus the user's 1m profile change; JS/Bun plus Python; signed-app local-function returns |
 | Provider source integration | Active runtime/tests/licenses copied selectively from experiment `ab41733` to `providers/chatgpt`; later compaction guard and user's 1m edits retained here |
-| Rust Provider | Source candidate now includes Responses HTTP/SSE, CDP, app-local tool return, private lane journal and standalone serve/status/auth commands; deterministic fixtures qualified, operating app/lifetime/project/context migration pending |
+| Rust Provider | Source candidate now includes Responses HTTP/SSE, CDP, app-local tool return, private lane journal and standalone serve/status/auth commands and direct Rust app startup; native-client and fresh-app pipe proof qualified, operating app/project/context migration pending |
 | Mutable pilot catalog | Last read-only inspection found all 5 old entries at 1,000,000 tokens, null explicit auto-compaction threshold; generated settings, not verified capacity |
 | Experimental worktree | `experiment/web-termux` at `08e9856`; user's uncommitted 1m profile/test changes remain intact; worktree/branch not closed |
 
@@ -164,9 +164,13 @@ bridge and local-function lane engine. It does not yet replace the operating
 adapter. Deterministic fixtures cover original-call batched results, warm context,
 public transcript projection, lost-observer reconciliation without resubmission,
 private endpoint proof and data-only model-route reload. They are not official-app
-inference or native-executor effect-count proof. Host process startup/restart,
-project placement, stopped-lane recovery, opaque compaction and full native-client
-execution remain open. The legacy runtime remains the equivalence reference. Port useful real-Core scenario drivers alongside each
+inference or native-executor effect-count proof. A fresh official app now boots and shuts down through Rust-owned PRoot/Xvnc and
+private Chromium pipes without Bun/Python or touching existing profiles. Actual
+Android Codex0.163 drives two dependent native commands through Rust and retains
+the transcript with exactly two effects and no repeated setup/user prompt.
+These are separate proofs: the native-client app replies are synthetic, and the
+fresh official-app trial sends no inference. Real app inference, restart/reboot,
+project placement, opaque compaction and full development qualification remain open. The legacy runtime remains the equivalence reference. Port useful real-Core scenario drivers alongside each
 boundary; do not defer all test migration until experiment closure. Preserve
 attribution for translated/reused dependency code and never replay a live request
 to both implementations for comparison.
@@ -326,13 +330,25 @@ and config-RPC sibling isolation, optional syntax/type/envelope/hung failures an
 actual TUI without Manager. Its owned roots were removed; zero Chat submissions.
 No installed generation or operating adapter was replaced.
 
-Rust vertical-path logs use the same acceptance directory. The local suite has32
-Rust tests across configuration, protocol, context, journal, app engine, CDP,
-TCP/SSE and real candidate CLI; minimal app JS has2 additional fixtures. The full
-Provider gate also runs the retained99 Bun/28 Python cases, clippy, formatting
-and release build. The old installed adapter is still the operating authority;
-fixture app messages, processes and model responses are synthetic. Hosted Rust
-Provider qualification and actual signed-app execution must be recorded separately.
+Rust vertical-path logs use the same acceptance directory. Exact source13967e4
+passed hosted Provider39105622016, source39105622017 and Core39105654233 gates.
+The subsequent local gate `provider-owned-native-full.log` passed36 Rust cases,
+100 Bun cases and28 Python cases, formatting, clippy and release build. The two
+explicit Android tests were also executed separately (not counted as passed merely
+because the offline gate marks them ignored). The stop/recovery work preserves cancellation intent, permits recovery
+only on a new native turn after acknowledged stop, and reconciles the same app
+round after observation loss. Opening/release are idempotent; cached public output
+and original tool results are not resubmitted. Private pipe framing has fragmented/
+out-of-order/closed-observer tests. `provider-real-native-client.log` records actual
+Android Codex0.163, two dependent effects and native transcript with synthetic app
+replies. `provider-owned-host-android.log` records official app26.1007.21434 startup,
+unique app target and shutdown over Rust private pipes in a new disposable profile.
+Neither submitted Chat or read an existing login. Full local/hosted regression gates
+must cover the final changed inputs before release; the old installed adapter
+remains the operating authority. Host-side web-search declarations are separated
+from executable Core functions; real search/public-tool transcript qualification
+is still pending. The new `host.rootfs` selects a provisioned rootfs at service
+startup; it does not download an app or migrate authentication.
 
 Final composition proof covers Base without optional components; Manager without
 TUI; TUI/Provider without Manager; direct Provider `--profile` use; Full plus opt-in

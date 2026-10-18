@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve --descriptor PATH [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -117,8 +117,7 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
         "serve" => {
             let descriptor = fields
                 .get("--descriptor")
-                .map(|value| std::path::PathBuf::from(*value))
-                .ok_or("serve requires --descriptor PATH")?;
+                .map(|value| std::path::PathBuf::from(*value));
             let port = fields
                 .get("--port")
                 .map(|v| v.parse::<u16>())

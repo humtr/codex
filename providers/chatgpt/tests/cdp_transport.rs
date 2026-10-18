@@ -129,3 +129,46 @@ fn descriptor_rejects_remote_endpoints_and_stale_process_identity() {
     d.browser.start = "not-current".into();
     assert!(d.validate().is_err());
 }
+
+#[tokio::test]
+async fn private_pipe_preserves_fragmented_frames_out_of_order_ids_and_disconnects_pending_calls() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (client, peer) = tokio::io::duplex(65536);
+    let (read, write) = tokio::io::split(client);
+    let client = Client::pipe(read, write, "owned-pipe-fixture".into());
+    let server = tokio::spawn(async move {
+        let (read, mut write) = tokio::io::split(peer);
+        let mut read = BufReader::new(read);
+        let mut requests = Vec::new();
+        for _ in 0..2 {
+            let mut bytes = Vec::new();
+            read.read_until(0, &mut bytes).await.unwrap();
+            bytes.pop();
+            requests.push(serde_json::from_slice::<Value>(&bytes).unwrap());
+        }
+        for request in requests.iter().rev() {
+            let text = json!({"id":request["id"],"result":{"echo":request["params"]["value"]}})
+                .to_string();
+            let half = text.len() / 2;
+            write.write_all(&text.as_bytes()[..half]).await.unwrap();
+            tokio::task::yield_now().await;
+            write.write_all(&text.as_bytes()[half..]).await.unwrap();
+            write.write_all(&[0]).await.unwrap();
+        }
+        let mut bytes = Vec::new();
+        read.read_until(0, &mut bytes).await.unwrap();
+        // Closing a partial frame never fabricates a successful reply.
+        write.write_all(b"{\"id\":").await.unwrap();
+    });
+    let (first, second) = tokio::join!(
+        client.request("Fixture.echo", json!({"value":"first"}), None),
+        client.request("Fixture.echo", json!({"value":"second"}), None)
+    );
+    assert_eq!(first.unwrap()["echo"], "first");
+    assert_eq!(second.unwrap()["echo"], "second");
+    assert!(client
+        .request("Fixture.lost", json!({}), None)
+        .await
+        .is_err());
+    server.await.unwrap();
+}

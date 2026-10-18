@@ -23,15 +23,27 @@ struct Connection {
     generation: String,
     app: App,
 }
+#[derive(Clone)]
+enum Source {
+    Relay(PathBuf),
+    Pipe(Client),
+}
 pub struct Remote {
-    descriptor: PathBuf,
+    source: Source,
     owner: String,
     connection: Arc<Mutex<Option<Connection>>>,
 }
 impl Remote {
     pub fn new(descriptor: PathBuf, owner: String) -> Self {
         Self {
-            descriptor,
+            source: Source::Relay(descriptor),
+            owner,
+            connection: Arc::new(Mutex::new(None)),
+        }
+    }
+    pub fn pipe(client: Client, owner: String) -> Self {
+        Self {
+            source: Source::Pipe(client),
             owner,
             connection: Arc::new(Mutex::new(None)),
         }
@@ -39,18 +51,29 @@ impl Remote {
 }
 impl Bridge for Remote {
     fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
-        let descriptor = self.descriptor.clone();
+        let source = self.source.clone();
         let owner = self.owner.clone();
         let connection = self.connection.clone();
         Box::pin(async move {
-            let selected = Descriptor::read(&descriptor)?;
-            let generation = selected.generation();
+            let selected = match &source {
+                Source::Relay(path) => Some(Descriptor::read(path)?),
+                Source::Pipe(_) => None,
+            };
+            let generation = match (&source, &selected) {
+                (_, Some(d)) => d.generation(),
+                (Source::Pipe(c), _) => c.generation.to_string(),
+                _ => unreachable!(),
+            };
             let mut guard = connection.lock().await;
             if guard.as_ref().is_some_and(|c| c.generation != generation) {
                 return Err(Error("owned_host_changed"));
             }
             if guard.is_none() {
-                let client = Client::connect(&selected).await?;
+                let client = match (&source, &selected) {
+                    (_, Some(d)) => Client::connect(d).await?,
+                    (Source::Pipe(c), _) => c.clone(),
+                    _ => unreachable!(),
+                };
                 let app = client.app().await?;
                 let init = json!({"op":"init","owner":owner,"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -107,6 +130,7 @@ struct Lane {
     phase: Phase,
     prefix: Prefix,
     request: String,
+    turn: Option<String>,
     round: String,
     pending: Vec<Call>,
     confirmed: BTreeMap<String, String>,
@@ -125,6 +149,7 @@ impl Lane {
             phase: Phase::New,
             prefix: Prefix::default(),
             request: String::new(),
+            turn: None,
             round: String::new(),
             pending: Vec::new(),
             confirmed: BTreeMap::new(),
@@ -149,6 +174,30 @@ impl AppHost {
             journal,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
         }
+    }
+    pub async fn shutdown(&self) {
+        let lanes = self
+            .lanes
+            .lock()
+            .await
+            .iter()
+            .map(|(key, lane)| (key.clone(), lane.clone()))
+            .collect::<Vec<_>>();
+        let mut stops = tokio::task::JoinSet::new();
+        for (key, mutex) in lanes {
+            let bridge = self.bridge.clone();
+            let journal = self.journal.clone();
+            stops.spawn(async move {
+                let mut lane = mutex.lock().await;
+                if matches!(
+                    lane.phase,
+                    Phase::Dispatching | Phase::Running | Phase::Unknown | Phase::CancelRequested
+                ) {
+                    let _ = stop_lane(bridge.as_ref(), &journal, &key, &mut lane).await;
+                }
+            });
+        }
+        while stops.join_next().await.is_some() {}
     }
 }
 
@@ -201,9 +250,20 @@ impl Host for AppHost {
             )
             .await;
             if result.is_err()
+                && cancel.is_cancelled()
+                && matches!(lane.phase, Phase::Dispatching | Phase::Running)
+            {
+                return stop_lane(bridge.as_ref(), &journal, &key, &mut lane).await;
+            }
+            if result.is_err()
                 && !matches!(
                     lane.phase,
-                    Phase::Idle | Phase::ToolsReady | Phase::Stopped | Phase::Unknown
+                    Phase::Idle
+                        | Phase::ToolsReady
+                        | Phase::Stopped
+                        | Phase::Unknown
+                        | Phase::Opening
+                        | Phase::CancelRequested
                 )
             {
                 lane.phase = Phase::Unknown;
@@ -266,13 +326,41 @@ async fn exchange(
         }
         return Ok(());
     }
-    if matches!(
-        lane.phase,
-        Phase::Unknown | Phase::Opening | Phase::CancelRequested | Phase::Stopped
-    ) {
+    if lane.phase == Phase::CancelRequested {
+        return stop_lane(bridge, journal, key, lane).await;
+    }
+    if lane.phase == Phase::Stopped {
+        if request_digest == lane.request {
+            return Err(Error("previous_round_stopped"));
+        }
+        if request.turn.is_none() || request.turn == lane.turn {
+            return Err(Error("new_native_turn_required"));
+        }
+        // A new native turn owns its next submission. Preserve the old remote
+        // conversation, but rebuild from latest canonical native input after an
+        // acknowledged stop rather than guessing its partly streamed context.
+        bridge
+            .operation(json!({"op":"release","lane":lane.marker}))
+            .await?;
+        *lane = Lane::new(&request.thread)?;
+        journal.write(key, lane)?;
+    }
+    if lane.phase == Phase::Opening {
+        // Opening allocates no inference. Reconcile the same marker and exact
+        // declaration; never create a successor because its reply was lost.
+        bridge
+            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway)}))
+            .await?;
+        lane.phase = Phase::Idle;
+        journal.write(key, lane)?;
+    }
+    if lane.phase == Phase::Unknown && request_digest != lane.request {
         return Err(Error("lane_reconciliation_required"));
     }
-    let recovering = matches!(lane.phase, Phase::Dispatching | Phase::Running);
+    let recovering = matches!(
+        lane.phase,
+        Phase::Dispatching | Phase::Running | Phase::Unknown
+    );
     if recovering && request_digest != lane.request {
         return Err(Error("previous_round_unsettled"));
     }
@@ -284,12 +372,21 @@ async fn exchange(
             .await
             .is_err()
         {
-            lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
             return Err(Error("app_lane_open_uncertain"));
         }
         lane.phase = Phase::Idle;
         journal.write(key, lane)?;
+    }
+    if recovering {
+        // The response observer is new; restore already observed public deltas
+        // before app snapshots supply only their unseen suffixes.
+        for event in &lane.cached {
+            events
+                .send(event.clone())
+                .await
+                .map_err(|_| Error("native_observer_closed"))?;
+        }
     }
     if !recovering {
         let delta = lane.prefix.delta(request)?;
@@ -333,8 +430,13 @@ async fn exchange(
                 instructions.push(context::text(value)?);
             }
         }
-        if lane.prefix.tools != context::digest(&request.tools) {
+        if lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools)) {
             instructions.push(format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n{}",serde_json::to_string(&request.tools).unwrap()));
+        }
+        if !request.host_tools.is_empty()
+            && lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools))
+        {
+            instructions.push(format!("Separate host-side capabilities: {}. These are app-owned search capabilities, not Core function names; do not send them through the local gateway. Keep public findings distinct from native command execution.",serde_json::to_string(&request.host_tools).unwrap()));
         }
         let results=results.into_iter().map(|(id,entries)| {
             let outputs=entries.iter().map(|(call,value)|json!({"id":call.id,"name":call.tool.key(),"output":value.get("output").cloned().unwrap_or_else(||value.clone())})).collect::<Vec<_>>();
@@ -344,6 +446,7 @@ async fn exchange(
             return Err(Error("native_request_has_no_new_input"));
         }
         lane.request = request_digest;
+        lane.turn = request.turn.clone();
         lane.round = random_id()?;
         lane.cached.clear();
         lane.public.clear();
@@ -363,30 +466,7 @@ async fn exchange(
     let mut read_failures = 0;
     loop {
         if cancel.is_cancelled() {
-            lane.phase = Phase::CancelRequested;
-            journal.write(key, lane)?;
-            let _ = bridge
-                .operation(json!({"op":"stop","lane":lane.marker}))
-                .await;
-            let until = tokio::time::Instant::now() + Duration::from_secs(10);
-            loop {
-                if let Ok(state) = bridge
-                    .operation(json!({"op":"snapshot","lane":lane.marker}))
-                    .await
-                {
-                    if state["stopped"] == true {
-                        lane.phase = Phase::Stopped;
-                        journal.write(key, lane)?;
-                        return Err(Error("app_stop_acknowledged"));
-                    }
-                }
-                if tokio::time::Instant::now() >= until {
-                    lane.phase = Phase::Unknown;
-                    journal.write(key, lane)?;
-                    return Err(Error("app_stop_unconfirmed"));
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+            return stop_lane(bridge, journal, key, lane).await;
         }
         if tokio::time::Instant::now() >= until {
             lane.phase = Phase::Unknown;
@@ -465,6 +545,7 @@ async fn exchange(
                 return Err(Error("public_message_changed"));
             }
             let offset = previous.as_ref().map_or(0, |(_, text)| text.len());
+            lane.public.insert(id.into(), (phase.into(), text.clone()));
             if text.len() > offset {
                 publish(
                     lane,
@@ -477,7 +558,6 @@ async fn exchange(
                 )
                 .await?;
             }
-            lane.public.insert(id.into(), (phase.into(), text));
             if phase == "final_answer"
                 && message["end_turn"] == true
                 && message["status"] == "finished_successfully"
@@ -534,19 +614,20 @@ async fn exchange(
             }) {
                 return Err(Error("host_call_replayed"));
             }
-            for (id, report) in reports {
-                publish(
-                    lane,
-                    events,
-                    Event::Text {
-                        id: id.clone(),
+            let report_events = reports
+                .into_iter()
+                .map(|(id, report)| {
+                    lane.public
+                        .insert(id.clone(), ("commentary".into(), report.clone()));
+                    let event = Event::Text {
+                        id,
                         phase: "commentary".into(),
-                        delta: report.clone(),
-                    },
-                )
-                .await?;
-                lane.public.insert(id, ("commentary".into(), report));
-            }
+                        delta: report,
+                    };
+                    lane.cached.push(event.clone());
+                    event
+                })
+                .collect::<Vec<_>>();
             for call in &calls {
                 lane.cached.push(Event::Tool(call.clone()));
             }
@@ -582,6 +663,14 @@ async fn exchange(
             };
             lane.cached.push(completed.clone());
             journal.write(key, lane)?;
+            // Commit terminal reports and pending IDs/results before publishing.
+            // A disconnected observer must not duplicate cached report text on retry.
+            for event in report_events {
+                events
+                    .send(event)
+                    .await
+                    .map_err(|_| Error("native_observer_closed"))?;
+            }
             // Commit pending IDs/results before Core can observe an executable call.
             for call in &lane.pending {
                 events
@@ -600,5 +689,37 @@ async fn exchange(
             journal.write(key, lane)?;
         }
         tokio::select! {_=cancel.cancelled()=>(),_=tokio::time::sleep(Duration::from_millis(100))=>()}
+    }
+}
+
+async fn stop_lane(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    key: &str,
+    lane: &mut Lane,
+) -> Result<(), Error> {
+    lane.phase = Phase::CancelRequested;
+    journal.write(key, lane)?;
+    let _ = bridge
+        .operation(json!({"op":"stop","lane":lane.marker}))
+        .await;
+    let until = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(state) = bridge
+            .operation(json!({"op":"snapshot","lane":lane.marker}))
+            .await
+        {
+            if state["round"] == lane.round && state["stopped"] == true {
+                lane.phase = Phase::Stopped;
+                journal.write(key, lane)?;
+                return Err(Error("app_stop_acknowledged"));
+            }
+        }
+        if tokio::time::Instant::now() >= until {
+            // Retain stop intent even when observation failed; a later client
+            // must reconcile cancellation, never publish or replay this round.
+            return Err(Error("app_stop_unconfirmed"));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

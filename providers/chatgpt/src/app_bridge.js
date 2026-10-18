@@ -83,13 +83,28 @@ async function termuxCodexBridge(command) {
   }
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
   if (command.op === 'open') {
-    if (state.lanes.has(command.lane)) fail('app_lane_exists');
+    const existing=state.lanes.get(command.lane);
+    if (existing) {
+      if (JSON.stringify(existing.signature)!==JSON.stringify(command.signature)) fail('app_lane_declaration_changed');
+      return {localId:existing.localId};
+    }
+    // A released final lane restores app methods; retain the owned session so
+    // a later lane can reattach without replacing the authenticated app.
+    for (const name of ['prepareCompletionStream','startCompletionStream']) {
+      if (state.client[name] !== state.saved[name] && state.client[name] !== state.hooks[name]) fail('app_hooks_changed');
+      state.client[name] = state.hooks[name];
+    }
+    if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
+    state.wire.streamPost = state.hooks.streamPost;
     const localId = state.api.aCn(state.scope);
     state.lanes.set(command.lane,{localId,marker:command.lane,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,terminals: []});
     return {localId};
   }
   const lane = state.lanes.get(command.lane);
-  if (!lane) fail('app_lane_missing');
+  if (!lane) {
+    if (command.op === 'release') return {released:true};
+    fail('app_lane_missing');
+  }
   const snapshot = () => {
     for (const node of Object.values(state.scope.get(state.api.JRn,lane.localId) || {})) {
       const message = node.message;
@@ -150,7 +165,7 @@ async function termuxCodexBridge(command) {
     if (!state.lanes.size) {
       for (const name of ['prepareCompletionStream','startCompletionStream']) if (state.client[name] === state.hooks[name]) state.client[name] = state.saved[name];
       if (state.wire.streamPost === state.hooks.streamPost) state.wire.streamPost = state.saved.streamPost;
-      delete globalThis[slot];
+      // Keep only the owner and reusable app capabilities; no lane remains.
     }
     return {released:true};
   }

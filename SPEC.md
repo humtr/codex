@@ -1280,6 +1280,17 @@ Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
 
+The candidate `host.rootfs` field selects an explicitly provisioned official-app
+Linux rootfs. Rust owns a private persistent app home beneath provider state, an
+exclusive profile lease, a temporary X server and Chromium FD3/FD4 transport.
+Resolve `proot` and `Xvnc` from the Termux prefix, with fixed isolated arguments;
+never interpret a configured shell command or bind the user's host home into the
+guest. No implicit app/rootfs installation or profile copying occurs. Preserve
+app home/authentication on shutdown; remove only owned temporary resources.
+A lost host with unsettled lanes is not permission to replay their requests.
+The private relay descriptor remains an explicit qualification connection option,
+not a fallback or required Bun/Python production dependency.
+
 The Rust configuration tool remains a candidate developer surface until product
 admission. Its effective output distinguishes file values from defaults and
 reports runtime application as not queried; saving a file does not establish

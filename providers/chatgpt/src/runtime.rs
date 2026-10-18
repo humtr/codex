@@ -97,14 +97,27 @@ pub async fn status(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 
-pub async fn serve(descriptor: PathBuf, root: PathBuf, port: u16) -> Result<(), Error> {
-    Descriptor::read(&descriptor)?;
-    let journal = Arc::new(Journal::open(&root)?);
-    let bridge = Arc::new(Remote::new(descriptor, journal.owner.clone()));
-    let host = Arc::new(AppHost::new(bridge, journal.clone()));
-    let token = random_id()?;
+pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Result<(), Error> {
     let config = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
-    let service = Service::configured(config, token.clone(), host)?;
+    let settings = store::Snapshot::open(&config)
+        .and_then(|v| v.config())
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    if let Some(path) = &descriptor {
+        Descriptor::read(path)?;
+    }
+    let journal = Arc::new(Journal::open(&root)?);
+    let mut owned = None;
+    let bridge = if let Some(path) = descriptor {
+        Remote::new(path, journal.owner.clone())
+    } else {
+        let host = crate::host::OwnedHost::start(&settings.host, &root).await?;
+        let remote = Remote::pipe(host.client.clone(), journal.owner.clone());
+        owned = Some(host);
+        remote
+    };
+    let host = Arc::new(AppHost::new(Arc::new(bridge), journal.clone()));
+    let token = random_id()?;
+    let service = Service::configured(config, token.clone(), host.clone())?;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .map_err(|_| Error("provider_port_unavailable"))?;
@@ -134,7 +147,12 @@ pub async fn serve(descriptor: PathBuf, root: PathBuf, port: u16) -> Result<(), 
         tokio::select! {_=tokio::signal::ctrl_c()=>(),_=terminate.recv()=>()}
         stop.cancel();
     });
-    server::serve(listener, service, shutdown)
+    let result = server::serve(listener, service, shutdown)
         .await
-        .map_err(|_| Error("provider_server_failed"))
+        .map_err(|_| Error("provider_server_failed"));
+    host.shutdown().await;
+    if let Some(host) = &mut owned {
+        host.shutdown().await;
+    }
+    result
 }

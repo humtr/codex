@@ -24,7 +24,10 @@ struct State {
     round: String,
     gateway: String,
     lose_submit_reply: bool,
-    lose_snapshot: bool,
+    lose_snapshot: usize,
+    hold: bool,
+    stopped: bool,
+    progress_then_loss: bool,
 }
 #[derive(Clone, Default)]
 struct App {
@@ -51,10 +54,24 @@ impl Bridge for App {
                         Ok(json!({"started":true}))
                     }
                 }
+                "release" => Ok(json!({"released":true})),
+                "stop" => {
+                    state.stopped = true;
+                    Ok(json!({}))
+                }
                 "snapshot" => {
-                    if state.lose_snapshot {
-                        state.lose_snapshot = false;
+                    if state.lose_snapshot > 0 {
+                        state.lose_snapshot -= 1;
                         return Err(Error("cdp_observer_disconnected"));
+                    }
+                    if state.hold || state.progress_then_loss {
+                        if state.progress_then_loss {
+                            state.progress_then_loss = false;
+                            state.lose_snapshot = 3;
+                        }
+                        return Ok(
+                            json!({"round":state.round,"messages":[{"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["Inspecting files"]},"end_turn":false}],"terminals":[],"stopped":state.stopped}),
+                        );
                     }
                     let messages = if state.stage == 1 {
                         json!([
@@ -181,7 +198,7 @@ async fn observer_loss_after_submit_reconciles_same_round_without_resubmission()
     {
         let mut state = app.state.lock().unwrap();
         state.lose_submit_reply = true;
-        state.lose_snapshot = true;
+        state.lose_snapshot = 1;
     }
     let host = AppHost::new(app.clone(), journal);
     let first = execute(&host, body()).await;
@@ -203,6 +220,133 @@ async fn observer_loss_after_submit_reconciles_same_round_without_resubmission()
     let reloaded = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
     let cached = execute(&reloaded, body()).await;
     assert_eq!(output(&cached), output(&first));
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c["op"] == "submit")
+            .count(),
+        1
+    );
+}
+
+async fn failure(host: &AppHost, body: Value, cancel: CancellationToken) -> (Error, Vec<Event>) {
+    let request = Request::parse(body, &Config::default(), None).unwrap();
+    let (events, mut receive) = mpsc::channel(64);
+    let error = host.exchange(request, events, cancel).await.unwrap_err();
+    let mut out = Vec::new();
+    while let Some(event) = receive.recv().await {
+        out.push(event);
+    }
+    (error, out)
+}
+
+#[tokio::test]
+async fn stopped_round_requires_a_new_native_turn_and_never_leaks_tools_or_replays_work() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().hold = true;
+    let host = Arc::new(AppHost::new(
+        app.clone(),
+        Arc::new(Journal::open(&root.0).unwrap()),
+    ));
+    let cancel = CancellationToken::new();
+    let token = cancel.clone();
+    let task = {
+        let host = host.clone();
+        tokio::spawn(async move { failure(&host, body(), token).await })
+    };
+    loop {
+        if app
+            .state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c["op"] == "snapshot")
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    cancel.cancel();
+    let (error, events) = task.await.unwrap();
+    assert_eq!(error, Error("app_stop_acknowledged"));
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, Event::Tool(_) | Event::Completed { .. })));
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("previous_round_stopped")
+    );
+    let mut changed = body();
+    changed["reasoning"] = json!({"effort":"high"});
+    assert_eq!(
+        failure(&host, changed, CancellationToken::new()).await.0,
+        Error("new_native_turn_required")
+    );
+    let mut next = body();
+    next["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"native-fixture","turn_id":"turn-2"})
+            .to_string()
+            .into();
+    next["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"role":"user","content":"Continue from the latest native result"}));
+    app.state.lock().unwrap().hold = false;
+    let result = execute(&host, next).await;
+    assert_eq!(output(&result)[0]["content"][0]["text"], "Tests passed");
+    let state = app.state.lock().unwrap();
+    let submit = state
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submit.len(), 2);
+    assert_ne!(submit[0]["lane"], submit[1]["lane"]);
+    assert!(submit[1]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["text"] == "Continue from the latest native result"));
+    assert_eq!(
+        state
+            .commands
+            .iter()
+            .filter(|c| c["op"] == "release")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn lost_observer_reloads_partial_transcript_then_reconciles_without_a_second_submission() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().progress_then_loss = true;
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let (error, partial) = failure(&host, body(), CancellationToken::new()).await;
+    assert_eq!(error, Error("app_observation_lost"));
+    assert_eq!(partial.len(), 1);
+    drop(host);
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let mut other = body();
+    other["reasoning"] = json!({"effort":"high"});
+    assert_eq!(
+        failure(&host, other, CancellationToken::new()).await.0,
+        Error("lane_reconciliation_required")
+    );
+    let result = execute(&host, body()).await;
+    assert_eq!(
+        result
+            .iter()
+            .filter(|e| matches!(e,Event::Text{ id,.. } if id=="progress-z"))
+            .count(),
+        1
+    );
     assert_eq!(
         app.state
             .lock()

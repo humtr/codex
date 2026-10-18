@@ -44,6 +44,7 @@ pub struct Request {
     pub instructions: Vec<Value>,
     pub input: Vec<Value>,
     pub tools: BTreeMap<String, Tool>,
+    pub host_tools: Vec<Value>,
     pub thread: String,
     pub parent: Option<String>,
     pub turn: Option<String>,
@@ -149,12 +150,28 @@ impl Request {
             instructions.push(json!({"role":"developer","content":text}));
         }
         let mut declarations = BTreeMap::new();
+        let mut host_tools = Vec::new();
         if let Some(values) = body.get("tools").filter(|v| !v.is_null()) {
-            tools(
-                values.as_array().ok_or(Error("invalid_tool_declaration"))?,
-                None,
-                &mut declarations,
-            )?;
+            let values = values.as_array().ok_or(Error("invalid_tool_declaration"))?;
+            for tool in values {
+                if tool["type"] == "web_search" {
+                    // Host-side search is not a Core function. Preserve the
+                    // declaration separately; never invent an executable name.
+                    if tool.as_object().is_none_or(|v| {
+                        v.keys()
+                            .any(|k| !matches!(k.as_str(), "type" | "external_web_access"))
+                    }) || tool.get("external_web_access").is_some_and(|v| v != true)
+                    {
+                        return Err(Error("unsupported_host_search_options"));
+                    }
+                    if host_tools.iter().any(|v: &Value| v["type"] == "web_search") {
+                        return Err(Error("ambiguous_tool_declaration"));
+                    }
+                    host_tools.push(tool.clone());
+                } else {
+                    tools(std::slice::from_ref(tool), None, &mut declarations)?;
+                }
+            }
         }
         if let Some(format) = value
             .get("text")
@@ -254,6 +271,7 @@ impl Request {
             instructions,
             input,
             tools: declarations,
+            host_tools,
             thread,
             parent: field("parent_thread_id"),
             turn: field("turn_id"),
@@ -387,6 +405,27 @@ mod tests {
     use super::*;
     fn request() -> Value {
         json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":"test","client_metadata":{"x-codex-turn-metadata":{"thread_id":"native-thread"}},"tools":[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec","parameters":{"type":"object"}},{"type":"custom","name":"patch","format":{"type":"text"}}]},{"type":"tool_search"}]})
+    }
+    #[test]
+    fn host_web_search_is_not_invented_as_a_native_executable() {
+        let mut body = json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":"task","tools":[{"type":"web_search","external_web_access":true}]});
+        let request = Request::parse(body.clone(), &Config::default(), Some("owned")).unwrap();
+        assert!(request.tools.is_empty());
+        assert_eq!(request.host_tools.len(), 1);
+        assert_eq!(
+            gateway_calls(
+                "host-id",
+                r#"{"name":"web_search","input":"{}"}"#,
+                &request.tools
+            )
+            .unwrap_err(),
+            Error("unadvertised_tool")
+        );
+        body["tools"][0]["external_web_access"] = json!(false);
+        assert_eq!(
+            Request::parse(body, &Config::default(), Some("owned")).unwrap_err(),
+            Error("unsupported_host_search_options")
+        );
     }
     #[test]
     fn config_drives_route_and_discovered_tools_preserve_namespaces() {
