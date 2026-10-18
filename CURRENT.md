@@ -84,7 +84,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | 5 | Native context transitions | Manual/automatic/interrupted compact, one-time checkpoint/warm deltas and actual Android bidirectional API re-entry passed, including real Chat summary; final TUI artifact and pending-result/cold-resume/downshift admission pending |
 | 6 | ChatGPT project destination | Actual create/reuse/project-bound inference and saved membership passed; instruction priority and guardian/sibling isolation need proof |
 | 7 | Lifetime and real development | Actual ~/prj/ai analysis→failure→patch→tests→review and same-thread recovery passed; native reviewer allow/deny, concurrent lanes and isolated stop pass without Chat; native blocking question/answer passes at the app-server API; actual question TUI and host crash/reboot remain |
-| 8 | Independent MCP and efficiency | Rust MCP original-call return shares the common lane/journal; actual native three-tool HTTP return passes with one synthetic app submission. The dedicated Rust trial tunnel and Tdev production tunnel were observed running concurrently with separate tunnel IDs and the existing runtime-key reference; Tdev was not reconfigured. ChatGPT connector installation and discovery pass. Commit `1cb0a4d` passed host regression and Android API24 candidate CI (`39140919784`); its 6.96 MB candidate runs on-device and lists the configured models. Actual Codex Provider model/tool call and host search remain; improve argument/output overhead |
+| 8 | Independent MCP and efficiency | Rust MCP original-call return shares the common lane/journal; actual native three-tool HTTP return passes with one synthetic app submission. The dedicated Rust trial tunnel and Tdev production tunnel were observed running concurrently with separate tunnel IDs and the existing runtime-key reference; Tdev was not reconfigured. ChatGPT connector installation and discovery pass. Commit `1cb0a4d` passed host regression and Android API24 candidate CI (`39140919784`); its 6.96 MB candidate runs on-device, lists the configured models, and accepts an isolated `mcp`/connector configuration. Actual Codex Provider model/tool call and host search remain; improve argument/output overhead |
 | 9 | Retire experiment/runtime | Preserve useful unique proof/drivers/user edits, finish one Rust authority and optional viewer/provisioning; no product Bun/Python solely for adapter |
 | 10 | Package/release/activate | Authenticated optional artifact inventory, final composition/install/update/rollback, signing/public readback/disposable proof/non-forced promotion, then bounded activation |
 
@@ -353,9 +353,11 @@ qualification. Unsupported box components remained in its final transcript.
    to the private acceptance cache, hash-checked against its unsigned inventory,
    identified as AArch64 Android/API24, and executed in Termux for `models` and
    `catalog` (GPT-6, Pro, Instant; 1,000,000-token configured windows). This is
-   artifact smoke only, not installation or live inference. Tdev and the trial
-   tunnel were simultaneously present; neither shares a tunnel ID nor requires
-   changing the other's route.
+   artifact smoke only, not installation or live inference. A private isolated
+   XDG config also passed Android `config set` and `config validate` for
+   `return_path=mcp`, `connector_name=Termux Codex Provider`; the operating
+   config remains unchanged. Tdev and the trial tunnel were simultaneously
+   present; neither shares a tunnel ID nor requires changing the other's route.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
