@@ -49,7 +49,7 @@ impl Bridge for Live {
     }
 }
 #[derive(Default)]
-struct App(Mutex<Vec<Value>>);
+struct App(Mutex<Vec<Value>>, bool);
 impl Bridge for App {
     fn operation(&self, value: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let mut commands = self.0.lock().unwrap();
@@ -67,7 +67,9 @@ impl Bridge for App {
             "submit" => json!({"started":true}),
             "snapshot" => {
                 let last = submissions.last().unwrap();
-                let text = if submissions.len() == 2 {
+                let text = if self.1 {
+                    "NATIVE_QUESTION_COMPLETE"
+                } else if submissions.len() == 2 {
                     "COMPACTED_PUBLIC_WORK_STATE"
                 } else {
                     "NATIVE_TURN_COMPLETE"
@@ -79,6 +81,23 @@ impl Bridge for App {
                     .filter(|v| v["op"] == "snapshot")
                     .count();
                 let settled = polls >= 3;
+                if self.1 && submissions.len() == 1 {
+                    let catalog=last["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).unwrap();
+                    let tools: Value = serde_json::from_str(catalog).unwrap();
+                    let key = tools
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .find(|k| k.rsplit('.').next() == Some("request_user_input"))
+                        .unwrap();
+                    let gateway = commands.iter().find(|v| v["op"] == "open").unwrap()["signature"]
+                        ["name"]
+                        .as_str()
+                        .unwrap();
+                    let input=json!({"questions":[{"id":"owned_choice","header":"Fixture","question":"Which owned fixture option should continue?","options":[{"label":"Alpha (Recommended)","description":"Continue the owned fixture."},{"label":"Beta","description":"Use the alternate fixture choice."}]}]}).to_string();
+                    let snapshot = json!({"round":last["round"],"messages":[{"id":"question-host-call","author":{"role":"assistant"},"recipient":format!("local.{gateway}"),"content":{"content_type":"code","text":json!({"kwargs":{"name":key,"input":input,"report":"Waiting for the owned native question"}}).to_string()},"status":"finished_successfully","end_turn":false}],"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":0,"dispatches":1});
+                    return Box::pin(async move { Ok(snapshot) });
+                }
                 json!({"round":last["round"],"messages":[{"id":format!("reply-{}",submissions.len()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[if polls==1{&text[..6]}else{text}]},"status":if settled{"finished_successfully"}else if polls==2{"finished_partial_completion"}else{"in_progress"},"end_turn":polls>=2}],"terminals":if settled{json!(["done"])}else{json!([])},"roundStarts":1,"userMessages":submissions.len(),"toolMessages":0,"dispatches":submissions.len()})
             }
             _ => return Box::pin(async { Err(Error("unexpected_fixture_operation")) }),
@@ -183,28 +202,48 @@ impl Rpc {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_manual_compaction_commits_public_checkpoint_and_continues_same_thread() {
-    native_context_fixture(false, false, false).await;
+    native_context_fixture(Scenario::Compact).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_public_handoff_preserves_original_opaque_history_and_user_turns() {
-    native_context_fixture(true, false, false).await;
+    native_context_fixture(Scenario::Handoff).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_bidirectional_provider_reentry_keeps_same_thread_and_readable_context() {
-    native_context_fixture(true, true, false).await;
+    native_context_fixture(Scenario::Bidirectional).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_fork_inherits_readable_handoff_and_keeps_parent_lane_independent() {
-    native_context_fixture(true, false, true).await;
+    native_context_fixture(Scenario::Fork).await;
 }
 
-async fn native_context_fixture(handoff: bool, cross_provider: bool, fork_child: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn native_question_returns_the_actual_choice_on_original_host_call_without_user_resubmit() {
+    native_context_fixture(Scenario::Question).await;
+}
+
+#[derive(Clone, Copy)]
+enum Scenario {
+    Compact,
+    Handoff,
+    Bidirectional,
+    Fork,
+    Question,
+}
+async fn native_context_fixture(scenario: Scenario) {
+    let handoff = matches!(
+        scenario,
+        Scenario::Handoff | Scenario::Bidirectional | Scenario::Fork
+    );
+    let cross_provider = matches!(scenario, Scenario::Bidirectional);
+    let fork_child = matches!(scenario, Scenario::Fork);
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime required"),
     );
@@ -214,7 +253,10 @@ async fn native_context_fixture(handoff: bool, cross_provider: bool, fork_child:
     for name in ["home", "codex", "system", "tmp", "work"] {
         fs::create_dir(root.0.join(name)).unwrap();
     }
-    let app = Arc::new(App::default());
+    let app = Arc::new(App(
+        Mutex::new(Vec::new()),
+        matches!(scenario, Scenario::Question),
+    ));
     let live = if cross_provider && std::env::var_os("CODEX_PROVIDER_LIVE_HANDOFF").is_some() {
         assert_eq!(
             std::env::var("CODEX_PROVIDER_LIVE_HANDOFF").as_deref(),
@@ -468,6 +510,63 @@ async fn native_context_fixture(handoff: bool, cross_provider: bool, fork_child:
     rpc.send(json!({"method":"initialized","params":{}})).await;
     let response=rpc.call(2,"thread/start",json!({"cwd":root.0.join("work"),"model":if cross_provider{"native-fixture"}else{"chatgpt-desktop/gpt-6"},"modelProvider":if cross_provider{"native_fixture"}else{"chatgpt_desktop"},"approvalPolicy":"never","sandbox":"danger-full-access"})).await;
     let thread = response["thread"]["id"].as_str().unwrap();
+    if matches!(scenario, Scenario::Question) {
+        let started=rpc.call(3,"turn/start",json!({"threadId":thread,"input":[{"type":"text","text":"Ask the owned native question and use its actual answer"}],"collaborationMode":{"mode":"plan","settings":{"model":"chatgpt-desktop/gpt-6","reasoning_effort":"none","developer_instructions":null}}})).await;
+        let question = rpc
+            .matching(|v| v["method"] == "item/tool/requestUserInput")
+            .await;
+        assert_eq!(question["params"]["threadId"], thread);
+        assert_eq!(question["params"]["questions"][0]["id"], "owned_choice");
+        assert_eq!(
+            app.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|v| v["op"] == "submit")
+                .count(),
+            1,
+            "waiting for a native answer must not start another app request"
+        );
+        rpc.send(json!({"id":question["id"],"result":{"answers":{"owned_choice":{"answers":["Alpha (Recommended)"]}}}})).await;
+        let done = rpc
+            .matching(|v| {
+                v["method"] == "turn/completed"
+                    && v["params"]["turn"]["id"] == started["turn"]["id"]
+            })
+            .await;
+        assert_eq!(done["params"]["turn"]["status"], "completed");
+        let after = rpc
+            .call(
+                4,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(after["thread"]["turns"].as_array().unwrap().len(), 1);
+        assert!(after.to_string().contains("NATIVE_QUESTION_COMPLETE"));
+        {
+            let commands = app.0.lock().unwrap();
+            let submissions = commands
+                .iter()
+                .filter(|v| v["op"] == "submit")
+                .collect::<Vec<_>>();
+            assert_eq!(submissions.len(), 2);
+            assert!(submissions[1]["messages"].as_array().unwrap().is_empty());
+            assert_eq!(submissions[1]["results"][0]["id"], "question-host-call");
+            assert!(submissions[1]["results"][0]
+                .to_string()
+                .contains("Alpha (Recommended)"));
+        }
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        stop.cancel();
+        server.await.unwrap();
+        println!(
+            "{}",
+            json!({"accepted":true,"actualNativeBlockingQuestion":true,"originalHostCallReturn":true,"userMessageResubmitted":false,"appFixtureDispatches":2,"chatSubmissions":0,"nativeUserTurns":1,"physicalTuiObserved":false})
+        );
+        return;
+    }
     rpc.turn(3, thread, if live.is_some(){"Remember that HANDOFF_STATE_7K2Q identifies the completed fixture work. Do not execute anything."}else{"Remember the completed fixture work"})
         .await;
     if handoff {

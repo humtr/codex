@@ -31,6 +31,7 @@ struct State {
     hold: bool,
     stopped: bool,
     progress_then_loss: bool,
+    public_markup: bool,
     generation: String,
     account: String,
     lanes: std::collections::BTreeSet<String>,
@@ -87,7 +88,7 @@ impl Bridge for App {
                             json!({"round":state.round,"messages":[{"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["Inspecting files"]},"end_turn":false}],"terminals":[],"stopped":state.stopped}),
                         );
                     }
-                    let messages = if state.stage <= state.bad_gateway_rounds {
+                    let mut messages = if state.stage <= state.bad_gateway_rounds {
                         if state.change_account_on_rejection {
                             state.account = "other-account".into();
                         }
@@ -100,6 +101,13 @@ impl Bridge for App {
                     } else {
                         json!([{"id":"final-a","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Tests passed"]},"status":"finished_successfully","end_turn":true}])
                     };
+                    if state.public_markup {
+                        messages[0]["content"]["parts"] = json!([if state.stage == 1 {
+                            "<box title=\"진행\">Inspecting files<MemoryCite source=\"fixture\" /></box>"
+                        } else {
+                            "<box title=\"검증\">Tests passed</box>\n`<box>literal code</box>`"
+                        }]);
+                    }
                     Ok(
                         json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"dispatches":state.stage}),
                     )
@@ -969,4 +977,43 @@ async fn native_guardian_ignores_project_destination_and_refuses_a_project_bound
         before,
         "a project-bound reviewer must fail before any app operation"
     );
+}
+
+#[tokio::test]
+async fn projected_components_keep_native_prefix_and_cached_replies_without_extra_submissions() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().public_markup = true;
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let mut next = body();
+    let first = execute(&host, next.clone()).await;
+    assert_eq!(
+        output(&first)[0]["content"][0]["text"],
+        "**진행**\nInspecting files\n"
+    );
+    next["input"].as_array_mut().unwrap().extend(output(&first));
+    for event in &first {
+        if let Event::Tool(call) = event {
+            next["input"].as_array_mut().unwrap().push(json!({
+                "type":if call.tool.kind==codex_chatgpt_provider::protocol::ToolKind::Custom{"custom_tool_call_output"}else{"function_call_output"},
+                "call_id":call.id,"output":"exact <box>native result</box>"}));
+        }
+    }
+    let final_events = execute(&host, next.clone()).await;
+    assert_eq!(
+        output(&final_events)[0]["content"][0]["text"],
+        "**검증**\nTests passed\n\n`<box>literal code</box>`"
+    );
+    assert_eq!(output(&execute(&host, next).await), output(&final_events));
+    let state = app.state.lock().unwrap();
+    let submissions = state
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submissions.len(), 2);
+    assert!(submissions[1]["messages"].as_array().unwrap().is_empty());
+    assert!(submissions[1]["results"]
+        .to_string()
+        .contains("exact <box>native result</box>"));
 }

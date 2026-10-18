@@ -1,5 +1,6 @@
 pub mod config;
 pub mod models;
+pub mod presentation;
 
 pub const PROVIDER_NAME: &str = "chatgpt-desktop";
 pub mod app;

@@ -120,6 +120,13 @@ is not changed. Upstream prefix-rule matching misses quoted
 executable paths; the fixture uses a plain owned program path. Provider never
 rewrites command arguments or takes over native approval policy.
 
+Public text adapts MemoryCite tags and box containers to terminal Markdown without
+changing already streamed text. Literal inline/fenced code, unknown markup and
+exact tool arguments/results stay intact. No extra model request is made for
+formatting. A native blocking-question fixture also returns its actual answer on
+the original app call without resubmitting the user request; physical question UI
+and real Chat reviewer judgment remain separate qualification.
+
 Set related fields together, for example:
 
 ```sh

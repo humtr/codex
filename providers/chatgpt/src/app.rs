@@ -811,10 +811,17 @@ async fn exchange(
             }) {
                 return Err(Error("public_message_changed"));
             }
-            let offset = previous.as_ref().map_or(0, |(_, text)| text.len());
+            let rendered = crate::presentation::text(&text, phase == "final_answer");
+            let previous_rendered = previous.as_ref().map_or_else(String::new, |(phase, text)| {
+                crate::presentation::text(text, phase == "final_answer")
+            });
+            if !rendered.starts_with(&previous_rendered) {
+                return Err(Error("public_presentation_changed"));
+            }
+            let offset = previous_rendered.len();
             lane.public.insert(id.into(), (phase.into(), text.clone()));
             let promoted = previous.as_ref().is_some_and(|(p, _)| p != phase);
-            if (text.len() > offset || promoted)
+            if (rendered.len() > offset || promoted)
                 && request.compaction != Some(context::Compaction::Checkpoint)
             {
                 publish(
@@ -823,7 +830,7 @@ async fn exchange(
                     Event::Text {
                         id: id.into(),
                         phase: phase.into(),
-                        delta: text[offset..].into(),
+                        delta: rendered[offset..].into(),
                     },
                 )
                 .await?;
@@ -968,7 +975,7 @@ async fn exchange(
                     let event = Event::Text {
                         id,
                         phase: "commentary".into(),
-                        delta: report,
+                        delta: crate::presentation::text(&report, true),
                     };
                     lane.cached.push(event.clone());
                     event

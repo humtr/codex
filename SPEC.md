@@ -1369,6 +1369,14 @@ compaction controls and replayed call IDs never enter this correction path.
 Native function argument validation stays native; ordinary malformed arguments
 are not rewritten by Provider. Exhaustion returns a specific terminal failure.
 
+Public model text may translate known Chat presentation components for native
+terminal Markdown: remove MemoryCite component tags and render box containers as
+plain text with an optional title. Preserve their useful contents, unknown markup,
+literal inline/fenced code and exact tool arguments/results. Hold incomplete known
+tags while streaming so an emitted prefix never needs rewriting; retain malformed
+or unfinished literal text at final settlement. This projection never requests
+another model turn, exports private reasoning or changes native execution policy.
+
 The private relay descriptor remains an explicit qualification connection option,
 not a fallback or required Bun/Python production dependency.
 An explicit owned bridge disposal may restore only its own installed hooks after
