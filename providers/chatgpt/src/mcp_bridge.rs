@@ -147,6 +147,14 @@ fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
         None
     }
 }
+fn apply_host_block(snapshot: &mut Value, item: &Value) {
+    // A historical unanswered confirmation cannot hide a failed app stream.
+    if !snapshot["error"].is_string() {
+        if let Some(code) = host_block(item, &snapshot["hostResponses"]) {
+            snapshot["error"] = json!(code);
+        }
+    }
+}
 impl Bridge for McpBridge {
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
@@ -367,9 +375,7 @@ impl Bridge for McpBridge {
             let mut observed = BTreeMap::new();
             for item in &raw {
                 if item["author"]["role"] == "tool" {
-                    if let Some(code) = host_block(item, &snapshot["hostResponses"]) {
-                        snapshot["error"] = json!(code);
-                    }
+                    apply_host_block(&mut snapshot, item);
                     continue;
                 }
                 if item["author"]["role"] != "assistant"
@@ -441,6 +447,16 @@ impl Bridge for McpBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn historical_confirmation_does_not_mask_a_failed_stream() {
+        let item = json!({"id":"confirm","metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}});
+        let mut snapshot = json!({"hostResponses":[],"error":"app_stream_failed"});
+        apply_host_block(&mut snapshot, &item);
+        assert_eq!(snapshot["error"], "app_stream_failed");
+        snapshot["error"] = Value::Null;
+        apply_host_block(&mut snapshot, &item);
+        assert_eq!(snapshot["error"], "mcp_host_confirmation_required");
+    }
     #[test]
     fn only_explicitly_counted_host_replies_extend_the_original_dispatch() {
         assert!(valid_dispatches(&json!({"roundStarts":1})));

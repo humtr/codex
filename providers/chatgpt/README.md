@@ -35,10 +35,13 @@ observation even when its local endpoint is unavailable. It distinguishes app
 running, pending native tool results, stop requested/unconfirmed, acknowledged stop
 and unknown state. A pending host confirmation/authentication retains the same
 request, emits one waiting report and exposes `host_block`; approve/reject in ChatGPT itself. A host
-reply resolves only its matching prompt. The signed app may submit the user's
+reply resolves only its matching prompt. Explicit user delegation may authorize
+selecting the signed app's real Allow control for the bounded operation; it does
+not authorize fabricating consent or bypassing the app. The signed app may submit the user's
 permission choice as a correlated tool-role continuation; status counts those as
 `host_action_reply_objects`, separately from native returns and user-role objects.
-Unrelated, repeated or stopped-lane replies refuse. No automatic approval or new
+Server-offered invocation targets map to their exact confirmation. Unrelated,
+ambiguous, repeated or stopped-lane replies refuse. No fabricated approval or new
 user submission continues the wait. Content-free SSE data pings keep Codex's parsed-event
 idle deadline alive during silent waits; they establish transport liveness, not
 actual model progress, and add no Chat or native transcript item. Counts separate
@@ -46,6 +49,12 @@ app dispatches, user-role objects and tool returns; they do not measure Chat
 allowance. It neither starts a service nor queries/resumes/cancels the app. No prompt, tool output, account identifiers or
 credential is included. A journal observation is not current remote progress or
 proof that native tools have finished; review canonical native history as well.
+
+`reveal --thread NATIVE_THREAD_ID [--state PATH]` selects that lane's actual
+saved app conversation using the already running owned service. It sends no Chat
+message, starts no service/viewer and approves nothing. An unknown lane or changed
+account refuses. Use it before opening the optional viewer; do not select by title
+or sidebar order. A reveal request is not proof the physical screen changed.
 
 `stop [--state PATH]` explicitly requests graceful shutdown of the verified
 Provider service using a PID-bound kernel handle. It preserves journal, app profile
@@ -102,6 +111,9 @@ explicit private relay. A separate bounded device proof now also starts the auth
 from Rust, verifies the same account and executes native commands/patch/validation
 without a Bun/Python host. It restores the original profile inode and controller
 afterward; this does not activate a permanent operating migration.
+The provisioned desktop includes `fonts-noto-cjk` so Korean text renders without
+changing account language or personalization. Existing provisioned rootfs images
+need this package installed as well as future provisioning recipes.
 The retained qualification desktop pins ChatGPT/browser icons: tap to launch an
 absent app, minimize its focused window or restore an unfocused/minimized window.
 Existing windows switch directly; duplicate startup taps coalesce. These icons

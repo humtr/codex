@@ -3,6 +3,15 @@
 async function termuxCodexBridge(command) {
   const slot = Symbol.for('termux.codex.app.bridge.v1');
   const fail = code => { throw Error(code); };
+  // The app may address an approval to the invoking assistant message rather
+  // than the tool's confirmation message. Admit only targets offered by that
+  // observed confirmation, never an arbitrary ancestor or known message.
+  const hostTargets = message => {
+    const metadata=message?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
+    if(message?.author?.role!=='tool'||!(['confirm_action','approve_tool_in_context_scope','plugin_auth_required','oauth_required','link_required'].includes(plugin?.from_server?.type)||metadata?.codex_plugin_auth_required?.status==='pending'))return [];
+    const body=plugin?.from_server?.body;
+    return [message.id,body?.target_message_id,body?.codex_mcp_elicitation?.target_message_id,...(body?.actions??[]).flatMap(action=>['allow','allow_once','always_allow','deny','link_created','oauth_redirect'].map(key=>action[key]?.target_message_id))].filter(v=>typeof v==='string'&&v.length>0);
+  };
   let state = globalThis[slot];
   if (command.op === 'init') {
     const mode=command.returnPath??'local_function';
@@ -65,8 +74,9 @@ async function termuxCodexBridge(command) {
         }
         const previousDone = options.onComplete, previousError = options.onError;
         options.onComplete = value => { if (lane.epoch === epoch) { lane.terminals.push(value.reason); lane.streamActive = false; } return previousDone?.(value); };
-        options.onError = value => { if (lane.epoch === epoch) lane.error = 'app_stream_failed'; return previousError?.(value); };
-        return state.saved[name].call(this,options);
+        options.onError = value => { if (lane.epoch === epoch) {lane.error = 'app_stream_failed';lane.streamActive=false;} return previousError?.(value); };
+        try {return state.saved[name].call(this,options);}
+        catch(error){if(lane.epoch===epoch){lane.error='app_stream_failed';lane.streamActive=false;}throw error;}
       };
       client[name] = state.hooks[name];
     }
@@ -81,11 +91,12 @@ async function termuxCodexBridge(command) {
       const reply=request.messages?.length===1?request.messages[0]:null;
       const metadata=reply?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
       const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
-      const prompt=typeof target==='string'?lane.messages.get(target):null;
-      const promptPlugin=prompt?.metadata?.jit_plugin_data??prompt?.metadata?.elicitation_metadata?.plugin_data;
-      const hostReply=mode==='mcp'&&!lane.stopRequested&&reply?.author?.role==='tool'&&prompt?.author?.role==='tool'&&
-        (['confirm_action','approve_tool_in_context_scope','plugin_auth_required','oauth_required','link_required'].includes(promptPlugin?.from_server?.type)||prompt.metadata?.codex_plugin_auth_required?.status==='pending');
-      if (!ids || lane.sent.has(ids) || lane.roundPrepared&&!hostReply || hostReply&&lane.hostReplies.has(target)) fail('app_dispatch_replayed');
+      const prompts=typeof target==='string'?[...lane.messages.values()].filter(m=>hostTargets(m).includes(target)):[];
+      const hostReply=mode==='mcp'&&!lane.stopRequested&&reply?.author?.role==='tool'&&prompts.length===1;
+      if (!ids || lane.sent.has(ids) || lane.roundPrepared&&!hostReply || hostReply&&hostTargets(prompts[0]).some(t=>lane.hostReplies.has(t))) {
+        lane.rejectedDispatch={messageCount:request.messages?.length??0,roles,duplicateIds:lane.sent.has(ids),roundPrepared:lane.roundPrepared===true,hostReply,replySeen:lane.hostReplies.has(target),stopped:lane.stopRequested===true,hasClientReply:!!plugin?.from_client,hasCodexReply:!!metadata?.codex_mcp_elicitation_response,matchingConfirmations:prompts.length};
+        fail('app_dispatch_replayed');
+      }
       if (!hostReply) lane.roundPrepared = true;
       if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !hostReply&&(!roles.includes('user') || roles.includes('tool')))) fail('app_dispatch_invalid');
       if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) fail('app_dispatch_invalid');
@@ -192,18 +203,27 @@ async function termuxCodexBridge(command) {
       const message = node.message;
       const metadata=message?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
       const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
-      if(typeof target==='string'){if(target.length>0&&lane.hostReplies.has(target))hostResponses.add(target);continue;}
+      if(typeof target==='string'){if(target.length>0&&lane.hostReplies.has(target))for(const prompt of lane.messages.values())if(hostTargets(prompt).includes(target))hostResponses.add(prompt.id);continue;}
       if (message?.id && (message.author?.role === 'assistant' || state.mode==='mcp'&&message.author?.role==='tool') && !lane.older.has(message.id)) lane.messages.set(message.id,message);
     }
     // Public messages and our own tool calls only; never export hidden reasoning.
     const messages = [...lane.messages.values()].filter(m => state.mode==='mcp'&&m.author?.role==='tool' || m.author?.role === 'assistant' &&
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
-       [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
+       m.content?.content_type==='text' && [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,hostResponses:[...hostResponses],accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
       dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
       stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
   };
   if (command.op === 'snapshot') return snapshot();
+  if(command.op==='reveal') {
+    const current=identity();
+    if(['account','user','structure'].some(k=>current[k]!==command.identity?.[k]))fail('app_account_changed');
+    if(typeof state.shared.N0t!=='function'||typeof lane.serverId!=='string'||!lane.serverId)fail('app_reveal_unavailable');
+    await state.shared.N0t(state.scope,'/c/'+encodeURIComponent(lane.serverId));
+    const after=identity();
+    if(['account','user','structure'].some(k=>after[k]!==command.identity?.[k]))fail('app_account_changed');
+    return {requested:true};
+  }
   if (command.op === 'project_membership') {
     if (!lane.project || !lane.serverId || lane.pending || lane.streamActive) fail('project_membership_unsettled');
     const before=identity();

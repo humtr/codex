@@ -21,3 +21,6 @@ tokio-tungstenite = "=0.29.0"
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 toml = "=0.8.23"
 zstd = { version = "=0.13.3", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "=1.53.3", features = ["test-util"] }

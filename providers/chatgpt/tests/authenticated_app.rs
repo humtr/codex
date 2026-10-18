@@ -1,5 +1,6 @@
-//! Explicit read-only inspection of a user-authorized, already running app.
-//! No hooks, chats, tools, account changes or credential values are exported.
+//! Explicit diagnostics of a user-authorized, already running qualification app.
+//! Each ignored test declares its read-only or bounded UI/pre-POST behavior.
+//! No Chat submissions, tool execution or credential values are exported.
 use codex_chatgpt_provider::cdp::{Client, Descriptor};
 
 #[tokio::test]
@@ -108,4 +109,43 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
     );
     let actions = app.evaluate(r#"(()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];return {lanes:s?[...s.lanes.values()].map(l=>({streamActive:l.streamActive===true,stopped:l.stopRequested===true,dispatches:l.starts.size,userMessages:l.userMessages,toolMessages:l.toolMessages,actions:[...l.messages.values()].filter(m=>m.author?.role==='tool').map(m=>{const d=m.metadata||{},p=d.jit_plugin_data||d.elicitation_metadata||{},f=(p.plugin_data||p).from_server||{},e=d.codex_mcp_elicitation||f.body?.codex_mcp_elicitation||{};return {messageStatus:m.status,serverType:f.type,connector:f.body?.connector_name,computerUse:f.body?.connector_id==='computer-use',operation:f.body?.operation,actionNames:f.body?.actions?.map(a=>a.name),elicitationKind:e.kind,elicitationStatus:e.status,responsePresent:d.codex_mcp_elicitation_response!=null};})})):[]};})()"#).await.unwrap();
     println!("Host action observation (no text/arguments): {actions}");
+}
+
+#[tokio::test]
+#[ignore = "explicit stopped qualification lane; signed-app permission construction intercepted before POST"]
+async fn actual_permission_reply_shape_is_intercepted_before_any_conversation_post() {
+    let path = std::env::var_os("CHATGPT_PROVIDER_DESCRIPTOR").unwrap();
+    let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
+        .await
+        .unwrap();
+    let app = client.app().await.unwrap();
+    let result=app.evaluate(r#"(async()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)throw Error('existing_bridge_required');const lanes=[...s.lanes.values()];if(lanes.length!==1||!lanes[0].stopRequested)throw Error('stopped_fixture_required');const l=lanes[0],prompt=[...l.messages.values()].find(m=>m.metadata?.jit_plugin_data?.from_server?.type==='confirm_action');if(!prompt)throw Error('confirmation_required');let observed=null,failureCode=null;const saved=s.wire.streamPost;s.wire.streamPost=function(path,options){if(path!=='/f/conversation')return saved.call(this,path,options);const r=JSON.parse(options.body);observed={posts:0,intercepted:true,requestKeys:Object.keys(r),messageCount:r.messages?.length,roles:r.messages?.map(m=>m.author?.role),messages:r.messages?.map(m=>{const d=m.metadata??{},p=d.jit_plugin_data??d.elicitation_metadata?.plugin_data,t=p?.from_client?.target_message_id??d.codex_mcp_elicitation_response?.target_message_id,f=typeof t==='string'?l.messages.get(t):null;return {role:m.author?.role,metadataKeys:Object.keys(d),hasClientReply:!!p?.from_client,hasCodexReply:!!d.codex_mcp_elicitation_response,targetMatches:!!f,promptRole:f?.author?.role,promptType:(f?.metadata?.jit_plugin_data??f?.metadata?.elicitation_metadata?.plugin_data)?.from_server?.type,hasServerData:!!p?.from_server};})};throw Error('qualification_prepost_blocked');};try{try{await s.api.yRt(s.scope,{conversationId:l.localId,projectId:l.project,model:'gpt-6',prompt:'',thinkingEffort:null,isTemporaryChat:false,toolApproval:{action:'allow',targetMessageId:prompt.metadata.jit_plugin_data.from_server.body?.actions?.find(a=>a.allow_once||a.allow)?.allow_once?.target_message_id??prompt.metadata.jit_plugin_data.from_server.body?.actions?.find(a=>a.allow)?.allow?.target_message_id??prompt.id},requireResponseAcceptance:true});}catch(e){failureCode=['app_dispatch_replayed','project_membership_unconfirmed','Read-only mode blocks connector approvals','No stream available'].includes(e.message)?e.message:e.name==='TypeError'?String(e.message).replace(/[^a-zA-Z0-9 '.()_-]/g,'').slice(0,150):e.name;}return observed??{intercepted:false,posts:0,failureCode};}finally{if(s.wire.streamPost!==saved)s.wire.streamPost=saved;}})()"#).await.unwrap();
+    println!("{result}");
+    assert_eq!(result["intercepted"], true);
+    assert_eq!(result["posts"], 0);
+}
+
+#[tokio::test]
+#[ignore = "explicit stopped qualification lane; navigate exact retained app conversation, no inference"]
+async fn actual_reveal_uses_the_apps_generic_thread_navigation() {
+    let path = std::env::var_os("CHATGPT_PROVIDER_DESCRIPTOR").unwrap();
+    let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
+        .await
+        .unwrap();
+    let app = client.app().await.unwrap();
+    let result=app.evaluate(r#"(async()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)throw Error('existing_bridge_required');const lanes=[...s.lanes.values()];if(lanes.length!==1||!lanes[0].stopRequested)throw Error('stopped_fixture_required');const l=lanes[0];try{await s.shared.N0t(s.scope,'/c/'+encodeURIComponent(l.serverId));}catch(e){return {navigationRequested:false,available:typeof s.api.P8t==='function',error:String(e.message).replace(/[^a-zA-Z0-9 '.()_-]/g,'').slice(0,160)}}return {navigationRequested:true,chatPosts:0,localKnown:true,serverKnown:typeof l.serverId==='string'};})()"#).await.unwrap();
+    println!("{result}");
+    assert_eq!(result["navigationRequested"], true);
+}
+
+#[tokio::test]
+#[ignore = "authorized qualification app; content-free rejected-dispatch diagnosis only"]
+async fn rejected_dispatch_flags_are_content_free() {
+    let path = std::env::var_os("CHATGPT_PROVIDER_DESCRIPTOR").unwrap();
+    let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
+        .await
+        .unwrap();
+    let app = client.app().await.unwrap();
+    let result=app.evaluate(r#"(()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];return {lanes:s?[...s.lanes.values()].map(l=>({rejected:l.rejectedDispatch??null,dispatches:l.starts.size,roundStarts:l.roundStarts,hostReplies:l.hostReplyMessages,stopped:l.stopRequested===true,streamActive:l.streamActive===true,error:l.error,terminals:l.terminals,publicFinal:[...l.messages.values()].filter(m=>m.author?.role==='assistant'&&m.channel==='final'&&m.content?.content_type==='text'&&!m.metadata?.is_visually_hidden_from_conversation).map(m=>({length:m.content.parts?.join('').length,mentionsMcp:m.content.parts?.join('').toLowerCase().includes('mcp'),mentionsUnavailable:/unavailable|unable|cannot|can.t|unreachable|실패|없|불가/i.test(m.content.parts?.join(''))})),messages:[...l.messages.values()].filter(m=>['tool','assistant'].includes(m.author?.role)).map(m=>({role:m.author.role,channel:m.channel??null,contentType:m.content?.content_type??null,partsArray:Array.isArray(m.content?.parts),hidden:m.metadata?.is_visually_hidden_from_conversation===true,allRecipient:m.recipient==null||m.recipient==='all',hasPublicText:m.content?.parts?.some(p=>typeof p==='string'&&p.length>0)??false,hostType:m.metadata?.jit_plugin_data?.from_server?.type??null})),offeredTargetRoles:[...l.messages.values()].filter(m=>m.author?.role==='tool').flatMap(m=>(m.metadata?.jit_plugin_data?.from_server?.body?.actions??[]).flatMap(a=>['allow','allow_once','always_allow','deny'].filter(k=>a[k]?.target_message_id).map(k=>({action:k,role:l.messages.get(a[k].target_message_id)?.author?.role??null,sameConfirmation:a[k].target_message_id===m.id}))))})):[]};})()"#).await.unwrap();
+    println!("{result}");
 }

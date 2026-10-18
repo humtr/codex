@@ -163,7 +163,7 @@ def prepare(args):
         if not rootfs.exists(): subprocess.run(base+['install', '--name', 'chatgpt-trial', 'debian:13-slim'], env=env, stdout=out, stderr=out, check=True, timeout=180)
         command = '''printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
 chmod 755 /usr/sbin/policy-rc.d
-apt-get update -o Acquire::Retries=2 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /candidate/chatgpt_arm64.deb ca-certificates chromium
+apt-get update -o Acquire::Retries=2 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /candidate/chatgpt_arm64.deb ca-certificates chromium fonts-noto-cjk
 '''
         subprocess.run(base+['login', '--isolated', '--bind', str(cache)+':/candidate', 'chatgpt-trial', '--', '/bin/sh', '-c', command], env=env, stdout=out, stderr=out, check=True, timeout=900)
     private(data/'home')

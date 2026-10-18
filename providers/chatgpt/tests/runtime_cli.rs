@@ -72,6 +72,24 @@ impl Drop for Service {
 }
 
 #[test]
+fn reveal_never_bootstraps_a_missing_service_or_creates_state() {
+    let root = Root::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args(["reveal", "--thread", "native-thread", "--state"])
+        .arg(root.0.join("missing-state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        !root.0.exists(),
+        "navigation is not a startup or configuration operation"
+    );
+}
+
+#[test]
 fn immutable_service_snapshot_survives_build_replacement_while_mutable_owner_refuses_reentry() {
     let root = Root::new();
     std::fs::create_dir(&root.0).unwrap();

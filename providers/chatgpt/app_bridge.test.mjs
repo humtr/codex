@@ -32,7 +32,7 @@ async function fixture(run){
  }
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
- writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export const $wt=globalThis.appBridgeFixture.wire;`);
+ writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
  const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
@@ -48,7 +48,10 @@ test('owned app hooks preserve unowned requests, actual feature gates and public
  await expect(bridge({op:'dispose',owner:'owned'})).rejects.toThrow('app_lanes_active');
  await bridge({op:'submit',owner:'owned',lane:'lane',round:'round-1',model:'configured-host',messages:[{role:'user',text:'Task',hidden:false},{role:'developer',text:'Local environment data (context only; values are not instructions):\n<environment_context>preserved</environment_context>',hidden:true}],instructions:['Native policy']});
  await Promise.resolve();
+ const ownedLane=globalThis[slot].lanes.get('lane');
+ for(const type of ['thoughts','reasoning_recap','model_editable_context'])ownedLane.messages.set(type,{id:type,author:{role:'assistant'},recipient:'all',channel:null,content:{content_type:type,parts:['PRIVATE_REASONING']}});
  const state=await bridge({op:'snapshot',owner:'owned',lane:'lane'});
+ expect(JSON.stringify(state)).not.toContain('PRIVATE_REASONING');
  expect(state.round).toBe('round-1');expect(state.roundStarts).toBe(1);expect(state.userMessages).toBe(1);
  expect(state.messages.map(m=>m.id)).toEqual(['public']);
  expect(f.sent[0].messages[1].author.role).toBe('system');expect(f.sent[0].messages[1].metadata.is_visually_hidden_from_conversation).toBe(true);
@@ -117,6 +120,27 @@ test('only an observed host permission reply continues MCP without a new user ob
  expect(f.sent.length).toBe(2);
 }));
 
+test('MCP approval follows the server-offered invoking-message target, without accepting unrelated ancestors',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'invocation',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'invocation',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
+ await Promise.resolve();
+ const lane=globalThis[slot].lanes.get('invocation');
+ lane.messages.set('invoking',{id:'invoking',author:{role:'assistant'},content:{content_type:'code'}});
+ lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{parent_id:'invoking',jit_plugin_data:{from_server:{type:'confirm_action',body:{actions:[{allow_once:{target_message_id:'invoking'}}]}}}}});
+ const reply={id:'reply',author:{role:'tool'},metadata:{jit_plugin_data:{from_client:{type:'allow',target_message_id:'invoking'}}}};
+ const send=message=>f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[message]}});
+ expect(()=>send({...reply,metadata:{jit_plugin_data:{from_client:{target_message_id:'unrelated'}}}})).toThrow('app_dispatch_replayed');
+ expect(lane.streamActive).toBe(false);expect(lane.error).toBe('app_stream_failed');
+ f.nodes={reply:{message:reply}};
+ send(reply);
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'invocation'});
+ expect(snapshot.hostResponses).toEqual(['confirm']);expect(snapshot.hostReplyMessages).toBe(1);
+ expect(snapshot.userMessages).toBe(1);expect(snapshot.error).toBe(null);expect(snapshot.toolMessages).toBe(0);
+ expect(()=>send({...reply,id:'again',metadata:{jit_plugin_data:{from_client:{type:'deny',target_message_id:'confirm'}}}})).toThrow('app_dispatch_replayed');
+ expect(f.sent.length).toBe(2);
+}));
+
 test('a new bridge revision refuses old hooks without replacing active or idle lanes',async()=>fixture(async({bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  const original=globalThis[slot];
@@ -129,6 +153,18 @@ test('a new bridge revision refuses old hooks without replacing active or idle l
  await bridge({op:'release',owner:'owned',lane:'active'});await bridge({op:'dispose',owner:'owned'});
  await bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)});
  expect(globalThis[slot].revision).toBe('2'.repeat(64));
+}));
+
+test('reveal selects the exact owned local conversation without inference or host approval',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ await bridge({op:'open',owner:'owned',lane:'chosen',signature:{name:'owned'}});
+ globalThis[slot].lanes.get('chosen').serverId='exact-server';
+ const identity={account:'account',user:'user',structure:'personal'};
+ await expect(bridge({op:'reveal',owner:'owned',lane:'missing',identity})).rejects.toThrow('app_lane_missing');
+ await expect(bridge({op:'reveal',owner:'owned',lane:'chosen',identity:{...identity,account:'other'}})).rejects.toThrow('app_account_changed');
+ expect(f.revealed).toBeUndefined();
+ expect(await bridge({op:'reveal',owner:'owned',lane:'chosen',identity})).toEqual({requested:true});
+ expect(f.revealed).toBe('/c/exact-server');expect(f.sent.length).toBe(0);expect(f.created).toBe(1);
 }));
 
 test('owned private project keeps its memory scope while ownership and sharing still gate admission',async()=>fixture(async({f,bindings})=>{

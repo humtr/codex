@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -19,7 +19,7 @@ fn run() -> Result<(), String> {
         .collect::<Result<_, _>>()?;
     if matches!(
         args.first().map(String::as_str),
-        Some("serve" | "status" | "stop" | "view" | "token" | "prepare" | "mcp-stdio")
+        Some("serve" | "status" | "stop" | "reveal" | "view" | "token" | "prepare" | "mcp-stdio")
     ) {
         return runtime_command(&args);
     }
@@ -156,8 +156,8 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
             return Err("invalid or duplicate runtime option".into());
         }
     }
-    if fields.contains_key("--thread") && args[0] != "status" {
-        return Err("--thread is only supported by read-only status".into());
+    if fields.contains_key("--thread") && !matches!(args[0].as_str(), "status" | "reveal") {
+        return Err("--thread is only supported by status and reveal".into());
     }
     let root = fields
         .get("--state")
@@ -247,6 +247,17 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
         {
             let value = executor
                 .block_on(runtime::stop(&root))
+                .map_err(|e| e.to_string())?;
+            text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
+        }
+        "reveal"
+            if fields
+                .keys()
+                .all(|key| matches!(*key, "--state" | "--thread")) =>
+        {
+            let thread = fields.get("--thread").ok_or("reveal requires --thread")?;
+            let value = executor
+                .block_on(runtime::reveal(&root, thread))
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }

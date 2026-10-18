@@ -1304,8 +1304,11 @@ this route for live use; actual connector ACK is required before activation.
 Pending host authentication/confirmation keeps the original request attached and
 emits one public waiting report; status records the blocking reason and observed
 submission counters. Poll the same invocation until the host resolves it or the
-user cancels. A correlated host response clears only its own confirmation; never
-click approval automatically or submit another Chat message to continue. Record
+user cancels. A correlated host response clears only its own confirmation. Without
+explicit user delegation, never click approval automatically. Bounded explicit
+user delegation permits selecting the app's real Allow control for that authorized
+operation; it never permits synthesizing consent or bypassing the host's controls.
+Never submit another Chat user message merely to continue. Record
 observed counters before reporting a host block or stream failure.
 Loopback SSE keepalive uses a content-free data `ping` event: upstream's parsed
 SSE idle deadline ignores comment-only heartbeats. This proves transport
@@ -1313,13 +1316,27 @@ liveness only, not model or native work progress. It adds no transcript item,
 Chat submission or retry; ordinary observer cancellation still reaches the host.
 An explicit host permission/authentication reply may use the signed app's separate
 tool-role continuation. Admit only a response correlated to an observed pending
-host action in this lane; never create that reply on the user's behalf. Count
+host action in this lane, including a target explicitly offered in that action's
+server metadata which addresses the invoking message instead of the confirmation
+message. Unrelated ancestors, ambiguous matches and a second response to the same
+action refuse. A failed stream takes precedence over a historical host wait.
+Never fabricate a reply instead of the signed app's real consent control. Count
 those actual host requests/reply objects separately from native tool returns and
 user-role objects. They are not automatic retries or proof of allowance debits.
 A retained renderer bridge is bound to the exact Provider bridge-source revision.
 A different revision refuses admission without replacing hooks or pending work;
 explicit settled qualification cleanup or a newly owned host establishes the new
 revision. A new binary must never silently keep executing old renderer hooks.
+`reveal --thread ID` selects only that native lane's actual saved app conversation,
+using the existing owned service and current account binding. It neither starts a
+service/viewer, submits Chat input nor approves tools. Missing/mismatched lanes or
+accounts refuse; never pick a chat by title, sidebar order or a guessed remote ID.
+Last-known host blocks do not make an unknown/stopped lane a live attached wait.
+A confirmed host authentication/permission wait pauses the model-work deadline;
+transport cancellation still requests and verifies stop. Human response time alone
+must not expire a correctly attached request and force another Chat submission.
+The provisioned Linux UI includes Korean-capable CJK fonts; typography is not an
+account-language or personalization change.
 
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,

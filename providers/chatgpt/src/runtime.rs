@@ -311,6 +311,26 @@ pub async fn stop(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 
+pub async fn reveal(root: &Path, thread: &str) -> Result<serde_json::Value, Error> {
+    if thread.is_empty() || thread.len() > 256 || !thread.bytes().all(|c| c.is_ascii_graphic()) {
+        return Err(Error("invalid_thread_identity"));
+    }
+    token(root).await?; // verify an existing owner; never bootstrap for navigation
+    let selected = binding(root)?;
+    tokio::time::timeout(Duration::from_secs(12),async {
+        let mut socket=tokio::net::TcpStream::connect(("127.0.0.1",selected.port)).await.map_err(|_|Error("provider_unavailable"))?;
+        socket.write_all(format!("POST /__reveal HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\nAuthorization: Bearer {}\r\nX-Codex-Thread-Id: {thread}\r\n\r\n",selected.token).as_bytes()).await.map_err(|_|Error("app_reveal_unconfirmed"))?;
+        let mut bytes=Vec::new();socket.take(8193).read_to_end(&mut bytes).await.map_err(|_|Error("app_reveal_unconfirmed"))?;
+        if bytes.len()>8192 {return Err(Error("app_reveal_unconfirmed"));}
+        let text=String::from_utf8(bytes).map_err(|_|Error("app_reveal_unconfirmed"))?;
+        let (headers,body)=text.split_once("\r\n\r\n").ok_or(Error("app_reveal_unconfirmed"))?;
+        if !headers.starts_with("HTTP/1.1 200 ") {return Err(Error("app_reveal_unconfirmed"));}
+        let value:serde_json::Value=serde_json::from_str(body).map_err(|_|Error("app_reveal_unconfirmed"))?;
+        if value["app_reveal_requested"]!=true {return Err(Error("app_reveal_unconfirmed"));}
+        Ok(value)
+    }).await.map_err(|_|Error("app_reveal_unconfirmed"))?
+}
+
 pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
     if binding(root).is_err() {
         let path = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;

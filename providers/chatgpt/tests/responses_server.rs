@@ -23,8 +23,19 @@ const TOKEN: &str = "owned_fixture_token_012345678901234567890123456789";
 struct Fixture {
     calls: Arc<AtomicUsize>,
     cancelled: Arc<AtomicUsize>,
+    reveals: Arc<AtomicUsize>,
 }
 impl Host for Fixture {
+    fn reveal(&self, thread: String) -> BoxFuture<'static, Result<(), Error>> {
+        let this = self.clone();
+        Box::pin(async move {
+            if thread != "owned-navigation" {
+                return Err(Error("native_lane_not_found"));
+            }
+            this.reveals.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
     fn exchange(
         &self,
         request: Request,
@@ -126,6 +137,35 @@ fn frames(raw: &str) -> Vec<Value> {
                 .map(|s| serde_json::from_str(s).unwrap())
         })
         .collect()
+}
+
+#[tokio::test]
+async fn reveal_requires_local_auth_and_an_exact_native_thread_without_inference() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    for (extra, status) in [
+        ("X-Codex-Thread-Id: owned-navigation\r\n", 200),
+        ("X-Codex-Thread-Id: missing\r\n", 409),
+        ("", 400),
+        (
+            "X-Codex-Thread-Id: owned-navigation\r\nOrigin: https://unowned.invalid\r\n",
+            401,
+        ),
+        (
+            "X-Codex-Thread-Id: owned-navigation\r\nAuthorization: Bearer wrong\r\n",
+            401,
+        ),
+    ] {
+        let mut stream = TcpStream::connect(address).await.unwrap();
+        stream.write_all(format!("POST /__reveal HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: 0\r\n{extra}\r\n").as_bytes()).await.unwrap();
+        let result = collect(stream).await;
+        assert!(
+            result.starts_with(&format!("HTTP/1.1 {status}")),
+            "{result}"
+        );
+    }
+    assert_eq!(fixture.reveals.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    stop.cancel();
 }
 
 #[tokio::test]

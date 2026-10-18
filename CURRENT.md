@@ -252,6 +252,9 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-mcp-host-reply-revision-full.log / provider-mcp-revision-preflight.log |90 regular Rust/106 Bun/30 Python, fmt/clippy/release pass. Correlated explicit host-reply admission/counting, unrelated/duplicate/late refusal and bridge revision isolation pass. Actual authenticated app request construction/owned stopped-fixture cleanup pass with zero Chat posts and no saved history deletion; actual host-to-native return still unqualified |
 | provider-host-reply-android-composed.log / installed-full76-inventory-readback.json |All14 actual Android native regressions pass after host-reply/revision changes, using synthetic app replies/no Chat. Actual active Full76 inventory hashes match all8 files and preserves previous Full60; signature not independently reverified in this readback |
 | desktop-panel-device.json / desktop-panel-icon-taps.json / provider-panel-official-icons-python.log | Official installed ChatGPT/Chromium icons, no copied/redrawn artwork. Cold browser launch3.425s; existing-window helper0.139–0.241s. Six actual X pointer taps minimize/restore both exact windows without duplicates (observed0.142–0.424s); physical Android touch not separately observed. Final icon-source revision passes30 Python tests; only tint2 config reloaded, app/profile/inference preserved |
+| provider-offered-target-full.log / provider-mcp-v7-rejected-targets.log |96 regular Rust/108 Bun/30 Python, fmt/clippy/release pass before the R8 content-type repair. Actual signed-app Allow addresses an assistant invocation offered by the tool confirmation. Source admits that exact correlation and rejects unrelated/duplicate targets; synchronous stream failure/host-wait precedence, long human waits and exact reveal are covered. Live final MCP return remains pending |
+| provider-offered-target-android-composed.log |All14 actual Android native retained-MCP/executor/search/correction/reviewer/silent-wait/context/fork/question/compaction fixtures pass after approval/reveal/wait changes. Synthetic app replies; zero Chat. R8 content-type filter requires its own final gate |
+| provider-public-content-full.log |96 regular Rust/108 Bun/30 Python plus fmt/clippy/release pass after actual R8 channel-less reasoning/context exposed a public-projection defect. Actual text-only projection and private-reasoning exclusion are covered, along with approval/reveal/wait/error repairs. No fixture is counted as live MCP return |
 | provider-mcp-app-auth-admission.log | Retained earlier failed diagnosis, superseded by the authenticated preflight above. An old settled fixture was first preserved, then released after same-account/no-live-stream/no-tool-call checks without deleting its chat. Relay ownership/pre-send guard placement were corrected; missing auth refused before submission. No Chat or permanent Provider activation; this failure is not connector ACK |
 | provider-mcp-tunnel-admission.json | Installed Termux Codex connector/tunnel/tool schemas match; real Rust MCP stdio tools/list and local health pass. External poll fails401 tunnel_use_forbidden even with recorded owner scope after process-only DNS relay. Zero Chat starts. Trial Provider/tunnel alias/proxy stopped and generated trial root removed; original GUI/profile/remote tunnel and unrelated services preserved. Historical failed attempt; superseded by the recovered runtime-key reference and separate installed Provider connector below |
 | provider-tui-no-manager-current-core.json / core-current-composition-build.log | Current Core rebuilt from source (e83083f6…), Manager absent, same-thread /model native↔Chat round trip and permissions preserved with four synthetic Responses/no Chat. Earlier debug Core was stale and fell back to ordinary TUI; driver now offers --build-core and checks the actual frontend process |
@@ -415,10 +418,40 @@ qualification. Unsupported box components remained in its final transcript.
    stopped qualification lanes while holding their native writer lease, preserves
    journal and saved chats, then installs/tests/removes the new bridge. New owned
    hosts naturally start a new renderer; this cleanup is not a product auto-repair.
-   Revision `f96fb36` is pushed and installed only in the immutable isolated trial.
-   Its fresh native request currently waits at host confirmation (one app dispatch,
-   one user object, zero host replies/native effects); a new one-tap notification
-   presents the selected trial chat. Actual resolution/tool return remains open.
+   Revision `f96fb36` is pushed and was installed only in the immutable isolated
+   trial. Its request expired at the600-second model-work deadline before the user
+   resolved the current host action; a later selection was an older stopped chat.
+   Both screenshot and `mcp_turn_unavailable` show sidebar ordering was insufficient.
+   The user explicitly delegated selecting further real Allow controls for this
+   bounded qualification; this is not permission fabrication or host bypass.
+   Confirmed human host waits now pause the work deadline and remain cancellable.
+   Last-known host blocks no longer label an unknown/stopped request as attached.
+   `reveal --thread` binds the exact account/lane and invokes the signed app's
+   ordinary `/c/` navigation with its observed saved conversation ID, without
+   service bootstrap, Chat input or tool approval. Earlier local-work navigation
+   with an ephemeral chat ID produced an invalid-session error and was rejected.
+   Actual MCP-R6/R7 Allow controls were rejected as `app_dispatch_replayed`;
+   each observed one app dispatch/one user object and zero native effects. The
+   content-free R7 diagnosis proves the server offers an assistant invocation ID
+   as the approval target, distinct from its tool confirmation ID. The old test
+   manually supplied the confirmation ID and did not qualify actual UI behavior.
+   Admission now correlates offered targets to the sole observed host action,
+   refuses duplicates across that action's alternate targets, and projects its
+   confirmation ID for wait resolution. A failed stream cannot be masked by the
+   historical confirmation. The next R8 trial exposed channel-less `thoughts` and
+   `reasoning_recap` items being admitted as public text, causing observation loss.
+   Public projection now requires actual text content, preserving our own local
+   code calls and excluding private reasoning/context. R8 ended after one app
+   dispatch/one user object and no native effects; this is not MCP return proof.
+   Static Provider observation failure codes are retained in private service logs.
+   Actual final host-to-native return is still pending.
+   Previous transcripts and unresolved journal states are retained without
+   rewriting/replay; old native/service/controller processes were explicitly
+   stopped and the next qualification has an independent private state root.
+   Exact `/c/` reveal selected the actual R7 confirmation on the physical screen.
+   The rootfs lacked Korean fonts: `fonts-noto-cjk` is installed and
+   `fc-match :lang=ko` selects Noto Sans CJK KR. Future provisioning includes the
+   package; account language/personalization and the persistent home are preserved.
    The public/user operating generation was not replaced by this qualification.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the

@@ -34,6 +34,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub trait Host: Send + Sync + 'static {
+    fn reveal(&self, _thread: String) -> BoxFuture<'static, Result<(), Error>> {
+        Box::pin(async { Err(Error("host_reveal_unavailable")) })
+    }
     fn exchange(
         &self,
         request: Request,
@@ -266,6 +269,19 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     }
     if !authorized(&parts.headers, &service.token) {
         return failure(StatusCode::UNAUTHORIZED, "unauthorized");
+    }
+    if parts.uri.path() == "/__reveal" && parts.method == "POST" {
+        let Some(thread) = one_header(&parts.headers, "x-codex-thread-id") else {
+            return failure(StatusCode::BAD_REQUEST, "invalid_thread_identity");
+        };
+        if thread.is_empty() || thread.len() > 256 || thread.chars().any(char::is_control) {
+            return failure(StatusCode::BAD_REQUEST, "invalid_thread_identity");
+        }
+        return match tokio::time::timeout(Duration::from_secs(10),service.host.reveal(thread.to_owned())).await {
+            Ok(Ok(()))=>axum::Json(json!({"app_reveal_requested":true,"inference_submitted":false,"physical_ui_confirmed":false})).into_response(),
+            Ok(Err(e))=>failure(StatusCode::CONFLICT,e.0),
+            Err(_)=>failure(StatusCode::GATEWAY_TIMEOUT,"app_reveal_unconfirmed"),
+        };
     }
     let config = match service.effective() {
         Ok(config) => config,

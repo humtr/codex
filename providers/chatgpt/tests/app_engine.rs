@@ -69,6 +69,7 @@ impl Bridge for App {
                         Ok(json!({"started":true}))
                     }
                 }
+                "reveal" => Ok(json!({"requested":true})),
                 "release" => {
                     state.lanes.remove(command["lane"].as_str().unwrap());
                     Ok(json!({"released":true}))
@@ -463,6 +464,11 @@ async fn host_confirmation_wait_is_visible_and_resolves_or_cancels_without_resub
         assert_eq!(observed["app_dispatches"], 1);
         assert_eq!(observed["user_role_objects"], 1);
         assert!(!task.is_finished());
+        host.reveal("native-fixture".into()).await.unwrap();
+        assert!(
+            !task.is_finished(),
+            "navigation must not lock the running exchange"
+        );
         if cancel_wait {
             cancel.cancel();
         } else {
@@ -502,6 +508,128 @@ async fn host_confirmation_wait_is_visible_and_resolves_or_cancels_without_resub
         assert_eq!(observed["user_role_objects"], 1);
         assert_eq!(observed["tool_return_objects"], 0);
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn confirmed_host_wait_survives_work_deadline_and_still_acknowledges_cancel() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().host_block = Some("mcp_host_confirmation_required".into());
+    let host = Arc::new(AppHost::new(
+        app.clone(),
+        Arc::new(Journal::open(&root.0).unwrap()),
+    ));
+    let cancel = CancellationToken::new();
+    let task = {
+        let host = host.clone();
+        let cancel = cancel.clone();
+        tokio::spawn(async move { failure(&host, body(), cancel).await })
+    };
+    loop {
+        if codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture")
+            .ok()
+            .is_some_and(|v| v["host_block"] == "mcp_host_confirmation_required")
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(std::time::Duration::from_secs(601)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        !task.is_finished(),
+        "human wait must not expire the work budget"
+    );
+    let observed = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(observed["phase"], "running");
+    assert_eq!(observed["app_dispatches"], 1);
+    cancel.cancel();
+    let (result, _) = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, Error("app_stop_acknowledged"));
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn reveal_uses_only_the_bound_native_lane_and_refuses_a_changed_account() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    assert_eq!(
+        host.reveal("missing".into()).await,
+        Err(Error("native_lane_not_found"))
+    );
+    let _ = execute(&host, body()).await;
+    let submits = app
+        .state
+        .lock()
+        .unwrap()
+        .commands
+        .iter()
+        .filter(|v| v["op"] == "submit")
+        .count();
+    host.reveal("native-fixture".into()).await.unwrap();
+    {
+        let mut state = app.state.lock().unwrap();
+        let command = state.commands.iter().find(|v| v["op"] == "reveal").unwrap();
+        assert_eq!(command["identity"]["account"], "fixture-account");
+        assert!(command["lane"].as_str().unwrap().starts_with("lane_"));
+        assert_eq!(
+            state
+                .commands
+                .iter()
+                .filter(|v| v["op"] == "submit")
+                .count(),
+            submits
+        );
+        state.account = "changed-account".into();
+    }
+    assert_eq!(
+        host.reveal("native-fixture".into()).await,
+        Err(Error("app_account_changed"))
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|v| v["op"] == "reveal")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn unknown_host_block_is_a_last_observation_not_a_live_attached_wait() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().host_block = Some("fixture_failure".into());
+    let host = AppHost::new(app, journal.clone());
+    failure(&host, body(), CancellationToken::new()).await;
+    let key = codex_chatgpt_provider::context::digest(&"native-fixture");
+    let mut record: Value = journal.read(&key).unwrap().unwrap();
+    record["host_block"] = json!("mcp_host_confirmation_required");
+    journal.write(&key, &record).unwrap();
+    let status = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(status["phase"], "unknown");
+    assert_eq!(status["host_block"], "mcp_host_confirmation_required");
+    assert_eq!(
+        status["meaning"],
+        "remote work state unknown; reconcile before continuation"
+    );
 }
 
 #[tokio::test]

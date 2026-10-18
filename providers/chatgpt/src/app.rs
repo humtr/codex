@@ -170,6 +170,7 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_bridge_owned",
         "app_bridge_revision_required",
         "app_bridge_revision_conflict",
+        "app_reveal_unavailable",
         "app_local_functions_unavailable",
     ];
     let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known).unwrap());
@@ -287,7 +288,9 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
     if lane.native_thread != thread {
         return Err(Error("native_thread_identity_conflict"));
     }
-    let meaning = if lane.host_block.is_some() {
+    let meaning = if lane.host_block.is_some()
+        && matches!(lane.phase, Phase::Running | Phase::Dispatching)
+    {
         "waiting for user authentication or confirmation in ChatGPT; original request retained"
     } else {
         match lane.phase {
@@ -428,6 +431,32 @@ fn signature(name: &str) -> Value {
 }
 
 impl Host for AppHost {
+    fn reveal(&self, thread: String) -> BoxFuture<'static, Result<(), Error>> {
+        let bridge = self.bridge.clone();
+        let journal = self.journal.clone();
+        Box::pin(async move {
+            if thread.is_empty() || thread.len() > 256 || thread.chars().any(char::is_control) {
+                return Err(Error("invalid_thread_identity"));
+            }
+            let lane: Lane = journal
+                .read(&context::digest(&thread))?
+                .ok_or(Error("native_lane_not_found"))?;
+            if lane.native_thread != thread {
+                return Err(Error("native_thread_identity_conflict"));
+            }
+            let expected = lane.identity.ok_or(Error("app_identity_unavailable"))?;
+            let current = Identity::parse(
+                &bridge
+                    .operation(json!({"op":"identity","lane":lane.marker}))
+                    .await?,
+            )?;
+            if current != expected {
+                return Err(Error("app_account_changed"));
+            }
+            bridge.operation(json!({"op":"reveal","lane":lane.marker,"identity":{"account":expected.account,"user":expected.user,"structure":expected.structure}})).await?;
+            Ok(())
+        })
+    }
     fn exchange(
         &self,
         request: Request,
@@ -788,9 +817,10 @@ async fn exchange(
         }
         journal.write(key, lane)?;
     }
-    let until = tokio::time::Instant::now() + Duration::from_secs(600);
+    let mut until = tokio::time::Instant::now() + Duration::from_secs(600);
     let mut read_failures = 0;
     loop {
+        let poll_started = tokio::time::Instant::now();
         if cancel.is_cancelled() {
             return stop_lane(bridge, journal, key, lane).await;
         }
@@ -807,9 +837,12 @@ async fn exchange(
                 read_failures = 0;
                 state
             }
-            Err(_) => {
+            Err(error) => {
                 read_failures += 1;
                 if read_failures >= 3 {
+                    // Error carries only a static Provider code, never host
+                    // exception text, account data or request contents.
+                    eprintln!("app_observation_failed: {}", error.0);
                     lane.phase = Phase::Unknown;
                     journal.write(key, lane)?;
                     return Err(Error("app_observation_lost"));
@@ -847,6 +880,9 @@ async fn exchange(
                     .map_err(|_| Error("native_observer_closed"))?;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
+            // A human permission/sign-in wait is not model execution time.
+            // Transport cancellation is still checked on every iteration.
+            until += poll_started.elapsed();
             continue;
         }
         if lane.host_block.take().is_some() {
