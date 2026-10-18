@@ -305,7 +305,7 @@ def run(source):
     before=load(source/'release/upstream.json')
     if value is not None and value!=before:
         updated=commit_files(SOURCE_BRANCH,current,{'release/upstream.json':(json.dumps(value,indent=2)+'\n').encode()},
-                             'Bind successful immutable frontend inputs')
+                             'Refresh qualified frontend input binding')
         # GitHub's own token commits do not trigger push workflows.
         dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
         dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})

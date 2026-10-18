@@ -13,7 +13,7 @@ audit narratives and plans remain in Git.
 | Public/user Full | local-relay-hosted-0-163-0-54f926437ad5-s60; source54f926437ad5093bb11e8d53c3502b810e514071; published2026-10-17T12:42:39Z |
 | Base used by Full60 | local-base-relay-hosted-0-163-0-b18cc2a2f5f4-s58, reused byte for byte; previous user Full57 retained |
 | Published TUI | Source1c413cf, qualification39027733603 |
-| Candidate TUI | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384 and pinned in release/upstream.json; not activated |
+| Retained prior TUI candidate | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384; old binding invalidated by changed source recipe, artifact retained/not activated |
 | Installed Chat adapter | Immutable c3642b19a87cdace158f; sourceBase9a5436a plus preserved user1m setting; JS/Bun/Python; app-local function returns |
 | Rust Provider candidate | Independent Responses/CDP/tool-return/config/catalog/owned-host/lane implementation; actual authenticated Rust host and bounded direct AI development qualified; not installed publicly |
 | Experiment | experiment/web-termux at08e9856; user's uncommitted1m profile/test edits preserved, branch/worktree not closed |
@@ -24,6 +24,10 @@ main caller retains its acceptedb18 input. The Base fingerprint is
 43e0b888ec06af28e2e98d55cdd30adb9f01e5ef9d3e8f691cfab7c6e2a97a3c.
 The pilot inventory was read against its actual runtime binding:526 immutable
 files, zero mismatches. These observations do not activate the Rust candidate.
+Source release/upstream.json currently has no accepted frontend binding. New
+handoff integration requires50 focused tests; the prior48-test metadata cannot
+admit the expanded candidate. Automatic source commits may invalidate obsolete
+bindings while retaining published Base/Full and prior immutable artifacts.
 
 The authenticated app remains26.1007.21434 with Chromium155.0.8059.40. Its observed
 app-initial-ed5807835d97.js/app-shared-2d77298f0100.js capabilities define this

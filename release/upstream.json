@@ -11,7 +11,7 @@
   },
   "frontend": null,
   "qualification": {
-    "focused_tests": 48,
+    "focused_tests": 50,
     "lock_audit": {
       "external_packages_unchanged": 1314,
       "workspace_versions_changed": 160,
