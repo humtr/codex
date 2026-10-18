@@ -47,6 +47,17 @@ Catalog metadata does not establish entitlement or runtime qualification.
 The source binary supports `config show`, `config effective`, `config validate`,
 `config set FIELD VALUE [FIELD VALUE ...]`, `config unset FIELD ...` and
 `config edit` (`VISUAL`/`EDITOR`). Structured catalog entries are edited in TOML.
+`catalog` emits upstream-native model JSON from the same configuration. Each
+`catalog.models` entry may contain `[catalog.models.context]` overrides for
+`window_tokens` and `auto_compact_token_limit`; effective output reports their
+origin. Explicit upstream invocation overrides still win. `prepare --home PATH`
+requires the running authenticated candidate endpoint and generates immutable
+catalog snapshots plus one shared command-auth profile. Its per-home link preserves
+existing user profiles/config/auth. No bearer is written into the profile. Manager
+is not required. Saving settings does not hot-edit an already bound backend;
+prepare again for the next startup. Data-only host route changes are read on the
+next Provider request without app restart.
+
 Set related fields together, for example:
 
 ```sh
@@ -130,10 +141,16 @@ Core checks do not require the optional provider runtime. Actual Android binary 
 app-bridge execution gates are still needed before Rust runtime admission.
 A live trial requires explaining its purpose, scope and expected submissions;
 automated tests never sample Pro or replay an uncertain submission.
+After no-MCP completion, the real development trial runs directly in `~/prj/ai`,
+with its AGENTS/contracts and existing Git changes preserved. No temporary
+worktree/project copy is used. The ChatGPT-backed Codex must do the actual
+analysis, modifications, tests and failure repair; a supervisor-made patch or
+synthetic app response is not development qualification.
+
 
 Configuration remains generated upstream `--profile chatgpt` fallback and TUI
-`/model` routing. The candidate settings/catalog tool exists, while operating-runtime settings
-projection, generic TUI consumption and configured remote project placement remain
-unimplemented. Host API changes can still require binary/bridge changes.
+`/model` routing. The Rust candidate generates settings/catalog/profile outputs, and TUI source
+consumes the new contract. Operating-runtime activation, native TUI qualification,
+on-demand bootstrap and configured remote project placement remain unfinished. Host API changes can still require binary/bridge changes.
 
 See [NOTICE](NOTICE.md) for dependency provenance and licenses.

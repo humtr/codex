@@ -1238,6 +1238,20 @@ the exact release inputs. Report live Chat submissions and explain trial budgets
 before execution; Pro is excluded from automatic qualification. Experimental
 source integration is not stable publication or device activation.
 
+After completing the no-MCP transport, the sustained development trial uses the
+real `~/prj/ai` checkout directly. This explicit user-approved source-development
+trial does not use a temporary worktree, clone or project copy. Inspect that
+repository's AGENTS/contracts and Git baseline, preserve unique uncommitted and
+untracked source, and let the ChatGPT-backed native Codex perform a real sequence
+of analysis, implementation, tests and failure repair. The supervising agent must
+not substitute its own implementation for the evaluated model. Preserve unrelated
+user work and operating authentication/data/runtime. Native transcript, exact
+effects, interruption/reconnection/latest-state continuation and meaningful test
+results qualify the path; synthetic replies alone do not. A live budget and
+separate submission/result/retry counters remain required; automated Pro is
+excluded. Git protection is not permission to reset or discard existing changes.
+
+
 Base excludes all optional components. Full composes qualified Manager/frontend;
 the provider remains opt-in and must not require signed desktop app/rootfs download
 or login on ordinary update/startup. A stable provider needs a declared versioned
@@ -1268,7 +1282,17 @@ immutable installation modules are outputs, not additional editable authorities.
 Explicit invocation overrides win, then per-model settings in this file, then
 file-wide settings and declared defaults. Preserve ordinary upstream overrides
 and show their effective origin rather than silently rewriting user configuration.
-Existing --profile chatgpt remains a generated upstream fallback. Native Codex
+Existing --profile chatgpt remains a generated upstream fallback. Provider's
+candidate `prepare --home PATH` projects a native catalog and command-auth profile
+for an explicitly selected existing Codex home. One private shared profile is a
+generated output of Provider configuration; per-home links never override a user
+file or different/dangling link. Manager may project the same shared registry to
+new managed homes, but is not needed for Provider preparation. Native defaults
+and unrelated config/auth remain unchanged. Generated catalog snapshots are
+immutable; settings edits apply to projections at the next explicit preparation,
+and active backends retain their bound catalog. A model route reload in the
+running Provider does not require regenerating metadata when its public contract
+is unchanged. Native Codex
 model defaults/account configuration are not modified to configure this provider.
 
 Expose show/effective, validate, edit and atomic field-setting operations through

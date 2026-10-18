@@ -189,6 +189,9 @@ impl Config {
                 "automatic compaction threshold must be positive and below the context window",
             ));
         }
+        for model in &self.catalog.models {
+            self.effective_context(&model.id, &Default::default())?;
+        }
         if !(1..=MAX_WIRE_BYTES).contains(&self.transport.max_wire_bytes)
             || !(1..=MAX_DECODED_BYTES).contains(&self.transport.max_decoded_bytes)
         {
@@ -205,6 +208,37 @@ impl Config {
             return Err(ConfigError::Invalid("project mode requires a project name"));
         }
         Ok(())
+    }
+    pub fn effective_context(
+        &self,
+        model: &str,
+        invocation: &crate::models::ContextOverride,
+    ) -> Result<ContextConfig, ConfigError> {
+        let model = self
+            .catalog
+            .find(model)
+            .ok_or(ConfigError::Invalid("unknown model for context settings"))?;
+        let value = ContextConfig {
+            window_tokens: invocation
+                .window_tokens
+                .or(model.context.window_tokens)
+                .unwrap_or(self.context.window_tokens),
+            auto_compact_token_limit: invocation
+                .auto_compact_token_limit
+                .or(model.context.auto_compact_token_limit)
+                .or(self.context.auto_compact_token_limit),
+        };
+        if value.window_tokens == 0
+            || value.window_tokens > i64::MAX as u64
+            || value
+                .auto_compact_token_limit
+                .is_some_and(|v| v == 0 || v >= value.window_tokens)
+        {
+            return Err(ConfigError::Invalid(
+                "effective model context limits are invalid",
+            ));
+        }
+        Ok(value)
     }
     pub fn render(&self) -> Result<String, ConfigError> {
         self.validate()?;

@@ -39,13 +39,13 @@ async fn termux_chat_models_same_provider_uses_only_changed_session_actions_with
                 true,
             ),
             (
-                "chatgpt-desktop/gpt-5.6-sol",
+                "chatgpt-desktop/configured-model",
                 ReasoningEffortConfig::Medium,
                 true,
                 false,
             ),
             (
-                "chatgpt-desktop/gpt-5.6-sol",
+                "chatgpt-desktop/configured-model",
                 ReasoningEffortConfig::High,
                 true,
                 true,

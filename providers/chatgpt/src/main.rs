@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | catalog | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -19,7 +19,7 @@ fn run() -> Result<(), String> {
         .collect::<Result<_, _>>()?;
     if matches!(
         args.first().map(String::as_str),
-        Some("serve" | "status" | "token")
+        Some("serve" | "status" | "token" | "prepare")
     ) {
         return runtime_command(&args);
     }
@@ -28,6 +28,17 @@ fn run() -> Result<(), String> {
     }
     let path = store::config_path().map_err(|e| e.to_string())?;
     match args.first().map(String::as_str) {
+        Some("catalog") if args.len() == 1 => {
+            let config = store::Snapshot::open(&path)
+                .and_then(|v| v.config())
+                .map_err(|e| e.to_string())?;
+            let value =
+                codex_chatgpt_provider::projection::catalog(&config).map_err(|e| e.to_string())?;
+            text(
+                &serde_json::to_string_pretty(&value)
+                    .map_err(|_| "catalog serialization failed")?,
+            )
+        }
         Some("models") if args.len() == 1 => {
             let snapshot = store::Snapshot::open(&path).map_err(|e| e.to_string())?;
             let effective = snapshot.effective().map_err(|e| e.to_string())?;
@@ -97,8 +108,10 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
         return Err("runtime options require flag/value pairs".into());
     }
     for pair in args[1..].as_chunks::<2>().0 {
-        if !matches!(pair[0].as_str(), "--state" | "--descriptor" | "--port")
-            || fields.insert(pair[0].as_str(), pair[1].as_str()).is_some()
+        if !matches!(
+            pair[0].as_str(),
+            "--state" | "--descriptor" | "--port" | "--home"
+        ) || fields.insert(pair[0].as_str(), pair[1].as_str()).is_some()
         {
             return Err("invalid or duplicate runtime option".into());
         }
@@ -114,7 +127,42 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
     }
     let executor = tokio::runtime::Runtime::new().map_err(|_| "async runtime is unavailable")?;
     match args[0].as_str() {
-        "serve" => {
+        "prepare" if !fields.contains_key("--descriptor") && !fields.contains_key("--port") => {
+            let home = fields
+                .get("--home")
+                .map(std::path::PathBuf::from)
+                .or_else(|| std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from))
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|v| std::path::PathBuf::from(v).join(".codex"))
+                })
+                .ok_or("Codex home required")?;
+            let registry =
+                std::path::PathBuf::from(std::env::var_os("HOME").ok_or("HOME required")?)
+                    .join(".local/share/codex/core/config/profiles");
+            let path = store::config_path().map_err(|e| e.to_string())?;
+            let config = store::Snapshot::open(&path)
+                .and_then(|v| v.config())
+                .map_err(|e| e.to_string())?;
+            let status = executor
+                .block_on(runtime::status(&root))
+                .map_err(|e| e.to_string())?;
+            let value = codex_chatgpt_provider::registration::prepare(
+                &config,
+                &root,
+                &registry,
+                &home,
+                &std::env::current_exe().map_err(|_| "binary path unavailable")?,
+                status["base_url"]
+                    .as_str()
+                    .ok_or("invalid provider endpoint")?,
+            )
+            .map_err(|e| e.to_string())?;
+            text(
+                &serde_json::to_string_pretty(&value)
+                    .map_err(|_| "projection serialization failed")?,
+            )
+        }
+        "serve" if !fields.contains_key("--home") => {
             let descriptor = fields
                 .get("--descriptor")
                 .map(|value| std::path::PathBuf::from(*value));
@@ -128,13 +176,21 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 .block_on(runtime::serve(descriptor, root, port))
                 .map_err(|e| e.to_string())
         }
-        "status" if !fields.contains_key("--descriptor") && !fields.contains_key("--port") => {
+        "status"
+            if !fields.contains_key("--descriptor")
+                && !fields.contains_key("--port")
+                && !fields.contains_key("--home") =>
+        {
             let value = executor
                 .block_on(runtime::status(&root))
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }
-        "token" if !fields.contains_key("--descriptor") && !fields.contains_key("--port") => {
+        "token"
+            if !fields.contains_key("--descriptor")
+                && !fields.contains_key("--port")
+                && !fields.contains_key("--home") =>
+        {
             let value = executor
                 .block_on(runtime::token(&root))
                 .map_err(|e| e.to_string())?;

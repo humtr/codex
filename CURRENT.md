@@ -135,10 +135,27 @@ No arbitrary checkpoint cadence or extra planning hierarchy is required.
 | 4 | Connect one configuration/catalog authority to runtime and TUI | Global file use without Manager, invocation/per-model/shared precedence and effective origins; generated upstream catalog/profile outputs; data-only model changes; `/model` same-provider model/effort changes without restart; native sibling isolation |
 | 5 | Repair context and native↔Chat transitions | Previous-native-model compaction and opaque checkpoint handoff; 1m override; warm deltas; one canonical checkpoint application; manual/automatic/interrupted/repeated compaction and cold resume, both directions |
 | 6 | Implement remote project destination | Read-only app-operation discovery; configured project resolve/reuse/create/place/readback scoped to account/workspace; serialized uncertain creation; changes affect new lanes; existing chats preserved |
-| 7 | Complete lifetime and development qualification | JSON/freeform/tool discovery/search/batches, questions/reviewer, errors→repair→tests, concurrent lanes, actual output loss, stop acknowledgment, reconnect/latest-state resume, long copied-repo work and reboot; no duplicate effects |
+| 7 | Complete lifetime and development qualification | JSON/freeform/tool discovery/search/batches, questions/reviewer, errors→repair→tests, concurrent lanes, actual output loss, stop acknowledgment, reconnect/latest-state resume, real sustained development directly in `~/prj/ai` after no-MCP completion, and reboot; no duplicate effects |
 | 8 | Qualify independent MCP return and optimize cost/output | Connector `Termux Codex`, configurable display/identity, actual original-call ACK; no automatic unqualified fallback; lazy tools, setup/warm latency, safe public markup; separate user/tool/start/retry/allowance counters |
 | 9 | Finish experiment integration and retire superseded runtime | Port useful drivers/fixtures/provenance with their implementation, preserve all unique/user work; one Rust Provider authority; only necessary app JS/viewer remains; no product Bun/Python dependency solely for adapter; signed rollback targets preserved |
 | 10 | Package, release and activate | Authenticated Rust/bridge/assets inventory and compatibility; Base unchanged by optional-only inputs; Full includes admitted Manager/TUI, Provider opt-in; install/reinstall/update/rollback tests; sign/public readback/disposable update/non-forced CAS, then bounded device activation |
+
+After the Rust no-MCP path is complete, run the actual development qualification
+against `~/prj/ai` itself, as the user explicitly requested on2026-10-18. Do not
+create a temporary worktree, clone or copied project for this trial. First read
+that repository's AGENTS/contracts, record branch/HEAD and staged/unstaged/untracked
+state, and preserve unique uncommitted source before model edits. Git history
+alone does not preserve uncommitted or untracked files. Give the ChatGPT-backed
+Codex a meaningful real improvement task; it must analyze the repository, implement,
+run relevant tests, diagnose and repair failures, then review the resulting diff.
+Do not implement the change in the supervising agent and present it as model work.
+Keep inference submissions/tool returns/retries separately counted, with a stated
+live budget and no automated Pro. Observe the native initial/intermediate/final
+transcript, exact effects, stop/reconnect/latest-state resume and any failed tool
+paths. Preserve existing user work, credentials and operating AI settings/runtime;
+source development does not authorize incidental deletion or automatic activation.
+Report the actual task, source diff and tests, failures and remaining limitations;
+a synthetic or disposable-project run does not satisfy this acceptance gate.
 
 For Rust migration, first port protocol/state fixtures and a real native-client
 fixture loop, then app process/CDP control and original-call local-function return.
@@ -192,8 +209,26 @@ invalid/stale edits. Use one validator from any future TUI/Manager convenience v
 Model data changes can map a new ID/effort without code; they do not grant access
 or prove the signed app supports that route. Host protocol changes remain code work.
 Invocation model/effort routing and next-request file reload have deterministic
-proof. Per-model context precedence, upstream catalog/profile projection, actual
-app application and production activation remain pending.
+proof. Model-specific context settings now override file-wide defaults and are projected
+into immutable upstream catalog snapshots; ordinary invocation overrides remain
+upstream-owned. Effective output exposes each model's values/origins. Candidate
+`catalog` emits current upstream JSON, and explicit `prepare --home PATH` writes
+one generated shared profile with no bearer plus a no-replace per-home link.
+It requires an authenticated running endpoint; on-demand bootstrap remains open.
+Actual Android Codex0.163 now uses this generated `--profile chatgpt`, command-backed
+auth and native catalog for commands, freeform patch and dependent validation.
+`provider-real-native-catalog.log` records three exact effects, four app-wire
+submissions and no Chat inference; app replies are synthetic. TUI source now reads
+the Rust auth contract and catalog-defined models/efforts, without fixed families
+or Python launcher references. The current catalog gate passes40 Rust cases,100 Bun and28 Python cases; targeted
+CLI/profile tests and the generated-profile Android test also pass. Python repository
+gates pass18 script,106 workflow and11 frontend tests. The candidate X server uses
+`-rfbport -1` (per its installed manual) and a private Unix viewer socket; X11 TCP
+is disabled. Actual owned-host startup/shutdown was repeated on those arguments.
+The native fixture reports two user-role objects (one visible) in its initial
+synthetic host submission and no repeated user objects on tool return. These
+counts do not establish Chat allowance deductions. Native TUI qualification,
+actual app application and production activation remain pending.
 
 The 1,000,000-token value is the user's policy override, not measured Chat capacity.
 Do not impose it as a maximum or 32k as a minimum. Native token triggers, opaque
@@ -285,7 +320,7 @@ Proof: `chat-full60-operating-diagnosis.json`,
 - Output-loss/reconnect, tool search/discovery, JSON/freeform repair, batches,
   driver-answered questions and compaction have deterministic/older bounded proofs.
   Physical questions, actual-host observer loss, hours-long work, reboot, new Core
-  configuration isolation, projects and exact-byte copied-repo trials remain.
+  configuration isolation, projects and the current real-repository development trial remain.
   Show actual public progress, acknowledged stop state and latest resume; neither
   a heartbeat nor a saved result file alone proves the user-visible problem fixed.
 - Count user objects, tool returns, starts, HTTP/setup/summary/retries and actual

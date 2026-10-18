@@ -12,13 +12,13 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-pub(crate) const PROVIDER: &str = "chatgpt_desktop_trial";
-const BEGIN: &str = "# codex-web-experiment ChatGPT profile begin\n";
+pub(crate) const PROVIDER: &str = "chatgpt_desktop";
+const BEGIN: &str = "# codex-chatgpt-provider generated v1\n";
 
 pub(crate) fn private_bytes(path: &Path, limit: u64) -> Option<Vec<u8>> {
     let mut file = File::options()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .ok()?;
     let meta = file.metadata().ok()?;
@@ -34,20 +34,16 @@ pub(crate) fn private_bytes(path: &Path, limit: u64) -> Option<Vec<u8>> {
     (bytes.len() as u64 <= limit).then_some(bytes)
 }
 
-pub(crate) fn valid_chat(model: &str, effort: &ReasoningEffort) -> bool {
-    match model {
-        "chatgpt-desktop/gpt-6" | "chatgpt-desktop/gpt-5.6-sol" => matches!(
-            effort,
-            ReasoningEffort::None
-                | ReasoningEffort::Medium
-                | ReasoningEffort::High
-                | ReasoningEffort::XHigh
-        ),
-        "chatgpt-desktop/gpt-6-pro" | "chatgpt-desktop/gpt-5.6-sol-pro" => {
-            *effort == ReasoningEffort::None
-        }
-        _ => false,
-    }
+fn valid_chat_id(model: &str) -> bool {
+    model
+        .strip_prefix("chatgpt-desktop/")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && model.len() <= 128
+                && suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-:/".contains(&b))
+        })
 }
 
 pub(crate) fn needs_reentry(provider: &str, model: &str) -> bool {
@@ -245,13 +241,13 @@ fn checked_routing(value: toml::Value) -> Option<toml::Value> {
         return None;
     }
     let args = auth.get("args")?.as_array()?;
-    if args.len() != 5
-        || args[0].as_str()? != "-B"
-        || args[2].as_str()? != "token"
-        || args[3].as_str()? != "--runtime"
-        || !Path::new(args[1].as_str()?).is_absolute()
-        || Path::new(args[1].as_str()?).file_name()? != "desktop_lifecycle.py"
-        || !Path::new(args[4].as_str()?).is_absolute()
+    if args.len() != 3
+        || args[0].as_str()? != "token"
+        || args[1].as_str()? != "--state"
+        || !Path::new(args[2].as_str()?).is_absolute()
+        || !Path::new(auth.get("command")?.as_str()?).is_absolute()
+        || provider.get("wire_api")?.as_str()? != "responses"
+        || provider.get("requires_openai_auth")?.as_bool()?
     {
         return None;
     }
@@ -289,11 +285,11 @@ fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
         .map(Into::into)
         .filter(|m: &ModelPreset| {
             m.show_in_picker
-                && valid_chat(&m.model, &m.default_reasoning_effort)
+                && valid_chat_id(&m.model)
                 && !m.supported_reasoning_efforts.is_empty()
                 && m.supported_reasoning_efforts
                     .iter()
-                    .all(|e| valid_chat(&m.model, &e.effort))
+                    .any(|e| e.effort == m.default_reasoning_effort)
         })
         .collect();
     (!models.is_empty()).then_some(models)
@@ -340,7 +336,7 @@ pub(crate) fn augment(config: &Config, mut models: Vec<ModelPreset>) -> Vec<Mode
 
 pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> bool {
     if model.starts_with("chatgpt-desktop/") {
-        return valid_chat(model, effort)
+        return valid_chat_id(model)
             && chat_catalog(config).is_some_and(|catalog| {
                 catalog.iter().any(|m| {
                     m.model == model
@@ -376,7 +372,7 @@ mod tests {
         std::fs::write(&catalog, include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
         std::fs::set_permissions(&catalog, std::fs::Permissions::from_mode(0o600)).unwrap();
         let profile = format!(
-            "{BEGIN}model_provider = \"{PROVIDER}\"\nmodel_catalog_json = {:?}\n[model_providers.{PROVIDER}]\nbase_url = \"http://127.0.0.1:12345/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.{PROVIDER}.auth]\ncommand = \"/owned/python\"\nargs = [\"-B\", \"/owned/desktop_lifecycle.py\", \"token\", \"--runtime\", \"/owned/runtime.json\"]\n",
+            "{BEGIN}model_provider = \"{PROVIDER}\"\nmodel_catalog_json = {:?}\n[model_providers.{PROVIDER}]\nbase_url = \"http://127.0.0.1:12345/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.{PROVIDER}.auth]\ncommand = \"/owned/codex-chatgpt-provider\"\nargs = [\"token\", \"--state\", \"/owned/provider-state\"]\n",
             catalog.to_str().unwrap()
         );
         let path = home.path().join("chatgpt.config.toml");
@@ -398,8 +394,30 @@ mod tests {
             "marked routing must decode"
         );
         let models = chat_catalog(&config).expect("actual installed ModelInfo catalog must decode");
-        assert_eq!(models.len(), 4);
+        assert_eq!(models.len(), 2);
         assert!(models.iter().any(|m| m.model == "chatgpt-desktop/gpt-6"));
+        assert!(admits(
+            &config,
+            "chatgpt-desktop/gpt-6",
+            &ReasoningEffort::XHigh
+        ));
+        assert!(!admits(
+            &config,
+            "chatgpt-desktop/gpt-6-pro",
+            &ReasoningEffort::XHigh
+        ));
+        let mut custom: serde_json::Value =
+            serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
+        let mut added = custom["models"][0].clone();
+        added["slug"] = serde_json::json!("chatgpt-desktop/configured-model");
+        custom["models"].as_array_mut().unwrap().push(added);
+        std::fs::write(&catalog, serde_json::to_vec(&custom).unwrap()).unwrap();
+        assert!(admits(
+            &config,
+            "chatgpt-desktop/configured-model",
+            &ReasoningEffort::None
+        ));
+
         let route = reentry_route(
             &config,
             "chatgpt-desktop/gpt-6",
@@ -409,7 +427,7 @@ mod tests {
         .expect("route planning needs no App, server or auth execution");
         assert!(route.return_profile.is_none());
         for flag in [
-            "model_provider=\"chatgpt_desktop_trial\"",
+            "model_provider=\"chatgpt_desktop\"",
             "model_reasoning_effort=\"xhigh\"",
             "approval_policy=\"on-request\"",
             "approvals_reviewer=\"auto_review\"",
@@ -443,7 +461,7 @@ mod tests {
             !native
                 .args
                 .iter()
-                .any(|arg| arg.starts_with("model_providers.chatgpt_desktop_trial="))
+                .any(|arg| arg.starts_with("model_providers.chatgpt_desktop="))
         );
         assert!(native.return_profile.is_none());
         assert!(safe_profile("work-2"));
@@ -454,15 +472,15 @@ mod tests {
     fn termux_chat_models_routing_carries_command_references_without_secret_headers() {
         let mut value: toml::Value = toml::from_str(
             r#"
-model_provider = "chatgpt_desktop_trial"
+model_provider = "chatgpt_desktop"
 model_catalog_json = "/owned/models.json"
-[model_providers.chatgpt_desktop_trial]
+[model_providers.chatgpt_desktop]
 base_url = "http://127.0.0.1:12345/v1"
 wire_api = "responses"
 requires_openai_auth = false
-[model_providers.chatgpt_desktop_trial.auth]
-command = "/owned/python"
-args = ["-B", "/owned/desktop_lifecycle.py", "token", "--runtime", "/owned/runtime.json"]
+[model_providers.chatgpt_desktop.auth]
+command = "/owned/codex-chatgpt-provider"
+args = ["token", "--state", "/owned/provider-state"]
 "#,
         )
         .unwrap();
@@ -483,40 +501,22 @@ args = ["-B", "/owned/desktop_lifecycle.py", "token", "--runtime", "/owned/runti
         assert!(checked_routing(value).is_none());
     }
     #[test]
-    fn termux_chat_models_routes_preserve_family_power_and_pro_is_separate() {
-        for model in ["chatgpt-desktop/gpt-6", "chatgpt-desktop/gpt-5.6-sol"] {
-            for effort in [
-                ReasoningEffort::None,
-                ReasoningEffort::Medium,
-                ReasoningEffort::High,
-                ReasoningEffort::XHigh,
-            ] {
-                assert!(valid_chat(model, &effort));
-            }
-            for effort in [
-                ReasoningEffort::Low,
-                ReasoningEffort::Max,
-                ReasoningEffort::Ultra,
-            ] {
-                assert!(!valid_chat(model, &effort));
-            }
+    fn termux_chat_models_identity_and_reentry_do_not_hardcode_families_or_efforts() {
+        assert!(valid_chat_id("chatgpt-desktop/gpt-6"));
+        assert!(valid_chat_id("chatgpt-desktop/configured-future-model"));
+        for invalid in [
+            "chatgpt-desktop/",
+            "chatgpt-desktop/space name",
+            "gpt-6.1-sol",
+        ] {
+            assert!(!valid_chat_id(invalid));
         }
-        assert!(valid_chat(
-            "chatgpt-desktop/gpt-6-pro",
-            &ReasoningEffort::None
-        ));
-        assert!(!valid_chat(
-            "chatgpt-desktop/gpt-6-pro",
-            &ReasoningEffort::XHigh
-        ));
-        assert!(!valid_chat(
-            "chatgpt-desktop/gpt-6-sol",
-            &ReasoningEffort::None
-        ));
         assert!(needs_reentry("openai", "chatgpt-desktop/gpt-6"));
         assert!(needs_reentry(PROVIDER, "gpt-6.1-sol"));
-        assert!(!needs_reentry(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
-        assert!(!needs_reentry(PROVIDER, "chatgpt-desktop/gpt-6"));
+        assert!(!needs_reentry(
+            PROVIDER,
+            "chatgpt-desktop/configured-future-model"
+        ));
         assert!(!needs_reentry("openai", "gpt-6.1-sol"));
     }
     #[test]
@@ -534,6 +534,10 @@ args = ["-B", "/owned/desktop_lifecycle.py", "token", "--runtime", "/owned/runti
         assert!(private_bytes(&link, 8).is_none());
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(private_bytes(&file, 8).is_none());
+        let fifo = temp.path().join("fifo");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(private_bytes(&fifo, 8).is_none());
     }
 
     #[test]

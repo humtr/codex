@@ -85,6 +85,7 @@ fn settings_read_is_readonly_and_effective_reports_defaults_without_runtime_clai
     let f = Fixture::new();
     for args in [
         vec!["models"],
+        vec!["catalog"],
         vec!["config", "show"],
         vec!["config", "validate"],
         vec!["config", "effective"],
@@ -96,6 +97,20 @@ fn settings_read_is_readonly_and_effective_reports_defaults_without_runtime_clai
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["origins"]["context.window_tokens"], "default");
     assert_eq!(value["runtime_application"], "not_queried");
+    assert_eq!(
+        value["effective_model_contexts"]["chatgpt-desktop/gpt-6"]["settings"]["window_tokens"],
+        1000000
+    );
+    let mut config = Config::default();
+    config.catalog.models[0].context.window_tokens = Some(1500000);
+    f.write(config.render().unwrap().as_bytes());
+    let value: serde_json::Value =
+        serde_json::from_slice(&f.ok(&["config", "effective"]).stdout).unwrap();
+    assert_eq!(
+        value["effective_model_contexts"]["chatgpt-desktop/gpt-6"]["origins"]["window_tokens"],
+        "model"
+    );
+
     let no_home = f
         .command()
         .env_remove("HOME")

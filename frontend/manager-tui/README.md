@@ -21,7 +21,13 @@ and assembler as well as the patch, and retains the assembled diff as evidence.
 configuration. `termux_chat_models::reentry_route` plans provider/profile arguments;
 the App hook retains only work-state admission, persistence and re-entry. These
 remain optional frontend code; Core has no dependency on these sources. The
-provider re-entry behavior remains unchanged by this split.
+source Chat picker consumes Provider-generated `chatgpt_desktop` routing, the
+`codex-chatgpt-provider generated v1` marker and command-backed Rust authentication.
+Models and efforts come from the generated native catalog without fixed family
+lists or a Python lifecycle command in TUI. The new source does not accept old
+pilot profile formats. Operating Full60 remains unchanged pending fresh native
+qualification and bounded Provider/profile activation. Same-provider model/effort
+selection uses native session actions.
 
 The signed helper's hidden `--termux-backend-capabilities` query advertises
 `codex-termux-resolved-startup-v1` before loading config or initializing a terminal.

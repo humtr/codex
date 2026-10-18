@@ -229,7 +229,7 @@ impl OwnedHost {
                 "-auth".into(),
                 auth.to_string_lossy().into_owned(),
                 "-rfbport".into(),
-                "0".into(),
+                "-1".into(),
                 "-rfbunixpath".into(),
                 path.join("viewer").to_string_lossy().into_owned(),
                 "-rfbunixmode".into(),

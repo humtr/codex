@@ -21,6 +21,17 @@ pub struct Model {
     #[serde(default)]
     pub pro: bool,
     pub routes: Vec<Route>,
+    #[serde(default)]
+    pub context: ContextOverride,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContextOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_compact_token_limit: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

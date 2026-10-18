@@ -1,0 +1,45 @@
+{
+  "prefer_websockets": false,
+  "support_verbosity": false,
+  "default_verbosity": "low",
+  "apply_patch_tool_type": "freeform",
+  "web_search_tool_type": "text_and_image",
+  "input_modalities": [
+    "text"
+  ],
+  "supports_image_detail_original": false,
+  "truncation_policy": {
+    "mode": "tokens",
+    "limit": 10000
+  },
+  "supports_parallel_tool_calls": true,
+  "tool_mode": "direct",
+  "multi_agent_version": "v2",
+  "multi_agent_reasoning_effort": "xhigh",
+  "use_responses_lite": true,
+  "include_skills_usage_instructions": false,
+  "include_apps_usage_instructions": false,
+  "include_plugin_usage_instructions": false,
+  "guardian": null,
+  "node_repl_auto_review_required": true,
+  "node_repl_disabled": false,
+  "requires_sandboxed_review": false,
+  "auto_review_model_override": null,
+  "model_specialty": null,
+  "default_reasoning_summary": "none",
+  "shell_type": "shell_command",
+  "supported_in_api": true,
+  "model_messages": {
+    "instructions_template": "You are Codex, a coding agent. Follow the user task and native instructions. Execute only advertised native tools through Core; preserve native approvals and never fabricate execution.",
+    "instructions_variables": null
+  },
+  "experimental_supported_tools": [
+    "send_user_message_async",
+    "clock"
+  ],
+  "supports_search_tool": true,
+  "supports_experimental_context": false,
+  "supports_reasoning_summary_parameter": false,
+  "supports_reasoning_summaries": false,
+  "supports_reasoning_effort_updates": true
+}

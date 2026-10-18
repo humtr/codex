@@ -81,6 +81,30 @@ fn source_binary_serves_private_authenticated_endpoint_without_connecting_to_or_
             .unwrap()
             .contains(std::str::from_utf8(&credential.stdout[..48]).unwrap()));
         assert!(!root.0.join("config").exists());
+        let home = root.0.join("codex-home");
+        std::fs::create_dir(&home).unwrap();
+        let prepared = Command::new(binary)
+            .arg("prepare")
+            .arg("--home")
+            .arg(&home)
+            .arg("--state")
+            .arg(&state)
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        assert!(
+            prepared.status.success(),
+            "{}",
+            String::from_utf8_lossy(&prepared.stderr)
+        );
+        let value: Value = serde_json::from_slice(&prepared.stdout).unwrap();
+        assert_eq!(value["prepared"], true);
+        assert_eq!(value["app_inference_submitted"], false);
+        let profile = std::fs::read_to_string(home.join("chatgpt.config.toml")).unwrap();
+        assert!(profile.contains("chatgpt_desktop"));
+        assert!(!profile.contains(std::str::from_utf8(&credential.stdout[..48]).unwrap()));
+        assert!(!root.0.join("config").exists());
     }));
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);

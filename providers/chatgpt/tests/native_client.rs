@@ -25,6 +25,7 @@ struct State {
     round: String,
     stage: usize,
     key: String,
+    patch_key: String,
     commands: Vec<Value>,
 }
 #[derive(Clone, Default)]
@@ -46,6 +47,13 @@ impl Bridge for App {
                     if s.stage == 1 {
                         let catalog=command["instructions"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|v|v.strip_prefix("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from Core; the app must not execute tools itself.\n")).ok_or(Error("fixture_catalog_missing"))?;
                         let tools: Value = serde_json::from_str(catalog).unwrap();
+                        s.patch_key = tools
+                            .as_object()
+                            .unwrap()
+                            .keys()
+                            .find(|k| k.rsplit('.').next() == Some("apply_patch"))
+                            .ok_or(Error("fixture_custom_patch_unavailable"))?
+                            .clone();
                         s.key = tools
                             .as_object()
                             .unwrap()
@@ -68,11 +76,11 @@ impl Bridge for App {
                     Ok(json!({"started":true}))
                 }
                 "snapshot" => {
-                    let message = if s.stage < 3 {
+                    let message = if s.stage < 4 {
                         let script = if s.stage == 1 {
                             "printf 'effect-1\\n' >> effect-count; printf 'first result'"
                         } else {
-                            "test \"$(wc -l < effect-count)\" -eq 1 && printf 'effect-2\\n' >> effect-count && printf 'verified'"
+                            "test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count && printf 'verified'"
                         };
                         let args = if s.key.ends_with("exec_command") {
                             json!({"cmd":script,"max_output_tokens":1000})
@@ -81,12 +89,24 @@ impl Bridge for App {
                         } else {
                             json!({"command":["bash","-c",script],"timeout_ms":10000})
                         };
-                        json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":s.key,"input":args.to_string(),"report":format!("Native fixture step {}",s.stage)}}).to_string()},"status":"finished_successfully","end_turn":false})
+                        let (key, input) = if s.stage == 2 {
+                            (&s.patch_key,"*** Begin Patch\n*** Add File: patched.txt\n+real custom tool\n*** End Patch".to_string())
+                        } else {
+                            (&s.key, args.to_string())
+                        };
+                        json!({"id":format!("host-call-{}",s.stage),"author":{"role":"assistant"},"recipient":format!("local.{}",s.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":key,"input":input,"report":format!("Native fixture step {}",s.stage)}}).to_string()},"status":"finished_successfully","end_turn":false})
                     } else {
                         json!({"id":"final","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Native executor verified"]},"status":"finished_successfully","end_turn":true})
                     };
+                    let user_objects = s
+                        .commands
+                        .iter()
+                        .filter(|v| v["op"] == "submit")
+                        .flat_map(|v| v["messages"].as_array().unwrap().iter())
+                        .filter(|v| v["role"] == "user")
+                        .count();
                     Ok(
-                        json!({"round":s.round,"messages":[message],"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":s.stage-1,"dispatches":s.stage}),
+                        json!({"round":s.round,"messages":[message],"terminals":["done"],"roundStarts":1,"userMessages":user_objects,"toolMessages":s.stage-1,"dispatches":s.stage}),
                     )
                 }
                 "stop" => Err(Error("fixture_unexpected_stop")),
@@ -104,7 +124,8 @@ impl Drop for Root {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
-async fn actual_native_client_executes_two_dependent_tools_and_retains_transcript() {
+async fn actual_native_client_executes_commands_custom_patch_and_validation_with_generated_catalog()
+{
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
@@ -123,13 +144,21 @@ async fn actual_native_client_executes_two_dependent_tools_and_retains_transcrip
     )
     .unwrap();
     let app = Arc::new(App::default());
-    let host = Arc::new(AppHost::new(
-        app.clone(),
-        Arc::new(Journal::open(&root.0.join("journal")).unwrap()),
-    ));
+    let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
+    let host = Arc::new(AppHost::new(app.clone(), journal.clone()));
     let token = random_id().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    journal.write(&codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1"),&json!({"schema":"termux-codex-responses-service-v1","process":Process::read(std::process::id()).unwrap(),"port":port,"token":token})).unwrap();
+    codex_chatgpt_provider::registration::prepare(
+        &Config::default(),
+        &root.0.join("journal"),
+        &root.0.join("registry"),
+        &root.0.join("codex"),
+        std::path::Path::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider")),
+        &format!("http://127.0.0.1:{port}/v1"),
+    )
+    .unwrap();
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
     let service = Service::new(Config::default(), token.clone(), host).unwrap();
@@ -149,10 +178,14 @@ async fn actual_native_client_executes_two_dependent_tools_and_retains_transcrip
                 };
                 let value: Value = serde_json::from_slice(&decoded).unwrap();
                 eprintln!(
+                    "fixture request keys: {:?}",
+                    value.as_object().unwrap().keys().collect::<Vec<_>>()
+                );
+                eprintln!(
                     "fixture declaration kinds: {:?}",
                     value["tools"]
                         .as_array()
-                        .unwrap()
+                        .unwrap_or(&Vec::new())
                         .iter()
                         .map(|v| (v["type"].clone(), v["name"].clone()))
                         .collect::<Vec<_>>()
@@ -182,9 +215,25 @@ async fn actual_native_client_executes_two_dependent_tools_and_retains_transcrip
     use std::os::fd::FromRawFd;
     let fds = descriptors.each_ref().map(AsRawFd::as_raw_fd);
     let mut command = tokio::process::Command::new(&runtime);
-    command.env_clear().env("PATH",prefix.join("bin")).env("PREFIX",&prefix).env("HOME",root.0.join("home")).env("CODEX_HOME",root.0.join("codex")).env("TMPDIR",root.0.join("tmp")).env("TERM","dumb").env("TERMUX_FIXTURE_API_KEY",token)
-  .current_dir(root.0.join("work")).args(["exec","--json","--skip-git-repo-check","--dangerously-bypass-approvals-and-sandbox","-c","features.code_mode=false","-c","model_context_window=1000000","-c","model_provider=\"termuxfixture\"","-c","model=\"chatgpt-desktop/gpt-6\"","-c",&format!("model_providers.termuxfixture={{name=\"Owned fixture\",base_url=\"http://127.0.0.1:{port}/v1\",env_key=\"TERMUX_FIXTURE_API_KEY\",wire_api=\"responses\",request_max_retries=0,stream_max_retries=0}}"),"Execute the fixture tools and return the verified result"])
-  .kill_on_drop(true);
+    command
+        .env_clear()
+        .env("PATH", prefix.join("bin"))
+        .env("PREFIX", &prefix)
+        .env("HOME", root.0.join("home"))
+        .env("CODEX_HOME", root.0.join("codex"))
+        .env("TMPDIR", root.0.join("tmp"))
+        .env("TERM", "dumb")
+        .current_dir(root.0.join("work"))
+        .args([
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--profile",
+            "chatgpt",
+            "Execute the fixture tools and return the verified result",
+        ])
+        .kill_on_drop(true);
     unsafe {
         command.pre_exec(move || {
             for (source, destination) in fds.into_iter().zip(33..=35) {
@@ -226,7 +275,12 @@ async fn actual_native_client_executes_two_dependent_tools_and_retains_transcrip
         .iter()
         .filter(|c| c["op"] == "submit")
         .collect::<Vec<_>>();
-    assert_eq!(submissions.len(), 3);
+    assert_eq!(submissions.len(), 4);
+    assert_eq!(
+        fs::read_to_string(root.0.join("work/patched.txt")).unwrap(),
+        "real custom tool\n"
+    );
+    assert!(!stdout.contains("Model metadata for"));
     for command in &submissions[1..] {
         assert!(command["messages"].as_array().unwrap().is_empty());
         assert!(command["instructions"].as_array().unwrap().is_empty());
@@ -234,6 +288,6 @@ async fn actual_native_client_executes_two_dependent_tools_and_retains_transcrip
     }
     println!(
         "{}",
-        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"appSubmissions":3,"appUserObjects":1,"appToolReturns":2,"nativeEffects":2,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
+        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":3,"nativeEffects":3,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
     );
 }

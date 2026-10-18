@@ -117,8 +117,13 @@ impl Snapshot {
                 (*field, if present { "file" } else { "default" })
             })
             .collect();
+        let config = self.config()?;
+        let contexts=config.catalog.models.iter().map(|model| {
+            let effective=config.effective_context(&model.id,&Default::default())?;
+            Ok((model.id.clone(),serde_json::json!({"settings":effective,"origins":{"window_tokens":if model.context.window_tokens.is_some(){"model"}else{origins["context.window_tokens"]},"auto_compact_token_limit":if model.context.auto_compact_token_limit.is_some(){"model"}else{origins["context.auto_compact_token_limit"]}}})))
+        }).collect::<Result<BTreeMap<_,_>,ConfigError>>()?;
         Ok(
-            serde_json::json!({"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":self.config()?,"origins":origins}),
+            serde_json::json!({"effective_model_contexts":contexts,"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":self.config()?,"origins":origins}),
         )
     }
     pub fn commit_bytes(&self, bytes: &[u8]) -> Result<bool, ConfigError> {
@@ -228,7 +233,7 @@ fn lock(path: &Path) -> Result<File, ConfigError> {
     }
     Ok(file)
 }
-fn publish_new(source: &Path, destination: &Path) -> Result<(), ConfigError> {
+pub(crate) fn publish_new(source: &Path, destination: &Path) -> Result<(), ConfigError> {
     use std::os::unix::ffi::OsStrExt;
     let a = std::ffi::CString::new(source.as_os_str().as_bytes())
         .map_err(|_| ConfigError::Io("configuration path is invalid"))?;

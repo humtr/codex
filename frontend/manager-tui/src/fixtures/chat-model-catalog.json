@@ -1,1 +1,202 @@
-{"models": [{"slug": "chatgpt-desktop/instant", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 Instant", "description": "Actual ChatGPT Chat mode through the local Linux desktop bridge (experimental)", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "ChatGPT Instant"}], "shell_type": "shell_command", "visibility": "hide", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-6", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": true, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-6", "description": "Signed-app Chat GPT-6; selects the observed family and power before submission", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Instant"}, {"effort": "medium", "description": "Medium"}, {"effort": "high", "description": "High"}, {"effort": "xhigh", "description": "Extra High"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-6-pro", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-6 Pro", "description": "Pro: execution unverified at user request; automated tests never send Pro inference", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Pro (execution unverified)"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-5.6-sol", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": true, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-5.6 Sol", "description": "Deferred: UI selection verified, multi-tool execution unqualified after continuation timeouts", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Instant"}, {"effort": "medium", "description": "Medium"}, {"effort": "high", "description": "High"}, {"effort": "xhigh", "description": "Extra High"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-5.6-sol-pro", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-5.6 Sol Pro", "description": "Pro: execution unverified at user request; automated tests never send Pro inference", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Pro (execution unverified)"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}]}
+{
+  "models": [
+    {
+      "apply_patch_tool_type": "freeform",
+      "auto_compact_token_limit": null,
+      "auto_review_model_override": null,
+      "available_in_plans": [],
+      "comp_hash": "termux-chatgpt-context-v1",
+      "context_window": 1000000,
+      "default_reasoning_level": "none",
+      "default_reasoning_summary": "none",
+      "default_verbosity": "low",
+      "description": "ChatGPT app through the independent Termux Provider",
+      "display_name": "ChatGPT \u00b7 GPT-6",
+      "experimental_supported_tools": [
+        "send_user_message_async",
+        "clock"
+      ],
+      "guardian": null,
+      "include_apps_usage_instructions": false,
+      "include_plugin_usage_instructions": false,
+      "include_skills_usage_instructions": false,
+      "input_modalities": [
+        "text"
+      ],
+      "max_context_window": 1000000,
+      "model_messages": {
+        "instructions_template": "You are Codex, a coding agent. Follow the user task and native instructions. Execute only advertised native tools through Core; preserve native approvals and never fabricate execution.",
+        "instructions_variables": null
+      },
+      "model_specialty": null,
+      "multi_agent_reasoning_effort": "xhigh",
+      "multi_agent_version": "v2",
+      "node_repl_auto_review_required": true,
+      "node_repl_disabled": false,
+      "prefer_websockets": false,
+      "priority": 2,
+      "requires_sandboxed_review": false,
+      "shell_type": "shell_command",
+      "slug": "chatgpt-desktop/gpt-6",
+      "support_verbosity": false,
+      "supported_in_api": true,
+      "supported_reasoning_levels": [
+        {
+          "description": "none",
+          "effort": "none"
+        },
+        {
+          "description": "medium",
+          "effort": "medium"
+        },
+        {
+          "description": "high",
+          "effort": "high"
+        },
+        {
+          "description": "xhigh",
+          "effort": "xhigh"
+        }
+      ],
+      "supports_experimental_context": false,
+      "supports_image_detail_original": false,
+      "supports_parallel_tool_calls": true,
+      "supports_reasoning_effort_updates": true,
+      "supports_reasoning_summaries": false,
+      "supports_reasoning_summary_parameter": false,
+      "supports_search_tool": true,
+      "tool_mode": "direct",
+      "truncation_policy": {
+        "limit": 10000,
+        "mode": "tokens"
+      },
+      "use_responses_lite": true,
+      "visibility": "list",
+      "web_search_tool_type": "text_and_image"
+    },
+    {
+      "apply_patch_tool_type": "freeform",
+      "auto_compact_token_limit": null,
+      "auto_review_model_override": null,
+      "available_in_plans": [],
+      "comp_hash": "termux-chatgpt-context-v1",
+      "context_window": 1000000,
+      "default_reasoning_level": "none",
+      "default_reasoning_summary": "none",
+      "default_verbosity": "low",
+      "description": "ChatGPT app through the independent Termux Provider; Pro requires explicit use and is excluded from automated qualification",
+      "display_name": "ChatGPT \u00b7 GPT-6 Pro",
+      "experimental_supported_tools": [
+        "send_user_message_async",
+        "clock"
+      ],
+      "guardian": null,
+      "include_apps_usage_instructions": false,
+      "include_plugin_usage_instructions": false,
+      "include_skills_usage_instructions": false,
+      "input_modalities": [
+        "text"
+      ],
+      "max_context_window": 1000000,
+      "model_messages": {
+        "instructions_template": "You are Codex, a coding agent. Follow the user task and native instructions. Execute only advertised native tools through Core; preserve native approvals and never fabricate execution.",
+        "instructions_variables": null
+      },
+      "model_specialty": null,
+      "multi_agent_reasoning_effort": "xhigh",
+      "multi_agent_version": "v2",
+      "node_repl_auto_review_required": true,
+      "node_repl_disabled": false,
+      "prefer_websockets": false,
+      "priority": 2,
+      "requires_sandboxed_review": false,
+      "shell_type": "shell_command",
+      "slug": "chatgpt-desktop/gpt-6-pro",
+      "support_verbosity": false,
+      "supported_in_api": true,
+      "supported_reasoning_levels": [
+        {
+          "description": "none",
+          "effort": "none"
+        }
+      ],
+      "supports_experimental_context": false,
+      "supports_image_detail_original": false,
+      "supports_parallel_tool_calls": true,
+      "supports_reasoning_effort_updates": false,
+      "supports_reasoning_summaries": false,
+      "supports_reasoning_summary_parameter": false,
+      "supports_search_tool": true,
+      "tool_mode": "direct",
+      "truncation_policy": {
+        "limit": 10000,
+        "mode": "tokens"
+      },
+      "use_responses_lite": true,
+      "visibility": "list",
+      "web_search_tool_type": "text_and_image"
+    },
+    {
+      "apply_patch_tool_type": "freeform",
+      "auto_compact_token_limit": null,
+      "auto_review_model_override": null,
+      "available_in_plans": [],
+      "comp_hash": "termux-chatgpt-context-v1",
+      "context_window": 1000000,
+      "default_reasoning_level": "none",
+      "default_reasoning_summary": "none",
+      "default_verbosity": "low",
+      "description": "ChatGPT app through the independent Termux Provider",
+      "display_name": "ChatGPT \u00b7 Instant",
+      "experimental_supported_tools": [
+        "send_user_message_async",
+        "clock"
+      ],
+      "guardian": null,
+      "include_apps_usage_instructions": false,
+      "include_plugin_usage_instructions": false,
+      "include_skills_usage_instructions": false,
+      "input_modalities": [
+        "text"
+      ],
+      "max_context_window": 1000000,
+      "model_messages": {
+        "instructions_template": "You are Codex, a coding agent. Follow the user task and native instructions. Execute only advertised native tools through Core; preserve native approvals and never fabricate execution.",
+        "instructions_variables": null
+      },
+      "model_specialty": null,
+      "multi_agent_reasoning_effort": "xhigh",
+      "multi_agent_version": "v2",
+      "node_repl_auto_review_required": true,
+      "node_repl_disabled": false,
+      "prefer_websockets": false,
+      "priority": 2,
+      "requires_sandboxed_review": false,
+      "shell_type": "shell_command",
+      "slug": "chatgpt-desktop/instant",
+      "support_verbosity": false,
+      "supported_in_api": true,
+      "supported_reasoning_levels": [
+        {
+          "description": "none",
+          "effort": "none"
+        }
+      ],
+      "supports_experimental_context": false,
+      "supports_image_detail_original": false,
+      "supports_parallel_tool_calls": true,
+      "supports_reasoning_effort_updates": false,
+      "supports_reasoning_summaries": false,
+      "supports_reasoning_summary_parameter": false,
+      "supports_search_tool": true,
+      "tool_mode": "direct",
+      "truncation_policy": {
+        "limit": 10000,
+        "mode": "tokens"
+      },
+      "use_responses_lite": true,
+      "visibility": "hide",
+      "web_search_tool_type": "text_and_image"
+    }
+  ]
+}
