@@ -285,7 +285,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     } else {
         None
     };
-    if owned.is_some() {
+    if let Some(host) = &mut owned {
         let expected: Value = serde_json::from_slice(
             &codex_chatgpt_provider::cdp::private_read(
                 &PathBuf::from(
@@ -315,7 +315,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await
                 }
                 Err(error) => {
-                    owned.as_mut().unwrap().shutdown().await;
+                    host.shutdown().await;
                     panic!("owned identity preflight: {error}");
                 }
             }
@@ -324,7 +324,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             .iter()
             .all(|k| identity[k] == expected[k]);
         if !same {
-            owned.as_mut().unwrap().shutdown().await;
+            host.shutdown().await;
             panic!("owned app account changed; no inference authorized");
         }
     }
