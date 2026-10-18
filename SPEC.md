@@ -10,10 +10,14 @@ private screen. Existing `frontend/manager-tui`, artifact identities, flags,
 workflow names and wire markers retain their compatibility spelling until an
 explicit migration; a terminology change alone changes no executable behavior.
 CURRENT.md owns the current installed/public baseline and the ordered completion
-plan. Sections labelled approved target describe authorized work still to be
-implemented; deployed dispatch/default/configuration contracts remain in effect
-until their coordinated replacement passes qualification. Historical release
-versions below describe retained compatibility, not the latest installed release.
+plan. Sections labelled approved target define the accepted design. CURRENT
+distinguishes implemented source, bounded proof, public release and activation. A source
+PASS is not an installed behavior claim. The proposed ChatGPT-operated MCP workflow
+in CURRENT is under review and is not yet a replacement product contract. Existing
+model-adapter/local-function/MCP-return behavior remains in effect; no new control
+endpoint, default, automatic fallback or runtime migration follows from that
+proposal. Historical release versions below describe retained compatibility, not
+the latest installed release.
 
 ## Generation-bound TUI admission (2026-10-10)
 
@@ -253,6 +257,13 @@ promotion are different guarantees; section4.6 defines their final boundary.
 
 Manager owns execution-profile selection within the upstream conversation UI.
 
+Quota switching settings must present a compact, grouped interface. Each selectable
+row occupies one terminal line even at narrow supported widths; explanatory help
+must not become wrapped per-row descriptions. Keep all existing policy controls,
+account enrollment, custom ranking and session override accessible. Clipping must
+preserve the selected action/value and must not change the underlying account ID.
+Verify actual rendering and navigation, not only the generated labels.
+
 Quota-aware selection is an optional Manager/TUI capability. Core and the base
 edition acquire no quota policy, account registry, polling or Manager dependency.
 `codex termux usage [--refresh] [--json]` reads cached registered-account usage;
@@ -426,16 +437,17 @@ precedence, installed-route validation and model admission remain unchanged.
 The product provides one public `codex` entrypoint that runs the official
 upstream Codex CLI correctly on supported Termux environments.
 
-It consists of two strictly separated layers in one repository and release
-system:
+It has four components in one repository: mandatory **Core** for minimal Termux
+compatibility and signed runtime lifecycle; optional **Manager** behind
+`codex termux` for account/task/window conveniences; optional upstream-based **TUI**
+for UI integration; and optional **Provider** for Chat transport/model capabilities.
+The minimum execution is upstream plus Core. Tools, approvals, native conversation
+records, compaction and writer locks remain upstream-owned. Section4.6 defines the
+boundaries; CURRENT distinguishes current signed composition constraints from
+source qualification of independently optional components.
 
-1. **Core** — a minimal native Rust compatibility, execution, installation,
-   update, diagnosis, activation, and rollback layer.
-2. **Manager** — a separately implemented convenience layer reached through
-   `codex termux` for profiles, sessions, notifications, and related Termux UX.
-
-Manager remains optional for ordinary launch. Its separately built artifact must
-qualify before entering a signed generation with matching Core and runtime.
+Every declared optional artifact must qualify before entering a signed generation.
+A missing optional capability cannot disable independently valid Core execution.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -710,13 +722,14 @@ capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
 The Core-owned update surface accepts exactly no arguments, `--help`, `--force`,
-`--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback` after
-`update`. No top-level `codex rollback` command is introduced. A malformed
+`--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
+after `update`. No top-level `codex rollback` command is introduced. A malformed
 invocation beginning with one of those Core selectors is a Core usage error. The no-argument
 form is the primary product path: it first tries the signed stable wrapper channel
 and may then run the local release-production path defined in Section 8 when the
-channel is unavailable at the transport boundary, is already current, or its
-otherwise valid candidate is suppressed only by the local rollback hold. A
+automatic channel is unavailable at the transport boundary. An already-current
+signed release remains a no-op; an authenticated rollback hold never triggers a
+local build. `--build-local` is explicit and also refuses an active rollback hold. A
 verified index with an invalid signature, malformed fields, an incompatible
 release, a digest or mode mismatch, a candidate-probe failure, or an activation
 failure is never converted into a local-build fallback. The explicit local,
@@ -1115,6 +1128,14 @@ Display metadata is informational and never selects components or relaxes admiss
 
 ### Approved next architecture: independent execution and optional integrations
 
+This heading names the accepted independence design, not a claim that every item
+is still unimplemented. CURRENT records source, execution and delivery gates.
+The Provider sections describe the existing model-adapter path and its Rust
+migration. They do not prescribe Provider-owned planning/context strategy for the
+new ChatGPT-operated MCP proposal. Reusable execution/identity/history/stop rules
+remain requirements for either path; replacing an adapter policy requires an
+explicit contract update and proof before activation.
+
 All Termux execution continues through Core and the
 same authenticated installation/update authority. Manager is never an alternative
 unsigned runtime launcher. Core may retain a small versioned optional-component
@@ -1140,9 +1161,10 @@ Optional settings must be isolated from Core's required configuration; their
 upstream syntax/types and application must be qualified before execution. Manager
 configuration discovery must not also project files into an execution home.
 Account preference validation and explicit profile projection remain Manager
-operations. A saved account selection that cannot be fulfilled must not silently
-become another account; implementing this changes the existing optional-default
-fallback contract and requires coordinated tests/documentation. Safe preparation
+operations. A saved account selection that Manager cannot fulfill returns blocked
+and must not silently become another account. Unavailable optional preparation before
+handoff retains the confirmed current execution home; it is not permission for
+Manager to ignore a known invalid saved choice. Safe preparation
 failure may continue only with the confirmed execution home and proof that no work
 was dispatched. Failure after handoff or uncertain submission never triggers a
 blind task restart. Explicit user configuration errors remain explicit errors.
@@ -1255,7 +1277,7 @@ and reject incompatible app capabilities before an uncertain submission. This is
 not a claim that the entire desktop app is Rust or JavaScript, nor a promise that
 changing the provider's language bypasses the host's limits.
 
-The planned Rust package is providers/chatgpt/Cargo.toml with runtime code in src/
+The Rust candidate package is providers/chatgpt/Cargo.toml with runtime code in src/
 and separately inventoried app-side bridge/assets. It must not be a Core, Manager
 or TUI dependency. Workspace membership must not make Base acquire/build the
 provider or desktop app. Replace product-path Bun/Python dependencies only after
@@ -1357,9 +1379,11 @@ before replaying a commit. Separate runtime modules from qualification/research
 material. Do not ship historical probes, GUI trials or user app/login data as
 runtime dependencies merely because they share an experiment directory.
 
-The initial runtime/tests/license port is already on rewrite/rust-core; Rust
-conversion and experiment integration are not complete. Port the remaining useful
-qualification drivers alongside the affected Rust implementation, preserving their
+The runtime/tests/license port and standalone Rust implementation are already
+on rewrite/rust-core. Remaining lifecycle/package/activation gates and preservation
+of unique experiment work still precede closure; source existence is not release
+admission. Current implementation and proof status belong in CURRENT. Port useful
+remaining qualification drivers alongside the affected Rust implementation, preserving their
 provenance and independent inputs. Review branch-specific and uncommitted work
 before the final integration/closure; retain unique evidence and attribute reused
 or translated code. Do not overwrite current product history with a wholesale
@@ -1375,9 +1399,12 @@ the exact release inputs. Report live Chat submissions and explain trial budgets
 before execution; Pro is excluded from automatic qualification. Experimental
 source integration is not stable publication or device activation.
 
-After completing the no-MCP transport, the sustained development trial uses the
-real `~/prj/ai` checkout directly. This explicit user-approved source-development
-trial does not use a temporary worktree, clone or project copy. Inspect that
+The actual development acceptance uses the real `~/prj/ai` checkout directly
+after the evaluated path can execute development. The existing Rust no-MCP path
+has its bounded actual trial recorded in CURRENT; do not schedule that completed
+trial as if it had never run or count it as proof of the proposed workflow. New
+control paths require their own development acceptance. This user-approved
+source-development trial does not use a temporary worktree, clone or project copy. Inspect that
 repository's AGENTS/contracts and Git baseline, preserve unique uncommitted and
 untracked source, and let the ChatGPT-backed native Codex perform a real sequence
 of analysis, implementation, tests and failure repair. The supervising agent must
@@ -1407,17 +1434,11 @@ frontend and execution-protocol compatibility proof.
 
 ### Approved provider configuration, context and remote project behavior
 
-Quota switching settings must present a compact, grouped interface. Each selectable
-row occupies one terminal line even at narrow supported widths; explanatory help
-must not become wrapped per-row descriptions. Keep all existing policy controls,
-account enrollment, custom ranking and session override accessible. Clipping must
-preserve the selected action/value and must not change the underlying account ID.
-Verify actual rendering and navigation, not only the generated labels.
-
-The proposed single user-owned provider configuration is
+The Rust candidate's single user-owned provider configuration is
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaulting to
-`~/.config/codex/providers/chatgpt.toml`. The path/schema becomes public only with
-its implementation. Provider owns validation, effective settings and rendering
+`~/.config/codex/providers/chatgpt.toml`. Its source implementation does not make
+the installed JS adapter consume it or qualify a signed production interface. Provider owns validation, effective settings
+and rendering
 to native upstream configuration/catalog; generated profiles, models.json and
 immutable installation modules are outputs, not additional editable authorities.
 Explicit invocation overrides win, then per-model settings in this file, then
@@ -1519,8 +1540,9 @@ with an optional host thinking-effort value. Supply initial defaults as a data
 resource; users can add or correct mappings through configuration without a
 binary rebuild. The binary owns protocol/schema validation and lifecycle safety,
 not the list of models. Listing a configured route proves neither account
-entitlement nor successful execution. The initial Rust runtime remains unavailable
-until actual transport acceptance. Exclude GPT-5.6 per the latest user decision;
+entitlement nor successful execution. Actual transport acceptance and stable
+package/activation admission are separate; their current results belong in CURRENT.
+Exclude GPT-5.6 per the latest user decision;
 retain GPT-6, manual-only Pro use and the hidden legacy Instant alias. A host API
 or tool-return protocol change can still require a new binary/bridge version.
 Use the selected model's effective catalog record at an idle boundary; changing
@@ -1833,13 +1855,13 @@ This native setting is read when a shared server starts. Already-running servers
 retain their previous delay until normal restart; generation activation starts
 the new runtime's server without terminating other active clients or work.
 
-Shared-server reuse must refresh its Core-owned FD-34 configuration files
-under the existing namespace coordinator lock before the new client executes.
-Publish changed files atomically in the same opened configuration directory;
-preserve the server PID, directory inode, credentials and running threads.
-Subsequent native config reads and new/resumed thread configuration must see
-current Manager hook selection. Do not restart active writers or add CLI
-overrides to make notification changes visible.
+Shared-server reuse binds the complete immutable FD-34 settings snapshot under
+the existing namespace coordinator lock. Equal settings may reuse the server;
+changed Manager hooks or other effective bytes select a matching configuration
+namespace without rewriting a live server's files or restarting its active work.
+New launch/resume uses the newly selected snapshot. Existing threads retain their
+actual upstream configuration until an upstream-supported transition applies it.
+Do not add CLI overrides or mutate sibling settings to force a policy refresh.
 
 #### Optional Manager configuration preparation
 
@@ -1966,9 +1988,10 @@ and signs the resulting adapted generation for delivery. The installed Core
 does not compile itself, install a Rust toolchain, or execute an upstream
 self-updater. It contains the same bounded release-production routines needed
 by the no-argument local fallback; those routines may fetch the official
-archive, adapt the raw runtime, qualify the result, and sign it with the
-already-authorized update key. The fallback never accepts a raw archive as an
-activation candidate and never bypasses signed local admission. The builder's
+archive, adapt the raw runtime, qualify the result and sign only that local
+candidate with a fresh ephemeral device-local key while preserving the official
+forward update_key. The fallback never accepts a raw archive as an activation
+candidate and never bypasses signed local admission. The builder's
 `fetch` operation
 accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
 canonical official archive URL above, and downloads that archive with bounded
@@ -2131,9 +2154,10 @@ Core runtime has no official publication path and never invokes
 publication authority outside Core; GitHub authentication alone never authorizes
 publication.
 
-The six-hour schedule authorizes publication only when independently authenticated
-official upstream stable is strictly newer and its frontend/backend pair is
-qualified. Equality is a no-op; older/malformed/unavailable or unqualified inputs
+The six-hour schedule authorizes a lane's publication only for independently
+authenticated strictly newer qualified upstream inputs. Base does not wait for
+enhanced-TUI qualification; Full still requires its admitted frontend/backend pair.
+Equality is a no-op; older/malformed/unavailable or unqualified inputs
 cannot publish. Manual publication requires its explicit authorization input.
 Scheduled and authorized manual releases share qualification, production-key
 signing, immutable Release staging, complete HTTPS readback,
@@ -2355,7 +2379,8 @@ changed-byte count. Historical v1/v2 signed generations remain rollback-valid.
 Actual native picker, shortcut, no-daemon and shared-server setting readback
 qualify this policy; changes to the upstream version require fresh qualification.
 
-Upstream 0.161.0 qualification is the selected current compatibility extension.
+Upstream 0.161.0 qualification is a retained compatibility extension; the current
+selected input tuple is recorded in release/upstream.json.
 Its official archive SHA-256 is
 `3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8`,
 raw runtime SHA-256 is
@@ -2382,11 +2407,13 @@ new session index or experimental source frontend is selected by this extension.
 Source/byte qualification, actual native menus/settings and owned launch/server
 proof must pass before this version can reach hosted signing or stable promotion.
 
-The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
-and an unmodified root-level `codex-code-mode-host` beside `runtime`; the first
-target declares zero `helpers/<index>` artifacts without changing that optional
-generation contract. The root-level placement is required because upstream
-Codex resolves this companion beside its own executable, not through `PATH`.
+The minimal upstream adaptation consists of generation metadata, the adapted
+runtime and an unmodified root-level codex-code-mode-host beside it. A current
+Core-bearing builder output additionally contains its bound Core and declared
+browser helpers, plus optional admitted Manager/TUI; exact signed inventories
+above govern complete bundles. Historical zero-helper descriptors remain retained
+compatibility, not the current full output. The companion's root-level placement
+is required because upstream resolves it beside its executable, not through PATH.
 Every output is create-new in private staging and the absent destination is
 published complete-or-absent. Failure never publishes a partial generation,
 changes an existing destination, signs or activates content, or writes outside
@@ -2420,7 +2447,7 @@ special files, duplicate conflicting entries, and writes outside staging.
 
 Code/artifact generations and mutable user state are separate.
 
-The Milestone 2 local layout is:
+The Core state/generation layout is:
 
 ```text
 $PREFIX/bin/codex                                      stable public entrypoint
@@ -2435,7 +2462,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
 ~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
-~/.local/lib/codex/core/publications/<id>/             locally built signed publication cache
+~/.local/lib/codex/core/publications/<id>/             retained old Core publication cache; no official producer authority
 ~/.local/lib/codex/core/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
 ~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
@@ -2443,7 +2470,9 @@ $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/share/codex/core/core-entrypoint-rollback    one retained prior Core launcher
 ~/.local/share/codex/core/core-entrypoint-rollback.meta
                                                       rollback binding for that launcher
-~/.local/share/codex/core/config/                     process-local managed config directory
+~/.local/share/codex/core/config/                     Core defaults and shared-profile source directory
+~/.local/share/codex/core/config/snapshots/<id>/      immutable per-launch effective system settings
+~/.local/share/codex/core/{servers,catalogs}/<id>/    bound native server record/socket/config snapshot
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
 
@@ -2509,10 +2538,12 @@ one pair. There is no separate `verified` pointer, keyring, discovered-key set,
 or unbounded key history.
 
 Only content that has already passed release admission and candidate probes may
-become `current`. Ordinary launch reads only `current`; it does not perform
-signature verification, consult `update_key` or either generation verifier key,
-scan generations, contact the network, invoke OpenSSL, or implicitly fall back
-to another generation. The generation directory name is one safe path component
+become `current`. Ordinary runtime selection uses only current; it does not
+verify signatures, search keys/generations or implicitly select previous. The
+separately bounded bare all-TTY update advisory may authenticate the channel as
+specified in Section3, and best-effort artifact maintenance has its own explicit
+retention boundary below. Neither exception makes network/OpenSSL/maintenance a
+prerequisite for executing a valid current generation. The generation directory name is one safe path component
 and generation content is complete before it can become `current`. Before
 ordinary launch consumes that generation, Core must verify the selected
 generation directory and every selected asset parent directory is a real
@@ -2866,7 +2897,7 @@ admission keep the equal-sequence/different-release rejection rule.
    rollback state;
 8. report failure without damaging the active trust-and-generation state.
 
-One migration-only coordinated v4 bridge is permitted for an already-installed
+The retained two-helper coordinated v4 bridge is permitted for an already-installed
 R10 Core whose signed release parser predates the TC-2 browser-helper paths. The
 bridge is not a new trust or release format: it uses the recovered v3
 `update_key`, the normal monotonic release sequence, the normal v4 Core binding,
@@ -2878,21 +2909,24 @@ marker and helper contract are those identities stored and loaded from the
 R10-readable signed paths `helpers/0` and `helpers/1`. The release inventory
 must sign those exact two paths, digests, and modes. Missing or extra helpers,
 identity/order mismatch, a marker/layout mismatch, or any attempt to use the
-indexed layout without the exact marker fails closed.
+indexed layout without the exact marker fails closed. The separately admitted
+three-helper TUI extension above is the only allowed extension of this bridge.
 
 The bridge carries the same qualified browser helper bytes and policy as the
 canonical TC-2 layout; it does not temporarily remove browser protection. A
 new Core may retain read support for this exact bridge layout so the bridge can
-run and can be the one retained rollback generation. Normal generation builds
-and publications must continue to use only `browser/open/curl` and
-`browser/manual/curl` for these identities and must never select the bridge
-layout implicitly. The bridge adds no alternate signing key, bootstrap path,
+run and can be the one retained rollback generation. Canonical non-bridge builds
+use browser/open/curl and browser/manual/curl. Publication retaining the R10 floor
+explicitly selects its exact numbered bridge layout as required above; no caller
+may infer that layout from arbitrary files or rename signed paths implicitly. The bridge adds no alternate signing key, bootstrap path,
 package-manager action, PATH widening, raw-runtime patch, or second activation
-mechanism. Its sole purpose is one signed R10-compatible forward step before a
-second ordinary signed update publishes the canonical browser-helper layout.
+mechanism. Its purpose is retained R10-readable consumption and rollback until
+an explicitly qualified compatibility-floor change, not a timed two-promotion
+sequence that clients may miss.
 
-The signed release format is `codex-release-v3`; v1 and v2 are not retained as
-release compatibility paths. In addition to generation identity, monotonic
+The shared key/rotation contract below applies to retained codex-release-v3 and
+current Core-bearing codex-release-v4. New coordinated Core bundles require v4;
+v1 and v2 are not retained release compatibility paths. In addition to generation identity, monotonic
 release sequence, supported channel, platform, architecture, Core API,
 persistent schema, and the exact SHA-256 plus regular-file permission-mode
 inventory of every load-bearing generation file, the manifest binds exactly one
@@ -2955,7 +2989,8 @@ constructs a fallback ladder.
 
 Initial bootstrap, whether fresh or an explicit legacy handoff, owns the only
 permitted use of `~/.local/lib/codex/core/release-public-key.pem`. Before any v3
-activation state exists, bootstrap may verify one initial v3 release only when
+activation state exists, bootstrap may verify one admitted initial v3/v4 release
+only when
 the manifest `release_public_key` exactly equals that pinned key and
 `release.sig` verifies with it; successful initial activation initializes
 `update_key`, `current_key`, and `current` from that release with no previous
@@ -3092,7 +3127,7 @@ has exited. Removing a dead server record/config snapshot uses the same native
 exit confirmation as generation retention, preserving records for surviving
 sibling threads or unknown visibility.
 
-The 2026-10-02 user-authorized cleanup additionally permits removing inactive
+The historical 2026-10-02 bounded operator cleanup permitted removing inactive
 legacy profile SQLite projections after all retained conversation payloads are
 verified in the canonical upstream store. Preserve every conversation with
 activity in the preceding seven days and all active writers. Older redundant
@@ -3101,7 +3136,8 @@ The three obsolete `.codex-scs6-backup-*` / failed-activation copies may be
 removed after the same payload/prefix and inactive-handle checks; live account
 auth/configuration stays untouched. A stale backup index refresh does not count
 as new conversation work when its actual transcript activity has expired.
-This is bounded operator cleanup, not routine Core SQL/transcript ownership.
+This records that bounded operator transition, not a recurring cleanup instruction,
+a new authorization from documentation review, or routine Core SQL/transcript ownership.
 
 Automatic channel discovery uses the same curl, certificate, timeout, and
 owner-only temporary rules. It fetches only the bounded index and its sibling
@@ -3374,8 +3410,9 @@ before upstream execution. A selection changes neither later ordinary launches n
 the caller's environment. Core uses the same native-equivalent home interpretation
 for shared preparation and server startup, preserving the supplied environment.
 
-The profile lifecycle contract below applies;
-interactive terminal UI and profile-auth migration remain absent. Cross-profile session copying is deliberately absent
+The profile lifecycle contract below applies. Interactive selection is the
+existing launch/TUI convenience, not an auth-migration or conversation-copy feature.
+Cross-profile session copying is deliberately absent
 because conversations are shared objects rather than profile-owned objects. A
 missing/invalid registration is a non-mutating Manager validation failure. Core
 prepares only the declared missing/empty compatibility entries during launch;
@@ -3391,18 +3428,19 @@ line. This is not selection history: `profile use` never writes it. Preference
 format is exactly `codex-manager-default-profile-v1\nprofile\t<TARGET>\n`,
 private mode0600 under Manager's private state root. Missing preference means
 native default. Invalid/missing-target preferences never follow an untrusted path:
-explicit default/current queries and lifecycle mutations fail; optional ordinary
-launch falls back to the native default without changing the preference.
+explicit default/current queries and lifecycle mutations fail; Manager's ordinary
+launch preparation returns blocked instead of silently choosing native default.
 
-A nonempty UTF-8 inherited CODEX_HOME always wins. Otherwise the installed Core
-may delegate ordinary upstream argv to the admitted optional Manager through the
-internal `__profile-launch` endpoint only when default-profile-v1 is present.
-Core neither parses nor writes that preference or profile metadata. Manager
-validates the preference and registration, sets CODEX_HOME explicitly for this
-child, and execs the stable Core with exact original argv, TTY, streams, signals
-and exit status. A missing/unavailable Manager leaves normal native launch usable.
-Core's update/doctor/termux and unsupported-daemon routes bypass this delegation;
-no selector may be smuggled through the internal endpoint. Bare startup discovery
+A nonempty UTF-8 inherited CODEX_HOME always wins. Otherwise Manager resolves its
+saved preference through the bounded `__prepare-launch-v1`/`__execute-launch-v1`
+contract. Core never reads the preference filename or profile metadata. Manager
+validates registration, sets CODEX_HOME for this child and execs stable Core with
+original argv/TTY/streams/signals/exit behavior. `__profile-launch` remains an
+internal Manager endpoint, not Core's preference-discovery mechanism. Unavailable
+optional preparation leaves normal Core launch usable in its unchanged confirmed
+home; there is no post-handoff retry. Core-only/update/doctor/termux and unsupported
+daemon routes keep their defined behavior. No selector may be smuggled through
+an internal endpoint. Bare startup discovery
 still runs at most once, after selection. `profile current` adds source `saved`
 when the explicit preference selects a fresh launch; inherited source remains
 inherited. The retired state-v1 record stays ignored and unchanged.
@@ -3504,11 +3542,13 @@ CWD and All. Retained exec and internal guardian records stay in the shared
 store and remain addressable through upstream APIs; they are not additional
 interactive picker entries.
 
-For this user-authorized transition only, the historical SCS-6 five-per-profile
+For the historical 2026-10-02 user-authorized transition only, the SCS-6 five-per-profile
 selection and backup prerequisite are replaced by all conversations with actual
-activity during the seven days preceding the bounded apply. The user explicitly
-authorizes deleting confirmed older conversations and declines a recovery
-backup. Read-only legacy SQLite activity and authoritative rollout timestamps
+activity during the seven days preceding the bounded apply. That authorization
+permitted deleting confirmed older conversations
+without a recovery backup; it does not authorize recurring pruning or any
+conversation deletion during current source/documentation work. Read-only legacy
+SQLite activity and authoritative rollout timestamps
 select the set; IDs, retained transcript records and retained history entries
 are preserved. Copies sharing a thread ID may collapse only when their complete
 per-record-type payload sequences prove a prefix relation; divergent histories
@@ -3552,7 +3592,8 @@ native state and force-server identity. No transcript, preview, goal objective,
 credential or tool output is printed or persisted. External supported CODEX_HOME
 identities are included, not just Manager-registered profiles. All retained Core
 server rendezvous records are considered, including old-generation active servers.
-No permanent task registry, watcher, supervisor or automatic account switch is added.
+This helper adds no permanent task registry, watcher, supervisor or automatic
+account switch. Quota rotation is the separate Manager/TUI contract above.
 A private, structurally valid binding whose recorded process is confirmed absent
 or fully exited is ignored read-only before requiring its execution home, runtime
 or socket to remain present. Retired homes, historical home aliases and removed
@@ -3641,7 +3682,7 @@ codex termux notify set [--channel <notification|toast|both>]
     [--content-chars <0|1..4096>] [--preserve-newlines <0|1>]
     [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>]
     [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>]
-    [--group <GROUP_ID>]
+    [--group <GROUP_ID>] [--focus <window|termux>]
 ```
 
 `notify set` accepts options in any order, at most once each, and no trailing
@@ -3696,7 +3737,8 @@ group\t<GROUP_ID>
 `notify show` emits the nine configuration `key=value` lines in this order:
 `channel`, `hooks`, `content-chars`, `preserve-newlines`, `toast-gravity`,
 `toast-short`, `toast-background`, `toast-color`, and `group`, followed by
-`focus=termux|tmux` from the separate focus record. It emits no path, source detail, payload,
+`focus=window|termux` from the separate focus record (`tmux` is a retained input
+alias). It emits no path, source detail, payload,
 environment, or credential. An absent record yields the defaults without
 creating Manager state. A malformed, symlinked, overlong, incorrectly-modeled,
 or conflicting record is an operation failure and is never replaced
@@ -3713,10 +3755,11 @@ renders the selected native callbacks and hooks through the bounded private
 configuration preparation endpoint above. Core neither reads the record nor
 recognizes notification events. No persistent projection record/schema is
 introduced, and Manager never writes Core's system configuration. Core combines
-its execution defaults with the returned fragment and atomically replaces its
-own `config.toml` before runtime exec. The generated file retains the fixed
-`codex-termux-notify-v1` ownership marker. Core replaces a missing file or its own marker
-file only; conflicting foreign state is preserved and rejected before execution.
+its execution defaults with the returned fragment in the immutable per-launch
+snapshot before runtime exec. The shared base directory contains Core defaults
+only; a live server's snapshot is not rewritten. The Core-owned base configuration
+retains its `codex-termux-notify-v1` marker. A missing/owned-marker base file may be
+prepared; conflicting foreign state is preserved and rejected before execution.
 This Core-owned configuration conflict is distinct from invalid optional
 Manager state. Each enabled event is mapped
 to `codex termux notify emit <EVENT>`. Selected `Stop` uses upstream's native
@@ -3780,42 +3823,33 @@ delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
 
-Every notification includes an Activity action which brings the existing Termux
-Activity to the foreground using Android reorder-to-front and single-top flags.
-In default termux focus it preserves the currently selected terminal and requests
-no terminal session, Codex process or resume invocation. `notify test` uses the
-same Activity-only route. Explicit tmux focus additionally follows the Optional
-AI tmux notification focus contract in Section 3, including its authorized new
-native-terminal attach. This Activity action adds no click state or watcher.
+Default window focus uses the admitted Manager's `__terminal-focus-v1 UUID`
+action for a canonical session identity. It resolves the live registered workload
+and revalidates its native terminal or stock dedicated-window route as defined in
+Section3; it never starts/resumes Codex or creates a replacement workload. tmux is
+optional and AI is not needed. A missing or invalid session identity uses the
+Activity-only action. A valid identity with a stale/unavailable exact target must
+not guess another workload or construct a window to simulate successful return.
 
-The Activity action invokes only the absolute sibling `am` compatibility entrypoint,
-which owns transport selection. A non-UTF-8 entrypoint uses the canonical Termux path.
-The outer action allows twenty seconds; the installed compatibility entrypoint allows
-fifteen seconds for one socket request, exceeding the server's ten-second socket budgets.
-Manager must not wrap a shorter timeout around it or call the socket again after failure.
-Only the compatibility entrypoint may fall back to `cmd activity` after an unsuccessful
-idempotent Activity return. Service requests are never replayed. Paths are shell-quoted;
-only a fixed Activity component and flags are passed. Output is silenced and no hook
-payload, profile, CWD, auth or session ID is included. It never launches the terminal
-execution service. Socket existence and successful read-only commands do not prove
-Activity authorization: the APK requires Android display-over-other-apps permission for
-background starts. This user-granted capability and actual start results are separate gates.
-Socket availability does not imply an existing-terminal selection API: installed Termux
-8629e63 restores its current selection. Exact bare-terminal selection remains unavailable;
-it must never be simulated by creating a terminal or resuming Codex. The optional AI
-focus helper owns its separately opted-in existing-tmux attachment path and gives the one
-service response fifteen seconds independently of its two-second identity search budget.
-Existing notifications are not rewritten; this contract applies
-to newly delivered notifications.
+Explicit termux focus and `notify test` use the Activity-only action: bring the
+Termux Activity forward with reorder-to-front/single-top, preserving its selected
+terminal. This invokes the absolute sibling am compatibility entrypoint (canonical
+Termux path for non-UTF-8 entrypoints). The outer timeout is20 seconds and the
+compatibility socket request budget is15 seconds; do not add a shorter wrapper
+or retry a service request. Only that compatibility entrypoint may fall back to
+cmd activity after an unsuccessful idempotent Activity return. Arguments are
+fixed/shell-quoted and output silenced; no hook payload/auth/CWD is passed.
 
-The installed Termux Activity has no accepted intent for selecting a particular
-existing terminal by Codex UUID. Activity-only focus therefore returns to Termux's
-current terminal; exact originating-window selection is not claimed for that route.
-When no terminal
-exists, Termux owns its ordinary initial-terminal behavior. Android foreground
-restrictions remain provider behavior; device acceptance proves the real
-Activity-only action and unchanged running terminal/Codex process identities.
-Physical notification tap is distinguished from programmatic action execution.
+An Activity acknowledgment is not exact-window selection proof. Stock APKs lack
+the native existing-handle API and use one registered dedicated terminal as
+described in Section3; a manual rename/closing-window race may create an inert
+empty terminal. Native-capable APKs must select the qualified existing handle
+without creating another terminal. Socket availability and read-only commands do
+not prove background Activity authorization; Android display-over-other-apps
+permission and notification permission remain user-granted capabilities. With no
+terminal, Termux owns its normal initial-terminal behavior. Physical one-tap
+return and unchanged workload/window identities require separate device proof.
+Existing notifications are not rewritten by a source or setting change.
 
 Each provider attempt has a five-second bound; timeout terminates its owned
 process group, including API-helper descendants, and reaps the direct provider
@@ -3832,24 +3866,17 @@ with a fixed error; all successful attempts return 0. Provider stdout/stderr and
 arbitrary input are never forwarded. Hook delivery retains its silent best-effort
 contract regardless of these outcomes.
 
-The optional external AI tmux launcher owns presentation only within a session
-marked as AI-managed. Hidden mode hides that session's native bottom status row;
-status mode shows one native status row and enables session-local mouse support
-so tapping a window name selects it. The latest explicit launch mode applies to
-the shared managed session. It must preserve status and mouse settings of an
-existing unmanaged tmux session and never change global tmux configuration.
-Within AI-managed sessions the launcher enables session-local `set-titles` and
-uses the literal `#{pane_title}` format, forwarding the selected pane's native
-Codex title to attached Termux clients. Upstream `/title` selects and orders
-terminal-title items; `/rename` changes the conversation name. The launcher
-forwards native title output rather than implementing another title composer.
-It does not rename tmux windows. Qualified native identity leaves upstream title
-composition unchanged; historical title-based focus retains its required thread ID.
-Unmanaged sessions and global title options remain unchanged; no title watcher
-is introduced.
-New panes use
-current caller color preferences, including explicit unset values, rather than
-stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.
+The Manager launch path creates an independent managed tmux session per launch
+when explicitly requested. Hidden/status selects that session's native bottom
+status-row visibility; title forwarding uses session-local set-titles with literal
+#{pane_title}. Upstream /title composes terminal display items and /rename changes
+the conversation name. Neither Manager nor an external AI wrapper is another
+title composer or conversation-identity authority. Existing unmanaged sessions,
+global tmux settings and independent launches remain unchanged. AI's separate
+convenience launcher consumes the supported window/container capability; it is not
+a dependency of Codex notifications. No cross-session shared-workload attachment,
+implicit live bare-to-tmux migration or title watcher is introduced. Caller color
+preferences remain per-launch; tmux owns TERM/TERM_PROGRAM.
 
 ### Core recovery authority
 
@@ -3916,14 +3943,18 @@ directory, a 512-byte captured-output bound, and a five-second wall-clock
 bound. It kills and rejects a probe that exceeds either bound. Probe output is
 not persisted or included in the generation.
 
-After a successful probe, release-builder revalidates the source as a regular
-owner-executable file within the existing 64 MiB bound, snapshots it through
-the existing private bounded path, sets and verifies mode `0755`, binds the
-snapshot digest in `manager_artifact_digest`, and includes `manager` in the
-signed release inventory. A snapshot/read failure or probe mismatch publishes
+Release-builder validates a regular owner-executable source within the64-MiB
+bound, snapshots it privately and sets/verifies mode0755. It probes that exact
+snapshot (or uses the declared pre-sign cross-build exception), binds its digest
+in manager_artifact_digest and includes that same Manager in the signed inventory.
+A source-side probe alone cannot qualify different subsequently copied bytes.
+A snapshot/read failure or probe mismatch publishes
 no generation and leaves an existing destination unchanged.
 
-Core does not repeat the probe during ordinary launch or update. Its existing
+Core does not repeat the artifact probe during ordinary launch or signed-bundle
+acquisition. Explicit local-derived construction uses its producer's bounded
+probe for any carried-forward Manager, under the same construction rules. The
+existing
 qualified-generation path remains responsible for the signed descriptor,
 regular-file, mode, and digest binding; it executes the Manager only after
 that admission and preserves the existing Core handoff, streams, TTY,
@@ -3954,10 +3985,12 @@ The immutable remote Release asset set must contain that file before the
 signed index is advanced. Missing, extra, mismatched, non-regular, or
 symlinked Manager content fails the existing signed-generation admission and
 must not advance the index. A generation without `manager` remains a valid
-Core-only generation and reports Manager unavailable. The automatic local
-fallback may produce only such a Core-only generation unless an explicit
-already-qualified Manager artifact is supplied through the bounded release
-producer; it never builds or discovers one on-device.
+Core-only generation and reports Manager unavailable. Core's local-derived
+construction may carry forward the currently authenticated,
+qualified Manager and same-version admitted frontend under the preservation rules
+above. It never builds or discovers an unrelated Manager on-device. An optional
+component missing from an installed generation does not become a new artifact;
+a frontend-bearing generation cannot silently lose its required paired frontend.
 
 Disposable qualification uses private temporary roots and separate
 fresh-install and legacy-upgrade consumers. For a hosted cross-build carrying the
@@ -3992,12 +4025,14 @@ before external I/O.
 
 Remote publication, when explicitly authorized for that exact candidate,
 uses the existing fixed `humtr/codex`/`main` boundary and ordering: upload the
-complete immutable Release asset set, including `manager` when the signed
-inventory lists it; publish `update-index-v1.sig`; then publish
-`update-index-v1`. A missing or mismatched Manager asset, failed or timed-out
-upload, private-key exposure, or index update out of order fails the operation
-without advancing the index and without undoing a successful local
-activation. No OpenAI repository, live runtime, auth, profile, session, or
+complete immutable Release asset set, including the signed Manager when declared;
+complete public readback and disposable consumer proof; then commit each index
+and its signature together through the non-forced exact-parent CAS promotion.
+Never publish an index/signature as separate mutable ref updates. A missing or
+mismatched asset, failed/timed-out upload, private-key exposure or incomplete
+consumer proof leaves public stable unchanged. Publication does not activate the
+operating device or roll back any separately accepted local activation. No OpenAI
+repository, live runtime, auth, profile, session, or
 Manager state is an alternate publication target.
 
 Readback uses a separate private disposable consumer and bounded HTTPS
@@ -4042,8 +4077,9 @@ This extension does not reopen or weaken the accepted Core completion
 invariants. The resolver, signed-generation trust model, wrapper-owned update,
 coordinated Core/generation activation and rollback, profile/session/auth
 boundaries, sandbox policy, and no-on-device-compiler rule remain unchanged.
-It also does not authorize a new raw-runtime byte patch: patch policy
-`termux-fd-remap-v1` remains exact. Any additional binary rewrite requires a
+It also does not authorize an unbounded raw-runtime byte patch: the selected
+version's exact termux-fd-remap policy and retained-generation policies remain
+bound to their qualified artifacts. Any additional binary rewrite requires a
 separate normative amendment that names its exact bounded substitutions and
 qualification evidence.
 

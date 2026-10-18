@@ -4,9 +4,10 @@ SPEC.md owns the generation, command and update contracts. The native patch adds
 /switch to exact official0.163.0 source83086188ae0614bd882818ff1aa23f3194962012;
 upstream retains every existing command and owns conversation UI/title composition.
 Manager owns execution profiles and foreground identity. TUI is a separate
-optional upstream-based frontend, not Manager's private screen. The current
-Full60/native1c413cf pairing passes its published gates; every new pair must pass
-native/device gates before publication. Official runtime remains
+optional upstream-based frontend, not Manager's private screen. The retained
+Full60/native1c413cf pairing passed its published gates; it is not the current
+source or installed baseline. CURRENT records those independently. Every new pair
+must pass exact native/device gates before publication. Official runtime remains
 the sole execution backend.
 
 `native.patch` contains integration changes to existing upstream files. The
@@ -25,9 +26,9 @@ source Chat picker consumes Provider-generated `chatgpt_desktop` routing, the
 `codex-chatgpt-provider generated v1` marker and command-backed Rust authentication.
 Models and efforts come from the generated native catalog without fixed family
 lists or a Python lifecycle command in TUI. The new source does not accept old
-pilot profile formats. Operating Full60 remains unchanged pending fresh native
-qualification and bounded Provider/profile activation. Same-provider model/effort
-selection uses native session actions.
+pilot profile formats. Source preparation does not replace the installed Full
+or Provider. Same-provider model/effort selection uses native session actions;
+current signed/runtime bindings and pending activation are recorded in CURRENT.
 
 The signed helper's hidden `--termux-backend-capabilities` query advertises
 `codex-termux-resolved-startup-v1` before loading config or initializing a terminal.
@@ -57,21 +58,34 @@ source inclusion or a nonempty aggregate suite does not qualify a missing topic.
 
 The approved next architecture retains Core, Manager, TUI and Provider as separate
 components. TUI's Manager integration is optional; provider capabilities/settings
-must not require Manager. This target still needs independent admission: current
-signed Full requires the paired Manager. Keep the existing source path, helper
-identity, CLI flags and wire markers until a coordinated compatibility change.
-Replace hardcoded Chat model/effort checks with provider-owned configuration/
-capability data; retain upstream session model/effort actions for same-Chat changes.
+must not require Manager. Source independence now has actual Android no-Manager
+composition proof; the current signed layout still requires a paired Manager
+declaration for its TUI helper. New signed optional-component composition needs its own admission.
+Keep the existing source path, helper identity, CLI flags and wire markers until
+a coordinated compatibility change.
+Current source consumes Provider-owned configuration/capability data instead of
+hardcoded Chat model/effort lists, retaining native session actions for same-Chat
+changes. Do not count that completed source change as a new implementation task.
 Context/project settings remain Provider configuration, not separate TUI policy.
-The source cross-provider path asks the installed Provider binary to encode a
-complete idle public snapshot and persists it through upstream's existing
+The source cross-provider path asks the explicitly selected candidate Provider to
+encode a complete idle public snapshot and persists it through upstream's existing
 `thread/inject_items`; no Core or Manager changes are involved. Returning from
 Chat first requests one summary on the source Provider, displays its progress and
 waits for the matching compaction item and completed turn before re-entry. Stop,
 error, event loss, changed thread/model or queued input retain the source Provider.
-The old public generation is unchanged. Bidirectional Android/TUI qualification
-and budgeted live admission remain in
-[CURRENT](../../CURRENT.md#product-completion-scope-and-work-order).
+The installed generation is unchanged by source preparation. The exact hosted
+TUI source15da596 and no-Manager Android PTY native↔Chat round trip pass with
+synthetic Responses and actual checkpoint encoding. Separate actual Chat API
+summary/re-entry proof is not a real-Chat TUI run. Remaining physical/live and
+signed lifecycle gates are in [CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
+
+The [ChatGPT-operated MCP proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
+is under review. If adopted, TUI would display/control the same bound work and
+receive native execution plus public report/final events; it would not become
+another executor, planner or canonical history owner. Existing cross-provider
+handoff code is the current model-adapter behavior, not proof of MCP session/
+context control. Origin metadata does not belong in a synthetic user prompt.
+No new UI/control default or live cancellation behavior is introduced by the review.
 
 Local resume carries the supported Termux permission selection even when Core's
 system default supplied it. Saved approval policy/reviewer remain independent.

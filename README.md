@@ -15,9 +15,17 @@ The product has one public command, `codex`, and four components:
   its approved target is a Rust adapter with a minimal app-side JavaScript bridge.
 
 Every Termux Codex execution passes through Core. Actual tools, reviewer,
-conversation storage, compaction and resume remain upstream-owned. The approved
-next architecture further isolates optional preparation failures; that work is
-not already deployed. See [the product completion plan](CURRENT.md#product-completion-scope-and-work-order).
+conversation storage, compaction and resume remain upstream-owned. Optional
+preparation/configuration isolation and no-Manager TUI/Provider execution have
+source and bounded Android proof; signed composition and operating activation
+are distinct. See [current status and work order](CURRENT.md#product-completion-scope-and-work-order).
+
+A [ChatGPT-operated MCP workflow](CURRENT.md#proposed-chatgpt-control-through-mcp)
+is being reviewed: ChatGPT would manage local Codex work/context/sessions and
+reports through MCP, with either ChatGPT or Codex as the entrance. This is broader
+than the existing MCP result-return transport and is not implemented or selected
+as a default. Origin/control information would travel through non-user tool
+returns. The proposal does not change current execution, cancellation or updates.
 
 ## Current status
 
@@ -79,37 +87,34 @@ requires Manager. The opt-in ChatGPT pilot
 uses this common registration; `/model` selects its model and supported effort,
 while `--profile chatgpt` remains the fallback. The pilot's signed Linux app still
 owns its login and Chat inference. Active source and focused qualification now live in
-[the optional Provider](providers/chatgpt/README.md); remaining historical real-host
-evidence stays on experiment/web-termux until its relevant drivers are ported.
-The integrated provider still runs JS/Bun and Python today. Rust migration will
-move transport, configuration and host lifetime into the independent Provider,
-without linking it into Core/Manager or changing ordinary Base requirements.
-The current app-function route still needs a small script in the app's renderer;
-a Rust provider can control that script through CDP. Migration is not deployed,
-and does not replace the app's login or remove its own runtime dependencies.
+[the optional Provider](providers/chatgpt/README.md). Historical experiment source
+and unique drivers remain preserved for reviewed integration/closure; provenance
+belongs to the Provider NOTICE and bounded proof to CURRENT.
+The installed adapter remains JS/Bun/Python. The independent Rust candidate
+already implements transport/configuration/host lifetime and has separate actual
+authenticated-app, native tools, project and direct AI-development proofs. It is
+not permanently activated or a signed Provider release; its optional app-renderer
+bridge remains part of the qualified app transport. Neither source integration
+nor a model listing replaces the app's login or actual runtime qualification.
 
-The current pilot cannot safely continue every long native Codex conversation:
-previous-model compaction can fail with `unsupported_desktop_route`, and opaque
-native checkpoints require readable context transfer. A fresh Chat conversation
-avoids that specific transition but is not blanket qualification of Full60 Chat
-inference. Keep existing conversations; see [current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
+The recorded installed-pilot transition failure is `unsupported_desktop_route`
+when old-model compaction reaches the Chat endpoint; foreign opaque checkpoints
+also require readable handoff. Preserve existing conversations. Source API/PTY
+handoff and real Chat summary have separate bounded proofs; they do not qualify
+every long conversation or a new signed operating composition. See
+[current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
 
-Provider configuration and project placement are implemented in the Rust candidate,
-not released. The
-configuration target is `~/.config/codex/providers/chatgpt.toml` (honoring
-`XDG_CONFIG_HOME`), with validated context/compaction, model/effort and ChatGPT
-project settings. The observed1,000,000-token override is retained local policy,
-not a verified Chat capacity. Generated model catalogs and immutable source are
-not the intended editing surface. New provider chats should reuse the configured
-remote project or create it when absent; existing chats stay where they are and
-are not deleted. The Rust source candidate has configuration/catalog and Responses transport,
-but the installed pilot does not consume that file. Actual Android manual
-compaction and GPT-6 project-bound tool execution now pass; foreign opaque context,
-permanent operating migration and full lifecycle/release qualification remain.
-Authenticated Rust-owned app inference and direct AI repository maintenance have
-separate actual proofs; neither activates the candidate.
-See [configuration](CURRENT.md#context-and-easy-configuration) and
-[project behavior](CURRENT.md#chatgpt-projects-and-history).
+The Rust candidate owns editable configuration/catalog data at
+`~/.config/codex/providers/chatgpt.toml` (honoring `XDG_CONFIG_HOME`), including
+model/effort/context and remote ChatGPT project settings. The installed JS adapter
+does not read this file. The preserved1,000,000-token setting is an operator
+override, not a measured Chat capacity. Model/effort changes within one selected
+Provider use native session settings; cross-provider history requires its own
+qualified handoff. Project mode reuses/creates an explicitly configured remote
+project for new chats; it does not move/delete existing chats or prove lower Chat
+message costs. See [configuration](CURRENT.md#context-and-easy-configuration),
+[project behavior](CURRENT.md#chatgpt-projects-and-history) and the
+[remaining acceptance](CURRENT.md#remaining-acceptance-and-delivery).
 
 ## Fresh install
 
@@ -314,7 +319,9 @@ fixture signing key, with no real account or Chat request.
 
 The repository owns its development rules in `AGENTS.md`, optimized for
 GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.
-`scripts/check.sh docs`, `python`, `rust`, or `full` selects the relevant gate.
+`scripts/check.sh docs`, `python`, `rust`, `provider`, or `full` selects the relevant
+gate. The independent `provider` gate needs its qualified reference-test Bun;
+ordinary Core checks do not.
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 
@@ -342,5 +349,8 @@ available to the input controller.
 The optional [ChatGPT provider source](providers/chatgpt/README.md) is integrated
 under providers/chatgpt, with its own offline source qualification. Its development
 installer and existing app/user data remain separate from signed Base/Full delivery.
-Source integration does not activate a new operating provider. See CURRENT for the
-remaining configuration, context/project and authenticated packaging work.
+Source integration does not activate a new operating Provider. CURRENT is the
+single authority for the revised work sequence, completed proof and remaining
+context/project/lifecycle/packaging gates. The broader MCP control proposal is
+awaiting a development decision; existing Rust local functions remain the default,
+with no automatic fallback after uncertain execution.
