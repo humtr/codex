@@ -29,13 +29,24 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Provision pinned optional-provider test runtime
         id: bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.4.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/provider-bun"
+          mkdir -m 0700 "$tool"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 180 --max-filesize 67108864 \
+            https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64-baseline.zip \
+            --output "$tool/bun.zip"
+          echo "184fb4595f0d401a217cf7c78c1bc430ba83314dab7a8b94805babbf7fa7097f  $tool/bun.zip" | sha256sum -c -
+          unzip -p "$tool/bun.zip" bun-linux-x64-baseline/bun > "$tool/bun"
+          chmod 0700 "$tool/bun"
+          test "$("$tool/bun" --version)" = 1.4.0
+          echo "binary_path=$tool/bun" >> "$GITHUB_OUTPUT"
       - name: Run provider tests without real Chat or device state
         shell: bash
         env:
-          BUN: ${{ steps.bun.outputs.bun-path }}
+          BUN: ${{ steps.bun.outputs.binary_path }}
           TMPDIR: ${{ runner.temp }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
