@@ -797,7 +797,8 @@ mod tests {
         // not increase list height on a narrow phone terminal.
         let mut custom = value.clone();
         custom["rotation"]["policy"] = json!("custom");
-        let long_id = "account-with-a-long-but-valid-identity-01234567890123456789012345";
+        let long_id = "account-with-a-long-but-valid-identity-0123456789012345678901234";
+        assert_eq!(long_id.len(), 64, "fixture exercises the accepted ID limit");
         custom["rows"][0]["id"] = json!(long_id);
         custom["rows"][0]["summary"] = json!("5h 72% · weekly 12% · 계정 사용량 확인 · ready");
         custom["rotation"]["accounts"] = json!([long_id]);
