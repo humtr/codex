@@ -118,7 +118,7 @@ impl Snapshot {
             })
             .collect();
         Ok(
-            serde_json::json!({"path":self.path,"exists":self.original.is_some(),"applied_to_runtime":false,"settings":self.config()?,"origins":origins}),
+            serde_json::json!({"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":self.config()?,"origins":origins}),
         )
     }
     pub fn commit_bytes(&self, bytes: &[u8]) -> Result<bool, ConfigError> {
@@ -403,7 +403,7 @@ mod tests {
         let effective = Snapshot::open(&path).unwrap().effective().unwrap();
         assert_eq!(effective["origins"]["context.window_tokens"], "file");
         assert_eq!(effective["origins"]["model.default"], "default");
-        assert_eq!(effective["applied_to_runtime"], false);
+        assert_eq!(effective["runtime_application"], "not_queried");
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

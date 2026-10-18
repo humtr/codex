@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider models | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve --descriptor PATH [--state PATH] [--port PORT] | status [--state PATH] | token [--state PATH] | models | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -17,6 +17,12 @@ fn run() -> Result<(), String> {
                 .map_err(|_| "arguments must be UTF-8".to_string())
         })
         .collect::<Result<_, _>>()?;
+    if matches!(
+        args.first().map(String::as_str),
+        Some("serve" | "status" | "token")
+    ) {
+        return runtime_command(&args);
+    }
     if args.as_slice() == ["--help"] || args.as_slice() == ["-h"] {
         return text(USAGE);
     }
@@ -25,7 +31,7 @@ fn run() -> Result<(), String> {
         Some("models") if args.len() == 1 => {
             let snapshot = store::Snapshot::open(&path).map_err(|e| e.to_string())?;
             let effective = snapshot.effective().map_err(|e| e.to_string())?;
-            let value = serde_json::json!({"schema":"codex-chatgpt-catalog-v1","source":effective["origins"]["catalog"],"runtime_implemented":false,"catalog":snapshot.config().map_err(|e| e.to_string())?.catalog});
+            let value = serde_json::json!({"schema":"codex-chatgpt-catalog-v1","source":effective["origins"]["catalog"],"candidate_server_implemented":true,"production_qualified":false,"catalog":snapshot.config().map_err(|e| e.to_string())?.catalog});
             text(
                 &serde_json::to_string_pretty(&value)
                     .map_err(|_| "model catalog serialization failed")?,
@@ -54,7 +60,7 @@ fn run() -> Result<(), String> {
                 store::Snapshot::open(&path)
                     .and_then(|v| v.config())
                     .map_err(|e| e.to_string())?;
-                text("configuration valid; candidate settings are not yet consumed by a runtime")
+                text("configuration valid; applies when the Rust provider is used")
             }
             Some("set") if args.len() >= 4 && args.len().is_multiple_of(2) => {
                 let pairs = args[2..]
@@ -65,7 +71,7 @@ fn run() -> Result<(), String> {
                     .collect::<Vec<_>>();
                 let changed = store::update(&path, &pairs, &[]).map_err(|e| e.to_string())?;
                 text(if changed {
-                    "configuration saved; runtime application pending"
+                    "configuration saved; applies when the Rust provider is used"
                 } else {
                     "configuration unchanged"
                 })
@@ -73,7 +79,7 @@ fn run() -> Result<(), String> {
             Some("unset") if args.len() > 2 => {
                 let changed = store::update(&path, &[], &args[2..]).map_err(|e| e.to_string())?;
                 text(if changed {
-                    "configuration saved; runtime application pending"
+                    "configuration saved; applies when the Rust provider is used"
                 } else {
                     "configuration unchanged"
                 })
@@ -84,6 +90,61 @@ fn run() -> Result<(), String> {
         _ => Err(USAGE.into()),
     }
 }
+fn runtime_command(args: &[String]) -> Result<(), String> {
+    use codex_chatgpt_provider::runtime;
+    let mut fields = std::collections::BTreeMap::new();
+    if !(args.len() - 1).is_multiple_of(2) {
+        return Err("runtime options require flag/value pairs".into());
+    }
+    for pair in args[1..].as_chunks::<2>().0 {
+        if !matches!(pair[0].as_str(), "--state" | "--descriptor" | "--port")
+            || fields.insert(pair[0].as_str(), pair[1].as_str()).is_some()
+        {
+            return Err("invalid or duplicate runtime option".into());
+        }
+    }
+    let root = fields
+        .get("--state")
+        .map(|value| std::path::PathBuf::from(*value))
+        .map(Ok)
+        .unwrap_or_else(runtime::state_path)
+        .map_err(|e| e.to_string())?;
+    if !root.is_absolute() {
+        return Err("runtime state must be an absolute path".into());
+    }
+    let executor = tokio::runtime::Runtime::new().map_err(|_| "async runtime is unavailable")?;
+    match args[0].as_str() {
+        "serve" => {
+            let descriptor = fields
+                .get("--descriptor")
+                .map(|value| std::path::PathBuf::from(*value))
+                .ok_or("serve requires --descriptor PATH")?;
+            let port = fields
+                .get("--port")
+                .map(|v| v.parse::<u16>())
+                .transpose()
+                .map_err(|_| "invalid listen port")?
+                .unwrap_or(0);
+            executor
+                .block_on(runtime::serve(descriptor, root, port))
+                .map_err(|e| e.to_string())
+        }
+        "status" if !fields.contains_key("--descriptor") && !fields.contains_key("--port") => {
+            let value = executor
+                .block_on(runtime::status(&root))
+                .map_err(|e| e.to_string())?;
+            text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
+        }
+        "token" if !fields.contains_key("--descriptor") && !fields.contains_key("--port") => {
+            let value = executor
+                .block_on(runtime::token(&root))
+                .map_err(|e| e.to_string())?;
+            text(&value)
+        }
+        _ => Err("invalid runtime command".into()),
+    }
+}
+
 fn edit(path: &std::path::Path) -> Result<(), String> {
     let snapshot = store::Snapshot::open(path).map_err(|e| e.to_string())?;
     let name = format!(
@@ -153,7 +214,7 @@ fn edit(path: &std::path::Path) -> Result<(), String> {
             .map_err(|_| "editor buffer cannot be read")?;
         let changed = snapshot.commit_bytes(&bytes).map_err(|e| e.to_string())?;
         text(if changed {
-            "configuration saved; runtime application pending"
+            "configuration saved; applies when the Rust provider is used"
         } else {
             "configuration unchanged"
         })

@@ -95,7 +95,7 @@ fn settings_read_is_readonly_and_effective_reports_defaults_without_runtime_clai
     let output = f.ok(&["config", "effective"]);
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["origins"]["context.window_tokens"], "default");
-    assert_eq!(value["applied_to_runtime"], false);
+    assert_eq!(value["runtime_application"], "not_queried");
     let no_home = f
         .command()
         .env_remove("HOME")
@@ -169,7 +169,8 @@ fn configured_catalog_changes_routes_and_can_add_models_without_rebuilding() {
     let output = f.ok(&["models"]);
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["source"], "file");
-    assert_eq!(value["runtime_implemented"], false);
+    assert_eq!(value["candidate_server_implemented"], true);
+    assert_eq!(value["production_qualified"], false);
     assert!(String::from_utf8(output.stdout)
         .unwrap()
         .contains("user-selected-host-route"));

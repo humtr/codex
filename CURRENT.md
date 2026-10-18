@@ -15,7 +15,7 @@ work. Git retains superseded plans and trial narratives.
 | Published TUI | Source `1c413cf`, qualification 39027733603: 48 maintained native tests, 94 retained upstream checks and lint |
 | Installed opt-in Chat adapter | Payload `c3642b19a87cdace158f`; sourceBase `9a5436a` plus the user's 1m profile change; JS/Bun plus Python; signed-app local-function returns |
 | Provider source integration | Active runtime/tests/licenses copied selectively from experiment `ab41733` to `providers/chatgpt`; later compaction guard and user's 1m edits retained here |
-| Rust Provider | Independent Cargo package under `providers/chatgpt`; configuration/catalog tooling exists, but no Rust Responses server, CDP client or app/tool transport yet |
+| Rust Provider | Source candidate now includes Responses HTTP/SSE, CDP, app-local tool return, private lane journal and standalone serve/status/auth commands; deterministic fixtures qualified, operating app/lifetime/project/context migration pending |
 | Mutable pilot catalog | Last read-only inspection found all 5 old entries at 1,000,000 tokens, null explicit auto-compaction threshold; generated settings, not verified capacity |
 | Experimental worktree | `experiment/web-termux` at `08e9856`; user's uncommitted 1m profile/test changes remain intact; worktree/branch not closed |
 
@@ -159,8 +159,14 @@ Use the upstream configuration loader for syntax/type admission, without adding
 a competing Manager policy parser to Core. Preparation failure can fall back only
 before dispatch and with confirmed execution-home identity; never replay work.
 
-Current Rust code has no HTTP server or app transport. The legacy runtime remains
-the equivalence reference. Port useful real-Core scenario drivers alongside each
+The Rust candidate now has an HTTP/SSE endpoint, owned CDP client, minimal app JS
+bridge and local-function lane engine. It does not yet replace the operating
+adapter. Deterministic fixtures cover original-call batched results, warm context,
+public transcript projection, lost-observer reconciliation without resubmission,
+private endpoint proof and data-only model-route reload. They are not official-app
+inference or native-executor effect-count proof. Host process startup/restart,
+project placement, stopped-lane recovery, opaque compaction and full native-client
+execution remain open. The legacy runtime remains the equivalence reference. Port useful real-Core scenario drivers alongside each
 boundary; do not defer all test migration until experiment closure. Preserve
 attribution for translated/reused dependency code and never replay a live request
 to both implementations for comparison.
@@ -171,16 +177,19 @@ The single draft file is `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaul
 to `~/.config/codex/providers/chatgpt.toml`. It owns settings and `catalog.models`;
 initial model defaults are a data resource, with editable configuration overrides.
 The source CLI offers models and config show/effective/validate/set/unset/edit.
-It currently reports `applied_to_runtime=false`; generated pilot catalogs and
-registered homes still use the old adapter until migration is admitted.
+Its effective output reports `runtime_application=not_queried`; generated pilot
+catalogs and registered homes still use the old adapter until migration is admitted.
+The Rust candidate server consumes this file directly at each request admission;
+its separate listener status never claims app connection or model/task progress.
 
 Set related values in one transaction. Edit structured catalog entries through the
 same validator. Show defaults versus file origin, preserve no-op files and reject
 invalid/stale edits. Use one validator from any future TUI/Manager convenience view.
 Model data changes can map a new ID/effort without code; they do not grant access
 or prove the signed app supports that route. Host protocol changes remain code work.
-Invocation/per-model precedence, upstream catalog projection and live safe-boundary
-application remain pending; the current CLI must not claim them.
+Invocation model/effort routing and next-request file reload have deterministic
+proof. Per-model context precedence, upstream catalog/profile projection, actual
+app application and production activation remain pending.
 
 The 1,000,000-token value is the user's policy override, not measured Chat capacity.
 Do not impose it as a maximum or 32k as a minimum. Native token triggers, opaque
@@ -308,10 +317,26 @@ corrected before the successful run. This was a fixture error, not a product
 failure or inference trial. The renamed unit test states its actual scope:
 Manager calls/config projection, not unexercised UI behavior.
 
+Core isolation source7d179af passed source acceptance39104609832 and independent
+runtime qualification39104609914. The initial renamed-test CI wiring failure was
+corrected: its focused gate uses the admitted Android Core and requires exactly
+one executed test. Local Core/Manager/builder suites and clippy passed; current
+signed Android proof `core-settings-android.json` has57 accepted steps, live FD34
+and config-RPC sibling isolation, optional syntax/type/envelope/hung failures and
+actual TUI without Manager. Its owned roots were removed; zero Chat submissions.
+No installed generation or operating adapter was replaced.
+
+Rust vertical-path logs use the same acceptance directory. The local suite has32
+Rust tests across configuration, protocol, context, journal, app engine, CDP,
+TCP/SSE and real candidate CLI; minimal app JS has2 additional fixtures. The full
+Provider gate also runs the retained99 Bun/28 Python cases, clippy, formatting
+and release build. The old installed adapter is still the operating authority;
+fixture app messages, processes and model responses are synthetic. Hosted Rust
+Provider qualification and actual signed-app execution must be recorded separately.
+
 Final composition proof covers Base without optional components; Manager without
 TUI; TUI/Provider without Manager; direct Provider `--profile` use; Full plus opt-in
-Chat; missing/incompatible components; install/reinstall/update/rollback and old
-state migration. Native transcripts, exact effects, stop/resume and project
+Chat; missing/incompatible components; install/reinstall/update/rollback and bounded owned-state cutover without historical record-codec emulation. Native transcripts, exact effects, stop/resume and project
 membership are observed at the actual path. Source integration, signed publication
 and bounded device activation are different steps. Preserve credentials, profiles,
 conversations, running work and experimental edits throughout.

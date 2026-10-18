@@ -1160,6 +1160,16 @@ must not require Manager. Without Manager, its profile/quota/window commands
 report that capability unavailable, while native UI and Provider selection work.
 This composition requires its own execution proof before release.
 
+The source candidate may expose `codex-chatgpt-provider serve --descriptor PATH
+--state PATH [--port PORT]`, `status --state PATH` and command-backed `token
+--state PATH`. These are Provider-owned operations, not Core dispatch commands.
+Bind only loopback, keep endpoint credentials in private owner-bound state and
+verify a fresh keyed readiness challenge before returning the local token.
+Never export official-app credentials. Listener readiness is distinct from app
+connection, model progress and production qualification. A saved unsupported
+feature must fail explicitly before app submission, never silently lose behavior.
+These commands do not qualify the remaining host/project/context lifecycle.
+
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
 process, usable through upstream configuration without Manager or enhanced TUI.
@@ -1270,9 +1280,12 @@ Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
 
-The initial Rust configuration tool is a candidate developer surface until the
-transport consumes it. Its effective output must explicitly say settings are not
-yet applied to a runtime and distinguish file values from defaults. A field
+The Rust configuration tool remains a candidate developer surface until product
+admission. Its effective output distinguishes file values from defaults and
+reports runtime application as not queried; saving a file does not establish
+that an installed adapter consumes it. The source Rust server reloads this one
+file at request admission. Models output distinguishes implemented candidate
+transport from production qualification. A field
 transaction may set several dependent values together, validated once before
 commit. Unsetting a field restores its declared default. Concurrent tool edits
 serialize; an external editor changed since opening must cause a conflict rather

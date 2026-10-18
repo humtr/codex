@@ -1,0 +1,158 @@
+// App-owned capabilities only. Rust owns native identity, catalog, history,
+// batching, result correlation, progress projection and lifecycle decisions.
+async function termuxCodexBridge(command) {
+  const slot = Symbol.for('termux.codex.app.bridge.v1');
+  const fail = code => { throw Error(code); };
+  let state = globalThis[slot];
+  if (command.op === 'init') {
+    if (state) return state.owner === command.owner ? {ready: true} : fail('app_bridge_owned');
+    let node = document.querySelector('[contenteditable=true]') || document.querySelector('button');
+    while (node && !Object.keys(node).some(k => k.startsWith('__reactFiber'))) node = node.parentElement;
+    let fiber = node?.[Object.keys(node).find(k => k.startsWith('__reactFiber'))], scope;
+    for (let i = 0; fiber && i < 400 && !scope; i++, fiber = fiber.return) {
+      for (let hook = fiber.memoizedState, j = 0; hook && j < 300; hook = hook.next, j++) {
+        const value = hook.memoizedState?.current;
+        if (typeof value?.get === 'function' && typeof value?.set === 'function' && value.node && value.chain && value.query) { scope = value; break; }
+      }
+    }
+    if (!scope) return {ready: false};
+    const api = await import(command.bindings.initial);
+    const shared = await import(command.bindings.shared);
+    api.gRt();
+    if (!['aCn','bRt','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind || !scope.get(shared.HAt)) fail('app_local_functions_unavailable');
+    const client = scope.get(api.oMn), wire = shared.$wt;
+    if (!['prepareCompletionStream','startCompletionStream'].every(k => typeof client?.[k] === 'function') || typeof wire?.streamPost !== 'function') fail('app_stream_unavailable');
+    state = {owner: command.owner, scope, api, shared, client, wire, lanes: new Map(), saved: {}, hooks: {}};
+    const owner = request => [...state.lanes.values()].find(l =>
+      request?.conversation_id != null && [l.localId,l.serverId].includes(request.conversation_id) ||
+      request?.local_function_signatures?.some(f => f.name === l.signature.name) ||
+      request?.messages?.some(m => m.metadata?.termux_codex_lane === l.marker));
+    for (const name of ['prepareCompletionStream','startCompletionStream']) {
+      state.saved[name] = client[name];
+      state.hooks[name] = function(...args) {
+        const request = name === 'startCompletionStream' ? args[0]?.request : args[0], lane = owner(request);
+        if (!lane) return state.saved[name].apply(this,args);
+        const template = request.local_function_signatures?.some(f => f.name === 'handoff');
+        const prepared = lane.declared && request.local_function_signatures?.length === 1 && JSON.stringify(request.local_function_signatures[0]) === JSON.stringify(lane.signature);
+        if (!scope.get(shared.HAt) || !template && !prepared) fail('app_local_declaration_unavailable');
+        if (template) lane.declared = true;
+        const owned = {...request, local_function_signatures: [lane.signature]};
+        if (name === 'prepareCompletionStream') return state.saved[name].call(this,owned,args[1]);
+        const options = {...args[0],request: owned}, epoch = lane.epoch;
+        lane.streamActive = true;
+        for (const event of ['onDecodedEvent','onUpdate']) {
+          const previous = options[event];
+          options[event] = update => {
+            let message = update?.update?.message ?? update?.message;
+            if (message?.message) message = message.message;
+            if (lane.epoch === epoch && message?.id && message.author && !lane.older.has(message.id)) lane.messages.set(message.id,message);
+            return previous?.(update);
+          };
+        }
+        const previousDone = options.onComplete, previousError = options.onError;
+        options.onComplete = value => { if (lane.epoch === epoch) { lane.terminals.push(value.reason); lane.streamActive = false; } return previousDone?.(value); };
+        options.onError = value => { if (lane.epoch === epoch) lane.error = 'app_stream_failed'; return previousError?.(value); };
+        return state.saved[name].call(this,options);
+      };
+      client[name] = state.hooks[name];
+    }
+    state.saved.streamPost = wire.streamPost;
+    state.hooks.streamPost = function(path,options) {
+      if (path !== '/f/conversation') return state.saved.streamPost.call(this,path,options);
+      let request; try { request = JSON.parse(options?.body); } catch {}
+      const lane = owner(request);
+      if (!lane) return state.saved.streamPost.call(this,path,options);
+      const ids = request.messages?.map(m => m.id).join(',');
+      if (!ids || lane.sent.has(ids) || lane.roundPrepared) fail('app_dispatch_replayed');
+      lane.roundPrepared = true;
+      const roles = request.messages.map(m => m.author?.role);
+      if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) fail('app_dispatch_invalid');
+      lane.sent.add(ids);
+      const before = options.chatgptSse?.onBeforeRequestStart;
+      return state.saved.streamPost.call(this,path,{...options,retry: undefined,chatgptSse: {...options.chatgptSse,onBeforeRequestStart(value) {
+        if (lane.starts.has(ids)) fail('app_dispatch_replayed');
+        before?.(value);
+        lane.starts.add(ids); lane.roundStarts++;
+        lane.userMessages += roles.filter(r => r === 'user').length;
+        lane.toolMessages += roles.filter(r => r === 'tool').length;
+      }}});
+    };
+    wire.streamPost = state.hooks.streamPost;
+    globalThis[slot] = state;
+    return {ready: true};
+  }
+  if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
+  if (command.op === 'open') {
+    if (state.lanes.has(command.lane)) fail('app_lane_exists');
+    const localId = state.api.aCn(state.scope);
+    state.lanes.set(command.lane,{localId,marker:command.lane,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,terminals: []});
+    return {localId};
+  }
+  const lane = state.lanes.get(command.lane);
+  if (!lane) fail('app_lane_missing');
+  const snapshot = () => {
+    for (const node of Object.values(state.scope.get(state.api.JRn,lane.localId) || {})) {
+      const message = node.message;
+      if (message?.id && message.author?.role === 'assistant' && !lane.older.has(message.id)) lane.messages.set(message.id,message);
+    }
+    // Public messages and our own tool calls only; never export hidden reasoning.
+    const messages = [...lane.messages.values()].filter(m => m.author?.role === 'assistant' &&
+      (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
+       [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
+    return {round:lane.round,messages,accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
+      dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,serverId: lane.serverId,
+      stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
+  };
+  if (command.op === 'snapshot') return snapshot();
+  if (command.op === 'stop') {
+    lane.stopRequested = true;
+    lane.controller?.abort();
+    await state.api.eHt(state.scope,lane.localId);
+    // Completion/cancellation observation is returned, not guessed from HTTP.
+    return snapshot();
+  }
+  if (command.op === 'submit') {
+    if (lane.round === command.round) return {started:true,reused:true};
+    if (lane.pending) fail('app_lane_busy');
+    lane.round = command.round;
+    lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundPrepared = false;
+    lane.older = new Set(Object.values(state.scope.get(state.api.JRn,lane.localId) || {}).map(n => n.message?.id).filter(Boolean));
+    lane.controller = new AbortController();
+    const message = ({role,text,hidden}) => ({id: crypto.randomUUID(),author: {role: role === 'developer' ? 'system' : role},content: {content_type: 'text',parts: [text]},metadata: {is_visually_hidden_from_conversation: hidden || role === 'developer',termux_codex_lane:command.lane},recipient: 'all',status: 'finished_successfully',end_turn: role === 'assistant' ? true : null});
+    const results = command.results || [], context = (command.messages || []).map(message);
+    const instructions = command.instructions || [];
+    lane.resultOnly = results.length > 0 && !context.some(m => m.author.role === 'user');
+    const options = {conversationId: lane.localId,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
+      onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
+    let pending;
+    if (results.length === 1 && !context.length && !instructions.length) {
+      pending = state.api.bRt(state.scope,{...options,callId: results[0].id,toolName: lane.signature.name,result: results[0].result});
+    } else {
+      const imported = results.map(r => ({id: crypto.randomUUID(),author: {role:'tool',metadata:{},name:lane.signature.name},channel:'commentary',content:{content_type:'code',text:JSON.stringify({call_id:r.id,result:r.result,tool:lane.signature.name})},metadata:{is_visually_hidden_from_conversation:true},recipient:'all',status:'finished_successfully',end_turn:null,weight:1,create_time:null,update_time:null}));
+      imported.push(...context);
+      if (!imported.length) fail('app_messages_required');
+      for (const item of imported) lane.older.add(item.id);
+      pending = state.api.yRt(state.scope,{...options,prompt:'',prependMessages:imported.slice(0,-1),
+        ...(results.length ? {daybreakContinuationMessageId:results[0].id} : {}),
+        userCompletionMessages:{message:imported.at(-1),extraDeveloperInstructionMessages:instructions.map(text => message({role:'developer',text,hidden:true}))}});
+    }
+    lane.pending = true;
+    const epoch = lane.epoch;
+    Promise.resolve(pending).then(value => {
+      if (epoch !== lane.epoch) return;
+      lane.accepted = !!value; lane.pending = false;
+    },() => { if (epoch === lane.epoch) { lane.error = 'app_submit_failed'; lane.pending = false; } });
+    return {started: true};
+  }
+  if (command.op === 'release') {
+    if (lane.pending) fail('app_lane_busy');
+    state.lanes.delete(command.lane);
+    if (!state.lanes.size) {
+      for (const name of ['prepareCompletionStream','startCompletionStream']) if (state.client[name] === state.hooks[name]) state.client[name] = state.saved[name];
+      if (state.wire.streamPost === state.hooks.streamPost) state.wire.streamPost = state.saved.streamPost;
+      delete globalThis[slot];
+    }
+    return {released:true};
+  }
+  fail('app_operation_unknown');
+}

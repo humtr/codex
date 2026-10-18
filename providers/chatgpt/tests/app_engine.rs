@@ -1,0 +1,216 @@
+//! Actual Rust lane engine with app-wire fixtures: original-call returns,
+//! warm context, durable response replay and uncertain-delivery reconciliation.
+use codex_chatgpt_provider::{
+    app::{AppHost, Bridge},
+    config::Config,
+    journal::{random_id, Journal},
+    protocol::{Error, Request},
+    responses::{Event, Projection},
+    server::Host,
+};
+use futures_util::future::BoxFuture;
+use serde_json::{json, Value};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+#[derive(Default)]
+struct State {
+    commands: Vec<Value>,
+    stage: usize,
+    round: String,
+    gateway: String,
+    lose_submit_reply: bool,
+    lose_snapshot: bool,
+}
+#[derive(Clone, Default)]
+struct App {
+    state: Arc<Mutex<State>>,
+}
+impl Bridge for App {
+    fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let mut state = this.state.lock().unwrap();
+            state.commands.push(command.clone());
+            match command["op"].as_str().unwrap() {
+                "open" => {
+                    state.gateway = command["signature"]["name"].as_str().unwrap().into();
+                    Ok(json!({"localId":"owned-app-conversation"}))
+                }
+                "submit" => {
+                    state.stage += 1;
+                    state.round = command["round"].as_str().unwrap().into();
+                    if state.lose_submit_reply {
+                        state.lose_submit_reply = false;
+                        Err(Error("cdp_observer_disconnected"))
+                    } else {
+                        Ok(json!({"started":true}))
+                    }
+                }
+                "snapshot" => {
+                    if state.lose_snapshot {
+                        state.lose_snapshot = false;
+                        return Err(Error("cdp_observer_disconnected"));
+                    }
+                    let messages = if state.stage == 1 {
+                        json!([
+                            {"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["Inspecting files"]},"status":"finished_successfully","end_turn":false},
+                            {"id":"host-original","author":{"role":"assistant"},"recipient":format!("local.{}",state.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"calls":json!([{"name":"functions.exec","input":"{\"cmd\":\"pwd\"}"},{"name":"functions.patch","input":"exact freeform patch"}]).to_string(),"report":"Applying the reviewed change"}}).to_string()},"status":"finished_successfully","end_turn":false}
+                        ])
+                    } else {
+                        json!([{"id":"final-a","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Tests passed"]},"status":"finished_successfully","end_turn":true}])
+                    };
+                    Ok(
+                        json!({"round":state.round,"messages":messages,"error":null,"terminals":["done"],"roundStarts":1,"userMessages":1,"toolMessages":state.stage-1,"dispatches":state.stage}),
+                    )
+                }
+                _ => Err(Error("unexpected_fixture_operation")),
+            }
+        })
+    }
+}
+struct Root(PathBuf);
+impl Root {
+    fn new() -> Self {
+        Self(std::env::temp_dir().join(format!("app-engine-{}", random_id().unwrap())))
+    }
+}
+impl Drop for Root {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+fn body() -> Value {
+    json!({"model":"chatgpt-desktop/gpt-6","stream":true,"client_metadata":{"x-codex-turn-metadata":json!({"thread_id":"native-fixture","turn_id":"turn-1"}).to_string()},"input":[{"role":"user","content":"Improve the copied project"},{"role":"user","content":"<environment_context>owned workspace</environment_context>"}],"tools":[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec","parameters":{"type":"object"}},{"type":"custom","name":"patch","format":{"type":"text"}}]}]})
+}
+async fn execute(host: &AppHost, body: Value) -> Vec<Event> {
+    let request = Request::parse(body, &Config::default(), None).unwrap();
+    let (events, mut receive) = mpsc::channel(64);
+    host.exchange(request, events, CancellationToken::new())
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Some(event) = receive.recv().await {
+        out.push(event);
+    }
+    out
+}
+fn output(events: &[Event]) -> Vec<Value> {
+    let mut projection = Projection::new("response".into(), "configured".into());
+    for event in events {
+        let frames = projection.push(event.clone()).unwrap();
+        if let Some(response) = frames.iter().find(|v| v["type"] == "response.completed") {
+            return response["response"]["output"].as_array().unwrap().clone();
+        }
+    }
+    panic!("response did not complete")
+}
+
+#[tokio::test]
+async fn tool_batch_returns_once_to_original_host_call_without_setup_or_assistant_repetition() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), journal);
+    let initial = body();
+    let first = execute(&host, initial.clone()).await;
+    let calls = first
+        .iter()
+        .filter_map(|e| {
+            if let Event::Tool(call) = e {
+                Some(call)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|c| c.host_id == "host-original"));
+    let mut second = initial.clone();
+    let input = second["input"].as_array_mut().unwrap();
+    input.extend(output(&first));
+    for call in calls {
+        input.push(json!({"type":if call.tool.name=="patch"{"custom_tool_call_output"}else{"function_call_output"},"call_id":call.id,"output":"owned result"}));
+    }
+    second["reasoning"] = json!({"effort":"xhigh"});
+    let last = execute(&host, second.clone()).await;
+    assert_eq!(output(&last)[0]["content"][0]["text"], "Tests passed");
+    let repeated = execute(&host, second).await;
+    assert_eq!(output(&repeated), output(&last));
+    let state = app.state.lock().unwrap();
+    assert_eq!(
+        state.commands.iter().filter(|c| c["op"] == "open").count(),
+        1
+    );
+    let submissions = state
+        .commands
+        .iter()
+        .filter(|c| c["op"] == "submit")
+        .collect::<Vec<_>>();
+    assert_eq!(submissions.len(), 2);
+    assert_eq!(submissions[0]["messages"][0]["hidden"], false);
+    assert_eq!(submissions[0]["messages"][1]["role"], "user");
+    assert_eq!(submissions[0]["messages"][1]["hidden"], true);
+    assert!(submissions[1]["messages"].as_array().unwrap().is_empty());
+    assert!(submissions[1]["instructions"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(submissions[1]["results"].as_array().unwrap().len(), 1);
+    assert_eq!(submissions[1]["results"][0]["id"], "host-original");
+    assert_eq!(
+        submissions[1]["results"][0]["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(submissions[1]["model"], "gpt-6-thinking");
+    assert_eq!(submissions[1]["thinkingEffort"], "max");
+}
+
+#[tokio::test]
+async fn observer_loss_after_submit_reconciles_same_round_without_resubmission() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let app = Arc::new(App::default());
+    {
+        let mut state = app.state.lock().unwrap();
+        state.lose_submit_reply = true;
+        state.lose_snapshot = true;
+    }
+    let host = AppHost::new(app.clone(), journal);
+    let first = execute(&host, body()).await;
+    assert_eq!(
+        first.iter().filter(|e| matches!(e, Event::Tool(_))).count(),
+        2
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c["op"] == "submit")
+            .count(),
+        1
+    );
+    drop(host);
+    let reloaded = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let cached = execute(&reloaded, body()).await;
+    assert_eq!(output(&cached), output(&first));
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c["op"] == "submit")
+            .count(),
+        1
+    );
+}

@@ -101,8 +101,9 @@ project settings. The observed1,000,000-token override is retained local policy,
 not a verified Chat capacity. Generated model catalogs and immutable source are
 not the intended editing surface. New provider chats should reuse the configured
 remote project or create it when absent; existing chats stay where they are and
-are not deleted. The Rust source candidate has configuration/catalog commands, but the installed
-pilot does not consume that file and remote project operations remain unimplemented.
+are not deleted. The Rust source candidate has configuration/catalog and Responses transport,
+but the installed pilot does not consume that file; the Rust host/lifetime,
+context and remote project paths are not yet qualified for deployment.
 See [configuration](CURRENT.md#context-and-easy-configuration) and
 [project behavior](CURRENT.md#chatgpt-projects-and-history).
 

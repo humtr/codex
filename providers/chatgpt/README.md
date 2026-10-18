@@ -8,14 +8,19 @@ linked into Core or Manager.
 
 ## Approved Rust migration
 
-The production target is a standalone Rust Provider package here
-(`Cargo.toml`, `src/`), with minimal app-side JavaScript and separately inventoried
-optional viewer assets. The initial Rust package now validates and edits one private
-configuration file with disposable-root tests. It does not yet execute Responses,
-tool transport, CDP or host lifetime; today's installed runtime remains JS/Bun plus
-Python. Experiment closure and Rust runtime admission are still pending. The repository-wide ordered work
-is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order);
-this file does not define a competing roadmap.
+The standalone Rust source candidate (`Cargo.toml`, `src/`) now implements
+configuration/catalog, loopback Responses/SSE, owned CDP, original-call tool
+returns, a private lane journal and a minimal app JavaScript bridge. It offers
+`serve --descriptor PATH [--state PATH] [--port PORT]`, `status [--state PATH]`
+and command-backed `token [--state PATH]` for qualification. Readiness verifies
+the local process and a fresh keyed challenge; it does not claim model progress.
+Never paste the token output into chat or logs.
+
+These paths have deterministic TCP/app-wire fixtures; the operating adapter is
+still JS/Bun/Python. Official-app process lifetime, project placement, stopped-lane
+recovery, native opaque compaction and full native-client execution remain
+unfinished. No production fallback silently selects the Rust candidate. The
+repository-wide work order is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order).
 
 | Responsibility | Target implementation |
 | --- | --- |
@@ -43,8 +48,9 @@ codex-chatgpt-provider config set history.mode project history.project_name "Cod
 ```
 
 These are candidate source commands, not installed public commands. Effective
-output reports file/default origins and `applied_to_runtime=false`: the existing
-JS adapter does not consume this draft configuration. New files/locks are private;
+output reports file/default origins and `runtime_application=not_queried`.
+The source Rust server reloads it at request admission; the existing installed
+JS adapter does not consume this file. New files/locks are private;
 invalid edits preserve the old file, cooperating writers serialize and stale
 editor snapshots refuse to overwrite a newer edit. Unsetting an explicit token
 threshold delegates to upstream defaults; it does not disable all compaction.
