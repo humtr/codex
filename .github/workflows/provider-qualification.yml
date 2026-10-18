@@ -69,3 +69,64 @@ jobs:
           path: ${{ runner.temp }}/provider-check.log
           if-no-files-found: error
           retention-days: 3
+
+  android:
+    name: Build independent Android Provider candidate
+    needs: provider
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ANDROID_API: '24'
+      ANDROID_NDK_VERSION: '27.3.13750724'
+    steps:
+      - name: Fetch exact Provider source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Build only the optional Rust executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("providers/chatgpt/Cargo.toml", "rb"))["package"]["rust-version"])')
+          rustup toolchain install "$version" --profile minimal --target aarch64-linux-android
+          toolchain="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android${ANDROID_API}-clang"
+          export CC_aarch64_linux_android="$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          test -x "$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"
+          test -x "$AR_aarch64_linux_android"
+          cargo "+$version" build --manifest-path providers/chatgpt/Cargo.toml --release --locked --target aarch64-linux-android
+          artifact="$RUNNER_TEMP/provider-android"
+          mkdir -m 0700 "$artifact"
+          cp providers/chatgpt/target/aarch64-linux-android/release/codex-chatgpt-provider "$artifact/"
+          cp providers/chatgpt/NOTICE.md providers/chatgpt/Cargo.lock "$artifact/"
+          export PROVIDER_ARTIFACT="$artifact" PROVIDER_RUST_VERSION="$version"
+          python3 - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          artifact = Path(os.environ['PROVIDER_ARTIFACT'])
+          files = {p.name: {'sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
+                           'bytes': p.stat().st_size} for p in sorted(artifact.iterdir())}
+          (artifact/'candidate.json').write_text(json.dumps({
+              'schema': 'termux-codex-provider-candidate-v1',
+              'source': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+              'target': 'aarch64-linux-android', 'api': int(os.environ['ANDROID_API']),
+              'ndk': os.environ['ANDROID_NDK_VERSION'], 'rust': os.environ['PROVIDER_RUST_VERSION'],
+              'files': files, 'signed': False, 'device_qualified': False,
+              'installation_authorized_by_this_record': False,
+              'app_rootfs_or_credentials_bundled': False}, indent=2)+'\n')
+          PYTHON
+          git diff --exit-code
+      - name: Retain unsigned optional candidate for Android qualification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: provider-android-candidate
+          path: ${{ runner.temp }}/provider-android
+          if-no-files-found: error
+          retention-days: 3

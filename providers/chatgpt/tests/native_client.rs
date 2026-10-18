@@ -146,6 +146,13 @@ fn fixture_operation(s: &mut State, command: Value) -> Result<Value, Error> {
             }
             Ok(json!({"started":true}))
         }
+        "project_list" => {
+            Ok(json!([{"id":"g-p-native-fixture","name":"Owned native project","compatible":true}]))
+        }
+        "project_read" => {
+            Ok(json!({"id":"g-p-native-fixture","name":"Owned native project","compatible":true}))
+        }
+        "project_membership" => Ok(json!({"verified":true})),
         "snapshot" => {
             if s.stopped {
                 return Ok(json!({"round":s.round,"stopped":true}));
@@ -493,6 +500,10 @@ fi
     let host = Arc::new(AppHost::new(bridge, journal.clone()));
     let token = random_id().unwrap();
     let mut config = Config::default();
+    if reviewer {
+        config.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
+        config.history.project_name = Some("Owned native project".into());
+    }
     if development.is_some() {
         config.model.reasoning_effort = "high".into();
     }
@@ -878,6 +889,21 @@ fi
             "actual native approvals must invoke the reviewer"
         );
         assert!(reviewers.iter().map(|v| v.stage).sum::<usize>() >= 2);
+        assert!(
+            reviewers.iter().all(|v| v
+                .commands
+                .iter()
+                .filter(|c| c["op"] == "open")
+                .all(|c| c["project"].is_null())),
+            "native reviewer must not inherit Chat project context"
+        );
+        assert!(
+            s.lanes.values().filter(|v| !v.reviewer).any(|v| v
+                .commands
+                .iter()
+                .any(|c| c["op"] == "open" && c["project"] == "g-p-native-fixture")),
+            "ordinary primary must retain its configured project"
+        );
         assert!(
             s.lanes
                 .values()

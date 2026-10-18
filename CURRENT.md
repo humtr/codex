@@ -192,7 +192,8 @@ conversation also has an unreadable upstream opaque checkpoint. An alias rename
 or the1m setting does not repair either boundary. Keep the conversation.
 
 Source Rust manual compaction and fresh native Chat now have separate real proofs;
-full foreign opaque TUI handoff admission is still unfinished. Obtain an upstream-owned readable
+actual Android TUI transfer now passes against an unsigned candidate in a signed
+disposable composition, but final hosted artifact admission is unfinished. Obtain an upstream-owned readable
 handoff at a settled boundary before routing it to another Provider; never decode,
 drop or relabel opaque state or replay tools. Evidence: chat-full60-operating-
 diagnosis.json and chat-full60-cross-provider-admission.json in the acceptance root.
@@ -220,6 +221,8 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-native-reviewer-final.log / provider-native-reviewer-composed.log | Actual Android danger-full-access + on-request + auto_review; two reviewer decisions per case, distinct primary/reviewer gateways, schema-valid allow/deny, three allowed effects versus one permitted patch and zero denied-command effects; synthetic app/no Chat |
 | provider-reviewer-full.log |66 regular Rust/102 Bun/28 Python plus fmt/clippy/release build; actual native companion run separately passes five executor/reviewer/MCP and four context/fork fixtures, no Chat |
 | provider-lane-observation.log | Content-free read-only lane/CLI inspection distinguishes running, native tool-result wait and acknowledged stop without app queries or service startup; concurrent sibling completion/parent stop leaves sibling result and exact retries intact; no Chat |
+| provider-tui-handoff-android.json / provider-tui-handoff-android-slash.log | Actual Android PTY/Core/disposable signed composition with728cf26 candidate: /model native→Chat (no inference), Chat turn→one synthetic source summary→native turn, same ID/public turns/readable return and unchanged permission identity. Real Provider checkpoint command, synthetic Responses; candidate failed hosted test compilation so this is not stable artifact admission |
+| provider-guardian-isolation-full.log / provider-reviewer-project-isolation.log |69 regular Rust/102 Bun/28 Python, fmt/clippy/release build; actual native guardian_review metadata keeps reviewer opens outside the primary configured project for allow and deny. Existing project-bound review lane refuses before app access. No Chat judgment sampled |
 | provider-native-failure-reason-final.log | Actual Android Codex reports the exact injected Provider failure, not generic EOF; no Chat |
 | provider-auth-bootstrap-android.log | Two concurrent auth calls share one Rust service, endpoint retained/credential rotated on restart, readonly status; empty app profile, no Chat |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log | Actual authenticated project discovery/create/reuse/readback; no Chat |
@@ -268,8 +271,10 @@ qualification. Unsupported box components remained in its final transcript.
    device test restored the old controller and original home directory inode.
    Permanent operating migration and fresh login/provisioning/viewer remain.
 2. Qualify automatic/interrupted/model-downshift compaction and actual TUI
-   native↔Chat transfer, including pending results/cold resume. Bidirectional API
-   re-entry and actual Chat summary now pass; maintain their narrower scope.
+   native↔Chat transfer with pending results/cold resume. An actual Android PTY
+   /model round trip now passes with real checkpoint encoding and synthetic
+   Responses; final admitted artifact and real-Chat TUI proof remain. Bidirectional
+   API re-entry and actual Chat summary also pass within their narrower scope.
 3. Native tool search/MCP discovery now passes against an owned local MCP fixture;
    its tool executes once and appears with its result in the native transcript.
    This is native Codex MCP, not the separate Chat-side MCP return fallback.
@@ -277,7 +282,10 @@ qualification. Unsupported box components remained in its final transcript.
    schema-valid decisions: allow executes the owned commands, deny prevents both;
    the separately permitted patch remains. Replies are synthetic, not Chat judgment
    qualification. Finish host search, JSON/freeform/batch errors, interactive
-   questions, real reviewer judgment and project/guardian/sibling isolation.
+   questions, real reviewer judgment and broader project instruction priority. Native
+   guardian_review metadata now isolates reviewer lanes outside the configured
+   project; actual Android allow/deny preserves primary membership and confirms
+   both reviewer opens have no project. Sibling stop/result isolation passes.
    Native prefix-rule matching currently misses double-quoted executable paths:
    upstream shell-command/src/bash.rs accepts command_name only as a word. The
    prompt-rule fixture uses a plain owned path; do not generalize that proof to
@@ -292,7 +300,10 @@ qualification. Unsupported box components remained in its final transcript.
    useful text, exposing hidden reasoning or increasing Chat requests. Count user
    objects/tool returns/model starts/setup/summary/retries separately; Chat debits
    remain unknown. No automated Pro or GPT-5.6 trials.
-6. Finish optional signed package/provisioning inventory and composition: Base alone,
+6. Provider CI now defines an independent Android/API24 NDK candidate after the
+   offline gate, with exact source/lock/toolchain/digest inventory, no Core/Manager
+   linkage or bundled app/auth. It is explicitly unsigned and not device-admitted.
+   Finish optional signed package/provisioning inventory and composition: Base alone,
    Manager without TUI, TUI/Provider without Manager, direct --profile and Full opt-in
    /model; missing/incompatible artifacts and install/reinstall/update/rollback.
 7. Preserve unique experiment probes, licenses and uncommitted1m edits before

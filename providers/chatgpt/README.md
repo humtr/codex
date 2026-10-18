@@ -112,7 +112,11 @@ correction quality across tasks.
 Actual native automatic-review fixtures also use independent Provider lanes for
 primary and reviewer requests, preserve the native JSON decision schema, execute
 allowed owned commands and prevent denied commands. These use synthetic replies,
-not qualified real-Chat judgment. Upstream prefix-rule matching misses quoted
+not qualified real-Chat judgment. Native guardian_review metadata keeps reviewers
+outside the configured ChatGPT project, preserving the ordinary primary project
+and preventing implicit project instructions/files from entering the reviewer.
+Only upstream-supplied reviewer context is sent; global account personalization
+is not changed. Upstream prefix-rule matching misses quoted
 executable paths; the fixture uses a plain owned program path. Provider never
 rewrites command arguments or takes over native approval policy.
 

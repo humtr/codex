@@ -258,7 +258,8 @@ impl Request {
         let thread = field("thread_id")
             .or_else(|| header_thread.filter(|v| id(v)).map(str::to_owned))
             .ok_or(Error("native_thread_identity_required"))?;
-        let guardian = field("agent_name").as_deref() == Some("guardian")
+        let guardian = field("thread_source").as_deref() == Some("guardian_review")
+            || field("agent_name").as_deref() == Some("guardian")
             || field("subagent_kind").as_deref() == Some("guardian");
         let parent = field("parent_thread_id").or_else(|| field("forked_from_thread_id"));
         let compaction = crate::context::Compaction::detect(&input, &metadata)?;
@@ -529,5 +530,14 @@ mod tests {
         let visible = crate::context::messages(&parsed.input).unwrap();
         assert_eq!(visible.len(), 1);
         assert!(!visible[0].hidden);
+        let mut actual = request();
+        actual["client_metadata"] = json!({"x-codex-turn-metadata":json!({
+            "thread_id":"native-review","agent_name":"/root", "thread_source":"guardian_review"
+        }).to_string()});
+        assert!(
+            Request::parse(actual, &Config::default(), None)
+                .unwrap()
+                .guardian
+        );
     }
 }

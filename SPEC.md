@@ -1227,6 +1227,13 @@ explicit rollback targets. Preserve installation identities, login/profile data,
 remote conversation associations, live jobs and current configuration overrides
 through bounded migration; source integration alone never activates a replacement.
 
+Native automatic reviewers have their own Provider lanes and remain outside the
+configured ChatGPT project. Recognize upstream guardian_review thread metadata;
+send only that native reviewer's supplied context, never the primary app lane's
+conversation or implicit project instructions/files/memory. This transport
+isolation does not determine the native approval policy or reviewer decision.
+An existing project-bound lane cannot be relabeled as an isolated reviewer.
+
 New independent MCP trials use the repository's `Termux Codex` connector display
 name, with display/connector identity configurable rather than hardcoded branding.
 Historical `Codex Native2` references remain provenance only. Renaming never changes

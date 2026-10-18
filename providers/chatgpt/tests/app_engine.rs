@@ -921,3 +921,52 @@ async fn thread_status_inspects_pending_work_without_exporting_content_or_starti
         "provider_error"
     );
 }
+
+#[tokio::test]
+async fn native_guardian_ignores_project_destination_and_refuses_a_project_bound_lane() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let host = AppHost::new(app.clone(), journal.clone());
+    let mut settings = Config::default();
+    settings.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
+    settings.history.project_name = Some("Unrelated project instructions".into());
+    let mut body = body();
+    body["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"native-review", "thread_source":"guardian_review"})
+            .to_string()
+            .into();
+    let request = Request::parse(body.clone(), &settings, None).unwrap();
+    assert!(request.guardian);
+    let (events, _receive) = mpsc::channel(64);
+    host.exchange(request, events, CancellationToken::new())
+        .await
+        .unwrap();
+    let before = {
+        let state = app.state.lock().unwrap();
+        assert!(!state
+            .commands
+            .iter()
+            .any(|c| c["op"].as_str().unwrap().starts_with("project_")));
+        assert!(state
+            .commands
+            .iter()
+            .any(|c| c["op"] == "open" && c["project"].is_null()));
+        state.commands.len()
+    };
+    drop(host);
+    let key = codex_chatgpt_provider::context::digest(&"native-review");
+    let mut record: Value = journal.read(&key).unwrap().unwrap();
+    record["project"] = json!("g-p-existing-project");
+    journal.write(&key, &record).unwrap();
+    let host = AppHost::new(app.clone(), journal);
+    assert_eq!(
+        failure(&host, body, CancellationToken::new()).await.0,
+        Error("reviewer_project_isolation_required")
+    );
+    assert_eq!(
+        app.state.lock().unwrap().commands.len(),
+        before,
+        "a project-bound reviewer must fail before any app operation"
+    );
+}

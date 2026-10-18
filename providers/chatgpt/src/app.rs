@@ -495,6 +495,9 @@ async fn exchange(
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }
+    if request.guardian && lane.project.is_some() {
+        return Err(Error("reviewer_project_isolation_required"));
+    }
     let request_digest = context::digest(request);
     if request_digest == lane.request && lane.phase == Phase::Idle {
         for event in &lane.cached {
@@ -601,8 +604,11 @@ async fn exchange(
     }
     if lane.phase == Phase::New {
         let _guard = project_lock.lock().await;
-        lane.project =
-            crate::project::resolve(bridge, journal, &request.history, &observed).await?;
+        lane.project = if request.guardian {
+            None
+        } else {
+            crate::project::resolve(bridge, journal, &request.history, &observed).await?
+        };
         lane.phase = Phase::Opening;
         journal.write(key, lane)?;
         if bridge
