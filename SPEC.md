@@ -1440,8 +1440,13 @@ fails. Exclude reasoning and internal metadata; reject unsupported public items,
 incomplete pagination, active work and mismatched thread identity. Imported tool
 events are quoted historical observations, never calls to execute again.
 
-Only an explicit, validated handoff for the same thread can supply the readable
-replacement for preceding foreign opaque input. Preserve current system/developer
+Only an explicit, validated handoff in the same thread or inherited through
+upstream-declared fork/parent lineage can supply the readable replacement for
+preceding foreign opaque input. Lineage metadata correlates quoted history; it
+does not authenticate an app account or grant permissions. A child keeps its own
+native ID and Provider lane, including after cold resume and nested forks.
+Unrelated threads without lineage still refuse a mismatched handoff.
+Preserve current system/developer
 policy and contextual user settings; retain all later input. Never claim to decode
 the old opaque state. The Provider's opaque compaction format is not compatible
 with upstream OpenAI compaction: do not advertise a fabricated common compaction

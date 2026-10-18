@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn only_explicit_same_thread_handoff_can_route_previous_model_compaction() {
+    fn previous_model_compaction_requires_explicit_handoff_control() {
         let marker = marker();
         let parse = |model: &str, thread: &str, kind: &str, marker: Value| {
             crate::protocol::Request::parse(
@@ -363,5 +363,32 @@ mod tests {
             context::messages(&input).unwrap_err(),
             Error("opaque_context_unavailable")
         );
+    }
+    #[test]
+    fn native_lineage_carries_quoted_history_without_rebinding_identity() {
+        for kind in ["parent_thread_id", "forked_from_thread_id"] {
+            let mut body = json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":[{"type":"compaction","encrypted_content":"parent-opaque"},marker(),{"role":"user","content":"child task"}],"client_metadata":{"x-codex-turn-metadata":{"thread_id":"child","request_kind":"turn"}}});
+            body["client_metadata"]["x-codex-turn-metadata"][kind] = json!("native-parent");
+            let request =
+                crate::protocol::Request::parse(body.clone(), &Config::default(), None).unwrap();
+            assert_eq!(request.thread, "child");
+            assert_eq!(request.parent.as_deref(), Some("native-parent"));
+            assert_eq!(
+                context::messages(&request.input)
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .text,
+                "child task"
+            );
+            for invalid in [json!("child"), json!("bad\nparent"), Value::Null] {
+                body["client_metadata"]["x-codex-turn-metadata"][kind] = invalid;
+                assert_eq!(
+                    crate::protocol::Request::parse(body.clone(), &Config::default(), None)
+                        .unwrap_err(),
+                    Error("handoff_thread_mismatch")
+                );
+            }
+        }
     }
 }

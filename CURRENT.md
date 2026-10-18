@@ -134,7 +134,8 @@ Source `checkpoint` serializes a complete idle public native snapshot as readabl
 external user context, with no credentials, app startup or inference. Upstream
 persists it with its existing inject API, preserving original items/thread ID and
 the old provider's ability to read them after an entry failure. Provider admission
-accepts only an explicit same-thread handoff before foreign opaque input can be
+accepts only an explicit handoff in the same thread or native-declared fork/parent
+lineage before foreign opaque input can be
 projected from public history; current policy/context settings and later input stay.
 Unknown public item types refuse; reasoning/internal metadata are excluded.
 The catalog no longer advertises a fabricated opaque compaction compatibility hash;
@@ -212,6 +213,7 @@ publish them wholesale. Repository records contain only safe scope/results.
 | provider-phase-native-android.log | Actual native partial-output/final promotion and manual checkpoint→same-thread continuation; synthetic app replies, no Chat |
 | provider-readable-handoff-native.log | Actual Android inject/read/next-turn fixture preserves opaque input, same ID and public turns; hidden user-context projection, no inference at injection, synthetic app replies/no Chat |
 | provider-bidirectional-handoff-native.log | Three actual Android fixtures: manual compact, public handoff, source→Chat→source across process restarts; readable return, same ID, no Chat |
+| provider-native-fork-initial.log / provider-native-fork-fixed.log | Actual native fork exposed an inherited-marker thread mismatch; declared native lineage now preserves public context for child warm/cold resume and nested fork, with three independent lanes and unchanged parent; no Chat |
 | provider-handoff-live-native.log / provider-handoff-live-state | Real GPT-6 response and readable summary across native API provider re-entry, two app dispatches/four user objects, source responses synthetic; not yet actual TUI/device activation |
 | provider-native-mcp-discovery.log / provider-native-mcp-discovery-fixed.log | Actual native deferred search first exposed a prefix defect: upstream drops function-only name from a search item. After canonical normalization, discovery→one MCP effect→commands/custom patch/validation→final passed; six fixture dispatches, five returns, no Chat |
 | provider-gateway-correction.log / provider-native-correction-regressions.log | Rejected gateway batch returns a structured error on its original ID; no partial native execution/new user input. Actual correction→search→MCP→patch/tests passes with six Responses requests/seven fixture app dispatches, five native returns/one error return. Three-correction limit, lost reply/no resend and account-change refusal pass; no Chat |

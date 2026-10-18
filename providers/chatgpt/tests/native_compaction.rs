@@ -183,22 +183,28 @@ impl Rpc {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_manual_compaction_commits_public_checkpoint_and_continues_same_thread() {
-    native_context_fixture(false, false).await;
+    native_context_fixture(false, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_public_handoff_preserves_original_opaque_history_and_user_turns() {
-    native_context_fixture(true, false).await;
+    native_context_fixture(true, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_bidirectional_provider_reentry_keeps_same_thread_and_readable_context() {
-    native_context_fixture(true, true).await;
+    native_context_fixture(true, true, false).await;
 }
 
-async fn native_context_fixture(handoff: bool, cross_provider: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn native_fork_inherits_readable_handoff_and_keeps_parent_lane_independent() {
+    native_context_fixture(true, false, true).await;
+}
+
+async fn native_context_fixture(handoff: bool, cross_provider: bool, fork_child: bool) {
     let runtime = PathBuf::from(
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime required"),
     );
@@ -517,6 +523,82 @@ async fn native_context_fixture(handoff: bool, cross_provider: bool) {
             if live.is_some(){"Using the public conversation context, respond with the exact HANDOFF_STATE_7K2Q marker and confirm that no tools should be repeated. Do not use tools or ask questions."}else{"Continue from public history without repeating tools"},
         )
         .await;
+        if fork_child {
+            let fork=rpc.call(30,"thread/fork",json!({"threadId":thread,"model":"chatgpt-desktop/gpt-6","modelProvider":"chatgpt_desktop"})).await;
+            let child_thread = fork["thread"]["id"].as_str().unwrap();
+            assert_ne!(child_thread, thread);
+            rpc.turn(
+                31,
+                child_thread,
+                "Continue the inherited public work in this child",
+            )
+            .await;
+            rpc.turn(32, child_thread, "Continue once more in the same child")
+                .await;
+            let parent = rpc
+                .call(
+                    33,
+                    "thread/read",
+                    json!({"threadId":thread,"includeTurns":true}),
+                )
+                .await;
+            assert_eq!(parent["thread"]["turns"].as_array().unwrap().len(), 2);
+            drop(rpc);
+            child.kill().await.unwrap();
+            child.wait().await.unwrap();
+            child = launch();
+            rpc = Rpc {
+                input: child.stdin.take().unwrap(),
+                output: BufReader::new(child.stdout.take().unwrap()).lines(),
+                buffered: Vec::new(),
+            };
+            rpc.call(34,"initialize",json!({"clientInfo":{"name":"termux-fork-fixture","version":"1"},"capabilities":{"experimentalApi":true}})).await;
+            rpc.send(json!({"method":"initialized","params":{}})).await;
+            rpc.call(35,"thread/resume",json!({"threadId":child_thread,"model":"chatgpt-desktop/gpt-6","modelProvider":"chatgpt_desktop"})).await;
+            rpc.turn(36, child_thread, "Continue after cold native resume")
+                .await;
+            let nested=rpc.call(37,"thread/fork",json!({"threadId":child_thread,"model":"chatgpt-desktop/gpt-6","modelProvider":"chatgpt_desktop"})).await;
+            let nested_thread = nested["thread"]["id"].as_str().unwrap();
+            rpc.turn(
+                38,
+                nested_thread,
+                "Continue in the nested fork with inherited public history",
+            )
+            .await;
+            drop(rpc);
+            child.kill().await.unwrap();
+            child.wait().await.unwrap();
+            stop.cancel();
+            server.await.unwrap();
+            host.shutdown().await;
+            let records = fs::read_dir(&journal.root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|v| v.path().extension().is_some_and(|v| v == "json"))
+                .filter_map(|v| {
+                    journal
+                        .read::<Value>(v.path().file_stem().unwrap().to_str().unwrap())
+                        .unwrap()
+                })
+                .filter(|v| v.get("native_thread").is_some())
+                .collect::<Vec<_>>();
+            assert_eq!(records.len(), 3);
+            for key in ["marker", "gateway", "native_thread"] {
+                assert_eq!(
+                    records
+                        .iter()
+                        .map(|v| v[key].as_str().unwrap())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len(),
+                    3
+                );
+            }
+            println!(
+                "{}",
+                json!({"accepted":true,"nativeForkHandoff":true,"sameParentHistory":true,"childWarmAndColdResume":true,"nestedFork":true,"independentLanes":true,"chatSubmissions":0})
+            );
+            return;
+        }
         if cross_provider {
             rpc.call(22, "thread/compact/start", json!({"threadId":thread}))
                 .await;

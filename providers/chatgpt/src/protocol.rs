@@ -260,9 +260,10 @@ impl Request {
             .ok_or(Error("native_thread_identity_required"))?;
         let guardian = field("agent_name").as_deref() == Some("guardian")
             || field("subagent_kind").as_deref() == Some("guardian");
+        let parent = field("parent_thread_id").or_else(|| field("forked_from_thread_id"));
         let compaction = crate::context::Compaction::detect(&input, &metadata)?;
         if let Some((_, handoff)) = crate::handoff::latest(&input)? {
-            if handoff.thread != thread {
+            if handoff.thread != thread && parent.as_ref().is_none_or(|id| id == &thread) {
                 return Err(Error("handoff_thread_mismatch"));
             }
             // Native model-downshift compaction can retain the old model ID.
@@ -287,7 +288,7 @@ impl Request {
             tools: declarations,
             host_tools,
             thread,
-            parent: field("parent_thread_id"),
+            parent,
             turn: field("turn_id"),
             guardian,
             compaction,

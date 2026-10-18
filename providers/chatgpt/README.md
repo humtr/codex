@@ -84,7 +84,7 @@ idle public `thread/read` snapshot from stdin and emits one ordinary upstream
 external-context user message. It neither starts the app nor reads credentials,
 performs inference or writes native history. TUI persists the message with the
 existing upstream API; it remains readable by the source model on failure. Only
-an explicit same-thread message can supply public context for preceding foreign
+an explicit message in the same thread or native-declared fork/parent lineage can supply public context for preceding foreign
 opaque input. Reasoning/internal metadata are excluded. Current policy/settings
 and subsequent input remain intact; historical tools are quoted, never replayed.
 The generated catalog omits a compaction compatibility hash because this Provider
