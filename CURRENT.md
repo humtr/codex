@@ -415,6 +415,11 @@ qualification. Unsupported box components remained in its final transcript.
    stopped qualification lanes while holding their native writer lease, preserves
    journal and saved chats, then installs/tests/removes the new bridge. New owned
    hosts naturally start a new renderer; this cleanup is not a product auto-repair.
+   Revision `f96fb36` is pushed and installed only in the immutable isolated trial.
+   Its fresh native request currently waits at host confirmation (one app dispatch,
+   one user object, zero host replies/native effects); a new one-tap notification
+   presents the selected trial chat. Actual resolution/tool return remains open.
+   The public/user operating generation was not replaced by this qualification.
 5. TUI also starts an auxiliary automatic-title model thread for an unnamed
    conversation; the terminal fixture names its owned thread to isolate the
    transfer proof. Qualify/count that cost and avoid unnecessary Chat starts.
