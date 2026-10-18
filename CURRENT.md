@@ -16,7 +16,7 @@ audit narratives and plans remain in Git.
 | Earlier Full60 TUI proof | Source1c413cf, qualification39027733603; installed Full76 helper is a different signed inventory entry |
 | Retained prior TUI candidate | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384; old binding invalidated by changed source recipe, artifact retained/not activated |
 | Installed Chat adapter | Immutable c3642b19a87cdace158f; sourceBase9a5436a plus preserved user1m setting; JS/Bun/Python; app-local function returns |
-| Rust Provider candidate | Independent Responses/CDP/tool-return/config/catalog/owned-host/lane implementation; actual authenticated Rust host and bounded direct AI development qualified; not installed publicly |
+| Rust Provider candidate | Recoverable Phase A source acf1bdb8f5316b0f0a0d5e6d4c0893aaa8455dbf; unsigned Android run39173039235 and disposable snapshot restart/rollback accepted; existing authenticated host/AI proof retained; not installed publicly |
 | Experiment | experiment/web-termux at08e9856; user's uncommitted1m profile/test edits preserved, branch/worktree not closed |
 
 Full60 acceptance39033120658, Core39033121990 and publication39033383447 passed.
@@ -278,7 +278,7 @@ independent Core/Manager/Base/Full work need not wait for the Provider experimen
 
 | Phase | Work | Gate |
 | --- | --- | --- |
-| A | Stabilize shared Rust identity/auth, exact-call returns, native execution/history, visible failure/stop/recovery, config and candidate packaging | Preserve exact source/artifact/proof; disposable install/restart/rollback and explicitly bounded open gates. No polish-every-old-feature requirement or premature public activation |
+| A | Stabilize shared Rust identity/auth, exact-call returns, native execution/history, visible failure/stop/recovery, config and candidate packaging | Bounded recoverable checkpoint accepted at acf1bdb, with exact source/artifact/proof and disposable standalone snapshot install/restart/rollback. Remaining product/lifecycle gates stay in E; no public activation |
 | B | Expose Codex control operations to ChatGPT and connect both entrances | After architecture decision: actual Android with synthetic host, non-user context return, discovery, real tools, public reports, context/session transition and correct final routing |
 | C | Real ChatGPT control and comparison | Explain trial scope/expected submissions first; matched fixtures and sequential legitimate direct AI development; physical CLI progress, stop and latest-state recovery, independent supervisor review |
 | D | Select default and useful fallback | Compare quality, continuity, latency, dependencies and maintenance. Existing Rust local functions stay the current default until qualified replacement; no uncertain mid-task fallback |
@@ -291,6 +291,33 @@ selection, native execution/context fixtures, configured-project operations and
 bounded AI/MCP live proofs are retained below. Full publication and operating
 Provider migration remain separate. Detailed open qualification belongs only to
 the acceptance matrix; the proof index records completed evidence at its real scope.
+
+Phase A's shared correction closes a false service-stop acknowledgment: after
+SIGTERM, losing the recorded executable path no longer counts as process exit.
+Only the pinned kernel handle confirms shutdown; a surviving owner returns bounded
+`provider_stop_unconfirmed` and preserves its journal. The actual Android regression
+failed on the prior implementation and passes on the repaired source and downloaded
+NDK executable. This is service shutdown, not confirmation that native tool jobs or
+Chat work stopped. Existing exact-call/history/recovery proof retains its old scope.
+
+The standalone candidate now has one create-new package/readback helper, including
+source-bound lock/notices/licenses and a complete seven-file inventory. Hosted
+qualification39173039235 passes at exact sourceacf1bdb; executable SHA-256 is
+bd6e6068364791f02fad5bc53637e7dfc50b0609d87848403e17da4e5211a32c. The exact
+artifact and proof are retained privately beyond the30-day hosted retention.
+Actual Android c463→acf1bdb→restart→c463 snapshot transitions preserve the owner,
+endpoint, disposable auth/config/app data and rollback profile while rotating local
+credentials and rejecting a second writer. A saved-port collision preserves the
+record. This qualifies bounded standalone candidate recovery, not a signed product
+installer, real host-loss/reboot, physical UI or long-running task recovery.
+
+Local `full` acceptance passes358 Rust and135 Python checks; Provider passes98 Rust,
+108 Bun and35 Python checks, fmt/clippy/release. Source contract39173039249 and both
+hosted Provider jobs pass. Unarmed live/physical gates remain in the matrix below.
+Added qualification uses disposable roots and a synthetic host. The candidate
+lifecycle trial made zero host requests/Chat submissions; there was no public
+signing or operating activation. B still needs the new-architecture decision;
+the recoverable baseline does not authorize it.
 
 The user's required AI trial was run directly in ~/prj/ai, not a copied project or
 worktree, after the Rust no-MCP execution/context/project path was established.
@@ -438,6 +465,7 @@ qualify actual Chat judgment, physical UI or charged Chat message allowance.
 | provider-mcp-live-qualified.json / provider-mcp-real-native-v11-result.json | R11 at c463c69: actual signed Chat app→dedicated Rust tunnel→Android two exact commands/effect+verification→original MCP results→exact native final and public reports. One user object, two app dispatches including actual delegated Allow reply, two settled logical calls, no result resubmission/pending/replay; Chat debits unknown |
 | provider-discovery-metadata-proof.json / provider-discovery-metadata-full.log / provider-discovery-metadata-android.log | e11162c source: neutral discovery/side-effect hints and correct native execution ownership; exact-call/capability checks retained. Rust97/Bun108/Python30, fmt/clippy/release plus14 actual Android MCP/executor/search/correction/reviewer/wait/context fixtures pass. Synthetic host, zero Chat; new descriptions' physical host-warning effect unqualified |
 | provider-c463-android-smoke.json / provider-qualified-settled-release.log | Hosted39163366831 exact source/Android jobs; API24/AArch64 inventory/lock/source matches and actual device models/catalog/config validation makes no state writes/Chat starts. Unsigned/unactivated. Trial service/tunnel/proxy and settled hooks stopped/released, chats/auth/Tdev preserved |
+| phase-a-baseline-proof.json / phase-a-candidate-lifecycle.json / phase-a-core-full.log / phase-a-provider-full.log | Sourceacf1bdb, hosted39173039235 and source contract39173039249; complete seven-file source-bound readback, actual Android standalone snapshot install/replacement/restart/rollback, exclusive owner/endpoint/credential and preservation checks, downloaded-binary unconfirmed-stop regression. Full358 Rust/135 Python; Provider98 Rust/108 Bun/35 Python; fmt/clippy/release pass. Zero Chat/host requests; unsigned/unactivated |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log / provider-live-project-native.log | Actual authenticated project discovery/create/reuse/readback without inference; separately actual project-bound GPT-6 with three native effects, four app dispatches/two user objects/three returns and saved membership |
 | ai-development-proof.json | Direct ~/prj/ai actual development, failure/repair, same-thread recovery and independent49-check/166-TUI validation; detailed scope below. Installed AI runtime unchanged |
 | provider-owned-auth-native.log / owned-auth-transition.json / provider-restored-auth-readonly.log | Actual authenticated Rust-owned app/private pipes/native tools, four starts/three effects; original profile inode and controller restored. Subsequent readonly identity preflight makes no inference |
@@ -487,13 +515,13 @@ without changed inputs, failures or an unresolved boundary.
 
 | Area | Evidence already retained | Open gate and timing |
 | --- | --- | --- |
-| Host lifecycle/visibility | Authenticated Rust boot/native effects, synthetic concurrent lanes/sibling stop, readonly journal status, PID-bound service stop/restart | A: preserve/reconcile exact owner and native work; E: real host-loss/cancellation/concurrency/reboot and fresh login/provisioning. Journal liveness is not current model progress |
+| Host lifecycle/visibility | Authenticated Rust boot/native effects, synthetic concurrent lanes/sibling stop, readonly journal status, Phase A exact-owner/restart and kernel-confirmed service-stop proof | E: real host-loss/cancellation/concurrency/reboot and fresh login/provisioning. Journal liveness is not current model progress; service exit is not native-job stop confirmation |
 | Context and TUI | Seven actual Android synthetic context cases, exact admitted no-Manager PTY /model round trip, separate real Chat API summary/re-entry | E: real-Chat TUI, downshift/cold resume/pending-result transitions; B–C must independently qualify operator-controlled context/session changes |
 | Tools/approval/question | Actual native discovery/correction, independent reviewer allow/deny effects and project isolation, blocking question result on original call | E: broader function/custom/batch and host search behavior, real reviewer judgment/project instruction priority, physical question UI. Quoted executable prefix matching remains an upstream limitation |
-| Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate | A: retain usable endpoint/capability/owner controls. New-description physical warning behavior remains unverified. B–C: full Codex control and two-entry origin/report/finish are new gates, not R11 features |
+| Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. B–C: full Codex control and two-entry origin/report/finish are new gates, not R11 features |
 | Cost/presentation | Stream-safe MemoryCite/box projection, exact native results and warm prefixes | Count title-model starts, setup/summary/retries and source-specific overhead; defer path-only optimization until C–D unless shared correctness. No claim that counters measure Chat message debits |
 | Viewer and desktop | Rust private RFB/HTTP/control fixtures; actual owned fresh-profile RFB; old desktop font/icon observations | E when shipped: physical current Rust viewer/keyboard/scroll/login. Old desktop observations do not qualify a changed viewer; viewer stays optional for inference |
-| Packaging/composition | Independent hosted Android Provider build/smoke, unsigned immutable candidate; TUI/Provider without Manager on actual Android | A: recoverable candidate packaging/disposable lifecycle; E: signed optional payload/provisioning, Base alone, Manager without TUI, direct --profile and Full /model, absent/incompatible components, install/reinstall/update/rollback. No implicit desktop download/login |
+| Packaging/composition | Independent hosted Android Provider build, source-bound complete inventory and Phase A disposable standalone snapshot lifecycle; TUI/Provider without Manager on actual Android | E: signed optional payload/provisioning and product installer lifecycle, Base alone, Manager without TUI, direct --profile and Full /model, absent/incompatible components, install/reinstall/update/rollback. No implicit desktop download/login |
 | Experiment retirement/publication | Source/provenance and user1m changes preserved; existing Base/Full release process | E: build/smoke/sign/readback/disposable consumer/non-forced promotion then separate activation. F: remove superseded code only after unique-source/license/user-state review; no legacy runtime auto-fallback |
 
 Native prefix-rule matching misses double-quoted executable paths in the reviewed
