@@ -4,6 +4,48 @@ use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
 
 #[tokio::test]
+#[ignore = "read-only diagnosis of an explicitly retained stopped qualification"]
+async fn inspect_stopped_app_round_without_new_inference() {
+    let root = PathBuf::from(std::env::var_os("CODEX_PROVIDER_SETTLED_PROOF").unwrap());
+    let journal = Journal::open(&root.join("journal")).unwrap();
+    let remote = codex_chatgpt_provider::app::Remote::new(
+        std::env::var_os("CODEX_PROVIDER_LIVE_DESCRIPTOR")
+            .unwrap()
+            .into(),
+        journal.owner.clone(),
+    );
+    for entry in fs::read_dir(&journal.root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|v| v != "json") {
+            continue;
+        }
+        let value = journal
+            .read::<Value>(path.file_stem().unwrap().to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        if value.get("native_thread").is_none() {
+            continue;
+        }
+        assert_eq!(value["phase"], "stopped");
+        let snapshot = remote
+            .operation(json!({"op":"snapshot","lane":value["marker"]}))
+            .await
+            .unwrap();
+        let calls=snapshot["messages"].as_array().unwrap().iter().map(|m| {
+            let code=m["content"]["text"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok());
+            let previous=&value["public"][m["id"].as_str().unwrap_or("")];
+            json!({"status":m["status"],"endTurn":m["end_turn"],"previousPhase":previous[0],"localTool":m["recipient"].as_str().is_some_and(|v|v.starts_with("local.")),"channel":m["channel"],"callName":code.as_ref().map(|v|v.get("kwargs").unwrap_or(v)["name"].clone()),"argumentBytes":code.as_ref().map(|v|v.to_string().len())})
+        }).collect::<Vec<_>>();
+        // This fixture owns its exact code/task; never print prompt bodies or
+        // authenticated application state from unrelated lanes.
+        println!(
+            "{}",
+            json!({"roundMatches":snapshot["round"]==value["round"],"error":snapshot["error"],"stopped":snapshot["stopped"],"terminals":snapshot["terminals"],"roundStarts":snapshot["roundStarts"],"calls":calls})
+        );
+    }
+}
+
+#[tokio::test]
 #[ignore = "requires explicit settled live-proof root, transcript and authorized app descriptor"]
 async fn recheck_settled_live_evidence_and_release_without_new_inference() {
     let root = PathBuf::from(

@@ -233,6 +233,7 @@ struct Lane {
     dispatches: u64,
     checkpoint: Option<context::Checkpoint>,
     project: Option<String>,
+    last_error: Option<String>,
 }
 impl Lane {
     fn new(thread: &str) -> Result<Self, Error> {
@@ -256,6 +257,7 @@ impl Lane {
             dispatches: 0,
             checkpoint: None,
             project: None,
+            last_error: None,
         })
     }
 }
@@ -353,6 +355,10 @@ impl Host for AppHost {
                 &cancel,
             )
             .await;
+            if let Err(error) = &result {
+                lane.last_error = Some(error.0.into());
+                journal.write(&key, &*lane)?;
+            }
             if result.is_err()
                 && cancel.is_cancelled()
                 && matches!(lane.phase, Phase::Dispatching | Phase::Running)
@@ -398,6 +404,7 @@ fn native_output(events: &[Event]) -> Result<Vec<Value>, Error> {
                 if let Some(previous) = output.iter_mut().find(|v| v["id"] == *id) {
                     let text = previous["content"][0]["text"].as_str().unwrap().to_owned() + delta;
                     previous["content"][0]["text"] = json!(text);
+                    previous["phase"] = json!(phase);
                 } else {
                     output.push(public_item(id, phase, delta));
                 }
@@ -716,24 +723,33 @@ async fn exchange(
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<String>();
-            let phase = if message["channel"] == "commentary" || message["end_turn"] == false {
-                "commentary"
-            } else {
+            // The app also labels interim reports `final`, sometimes ending
+            // them with end_turn=true/finished_partial_completion before a tool.
+            // Only a successfully committed end-of-turn is a native final answer.
+            let phase = if message["channel"] != "commentary"
+                && message["end_turn"] == true
+                && message["status"] == "finished_successfully"
+            {
                 "final_answer"
+            } else {
+                "commentary"
             };
             let previous = lane
                 .public
                 .get(id)
                 .map(|(phase, text)| (phase.clone(), text.clone()));
-            if previous
-                .as_ref()
-                .is_some_and(|(p, old)| p != phase || !text.starts_with(old))
-            {
+            if previous.as_ref().is_some_and(|(p, old)| {
+                (p != phase && !(p == "commentary" && phase == "final_answer"))
+                    || !text.starts_with(old)
+            }) {
                 return Err(Error("public_message_changed"));
             }
             let offset = previous.as_ref().map_or(0, |(_, text)| text.len());
             lane.public.insert(id.into(), (phase.into(), text.clone()));
-            if text.len() > offset && request.compaction != Some(context::Compaction::Checkpoint) {
+            let promoted = previous.as_ref().is_some_and(|(p, _)| p != phase);
+            if (text.len() > offset || promoted)
+                && request.compaction != Some(context::Compaction::Checkpoint)
+            {
                 publish(
                     lane,
                     events,

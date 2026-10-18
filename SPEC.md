@@ -1416,6 +1416,16 @@ history until upstream replaces it with the exact offered checkpoint. Retire tha
 settled remote lane once after replacement, preserving its chat and pending-call
 integrity; an unchanged old prefix containing identical summary text is not an ACK.
 
+Public message phase is not determined by the app's channel name alone. A
+`final` channel message with `finished_partial_completion`, even with
+`end_turn=true`, remains commentary before its tool call. Stream its text once;
+an unfinished message may promote from commentary to a final answer only after
+`finished_successfully` plus `end_turn=true`. Preserve one item ID and text,
+never duplicate prose or rewrite already closed output. Emit terminal Provider
+failures as `response.failed` with a structured response error that native Codex
+actually reads; a top-level `error` event alone is not sufficient. Retain only
+static content-free failure codes in the private lane record.
+
 The provider should accept a ChatGPT project destination, resolve it in the
 currently authenticated Chat account/workspace and create it when absent, as
 configured. This is a remote ChatGPT project, not the local CWD, a Manager login

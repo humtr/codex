@@ -423,16 +423,41 @@ and the project-bound actual GPT-6 proof described above. Ignored live tests are
 not included in offline counts. Core/Manager/TUI sources are unchanged by these
 Provider repairs.
 
-The direct `~/prj/ai` development gate is now being exercised through this Rust
-no-MCP transport and its qualified authenticated relay, not the legacy Responses
-adapter. Baseline `main` at1f958e5e078b8076a350fa8fac9f7664cbec61f7 was clean and
-`verify/final-verify.sh` passed48 checks with zero warnings/failures before model
-edits. The private task/baseline/transcript and subsequent independent review
-belong to the existing acceptance root. GPT-6 High is bounded to one initial
-user task and at most39 subsequent app submissions, no Pro or automatic replay.
-Do not declare sustained development acceptance before the actual diff and tests
-have been independently inspected. Complete owned-app migration/reboot, foreign
-opaque handoff, independent MCP and signed optional packaging remain separate work.
+The direct `~/prj/ai` gate uses this Rust no-MCP transport and its qualified
+authenticated relay, not the legacy Responses adapter. Baseline `main`
+at1f958e5e078b8076a350fa8fac9f7664cbec61f7 was clean and
+`verify/final-verify.sh` passed48 checks with zero warnings/failures before edits.
+The first GPT-6 High attempt made13 app dispatches,2 user-role objects (one visible)
+and12 tool-role returns. The model independently found a real session-option
+ordering bug, added `tests/test_session_cli_filter_order.py` and observed its
+pre-fix failure. It did not finish implementation: a Provider stream defect
+interrupted the next patch before native execution. The test and native thread
+were preserved; this is a failed qualification, not development success.
+
+Read-only stopped-round inspection (zero new inference) found a final-channel
+interim report marked `finished_partial_completion`/`end_turn=true` before a tool.
+The old phase classification rejected its change from commentary. The stream's
+top-level `error` also hid the real failure from native Codex, yielding only EOF.
+Source now admits the actual phase semantics and one-way final promotion without
+text repetition, uses `response.failed`, and records static `last_error` privately.
+`provider-phase-native-android.log` proves actual native streaming/phase promotion
+plus same-thread manual compact with synthetic replies (zero Chat).
+`provider-native-failure-reason-final.log` proves actual Android Codex displays the
+exact injected Provider failure instead of generic EOF (zero Chat). The corrected
+Provider gate passes57 Rust cases,101 Bun and28 Python plus formatting, lint and
+release build (`provider-phase-final-full.log`). Source1349115 separately passed
+hosted source39116399120 and Provider39116399115; those earlier runs do not
+qualify the subsequent streaming repair.
+
+The same retained native thread is being resumed against the fixed Rust path.
+The model confirmed its existing failing regression and current source before
+continuing; the supervisor has not changed AI implementation. Private first-failure
+evidence, task/baseline and both transcripts remain in the acceptance root. No Pro
+or automatic replay is used; the explicitly resumed task adds one user turn and
+is bounded to40 app submissions. Do not declare sustained development acceptance
+before independently inspecting the actual diff and tests. Complete owned-app
+migration/reboot, foreign opaque handoff, independent MCP and signed optional
+packaging remain separate work.
 
 ## Verification and publication
 

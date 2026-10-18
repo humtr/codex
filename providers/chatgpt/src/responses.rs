@@ -87,9 +87,14 @@ impl Projection {
                     return Err(Error("nonpublic_host_message"));
                 }
                 let index = if let Some(index) = self.texts.get(&id) {
-                    if *index < self.closed || self.items[*index]["phase"] != phase {
+                    if *index < self.closed
+                        || (self.items[*index]["phase"] != phase
+                            && !(self.items[*index]["phase"] == "commentary"
+                                && phase == "final_answer"))
+                    {
                         return Err(Error("nonmonotonic_public_message"));
                     }
+                    self.items[*index]["phase"] = json!(phase);
                     *index
                 } else {
                     out.extend(self.close_items());
@@ -166,7 +171,10 @@ impl Projection {
     }
     pub fn fail(&mut self, error: Error) -> Value {
         self.done = true;
-        self.frame(json!({"type":"error","code":error.0,"message":error.0,"param":null}))
+        let mut response = self.response("failed");
+        response["error"] =
+            json!({"type":"invalid_request_error","code":error.0,"message":error.0});
+        self.frame(json!({"type":"response.failed","response":response}))
     }
     pub fn completed(&self) -> bool {
         self.done
@@ -176,6 +184,46 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn streamed_public_message_promotes_once_without_repeating_its_text() {
+        let mut p = Projection::new("response".into(), "model".into());
+        p.push(Event::Text {
+            id: "public".into(),
+            phase: "commentary".into(),
+            delta: "Complete text".into(),
+        })
+        .unwrap();
+        p.push(Event::Text {
+            id: "public".into(),
+            phase: "final_answer".into(),
+            delta: String::new(),
+        })
+        .unwrap();
+        assert!(p
+            .push(Event::Text {
+                id: "public".into(),
+                phase: "commentary".into(),
+                delta: String::new()
+            })
+            .is_err());
+        let frames = p
+            .push(Event::Completed {
+                input_tokens: 1,
+                output_tokens: 1,
+            })
+            .unwrap();
+        let output = &frames.last().unwrap()["response"]["output"];
+        assert_eq!(output.as_array().unwrap().len(), 1);
+        assert_eq!(output[0]["phase"], "final_answer");
+        assert_eq!(output[0]["content"][0]["text"], "Complete text");
+        let failure =
+            Projection::new("failed".into(), "model".into()).fail(Error("exact_provider_failure"));
+        assert_eq!(failure["type"], "response.failed");
+        assert_eq!(
+            failure["response"]["error"]["message"],
+            "exact_provider_failure"
+        );
+    }
     #[test]
     fn public_phases_and_tools_become_one_ordered_native_response() {
         let mut p = Projection::new("resp-owned".into(), "configured".into());

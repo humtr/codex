@@ -29,6 +29,8 @@ struct State {
     key: String,
     patch_key: String,
     commands: Vec<Value>,
+    fail_identity: bool,
+    stopped: bool,
 }
 #[derive(Clone, Default)]
 struct App(Arc<Mutex<State>>);
@@ -55,6 +57,9 @@ impl Bridge for App {
         Box::pin(async move {
             let mut s = this.0.lock().unwrap();
             s.commands.push(command.clone());
+            if s.fail_identity && command["op"] == "identity" {
+                return Err(Error("qualification_expected_failure"));
+            }
             match command["op"].as_str().unwrap() {
                 "identity" => Ok(
                     json!({"generation":"fixture","account":"fixture-account","user":"fixture-user","structure":"personal","present":!s.gateway.is_empty()}),
@@ -98,6 +103,9 @@ impl Bridge for App {
                     Ok(json!({"started":true}))
                 }
                 "snapshot" => {
+                    if s.stopped {
+                        return Ok(json!({"round":s.round,"stopped":true}));
+                    }
                     let message = if s.stage < 4 {
                         let script = if s.stage == 1 {
                             "printf 'effect-1\\n' >> effect-count; printf 'first result'"
@@ -131,7 +139,10 @@ impl Bridge for App {
                         json!({"round":s.round,"messages":[message],"terminals":["done"],"roundStarts":1,"userMessages":user_objects,"toolMessages":s.stage-1,"dispatches":s.stage}),
                     )
                 }
-                "stop" => Err(Error("fixture_unexpected_stop")),
+                "stop" => {
+                    s.stopped = true;
+                    Ok(json!({}))
+                }
                 _ => Err(Error("fixture_unexpected_operation")),
             }
         })
@@ -156,6 +167,11 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         std::env::var_os("CODEX_PROVIDER_NATIVE").expect("qualified runtime path required"),
     );
     let live_descriptor = std::env::var_os("CODEX_PROVIDER_LIVE_DESCRIPTOR");
+    let failure_proof = std::env::var_os("CODEX_PROVIDER_EXPECT_FAILURE").is_some_and(|value| {
+        assert_eq!(value, "qualification_expected_failure");
+        assert!(live_descriptor.is_none());
+        true
+    });
     let development = std::env::var_os("CODEX_PROVIDER_DEVELOPMENT").map(|value| {
         assert_eq!(value, "direct-ai-development");
         assert!(
@@ -196,12 +212,28 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     });
     let prefix = PathBuf::from(std::env::var_os("PREFIX").expect("Termux prefix required"));
     assert!(runtime.is_absolute());
+    let resume = std::env::var_os("CODEX_PROVIDER_RESUME_PROOF").map(PathBuf::from);
+    if let Some(path) = &resume {
+        assert!(development.is_some());
+        assert_eq!(path.parent(), Some(std::env::temp_dir().as_path()));
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pn-"));
+        assert!(path.join("codex/chatgpt.config.toml").is_symlink());
+    }
     let mut root = Root(
-        std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8])),
+        resume.clone().unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8]))
+        }),
         live_descriptor.is_some(),
     );
     use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
+    if resume.is_none() {
+        fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
+    }
     for name in ["home", "codex", "work", "tmp", "system"] {
         fs::create_dir_all(root.0.join(name)).unwrap();
     }
@@ -212,6 +244,7 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     )
     .unwrap();
     let app = Arc::new(App::default());
+    app.0.lock().unwrap().fail_identity = failure_proof;
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
     let live = live_descriptor.map(|path| {
         Arc::new(Live {
@@ -238,7 +271,21 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         config.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
         config.history.project_name = Some(name.into_string().unwrap());
     }
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = if resume.is_some() {
+        journal
+            .read::<Value>(&codex_chatgpt_provider::context::digest(
+                &"termux-codex-responses-service-v1",
+            ))
+            .unwrap()
+            .unwrap()["port"]
+            .as_u64()
+            .unwrap() as u16
+    } else {
+        0
+    };
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .unwrap();
     let port = listener.local_addr().unwrap().port();
     journal.write(&codex_chatgpt_provider::context::digest(&"termux-codex-responses-service-v1"),&json!({"schema":"termux-codex-responses-service-v1","process":Process::read(std::process::id()).unwrap(),"port":port,"token":token})).unwrap();
     codex_chatgpt_provider::registration::prepare(
@@ -314,7 +361,12 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
         .env("CODEX_HOME", root.0.join("codex"))
         .env("TMPDIR", root.0.join("tmp"))
         .env("TERM", "dumb")
-        .current_dir(development.as_ref().map(|v| v.0.clone()).unwrap_or_else(||root.0.join("work")))
+        .current_dir(
+            development
+                .as_ref()
+                .map(|v| v.0.clone())
+                .unwrap_or_else(|| root.0.join("work")),
+        )
         .args([
             "exec",
             "--json",
@@ -322,9 +374,13 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
             "--dangerously-bypass-approvals-and-sandbox",
             "--profile",
             "chatgpt",
-            if let Some((_,task)) = &development { task } else if live.is_some(){"Run this exact bounded local transport qualification. Use exec_command once to execute: printf 'effect-1\\n' >> effect-count . Then use apply_patch to add patched.txt containing the one line: real custom tool . Then use exec_command to execute: test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count . Do not use any other tools, commands, network or directories. After successful validation, answer exactly: Native executor verified"}else{"Execute the fixture tools and return the verified result"},
-        ])
-        .kill_on_drop(true);
+        ]);
+    if resume.is_some() {
+        command.arg("resume").arg(
+            std::env::var("CODEX_PROVIDER_RESUME_THREAD").expect("exact native thread required"),
+        );
+    }
+    command.arg(if let Some((_,task)) = &development { task } else if live.is_some(){"Run this exact bounded local transport qualification. Use exec_command once to execute: printf 'effect-1\\n' >> effect-count . Then use apply_patch to add patched.txt containing the one line: real custom tool . Then use exec_command to execute: test \"$(wc -l < effect-count)\" -eq 1 && grep -qx 'real custom tool' patched.txt && printf 'effect-2\\n' >> effect-count . Do not use any other tools, commands, network or directories. After successful validation, answer exactly: Native executor verified"}else{"Execute the fixture tools and return the verified result"}).kill_on_drop(true);
     unsafe {
         command.pre_exec(move || {
             for (source, destination) in fds.into_iter().zip(33..=35) {
@@ -397,6 +453,19 @@ async fn actual_native_client_executes_commands_custom_patch_and_validation_with
     }
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
+    if failure_proof {
+        assert!(!result.status.success());
+        assert!(
+            stdout.contains("qualification_expected_failure"),
+            "native client lost the Provider failure reason"
+        );
+        assert!(!stdout.contains("stream closed before response.completed"));
+        println!(
+            "{}",
+            json!({"accepted":true,"nativeFailureReasonPreserved":true,"chatSubmissions":0})
+        );
+        return;
+    }
     assert!(
         result.status.success(),
         "native exit {:?}\nstdout: {stdout}\nstderr: {stderr}",

@@ -47,7 +47,14 @@ impl Bridge for App {
                 } else {
                     "NATIVE_TURN_COMPLETE"
                 };
-                json!({"round":last["round"],"messages":[{"id":format!("reply-{}",submissions.len()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[text]},"status":"finished_successfully","end_turn":true}],"terminals":["done"],"roundStarts":1,"userMessages":submissions.len(),"toolMessages":0,"dispatches":submissions.len()})
+                let polls = commands
+                    .iter()
+                    .rev()
+                    .take_while(|v| v["op"] != "submit")
+                    .filter(|v| v["op"] == "snapshot")
+                    .count();
+                let settled = polls >= 3;
+                json!({"round":last["round"],"messages":[{"id":format!("reply-{}",submissions.len()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[if polls==1{&text[..6]}else{text}]},"status":if settled{"finished_successfully"}else if polls==2{"finished_partial_completion"}else{"in_progress"},"end_turn":polls>=2}],"terminals":if settled{json!(["done"])}else{json!([])},"roundStarts":1,"userMessages":submissions.len(),"toolMessages":0,"dispatches":submissions.len()})
             }
             _ => return Box::pin(async { Err(Error("unexpected_fixture_operation")) }),
         };

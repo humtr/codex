@@ -85,7 +85,7 @@ impl Bridge for App {
                     }
                     let messages = if state.stage == 1 {
                         json!([
-                            {"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["Inspecting files"]},"status":"finished_successfully","end_turn":false},
+                            {"id":"progress-z","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Inspecting files"]},"status":"finished_partial_completion","end_turn":true},
                             {"id":"host-original","author":{"role":"assistant"},"recipient":format!("local.{}",state.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"calls":json!([{"name":"functions.exec","input":"{\"cmd\":\"pwd\"}"},{"name":"functions.patch","input":"exact freeform patch"}]).to_string(),"report":"Applying the reviewed change"}}).to_string()},"status":"finished_successfully","end_turn":false}
                         ])
                     } else {
