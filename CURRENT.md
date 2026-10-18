@@ -15,6 +15,7 @@ Superseded trial narratives remain in Git, not as additional current baselines.
 | TUI | Native source1c413cf, qualification39027733603;48 maintained native UI tests,94 upstream feature checks and lint |
 | Installed optional Chat provider | Immutable payload45072df8448589d3523e, source7bb202e; local-function returns; unchanged during source integration |
 | Integrated provider source | providers/chatgpt on rewrite/rust-core, selectively ported from experiment ab41733 plus preserved user1m edits; separate optional offline gate, no operating activation |
+| Approved provider implementation | Native Rust adapter under providers/chatgpt, minimal app-side JS and optional viewer assets; Rust conversion not started, current runtime remains JS/Bun + Python |
 | Mutable Chat model catalog | All5 entries currently report context_window=max_context_window=1,000,000; auto_compact_token_limit=null |
 | Provider source edits | experiment/web-termux has existing uncommitted profile/test changes from32,768 to1,000,000. Preserved unchanged there; their intended1m values are included in the integrated provider source. No operating activation. |
 
@@ -45,7 +46,7 @@ is implementation work, not a documentation side effect.
 | Core | Qualified Termux execution, environment/FDs, home/configuration/socket binding, signed installation/update/rollback | Account/window/quota/model policies |
 | Manager | Profiles, quota, notifications/windows, task discovery/handoff policy | Another executor, canonical history, model transport |
 | TUI | Upstream UI hooks, native transcript rendering, optional Manager/provider selections | Another backend supervisor; hardcoded provider capability authority |
-| Provider | Chat model capabilities/configuration, auth context, transport and host lifetime | Native execution/reviewer, Core selection or canonical conversation DB |
+| Provider | Independent Rust adapter: Chat capabilities/configuration, app-auth context, Responses/tool transport, context/cancel/retry and host lifetime; minimum app-side JS bridge | Native execution/reviewer, Core selection or canonical conversation DB |
 | Upstream | Actual inference/tools/reviewer, threads, history, compaction and writer locks | Our release trust and Android window identity |
 
 Every Termux Codex run passes through Core. The normal signed entrypoint stays;
@@ -75,36 +76,120 @@ must leave Core/base inputs unchanged after the interface work is admitted.
 
 ## Product completion scope and work order
 
-This is the single ordered product backlog. Active Provider runtime and focused tests now live under providers/chatgpt.
-Remaining experimental technical evidence stays on experiment/web-termux until ported; its historical Core/UI/release snapshots
-must not replace current authority. Product completion requires the required
-capabilities below, exact-input tests and visible native behavior. A source merge,
-a successful menu, HTTP response or preserved output file alone is insufficient.
+This is the single ordered product backlog, revised for the user's Rust Provider
+decision. Active legacy Provider runtime/tests already live under providers/chatgpt;
+there is no Rust Provider package yet. The final target is one independently built
+Rust adapter in that directory, not another Core module. Current JS/Bun/Python is
+the migration reference; only the app-side JS needed by the qualified function
+transport and optional viewer assets remain in the product after cutover.
+Remaining experimental technical evidence stays on experiment/web-termux until
+ported; its historical Core/UI/release snapshots must not replace current
+authority. Product completion requires exact-input tests and visible native
+behavior. A source merge, successful menu, HTTP response, language rewrite or
+preserved output file alone is insufficient.
 
 | Phase | Owner and work | Exit evidence / dependency |
 | --- | --- | --- |
-| 1. Core independence | Core/Manager/TUI: explicit direct execution, optional-setting isolation, versioned preparation/execution boundary, no preference/window-policy interpretation in Core, projection separated from lookup | Same-home normal→direct→normal; absent/damaged/malformed/hung Manager; exact account identity; zero duplicated tool effects; existing jobs/configuration preserved. No real Chat required. |
-| 2. Provider settings and generic TUI | Provider validates one user-owned config; show/effective/edit/set/validate; generated catalog/profile projection; TUI reads provider capabilities instead of hardcoded Chat families/efforts | File-only use without Manager; optional TUI/Manager convenience uses same validator. Invalid edit/no-op/reinstall/rollback/default precedence tested. No extra slash command or global launcher is assumed. |
-| 3. Context and native↔Chat handoff | Provider/TUI/upstream APIs: preserve1m override, diagnose successive-prompt reply→compaction→new-Chat/summary cycles, warm-delta reuse, separate compaction thresholds and wire bounds, readable canonical state transfer, failure atomicity | Fresh and existing long threads, switch both ways, saved opaque compaction, comp-hash/downshift, manual/automatic/mid-turn/failed/interrupted/repeated compaction, cold resume and chosen model/effort. Checkpoints apply once; no unnecessary lane retirement, dropped history or blind prompt replay. |
-| 4. Project-backed history | Provider: configured ChatGPT project; resolve/reuse or create when absent; bind account/workspace/project IDs; create new owned chats there | Read-only host discovery, no-inference create/reuse/place/readback; then scoped live tool roundtrip. Duplicate/inaccessible/deleted projects, concurrency, uncertain results and app restart pass; no silent root-level fallback. |
-| 5. Complete development and lifetime | Provider/TUI: native search/discovered tools, JSON/freeform/batches, questions, reviewer, errors→repair→tests, parallel work, cancel/reconnect/latest resume | Exact copied-repository trial, user-visible initial/intermediate/final and persisted transcript, one actual effect per call, original-ID returns, surviving sibling on cancel, real-host observer-loss, hours-long work and phone reboot. |
-| 6. Cost/output and alternative transport | Provider/TUI: warm deltas/lazy tool catalogs, latency, public markup handling; complete independent retained MCP original-call return | Separate user-message objects/tool returns/model starts/HTTP/summary/retry counters; no extra user prompt per tool. Confirm exact host call/connector acknowledgment and report its cost; no automatic approval. Both transports share Core execution/transcript ownership. |
-| 7. Selective source integration | Current rewrite/rust-core: active runtime/licenses and97 JS/28 Python tests integrated under providers/chatgpt; port remaining applicable real-Core qualification drivers, separate runtime from research and preserve unique history/edits | No resurrection of old Core/shared-profile/quota/UI/publication code. Port all remaining requirements or mark unshipped optional behavior explicitly; no enabled-but-unqualified fallback. Required supported product paths pass together. |
-| 8. Release and activation | Producer/Core: authenticated optional payload inventory, compatibility, install/update/reinstall/rollback and recovery; Base+Full composition | Base excludes Manager/TUI/Provider; Full retains its qualified UI/Manager; Chat opt-in never forces app/rootfs/login on ordinary launch/update. Sign/readback/disposable device proof/CAS before bounded device activation; close experiment after migration and accepted proof. |
+| 0. Close current TUI regression | TUI: correct the overlength account-ID fixture; complete the existing compact /switch settings work | Actual48 focused native tests,94 upstream checks/lint,24/32/40/80-column rendering, selection/tab preservation and affected Android UI proof. A failed candidate is not releasable. |
+| 1. Core independence | Core/Manager/TUI: finish explicit direct execution and optional-setting isolation; retain versioned preparation/handoff and explicit projection | Same-home normal→direct→normal; absent/damaged/malformed/hung Manager; invalid upstream settings; exact account identity; no duplicate effects or configuration changes. No real Chat required. |
+| 2. Rust Provider foundation and transport migration | Provider: independent Cargo package, one adapter process; Rust Responses/parser/SSE/tools, CDP, context correlation and owned-host/cancel/reconnect; minimal versioned app JS bridge | Port relevant experimental drivers alongside code; deterministic legacy/Rust contract comparison without submitting to both; original call IDs, streaming/errors, warm deltas, checkpoints, capability mismatch, unknown dispatch and sibling isolation; actual Android binary/app-bridge proof. |
+| 3. Provider settings and generic TUI | Rust Provider: one config/validator, show/effective/edit/set/validate and catalog/profile projection; TUI reads capabilities instead of hardcoded Chat families/efforts | File-only use without Manager; convenience surfaces share the validator; invalid edit/no-op/default precedence and1m preservation; no public command advertised before implementation. |
+| 4. Context and native↔Chat handoff | Rust Provider/TUI/upstream APIs: repair unsupported_desktop_route at its actual previous-model/opaque-history boundary; reduce reply→compaction→new-Chat cycles; separate thresholds/wire limits | Fresh/existing long threads, both directions, readable canonical transfer, saved opaque checkpoints, hash/downshift, manual/automatic/interrupted/repeated compaction, cold resume, in-place Chat model/effort. No alias-only repair, lost history or blind replay. |
+| 5. Project-backed history | Rust Provider: configured ChatGPT project; resolve/reuse or create when absent; bind account/workspace/project IDs before new conversations | Read-only host discovery, no-inference create/reuse/place/readback, then budgeted tools. Duplicate/inaccessible/deleted projects, concurrency, uncertainty and restart; no silent root-level fallback or old-chat deletion. |
+| 6. Complete development and lifetime | Rust Provider/TUI: search/discovered MCP, JSON/freeform/batches, questions, reviewer, errors→repair→tests, parallel work, cancellation/reconnect/latest resume | Exact copied-repository trial, visible initial/intermediate/final plus cold transcript, one effect per original call, acknowledged stop state, surviving sibling, actual observer loss, long work/reboot. |
+| 7. Cost/output and alternative transport | Rust Provider/TUI: lazy tool catalogs, warm latency, public markup handling; complete independent retained MCP original-call return | Count user objects/tool returns/starts/HTTP/setup/summary/retries separately; no new user prompt per tool; exact connector ACK and actual observed allowance only. No silently enabled unqualified MCP fallback. |
+| 8. Complete experiment integration and retire legacy | rewrite/rust-core: audit branch-specific work, port remaining applicable evidence/drivers, preserve user edits/provenance/licenses; retire superseded product-path JS/Python/Bun after Rust equivalence | One maintained provider authority, all supported paths accepted, no historical Core/TUI/release overwrite, no dual-runtime automatic dispatch. Preserve unique source/evidence before branch/worktree closure. |
+| 9. Release and activation | Producer/Core: authenticated optional Rust/bridge inventory, compatibility, install/update/reinstall/rollback/recovery; Base+Full composition | Base unchanged by provider-only inputs; Full retains admitted Manager/TUI; opt-in Chat never forces app/rootfs/login on ordinary launch/update. Sign/readback/disposable update/CAS before bounded activation; validate old-state migration and explicit rollback. |
 
-Phase1 precedes feature implementation to avoid moving new debt twice. Phase2 sets
-the configuration/capability basis for3/4; inspect project host capabilities early
-without mutation so unsupported app behavior is found before implementation.
-Run cheap deterministic regressions during each phase, not just at the end. A
-necessary code move may happen before phase7; stable feature admission does not.
-Real-host project/tool/lifetime trials follow deterministic acceptance. Pro is
-excluded from automatic testing; GPT-6 is first, GPT-5.6 remains deferred until its
-continuation failures are resolved. Do not rewrite all provider code in Rust merely
-to unify language or combine separate processes to reduce their count.
+Finish the already started TUI defect at0, then Core independence at1 before new
+provider features. Phase2 establishes the Rust production path; implement new
+settings/context/project policy in Rust, avoiding a second feature implementation
+in Python/JS. Phase3 supplies the configuration/capability basis for4/5. Port the
+two known compaction fixes and their negative controls in2; investigate the larger
+observed loop and native transition in4. Read-only project/app discovery may happen
+early to expose host limitations, without adding a parallel implementation path.
+Phase8 is a final integration audit, not a reason to defer relevant tests until
+after their implementation. Run deterministic regressions throughout; real-host
+trials follow acceptance of those boundaries. Explain the necessary live model,
+submission/retry budget and state mutation scope before each trial. No real Chat
+is needed for this documentation revision. Pro is excluded from automatic tests;
+GPT-6 comes first, GPT-5.6 remains deferred. Rust migration reduces implementation
+and runtime dependency fragmentation; it does not itself resolve host allowances,
+app/API instability, project support or private reasoning availability.
+
+### Rust migration scope and preservation
+
+The package target is providers/chatgpt/Cargo.toml and src/; no crate or product
+binary exists there yet. Keep it outside the Core/Manager/TUI dependency graph.
+Use existing upstream provider configuration and one bounded local adapter; no
+new global launcher, second supervisor or general plugin registry is required.
+Rust owns HTTP/SSE/protocol conversion, schema/tool IDs, config/capabilities,
+context/compaction state, observations, CDP/control pipes, process identity/leases,
+timeouts/cancellation and uncertain-result reconciliation. App-side JS is limited
+to discovering qualified app capabilities, invoking app-local operations and
+delivering events/results; its wire version/bounds are tested with Rust. Optional
+viewer assets remain browser code. This is a boundary design, not a finding that
+the desktop app as a whole is written in one language.
+
+Within phase2, first establish protocol/state types and fixtures, then move
+configuration projection and host/process control from the Python helpers, CDP
+and pipe ownership from desktop_cdp/native_chromium_host, and request/SSE/tool
+conversion from the adapter and pinned helper dependency. Move local-function
+context/cancel/return orchestration next, retaining only app-local operations in
+the script. Port retained MCP under the same native-execution boundary; keep it
+disabled as an automatic fallback until its separate acceptance. A Rust entrypoint
+wrapping all existing Bun/Python modules is scaffolding, not completed migration.
+
+Start from the actual current contract and fixtures, not a mechanical syntax
+translation or a wholesale third-party implementation. Independently structure
+our Rust adapter; preserve attribution/licenses for reused or translated helpers.
+Existing Responses/parser/SSE/tool helpers are reused dependency code today, so
+do not rename them into a false claim of original authorship. Remove that runtime
+dependency only after equivalent Rust acceptance. Development/CI Python or shell
+may remain; product execution must not require Bun/Python solely for the adapter
+after cutover. The desktop app/proot or optional viewer may retain their own
+qualified dependencies; a Rust binary does not remove those requirements.
+
+Port tests around request admission/model routing, original-ID function return,
+stream ordering/partial failure, large packets, hidden instructions versus public
+transcript, prefix/delta/checkpoint reuse, concurrent lanes, ownership and shutdown.
+Fixture-based differential testing never submits a live task to both adapters.
+Do not use legacy-only passes as Rust proof or enable fallback on an uncertain
+send. One launch selects one admitted payload. During development keep the live
+provider and current credentials/profiles/conversations unchanged; migration uses
+disposable roots first. Version persistent mappings/config where needed, diagnose
+unsupported older state and preserve user1m overrides. Never discard pending tool
+results or rebuild a conversation just to change implementation language.
+
+Integration means the maintained Provider lives on rewrite/rust-core, not in
+crates/core. The runtime/license/test port from ab41733 is already committed;
+remaining branch work and user profile/test edits still need final preservation
+review. Keep source provenance and useful drivers in the owning source/test paths,
+proof artifacts in XDG cache and historical narrative in Git. Final branch closure
+requires an explicit reviewed integration result with no unintended Core/UI/release
+changes and no unique unpreserved work. Do not erase the experimental checkout as
+an incidental cleanup. Keep no second active roadmap or production runtime after
+cutover; old signed generations remain explicit rollback targets.
+
+Adapt the independent provider gate to cargo format/test/lint/build plus minimal
+bridge contract tests and actual Android execution. Optional JS bridge tests need
+not impose Bun on the shipped adapter. Core/Base jobs stay package-scoped; shared
+lockfile/toolchain changes still get checks for their actual consumers. Preserve
+source fingerprints so provider-only policy updates do not invalidate Base. The
+release gate includes direct --profile use without Manager/TUI, generic /model
+selection without restart, absent/incompatible provider behavior and preservation
+of native siblings. Packaging must authenticate the Rust executable, app script
+and required assets as one compatible payload, with tested activation/rollback
+through the existing signed authority; it must not create a second updater.
 
 Implementation is in progress: /switch now uses Policy/Accounts/Custom tabs and
-upstream single-line rows, with real-render tests at24/32/40/80 columns. Exact native qualification39088954804 targets final UI sourceb55ea78; it is
-not published or installed. The controller cleared stale frontend output pins
+upstream single-line rows, with real-render tests at24/32/40/80 columns. Native
+qualification39088954804 for sourceb55ea78 failed:47/48 focused tests pass, while
+the new render fixture fails admission before rendering. Its supposed valid
+account ID has65 characters, beyond the64-character contract. Correct the fixture
+to the valid boundary and rerun exact native acceptance; do not relax production
+validation or claim the render test passed. No new TUI is published or installed.
+The controller cleared stale frontend output pins
 while the changed recipe awaits successful qualification; public Full60 is
 unchanged. The Core launch/config/account source changes pass the full local gate
 (135 Python/355 Rust, format/lint/build), followed by the affected66 Manager
@@ -116,7 +201,9 @@ rejection and Manager-absent native execution. It uses qualified TUI1c413cf;
 new quota UI acceptance is separate. Proofs: product-phase1-complete-check.log,
 manager-final-profile-gate.log, product-preparation-android.{json,log},
 product-android-read-only-smoke.log. No operating activation or real Chat.
-Provider integration runs97 JS and28 Python tests without Chat; this selected
+Provider integration runs97 JS and28 Python tests without Chat; hosted run
+39089428990 passes for exact source63c64cd. This is legacy implementation evidence,
+not Rust acceptance. This selected
 runtime gate excludes unrelated historical SIWC/probe suites. The source fixes
 successful-but-uncommitted compaction poisoning the warm prefix: old source fails
 with desktop_context_replaced, candidate keeps one conversation and sends only
@@ -161,7 +248,7 @@ Approved configuration target (not implemented):
 window, compaction threshold/headroom, transport limits, default model/effort and
 remote history/project destination. Invocation overrides win, then per-model
 settings, then shared defaults; native upstream choices remain explicit and their
-origin is shown. Generated models.json/profile files and immutable Python/JS code
+origin is shown. Generated models.json/profile files and immutable provider code
 are not user-editable authorities. No editing multiple account homes or source
 constants to change a provider preference. Preserve overrides across reinstall/
 rollback and diagnose an older payload's unsupported setting without dropping it.
@@ -172,7 +259,7 @@ the same validator; neither is required for direct file use. Settings inspection
 submits0 messages. Apply at a safe boundary: context/catalog changes select the
 matching backend, history/project changes affect new lanes, native sibling settings
 and in-flight calls stay unchanged. Exact command names/schema are finalized with
-phase2, not advertised as working commands now.
+phase3, not advertised as working commands now.
 
 ## ChatGPT projects and history
 

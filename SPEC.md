@@ -1153,13 +1153,38 @@ native UI and basic Core execution remain usable. Final TUI-without-Manager
 admission requires tests; the current signed full pairing is not already relaxed.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
-Manager and TUI. It remains an optional adapter process owning authentication,
-transport and host lifetime, usable through upstream configuration without Manager
-or TUI. Its failure must not disable native Codex, account commands or window
-management. Reuse existing upstream provider configuration and bounded local
-contracts; do not introduce a speculative general plugin framework. Unify component
-discovery/status and lifecycle presentation where appropriate, not credentials,
-transcript storage, process ownership or unqualified update mechanisms.
+Manager and TUI. Its approved implementation target is a native Rust adapter
+process, usable through upstream configuration without Manager or enhanced TUI.
+Rust owns configuration/capabilities, Responses HTTP/SSE and tool mapping,
+conversation/context correlation, cancellation/reconnect/retry policy, CDP
+communication and owned-host lifetime. The provider may use the signed app's
+authenticated context; it does not replace that app's login or inference.
+Its failure must not disable native Codex, account commands or window management.
+Reuse existing upstream provider configuration and bounded local contracts; do
+not introduce a speculative general plugin framework. Unify component discovery/
+status and lifecycle presentation where appropriate, not credentials, transcript
+storage, process ownership or unqualified update mechanisms.
+
+The existing JS/Bun and Python runtime is a migration reference, not the target
+production architecture. Keep only the JavaScript required to execute inside the
+app renderer for the current app-owned function transport, plus optional viewer
+assets. Rust controls and validates that bridge through CDP; no token extraction,
+second tool executor, duplicated configuration validator or task/retry/lifetime
+policy belongs in the injected script. Define a versioned, bounded bridge contract
+and reject incompatible app capabilities before an uncertain submission. This is
+not a claim that the entire desktop app is Rust or JavaScript, nor a promise that
+changing the provider's language bypasses the host's limits.
+
+The planned Rust package is providers/chatgpt/Cargo.toml with runtime code in src/
+and separately inventoried app-side bridge/assets. It must not be a Core, Manager
+or TUI dependency. Workspace membership must not make Base acquire/build the
+provider or desktop app. Replace product-path Bun/Python dependencies only after
+their behavior is qualified in Rust; development/qualification scripts may remain
+Python or shell. Use one selected adapter per launch, not automatic dual-runtime
+execution or fallback after uncertain dispatch. Old signed generations remain
+explicit rollback targets. Preserve installation identities, login/profile data,
+remote conversation associations, live jobs and current configuration overrides
+through bounded migration; source integration alone never activates a replacement.
 
 Experiment integration targets rewrite/rust-core as a repository, not crates/core
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,
@@ -1169,6 +1194,16 @@ Preserve source history and user changes; compare intent and current equivalents
 before replaying a commit. Separate runtime modules from qualification/research
 material. Do not ship historical probes, GUI trials or user app/login data as
 runtime dependencies merely because they share an experiment directory.
+
+The initial runtime/tests/license port is already on rewrite/rust-core; Rust
+conversion and experiment integration are not complete. Port the remaining useful
+qualification drivers alongside the affected Rust implementation, preserving their
+provenance and independent inputs. Review branch-specific and uncommitted work
+before the final integration/closure; retain unique evidence and attribute reused
+or translated code. Do not overwrite current product history with a wholesale
+experiment merge, delete unreviewed user work, or leave two active provider source
+authorities. Rust admission, product acceptance and preservation of unique work
+precede experiment closure. CURRENT.md owns the ordered migration work.
 
 First qualify no-Manager execution and configuration isolation, then generic
 Manager/frontend/provider composition. Before stable provider admission, establish
@@ -1334,7 +1369,13 @@ the accepted-input controller, reusing a matching build already in progress.
 
 Provider-only source changes under providers/chatgpt use the independent optional
 provider gate and do not rebuild unchanged Core/Manager or make Bun a Core
-prerequisite. Classification still requires a successful accepted predecessor;
+prerequisite. During Rust migration, qualify the Rust package and minimum app-side
+bridge together, retaining legacy tests as differential evidence until equivalent
+coverage passes. Missing Rust/device/bridge gates are unfinished, not a reason to
+fall back to legacy admission. After cutover, the provider gate must not require
+Bun/Python merely to execute the production adapter. Scope Cargo lock/toolchain/
+shared-build changes by their actual consumers; do not exclude changed shared
+inputs from Core qualification. Classification still requires a successful accepted predecessor;
 otherwise the conservative full Core gate runs. Changes to Core/shared build inputs
 or mixed unknown paths retain full qualification. Provider qualification is separate
 from Core acceptance and must be required before future signed provider admission.

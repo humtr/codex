@@ -6,6 +6,42 @@ authentication context and host/conversation lifetime. Manager is not required.
 TUI supplies native transcript/model-selection integration. No provider code is
 linked into Core or Manager.
 
+## Approved Rust migration
+
+The production target is a standalone Rust Provider package here
+(`Cargo.toml`, `src/`), with minimal app-side JavaScript and separately inventoried
+optional viewer assets. This target is not implemented yet: today's runtime is
+JS/Bun plus Python. Source integration is already underway; experiment closure
+and Rust runtime admission are still pending. The repository-wide ordered work
+is in [CURRENT.md](../../CURRENT.md#product-completion-scope-and-work-order);
+this file does not define a competing roadmap.
+
+| Responsibility | Target implementation |
+| --- | --- |
+| Configuration, effective values and model capabilities | Rust; one validator and generated catalog/profile outputs |
+| Responses admission, streaming, tools, deltas and compaction | Rust; preserve upstream history/approval/execution ownership |
+| App connection, host lifetime, cancellation and reconciliation | Rust; bounded CDP and process ownership |
+| App-local function exposure, events and result delivery | Minimal JS executed in the app renderer; typed/versioned wire boundary to Rust |
+| Optional remote viewer | Browser JS/TS/CSS assets; not a mandatory inference path |
+| Build/research/qualification helpers | Rust, Python or shell as appropriate; not product runtime dependencies |
+
+Current code demonstrates an app JS/React connection point; it does not establish
+the language of every part of the desktop app. Moving the adapter to Rust must not
+move credentials out of the app, duplicate tool execution, add model requests or
+promise a different Chat allowance. Rust owns policy; the injected bridge only
+implements the app operations/events needed by the qualified transport.
+
+Port existing deterministic boundary tests and real-Core drivers before removing
+each legacy runtime responsibility. Keep the working installed provider unchanged
+until candidate admission and a separate bounded activation. Preserve data paths,
+account/workspace/conversation identity, context overrides and pending-call state;
+do not restart live work or guess whether an uncertain submission completed.
+After the Rust product path passes equivalent acceptance, retire superseded
+runtime JS/Python and Bun requirements. Retained signed generations supply explicit
+rollback, not a second automatically selected implementation. Keep provenance and
+licenses for reused or translated code. No whole historical Core/TUI/release
+snapshot is merged from the experiment.
+
 The active runtime was selectively ported from `experiment/web-termux` at
 `ab41733`; the user's existing uncommitted1m catalog/profile assertions were
 included here and remain untouched in that checkout. Historical experiment Core,
@@ -51,9 +87,11 @@ From the repository root:
 BUN=/absolute/path/to/qualified/bun scripts/check.sh provider
 ```
 
-This gate runs the actual provider JavaScript/Python suites in disposable roots,
+This current gate runs the actual provider JavaScript/Python suites in disposable roots,
 with no real Chat submissions. Missing Bun is an unfinished gate, not a skipped
 success. Normal Core checks do not require the optional provider runtime.
+The Rust package/bridge and actual Android execution gates must be added with the
+implementation; the existing legacy gate alone cannot admit the future Rust binary.
 A live trial requires explaining its purpose, scope and expected submissions;
 automated tests never sample Pro or replay an uncertain submission.
 

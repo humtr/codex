@@ -11,7 +11,8 @@ The product has one public command, `codex`, and four components:
   notifications, windows and task assistance;
 - an optional TUI, extending the upstream terminal UI and integrating Manager
   and provider capabilities;
-- an optional Provider for ChatGPT model connection, currently experimental.
+- an optional Provider for ChatGPT model connection, currently experimental;
+  its approved target is a Rust adapter with a minimal app-side JavaScript bridge.
 
 Every Termux Codex execution passes through Core. Actual tools, reviewer,
 conversation storage, compaction and resume remain upstream-owned. The approved
@@ -70,6 +71,12 @@ while `--profile chatgpt` remains the fallback. The pilot's signed Linux app sti
 owns its login and Chat inference. Active source and focused qualification now live in
 [the optional Provider](providers/chatgpt/README.md); remaining historical real-host
 evidence stays on experiment/web-termux until its relevant drivers are ported.
+The integrated provider still runs JS/Bun and Python today. Rust migration will
+move transport, configuration and host lifetime into the independent Provider,
+without linking it into Core/Manager or changing ordinary Base requirements.
+The current app-function route still needs a small script in the app's renderer;
+a Rust provider can control that script through CDP. Migration is not deployed,
+and does not replace the app's login or remove its own runtime dependencies.
 
 The current pilot cannot safely continue every long native Codex conversation:
 previous-model compaction can fail with `unsupported_desktop_route`, and opaque
