@@ -50,7 +50,8 @@ plus Core. Manager, TUI and Provider do not form a mandatory launch chain.
 | Provider | Rust configuration/catalog, Responses/tool-return mapping, Chat app auth context, CDP and owned-host/lane lifetime | Native tools/reviewer, canonical history or Core runtime selection |
 
 `runtime-binding` is the small Core-defined execution-record contract consumed by
-optional tools; Core has no Manager dependency. Existing `frontend/manager-tui`
+optional tools; Core links no Manager code. The remaining runtime/configuration
+coupling is listed below. Existing `frontend/manager-tui`
 paths and signed markers keep their compatibility spelling until a qualified
 migration warrants changing them. Public naming is TUI.
 The current Full TUI launcher still requires its admitted Manager pairing. That
@@ -73,16 +74,20 @@ proof. Corrective changes are being implemented against that exact history.
   39093637388 still failed 1 of 48 tests. Its Policy tab fit entirely at 24 columns;
   the test wrongly required an ellipsis even where no text was clipped. Account
   and Custom tabs still require truncation. `93d7491` corrects this assertion;
-  native acceptance39097582554 is running before frontend output pins/publication.
-  The 94 upstream
-  checks/lint were skipped after that failure and are not accepted for this change.
+  native acceptance39097582554 passed all48 focused tests,94 retained upstream
+  checks and the lint gate. The earlier failed run's skipped checks are not proof.
+  The candidate is not installed or published; published TUI authority is unchanged.
 - **Core:** `a003c8b` adds `CODEX_TERMUX_CORE_ONLY=1`, skipping Manager preparation,
   optional config and TUI on the upstream dispatch path. Its process fixture proves
   no Manager calls and flag removal before the fake upstream. Source acceptance
   39094807266 and generic Android build/smoke 39095043381 passed for source4975616;
   neither is a signed real-upstream normal→direct→normal feature trial. Earlier
   reports overstated that scope. `qualify_core_independence.py` did not set this
-  flag. Available-Manager failures and settings isolation remain open.
+  flag. The corrected driver now sets it and passes the real signed Android
+  normal→direct→normal configuration-load sequence with an admitted Manager;
+  a broken explicit default blocks normal operation while direct operation
+  preserves that preference and remains usable. TUI/live-sibling settings
+  isolation and available-Manager failure coverage remain open.
 - **Configuration isolation:** `shared_server` currently refreshes a running
   server's config snapshot files, and its namespace binds home/runtime/catalog
   but not effective system settings. The direct flag alone therefore does not
@@ -139,6 +144,17 @@ Keep app-local capability discovery/invocation/event delivery in the minimal JS
 bridge; Rust owns policy, IDs, state, cancellation and reconciliation. Retained MCP
 uses the same native executor boundary. Read-only app/project discovery may happen
 early to identify actual host limits; no extra live task is submitted just to inspect.
+
+Core isolation must bind the opaque effective config and requirements (including
+absence) before another launch can replace them; merely hashing a later read of
+the mutable global directory is insufficient. Reusing a server must never rewrite
+its live FD-34 snapshot. Keep catalog/model policy in its existing owner. Any
+record-format or namespace change needs mixed-generation discovery, safe profile
+deletion, retirement and rollback proof with the previously admitted readers;
+do not fix one launch by making older Manager/Core readers reject all task state.
+Use the upstream configuration loader for syntax/type admission, without adding
+a competing Manager policy parser to Core. Preparation failure can fall back only
+before dispatch and with confirmed execution-home identity; never replay work.
 
 Current Rust code has no HTTP server or app transport. The legacy runtime remains
 the equivalence reference. Port useful real-Core scenario drivers alongside each
@@ -277,6 +293,17 @@ tests, rustfmt, clippy and release build. Python checks passed 18 script, 106 CI
 check/cache-scope regressions passed 3 tests. Logs are retained under
 `~/.cache/codex/acceptance/development-audit-1t4txdwt`. This is local configuration
 and source proof, not Rust inference, hosted-toolchain or deployment acceptance.
+Exact source `b60f28f` subsequently passed Provider gate39098078633 with pinned
+Rust1.98.0/Bun1.4.0 and source gate39098078609. Their logs and native TUI logs are
+retained in that same acceptance directory. No Chat request was submitted.
+`direct-core-android.json` additionally records 39 signed lifecycle steps with
+real upstream0.163.0, unchanged Manager reuse, the direct flag and invalid-default
+controls. The owned fixture was removed and its preservation sentinel survived.
+The first new driver attempt used the launch command `profile use` where setting
+a preference required `profile default`; it refused before opening a TUI and was
+corrected before the successful run. This was a fixture error, not a product
+failure or inference trial. The renamed unit test states its actual scope:
+Manager calls/config projection, not unexercised UI behavior.
 
 Final composition proof covers Base without optional components; Manager without
 TUI; TUI/Provider without Manager; direct Provider `--profile` use; Full plus opt-in

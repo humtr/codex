@@ -25,6 +25,7 @@ def qualify(args, report):
     report['inputs'] = {name: sha(getattr(args, name))
                         for name in ('core', 'builder', 'archive', 'manager')
                         if getattr(args, name) is not None}
+    report['driverSha256'] = sha(Path(__file__).resolve())
     assert report['inputs']['archive'] == args.archive_sha256
     report['version'] = args.version
     with tempfile.TemporaryDirectory(prefix='ci-', dir=os.environ['TMPDIR']) as temporary:
@@ -44,7 +45,8 @@ def qualify(args, report):
         def run(label, command, *, selected=env, expected=0):
             result = subprocess.run([str(value) for value in command], env=selected,
                                     cwd=root / 'work', capture_output=True, timeout=180)
-            report['steps'].append({'name': label, 'exitCode': result.returncode})
+            report['steps'].append({'name': label, 'exitCode': result.returncode,
+                                    'expectedExit': expected})
             assert result.returncode == expected, (
                 label, result.returncode, result.stdout[-2048:], result.stderr[-2048:])
             return result
@@ -132,6 +134,44 @@ def qualify(args, report):
             current(managed.name)
             installed_manager = generations / managed.name / 'manager'
             assert sha(installed_manager) == report['inputs']['manager']
+            # Exercise the actual direct flag with an admitted, working Manager.
+            # Version alone is not upstream config validation: features list also
+            # loads the real runtime configuration, without inference or login.
+            run('create owned account-selection fixture',
+                [launcher, 'termux', 'profile', 'create', 'core-probe'])
+            run('select owned account-selection fixture',
+                [launcher, 'termux', 'profile', 'default', 'core-probe'])
+            preference = home / '.local/share/codex/manager/default-profile-v1'
+            preference_bytes = preference.read_bytes()
+            core_config = home / '.local/share/codex/core/config/config.toml'
+            direct = dict(env, CODEX_TERMUX_CORE_ONLY='1')
+            for label, selected in [('managed before', env), ('direct', direct),
+                                    ('managed after', env)]:
+                run(f'{label} real configuration load',
+                    [launcher, 'features', 'list'], selected=selected)
+                config_bytes = core_config.read_bytes()
+                assert (b'approvals_reviewer = "auto_review"' in config_bytes) == (selected is env)
+                assert preference.read_bytes() == preference_bytes
+            # A broken explicit choice must remain an error in the normal path.
+            # Direct operation uses the caller's native home and does not repair
+            # or silently replace the Manager's preference.
+            preference.write_bytes(b'owned invalid profile preference\n')
+            preference.chmod(0o600)
+            run('invalid explicit account blocks normal execution',
+                [launcher, 'features', 'list'], expected=1)
+            run('direct execution ignores invalid optional account preference',
+                [launcher, 'features', 'list'], selected=direct)
+            assert preference.read_bytes() == b'owned invalid profile preference\n'
+            preference.write_bytes(preference_bytes)
+            run('restored account selection resumes normal execution',
+                [launcher, 'features', 'list'])
+            run('reset owned account-selection fixture',
+                [launcher, 'termux', 'profile', 'default', 'default'])
+            report['directExecution'] = {
+                'admittedManager': True, 'realUpstreamConfigLoad': True,
+                'normalDirectNormal': True, 'invalidPreferencePreserved': True,
+                'tuiOrLiveSiblingIsolationProven': False,
+            }
             installed_manager.unlink()  # Only this owned fixture's optional asset.
             current(managed.name)
             run('rollback with installed Manager unavailable', [launcher, 'update', '--rollback'])
@@ -156,7 +196,8 @@ def main():
     parser.add_argument('--archive-sha256', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
-    report = {'accepted': False, 'steps': []}
+    report = {'accepted': False, 'steps': [], 'realChatSubmissions': 0,
+              'publicPublication': False, 'deviceActivation': False}
     try:
         qualify(args, report)
     finally:

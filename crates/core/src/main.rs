@@ -14896,7 +14896,7 @@ snooze_until	0
 
     #[cfg(unix)]
     #[test]
-    fn test_explicit_core_only_execution_skips_manager_policy_ui_and_config() {
+    fn test_explicit_core_only_execution_skips_manager_calls_and_config_projection() {
         let root = b2_public_main_fixture("core-only-execution", true);
         let home = root.join("home");
         let manager_calls = root.join("manager-calls");
