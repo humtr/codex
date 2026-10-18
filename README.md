@@ -3,13 +3,20 @@
 This repository is the clean rewrite of the Termux compatibility layer for the
 upstream Codex CLI.
 
-The rewrite has one public command, `codex`, and two internal layers:
+The product has one public command, `codex`, and four components:
 
 - a minimal native Rust Core that makes the upstream runtime work correctly on
   Termux and owns installation, update, diagnosis, activation, and rollback;
-- a separate Manager layer reached through `codex termux` for execution
-  profiles and notifications. Conversation
-  discovery and resume remain upstream-owned.
+- an optional Manager reached through `codex termux` for accounts, quota,
+  notifications, windows and task assistance;
+- an optional TUI, extending the upstream terminal UI and integrating Manager
+  and provider capabilities;
+- an optional Provider for ChatGPT model connection, currently experimental.
+
+Every Termux Codex execution passes through Core. Actual tools, reviewer,
+conversation storage, compaction and resume remain upstream-owned. The approved
+next architecture further isolates optional preparation failures; that work is
+not already deployed. See [the product completion plan](CURRENT.md#product-completion-scope-and-work-order).
 
 ## Current status
 
@@ -62,6 +69,23 @@ uses this common registration; `/model` selects its model and supported effort,
 while `--profile chatgpt` remains the fallback. The pilot's signed Linux app still
 owns its login and Chat inference. Setup/qualification is maintained on
 [experiment/web-termux](https://github.com/humtr/codex/blob/experiment/web-termux/experiments/web-provider/README.md).
+
+The current pilot cannot safely continue every long native Codex conversation:
+previous-model compaction can fail with `unsupported_desktop_route`, and opaque
+native checkpoints require readable context transfer. A fresh Chat conversation
+avoids that specific transition but is not blanket qualification of Full60 Chat
+inference. Keep existing conversations; see [current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
+
+Provider configuration and project placement are planned, not released. The
+configuration target is `~/.config/codex/providers/chatgpt.toml` (honoring
+`XDG_CONFIG_HOME`), with validated context/compaction, model/effort and ChatGPT
+project settings. The observed1,000,000-token override is retained local policy,
+not a verified Chat capacity. Generated model catalogs and immutable source are
+not the intended editing surface. New provider chats should reuse the configured
+remote project or create it when absent; existing chats stay where they are and
+are not deleted. No project/settings commands for this target are available yet.
+See [configuration](CURRENT.md#context-and-easy-configuration) and
+[project behavior](CURRENT.md#chatgpt-projects-and-history).
 
 ## Fresh install
 
@@ -233,10 +257,13 @@ cooldowns or missing destination capabilities pause safely with a reason.
 The minimum installation is the qualified upstream runtime plus Core. Core owns
 Termux execution compatibility and signed install/update/rollback; it does not
 depend on Manager, the enhanced TUI or a Chat provider. Manager adds account/task/
-notification/window conveniences; its TUI integrates `/switch` and provider model
+notification/window conveniences; the TUI integrates `/switch` and provider model
 selection. The provider owns its transport and host lifetime. The small shared
 runtime-binding crate is compiled source, not another installed dependency.
 See [the component boundary](SPEC.md#46-final-component-boundary-and-core-independence).
+TUI is the component name. Existing `frontend/manager-tui`, signed artifact
+identities and build flags retain their compatibility spelling. This terminology
+does not yet remove the deployed Full TUI's Manager pairing requirement.
 
 `release/upstream.json` is the single exact version/source/archive/toolchain
 recipe. Core/runtime qualification runs it without acquiring or compiling Manager

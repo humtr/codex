@@ -4,7 +4,18 @@ Status: current product contract
 Repository: `humtr/codex`
 Active implementation branch: `rewrite/rust-core`
 
-## Generation-bound Manager TUI admission (2026-10-10)
+Document interpretation, reviewed2026-10-18: Core, Manager, TUI and Provider are
+the component names. TUI is an optional upstream-based frontend, not Manager's
+private screen. Existing `frontend/manager-tui`, artifact identities, flags,
+workflow names and wire markers retain their compatibility spelling until an
+explicit migration; a terminology change alone changes no executable behavior.
+CURRENT.md owns the current installed/public baseline and the ordered completion
+plan. Sections labelled approved target describe authorized work still to be
+implemented; deployed dispatch/default/configuration contracts remain in effect
+until their coordinated replacement passes qualification. Historical release
+versions below describe retained compatibility, not the latest installed release.
+
+## Generation-bound TUI admission (2026-10-10)
 
 The0.163 adaptation is termux-fd-remap-v5, bound to official package SHA256
 9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb and raw CLI
@@ -62,7 +73,7 @@ update authority is maintained.
   Manager; absent Manager skips new convenience registration, while native
   account-local upstream profiles continue to work. Missing or unavailable
   optional registration never prevents ordinary Core launch.
-  An optional source-built Manager TUI is the third signed helper at `helpers/2`,
+  An optional source-built TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the
   generation's upstream version and its generation must declare Manager. Local
@@ -214,7 +225,7 @@ observations are reported separately from automated qualification.
 
 The reusable producer also has an explicit `base_only` qualification mode. It
 constructs only the qualified upstream runtime, Core, Code Mode host and browser
-helpers through the existing release-builder. Manager and Manager TUI are absent;
+helpers through the existing release-builder. Manager and TUI are absent;
 their compilation, downloads and qualification do not gate this mode. Complete
 base inventory, digest/mode checks and actual Android/AArch64 Core/runtime smoke
 remain required. A base result is not an integrated product qualification.
@@ -230,7 +241,7 @@ pair and retains the current generation on an unsupported update.
 Base qualification may run from an exact rewrite/rust-core push or manual dispatch
 with read-only repository permissions. Source must equal the event's immutable
 commit. `rebuild_current` selects the version and source archive digest from the
-authenticated stable descriptor independently of Manager TUI pins; otherwise the
+authenticated stable descriptor independently of TUI pins; otherwise the
 ordinary official upstream discovery is used. An unsupported upstream artifact
 still fails existing builder qualification, rather than weakening patch admission.
 Skipped integrated construction distinguishes a non-newer release from missing
@@ -291,7 +302,7 @@ an uncertain crash pauses instead of replaying. At most3 automatic handoffs per
 thread per hour are attempted, with the selected cooldown between attempts.
 
 The native frontend source has two owners: pristine upstream files receive only
-the maintained integration patch; standalone Manager TUI implementations live as
+the maintained integration patch; standalone TUI implementations live as
 ordinary source under frontend/manager-tui/src. The single maintained source
 assembler preflights the patch and refuses to overwrite any upstream file with
 an owned source file. Qualification binds both inputs, the assembler and tests
@@ -1072,7 +1083,7 @@ an installed-runtime change.
 
 The minimum product is the qualified upstream runtime plus Core's Termux
 compatibility and authenticated generation lifecycle. Manager, the maintained
-Manager TUI and any Chat provider are optional components, not successive mandatory
+TUI and any Chat provider are optional components, not successive mandatory
 launch stages. Manager can operate without the enhanced TUI; the provider exposes
 an upstream configuration route without requiring its model picker.
 
@@ -1130,17 +1141,20 @@ failure may continue only with the confirmed execution home and proof that no wo
 was dispatched. Failure after handoff or uncertain submission never triggers a
 blind task restart. Explicit user configuration errors remain explicit errors.
 
-Manager and its frontend are one optional product with separate implementation
-boundaries: Manager owns policy and headless commands; the frontend owns upstream
-UI hooks and renders choices through versioned contracts. Preserve separate
-executables/builds where upstream TUI dependencies require them; do not link the
-upstream execution engine into Manager to reduce the artifact count. Generic
-model routing reads the installed provider capability/configuration authority
-rather than duplicating Chat families/efforts in Manager or frontend.
+Core, Manager, TUI and Provider are separate components of one product. Manager
+owns policy and headless commands; TUI owns upstream UI integration and connects
+to Manager only for its optional capabilities. Provider selection/settings must
+not require Manager. Preserve separate executables/builds where upstream TUI
+dependencies require them; do not link the upstream execution engine into Manager
+to reduce artifact count. Generic model routing reads the installed provider
+capability/configuration authority rather than duplicating Chat families/efforts
+in Manager or TUI. Optional capability absence removes only the affected extension;
+native UI and basic Core execution remain usable. Final TUI-without-Manager
+admission requires tests; the current signed full pairing is not already relaxed.
 
 The Chat provider remains an optional adapter process owning authentication,
 transport and host lifetime, usable through upstream configuration without Manager
-or its TUI. Its failure must not disable native Codex, account commands or window
+or TUI. Its failure must not disable native Codex, account commands or window
 management. Reuse existing upstream provider configuration and bounded local
 contracts; do not introduce a speculative general plugin framework. Unify component
 discovery/status and lifecycle presentation where appropriate, not credentials,
@@ -1174,6 +1188,92 @@ payload; do not assume the current eight-file inventory already supports it.
 Once the Core interface work is admitted, Manager/provider-only changes must leave
 base inputs unchanged. Upstream/backend changes still require the applicable
 frontend and execution-protocol compatibility proof.
+
+### Approved provider configuration, context and remote project behavior
+
+The proposed single user-owned provider configuration is
+`$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaulting to
+`~/.config/codex/providers/chatgpt.toml`. The path/schema becomes public only with
+its implementation. Provider owns validation, effective settings and rendering
+to native upstream configuration/catalog; generated profiles, models.json and
+immutable installation modules are outputs, not additional editable authorities.
+Explicit invocation overrides win, then per-model settings in this file, then
+file-wide settings and declared defaults. Preserve ordinary upstream overrides
+and show their effective origin rather than silently rewriting user configuration.
+Existing --profile chatgpt remains a generated upstream fallback. Native Codex
+model defaults/account configuration are not modified to configure this provider.
+
+Expose show/effective, validate, edit and atomic field-setting operations through
+the provider's existing invocation surface; optionally present the same operations
+in TUI and Manager. Do not introduce another permanent launcher, require Manager
+for file-based configuration or make a TUI implementation a second validator.
+Validate before atomic commit; failed edits preserve the old configuration.
+Show invalid configuration and unapplied changes clearly. No settings read/edit
+may submit Chat or create a project. Unknown keys/types and inconsistent limits
+must be diagnosed, not silently ignored. Avoid secret values in status output.
+
+Editable context controls distinguish native context_window_tokens (also projected
+to the appropriate upstream catalog fields), automatic-compaction trigger/headroom,
+and encoded/decoded transport byte limits. Support model-specific values. The
+user's current1,000,000-token override is preserved as an explicit override; it is
+not a verified hosted Chat context capacity or proof that no compaction is needed.
+No proven transport/model limit is bypassed by inflating a catalog number. Native
+compaction caused by model/hash changes is separate from token thresholds; a
+disabled token-trigger setting must not promise to suppress every compaction.
+Changing a startup catalog creates/reuses only the matching qualified execution
+binding; do not hot-edit an immutable package or an active sibling's metadata.
+
+The provider should accept a ChatGPT project destination, resolve it in the
+currently authenticated Chat account/workspace and create it when absent, as
+configured. This is a remote ChatGPT project, not the local CWD, a Manager login
+profile or an OpenAI API project. Proposed fields include history.mode=project,
+history.project.name and history.project.create_if_missing; an optional exact ID
+disambiguates existing projects. The configured destination is the default for
+new provider-owned conversations. Existing conversations are not moved/deleted
+implicitly. A project/retention change applies to new lanes at a safe boundary;
+model/effort changes should reuse an existing owned conversation when supported.
+
+Host account/workspace identity plus exact project ID binds remote placement.
+Reuse an unambiguous owned/readable matching project; duplicate names, missing
+permissions and inaccessible IDs require a useful error, not another account or
+silent root-level chat. Serialize owned creation and reconcile uncertain results
+before retrying. Verify project membership before sending the first user request;
+if creation succeeded but placement failed, report the partial state and retain
+the known project for reconciliation. Do not create one project per tool result.
+Retire/replace a local-function lane only when its pending tools/results are
+settled. Scope any durable remote-ID mappings to native thread/lane ownership;
+these are lifecycle bindings, never a second canonical transcript database.
+
+Projects may add shared instructions/files/memory and therefore affect model
+behavior. Do not silently change global personalization, shared-project access,
+MCP permissions or the native reviewer policy. Verify tool declarations and
+instruction priority with project context, including guardian child isolation.
+Temporary chat and retained project history are alternative modes; do not claim
+their combination is available before the signed host proves it. Project grouping
+reduces sidebar clutter, not message count, stored history size or allowance use.
+Retain history by default. Any later archive/delete/temporary retention option must
+be explicit, scoped and independently qualified; never mass-delete existing chats.
+
+Official product documentation supports projects and shared project context, but
+does not prove this signed-app adapter can create or select one using its local
+function return transport. Read-only host capability/operation discovery precedes
+implementation; then prove create/reuse/place/readback without model sampling,
+followed by a budgeted native tool round trip. Use the signed app's own auth and
+supported app behavior; do not extract tokens or invent unsupported endpoints.
+If the current app cannot express the operation, report the exact boundary and
+qualify an owned UI fallback before any ambiguous submission; do not silently
+abandon the configured project. References reviewed2026-10-18:
+[projects](https://learn.chatgpt.com/docs/projects?surface=app) and
+[project selection](https://learn.chatgpt.com/docs/reference/slash-commands).
+
+Settings and project acceptance cover fresh/config-profile launch, /model choice,
+same-provider model/effort change, cold resume, account/workspace change, concurrent
+lanes, duplicate names, deleted/inaccessible projects, uncertain creation and
+configuration migration/reinstall/rollback. Inspect actual ChatGPT project
+membership and native TUI reports/tool effects, not just HTTP success or counters.
+Count setup, creation requests, user-message objects, tool returns, model starts,
+retries and compaction separately; actual Chat allowance debits remain unknown
+without suitable evidence. Project operations/settings must not spend inference.
 
 ### Automated upstream preparation and base/full publication
 
@@ -1682,7 +1782,7 @@ activation-time candidate integrity remains the signed version/runtime probe.
 The official producer must therefore retain this signal on every public stable
 candidate while the R10 compatibility floor remains supported; dropping it is a
 backward-compatibility failure, not a canonicalization cleanup.
-The admitted Manager TUI may extend this exact numbered bridge with helpers/2,
+The admitted TUI may extend this exact numbered bridge with helpers/2,
 helper_count=3 and its same-version termux-manager-tui-v1 identity/digest. Manager
 is mandatory for that extension; no other additional helper is admitted. Historical
 two-helper releases retain their exact behavior. Stable publication, staging,
@@ -3585,7 +3685,7 @@ record, directory or runtime is rejected. Startup is bounded; failure does not
 invoke an installer or execute any package outside signed generations. Explicit
 user embedded/remote/configuration selections retain their upstream semantics.
 
-A qualified local Manager frontend may submit its upstream-resolved model catalog
+A qualified local TUI may submit its upstream-resolved model catalog
 to Core's private `__app-server-catalog-v1` operation on stdin (at most4 MiB).
 For deferred startup without a resolved catalog, the frontend requests the same
 native server through private no-argument `__app-server-default-v1`. This operation

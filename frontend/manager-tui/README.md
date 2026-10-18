@@ -1,13 +1,16 @@
-# Manager TUI frontend
+# TUI
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
 /switch to exact official0.163.0 source83086188ae0614bd882818ff1aa23f3194962012;
 upstream retains every existing command and owns conversation UI/title composition.
-Manager owns execution profiles and foreground identity. The0.163 candidate must pass native/device gates before publication. Official runtime remains
+Manager owns execution profiles and foreground identity. TUI is a separate
+optional upstream-based frontend, not Manager's private screen. The current
+Full60/native1c413cf pairing passes its published gates; every new pair must pass
+native/device gates before publication. Official runtime remains
 the sole execution backend.
 
 `native.patch` contains integration changes to existing upstream files. The
-standalone Manager TUI implementation is ordinary source under `src/`, including
+maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable
 pristine checkout; it preflights collisions and patch applicability before writing.
@@ -38,13 +41,24 @@ preview assets remain protected until their clients exit.
 The frontend passes its upstream-resolved model catalog to Core's existing
 backend coordinator before local startup. Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
-Manager discovers both native and catalog-bound writers. The42-test candidate
+Manager discovers both native and catalog-bound writers. The current48-test native
 gate includes catalog handoff, socket-output rejection and Core daemon ownership
 alongside profile, permission, window and upstream command regressions. Separate
 upstream-feature gates exercise0.162's managed worktrees, shared pinning, copy/
 scroll/links, startup defaults, provider capabilities, CodeMode settlement/search,
 Retry-After and patch line endings. Every topic requires an actual passing test;
 source inclusion or a nonempty aggregate suite does not qualify a missing topic.
+
+The approved next architecture retains Core, Manager, TUI and Provider as separate
+components. TUI's Manager integration is optional; provider capabilities/settings
+must not require Manager. This target still needs independent admission: current
+signed Full requires the paired Manager. Keep the existing source path, helper
+identity, CLI flags and wire markers until a coordinated compatibility change.
+Replace hardcoded Chat model/effort checks with provider-owned configuration/
+capability data; retain upstream session model/effort actions for same-Chat changes.
+Context/project settings and readable cross-provider history transfer are planned
+in [CURRENT](../../CURRENT.md#product-completion-scope-and-work-order), not working
+TUI controls. Provider validation owns settings; this UI must not copy that policy.
 
 Local resume carries the supported Termux permission selection even when Core's
 system default supplied it. Saved approval policy/reviewer remain independent.
