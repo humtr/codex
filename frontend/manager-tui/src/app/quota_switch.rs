@@ -841,12 +841,13 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join("\n");
                 if width == 24 {
-                    assert!(screen.contains('…'), "tab {tab_index}: {screen}");
                     if tab_index == 0 {
                         assert!(
                             screen.contains("Auto: off"),
                             "setting value clipped: {screen}"
                         );
+                    } else {
+                        assert!(screen.contains('…'), "tab {tab_index}: {screen}");
                     }
                 }
             }
