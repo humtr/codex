@@ -728,10 +728,14 @@ impl Operator {
                 let instructions = policy.filter(|value| Some(digest(value)) != work.record.policy);
                 let result = json!({"result":output,"native_context":latest.phase,"work_id":record.id,
                     "native_updates":history[count..],"cursor":Self::cursor(&history),"context_updates":context[context_count..],"context_cursor":Self::cursor(&context),"instructions":instructions});
-                work.record.policy = policy.map(digest);
-                work.record.observed = Some(Self::cursor(&history));
-                work.record.observed_context = Some(Self::cursor(&context));
-                self.persist(&work.record)?;
+                // A detached old observer still receives its original result,
+                // but cannot acknowledge context for a successor controller.
+                if work.record.capability == record.capability {
+                    work.record.policy = policy.map(digest);
+                    work.record.observed = Some(Self::cursor(&history));
+                    work.record.observed_context = Some(Self::cursor(&context));
+                    self.persist(&work.record)?;
+                }
                 Ok(result)
             }
             "codex_answer" => {
@@ -1644,7 +1648,11 @@ impl Operator {
             }
             work.active = None;
             if result.is_err() {
-                work.record.phase = "reconciliation_required".into();
+                // A requested interruption is still awaiting explicit Stop
+                // confirmation; the native observer closing must not erase it.
+                if work.record.phase != "stop_requested" {
+                    work.record.phase = "reconciliation_required".into();
+                }
                 work.record.accepted = false;
             }
             self.persist(&work.record)?;
