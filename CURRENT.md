@@ -16,7 +16,7 @@ audit narratives and plans remain in Git.
 | Earlier Full60 TUI proof | Source1c413cf, qualification39027733603; Full76 helper was a different signed inventory entry |
 | Retained prior TUI candidate | Source310f0f7e5ce421e61e2c3158406f17e743584557, qualified39107948384; old binding invalidated by changed source recipe, artifact retained/not activated |
 | Installed Chat adapter | Immutable c3642b19a87cdace158f; sourceBase9a5436a plus preserved user1m setting; JS/Bun/Python; app-local function returns |
-| Rust Provider candidate | Recoverable Phase A source acf1bdb8f5316b0f0a0d5e6d4c0893aaa8455dbf; unsigned Android run39173039235 and disposable snapshot restart/rollback accepted; existing authenticated host/AI proof retained; not installed publicly |
+| Rust Provider candidate | Recoverable A source acf1bdb retained; opt-in B source f0cf4ad and unsigned Android39185572029 accepted at bounded synthetic/readback scope; model-adapter default retained; no public Rust activation |
 | Experiment | experiment/web-termux at08e9856; user's uncommitted1m profile/test edits preserved, branch/worktree not closed |
 
 Full60 acceptance39033120658, Core39033121990 and publication39033383447 passed.
@@ -351,7 +351,8 @@ select it because the Rust/new MCP route fails.
   B's new synthetic native/CLI proof is distinct from C's actual Chat proof. No Pro/GPT-5.6 trial or silent retry.
 
 Phase B source, full local gates and bounded synthetic Android qualification are
-accepted in the proof index below; hosted exact-source packaging is tracked separately.
+accepted in the proof index below, including hosted exact-source packaging and
+downloaded Android candidate readback/start/stop. This is not signed delivery.
 No real Chat trial, new default, automatic fallback or runtime activation is claimed.
 
 ## Product completion scope and work order
@@ -606,6 +607,7 @@ qualify actual Chat judgment, physical UI or charged Chat message allowance.
 | phase-b-operator-android.json / phase-b-operator-android.log | Actual Android disposable Core/TUI plus synthetic host: both entrances, full native catalog, command/patch/failure/correction/test, exact retry and detached HTTP observer, independent child/reviewer allow/deny, same-thread manual/automatic Chat handoff, late committed input on original MCP return, initial/intermediate/final live CLI and native history, same Chat across later user turn and native compaction, owned-job Stop, same-endpoint Provider restart/current-history claim, original question answer, failed successor fencing/explicit takeover, concurrent host start/Stop serialization with no late dispatch after confirmation. Zero real Chat submissions; fixture ob-yb79zqmn. Does not qualify actual app bootstrap/renewal, physical Chat UI, long-duration behavior or Core-process replacement |
 | phase-b-operator-inputs.json / phase-b-provider-full.log / phase-b-core-full.log | Exact code/test/release-binary digests retained. Provider101 Rust/108 Bun/36 Python and full358 Rust/135 Python pass; fmt/clippy/release pass. The explicitly armed synthetic operator gate is additional Android proof, not inferred from ignored tests. Core, Manager, TUI and installed optional runtime/state are unchanged |
 | phase-b-shared-android.log |14 explicitly armed Android cases on the current qualified native runtime: original MCP command/patch/test returns; deferred MCP discovery/error correction; independent reviewer allow/deny; silent-host wait; native manual/automatic/interrupted compaction, public handoff, bidirectional re-entry, fork and original question answer. All synthetic/zero Chat. Required after shared Broker dispatch changes; separate from operator-specific proof |
+| phase-b-candidate-readback.json / phase-b-candidate-android.json | Exact source f0cf4ad1be96463964e271752859084b548f2d51; source acceptance39185572035, independent Core build/smoke39185610111 and Provider source/Android39185572029 pass. Complete API24/AArch64 seven-payload-file inventory, lock/licenses/source readback; downloaded binary on actual Android passes models/catalog/config validation, no-desktop/no-Core operator startup, authenticated MCP stdio tool/session discovery and kernel-confirmed service stop in a disposable root. Zero Chat; unsigned, no Provider installation or operating activation |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log / provider-live-project-native.log | Actual authenticated project discovery/create/reuse/readback without inference; separately actual project-bound GPT-6 with three native effects, four app dispatches/two user objects/three returns and saved membership |
 | ai-development-proof.json | Direct ~/prj/ai actual development, failure/repair, same-thread recovery and independent49-check/166-TUI validation; detailed scope below. Installed AI runtime unchanged |
 | provider-owned-auth-native.log / owned-auth-transition.json / provider-restored-auth-readonly.log | Actual authenticated Rust-owned app/private pipes/native tools, four starts/three effects; original profile inode and controller restored. Subsequent readonly identity preflight makes no inference |
