@@ -90,7 +90,7 @@ fn changed_policy(lane: &Lane, command: &Value) -> bool {
         .is_empty()
     }
 }
-fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
+pub(crate) fn host_block(item: &Value, responses: &Value) -> Option<&'static str> {
     if responses
         .as_array()
         .is_some_and(|v| v.iter().any(|id| id == &item["id"]))

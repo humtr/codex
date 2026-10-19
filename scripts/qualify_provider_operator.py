@@ -217,21 +217,49 @@ def probe(args):
             if match:
                 for message in submissions[-1]['messages']:
                     if message['role'] == 'user':
-                        assert message['text'] in ['OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT']
+                        assert message['text'] in ['OWNED_CODEX_ENTRY_DEVELOPMENT','OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT','OWNED_FAILED_HOST','OWNED_ENDED_HOST']
                 return {'work_id': match[1], 'controller': match[2]}
 
         cli_binding = wait(driver_binding)
         attach(cli_binding)
+        (root/'partial-host').touch()
+        drain(1.5)
+        assert rpc('codex_status',{'work_id':cli_binding['work_id']})['phase']=='running'
+        (root/'partial-host').unlink()
+        # App consent stays pending and visible. Reveal uses the same existing
+        # authenticated HTTP surface, changes no inference and checks identity.
+        (root/'host-confirmation').touch()
+        wait(lambda:rpc('codex_status',{'work_id':cli_binding['work_id']})['host_state']=='waiting_confirmation')
+        wait(lambda:'ChatGPT is waiting for tool permission' in drain())
+        wait(lambda:'ChatGPT is waiting for tool permission' in json.dumps(rpc('codex_history',{'work_id':cli_binding['work_id']})))
+        reveal_thread=rpc('codex_status',{'work_id':cli_binding['work_id']})['thread_id']
+        def reveal():
+            request=urllib.request.Request(f'http://127.0.0.1:{port}/__reveal',data=b'',headers={
+                'Authorization':'Bearer '+TOKEN,'X-Codex-Thread-Id':reveal_thread})
+            with urllib.request.urlopen(request,timeout=15) as response:return json.load(response)
+        revealed=reveal()
+        assert revealed['app_reveal_requested'] and not revealed['inference_submitted'] and not revealed['physical_ui_confirmed']
         (root / 'changed-account').touch()
+        try:
+            reveal()
+            raise AssertionError('reveal admitted another account')
+        except urllib.error.HTTPError as error:
+            assert error.code==409 and json.load(error)['error']['code']=='app_account_changed'
         denied = rpc('codex_execute', {**cli_binding, 'call_id': 'wrong-account', 'name': command_key,
             'input': json.dumps({'cmd': 'touch wrong-account-effect', 'login': False}), 'report': 'must refuse'}, True)
         assert denied['error'] == 'app_account_changed'
         (root / 'changed-account').unlink()
         assert not (root / 'w/wrong-account-effect').exists()
+        (root/'host-confirmation').unlink()
+        (root/'host-authentication').touch()
+        wait(lambda:rpc('codex_status',{'work_id':cli_binding['work_id']})['host_state']=='waiting_authentication')
+        wait(lambda:'ChatGPT is waiting for authentication' in drain())
+        (root/'host-authentication').unlink()
+        print('Host permission/authentication waits reached CLI/history; owned reveal made no inference and rejected another account',flush=True)
         (root / 'unobservable-host').touch()
         lost = rpc('codex_status', {'work_id': cli_binding['work_id']})
         assert not lost['completed'] and not lost['host_observation_available']
-        assert lost['host_progress'] == 'unknown'
+        assert lost['host_progress'] == 'unknown' and lost['host_observation'] is None
         (root / 'unobservable-host').unlink()
         rpc('codex_report', {**cli_binding, 'call_id': 'initial', 'text': 'OWNED_LIVE_INITIAL'})
         wait(lambda: 'OWNED_LIVE_INITIAL' in drain())
@@ -396,6 +424,60 @@ def probe(args):
         time.sleep(.2)
         assert json.loads((root / 'bridge-commands.json').read_text())==after
         print('Concurrent host start/Stop serialized; no late dispatch after confirmation',flush=True)
+
+        # An actual app-reported failure reaches the original native CLI and
+        # durable history without a silent model wait or a successful final.
+        (root / 'failed-host').touch()
+        drain(.5)
+        os.write(master,b'OWNED_FAILED_HOST')
+        drain(.8)
+        os.write(master,b'\r')
+        wait(lambda:rpc('codex_status',{'work_id':after_compact['work_id']})['phase']=='reconciliation_required')
+        wait(lambda:'operator_app_round_failed' in drain())
+        failure_status=rpc('codex_status',{'work_id':after_compact['work_id']})
+        assert failure_status['host_observation']['error']=='app_submit_failed'
+        assert isinstance(failure_status['host_observation']['dispatches'],int)
+        wait(lambda:'ChatGPT app reported a failure' in json.dumps(rpc('codex_history',{'work_id':after_compact['work_id']})))
+        assert not rpc('codex_status',{'work_id':after_compact['work_id']})['completed']
+        (root / 'failed-host').unlink()
+        failed_stop=rpc('codex_stop',{'work_id':after_compact['work_id']})
+        assert failed_stop['native_stop_confirmed']
+        boundary=rpc('codex_history',{'work_id':after_compact['work_id']})
+        failed_claim=rpc('codex_sessions',{'action':'claim','work_id':after_compact['work_id'],'cursor':boundary['cursor'],'context_cursor':boundary['context_cursor']})
+        assert not failed_claim['inference_submitted']
+        print('Observed host failure reached live CLI/native history; failed native state stopped/claimed without replay or false completion',flush=True)
+
+        # Explicit host completion without the native control finish is a failed
+        # round. Use a separate fresh native task for this failure scenario;
+        # preserve the preceding stopped/claimed thread as recovery evidence.
+        os.killpg(terminal.pid, signal.SIGTERM)
+        terminal.wait(timeout=10)
+        os.close(master)
+        masters.remove(master)
+        master,slave=pty.openpty()
+        masters.append(master)
+        fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',42,180,0,0))
+        offset=len(screen)
+        terminal=subprocess.Popen([str(prefix/'bin/codex'),'--no-alt-screen','--profile','chatgpt'],
+            env=env,cwd=root/'w',stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+        os.close(slave)
+        processes.append(terminal)
+        wait(lambda:'GPT-6' in drain()[offset:])
+        drain(1)
+        os.write(master,b'OWNED_ENDED_HOST')
+        drain(.8)
+        os.write(master,b'\r')
+        def ended_binding():
+            rows=json.loads((root/'bridge-commands.json').read_text())
+            submissions=[row for row in rows if row['op']=='submit']
+            return driver_binding() if any(message['text']=='OWNED_ENDED_HOST' for message in submissions[-1]['messages']) else None
+        ended=wait(ended_binding)
+        wait(lambda:rpc('codex_status',{'work_id':ended['work_id']})['phase']=='reconciliation_required')
+        wait(lambda:'operator_app_round_incomplete' in drain())
+        wait(lambda:'ChatGPT turn ended without completing' in json.dumps(rpc('codex_history',{'work_id':ended['work_id']})))
+        assert not rpc('codex_status',{'work_id':ended['work_id']})['completed']
+        assert rpc('codex_stop',{'work_id':ended['work_id']})['native_stop_confirmed']
+        print('Explicit host completion without native finish reached CLI/history as incomplete, with no replay',flush=True)
 
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,

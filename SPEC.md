@@ -1162,6 +1162,26 @@ per-work controller and receipt acceptance before effects. Chat-first work needs
 no app host for startup/tools/control. Codex-origin Chat initiation and independent
 native reviewers acquire the configured app lazily; app absence is an explicit
 failure for those capabilities, not permission for another model/account/path.
+The first Codex-origin Chat may receive the actual current user request as its
+initial user message; origin, return binding and imported history still arrive by
+MCP attachment. A successor uses an explicit non-user bootstrap on a fresh owned
+Chat, never a fabricated tool call or another user context message. This wire
+shape requires actual app qualification; local admission alone proves no delivery.
+A known local rejection before any request starts records zero dispatches and may
+confirm Stop only after the pending submission and stream have both settled.
+An observed app failure must reach native CLI/error history without waiting for
+a model-completion guess or silently replaying the request. An explicitly settled
+Chat turn without the required native finish/summary/handoff is an incomplete
+operator round: report that boundary and require reconciliation, never infer
+successful completion or silently wait for more output. Upstream `systemError`
+is a settled failed thread, not successful completion. Stop/recovery may accept
+that explicit state only with no active turn/approval or owned background jobs.
+An observed app permission/authentication request remains pending and appears in
+the original CLI and read-only status. Reuse the existing host-request classifier;
+do not equate a settled stream at that boundary with failure or task completion.
+The explicit Provider reveal command may navigate to this exact owned Chat after
+account/host identity validation, without submitting inference or answering its
+consent. The app's real controls remain the permission boundary.
 
 Session/control operations use the same bound upstream app-server and native
 context tools. Provider may consume the existing Core catalog-server preparation
@@ -1787,6 +1807,16 @@ for an exact existing destination. The configured destination is the default for
 new provider-owned conversations. Existing conversations are not moved/deleted
 implicitly. A project/retention change applies to new lanes at a safe boundary;
 model/effort changes should reuse an existing owned conversation when supported.
+
+Deferred setup/management UX must let the user discover and select a ChatGPT
+project, explicitly create one when needed, inspect/change the configured
+destination and verify conversation membership. Reuse the existing history
+configuration and authenticated project operations as the single authority;
+do not require optional Manager/TUI or add a second settings store. New Chat
+contexts for the same Codex work must retain the chosen destination. Preserve
+existing conversations and project context/access settings. This is a future
+feature requirement, not part of the current operator trial or operating activation;
+CURRENT.md owns its priority and remaining qualification.
 
 Host account/workspace identity plus exact project ID binds remote placement.
 Reuse an unambiguous owned/readable matching project; duplicate names, missing

@@ -59,8 +59,8 @@ the unqualified B draft is not that baseline. AGENTS, NOTICE, licenses and promp
 fixtures need no change. The deferred Core update-display/prompt work remains low
 priority for the next substantive Core change.
 
-This review changes documentation only. No runtime requalification, B execution,
-Chat submission, public release or device activation is claimed. Earlier
+That earlier review changed documentation only; its proof does not qualify later
+B/C implementation or trials, public release or device activation. Earlier
 documentation-agenda-audit.json and documentation-audit-migration-example.log
 retain their historical scope, including the then-observed Full76; they do not
 describe today's installed generation. Completed fixtures/live proofs are not a
@@ -101,8 +101,12 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 ## Proposed ChatGPT control through MCP
 
 Status: Phase B's opt-in operator implementation and bounded synthetic Android
-qualification are complete. The same primary Codex thread
-persists while Chat reasoning contexts can be replaced. C real Chat trials,
+qualification are complete at their recorded exact-source scope. C is now in
+progress. Actual-app trials exposed bootstrap admission, failure/stop observation
+and invisible app-consent waits. Bounded source/Android corrections are recorded
+below; actual control is blocked at the signed app's safety check on attachment.
+The same primary Codex thread persists while Chat reasoning contexts can be replaced.
+C real Chat trials,
 D default/fallback selection and E publication/operating activation remain separate.
 
 This proposal supersedes the earlier interpretation of dual entry as just a
@@ -131,7 +135,8 @@ Two entrances converge on the same control workflow:
 The user did not request an origin marker in the user prompt. Persist the binding
 in the existing Provider journal: origin, a stable run/request identity, confirmed
 execution home/account, native thread/turn associations, outstanding calls and the
-local reply sink. These are proposed fields/semantics, not an implemented schema.
+local reply sink. The opt-in work record implements these routing references;
+its exact execution owner and local return remain authoritative.
 Keep the same primary thread and run identity across model-request rounds, Chat
 conversation handoffs and restart; Chat renewal never forks the primary thread.
 thread_id, response_id and JSON-RPC id alone are not the whole task identity.
@@ -139,7 +144,8 @@ thread_id, response_id and JSON-RPC id alone are not the whole task identity.
 If ChatGPT needs origin/control context, return a compact model-visible record on
 an existing non-user return path: the original local-function return or MCP result,
 preferably the already-needed attach/catalog response. This reuses the demonstrated
-same-call return mechanism; the new origin/context payload itself is not qualified.
+same-call return mechanism; B qualifies its new payload with a synthetic host.
+Actual signed-app use remains a C gate.
 Do not append a user-role environment block, resend previous answers, or post a
 follow-up user message merely to supply routing information. If context is needed
 before a first return exists, establish that bootstrap explicitly; do not invent a
@@ -278,6 +284,59 @@ per native frame,64MiB for a complete public-history or rollout read and4096
 public-item pages; exceeding them refuses explicitly without truncation. These are implementation bounds, not Chat capacity measurements or
 long-duration qualification. Automatic real Chat creation/attachment and actual
 bootstrap acceptance remain C gates; synthetic open/submit/attach/receipt is B proof.
+
+C's first signed-app attempt made zero requests: the legacy MCP wire guard
+rejected the system-only initial operator message before its before-request hook.
+No user messages, model starts or native effects occurred. Native Stop was
+confirmed; the stale app stream flag initially prevented host Stop confirmation.
+The negative proof and an explicitly scoped zero-dispatch bridge release are
+retained in phase-c-bootstrap-negative.json and phase-c-zero-dispatch-release.log.
+This does not invalidate B's synthetic proof or establish a charged Chat debit.
+
+The correction forwards the actual first Codex user request as that request,
+without origin/return/history blocks. Only an explicit operator non-user start
+may bootstrap a successor or request a native summary; it must not displace an
+unsettled earlier stream. Known local rejection settles its stream state and
+can confirm explicit Stop without inventing an abort terminal. Observed app errors
+must reach the original CLI and native failure history while preserving recovery.
+An explicit public final at a settled Chat boundary without a native finish is an
+incomplete round, never successful completion. An app permission/authentication
+wait is separately observable in CLI/history/status. The existing explicit reveal
+command checks the bound account/host and navigates only to its owned Chat; it
+does not submit inference or fabricate consent.
+
+The real trial connector is `Termux Codex Provider`, bound to the independently
+owned Rust tunnel. `Codex Native2` is a different older connection and must not be
+used as this trial's name. The wrong-name attempt reached no local operator call.
+Refreshing only the verified Rust connector now reads back all14 operator/reviewer
+tools, with zero model starts. Local tunnel readiness/stdio identity was insufficient:
+remote polling also needed the existing process-only CONNECT/DNS relay. Resolver
+files and Tdev were unchanged; remote lookup and actual MCP probe were then observed.
+Evidence: phase-c-connector-refresh.json and private transport preflight records.
+
+The corrected connector trial reached a real signed-app `confirm_action` before
+its first attachment; no native command or receipt acceptance occurred. Both
+native and host Stop were explicitly confirmed, with no owned jobs remaining.
+The first two completed actual trials each observed one primary app dispatch/one
+explicit user object, zero host consent replies and zero local operator effects.
+Negative evidence: phase-c-first-live-negative.json and
+phase-c-host-consent-negative.json. A third actual trial received the app's tool
+error that OpenAI safety checks blocked codex_attach, before any local operator
+invocation. The app then reported failure; the corrected Provider surfaced the
+incomplete round in actual native CLI/history, preserved the work and confirmed
+both stops. No command, file edit, receipt acceptance or successor occurred.
+The exact private negative proof is phase-c-safety-negative.json. Three primary
+app dispatches/three explicit user objects and zero host replies were observed
+across these trials; title/setup starts and charged allowance remain unmeasured.
+
+Read-only app metadata confirms the correct private trial connection is ACTIVE,
+all14 actions are linked and actions_changed_since_review=false. The returned
+safety error supplies no specific reason; a missing action review is not an
+established cause. Preserve the full tool surface and refusal evidence. No further
+paid retry is justified until that actual platform boundary has a supported
+resolution. C still must qualify real consent, original MCP execution, server
+acceptance of non-user renewal and continued AI development. Default selection,
+publication and operating activation remain separate decisions.
 
 ### Timing, fallback and proposed revised order
 
@@ -562,6 +621,21 @@ sharing, native reviewer or MCP permissions silently. Grouping reduces clutter,
 not stored history or established allowance units. Temporary/archive/delete modes
 are not admitted and must never mass-delete history.
 
+Deferred user-facing setup/management: let the user discover/select a ChatGPT
+project, create one when explicitly chosen, inspect/change the configured
+destination and verify actual conversation membership. Reuse the existing
+history configuration and authenticated project operations; do not add another
+settings store. This remains future work after C's control/continuity
+qualification, not an instruction to implement or activate it now. Provider must
+remain usable without Manager/TUI; any optional management surface uses the same
+configuration. Account/workspace and exact project binding, safe-boundary changes,
+successor placement and isolated reviewers retain the contracts above. Existing
+conversations, instructions/files/memory and access settings stay preserved.
+
+The current C trials deliberately use the default retained, non-project mode.
+They do not qualify a user's project setup or placement. Earlier explicit project
+metadata/inference proof retains only its recorded scope.
+
 ## Confirmed operating Chat blocker
 
 Installed Full60 long native→Chat transitions failed400 unsupported_desktop_route
@@ -608,6 +682,8 @@ qualify actual Chat judgment, physical UI or charged Chat message allowance.
 | phase-b-operator-inputs.json / phase-b-provider-full.log / phase-b-core-full.log | Exact code/test/release-binary digests retained. Provider101 Rust/108 Bun/36 Python and full358 Rust/135 Python pass; fmt/clippy/release pass. The explicitly armed synthetic operator gate is additional Android proof, not inferred from ignored tests. Core, Manager, TUI and installed optional runtime/state are unchanged |
 | phase-b-shared-android.log |14 explicitly armed Android cases on the current qualified native runtime: original MCP command/patch/test returns; deferred MCP discovery/error correction; independent reviewer allow/deny; silent-host wait; native manual/automatic/interrupted compaction, public handoff, bidirectional re-entry, fork and original question answer. All synthetic/zero Chat. Required after shared Broker dispatch changes; separate from operator-specific proof |
 | phase-b-candidate-readback.json / phase-b-candidate-android.json | Exact source f0cf4ad1be96463964e271752859084b548f2d51; source acceptance39185572035, independent Core build/smoke39185610111 and Provider source/Android39185572029 pass. Complete API24/AArch64 seven-payload-file inventory, lock/licenses/source readback; downloaded binary on actual Android passes models/catalog/config validation, no-desktop/no-Core operator startup, authenticated MCP stdio tool/session discovery and kernel-confirmed service stop in a disposable root. Zero Chat; unsigned, no Provider installation or operating activation |
+| phase-c-provider-final-gate.log / phase-c-operator-corrected.log / phase-c-operator-android.json / phase-c-correction-inputs.json | Bounded correction: Provider101 Rust/111 Bun/36 Python, fmt/clippy/release; explicitly armed Android full operator fixture additionally covers first genuine user input, partial final remaining pending, host permission/authentication waits in CLI/history/status, owned reveal without inference and rejection of another account, failed native systemError Stop/current-history claim, and explicit Chat final without native finish. Synthetic/zero Chat; exact code/binary digests retained. Unchanged Core/Manager/TUI retain B's full358 Rust/135 Python scope |
+| phase-c-shared-accepted.log / phase-c-connector-refresh.json / phase-c-safety-negative.json |14 shared Android cases cover the changed app bridge with zero Chat. Only the owned Rust trial connector was refreshed/read back with all14 actions; process-only DNS/CONNECT and actual tunnel child were verified. Three real primary dispatches total reached wrong-name discovery, app consent or safety refusal; zero native effects/host replies. Latest actual refusal reached CLI/canonical history and both stops confirmed. Non-user renewal, actual operator development and charged allowance remain unqualified |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log / provider-live-project-native.log | Actual authenticated project discovery/create/reuse/readback without inference; separately actual project-bound GPT-6 with three native effects, four app dispatches/two user objects/three returns and saved membership |
 | ai-development-proof.json | Direct ~/prj/ai actual development, failure/repair, same-thread recovery and independent49-check/166-TUI validation; detailed scope below. Installed AI runtime unchanged |
 | provider-owned-auth-native.log / owned-auth-transition.json / provider-restored-auth-readonly.log | Actual authenticated Rust-owned app/private pipes/native tools, four starts/three effects; original profile inode and controller restored. Subsequent readonly identity preflight makes no inference |
@@ -666,6 +742,7 @@ protected state and signed lifecycle gates cannot be retired as path optimizatio
 | Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. C: actual Chat control remains separate from B synthetic two-entry control/report/finish and R11 two-command return |
 | Cost/presentation | Stream-safe MemoryCite/box projection, exact native results and warm prefixes | Count title-model starts, setup/summary/retries and source-specific overhead; defer path-only optimization until C–D unless shared correctness. No claim that counters measure Chat message debits |
 | Core update information/prompt | User-confirmed85→86 success; Core bytes unchanged; release-date/other display details observed as unknown | Low priority with the next substantive Core change: [deferred Core follow-up](#deferred-core-follow-up), including component information and a prompt on each eligible bare launch; preserve upstream/noninteractive behavior |
+| ChatGPT project setup/management | Existing history configuration, authenticated project list/read/create and bounded membership proof | Deferred after C: [project setup and management](#chatgpt-projects-and-history), user selection/creation/settings/readback and same-work successor placement; preserve existing chats/context and optional-component independence |
 | Viewer and desktop | Rust private RFB/HTTP/control fixtures; actual owned fresh-profile RFB; old desktop font/icon observations | E when shipped: physical current Rust viewer/keyboard/scroll/login. Old desktop observations do not qualify a changed viewer; viewer stays optional for inference |
 | Packaging/composition | Independent hosted Android Provider build, source-bound complete inventory and Phase A disposable standalone snapshot lifecycle; TUI/Provider without Manager on actual Android | E: signed optional payload/provisioning and product installer lifecycle, Base alone, Manager without TUI, direct --profile and Full /model, absent/incompatible components, install/reinstall/update/rollback. No implicit desktop download/login |
 | Experiment retirement/publication | Source/provenance and user1m changes preserved; existing Base/Full release process | E: build/smoke/sign/readback/disposable consumer/non-forced promotion then separate activation. F: remove superseded code only after unique-source/license/user-state review; no legacy runtime auto-fallback |

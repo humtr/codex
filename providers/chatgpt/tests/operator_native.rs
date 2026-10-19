@@ -80,14 +80,43 @@ impl Bridge for Synthetic {
                     .find(|row| row["op"] == "open" && row["lane"] == lane)
                     .is_some_and(|row| row["signature"]["name"] != "operator_no_local_tools");
                 let assessment = json!({"risk_level":"low","user_authorization":"high","outcome":if self.path.parent().unwrap().join("deny-review").exists(){"deny"}else{"allow"},"rationale":"Only this owned disposable fixture program is in scope."});
+                let ended = submitted.is_some_and(|row| {
+                    row["messages"].as_array().is_some_and(|messages| {
+                        messages
+                            .iter()
+                            .any(|message| message["text"] == "OWNED_ENDED_HOST")
+                    })
+                });
+                let partial = self.path.parent().unwrap().join("partial-host").exists();
                 let messages = if reviewer {
                     json!([{"id":"owned-review-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[assessment.to_string()]},"status":"finished_successfully","end_turn":true}])
+                } else if ended {
+                    json!([{"id":"owned-incomplete-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Required operator connector is unavailable."]},"status":"finished_successfully","end_turn":true}])
+                } else if partial {
+                    json!([{"id":"owned-partial-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Tool use follows this partial response."]},"status":"finished_partial_completion","end_turn":true}])
+                } else if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("host-confirmation")
+                    .exists()
+                {
+                    json!([{"id":"owned-app-permission","author":{"role":"tool"},"metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}}])
+                } else if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("host-authentication")
+                    .exists()
+                {
+                    json!([{"id":"owned-app-auth","author":{"role":"tool"},"metadata":{"jit_plugin_data":{"from_server":{"type":"plugin_auth_required"}}}}])
                 } else {
                     json!([])
                 };
-                json!({"round":submitted.map(|row|&row["round"]),"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"messages":messages,"terminals":["done"],"roundStarts":1,"dispatches":1,"userMessages":1,"toolMessages":0})
+                json!({"round":submitted.map(|row|&row["round"]),"accepted":ended||partial,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"messages":messages,"terminals":["done"],"roundStarts":1,"dispatches":1,"userMessages":1,"toolMessages":0})
             }
             "release" => json!({"released":true}),
+            "reveal" => json!({"requested":true}),
             _ => return Box::pin(async { Err(Error("unexpected_synthetic_operation")) }),
         };
         Box::pin(async move { Ok(value) })

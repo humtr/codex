@@ -24,12 +24,12 @@ async function fixture(run){
  export function gRt(){}
  export function aCn(){return 'owned-'+(++globalThis.appBridgeFixture.created);}
  export function eHt(){}
- export function yRt(_scope,options){
+ export async function yRt(_scope,options){
   const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
   const client=globalThis.appBridgeFixture.client;
   options.onServerThreadIdChange?.('server-owned');
   const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
-  client.startCompletionStream({request});return Promise.resolve(true);
+  client.startCompletionStream({request});return true;
  }
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
@@ -232,4 +232,46 @@ test('MCP mode uses no local function feature gate or result resubmission',async
  expect(f.sent.length).toBe(1);expect((await bridge({op:'snapshot',owner:'owned',lane:'mcp-lane'})).round).toBe('first');
  await bridge({op:'release',owner:'owned',lane:'mcp-lane'});
  expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
+}));
+
+
+test('fresh operator bootstrap is non-user and requires its explicit lane admission',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'successor',signature:{name:'operator_no_local_tools'}});
+ await bridge({op:'submit',owner:'owned',lane:'successor',round:'handoff',model:'configured',bootstrap:true,messages:[{role:'developer',text:'Attach through the original MCP control return.',hidden:true}],instructions:['Same native work; read its current attachment.']});
+ await Promise.resolve();
+ expect(f.sent.length).toBe(1);
+ expect(f.sent[0].messages.every(m=>m.author.role==='system')).toBe(true);
+ const observed=await bridge({op:'snapshot',owner:'owned',lane:'successor'});
+ expect(observed.userMessages).toBe(0);expect(observed.dispatches).toBe(1);expect(observed.error).toBe(null);
+ // A settled native summary may also wake the same Chat without a user turn.
+ await bridge({op:'submit',owner:'owned',lane:'successor',round:'summary',model:'configured',bootstrap:true,messages:[{role:'developer',text:'Read the pending native summary request through MCP.',hidden:true}]});
+ await Promise.resolve();
+ const summary=await bridge({op:'snapshot',owner:'owned',lane:'successor'});
+ expect(summary.dispatches).toBe(2);expect(summary.userMessages).toBe(0);expect(summary.error).toBe(null);
+}));
+
+test('locally rejected non-user submit has zero dispatches and confirms Stop after settling',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'not-admitted',signature:{name:'operator_no_local_tools'}});
+ await bridge({op:'submit',owner:'owned',lane:'not-admitted',round:'bad-bootstrap',model:'configured',messages:[{role:'developer',text:'Not admitted.',hidden:true}]});
+ await Promise.resolve();
+ const observed=await bridge({op:'snapshot',owner:'owned',lane:'not-admitted'});
+ expect(observed.dispatches).toBe(0);expect(observed.userMessages).toBe(0);expect(f.sent.length).toBe(0);
+ expect(observed.rejectedBeforeDispatch).toBe(true);expect(observed.error).toBe('app_submit_failed');expect(observed.stopped).toBe(false);
+ const stopped=await bridge({op:'stop',owner:'owned',lane:'not-admitted'});
+ expect(stopped.stopped).toBe(true);
+ await bridge({op:'release',owner:'owned',lane:'not-admitted'});
+ expect(globalThis[slot].lanes.size).toBe(0);
+}));
+
+
+test('rejecting a new dispatch cannot confirm an older unobserved stream stopped',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'unsettled',signature:{name:'operator_no_local_tools'}});
+ globalThis[slot].lanes.get('unsettled').streamActive=true;
+ await bridge({op:'submit',owner:'owned',lane:'unsettled',round:'rejected-new',model:'configured',messages:[{role:'developer',text:'Not admitted.',hidden:true}]});
+ await Promise.resolve();
+ const stopped=await bridge({op:'stop',owner:'owned',lane:'unsettled'});
+ expect(stopped.dispatches).toBe(0);expect(stopped.rejectedBeforeDispatch).toBe(true);expect(stopped.stopped).toBe(false);expect(f.sent.length).toBe(0);
 }));

@@ -65,7 +65,14 @@ reviewers retain independent contexts and real approvals. Chat-first startup and
 primary execution need no desktop; Codex-origin Chat start and app-backed reviewers
 still acquire the explicitly provisioned app lazily. An optional viewer is not
 started by operator bootstrap. Actual host bootstrap/automatic renewal remains a
-C gate; a synthetic bridge is not real Chat proof.
+C gate; a synthetic bridge is not real Chat proof. The current first-start
+correction forwards only the actual current user request. Origin/history remain
+in MCP attachment; successor and native-summary starts use explicit non-user
+input. Actual app admission and server acceptance are separate checks.
+App permission/authentication waits appear in the original CLI/history and
+`codex_status`; an app error or an explicit final without native completion
+requires reconciliation. The existing `reveal --thread ID` command opens only
+the bound owned Chat after identity checks, without inference or consent.
 
 The native public-history reader pages upstream items, skips reasoning and active
 items, and refuses explicit safety bounds rather than silently truncating. Current
@@ -86,6 +93,9 @@ commands, not commands promised by the current signed installation. Its settings
 and catalog have one authority:
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, default
 `~/.config/codex/providers/chatgpt.toml`. The installed JS adapter does not read it.
+User-facing ChatGPT project setup/management is deferred; existing project
+configuration/operations will remain its authority. Scope and priority are in
+[CURRENT.md](../../CURRENT.md#chatgpt-projects-and-history).
 
 - `models` reads `catalog.models`; `catalog` generates native model JSON.
 - `config show|effective|validate|edit` inspects or edits settings. Effective output
@@ -180,6 +190,9 @@ Set `transport.connector_name` for the installed connector; the default is
 clients and targets remain independent from Tdev. A changed tunnel alias may still
 run its old stdio child: reconnect after settlement and verify actual executable/
 state argv instead of relying on readiness metadata. No replay follows uncertainty.
+The real Rust trial uses `Termux Codex Provider`; its installed tool list must
+match the selected operating mode. Refresh only the verified trial connection
+and read back its actions before spending Chat requests on a changed MCP schema.
 
 Host approval/authentication retains the exact request and shows a waiting report.
 Use the signed app's actual consent control; existing explicit bounded delegation

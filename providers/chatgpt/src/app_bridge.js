@@ -89,6 +89,8 @@ async function termuxCodexBridge(command) {
       if (!lane) return state.saved.streamPost.call(this,path,options);
       const ids = request.messages?.map(m => m.id).join(',');
       const roles = request.messages?.map(m => m.author?.role) || [];
+      const rejectDispatch=code=>{lane.rejectedBeforeDispatch=true;if(!lane.priorStreamUnsettled)lane.streamActive=false;fail(code);};
+      const bootstrap=lane.nonUserBootstrap===true && lane.signature.name==='operator_no_local_tools' && !lane.priorStreamUnsettled && roles.length>0 && roles.every(role=>role==='system');
       const reply=request.messages?.length===1?request.messages[0]:null;
       const metadata=reply?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
       const target=plugin?.from_client?.target_message_id??metadata?.codex_mcp_elicitation_response?.target_message_id;
@@ -99,8 +101,8 @@ async function termuxCodexBridge(command) {
         fail('app_dispatch_replayed');
       }
       if (!hostReply) lane.roundPrepared = true;
-      if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !hostReply&&(!roles.includes('user') || roles.includes('tool')))) fail('app_dispatch_invalid');
-      if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) fail('app_dispatch_invalid');
+      if (mode==='mcp' && (request.local_function_signatures?.length || request.local_function_names?.length || !hostReply&&!bootstrap&&(!roles.includes('user') || roles.includes('tool')))) rejectDispatch('app_dispatch_invalid');
+      if (roles.some(r => !['user','tool','system','assistant'].includes(r)) || !bootstrap&&!roles.includes('user') && !roles.includes('tool') || lane.resultOnly && roles.includes('user')) rejectDispatch('app_dispatch_invalid');
       lane.sent.add(ids);
       const before = options.chatgptSse?.onBeforeRequestStart;
       return state.saved.streamPost.call(this,path,{...options,retry: undefined,chatgptSse: {...options.chatgptSse,onBeforeRequestStart(value) {
@@ -213,7 +215,8 @@ async function termuxCodexBridge(command) {
        m.content?.content_type==='text' && [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,hostResponses:[...hostResponses],accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
       dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
-      stopped: lane.stopRequested === true && lane.streamActive === false && lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason))};
+      rejectedBeforeDispatch:lane.rejectedBeforeDispatch===true,
+      stopped: lane.stopRequested === true && lane.pending === false && lane.streamActive === false && (lane.rejectedBeforeDispatch===true&&!lane.priorStreamUnsettled || lane.terminals.some(reason => ['done','abort','aborted','cancelled','canceled'].includes(reason)))};
   };
   if (command.op === 'snapshot') return snapshot();
   if(command.op==='reveal') {
@@ -245,6 +248,8 @@ async function termuxCodexBridge(command) {
     if (lane.round === command.round) return {started:true,reused:true};
     if (lane.pending) fail('app_lane_busy');
     lane.round = command.round;
+    lane.priorStreamUnsettled=lane.streamActive===true;
+    lane.nonUserBootstrap=command.bootstrap===true;lane.rejectedBeforeDispatch=false;
     lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundHostReplies=0; lane.hostReplies.clear(); lane.roundPrepared = false;
     lane.older = new Set(Object.values(state.scope.get(state.api.JRn,lane.localId) || {}).map(n => n.message?.id).filter(Boolean));
     lane.controller = new AbortController();

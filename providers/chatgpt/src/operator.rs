@@ -290,9 +290,9 @@ impl Operator {
         }
         Ok((record, native))
     }
-    async fn verify_identity(&self, record: &Record) -> Result<(), Error> {
+    async fn verify_identity(&self, record: &Record) -> Result<Value, Error> {
         let Some(lane) = &record.driver else {
-            return Ok(());
+            return Ok(Value::Null);
         };
         let current = tokio::time::timeout(
             Duration::from_secs(10),
@@ -310,7 +310,7 @@ impl Operator {
         if record.identity.as_ref() != Some(&fingerprint) {
             return Err(Error("app_account_changed"));
         }
-        Ok(())
+        Ok(current)
     }
     async fn recovery_receipts(
         &self,
@@ -1065,7 +1065,10 @@ impl Operator {
                         json!({"threadId":record.thread,"includeTurns":false}),
                     )
                     .await?;
-                if state["thread"]["status"]["type"] != "idle" {
+                if !matches!(
+                    state["thread"]["status"]["type"].as_str(),
+                    Some("idle" | "systemError")
+                ) {
                     return Err(Error("native_writer_unsettled"));
                 }
                 let mut works = self.works.lock().await;
@@ -1093,6 +1096,7 @@ impl Operator {
     }
     async fn status(&self, args: Value) -> Result<Value, Error> {
         let mut observed = false;
+        let mut host_observation = Value::Null;
         let (mut record, native) = self.binding(&args, false).await?;
         let state = native
             .call(
@@ -1107,6 +1111,8 @@ impl Operator {
             )
             .await;
             if let Ok(Ok(snapshot)) = snapshot {
+                let waiting = host_waiting(&snapshot);
+                host_observation = json!({"dispatches":snapshot["dispatches"].as_u64(),"user_messages":snapshot["userMessages"].as_u64(),"tool_messages":snapshot["toolMessages"].as_u64(),"host_reply_messages":snapshot["hostReplyMessages"].as_u64(),"round_starts":snapshot["roundStarts"].as_u64(),"rejected_before_dispatch":snapshot["rejectedBeforeDispatch"].as_bool(),"waiting_for":waiting,"error":match snapshot["error"].as_str(){Some("app_submit_failed")=>Some("app_submit_failed"),Some("app_stream_failed")=>Some("app_stream_failed"),Some(_)=>Some("app_error"),None=>None}});
                 observed = true;
                 record.host_observed_at = Some(
                     std::time::SystemTime::now()
@@ -1118,6 +1124,10 @@ impl Operator {
                     "stop_confirmed"
                 } else if snapshot["error"].is_string() {
                     "error_observed"
+                } else if waiting == Some("mcp_host_confirmation_required") {
+                    "waiting_confirmation"
+                } else if waiting == Some("mcp_host_authentication_required") {
+                    "waiting_authentication"
                 } else if snapshot["terminals"] == json!(["done"]) {
                     "stream_settled"
                 } else {
@@ -1144,7 +1154,7 @@ impl Operator {
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
-            "host_state":if observed{record.host_last_state.as_str()}else{"unknown"},"driver_phase":record.driver_phase,"last_observed_host_state":record.host_last_state,"host_observed_at":record.host_observed_at,"host_observation_available":observed,"host_progress":"unknown","completed":record.phase=="completed"}),
+            "host_state":if observed{record.host_last_state.as_str()}else{"unknown"},"driver_phase":record.driver_phase,"last_observed_host_state":record.host_last_state,"host_observed_at":record.host_observed_at,"host_observation_available":observed,"host_progress":"unknown","host_observation":host_observation,"completed":record.phase=="completed"}),
         )
     }
     async fn stop(&self, args: Value) -> Result<Value, Error> {
@@ -1192,8 +1202,10 @@ impl Operator {
                         json!({"threadId":record.thread,"includeTurns":false}),
                     )
                     .await?;
-                if state["thread"]["status"]["type"] == "idle"
-                    && self.owned_jobs(&native, &record).await?.is_empty()
+                if matches!(
+                    state["thread"]["status"]["type"].as_str(),
+                    Some("idle" | "systemError")
+                ) && self.owned_jobs(&native, &record).await?.is_empty()
                 {
                     return Ok::<_, Error>(());
                 }
@@ -1440,9 +1452,11 @@ impl Operator {
             work.record.driver_phase = "dispatching".into();
             self.persist(&work.record)?;
         }
-        // A genuine later native user turn reuses this Chat. Initial/renewal
-        // bootstrap carries no synthetic user context; attach supplies that data.
-        let messages = if reuse && request.compaction.is_none() {
+        // The initial genuine user request is not origin/context metadata.
+        // Fresh successors and summaries still bootstrap without another user turn.
+        let bootstrap =
+            !reuse && record.driver_phase == "handoff_prepared" || request.compaction.is_some();
+        let messages = if !bootstrap {
             let user = request
                 .input
                 .iter()
@@ -1453,7 +1467,7 @@ impl Operator {
             json!([{"role":"developer","text":"Use the Codex MCP attachment described in the control instructions and continue its current task.","hidden":true}])
         };
         self.bridge.operation(json!({"op":"submit","lane":marker,"round":random_id()?,"model":request.host_model,"thinkingEffort":request.thinking_effort,
-            "messages":messages,"instructions":instructions,"results":[]})).await?;
+            "messages":messages,"instructions":instructions,"results":[],"bootstrap":bootstrap})).await?;
         let mut works = self.works.lock().await;
         let work = works.get_mut(&record.thread).unwrap();
         if work.record.capability != record.capability
@@ -1593,9 +1607,45 @@ impl Operator {
             });
         }
         let mut interval = tokio::time::interval(Duration::from_millis(20));
+        let mut host_interval = tokio::time::interval(Duration::from_secs(1));
+        let mut reported_wait = None;
         let result = async { loop {
             tokio::select! {
                 _=cancel.cancelled()=>break Err(Error("native_observer_lost")),
+                _=host_interval.tick()=>{
+                    let latest=self.works.lock().await.get(&request.thread).unwrap().record.clone();
+                    if matches!(latest.phase.as_str(),"running"|"native_summary") {
+                        if latest.driver_phase=="start_unknown" {break Err(Error("operator_app_start_unconfirmed"));}
+                        if let Some(driver)=latest.driver.as_ref().filter(|_|latest.driver_phase=="started_observation_unknown") {
+                            let snapshot=tokio::time::timeout(Duration::from_secs(3),self.bridge.operation(json!({"op":"snapshot","lane":driver}))).await;
+                            if let Ok(Ok(snapshot))=snapshot {
+                                let waiting=host_waiting(&snapshot);
+                                if waiting!=reported_wait {
+                                    reported_wait=waiting;
+                                    if let Some(reason)=waiting {
+                                        let text=if reason=="mcp_host_confirmation_required" {"ChatGPT is waiting for tool permission in its app. Approve or deny there; work remains pending."} else {"ChatGPT is waiting for authentication in its app. Work remains pending."};
+                                        events.send(Event::Text{id:format!("host_wait_{}",random_id()?),phase:"commentary".into(),delta:text.into()}).await.map_err(|_|Error("native_observer_lost"))?;
+                                        events.send(Event::Flush).await.map_err(|_|Error("native_observer_lost"))?;
+                                    }
+                                }
+                                let failure=if snapshot["error"].is_string() {
+                                    Some(("operator_app_round_failed","ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
+                                } else if waiting.is_none() && snapshot["accepted"]==true && snapshot["terminals"]==json!(["done"])
+                                    && snapshot["messages"].as_array().is_some_and(|messages|messages.iter().any(|message|
+                                        message["author"]["role"]=="assistant" && message["channel"]=="final"
+                                        && message["content"]["content_type"]=="text" && message["end_turn"]==true
+                                        && message["status"]=="finished_successfully")) {
+                                    Some(("operator_app_round_incomplete","ChatGPT turn ended without completing the Codex control round. Work is preserved; reconcile before retrying."))
+                                } else {None};
+                                if let Some((code,text))=failure {
+                                    events.send(Event::Text{id:format!("host_error_{}",random_id()?),phase:"commentary".into(),delta:text.into()}).await.map_err(|_|Error("native_observer_lost"))?;
+                                    events.send(Event::Flush).await.map_err(|_|Error("native_observer_lost"))?;
+                                    break Err(Error(code));
+                                }
+                            }
+                        }
+                    }
+                },
                 command=commands.recv()=>match command {
                     Some(Command::Text{capability,id,text,final_answer,ack})=>{
                         let valid={let works=self.works.lock().await;let work=works.get(&request.thread).unwrap();
@@ -1702,6 +1752,23 @@ impl Operator {
     }
 }
 impl Host for Operator {
+    fn reveal(&self, thread: String) -> BoxFuture<'static, Result<(), Error>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let record = this
+                .works
+                .lock()
+                .await
+                .get(&thread)
+                .ok_or(Error("operator_work_unavailable"))?
+                .record
+                .clone();
+            let lane = record.driver.as_ref().ok_or(Error("app_lane_missing"))?;
+            let identity = this.verify_identity(&record).await?;
+            this.bridge.operation(json!({"op":"reveal","lane":lane,"identity":{"account":identity["account"],"user":identity["user"],"structure":identity["structure"]}})).await?;
+            Ok(())
+        })
+    }
     fn exchange(
         &self,
         request: Request,
@@ -1714,6 +1781,15 @@ impl Host for Operator {
         let this = self.clone();
         Box::pin(async move { this.exchange_inner(request, events, cancel).await })
     }
+}
+fn host_waiting(snapshot: &Value) -> Option<&'static str> {
+    if snapshot["error"].is_string() || snapshot["stopped"] == true {
+        return None;
+    }
+    snapshot["messages"]
+        .as_array()?
+        .iter()
+        .find_map(|item| crate::mcp_bridge::host_block(item, &snapshot["hostResponses"]))
 }
 fn text<'a>(args: &'a Value, key: &str, max: usize) -> Result<&'a str, Error> {
     args[key]
