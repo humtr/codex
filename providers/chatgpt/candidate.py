@@ -92,7 +92,8 @@ def package(binary, artifact, source, sha, run_id, ndk, rust):
     if (not re.fullmatch('[0-9a-f]{40}', sha)
             or subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD']).decode().strip() != sha
             or subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain',
-                                       '--untracked-files=normal', '--', 'providers/chatgpt',
+                                       '--untracked-files=normal', '--', 'providers/chatgpt', 'crates/runtime-binding',
+                                       'scripts/qualify_provider_operator.py',
                                        '.github/workflows/provider-qualification.yml'])):
         raise ValueError('clean exact Provider source required')
     data = read(binary, 256 * 1024 * 1024)

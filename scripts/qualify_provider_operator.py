@@ -1,0 +1,435 @@
+"""Actual Android MCP operator/CLI proof; only owned synthetic Chat and signed fixtures."""
+import argparse
+import concurrent.futures
+import fcntl
+import json
+import os
+from pathlib import Path
+import pty
+import re
+import select
+import shlex
+import signal
+import socket
+import struct
+import subprocess
+import tempfile
+import termios
+import time
+import urllib.error
+import urllib.request
+from qualify_permission_lifecycle import fixture, server_paths, rpc as native_rpc
+
+TOKEN = 'owned-fixture-bearer-000000000000000000000000'
+
+
+def probe(args):
+    root = Path(tempfile.mkdtemp(prefix='ob-', dir=os.environ['TMPDIR']))
+    processes, masters = [], []
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+    screen = ''
+    home = None
+    try:
+        home, prefix, env = fixture(root, args.core, args.frontend)
+        config_path=home / '.codex/config.toml'
+        config_path.write_text(config_path.read_text().replace('approval_policy = "never"','approval_policy = "on-request"')
+            .replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
+            .replace('memories = false','memories = false\nguardian_approval = true'))
+        reviewed=root / 'w/reviewed-fixture'
+        reviewed.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf reviewed >> reviewed-effects\n')
+        reviewed.chmod(0o700)
+        rules=home / '.codex/rules'
+        rules.mkdir()
+        (rules / 'fixture.rules').write_text('prefix_rule(pattern = [' + json.dumps(str(reviewed)) + '], decision = "prompt")\n')
+        (root / 'owned-fixture').write_text('owned synthetic operator acceptance\n')
+        env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
+        auth = root / 'fixture-auth'
+        auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + shlex.quote(TOKEN) + '\n')
+        auth.chmod(0o700)
+        output = (root / 'provider-test.log').open('wb')
+        service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
+            'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
+            stderr=subprocess.STDOUT, cwd=root / 'w')
+        processes.append(service)
+
+        def wait(predicate, timeout=35):
+            until = time.monotonic() + timeout
+            while time.monotonic() < until:
+                value = predicate()
+                if value:
+                    return value
+                time.sleep(.05)
+            raise AssertionError('fixture timeout; inspect ' + str(root))
+
+        wait(lambda: (root / 'provider-ready.json').exists() or service.poll() is not None)
+        assert service.poll() is None, (root / 'provider-test.log').read_text()
+        port = json.loads((root / 'provider-ready.json').read_text())['port']
+        seq = 0
+
+        def rpc(name, arguments, expect_error=False, authorized=True):
+            nonlocal seq
+            seq += 1
+            row = {'jsonrpc': '2.0', 'id': seq, 'method': 'tools/call',
+                   'params': {'name': name, 'arguments': arguments}}
+            headers = {'Content-Type': 'application/json'}
+            if authorized:
+                headers['Authorization'] = 'Bearer ' + TOKEN
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
+                data=json.dumps(row).encode(), headers=headers)
+            with urllib.request.urlopen(request, timeout=50) as response:
+                data = json.load(response)
+            assert 'error' not in data, data
+            result = data['result']
+            value = json.loads(result['content'][0]['text'])
+            assert result['isError'] == expect_error, (name, value)
+            return value
+
+        try:
+            rpc('codex_sessions', {'action': 'list'}, authorized=False)
+            raise AssertionError('unauthenticated bootstrap accepted')
+        except urllib.error.HTTPError as error:
+            assert error.code == 401
+        created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'})
+        assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}) == created
+        print('Native session created through qualified Core', flush=True)
+        binding = {'work_id': created['work_id'], 'controller': created['controller']}
+        rpc('codex_sessions', {**binding, 'action': 'start', 'task': 'OWNED_CHAT_ENTRY_DEVELOPMENT'})
+        wait(lambda: rpc('codex_status', {'work_id': binding['work_id']})['phase'] == 'running')
+
+        def attach(bound):
+            observed = rpc('codex_attach', bound)
+            accepted = rpc('codex_attach', {**bound, 'accept': observed['receipt']})
+            assert accepted['accepted']
+            return accepted
+
+        attach(binding)
+        catalog = rpc('codex_tools', binding)['tools']
+        command_key = next(key for key in catalog if key.rsplit('.', 1)[-1] in ['exec_command', 'shell_command'])
+        patch_key = next(key for key in catalog if key.rsplit('.', 1)[-1] == 'apply_patch')
+
+        def execute(bound, call_id, name, value, report):
+            return rpc('codex_execute', {**bound, 'call_id': call_id, 'name': name,
+                'input': value if isinstance(value, str) else json.dumps(value), 'report': report})
+
+        def command(bound, call_id, value):
+            key = command_key.rsplit('.', 1)[-1]
+            return execute(bound, call_id, command_key,
+                {'cmd': value, 'login': False, 'max_output_tokens': 1000} if key == 'exec_command' else {'command': value},
+                'OWNED_NATIVE_COMMAND_' + call_id)
+
+        first = command(binding, 'first', 'printf original >> once.txt; printf NATIVE_RESULT_ONE')
+        assert 'NATIVE_RESULT_ONE' in json.dumps(first), first
+        assert command(binding, 'first', 'printf original >> once.txt; printf NATIVE_RESULT_ONE')['result'] == first['result']
+        assert (root / 'w/once.txt').read_text() == 'original'
+        print('Native command and exact retry returned once', flush=True)
+        review_args={'cmd':str(reviewed),'login':False,'sandbox_permissions':'require_escalated',
+            'justification':'Run only this owned disposable fixture program under independent native automatic review.'}
+        execute(binding,'review-allow',command_key,review_args,'OWNED_INDEPENDENT_REVIEW_ALLOW')
+        assert (root / 'w/reviewed-effects').read_text() == 'reviewed'
+        (root / 'deny-review').touch()
+        denied=execute(binding,'review-deny',command_key,review_args,'OWNED_INDEPENDENT_REVIEW_DENY')
+        (root / 'deny-review').unlink()
+        assert (root / 'w/reviewed-effects').read_text() == 'reviewed'
+        assert 'denied' in json.dumps(denied).lower() or 'reject' in json.dumps(denied).lower(), denied
+        review_commands=json.loads((root / 'bridge-commands.json').read_text())
+        assert sum(row['op']=='submit' for row in review_commands) == 2
+        assert all(row['messages'] for row in review_commands if row['op']=='submit')
+        print('Independent native automatic reviewer allowed and prevented actual effects',flush=True)
+        # Child sessions are independent work, never the primary Chat-renewal path.
+        child = rpc('codex_sessions', {'action': 'fork', 'call_id': 'independent-child', 'thread_id': created['thread_id']})
+        assert child['thread_id'] != created['thread_id']
+        rpc('codex_sessions', {**{'work_id': child['work_id'], 'controller': child['controller']},
+            'action': 'start', 'task': 'OWNED_INDEPENDENT_CHILD'})
+        child_binding = {'work_id': child['work_id'], 'controller': child['controller']}
+        wait(lambda: rpc('codex_status', {'work_id': child_binding['work_id']})['phase'] == 'running')
+        attach(child_binding)
+        command(child_binding, 'child-command', 'printf INDEPENDENT_CHILD_RESULT')
+        rpc('codex_finish', {**child_binding, 'call_id': 'child-final', 'text': 'OWNED_INDEPENDENT_CHILD_COMPLETE'})
+        assert not rpc('codex_status', {'work_id': binding['work_id']})['completed']
+        execute(binding, 'patch', patch_key,
+            '*** Begin Patch\n*** Add File: owned.py\n+def add(a, b):\n+    return a - b\n*** End Patch', 'OWNED_PATCH')
+        failed = command(binding, 'failure', "python3 -c 'from owned import add; assert add(2, 3) == 5'")
+        assert 'AssertionError' in json.dumps(failed), failed
+        execute(binding, 'fix', patch_key,
+            '*** Begin Patch\n*** Update File: owned.py\n@@\n-    return a - b\n+    return a + b\n*** End Patch', 'OWNED_FAILURE_CORRECTION')
+        command(binding, 'test', "python3 -c 'from owned import add; assert add(2, 3) == 5; print(\"TEST_PASSED\")'")
+        latest = rpc('codex_history', {'work_id': binding['work_id']})
+        handoff = rpc('codex_handoff', {**binding, 'call_id': 'handoff-one', 'cursor': latest['cursor'], 'context_cursor':latest['context_cursor'],
+            'summary': 'Implemented owned.py add after a real failed test and correction. Continue same thread; once.txt must remain original.', 'renew': False})
+        new_binding = {'work_id': binding['work_id'], 'controller': handoff['controller']}
+        assert handoff['thread_id'] == created['thread_id']
+        assert rpc('codex_report', {**binding, 'call_id': 'stale', 'text': 'STALE_CONTROLLER'}, True)['error'] == 'operator_controller_fenced'
+        attached = attach(new_binding)
+        assert attached['summary'] and attached['thread_id'] == created['thread_id']
+        # Upstream queues injection during an active turn; it becomes committed
+        # context on the next native tool round, not at the injection RPC reply.
+        native_rpc(home,'thread/inject_items',{'threadId':created['thread_id'],'items':[
+            {'type':'message','role':'user','content':[{'type':'input_text','text':'OWNED_LATE_INSTRUCTION: preserve once.txt and continue from current history'}]}]})
+        updated=command(new_binding,'late-context','printf LATE_CONTEXT_OBSERVED')
+        assert 'OWNED_LATE_INSTRUCTION' in json.dumps(updated['context_updates'])
+        assert rpc('codex_attach',new_binding)['receipt'] != attached['receipt']
+        command(new_binding, 'after-handoff', "python3 -c 'from owned import add; assert add(3, 4) == 7; print(\"CONTINUED_SAME_THREAD\")'")
+        rpc('codex_finish', {**new_binding, 'call_id': 'final', 'text': 'OWNED_CHAT_ENTRY_COMPLETE'})
+        assert rpc('codex_finish', {**new_binding, 'call_id': 'final', 'text': 'OWNED_CHAT_ENTRY_COMPLETE'})['reused']
+        assert rpc('codex_status', {'work_id': binding['work_id']})['completed']
+        print('Incremental same-thread handoff and completion recorded', flush=True)
+
+        # Same Provider now receives an actual native TUI-origin turn.
+        master, slave = pty.openpty()
+        masters.append(master)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
+        terminal = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', '--profile', 'chatgpt'],
+            env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+        os.close(slave)
+        processes.append(terminal)
+
+        def drain(seconds=.1):
+            nonlocal screen
+            until = time.monotonic() + seconds
+            while time.monotonic() < until:
+                if select.select([master], [], [], .02)[0]:
+                    try:
+                        screen += os.read(master, 65536).decode(errors='replace')
+                    except OSError:
+                        break
+            return screen
+
+        wait(lambda: 'GPT-6' in drain())
+        drain(1)
+        os.write(master, b'OWNED_CODEX_ENTRY_DEVELOPMENT')
+        drain(.8)
+        os.write(master, b'\r')
+
+        def driver_binding():
+            drain()
+            path = root / 'bridge-commands.json'
+            if not path.exists():
+                return None
+            try:
+                rows = json.loads(path.read_text())
+            except json.JSONDecodeError:
+                return None
+            submissions = [v for v in rows if v['op'] == 'submit']
+            if not submissions:
+                return None
+            text = '\n'.join(submissions[-1].get('instructions', []))
+            match = re.search(r'work_id=([0-9a-f]{48}) and controller=([0-9a-f]{48})', text)
+            if match:
+                for message in submissions[-1]['messages']:
+                    if message['role'] == 'user':
+                        assert message['text'] in ['OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT']
+                return {'work_id': match[1], 'controller': match[2]}
+
+        cli_binding = wait(driver_binding)
+        attach(cli_binding)
+        (root / 'changed-account').touch()
+        denied = rpc('codex_execute', {**cli_binding, 'call_id': 'wrong-account', 'name': command_key,
+            'input': json.dumps({'cmd': 'touch wrong-account-effect', 'login': False}), 'report': 'must refuse'}, True)
+        assert denied['error'] == 'app_account_changed'
+        (root / 'changed-account').unlink()
+        assert not (root / 'w/wrong-account-effect').exists()
+        (root / 'unobservable-host').touch()
+        lost = rpc('codex_status', {'work_id': cli_binding['work_id']})
+        assert not lost['completed'] and not lost['host_observation_available']
+        assert lost['host_progress'] == 'unknown'
+        (root / 'unobservable-host').unlink()
+        rpc('codex_report', {**cli_binding, 'call_id': 'initial', 'text': 'OWNED_LIVE_INITIAL'})
+        wait(lambda: 'OWNED_LIVE_INITIAL' in drain())
+        command(cli_binding, 'cli-tool', 'printf CLI_TOOL_RESULT')
+        dropped_args = {**cli_binding, 'call_id': 'lost-observer', 'name': command_key,
+            'input': json.dumps({'cmd': 'printf once >> observer-once; sleep 2; printf OBSERVER_RESULT', 'login': False}),
+            'report': 'OWNED_DROPPED_HTTP_OBSERVER'}
+        body = json.dumps({'jsonrpc': '2.0', 'id': 'detached', 'method': 'tools/call',
+            'params': {'name': 'codex_execute', 'arguments': dropped_args}}).encode()
+        observer = socket.create_connection(('127.0.0.1', port))
+        observer.sendall((f'POST /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\n'
+            f'Content-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n').encode() + body)
+        wait(lambda: (root / 'w/observer-once').exists())
+        observer.close()
+        result = rpc('codex_execute', dropped_args)
+        assert 'OBSERVER_RESULT' in json.dumps(result)
+        assert (root / 'w/observer-once').read_text() == 'once'
+        rpc('codex_report', {**cli_binding, 'call_id': 'middle', 'text': 'OWNED_LIVE_INTERMEDIATE'})
+        wait(lambda: 'OWNED_LIVE_INTERMEDIATE' in drain())
+        latest = rpc('codex_history', {'work_id': cli_binding['work_id']})
+        thread_before = rpc('codex_status', {'work_id': cli_binding['work_id']})['thread_id']
+        rpc('codex_handoff', {**cli_binding, 'call_id': 'automatic-handoff', 'cursor': latest['cursor'], 'context_cursor':latest['context_cursor'],
+            'summary': 'Native CLI work ran CLI_TOOL_RESULT; retain its return binding and finish after confirming continuation.', 'renew': True})
+        successor = wait(lambda: (value if value != cli_binding else None) if (value := driver_binding()) else None)
+        attach(successor)
+        assert rpc('codex_status', {'work_id': successor['work_id']})['thread_id'] == thread_before
+        command(successor, 'successor-tool', 'printf SUCCESSOR_RESULT')
+        rpc('codex_finish', {**successor, 'call_id': 'cli-final', 'text': 'OWNED_LIVE_FINAL'})
+        wait(lambda: 'OWNED_LIVE_FINAL' in drain())
+        history = rpc('codex_history', {'work_id': successor['work_id']})
+        for marker in ['OWNED_LIVE_INITIAL', 'OWNED_LIVE_INTERMEDIATE', 'OWNED_LIVE_FINAL', 'CLI_TOOL_RESULT', 'SUCCESSOR_RESULT']:
+            assert marker in json.dumps(history), marker
+        print('Codex entrance: live initial/middle/final, native tools and automatic synthetic Chat renewal passed', flush=True)
+        commands_before = json.loads((root / 'bridge-commands.json').read_text())
+        opens_before = sum(row['op'] == 'open' for row in commands_before)
+        os.write(master, b'OWNED_CODEX_FOLLOWUP')
+        drain(.4)
+        os.write(master, b'\r')
+        followup = wait(lambda: (value if value != successor else None) if (value := driver_binding()) else None)
+        attach(followup)
+        rpc('codex_finish', {**followup, 'call_id': 'followup-final', 'text': 'OWNED_FOLLOWUP_COMPLETE'})
+        wait(lambda: 'OWNED_FOLLOWUP_COMPLETE' in drain())
+        commands_after = json.loads((root / 'bridge-commands.json').read_text())
+        opens = [row['lane'] for row in commands_after if row['op'] == 'open']
+        assert len(opens) == opens_before + 1 and opens[-1] == opens[-2]
+        print('Later native user turn reused the same settled Chat', flush=True)
+        rpc('codex_sessions',{**followup,'action':'compact'})
+        wait(lambda:rpc('codex_status',{'work_id':followup['work_id']})['phase']=='native_summary')
+        compact_result=rpc('codex_native_summary',{**followup,'summary':'Preserve OWNED_CODEX_ENTRY_DEVELOPMENT, CLI_TOOL_RESULT, SUCCESSOR_RESULT and completed follow-up. Continue in the same primary thread.'})
+        assert compact_result['native_summary_offered'] and not compact_result['chat_replaced']
+        wait(lambda:rpc('codex_status',{'work_id':followup['work_id']})['native_status']['type']=='idle')
+        os.write(master,b'OWNED_CODEX_AFTER_COMPACT')
+        drain(.8)
+        os.write(master,b'\r')
+        after_compact=wait(lambda:(value if value!=followup else None) if (value:=driver_binding()) else None)
+        attach(after_compact)
+        rpc('codex_finish',{**after_compact,'call_id':'after-compact-final','text':'OWNED_NATIVE_COMPACT_CONTINUED'})
+        wait(lambda:'OWNED_NATIVE_COMPACT_CONTINUED' in drain())
+        print('Native inference compaction preserved the same Chat and subsequent task continuity',flush=True)
+
+        stopped = rpc('codex_sessions', {'action': 'create', 'call_id': 'stop-entry-create'})
+        stop_binding = {'work_id': stopped['work_id'], 'controller': stopped['controller']}
+        rpc('codex_sessions', {**stop_binding, 'action': 'start', 'task': 'OWNED_INTERRUPT_RECOVERY'})
+        wait(lambda: rpc('codex_status', {'work_id': stop_binding['work_id']})['phase'] == 'running')
+        attach(stop_binding)
+        execute(stop_binding, 'long-running', command_key,
+            {'cmd': 'sleep 30; printf UNEXPECTED > never.txt', 'login': False, 'yield_time_ms': 1000},
+            'OWNED_LONG_RUNNING_COMMAND')
+        current = rpc('codex_history', {'work_id': stop_binding['work_id']})
+        assert rpc('codex_handoff', {**stop_binding, 'call_id': 'busy-handoff',
+            'summary': 'Must not transfer running work silently', 'cursor': current['cursor'],'context_cursor':current['context_cursor']}, True)['error'] == 'operator_background_jobs_unsettled'
+        stopped_result = rpc('codex_stop', {'work_id': stop_binding['work_id']})
+        assert stopped_result['fenced'] and stopped_result['native_stop_confirmed'], stopped_result
+        assert not (root / 'w/never.txt').exists()
+        assert rpc('codex_report', {**stop_binding, 'call_id': 'after-stop', 'text': 'BAD'}, True)['error'] == 'operator_controller_fenced'
+        latest = rpc('codex_history', {'work_id': stop_binding['work_id']})
+        recovered = rpc('codex_sessions', {'action': 'claim', 'work_id': stop_binding['work_id'], 'cursor': latest['cursor'], 'context_cursor': latest['context_cursor']})
+        resumed = {'work_id': stop_binding['work_id'], 'controller': recovered['controller']}
+        assert recovered['thread_id'] == stopped['thread_id']
+        rpc('codex_sessions', {**resumed, 'action': 'start', 'task': 'Continue from the actual stopped state; do not replay the command'})
+        wait(lambda: rpc('codex_status', {'work_id': resumed['work_id']})['phase'] == 'running')
+        attach(resumed)
+        command(resumed, 'resumed-test', 'test ! -e never.txt; printf RECOVERED_NATIVE_STATE')
+        rpc('codex_finish', {**resumed, 'call_id': 'recovered-final', 'text': 'OWNED_STOP_RECOVERY_COMPLETE'})
+        print('Owned job stop, stale-controller fence and same-thread explicit recovery passed', flush=True)
+
+        (root / 'stop-provider').touch()
+        service.wait(timeout=20)
+        assert service.returncode == 0
+        (root / 'stop-provider').unlink()
+        (root / 'provider-ready.json').unlink()
+        env['CODEX_PROVIDER_OPERATOR_PORT'] = str(port)
+        service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
+            'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
+            stderr=subprocess.STDOUT, cwd=root / 'w')
+        processes.append(service)
+        wait(lambda: (root / 'provider-ready.json').exists() or service.poll() is not None)
+        assert service.poll() is None
+        assert json.loads((root / 'provider-ready.json').read_text())['port'] == port
+        assert rpc('codex_attach', resumed, True)['error'] == 'operator_controller_fenced'
+        latest = rpc('codex_history', {'work_id': resumed['work_id']})
+        claimed = rpc('codex_sessions', {'action': 'claim', 'work_id': resumed['work_id'], 'cursor': latest['cursor'], 'context_cursor': latest['context_cursor']})
+        assert claimed['thread_id'] == stopped['thread_id']
+        assert (root / 'bridge-commands.json').exists()
+        print('Same-endpoint service restart and current-history claim passed without model resubmission', flush=True)
+        # Plan-mode question returns to its original native call, not a new user turn.
+        question_work = rpc('codex_sessions', {'action': 'create', 'call_id': 'question-create'})
+        question_binding = {'work_id': question_work['work_id'], 'controller': question_work['controller']}
+        rpc('codex_sessions', {**question_binding, 'action': 'start', 'mode': 'plan', 'task': 'Ask the user the owned question'})
+        wait(lambda: rpc('codex_status', {'work_id': question_binding['work_id']})['phase'] == 'running')
+        attach(question_binding)
+        question_tools = rpc('codex_tools', question_binding)['tools']
+        question_key = next(key for key in question_tools if key.rsplit('.', 1)[-1] == 'request_user_input')
+        pending_answer = pool.submit(execute, question_binding, 'owned-question', question_key,
+            {'questions': [{'id': 'owned_choice', 'header': 'Fixture', 'question': 'Choose the owned fixture answer',
+                'options': [{'label': 'Alpha (Recommended)', 'description': 'Use Alpha.'}, {'label': 'Beta', 'description': 'Use Beta.'}]}]},
+            'OWNED_USER_QUESTION')
+        question = wait(lambda: next(iter(rpc('codex_status', {'work_id': question_binding['work_id']})['human_requests']), None))
+        rpc('codex_answer', {**question_binding, 'request_id': json.dumps(question['id'], separators=(',', ':')),
+            'answers': {'owned_choice': {'answers': ['Alpha (Recommended)']}}})
+        assert 'Alpha (Recommended)' in json.dumps(pending_answer.result(timeout=30))
+        rpc('codex_finish', {**question_binding, 'call_id': 'question-final', 'text': 'OWNED_QUESTION_COMPLETE'})
+        print('Native question returned its actual answer on the original tool call', flush=True)
+        # A failed successor does not become a new primary thread or resend work.
+        failed_work=rpc('codex_sessions',{'action':'create','call_id':'failed-renewal-create'})
+        failed_binding={'work_id':failed_work['work_id'],'controller':failed_work['controller']}
+        rpc('codex_sessions',{**failed_binding,'action':'start','task':'OWNED_FAILED_SUCCESSOR'})
+        wait(lambda:rpc('codex_status',{'work_id':failed_binding['work_id']})['phase']=='running')
+        attach(failed_binding)
+        command(failed_binding,'before-failed-renewal','printf once > failed-renewal-once')
+        current=rpc('codex_history',{'work_id':failed_binding['work_id']})
+        (root / 'reject-submit').touch()
+        rpc('codex_handoff',{**failed_binding,'call_id':'failed-renewal','cursor':current['cursor'],'context_cursor':current['context_cursor'],
+            'summary':'The owned command ran once. Continue from recorded state without replay.','renew':True})
+        wait(lambda:rpc('codex_status',{'work_id':failed_binding['work_id']})['driver_phase']=='handoff_start_unconfirmed')
+        (root / 'reject-submit').unlink()
+        current=rpc('codex_history',{'work_id':failed_binding['work_id']})
+        takeover=rpc('codex_sessions',{'action':'takeover','work_id':failed_binding['work_id'],'cursor':current['cursor'],'context_cursor':current['context_cursor']})
+        takeover_binding={'work_id':takeover['work_id'],'controller':takeover['controller']}
+        assert takeover['thread_id']==failed_work['thread_id'] and not takeover['inference_submitted']
+        attach(takeover_binding)
+        rpc('codex_finish',{**takeover_binding,'call_id':'takeover-final','text':'OWNED_FAILED_SUCCESSOR_RECOVERED'})
+        assert (root / 'w/failed-renewal-once').read_text()=='once'
+        print('Uncertain successor preserved the original work and allowed explicit MCP takeover without replay',flush=True)
+        # Stop cannot confirm a host while its in-flight start can still return.
+        (root / 'hold-submit').write_text('hold owned synthetic dispatch')
+        prior=json.loads((root / 'bridge-commands.json').read_text())
+        drain()
+        os.write(master,b'OWNED_START_STOP_RACE')
+        time.sleep(.8)
+        os.write(master,b'\r')
+        wait(lambda:rpc('codex_status',{'work_id':after_compact['work_id']})['phase']=='running')
+        wait(lambda:len([row for row in json.loads((root / 'bridge-commands.json').read_text()) if row['op']=='submit']) > len([row for row in prior if row['op']=='submit']))
+        future=pool.submit(rpc,'codex_stop',{'work_id':after_compact['work_id']})
+        wait(lambda:rpc('codex_status',{'work_id':after_compact['work_id']})['phase']=='stop_requested')
+        time.sleep(.2)
+        assert not future.done(),'host stop acknowledged while submit remained in flight'
+        (root / 'hold-submit').unlink()
+        stopped_race=future.result(timeout=25)
+        assert stopped_race['native_stop_confirmed'] and stopped_race['host_stop_confirmed'],stopped_race
+        after=json.loads((root / 'bridge-commands.json').read_text())
+        time.sleep(.2)
+        assert json.loads((root / 'bridge-commands.json').read_text())==after
+        print('Concurrent host start/Stop serialized; no late dispatch after confirmation',flush=True)
+
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
+            'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True}, indent=2) + '\n')
+    finally:
+        if home:
+            (root / 'stop-provider').touch()
+            for path in server_paths(home):
+                try:
+                    pid = int((path.parent / 'pid').read_text())
+                    expected = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                    if Path(f'/proc/{pid}/exe').resolve() == expected:
+                        os.kill(pid, signal.SIGTERM)
+                except (OSError, ValueError):
+                    pass
+        for process in reversed(processes):
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        for master in masters:
+            os.close(master)
+        pool.shutdown(wait=True)
+        (root / 'terminal.txt').write_text(screen)
+        print('Owned fixture/proof retained at ' + str(root), flush=True)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--core', type=Path, required=True)
+    parser.add_argument('--frontend', type=Path, required=True)
+    parser.add_argument('--service-test', type=Path, required=True)
+    parser.add_argument('--report', type=Path, required=True)
+    probe(parser.parse_args())

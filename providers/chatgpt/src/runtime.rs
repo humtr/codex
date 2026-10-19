@@ -27,6 +27,39 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
+/// Chat-first work needs no app host. Only a Codex-origin start or independent
+/// native reviewer can acquire this explicitly provisioned host on first use.
+type LazyHost = Arc<tokio::sync::Mutex<Option<(crate::host::OwnedHost, Arc<Remote>)>>>;
+struct LazyRemote {
+    config: crate::config::HostConfig,
+    root: PathBuf,
+    owner: String,
+    host: LazyHost,
+}
+impl crate::app::Bridge for LazyRemote {
+    fn operation(
+        &self,
+        command: serde_json::Value,
+    ) -> futures_util::future::BoxFuture<'static, Result<serde_json::Value, Error>> {
+        let config = self.config.clone();
+        let root = self.root.clone();
+        let owner = self.owner.clone();
+        let host = self.host.clone();
+        Box::pin(async move {
+            let remote = {
+                let mut host = host.lock().await;
+                if host.is_none() {
+                    let owned = crate::host::OwnedHost::start(&config, &root).await?;
+                    let remote = Arc::new(Remote::pipe(owned.client.clone(), owner).with_mcp());
+                    *host = Some((owned, remote));
+                }
+                host.as_ref().unwrap().1.clone()
+            };
+            remote.operation(command).await
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Binding {
@@ -374,7 +407,13 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
 pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
     token(root).await?;
     let selected = binding(root)?;
-    crate::mcp_stdio::run(tokio::io::stdin(), tokio::io::stdout(), selected.port).await
+    crate::mcp_stdio::run_authenticated(
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        selected.port,
+        Some(selected.token),
+    )
+    .await
 }
 async fn request_viewer_activity(program: &Path, url: &str) -> Result<(), Error> {
     let mut command = tokio::process::Command::new(program);
@@ -441,29 +480,69 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .local_addr()
         .map_err(|_| Error("provider_port_unavailable"))?
         .port();
+    let operator_mode = settings.execution.mode == crate::config::ExecutionMode::Operator;
     let mut owned = None;
-    let bridge = if let Some(path) = descriptor {
-        Remote::new(path, journal.owner.clone())
+    let lazy_host = Arc::new(tokio::sync::Mutex::new(None));
+    let bridge: Arc<dyn crate::app::Bridge> = if let Some(path) = descriptor {
+        let remote = Remote::new(path, journal.owner.clone());
+        Arc::new(
+            if operator_mode || settings.transport.return_path == crate::config::ReturnPath::Mcp {
+                remote.with_mcp()
+            } else {
+                remote
+            },
+        )
+    } else if operator_mode {
+        Arc::new(LazyRemote {
+            config: settings.host.clone(),
+            root: root.clone(),
+            owner: journal.owner.clone(),
+            host: lazy_host.clone(),
+        })
     } else {
         let host = crate::host::OwnedHost::start(&settings.host, &root).await?;
         let remote = Remote::pipe(host.client.clone(), journal.owner.clone());
         owned = Some(host);
-        remote
+        Arc::new(
+            if settings.transport.return_path == crate::config::ReturnPath::Mcp {
+                remote.with_mcp()
+            } else {
+                remote
+            },
+        )
     };
-    let mcp = (settings.transport.return_path == crate::config::ReturnPath::Mcp)
+    let mcp = (!operator_mode && settings.transport.return_path == crate::config::ReturnPath::Mcp)
         .then(|| crate::mcp::Broker::new(journal.clone()));
     let bridge: Arc<dyn crate::app::Bridge> = match &mcp {
         Some(broker) => Arc::new(crate::mcp_bridge::McpBridge::new(
-            Arc::new(bridge.with_mcp()),
+            bridge,
             broker.clone(),
             journal.clone(),
             settings.transport.connector_name.clone(),
         )?),
-        None => Arc::new(bridge),
+        None => bridge,
     };
-    let host = Arc::new(AppHost::new(bridge, journal.clone()));
     let token = random_id()?;
-    let mut service = Service::configured(config, token.clone(), host.clone())?;
+    let host = Arc::new(AppHost::new(bridge.clone(), journal.clone()));
+    let mut service = if operator_mode {
+        let pool = crate::operator_native::Pool::new(
+            settings.clone(),
+            root.clone(),
+            format!("http://127.0.0.1:{port}/v1"),
+            std::env::current_exe().map_err(|_| Error("provider_program_unavailable"))?,
+        )?;
+        let operator = crate::operator::Operator::new(
+            pool,
+            crate::mcp::Broker::new(journal.clone()),
+            journal.clone(),
+            settings.clone(),
+            bridge,
+            token.clone(),
+        )?;
+        Service::configured(config, token.clone(), operator.clone())?.with_operator(operator)?
+    } else {
+        Service::configured(config, token.clone(), host.clone())?
+    };
     if let Some(mcp) = mcp {
         service = service.with_mcp(mcp)?;
     }
@@ -505,6 +584,9 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .map_err(|_| Error("provider_server_failed"));
     host.shutdown().await;
     if let Some(host) = &mut owned {
+        host.shutdown().await;
+    }
+    if let Some((host, _)) = &mut *lazy_host.lock().await {
         host.shutdown().await;
     }
     result

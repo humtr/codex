@@ -532,3 +532,95 @@ fn unconfigured_authentication_never_installs_an_app_or_changes_native_configura
         "stdio never starts an app or service"
     );
 }
+
+#[tokio::test]
+async fn operator_bootstrap_and_authenticated_stdio_need_no_desktop_or_core_launch() {
+    use codex_chatgpt_provider::config::{Config, ExecutionConfig, ExecutionMode, ReturnPath};
+    use tokio::io::{AsyncBufReadExt, BufReader as AsyncReader};
+    let root = Root::new();
+    std::fs::create_dir(&root.0).unwrap();
+    std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut config = Config::default();
+    config.transport.return_path = ReturnPath::Mcp;
+    config.execution = ExecutionConfig {
+        mode: ExecutionMode::Operator,
+        core: Some(root.0.join("not-launched-core")),
+        home: Some(root.0.join("not-opened-home")),
+        workspace: Some(root.0.join("not-opened-workspace")),
+    };
+    assert!(config.host.rootfs.is_none());
+    let path = root.0.join("config/codex/providers/chatgpt.toml");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, config.render().unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut service = Service(
+        Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["serve", "--state"])
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut line = String::new();
+    BufReader::new(service.0.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let ready: Value =
+        serde_json::from_str(&line).expect("operator must publish without a desktop rootfs");
+    assert_eq!(ready["app_connected"], false);
+    let state = root.0.join("state");
+    let token = runtime::token(&state).await.unwrap();
+    let port = ready["base_url"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("http://127.0.0.1:")
+        .unwrap()
+        .strip_suffix("/v1")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (mut send, input) = tokio::io::duplex(4096);
+    let (output, receive) = tokio::io::duplex(65536);
+    let tunnel = tokio::spawn(codex_chatgpt_provider::mcp_stdio::run_authenticated(
+        input,
+        output,
+        port,
+        Some(token),
+    ));
+    let mut read = AsyncReader::new(receive).lines();
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n")
+        .await
+        .unwrap();
+    let reply: Value = serde_json::from_str(
+        &tokio::time::timeout(std::time::Duration::from_secs(5), read.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(reply["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "codex_handoff"));
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"codex_sessions\",\"arguments\":{\"action\":\"list\"}}}\n").await.unwrap();
+    let reply: Value = serde_json::from_str(
+        &tokio::time::timeout(std::time::Duration::from_secs(5), read.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply["result"]["isError"], false);
+    drop(send);
+    tunnel.await.unwrap().unwrap();
+    assert!(!state.join("desktop").exists());
+    assert!(!root.0.join("not-opened-home").exists());
+    assert!(!root.0.join(".local/share/codex/core").exists());
+    drop(service);
+}

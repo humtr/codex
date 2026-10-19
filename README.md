@@ -24,8 +24,8 @@ A [ChatGPT-operated MCP workflow](CURRENT.md#proposed-chatgpt-control-through-mc
 has authorized opt-in implementation scope: ChatGPT would manage local Codex
 work/context/sessions and reports through MCP, with either ChatGPT or Codex as the
 entrance. This is broader than the existing MCP result-return transport and is
-not implemented or selected
-as a default. The partial implementation is paused for design alignment. The same
+not selected as a default. Opt-in source and synthetic qualification are recorded
+in CURRENT. The same
 Codex thread retains long-term history while replaceable Chat conversations receive
 summaries plus confirmed incremental work and current state. Origin/control and
 handoff information would travel through non-user tool returns. Current execution,
@@ -355,7 +355,7 @@ under providers/chatgpt, with its own offline source qualification. Its developm
 installer and existing app/user data remain separate from signed Base/Full delivery.
 Source integration does not activate a new operating Provider. CURRENT is the
 single authority for the revised work sequence, completed proof and remaining
-context/project/lifecycle/packaging gates. The broader MCP control path has paused
-Phase B draft work and separate synthetic/real-Chat qualification; existing Rust
+context/project/lifecycle/packaging gates. The broader MCP control path has opt-in
+Phase B source and separate synthetic/real-Chat qualification; existing Rust
 model-adapter local functions remain its default, with no automatic fallback after
 uncertain execution.

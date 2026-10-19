@@ -1,6 +1,6 @@
 # Operating state and product completion
 
-Reviewed 2026-10-18. `rewrite/rust-core` owns implementation; `main` pins an accepted
+Reviewed 2026-10-19. `rewrite/rust-core` owns implementation; `main` pins an accepted
 exact source for publication. SPEC owns product behavior and trust boundaries,
 README user instructions, this file current state and unfinished work. Superseded
 audit narratives and plans remain in Git.
@@ -100,12 +100,10 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 
 ## Proposed ChatGPT control through MCP
 
-Status: Phase B implementation and synthetic-host Android qualification authorized.
-The partial implementation is paused while its design/documents are realigned:
-the primary Codex thread persists; only the Chat execution context is replaced.
-This review authorizes documentation work, not implementation resumption. C real
-Chat trials, D default/fallback selection and E publication/operating activation
-remain separate decisions/gates.
+Status: Phase B's opt-in operator implementation and bounded synthetic Android
+qualification are complete. The same primary Codex thread
+persists while Chat reasoning contexts can be replaced. C real Chat trials,
+D default/fallback selection and E publication/operating activation remain separate.
 
 This proposal supersedes the earlier interpretation of dual entry as just a
 ChatGPT-first bootstrap for the existing per-inference tool loop. The user wants
@@ -237,17 +235,47 @@ summarization; the old30k/32k or preserved1m settings are not measured Chat limi
 Use task milestones, observed context growth and headroom rather than a fixed MCP
 call count; call output sizes differ. Do not renew on every native transport round.
 
-Before B implementation resumes, compare Responses dispatch reuse with a narrow
-upstream tool/control integration. The first preserves existing native execution
-but may retain unwanted inference-budget/compaction coupling. The second must
-still preserve full native tools, approvals, history, live events and writer locks.
-Select from concrete source/runtime evidence; no second executor or Core policy.
-The partial native client/config/dependency edits are uncommitted draft work, not
-an accepted API or recovery candidate; the first compile check has an unresolved
-catalog-error conversion. Its `new_context`/native-compact handoff assumption is
-withdrawn: neither operation proves successor Chat creation, summary transfer or
-attachment. Automatic Chat creation/reattachment, bootstrap delivery, failure
-recovery and any remaining app/bridge dependency require their own B/C proof.
+The selected integration reuses native Responses tool dispatch for function/custom/
+search execution, approvals, writer ownership, native events and durable recording.
+A separate MCP operator Host retains work across transport rounds; it does not run
+one Chat submission for each round. A separate upstream executor would duplicate
+that engine and need new approval/event/history integration. The operator therefore
+keeps the native path, with Chat handoff independent of native compaction. Native
+summary requests use the same controller and are acknowledged against the next
+canonical input; `new_context` is not a Chat-renewal mechanism.
+
+`execution.mode=operator` is explicit and requires MCP plus an explicit Core,
+execution home and workspace. These bindings require a service restart to change;
+model_adapter/local_function remains the default. The operator consumes only the
+existing dependency-free runtime-binding codec and authenticated Core server
+preparation. No Core, Manager or TUI implementation change is required. The MCP
+stdio bridge supplies the private local service credential; it is not model data.
+Chat-first startup/control does not start a desktop or a second model. A Codex-
+origin Chat start or independent native reviewer lazily acquires the provisioned
+app; those capabilities still need it. No implicit rootfs download/login occurs.
+
+The control surface covers sessions/create/resume/fork/start, native tool discovery,
+execution and exact retries, paged native public history, live report/final commit,
+status, question answers, stop, incremental Chat handoff, native summaries and
+explicit recovery. Only original native question requests accept user answers;
+this interface cannot grant approvals or replace auto_review with self-review.
+Controller capabilities, original thread/turn and unresolved logical calls are
+journaled; report/summary bodies remain in native history. Unknown dispatch never
+replays. An uncertain successor stays fenced and permits explicit MCP takeover
+only after old-host stop confirmation, current-history agreement and no unresolved
+native effects. Provider restart rotates controllers and requires reconciliation.
+
+History uses upstream's paged items API, excluding private reasoning and unsettled
+items. A narrow read-only projection of the exact owner-private native rollout
+supplies public user/developer/system input omitted by that API. It validates
+thread identity, excludes reasoning/internal metadata and has a separate source
+cursor. Attachment receipts, handoff/recovery and later original tool returns
+cover this context too. Upstream input queued during an active turn is not yet
+committed history; the next native round delivers it. Candidate bounds are16MiB
+per native frame,64MiB for a complete public-history or rollout read and4096
+public-item pages; exceeding them refuses explicitly without truncation. These are implementation bounds, not Chat capacity measurements or
+long-duration qualification. Automatic real Chat creation/attachment and actual
+bootstrap acceptance remain C gates; synthetic open/submit/attach/receipt is B proof.
 
 ### Timing, fallback and proposed revised order
 
@@ -316,19 +344,18 @@ select it because the Rust/new MCP route fails.
   use sequential legitimate AI changes for real development, not simultaneous
   writers or repeating an already-completed patch. Do not infer efficiency from
   the unmatched earlier AI-development and two-command MCP trials.
-- Reuse prior acceptance only at its exact scope. Non-user tool returns are proved;
-  general task controls, new origin payload, automatic real-time transcript and
-  charged Chat message savings are not. No Pro/GPT-5.6 trial or silent retry.
+- Reuse prior acceptance only at its exact scope. Earlier non-user tool-return
+  proof does not establish the broader controls or charged Chat message savings.
+  B's new synthetic native/CLI proof is distinct from C's actual Chat proof. No Pro/GPT-5.6 trial or silent retry.
 
-Phase B has a paused partial implementation. Resume with the integration choice
-above, then qualify the common control path on actual Android with a synthetic
-host. No B completion, real Chat trial, new default, automatic fallback or runtime
-activation is yet claimed.
+Phase B source, full local gates and bounded synthetic Android qualification are
+accepted in the proof index below; hosted exact-source packaging is tracked separately.
+No real Chat trial, new default, automatic fallback or runtime activation is claimed.
 
 ## Product completion scope and work order
 
-This is the single work sequence. A's bounded baseline is accepted. B is authorized
-with partial implementation paused for design alignment; C real Chat trials require
+This is the single work sequence. A's bounded baseline and B's opt-in source/
+synthetic Android proof are accepted. C real Chat trials require
 their declared scope/submission budget, and D default/fallback selection remains
 pending. E retains final product acceptance; independent Core/Manager/Base/Full
 work need not wait for the Provider experiment.
@@ -336,7 +363,7 @@ work need not wait for the Provider experiment.
 | Phase | Work | Gate |
 | --- | --- | --- |
 | A | Stabilize shared Rust identity/auth, exact-call returns, native execution/history, visible failure/stop/recovery, config and candidate packaging | Bounded recoverable checkpoint accepted at acf1bdb, with exact source/artifact/proof and disposable standalone snapshot install/restart/rollback. Remaining product/lifecycle gates stay in E; no public activation |
-| B | Choose native integration, expose Codex control to ChatGPT and connect both entrances | Authorized; draft paused. Actual Android synthetic host: non-user bootstrap, full native tools, live public reports, repeated MCP work and same-thread incremental Chat handoff, failure/restart/stop reconciliation and original final routing |
+| B | Choose native integration, expose Codex control to ChatGPT and connect both entrances | Bounded source/synthetic acceptance complete. Actual Android synthetic host: non-user bootstrap, full native tools, live public reports, repeated MCP work and same-thread incremental Chat handoff, failure/restart/stop reconciliation and original final routing |
 | C | Real ChatGPT control, conversation renewal and comparison | Explain trial scope/expected submissions first, including summary and successor Chat starts; real automatic creation/attachment/receipt and continued work on the same native thread; matched fixtures and direct AI development, physical CLI progress/stop/recovery and independent supervisor review |
 | D | Select default and useful fallback | Compare quality, continuity, latency, dependencies and maintenance. Existing Rust local functions stay the current default until qualified replacement; no uncertain mid-task fallback |
 | E | Finish shared product, publish and activate | Close applicable matrix gates for D's retained paths/components, without expanding replaced adapter policies; independent composition, package/provisioning/install/update/rollback, signing/readback/disposable update/non-forced promotion. Device activation is separate |
@@ -574,6 +601,8 @@ qualify actual Chat judgment, physical UI or charged Chat message allowance.
 | provider-discovery-metadata-proof.json / provider-discovery-metadata-full.log / provider-discovery-metadata-android.log | e11162c source: neutral discovery/side-effect hints and correct native execution ownership; exact-call/capability checks retained. Rust97/Bun108/Python30, fmt/clippy/release plus14 actual Android MCP/executor/search/correction/reviewer/wait/context fixtures pass. Synthetic host, zero Chat; new descriptions' physical host-warning effect unqualified |
 | provider-c463-android-smoke.json / provider-qualified-settled-release.log | Hosted39163366831 exact source/Android jobs; API24/AArch64 inventory/lock/source matches and actual device models/catalog/config validation makes no state writes/Chat starts. Unsigned/unactivated. Trial service/tunnel/proxy and settled hooks stopped/released, chats/auth/Tdev preserved |
 | phase-a-baseline-proof.json / phase-a-candidate-lifecycle.json / phase-a-core-full.log / phase-a-provider-full.log | Sourceacf1bdb, hosted39173039235 and source contract39173039249; complete seven-file source-bound readback, actual Android standalone snapshot install/replacement/restart/rollback, exclusive owner/endpoint/credential and preservation checks, downloaded-binary unconfirmed-stop regression. Full358 Rust/135 Python; Provider98 Rust/108 Bun/35 Python; fmt/clippy/release pass. Zero Chat/host requests; unsigned/unactivated |
+| phase-b-operator-android.json / phase-b-operator-android.log | Actual Android disposable Core/TUI plus synthetic host: both entrances, full native catalog, command/patch/failure/correction/test, exact retry and detached HTTP observer, independent child/reviewer allow/deny, same-thread manual/automatic Chat handoff, late committed input on original MCP return, initial/intermediate/final live CLI and native history, same Chat across later user turn and native compaction, owned-job Stop, same-endpoint Provider restart/current-history claim, original question answer, failed successor fencing/explicit takeover, concurrent host start/Stop serialization with no late dispatch after confirmation. Zero real Chat submissions; fixture ob-6qnr6d0l. Does not qualify actual app bootstrap/renewal, physical Chat UI, long-duration behavior or Core-process replacement |
+| phase-b-operator-inputs.json / phase-b-provider-full.log / phase-b-core-full.log | Exact code/test/release-binary digests retained. Provider101 Rust/108 Bun/36 Python and full358 Rust/135 Python pass; fmt/clippy/release pass. The explicitly armed synthetic operator gate is additional Android proof, not inferred from ignored tests. Core, Manager, TUI and installed optional runtime/state are unchanged |
 | provider-project-discovery-android.log / provider-project-create-minimal-body.log / provider-live-project-native.log | Actual authenticated project discovery/create/reuse/readback without inference; separately actual project-bound GPT-6 with three native effects, four app dispatches/two user objects/three returns and saved membership |
 | ai-development-proof.json | Direct ~/prj/ai actual development, failure/repair, same-thread recovery and independent49-check/166-TUI validation; detailed scope below. Installed AI runtime unchanged |
 | provider-owned-auth-native.log / owned-auth-transition.json / provider-restored-auth-readonly.log | Actual authenticated Rust-owned app/private pipes/native tools, four starts/three effects; original profile inode and controller restored. Subsequent readonly identity preflight makes no inference |
@@ -626,10 +655,10 @@ protected state and signed lifecycle gates cannot be retired as path optimizatio
 
 | Area | Evidence already retained | Open gate and timing |
 | --- | --- | --- |
-| Host lifecycle/visibility | Authenticated Rust boot/native effects, synthetic concurrent lanes/sibling stop, readonly journal status, Phase A exact-owner/restart and kernel-confirmed service-stop proof | E: real host-loss/cancellation/concurrency/reboot and fresh login/provisioning. Journal liveness is not current model progress; service exit is not native-job stop confirmation |
-| Context and TUI | Seven actual Android synthetic context cases, exact admitted no-Manager PTY /model round trip, separate real Chat API summary/re-entry | B: same-thread incremental Chat handoff, history boundary/current instructions, old-controller fencing, pending-result/failure/restart reconciliation and original CLI return. C: actual successor Chat creation/receipt and continued development. E: real-Chat TUI/downshift/cold-resume transitions for retained model-adapter routes |
+| Host lifecycle/visibility | Authenticated Rust boot/native effects, synthetic concurrent lanes/sibling stop, readonly journal status, Phase A exact-owner/restart and kernel-confirmed service-stop proof | E: real host-loss/cancellation/concurrency/reboot, Core-process replacement/cold recovery and fresh login/provisioning. Journal liveness is not current model progress; service exit is not native-job stop confirmation |
+| Context and TUI | Seven prior native cases, no-Manager PTY /model, separate real Chat API re-entry; B operator synthetic same-thread incremental handoff/current input, controller fencing, pending-result/failure/service-restart reconciliation and live original CLI return | C: actual successor Chat creation/receipt and continued development. E: real-Chat TUI/downshift/cold-resume transitions for retained model-adapter routes |
 | Tools/approval/question | Actual native discovery/correction, independent reviewer allow/deny effects and project isolation, blocking question result on original call | E: broader function/custom/batch and host search behavior, real reviewer judgment/project instruction priority, physical question UI. Quoted executable prefix matching remains an upstream limitation |
-| Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. B–C: full Codex control and two-entry origin/report/finish are new gates, not R11 features |
+| Existing MCP return | Actual R11 effect/result/report/final; e11162c neutral description/annotation source+Android gate; Phase A retains endpoint/owner controls and exact-call regressions | E: new-description physical warning behavior remains unverified. C: actual Chat control remains separate from B synthetic two-entry control/report/finish and R11 two-command return |
 | Cost/presentation | Stream-safe MemoryCite/box projection, exact native results and warm prefixes | Count title-model starts, setup/summary/retries and source-specific overhead; defer path-only optimization until C–D unless shared correctness. No claim that counters measure Chat message debits |
 | Core update information/prompt | User-confirmed85→86 success; Core bytes unchanged; release-date/other display details observed as unknown | Low priority with the next substantive Core change: [deferred Core follow-up](#deferred-core-follow-up), including component information and a prompt on each eligible bare launch; preserve upstream/noninteractive behavior |
 | Viewer and desktop | Rust private RFB/HTTP/control fixtures; actual owned fresh-profile RFB; old desktop font/icon observations | E when shipped: physical current Rust viewer/keyboard/scroll/login. Old desktop observations do not qualify a changed viewer; viewer stays optional for inference |

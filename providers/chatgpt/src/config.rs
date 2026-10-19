@@ -21,6 +21,10 @@ pub const FIELDS: &[&str] = &[
     "catalog",
     "host.rootfs",
     "host.viewer_assets",
+    "execution.mode",
+    "execution.core",
+    "execution.home",
+    "execution.workspace",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +37,7 @@ pub struct Config {
     pub history: HistoryConfig,
     pub catalog: Catalog,
     pub host: HostConfig,
+    pub execution: ExecutionConfig,
 }
 
 impl Default for Config {
@@ -45,8 +50,29 @@ impl Default for Config {
             history: HistoryConfig::default(),
             catalog: Catalog::default(),
             host: HostConfig::default(),
+            execution: ExecutionConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    #[default]
+    ModelAdapter,
+    Operator,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExecutionConfig {
+    pub mode: ExecutionMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub core: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,18 +201,43 @@ impl Config {
             return Err(ConfigError::Invalid("unsupported configuration version"));
         }
         self.catalog.validate()?;
-        if [&self.host.rootfs, &self.host.viewer_assets]
-            .into_iter()
-            .flatten()
-            .any(|p| {
-                !p.is_absolute()
-                    || p.to_str().is_none_or(|s| s.contains([':', '\0']))
-                    || p.components()
-                        .any(|c| matches!(c, std::path::Component::ParentDir))
-            })
-        {
+        if [
+            &self.host.rootfs,
+            &self.host.viewer_assets,
+            &self.execution.core,
+            &self.execution.home,
+            &self.execution.workspace,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|p| {
+            !p.is_absolute()
+                || p.to_str().is_none_or(|s| s.contains([':', '\0']))
+                || p.components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+        }) {
             return Err(ConfigError::Invalid(
                 "host paths must be absolute and unambiguous",
+            ));
+        }
+        if self.execution.mode == ExecutionMode::Operator
+            && [
+                &self.execution.core,
+                &self.execution.home,
+                &self.execution.workspace,
+            ]
+            .iter()
+            .any(|v| v.is_none())
+        {
+            return Err(ConfigError::Invalid(
+                "operator execution requires explicit Core, execution home and workspace",
+            ));
+        }
+        if self.execution.mode == ExecutionMode::Operator
+            && self.transport.return_path != ReturnPath::Mcp
+        {
+            return Err(ConfigError::Invalid(
+                "operator execution requires MCP return transport",
             ));
         }
 
@@ -344,5 +395,28 @@ mod tests {
         ] {
             assert!(Config::parse(text.as_bytes()).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod operator_tests {
+    use super::*;
+    #[test]
+    fn operator_is_explicit_and_requires_a_complete_mcp_execution_binding() {
+        let base = Config::default();
+        assert_eq!(base.execution.mode, ExecutionMode::ModelAdapter);
+        let mut config = base;
+        config.execution.mode = ExecutionMode::Operator;
+        assert!(config.validate().is_err());
+        config.execution.core = Some("/owned/core".into());
+        config.execution.home = Some("/owned/codex".into());
+        config.execution.workspace = Some("/owned/work".into());
+        assert!(config.validate().is_err());
+        config.transport.return_path = ReturnPath::Mcp;
+        config.validate().unwrap();
+        config.execution.home = Some("/owned/../other".into());
+        assert!(config.validate().is_err());
+        config.execution.home = Some("relative-home".into());
+        assert!(config.validate().is_err());
     }
 }

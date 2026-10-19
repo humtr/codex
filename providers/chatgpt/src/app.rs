@@ -213,14 +213,14 @@ enum Phase {
     Unknown,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct Identity {
+pub(crate) struct Identity {
     generation: String,
     account: String,
     user: String,
     structure: String,
 }
 impl Identity {
-    fn parse(value: &Value) -> Result<Self, Error> {
+    pub(crate) fn parse(value: &Value) -> Result<Self, Error> {
         let identity: Self =
             serde_json::from_value(value.clone()).map_err(|_| Error("app_identity_unavailable"))?;
         if [&identity.generation, &identity.account, &identity.user]
@@ -569,7 +569,7 @@ fn native_output(events: &[Event]) -> Result<Vec<Value>, Error> {
                 encrypted_content,
             } => output
                 .push(json!({"id":id,"type":"compaction","encrypted_content":encrypted_content})),
-            Event::Completed { .. } => (),
+            Event::Completed { .. } | Event::Flush => (),
         }
     }
     Ok(output)

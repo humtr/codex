@@ -115,6 +115,15 @@ class CandidateTests(unittest.TestCase):
                               '124', '27.3.13750724', '1.98.0')
         self.assertFalse((self.root / 'next').exists())
 
+    def test_dirty_shared_codec_cannot_be_omitted_from_provider_source_binding(self):
+        path=self.source / 'crates/runtime-binding/src/lib.rs'
+        path.parent.mkdir(parents=True)
+        path.write_text('uncommitted shared execution codec')
+        with self.assertRaisesRegex(ValueError,'clean exact'):
+            candidate.package(self.binary,self.root / 'next',self.source,self.sha,
+                              '124','27.3.13750724','1.98.0')
+        self.assertFalse((self.root / 'next').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

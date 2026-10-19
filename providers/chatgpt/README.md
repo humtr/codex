@@ -18,14 +18,14 @@ a successful build and a model listing do not change that state.
 The [ChatGPT-operated Codex proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
 would let ChatGPT use MCP to manage local sessions/context, discover tools, develop,
 report and finish, with either Codex or ChatGPT as the entrance. It is not the
-current two-tool MCP return transport, an implemented control API or a selected
-default. Phase B implementation/synthetic Android qualification is authorized;
-the partial draft is paused for the same-thread context correction. The primary
-Codex thread keeps long-term history while Chat conversations are replaced after
+current two-tool MCP return transport or a selected default. The opt-in control
+API is implemented and its synthetic Android qualification is recorded in CURRENT.
+The primary Codex thread keeps long-term history while Chat conversations are replaced after
 substantial MCP work. Each successor receives the accepted summary, confirmed
 incremental native work and current state. Old-controller fencing, source coverage,
-late events, unresolved calls and successor acknowledgment need independent proof.
-Origin/control/handoff context would use existing non-user tool returns; local
+late events, unresolved calls and successor acknowledgment have bounded synthetic
+proof; actual Chat operation remains a separate C gate.
+Origin/control/handoff context uses existing non-user tool returns; local
 bindings preserve the actual reply destination across Chat replacement.
 
 The single [work order](../../CURRENT.md#product-completion-scope-and-work-order)
@@ -34,9 +34,50 @@ alternative, then completes the selected product and signed delivery. It does no
 require polishing every existing adapter policy before experimentation. Existing
 Rust local functions are an explicit fallback candidate; no uncertain mid-task
 switch or silent legacy-runtime fallback is allowed. SPEC distinguishes the current
-model-adapter behavior from the opt-in operator contract. Responses dispatch reuse
-versus a narrow upstream integration remains a B design choice; no native-context
-reset or compaction is assumed to create/attach a successor Chat.
+model-adapter behavior from the opt-in operator contract. The operator reuses
+native Responses tool dispatch and its approval/event/history
+path while managing Chat handoff separately. A native-context reset or compaction
+does not create/attach a successor Chat.
+
+## Opt-in MCP operator controls
+
+The candidate adds `execution.mode="operator"`, requiring
+`transport.return_path="mcp"` and absolute `execution.core`, `execution.home` and
+`execution.workspace`. The default remains `model_adapter`; binding/transport
+changes need a service restart. Use a disposable qualification home until C–E
+accept the actual host and delivery. `mcp-stdio` passes the private local bearer;
+never put that credential in Chat prompts or a remote tool argument.
+
+| MCP tool | Behavior |
+| --- | --- |
+| codex_sessions | List/create/resume independent work; fork children; start genuine user tasks; request settled native compaction; claim reconciled recovery or explicit fenced takeover |
+| codex_attach | Return current instructions/history/summary through the tool result; echo its receipt to accept the offered controller |
+| codex_tools / codex_execute | Discover complete native function/custom/search schemas and execute with exact logical retries |
+| codex_history | Read public native items and public input context since their verified source cursors |
+| codex_report / codex_finish | Stream reports into native CLI/history and confirm final native settlement |
+| codex_status / codex_stop | Observe native activity and host freshness separately; fence and interrupt the owned turn/jobs, reporting confirmations |
+| codex_answer | Forward the user's supplied native question answer; never grant approvals |
+| codex_handoff | Record a source-bound incremental summary, fence the old controller and optionally request a successor Chat in the same native thread |
+| codex_native_summary | Supply an upstream-requested inference summary without rotating Chat |
+
+`native_catalog/native_tool` remain isolated reviewer transports. Configured native
+reviewers retain independent contexts and real approvals. Chat-first startup and
+primary execution need no desktop; Codex-origin Chat start and app-backed reviewers
+still acquire the explicitly provisioned app lazily. An optional viewer is not
+started by operator bootstrap. Actual host bootstrap/automatic renewal remains a
+C gate; a synthetic bridge is not real Chat proof.
+
+The native public-history reader pages upstream items, skips reasoning and active
+items, and refuses explicit safety bounds rather than silently truncating. Current
+bounds are 16MiB/native frame, 64MiB/complete history or rollout read and4096
+public-item pages. They are
+not Chat context limits or hours-long development qualification. Context-only
+input messages missing from the public-items API use an owner-private, thread-
+matched, read-only native rollout projection; reasoning/internal metadata is
+excluded. History and context have separate cursors. Attach receipts cover both;
+handoff and recovery require their source cursors. Later committed instructions
+return with the original MCP tool result. Input queued by upstream during an
+active turn becomes observable when upstream commits it on a subsequent round.
 
 ## Candidate configuration and commands
 

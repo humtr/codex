@@ -104,6 +104,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "codex-runtime-binding",
  "futures-util",
  "hmac",
  "libc",
@@ -116,6 +117,10 @@ dependencies = [
  "toml",
  "zstd",
 ]
+
+[[package]]
+name = "codex-runtime-binding"
+version = "0.1.0"
 
 [[package]]
 name = "cpufeatures"

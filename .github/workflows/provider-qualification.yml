@@ -5,6 +5,8 @@ on:
     branches: [rewrite/rust-core]
     paths:
       - providers/chatgpt/**
+      - crates/runtime-binding/**
+      - scripts/qualify_provider_operator.py
       - scripts/check.sh
       - .github/workflows/provider-qualification.yml
 permissions:

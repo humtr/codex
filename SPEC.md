@@ -13,10 +13,11 @@ CURRENT.md owns the current installed/public baseline and the ordered completion
 plan. Sections labelled approved target define the accepted design. CURRENT
 distinguishes implemented source, bounded proof, public release and activation. A source
 PASS is not an installed behavior claim. The opt-in ChatGPT-operated MCP contract
-below governs authorized Phase B work; CURRENT records its paused partial draft
-and remaining integration/qualification decisions. Existing model-adapter/local-
-function/MCP-return behavior remains in effect; no qualified control endpoint,
-new default, automatic fallback or runtime migration is claimed. Historical
+below governs authorized Phase B work; CURRENT records implemented source and
+remaining qualification/delivery gates. Existing model-adapter/local-
+function/MCP-return behavior remains the default. The opt-in control endpoint has
+bounded source/synthetic qualification only; no new default, automatic fallback
+or runtime migration is claimed. Historical
 release versions below describe retained compatibility, not the latest installed
 release.
 
@@ -1144,12 +1145,23 @@ canonical history, context commits and native task lifecycle. There is no Provid
 shell executor, planning agent, second transcript database or self-review override.
 
 Use upstream's actual tool dispatch, approval and recording path; native results
-settle their original logical MCP calls. Responses tool rounds are a candidate
-integration, not a fixed architecture requirement. Compare their context/lifecycle
-coupling with a narrow upstream integration before selecting the path. Intermediate
-transport rounds do not authorize another Chat submission. Preserve the complete
+settle their original logical MCP calls. The opt-in implementation selects native
+Responses tool rounds and their existing event/recording path, with a separate MCP
+operator control Host. Chat lifetime is independent of those rounds and native
+compaction; intermediate transport rounds do not authorize another Chat submission.
+Preserve the complete
 advertised/deferred tool surface and independent child/reviewer contexts. Do not
 substitute threadless command/exec or user-shell escape hatches.
+
+The candidate configuration adds `execution.mode=model_adapter|operator`, plus
+`execution.core`, `execution.home` and `execution.workspace`. Operator requires
+all three absolute paths and `transport.return_path=mcp`. Execution binding and
+transport changes require a service restart. Bootstrap/control MCP requests require
+the private service bearer supplied locally by `mcp-stdio`, then an explicit
+per-work controller and receipt acceptance before effects. Chat-first work needs
+no app host for startup/tools/control. Codex-origin Chat initiation and independent
+native reviewers acquire the configured app lazily; app absence is an explicit
+failure for those capabilities, not permission for another model/account/path.
 
 Session/control operations use the same bound upstream app-server and native
 context tools. Provider may consume the existing Core catalog-server preparation
@@ -1190,6 +1202,19 @@ the transition; it does not become a summarization agent. Preserve goals/current
 instructions, decisions, changed files, test results, unresolved work and relevant
 history references. Retrieve original details through MCP when needed; do not
 recursively summarize summaries while ignoring the native evidence.
+
+The qualified upstream public-items API omits context-only injected messages.
+For this version, the operator may supplement it by reading only public user/
+developer/system messages from the exact native-reported rollout for that bound
+thread. Require an owner-private regular file and matching thread identity;
+exclude reasoning/assistant analysis, internal metadata and credentials. Keep this
+read-only compatibility projection separate from the paged execution items, with
+its own source cursor in history, attachment acknowledgment, handoff and recovery
+coverage. Return later committed input changes with the original MCP tool result;
+an upstream queued input is not committed merely because its injection RPC returned.
+Never edit the rollout, infer missing content from timestamps, or save a second
+transcript. A native API providing the same complete public context can replace
+this version-specific reader after qualification.
 
 Bind each handoff to the same work/thread, source-history boundary and controller
 generation. Preserve the summary through an upstream-supported recording operation

@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
+    /// Finish a public item without ending the native tool/inference round.
+    Flush,
     Text {
         id: String,
         phase: String,
@@ -82,6 +84,7 @@ impl Projection {
         }
         let mut out = Vec::new();
         match event {
+            Event::Flush => out.extend(self.close_items()),
             Event::Text { id, phase, delta } => {
                 if !matches!(phase.as_str(), "commentary" | "final_answer") {
                     return Err(Error("nonpublic_host_message"));
@@ -295,5 +298,57 @@ mod tests {
             Error("nonpublic_host_message")
         );
         assert_eq!(p.items.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod operator_tests {
+    use super::*;
+    #[test]
+    fn progress_flush_is_durable_without_ending_the_native_round() {
+        let mut projection = Projection::new("bound".into(), "selected".into());
+        projection
+            .push(Event::Text {
+                id: "initial".into(),
+                phase: "commentary".into(),
+                delta: "Inspecting native state".into(),
+            })
+            .unwrap();
+        let frames = projection.push(Event::Flush).unwrap();
+        assert!(frames
+            .iter()
+            .any(|frame| frame["type"] == "response.output_item.done"
+                && frame["item"]["id"] == "initial"));
+        assert!(!projection.completed());
+        assert_eq!(
+            projection
+                .push(Event::Text {
+                    id: "initial".into(),
+                    phase: "commentary".into(),
+                    delta: "duplicate suffix".into()
+                })
+                .unwrap_err(),
+            Error("nonmonotonic_public_message")
+        );
+        projection
+            .push(Event::Text {
+                id: "final".into(),
+                phase: "final_answer".into(),
+                delta: "Native completion confirmed".into(),
+            })
+            .unwrap();
+        let frames = projection
+            .push(Event::Completed {
+                input_tokens: 0,
+                output_tokens: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            frames.last().unwrap()["response"]["output"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

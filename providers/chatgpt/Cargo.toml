@@ -8,6 +8,7 @@ publish = false
 [workspace]
 
 [dependencies]
+codex-runtime-binding = { path = "../../crates/runtime-binding" }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 base64 = "=0.22.1"
 futures-util = { version = "=0.3.34", features = ["sink"] }

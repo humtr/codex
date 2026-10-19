@@ -61,12 +61,15 @@ async fn line(
         }
     }
 }
-async fn forward(port: u16, row: &Value) -> Result<Option<Value>, Error> {
+async fn forward(port: u16, row: &Value, token: Option<&str>) -> Result<Option<Value>, Error> {
     let body = row.to_string();
     let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .map_err(|_| Error("mcp_provider_unavailable"))?;
-    socket.write_all(format!("POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.map_err(|_|Error("mcp_delivery_unknown"))?;
+    let auth = token.map_or_else(String::new, |token| {
+        format!("Authorization: Bearer {token}\r\n")
+    });
+    socket.write_all(format!("POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.map_err(|_|Error("mcp_delivery_unknown"))?;
     let mut bytes = Vec::new();
     socket
         .take((2 * LIMIT + 8193) as u64)
@@ -108,6 +111,14 @@ pub async fn run(
     input: impl AsyncRead + Unpin,
     output: impl AsyncWrite + Unpin + Send + 'static,
     port: u16,
+) -> Result<(), Error> {
+    run_authenticated(input, output, port, None).await
+}
+pub async fn run_authenticated(
+    input: impl AsyncRead + Unpin,
+    output: impl AsyncWrite + Unpin + Send + 'static,
+    port: u16,
+    token: Option<String>,
 ) -> Result<(), Error> {
     let mut input = BufReader::new(input);
     let mut framing = Framing::default();
@@ -176,10 +187,11 @@ pub async fn run(
         let cancel = CancellationToken::new();
         active.insert(key.clone(), cancel.clone());
         let output = output.clone();
+        let token = token.clone();
         tasks.spawn(async move {
             let result=tokio::select!{
                 _=cancel.cancelled()=>Ok(()),
-                reply=tokio::time::timeout(Duration::from_secs(610),forward(port,&row))=>match reply {
+                reply=tokio::time::timeout(Duration::from_secs(610),forward(port,&row,token.as_deref()))=>match reply {
                     Ok(Ok(Some(value)))=>send(&output,value).await,
                     Ok(Ok(None))=>Ok(()),
                     other=>{let error=match other{Ok(Err(error))=>error, _=>Error("mcp_observer_timeout")};send(&output,failure(row["id"].clone(),-32000,error.0)).await},

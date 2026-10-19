@@ -12,6 +12,8 @@ pub mod journal;
 pub mod mcp;
 pub mod mcp_bridge;
 pub mod mcp_stdio;
+pub mod operator;
+pub mod operator_native;
 pub mod project;
 pub mod projection;
 pub mod protocol;

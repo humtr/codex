@@ -122,7 +122,7 @@ impl Broker {
         Ok(())
     }
     /// Register before waiting. Cancelling this future only drops the observer.
-    pub async fn invoke(&self, token: &str, args: Arguments) -> Result<Value, Error> {
+    pub async fn enqueue(&self, token: &str, args: &Arguments) -> Result<(), Error> {
         if args.call_id.is_empty()
             || args.call_id.len() > 160
             || !args
@@ -135,56 +135,95 @@ impl Broker {
             return Err(Error("mcp_call_invalid"));
         }
         let fingerprint = digest(&(&args.name, &args.input, &args.report));
+        let mut turns = self.turns.lock().await;
+        let turn = turns.get_mut(token).ok_or(Error("mcp_turn_unavailable"))?;
+        if let Some(call) = turn.calls.get(&args.call_id) {
+            if call.fingerprint != fingerprint {
+                return Err(Error("mcp_call_changed"));
+            }
+            if turn.retired && call.result.is_none() {
+                return Err(Error("mcp_turn_unavailable"));
+            }
+            return Ok(());
+        }
+        if turn.retired {
+            return Err(Error("mcp_turn_unavailable"));
+        }
+        if turn.calls.len() >= 4096 {
+            return Err(Error("mcp_turn_call_limit"));
+        }
+        let id = format!("mcp_{}", digest(&(token, &args.call_id)));
+        gateway_calls(
+            &id,
+            &json!({"name":args.name,"input":args.input,"report":args.report}).to_string(),
+            &turn.tools,
+        )?;
+        let mut next = turn.clone();
+        next.calls.insert(
+            args.call_id.clone(),
+            Invocation {
+                fingerprint,
+                id,
+                name: args.name.clone(),
+                input: args.input.clone(),
+                report: args.report.clone(),
+                offered: false,
+                result: None,
+            },
+        );
+        self.persist(token, &next)?;
+        *turn = next;
+        self.changed.notify_waiters();
+        Ok(())
+    }
+    pub fn recorded_calls(&self, token: &str) -> Result<Vec<Value>, Error> {
+        let turn: Turn = self
+            .journal
+            .read(&digest(&("mcp-turn-v1", token)))?
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        Ok(turn
+            .calls
+            .values()
+            .map(
+                |call| json!({"id":call.id,"offered":call.offered,"settled":call.result.is_some()}),
+            )
+            .collect())
+    }
+    pub fn contains_call(&self, token: &str, call_id: &str) -> Result<bool, Error> {
+        let turn: Turn = self
+            .journal
+            .read(&digest(&("mcp-turn-v1", token)))?
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        Ok(turn.calls.contains_key(call_id))
+    }
+    pub async fn unsettled(&self, token: &str) -> Result<Vec<String>, Error> {
+        let turns = self.turns.lock().await;
+        let turn = turns.get(token).ok_or(Error("mcp_turn_unavailable"))?;
+        Ok(turn
+            .calls
+            .values()
+            .filter(|v| v.result.is_none())
+            .map(|v| v.id.clone())
+            .collect())
+    }
+    pub async fn invoke(&self, token: &str, args: Arguments) -> Result<Value, Error> {
+        self.enqueue(token, &args).await?;
         loop {
-            // Register the waiter before inspecting the result to avoid a lost
-            // notification between the durable commit and await.
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
             {
-                let mut turns = self.turns.lock().await;
-                let turn = turns.get_mut(token).ok_or(Error("mcp_turn_unavailable"))?;
-                if let Some(call) = turn.calls.get(&args.call_id) {
-                    if call.fingerprint != fingerprint {
-                        return Err(Error("mcp_call_changed"));
-                    }
-                    if let Some(result) = &call.result {
-                        return Ok(result.clone());
-                    }
-                    if turn.retired {
-                        return Err(Error("mcp_turn_unavailable"));
-                    }
-                } else {
-                    if turn.retired {
-                        return Err(Error("mcp_turn_unavailable"));
-                    }
-                    if turn.calls.len() >= 4096 {
-                        return Err(Error("mcp_turn_call_limit"));
-                    }
-                    let id = format!("mcp_{}", digest(&(token, &args.call_id)));
-                    // Use the same validator as local functions; malformed
-                    // ordinary function JSON remains native Codex's diagnostic domain.
-                    gateway_calls(
-                        &id,
-                        &json!({"name":args.name,"input":args.input,"report":args.report})
-                            .to_string(),
-                        &turn.tools,
-                    )?;
-                    let mut next = turn.clone();
-                    next.calls.insert(
-                        args.call_id.clone(),
-                        Invocation {
-                            fingerprint: fingerprint.clone(),
-                            id,
-                            name: args.name.clone(),
-                            input: args.input.clone(),
-                            report: args.report.clone(),
-                            offered: false,
-                            result: None,
-                        },
-                    );
-                    self.persist(token, &next)?;
-                    *turn = next;
+                let turns = self.turns.lock().await;
+                let turn = turns.get(token).ok_or(Error("mcp_turn_unavailable"))?;
+                let call = turn
+                    .calls
+                    .get(&args.call_id)
+                    .ok_or(Error("mcp_turn_unavailable"))?;
+                if let Some(result) = &call.result {
+                    return Ok(result.clone());
+                }
+                if turn.retired {
+                    return Err(Error("mcp_turn_unavailable"));
                 }
             }
             changed.await;

@@ -54,6 +54,7 @@ pub struct Service {
     sequence: AtomicU64,
     viewer: Option<Arc<crate::viewer::Viewer>>,
     mcp: Option<Arc<crate::mcp::Broker>>,
+    operator: Option<Arc<crate::operator::Operator>>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -77,6 +78,7 @@ impl Service {
             sequence: AtomicU64::new(0),
             viewer: None,
             mcp: None,
+            operator: None,
         }))
     }
     pub fn configured(
@@ -99,6 +101,7 @@ impl Service {
                 .and_then(|value| {
                     if value.transport.return_path != self.config.transport.return_path
                         || value.transport.connector_name != self.config.transport.connector_name
+                        || value.execution != self.config.execution
                     {
                         Err(Error("provider_transport_restart_required"))
                     } else {
@@ -111,9 +114,14 @@ impl Service {
     pub fn router(self: Arc<Self>) -> Router {
         let viewer = self.viewer.clone();
         let mcp = self.mcp.clone();
+        let operator = self.operator.clone();
         let router = Router::new().fallback(handler).with_state(self);
         let router = match mcp {
             Some(mcp) => router.merge(mcp.router()),
+            None => router,
+        };
+        let router = match operator {
+            Some(operator) => router.merge(operator.router()),
             None => router,
         };
         match viewer {
@@ -125,6 +133,15 @@ impl Service {
         Arc::get_mut(&mut self)
             .ok_or(Error("provider_already_shared"))?
             .mcp = Some(mcp);
+        Ok(self)
+    }
+    pub fn with_operator(
+        mut self: Arc<Self>,
+        operator: Arc<crate::operator::Operator>,
+    ) -> Result<Arc<Self>, Error> {
+        Arc::get_mut(&mut self)
+            .ok_or(Error("provider_already_shared"))?
+            .operator = Some(operator);
         Ok(self)
     }
     pub fn with_viewer(
@@ -150,7 +167,7 @@ fn one_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let value = values.next()?.to_str().ok()?;
     values.next().is_none().then_some(value)
 }
-fn authorized(headers: &HeaderMap, token: &str) -> bool {
+pub(crate) fn authorized(headers: &HeaderMap, token: &str) -> bool {
     let Some(given) = one_header(headers, "authorization") else {
         return false;
     };
@@ -402,12 +419,16 @@ pub async fn serve(
     let stop = service.shutdown.clone();
     let viewer = service.viewer.clone();
     let mcp = service.mcp.clone();
+    let operator = service.operator.clone();
     axum::serve(listener, service.router())
         .with_graceful_shutdown(async move {
             shutdown.cancelled().await;
             stop.cancel();
             if let Some(mcp) = mcp {
                 mcp.close().await;
+            }
+            if let Some(operator) = operator {
+                operator.close().await;
             }
             if let Some(viewer) = viewer {
                 viewer.close();
