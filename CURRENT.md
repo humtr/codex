@@ -163,18 +163,56 @@ status as well as an unambiguous saved conversation ID. Twelve Bun tests pass52
 assertions, including rejection of missing/foreign/ambiguous bindings. Tool
 definitions/annotations and the Provider artifact are unchanged. The completed
 TUI and two idle backends have confirmed kernel exits, and the old controller is
-released. Distinct continuation-2 preserves the same native thread, Provider,
+released. Distinct continuation-2 preserved the same native thread, Provider,
 tunnel, app observer, original deadline and1-used/2-total request budget. Its
-request-free preparation cold-resumes the two completed turns, selects native,
-observes one synthetic native return and reselects GPT-6 High. Only the remaining
-new follow-up may be submitted after its ready-before-Chat/go boundary. This is
-two supervisor-reconciled segments, not an uninterrupted two-task batch. Await
-its one final notice after start; do not poll or submit competing input.
-Continuation-2 preparation now passes: the original two completed turns are exact,
-one new synthetic native turn completes with the previous actual Chat final in
-its request input, and GPT-6 High is reselected on the same thread with3 completed
-turns. ready-before-Chat.json still reports1 actual Chat dispatch. Its exclusive
-go.json starts only the remaining new follow-up, retaining the total ceiling2.
+request-free preparation cold-resumed the two completed turns, selected native,
+observed one synthetic native return and reselected GPT-6 High. Its exclusive
+ready-before-Chat/go boundary admitted only the new follow-up. These were
+supervisor-reconciled segments, not an uninterrupted two-task batch.
+Continuation-2 preserved those three completed turns but failed before dispatching
+the follow-up to Chat. The operator execution path retained an exited native
+owner after cold resume; status fenced it, asynchronous driver start failed, and
+the response watchdog did not surface that error once reconciliation_required
+was set. The later native read timeout is secondary evidence, not a completed
+Chat turn. Actual dispatches remain1, with0 new tool calls/file changes in the
+blocked follow-up. Its original failed receipt remains immutable.
+
+continuation-2/reconciliation confirms the original input's turn_aborted after
+one interruption, explicit native/host Stop with no jobs, three native owner
+exits, candidate Provider/controller exits and the restored original route's
+actual remote16-tool/read check. The app observer was disposed after its single
+retained request. settlement-review.json accepts preservation, not the missing
+second development task. Do not replay the interrupted input or repeat Stop.
+
+The correction extends native-owner reconciliation to both entry
+modes and surfaces asynchronous start/fencing errors outside the running phase.
+An intentional Chat handoff may rotate its controller within one native response;
+only a different response generation or explicit failure/Stop fences that response.
+Local qualification at TMPDIR/gfx.q8if8xzs passes166 Rust tests (28 explicit opt-in
+ignores),162 JavaScript,111 Python, formatting/Clippy/release. Exact runtime source
+was unchanged throughout. Android original-TUI operator proof passes cold owner
+replacement with retained history, same settled Chat reuse, stale-controller
+rejection, normal handoff, native questions, Stop races, service restart and
+reported host failures. Async start uncertainty fails its original native turn in
+1.143s with one synthetic attempt,0 retries and confirmed native/host Stop. A
+separate managed-path proof passes Provider/backend replacement, concurrent status,
+Stop/new turn and two retained follow-ups: six distinct synthetic inputs,0 Chat.
+The initial synthetic verifier wrongly demanded reconciliation_required for
+already-completed work; its failed receipt is retained and the corrected verifier
+checks actual owner replacement/history/results instead. The runtime did not
+change between those two synthetic segments.
+
+Evidence and original failed receipts are archived at
+~/.cache/codex/acceptance/phase-g-tui-first-and-failed-reentry-06062c04 and
+phase-g-operator-cold-fix-local. The latter retains local runtime c9845d36 and test
+executable1afea074; this is local changed-source proof, not hosted/public admission.
+Build settings: dev/test debug=0, incremental=0, jobs=2; reusable cache is about
+1.1GiB. Manifest-owned inactive fixture payloads are archived/pruned with restore
+records; the original native fixture is retained for the remaining proof.
+Next freeze exact source, obtain its hosted Android candidate and qualify its
+installed composition before one distinct actual follow-up intent with at most1
+remaining Chat start. Preserve the cohort's prior1 dispatch and ceiling2; never
+replay the confirmed interrupted input or the completed first task.
 
 The previously published frontend requests a
 fresh source summary for every nonempty Chat-to-native switch; source1c58d1cb

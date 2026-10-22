@@ -325,6 +325,19 @@ fn same_native_round(snapshot: &Record, current: &Record) -> bool {
         && snapshot.capability == current.capability
         && snapshot.native_turn == current.native_turn
 }
+fn driver_round_error(current: &Record) -> Option<Error> {
+    // A deliberate Chat handoff rotates the controller within this native
+    // response. Its new capability alone must not cancel that response.
+    if matches!(current.phase.as_str(), "stop_requested" | "stopped") {
+        Some(Error("operator_controller_fenced"))
+    } else if current.driver_phase == "start_unknown" {
+        Some(Error("operator_app_start_unconfirmed"))
+    } else if current.phase == "reconciliation_required" {
+        Some(Error("operator_reconciliation_required"))
+    } else {
+        None
+    }
+}
 fn admit_managed_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Result<(), Error> {
     if !same_native_round(snapshot, &work.record)
         || work.stops_in_progress != 0
@@ -789,11 +802,7 @@ impl Operator {
         Ok((record, native))
     }
 
-    async fn rebind_native_managed_round(
-        &self,
-        record: &Record,
-        request: &Request,
-    ) -> Result<(), Error> {
+    async fn rebind_native_round(&self, record: &Record, request: &Request) -> Result<(), Error> {
         let pool = self.work_pool(record).await?;
         let native = pool.for_thread(&record.thread).await?;
         native.verify_scope(&record.thread, &pool.workspace).await?;
@@ -846,7 +855,16 @@ impl Operator {
         work.record.generation += 1;
         work.record.execution = native.owner.clone();
         work.record.accepted = false;
-        work.record.phase = "waiting_native".into();
+        if work
+            .record
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.reasoning == Reasoning::Managed)
+        {
+            work.record.phase = "waiting_native".into();
+        }
+        // The operator path still admits its new user turn in exchange_inner.
+        // Preserve completed/reconciliation_required so it starts that driver.
         self.persist(&work.record)
     }
     async fn verify_identity(&self, record: &Record) -> Result<Value, Error> {
@@ -3558,9 +3576,11 @@ impl Operator {
             tokio::select! {
                 _=cancel.cancelled()=>break Err(Error("native_observer_lost")),
                 _=host_interval.tick()=>{
-                    let latest=self.works.lock().await.get(&request.thread).unwrap().record.clone();
+                    let latest={let works=self.works.lock().await;let work=works.get(&request.thread).unwrap();
+                        if work.round!=round {break Err(Error("operator_controller_fenced"));}
+                        work.record.clone()};
+                    if let Some(error)=driver_round_error(&latest) {break Err(error);}
                     if matches!(latest.phase.as_str(),"running"|"native_summary") {
-                        if latest.driver_phase=="start_unknown" {break Err(Error("operator_app_start_unconfirmed"));}
                         if let Some(driver)=latest.driver.as_ref().filter(|_|latest.driver_phase=="started_observation_unknown") {
                             let snapshot=tokio::time::timeout(Duration::from_secs(3),self.bridge.operation(json!({"op":"snapshot","lane":driver}))).await;
                             if let Ok(Ok(snapshot))=snapshot {
@@ -3835,9 +3855,9 @@ impl Host for Operator {
                 }
                 _ => None,
             };
-            if let Some(path) = path {
-                if let Some(prior) = &record {
-                    this.rebind_native_managed_round(prior, &request).await?;
+            if let Some(prior) = &record {
+                if path.is_some() || prior.origin == "codex" {
+                    this.rebind_native_round(prior, &request).await?;
                     record = this
                         .works
                         .lock()
@@ -3845,6 +3865,8 @@ impl Host for Operator {
                         .get(&request.thread)
                         .map(|work| work.record.clone());
                 }
+            }
+            if let Some(path) = path {
                 let thread = request.thread.clone();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
@@ -4387,6 +4409,37 @@ mod local_tests {
         record.pending.clear();
         record.origin = "chatgpt".into();
         assert!(!new_native_owner_allowed(&record, Some("new-user-turn")));
+    }
+
+    #[test]
+    fn driver_failures_terminate_even_after_status_fences_the_phase() {
+        let mut record = fixture_record(std::path::Path::new("/owned"));
+        record.phase = "running".into();
+        assert_eq!(driver_round_error(&record), None);
+        record.capability = "handoff-controller".into();
+        assert_eq!(driver_round_error(&record), None);
+        record.driver_phase = "start_unknown".into();
+        assert_eq!(
+            driver_round_error(&record),
+            Some(Error("operator_app_start_unconfirmed"))
+        );
+        record.phase = "reconciliation_required".into();
+        assert_eq!(
+            driver_round_error(&record),
+            Some(Error("operator_app_start_unconfirmed"))
+        );
+        record.driver_phase = "started_observation_unknown".into();
+        assert_eq!(
+            driver_round_error(&record),
+            Some(Error("operator_reconciliation_required"))
+        );
+        for phase in ["stop_requested", "stopped"] {
+            record.phase = phase.into();
+            assert_eq!(
+                driver_round_error(&record),
+                Some(Error("operator_controller_fenced"))
+            );
+        }
     }
 
     #[test]

@@ -2,6 +2,7 @@
 import argparse
 import concurrent.futures
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ import tomllib
 import urllib.error
 import urllib.request
 from qualify_permission_lifecycle import fixture, server_paths, rpc as native_rpc
+from qualify_provider_d3 import stop_owned_pid
 
 TOKEN = 'owned-fixture-bearer-000000000000000000000000'
 
@@ -35,7 +37,8 @@ def probe(args):
         config_path=home / '.codex/config.toml'
         config_path.write_text(config_path.read_text().replace('approval_policy = "never"','approval_policy = "on-request"')
             .replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
-            .replace('memories = false','memories = false\nguardian_approval = true'))
+            .replace('memories = false','memories = false\nguardian_approval = true')
+            + '\n[projects.' + json.dumps(str(root / 'w')) + ']\ntrust_level = "trusted"\n')
         reviewed=root / 'w/reviewed-fixture'
         reviewed.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf reviewed >> reviewed-effects\n')
         reviewed.chmod(0o700)
@@ -86,6 +89,10 @@ def probe(args):
             value = json.loads(result['content'][0]['text'])
             assert result['isError'] == expect_error, (name, value)
             return value
+
+        def work_record(work_id):
+            key = hashlib.sha256(json.dumps(['operator-work-v1',work_id],separators=(',',':')).encode()).hexdigest()
+            return json.loads((root/'provider-state'/(key+'.json')).read_text())['payload']
 
         def restart_fixture():
             nonlocal service
@@ -203,13 +210,21 @@ def probe(args):
         assert route['base_url'] == f'http://127.0.0.1:{port}/v1'
         assert route['requires_openai_auth'] is False
         assert route['auth']['command'] == str(root / 'fixture-auth')
-        master, slave = pty.openpty()
-        masters.append(master)
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
-        terminal = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', '--profile', 'chatgpt'],
-            env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
-        os.close(slave)
-        processes.append(terminal)
+        def launch(thread=None):
+            master, slave = pty.openpty()
+            masters.append(master)
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
+            command = [str(prefix / 'bin/codex'), '--no-alt-screen', '--profile', 'chatgpt',
+                       '-c', 'tui.animations=false']
+            if thread is not None:
+                command += ['resume', thread]
+            terminal = subprocess.Popen(command, env=env, cwd=root / 'w',
+                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+            os.close(slave)
+            processes.append(terminal)
+            return master, terminal
+
+        master, terminal = launch()
 
         def drain(seconds=.1):
             nonlocal screen
@@ -344,22 +359,74 @@ def probe(args):
         commands_before = json.loads((root / 'bridge-commands.json').read_text())
         opens_before = sum(row['op'] == 'open' for row in commands_before)
         submissions_before = sum(row['op'] == 'submit' for row in commands_before)
-        (root / 'hold-host-completion').touch()
+        cold_proof = None
+        cold_resume = getattr(args, 'cold_resume', False)
+        if cold_resume:
+            original_work = work_record(successor['work_id'])
+            original = native_rpc(home, 'thread/read', {'threadId':thread_before, 'includeTurns':True})['thread']
+            assert original['turns'] and all(turn['status']=='completed' for turn in original['turns'])
+            (root / 'before-cold-native.json').write_text(json.dumps(original, indent=2) + '\n')
+            executable = Path(f'/proc/{terminal.pid}/exe').resolve(strict=True)
+            assert executable.is_relative_to(home / '.local/lib/codex/core/generations/local-permission-fixture') or executable == prefix / 'bin/codex'
+            (root / 'before-cold-terminal.txt').write_text(screen)
+            owners = [stop_owned_pid(terminal.pid, executable)]
+            terminal.wait(timeout=10)
+            for path in server_paths(home):
+                owners.append(stop_owned_pid(int(path.with_name('pid').read_text()),
+                    home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
+            assert len(owners)>1, 'cold proof requires an observed backend exit'
+            screen = ''
+            master, terminal = launch(thread_before)
+            wait(lambda: 'GPT-6' in drain())
+            drain(1)
+            resumed_native = native_rpc(home, 'thread/read', {'threadId':thread_before, 'includeTurns':True})['thread']
+            assert resumed_native['turns'] == original['turns'], 'resume changed completed native turns'
+            assert sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))==submissions_before
+            # Observe the replacement before the genuinely new turn. Completed
+            # work stays completed; an unsettled phase requires reconciliation.
+            observed = rpc('codex_status', {'work_id':successor['work_id']})
+            assert observed['phase'] in ['completed','reconciliation_required'], observed
+            assert work_record(successor['work_id'])['execution']==original_work['execution']
+            cold_proof = {'kernel_exits':owners, 'same_native_thread':thread_before,
+                          'resume_replayed_inputs':0, 'retained_turns':len(original['turns']),
+                          'status_observed_replacement_before_admission':True,
+                          'phase_before_admission':observed['phase']}
+        else:
+            (root / 'hold-host-completion').touch()
         os.write(master, b'OWNED_CODEX_FOLLOWUP')
         drain(.4)
         os.write(master, b'\r')
-        wait(lambda: rpc('codex_status', {'work_id':successor['work_id']})['driver_phase']=='waiting_previous_completion')
-        drain(.5)
-        assert sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))==submissions_before
-        (root / 'hold-host-completion').unlink()
+        if not cold_resume:
+            wait(lambda: rpc('codex_status', {'work_id':successor['work_id']})['driver_phase']=='waiting_previous_completion')
+            drain(.5)
+            assert sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))==submissions_before
+            (root / 'hold-host-completion').unlink()
         followup = wait(lambda: (value if value != successor else None) if (value := driver_binding()) else None)
+        assert followup['work_id']==successor['work_id']
+        assert rpc('codex_attach', successor, True)['error']=='operator_controller_fenced'
         attach(followup)
         rpc('codex_finish', {**followup, 'call_id': 'followup-final', 'text': 'OWNED_FOLLOWUP_COMPLETE'})
         wait(lambda: 'OWNED_FOLLOWUP_COMPLETE' in drain())
         commands_after = json.loads((root / 'bridge-commands.json').read_text())
         opens = [row['lane'] for row in commands_after if row['op'] == 'open']
-        assert len(opens) == opens_before + 1 and opens[-1] == opens[-2]
-        print('Later native user turn reused the same settled Chat', flush=True)
+        assert len(opens) == opens_before + 1
+        if cold_resume:
+            expected_reuse = observed['phase']=='completed'
+            assert (opens[-1] == opens[-2]) == expected_reuse
+            rebound = work_record(followup['work_id'])
+            assert rebound['execution']!=original_work['execution']
+            assert rebound['execution']['home']==original_work['execution']['home']
+            assert rebound['generation']>original_work['generation']
+            continued = native_rpc(home, 'thread/read', {'threadId':thread_before, 'includeTurns':True})['thread']
+            assert continued['turns'][:-1] == original['turns']
+            assert continued['turns'][-1]['status']=='completed'
+            cold_proof.update(new_turn_completed=True, former_controller_rejected=True,
+                              native_owner_rebound=True, settled_chat_reused=expected_reuse)
+            (root / 'cold-resume-review.json').write_text(json.dumps(cold_proof, indent=2) + '\n')
+            print('Cold original TUI resume preserved history, rebound its owner and completed a distinct turn; former controller fenced', flush=True)
+        else:
+            assert opens[-1] == opens[-2]
+            print('Later native user turn reused the same settled Chat', flush=True)
         rpc('codex_sessions',{**followup,'action':'compact'})
         wait(lambda:rpc('codex_status',{'work_id':followup['work_id']})['phase']=='native_summary')
         compact_result=rpc('codex_native_summary',{**followup,'summary':'Preserve OWNED_CODEX_ENTRY_DEVELOPMENT, CLI_TOOL_RESULT, SUCCESSOR_RESULT and completed follow-up. Continue in the same primary thread.'})
@@ -436,6 +503,34 @@ def probe(args):
         rpc('codex_finish', {**restarted_binding, 'call_id': 'after-released-host-final', 'text': 'OWNED_RELEASE_RESTART_CONTINUED'})
         wait(lambda: 'OWNED_RELEASE_RESTART_CONTINUED' in drain())
         print('New genuine user turn continued on the same thread after acknowledged host release', flush=True)
+        start_failure_proof = None
+        if cold_resume:
+            # The synthetic app declares uncertainty before any real Chat call.
+            # The native response must fail explicitly, with no replay or park.
+            before_failure = native_rpc(home, 'thread/read', {'threadId':released_thread,'includeTurns':True})['thread']
+            submits_before = sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))
+            (root/'reject-submit').touch()
+            failure_started = time.monotonic()
+            os.write(master,b'OWNED_DECLARED_START_FAILURE');drain(.4);os.write(master,b'\r')
+            def failed_native_turn():
+                drain(.05)
+                current = native_rpc(home, 'thread/read', {'threadId':released_thread,'includeTurns':True})['thread']
+                if len(current['turns'])==len(before_failure['turns'])+1 and current['turns'][-1]['status']=='failed':
+                    return current
+            failed_native = wait(failed_native_turn, timeout=12)
+            assert 'operator_app_start_unconfirmed' in json.dumps(failed_native['turns'][-1]), failed_native['turns'][-1]
+            assert failed_native['turns'][:-1]==before_failure['turns']
+            submissions = sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))
+            assert submissions==submits_before+1, 'declared start failure was retried'
+            (root/'reject-submit').unlink()
+            stopped_failure = rpc('codex_stop', {'work_id':restarted_binding['work_id']})
+            assert stopped_failure['native_stop_confirmed'] and stopped_failure['host_stop_confirmed'] and not stopped_failure['remaining_jobs']
+            start_failure_proof = {'elapsed_seconds':time.monotonic()-failure_started,
+                'original_native_turn_failed_explicitly':True,'synthetic_submit_attempts':1,
+                'retries':0,'stop_confirmed':True}
+            (root/'start-failure-native.json').write_text(json.dumps(failed_native,indent=2)+'\n')
+            (root/'start-failure-review.json').write_text(json.dumps(start_failure_proof,indent=2)+'\n')
+            print('Async driver-start uncertainty failed the original native response promptly with one synthetic attempt and confirmed Stop',flush=True)
         # Plan-mode question returns to its original native call, not a new user turn.
         question_work = rpc('codex_sessions', {'action': 'create', 'call_id': 'question-create'})
         question_binding = {'work_id': question_work['work_id'], 'controller': question_work['controller']}
@@ -700,7 +795,9 @@ def probe(args):
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
             'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True,
             'terminal_with_pending_submission_did_not_dispatch': True,
-            'settlement_resumed_same_chat': True,
+            'settlement_resumed_same_chat': not cold_resume,
+            'cold_native_resume': cold_proof,
+            'async_start_failure': start_failure_proof,
             'stop_fenced_waiting_followup_without_late_dispatch': True,
             'selected_control_integration': selected_proof}, indent=2) + '\n')
     finally:
@@ -737,6 +834,7 @@ if __name__ == '__main__':
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--service-test', type=Path)
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--cold-resume', action='store_true', help='also qualify cold native owner replacement and asynchronous start failure; zero real Chat')
     args=parser.parse_args()
     if args.inputs:
         from provider_qualification import prepare, path, reference, require, digest

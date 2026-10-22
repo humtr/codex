@@ -2608,10 +2608,11 @@ fails. Exclude reasoning and internal metadata; reject unsupported public items,
 incomplete pagination, active work and mismatched thread identity. Imported tool
 events are quoted historical observations, never calls to execute again.
 
-For managed reasoning entered from the native CLI, resuming the same scoped
-thread may replace its native backend. A genuinely new, canonically active native
-turn may rebind that work after verifying its execution home, workspace, route,
-original receipts and absence of pending calls/background jobs. Preserve its
+For native CLI entry in either model-adapter or operator execution mode, resuming
+the same scoped thread may replace its native backend. A genuinely new,
+canonically active native turn may rebind that work after verifying its execution
+home, workspace, route, original receipts and absence of pending calls/background
+jobs. Preserve its
 history, counters and budgets; fence the former controller. A repeated old turn,
 unknown effect, ambiguous owner or Chat-origin controller still requires explicit
 reconciliation. An observation started before a successful rebind must not revoke
@@ -2620,6 +2621,10 @@ Apply completion/host observations only to their original native turn, generatio
 and owner. Managed admission and Stop fencing must be atomic with cancellation
 registration. An old exchange finishing after confirmed Stop cannot restore a
 running phase; a genuinely new user turn may start after that confirmed boundary.
+An asynchronous driver-start failure or subsequent owner/controller fence must
+terminate its original native response with an explicit error even if status has
+already marked the work for reconciliation. Preserve unknown effects and original
+receipts; this error never authorizes a retry, fallback or a completion claim.
 After Provider restart, a validated owned MCP journal token may be retired without
 reactivating its old capability or calls. Preserve its recorded receipts and the
 pending-completion guard; unknown or unreadable tokens remain rejected. A native
