@@ -174,6 +174,131 @@ async fn detached_peer_and_rpc_id_changes_reconcile_one_durable_logical_call() {
     );
 }
 
+#[tokio::test]
+async fn recorded_token_can_be_retired_after_restart_without_reactivation() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let broker = Broker::new(journal.clone());
+    let token = broker
+        .register("retained-owner", parsed().tools)
+        .await
+        .unwrap();
+    let call = Arguments {
+        call_id: "completed-once".into(),
+        name: "exec".into(),
+        input: "{}".into(),
+        report: "One original action".into(),
+    };
+    broker.enqueue(&token, &call).await.unwrap();
+    let offered = broker.offer(&token).await.unwrap();
+    broker
+        .settle(
+            &token,
+            &[(
+                offered[0]["id"].as_str().unwrap().into(),
+                json!({"output":"original receipt"}),
+            )],
+        )
+        .await
+        .unwrap();
+    let before = broker.recorded_calls(&token).unwrap();
+    drop(broker);
+    let restarted = Broker::new(journal.clone());
+    assert_eq!(
+        restarted.catalog(&token).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+    restarted.retire(&token, false).await.unwrap();
+    restarted.retire(&token, false).await.unwrap();
+    assert_eq!(restarted.recorded_calls(&token).unwrap(), before);
+    assert_eq!(
+        restarted.catalog(&token).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+    assert_eq!(
+        restarted.enqueue(&token, &call).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+    let retired: Value = journal
+        .read(&digest(&("mcp-turn-v1", &token)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(retired["retired"], true);
+    let fresh = restarted
+        .register("retained-owner", parsed().tools)
+        .await
+        .unwrap();
+    assert_ne!(fresh, token);
+    assert!(!restarted.catalog(&fresh).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn restarted_retirement_preserves_unreturned_calls_and_completion_guard() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let broker = Broker::new(journal.clone());
+    let token = broker
+        .register("pending-owner", parsed().tools)
+        .await
+        .unwrap();
+    broker
+        .enqueue(
+            &token,
+            &Arguments {
+                call_id: "pending-once".into(),
+                name: "exec".into(),
+                input: "{}".into(),
+                report: "Original pending action".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(broker.offer(&token).await.unwrap().len(), 1);
+    let before = broker.recorded_calls(&token).unwrap();
+    drop(broker);
+    let restarted = Broker::new(journal.clone());
+    assert_eq!(
+        restarted.retire(&token, false).await,
+        Err(Error("mcp_pending_completion"))
+    );
+    assert_eq!(restarted.recorded_calls(&token).unwrap(), before);
+    restarted.retire(&token, true).await.unwrap();
+    assert_eq!(restarted.recorded_calls(&token).unwrap(), before);
+    let retired: Value = journal
+        .read(&digest(&("mcp-turn-v1", &token)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(retired["retired"], true);
+    assert_eq!(
+        restarted.catalog(&token).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+}
+
+#[tokio::test]
+async fn restarted_retirement_rejects_unknown_or_invalid_records() {
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let broker = Broker::new(journal.clone());
+    let token = random_id().unwrap();
+    assert_eq!(
+        broker.retire(&token, true).await,
+        Err(Error("mcp_turn_unavailable"))
+    );
+    let key = digest(&("mcp-turn-v1", &token));
+    journal
+        .write(&key, &json!({"invalid":"not a turn"}))
+        .unwrap();
+    assert_eq!(
+        broker.retire(&token, true).await,
+        Err(Error("invalid_lane_record"))
+    );
+    assert_eq!(
+        journal.read::<Value>(&key).unwrap().unwrap(),
+        json!({"invalid":"not a turn"})
+    );
+}
+
 #[derive(Default)]
 struct AppState {
     commands: Vec<Value>,

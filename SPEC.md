@@ -1979,6 +1979,10 @@ Explicit Stop fences actions before requesting native/host interruption and repo
 requested, confirmed or unknown results separately, including remaining owned jobs.
 A service exit is not confirmation that native work stopped. Local app stream
 abort/cancel and a client-side terminal are not server inference-stop proof.
+For a managed lane, a pristine journal with zero app dispatches, user objects,
+tool returns and public events, no conversation ID and no pending native calls
+proves that lane never submitted host work; native Stop need not issue a ChatGPT
+Stop for it. An `idle` label by itself is not that proof.
 For an admitted request, host confirmation requires a normal stream completion
 observed before local cancellation, or the app client's server stop operation
 and a fresh matching-conversation COMPLETE/FAILURE stream-status observation.
@@ -2603,6 +2607,24 @@ external-context wrapper and remains readable by the previous provider if entry
 fails. Exclude reasoning and internal metadata; reject unsupported public items,
 incomplete pagination, active work and mismatched thread identity. Imported tool
 events are quoted historical observations, never calls to execute again.
+
+For managed reasoning entered from the native CLI, resuming the same scoped
+thread may replace its native backend. A genuinely new, canonically active native
+turn may rebind that work after verifying its execution home, workspace, route,
+original receipts and absence of pending calls/background jobs. Preserve its
+history, counters and budgets; fence the former controller. A repeated old turn,
+unknown effect, ambiguous owner or Chat-origin controller still requires explicit
+reconciliation. An observation started before a successful rebind must not revoke
+the newer binding merely because its saved snapshot names the previous process.
+Apply completion/host observations only to their original native turn, generation
+and owner. Managed admission and Stop fencing must be atomic with cancellation
+registration. An old exchange finishing after confirmed Stop cannot restore a
+running phase; a genuinely new user turn may start after that confirmed boundary.
+After Provider restart, a validated owned MCP journal token may be retired without
+reactivating its old capability or calls. Preserve its recorded receipts and the
+pending-completion guard; unknown or unreadable tokens remain rejected. A native
+owner replacement must not fail solely because the obsolete token is no longer
+in the restarted Broker's live map. Durable retirement errors still propagate.
 
 Only an explicit, validated handoff in the same thread or inherited through
 upstream-declared fork/parent lineage can supply the readable replacement for

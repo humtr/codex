@@ -300,6 +300,72 @@ fn recovered_phase(phase: &str) -> &str {
         "reconciliation_required"
     }
 }
+fn observed_owner_requires_reconciliation(
+    snapshot: &Record,
+    current: &Record,
+    observed: &Owner,
+) -> Result<bool, Error> {
+    if current.execution == *observed {
+        return Ok(false);
+    }
+    if current.execution != snapshot.execution || current.generation != snapshot.generation {
+        return Err(Error("native_observation_superseded"));
+    }
+    Ok(true)
+}
+fn new_native_owner_allowed(record: &Record, turn: Option<&str>) -> bool {
+    record.origin == "codex"
+        && turn.is_some()
+        && turn != record.native_turn.as_deref()
+        && record.pending.is_empty()
+}
+fn same_native_round(snapshot: &Record, current: &Record) -> bool {
+    snapshot.execution == current.execution
+        && snapshot.generation == current.generation
+        && snapshot.capability == current.capability
+        && snapshot.native_turn == current.native_turn
+}
+fn admit_managed_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Result<(), Error> {
+    if !same_native_round(snapshot, &work.record)
+        || work.stops_in_progress != 0
+        || work.record.phase == "stop_requested"
+        || work.record.phase == "stopped"
+            && (turn.is_none() || turn == work.record.native_turn.as_deref())
+    {
+        return Err(Error("operator_controller_fenced"));
+    }
+    if work.managed_cancel.is_some() {
+        return Err(Error("native_lane_busy"));
+    }
+    Ok(())
+}
+
+fn managed_lane_requires_host_stop(lane: &Value) -> bool {
+    if lane["pending_native_calls"].as_u64() != Some(0) {
+        return true;
+    }
+    if lane["phase"] == "stopped" {
+        return false;
+    }
+    lane["phase"] != "idle"
+        || lane["app_dispatches"].as_u64() != Some(0)
+        || lane["user_role_objects"].as_u64() != Some(0)
+        || lane["tool_return_objects"].as_u64() != Some(0)
+        || lane["public_event_count"].as_u64() != Some(0)
+        || !lane["conversation_id"].is_null()
+}
+fn controller_matches(record: &Record, args: &Value) -> bool {
+    args["controller"].as_str() == Some(&record.capability)
+        && !record
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.reasoning == Reasoning::Managed)
+        && record.accepted
+        && matches!(
+            record.phase.as_str(),
+            "running" | "waiting_native" | "native_summary"
+        )
+}
 fn same_assignment_parent(left: Option<&str>, right: Option<&str>) -> bool {
     left.is_some() && left == right
 }
@@ -666,18 +732,7 @@ impl Operator {
         {
             return Err(Error("operator_controller_fenced"));
         }
-        if require_controller
-            && (args["controller"].as_str() != Some(&record.capability)
-                || record
-                    .selection
-                    .as_ref()
-                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
-                || !record.accepted
-                || !matches!(
-                    record.phase.as_str(),
-                    "running" | "waiting_native" | "native_summary"
-                ))
-        {
+        if require_controller && !controller_matches(&record, args) {
             return Err(Error("operator_controller_fenced"));
         }
         drop(works);
@@ -709,18 +764,90 @@ impl Operator {
         if record.selection.is_some() {
             native.verify_scope(&record.thread, &pool.workspace).await?;
         }
-        if native.owner != record.execution {
+        {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
-            work.record.accepted = false;
-            work.record.phase = recovered_phase(&work.record.phase).to_owned();
-            self.persist(&work.record)?;
-            record = work.record.clone();
-            if require_controller {
-                return Err(Error("native_owner_reconciliation_required"));
+            // Discovery awaits native reads. A new native round may already
+            // have reconciled this owner while this observer held its snapshot.
+            // Never fence that newer round using an obsolete execution binding.
+            if (args.get("controller").is_some()
+                && args["controller"].as_str() != Some(&work.record.capability))
+                || require_controller && !controller_matches(&work.record, args)
+            {
+                return Err(Error("operator_controller_fenced"));
             }
+            if observed_owner_requires_reconciliation(&record, &work.record, &native.owner)? {
+                work.record.accepted = false;
+                work.record.phase = recovered_phase(&work.record.phase).to_owned();
+                self.persist(&work.record)?;
+                if require_controller {
+                    return Err(Error("native_owner_reconciliation_required"));
+                }
+            }
+            record = work.record.clone();
         }
         Ok((record, native))
+    }
+
+    async fn rebind_native_managed_round(
+        &self,
+        record: &Record,
+        request: &Request,
+    ) -> Result<(), Error> {
+        let pool = self.work_pool(record).await?;
+        let native = pool.for_thread(&record.thread).await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        if native.owner == record.execution {
+            return Ok(());
+        }
+        // An upstream CLI resume of the same scoped thread can replace its
+        // backend. Only a genuinely new canonical native turn authorizes this
+        // automatic rebind; a Chat controller still needs its explicit claim.
+        if !new_native_owner_allowed(record, request.turn.as_deref()) {
+            return Err(Error("native_owner_reconciliation_required"));
+        }
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":true}),
+            )
+            .await?;
+        let turn = state["thread"]["turns"]
+            .as_array()
+            .and_then(|turns| turns.last())
+            .ok_or(Error("native_round_not_ready"))?;
+        if turn["id"].as_str() != request.turn.as_deref() || turn["status"] != "inProgress" {
+            return Err(Error("native_round_not_ready"));
+        }
+        self.recovery_receipts(&native, record).await?;
+        let mut works = self.works.lock().await;
+        let work = works.get_mut(&record.thread).unwrap();
+        if work.record.execution == native.owner {
+            return Ok(());
+        }
+        if work.record.execution != record.execution
+            || work.record.generation != record.generation
+            || work.record.capability != record.capability
+            || work.stops_in_progress != 0
+            || work.record.phase == "stop_requested"
+            || work.active.is_some()
+            || work.managed_cancel.is_some()
+            || !work.record.pending.is_empty()
+        {
+            return Err(Error("native_owner_reconciliation_required"));
+        }
+        self.preserve_controller(&work.record)?;
+        self.broker.retire(&work.record.token, true).await?;
+        work.record.token = self
+            .broker
+            .register(&record.id, request.tools.clone())
+            .await?;
+        work.record.capability = random_id()?;
+        work.record.generation += 1;
+        work.record.execution = native.owner.clone();
+        work.record.accepted = false;
+        work.record.phase = "waiting_native".into();
+        self.persist(&work.record)
     }
     async fn verify_identity(&self, record: &Record) -> Result<Value, Error> {
         let Some(lane) = &record.driver else {
@@ -2346,9 +2473,21 @@ impl Operator {
         }
     }
     async fn status(&self, args: Value) -> Result<Value, Error> {
+        // A native turn can legitimately advance while a read awaits its
+        // snapshot. Reobserve that read locally; never replay a mutation or
+        // make an ordinary status caller repair a benign observation race.
+        for _ in 0..3 {
+            match self.observe_status(&args).await {
+                Err(Error("native_observation_superseded")) => continue,
+                result => return result,
+            }
+        }
+        Err(Error("native_observation_superseded"))
+    }
+    async fn observe_status(&self, args: &Value) -> Result<Value, Error> {
         let mut observed = false;
         let mut host_observation = Value::Null;
-        let (mut record, native) = self.binding(&args, false).await?;
+        let (mut record, native) = self.binding(args, false).await?;
         let managed = record
             .selection
             .as_ref()
@@ -2392,7 +2531,10 @@ impl Operator {
             {
                 let mut works = self.works.lock().await;
                 let work = works.get_mut(&record.thread).unwrap();
-                if work.record.phase == "running" && work.stops_in_progress == 0 {
+                if same_native_round(&record, &work.record)
+                    && work.record.phase == "running"
+                    && work.stops_in_progress == 0
+                {
                     work.record.phase = "completed".into();
                     self.persist(&work.record)?;
                     record = work.record.clone();
@@ -2431,7 +2573,10 @@ impl Operator {
                 .into();
                 let mut works = self.works.lock().await;
                 let work = works.get_mut(&record.thread).unwrap();
-                if work.record.driver == record.driver {
+                if same_native_round(&record, &work.record)
+                    && work.record.phase == record.phase
+                    && work.record.driver == record.driver
+                {
                     work.record.host_observed_at = record.host_observed_at;
                     work.record.host_last_state = record.host_last_state.clone();
                     self.persist(&work.record)?;
@@ -2446,6 +2591,13 @@ impl Operator {
             .filter(|v| v["params"]["threadId"] == record.thread)
             .cloned()
             .collect::<Vec<_>>();
+        {
+            let works = self.works.lock().await;
+            let current = &works.get(&record.thread).unwrap().record;
+            if !same_native_round(&record, current) || record.phase != current.phase {
+                return Err(Error("native_observation_superseded"));
+            }
+        }
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
@@ -2597,6 +2749,9 @@ impl Operator {
         let admission = {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
+            if !same_native_round(&record, &work.record) {
+                return Err(Error("native_observation_superseded"));
+            }
             work.record.accepted = false;
             if let Some(cancel) = &work.managed_cancel {
                 cancel.cancel();
@@ -2684,12 +2839,17 @@ impl Operator {
         })
         .await;
         let confirmed = matches!(native_result, Ok(Ok(())));
+        let managed_lane = record
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.reasoning == Reasoning::Managed)
+            .then(|| crate::app::inspect_lane(&self.journal.root, &record.thread));
         let host_requested = record.driver.is_some()
-            || record
-                .selection
-                .as_ref()
-                .is_some_and(|s| s.reasoning == Reasoning::Managed)
-                && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok();
+            || managed_lane.is_some_and(|lane| {
+                lane.as_ref()
+                    .map(managed_lane_requires_host_stop)
+                    .unwrap_or(true)
+            });
         let host_confirmed = if host_requested {
             self.stop_driver(&record).await.unwrap_or(false)
         } else {
@@ -3676,31 +3836,27 @@ impl Host for Operator {
                 _ => None,
             };
             if let Some(path) = path {
-                if let Some(record) = &record {
-                    if this
+                if let Some(prior) = &record {
+                    this.rebind_native_managed_round(prior, &request).await?;
+                    record = this
                         .works
                         .lock()
                         .await
-                        .get(&record.thread)
-                        .unwrap()
-                        .stops_in_progress
-                        != 0
-                        || record.phase == "stop_requested"
-                    {
-                        return Err(Error("operator_controller_fenced"));
-                    }
+                        .get(&request.thread)
+                        .map(|work| work.record.clone());
                 }
                 let thread = request.thread.clone();
-                if record.is_some() {
+                if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
-                    if work.managed_cancel.is_some() {
-                        return Err(Error("native_lane_busy"));
-                    }
+                    // Check and reserve under one lock: Stop cannot fence a
+                    // work between admission and installation of its cancel.
+                    admit_managed_round(work, record, request.turn.as_deref())?;
                     work.managed_cancel = Some(cancel.clone());
                     work.record.native_turn = request.turn.clone();
                     work.record.phase = "running".into();
                     this.persist(&work.record)?;
+                    *record = work.record.clone();
                 }
                 let deadline = record
                     .as_ref()
@@ -3747,18 +3903,22 @@ impl Host for Operator {
                     timer.abort();
                 }
                 let result = forwarded.and(result);
-                if record.is_some() {
+                if let Some(record) = &record {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
-                    work.managed_cancel = None;
-                    if work.stops_in_progress == 0 && work.record.phase != "stop_requested" {
-                        work.record.phase = if result.is_ok() {
-                            "running"
-                        } else {
-                            "reconciliation_required"
+                    if same_native_round(record, &work.record) {
+                        work.managed_cancel = None;
+                        if work.stops_in_progress == 0
+                            && !matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
+                        {
+                            work.record.phase = if result.is_ok() {
+                                "running"
+                            } else {
+                                "reconciliation_required"
+                            }
+                            .into();
+                            this.persist(&work.record)?;
                         }
-                        .into();
-                        this.persist(&work.record)?;
                     }
                 }
                 result
@@ -4067,6 +4227,35 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
 mod local_tests {
     use super::*;
     #[test]
+    fn settled_managed_lane_does_not_request_an_unneeded_host_stop() {
+        assert!(!managed_lane_requires_host_stop(
+            &json!({"phase":"idle","pending_native_calls":0,"app_dispatches":0,
+                "user_role_objects":0,"tool_return_objects":0,"public_event_count":0,
+                "conversation_id":null})
+        ));
+        assert!(!managed_lane_requires_host_stop(
+            &json!({"phase":"stopped","pending_native_calls":0})
+        ));
+        assert!(managed_lane_requires_host_stop(
+            &json!({"phase":"idle","pending_native_calls":1})
+        ));
+        assert!(managed_lane_requires_host_stop(
+            &json!({"phase":"idle","pending_native_calls":0,"app_dispatches":0,
+                "user_role_objects":1,"tool_return_objects":0,"public_event_count":0,
+                "conversation_id":null})
+        ));
+        assert!(managed_lane_requires_host_stop(
+            &json!({"phase":"running","pending_native_calls":0})
+        ));
+        assert!(managed_lane_requires_host_stop(
+            &json!({"phase":"unknown","pending_native_calls":0})
+        ));
+        assert!(managed_lane_requires_host_stop(
+            &json!({"pending_native_calls":0})
+        ));
+    }
+
+    #[test]
     fn completed_result_selects_current_final_even_before_later_tool_reports() {
         let history = vec![
             json!({"turn_id":"old","item":{"type":"agentMessage","phase":"final_answer","text":"old"}}),
@@ -4125,23 +4314,14 @@ mod local_tests {
         }
     }
 
-    #[test]
-    fn interrupted_registration_and_legacy_index_recover_complete_records_once() {
-        struct Root(std::path::PathBuf);
-        impl Drop for Root {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let root = Root(std::env::temp_dir().join(format!("wi-{}", random_id().unwrap())));
-        let journal = Journal::open(&root.0).unwrap();
-        let record = Record {
+    fn fixture_record(root: &std::path::Path) -> Record {
+        Record {
             schema: "termux-codex-operator-work-v1".into(),
             id: "work-one".into(),
             thread: "thread-one".into(),
             execution: Owner {
-                directory: root.0.join("server"),
-                home: root.0.join("home"),
+                directory: root.join("server"),
+                home: root.join("home"),
                 process: crate::cdp::Process::read(std::process::id()).unwrap(),
             },
             origin: "chatgpt".into(),
@@ -4167,7 +4347,144 @@ mod local_tests {
             selection: None,
             workspace: None,
             assignment: None,
+        }
+    }
+
+    #[test]
+    fn old_status_snapshot_cannot_fence_a_rebound_native_round() {
+        let snapshot = fixture_record(std::path::Path::new("/owned"));
+        let mut current = snapshot.clone();
+        current.execution.process.start = "replacement".into();
+        current.generation += 1;
+        current.phase = "running".into();
+        assert!(
+            !observed_owner_requires_reconciliation(&snapshot, &current, &current.execution)
+                .unwrap()
+        );
+        assert_eq!(current.phase, "running");
+        assert!(
+            observed_owner_requires_reconciliation(&snapshot, &snapshot, &current.execution)
+                .unwrap()
+        );
+        let mut superseded = current.execution.clone();
+        superseded.process.start = "already-replaced-again".into();
+        assert_eq!(
+            observed_owner_requires_reconciliation(&snapshot, &current, &superseded),
+            Err(Error("native_observation_superseded"))
+        );
+    }
+
+    #[test]
+    fn native_owner_rebind_requires_a_new_cli_turn_without_pending_calls() {
+        let mut record = fixture_record(std::path::Path::new("/owned"));
+        record.origin = "codex".into();
+        record.native_turn = Some("original".into());
+        assert!(new_native_owner_allowed(&record, Some("new-user-turn")));
+        assert!(!new_native_owner_allowed(&record, Some("original")));
+        assert!(!new_native_owner_allowed(&record, None));
+        record.pending.push("unreturned-original-call".into());
+        assert!(!new_native_owner_allowed(&record, Some("new-user-turn")));
+        record.pending.clear();
+        record.origin = "chatgpt".into();
+        assert!(!new_native_owner_allowed(&record, Some("new-user-turn")));
+    }
+
+    #[test]
+    fn native_round_identity_covers_same_owner_followups_and_controller_rotation() {
+        let snapshot = fixture_record(std::path::Path::new("/owned"));
+        assert!(same_native_round(&snapshot, &snapshot));
+        for field in ["turn", "generation", "controller", "owner"] {
+            let mut current = snapshot.clone();
+            match field {
+                "turn" => current.native_turn = Some("new-user-turn".into()),
+                "generation" => current.generation += 1,
+                "controller" => current.capability = "new-controller".into(),
+                "owner" => current.execution.process.start = "replacement".into(),
+                _ => unreachable!(),
+            }
+            assert!(!same_native_round(&snapshot, &current), "{field}");
+        }
+    }
+
+    #[test]
+    fn managed_admission_respects_stop_busy_and_obsolete_rounds() {
+        let mut record = fixture_record(std::path::Path::new("/owned"));
+        record.phase = "running".into();
+        record.native_turn = Some("previous".into());
+        let mut work = Work {
+            record: record.clone(),
+            active: None,
+            request: None,
+            round: String::new(),
+            checkpoint: None,
+            driver_lock: Arc::new(Mutex::new(())),
+            native_admission: Arc::new(Mutex::new(())),
+            stops_in_progress: 0,
+            managed_cancel: None,
         };
+        assert!(admit_managed_round(&work, &record, Some("next")).is_ok());
+        work.stops_in_progress = 1;
+        assert_eq!(
+            admit_managed_round(&work, &record, Some("next")),
+            Err(Error("operator_controller_fenced"))
+        );
+        work.stops_in_progress = 0;
+        work.record.phase = "stop_requested".into();
+        assert_eq!(
+            admit_managed_round(&work, &record, Some("next")),
+            Err(Error("operator_controller_fenced"))
+        );
+        work.record.phase = "stopped".into();
+        assert_eq!(
+            admit_managed_round(&work, &record, Some("previous")),
+            Err(Error("operator_controller_fenced"))
+        );
+        assert!(admit_managed_round(&work, &record, Some("next")).is_ok());
+        work.managed_cancel = Some(CancellationToken::new());
+        assert_eq!(
+            admit_managed_round(&work, &record, Some("next")),
+            Err(Error("native_lane_busy"))
+        );
+        work.managed_cancel = None;
+        work.record.native_turn = Some("already-newer".into());
+        assert_eq!(
+            admit_managed_round(&work, &record, Some("next")),
+            Err(Error("operator_controller_fenced"))
+        );
+    }
+
+    #[test]
+    fn owner_observation_cannot_promote_an_obsolete_controller() {
+        let mut record = fixture_record(std::path::Path::new("/owned"));
+        record.phase = "running".into();
+        record.accepted = true;
+        let args = json!({"controller":record.capability});
+        assert!(controller_matches(&record, &args));
+        record.capability = "new-controller".into();
+        assert!(!controller_matches(&record, &args));
+        let current = json!({"controller":record.capability});
+        assert!(controller_matches(&record, &current));
+        record.phase = "stop_requested".into();
+        assert!(!controller_matches(&record, &current));
+        record.phase = "running".into();
+        record.selection = Some(Selection {
+            reasoning: Reasoning::Managed,
+            return_path: ReturnPath::Mcp,
+        });
+        assert!(!controller_matches(&record, &current));
+    }
+
+    #[test]
+    fn interrupted_registration_and_legacy_index_recover_complete_records_once() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("wi-{}", random_id().unwrap())));
+        let journal = Journal::open(&root.0).unwrap();
+        let record = fixture_record(&root.0);
         let key = digest(&("operator-work-v1", &record.id));
         // Legacy orphan records survive migration even if their index never
         // reached disk. Settled legacy serialization gains no new fields.

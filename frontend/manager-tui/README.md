@@ -74,7 +74,10 @@ from Chat resumes the same native thread and its existing history without a new
 source summary or summary wait. Upstream owns model instruction updates and any
 conditional compaction. The source-summary generation and exact-completion wait
 remain available behind an explicit internal request for later context operations;
-the model picker does not request them. Stop, error, event loss, changed thread/
+the model picker does not request them. Source1c58d1cb passes its native build,
+50 focused tests,94 retained upstream tests/lint and actual Android synthetic
+same-thread transitions with/without Manager using0 source summaries and3 local
+responses each. Stop, error, event loss, changed thread/
 model or queued input during that explicit operation retain the source Provider.
 The installed generation is unchanged by source preparation. The exact hosted
 TUI source15da596 and no-Manager Android PTY native↔Chat round trip pass with

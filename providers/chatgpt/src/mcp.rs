@@ -351,14 +351,25 @@ impl Broker {
     }
     pub async fn retire(&self, token: &str, stopped: bool) -> Result<(), Error> {
         let mut turns = self.turns.lock().await;
-        let turn = turns.get_mut(token).ok_or(Error("mcp_turn_unavailable"))?;
+        // Restart never reactivates old capabilities. An explicitly owned
+        // recorded token can still be durably revoked before replacing its
+        // native owner, without inserting its calls into the live Broker.
+        let turn = match turns.get(token) {
+            Some(turn) => turn.clone(),
+            None => self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
+                .ok_or(Error("mcp_turn_unavailable"))?,
+        };
         if !stopped && turn.calls.values().any(|v| v.result.is_none()) {
             return Err(Error("mcp_pending_completion"));
         }
-        let mut next = turn.clone();
+        let mut next = turn;
         next.retired = true;
         self.persist(token, &next)?;
-        *turn = next;
+        if let Some(turn) = turns.get_mut(token) {
+            *turn = next;
+        }
         // Keep settled results while this owner runs so a lost final HTTP
         // response can be reconciled. Retirement forbids fresh invocations.
         self.changed.notify_waiters();

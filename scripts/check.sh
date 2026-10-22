@@ -32,11 +32,13 @@ if [ "$scope" = provider ]; then
   "$BUN" test ./providers/chatgpt/*.test.mjs ./scripts/f_cdp_relay.test.mjs ./scripts/chat_entry_client.test.mjs
   python3 -B -m unittest discover -s providers/chatgpt -p 'test_*.py'
   python3 -B -m unittest -v scripts/test_provider_qualification.py scripts/test_d3_notify.py scripts/test_provider_f.py scripts/test_provider_f_agents.py
-  python3 -B -m unittest -v scripts/test_provider_g.py
+  python3 -B -m unittest -v scripts/test_provider_g.py scripts/test_qualification_diagnostics.py
   # Import/CLI checks only; device fixtures and cleanup never run in source CI.
   python3 -B scripts/clean_development.py --help >/dev/null
   python3 -B scripts/qualify_provider_product.py --help >/dev/null
   python3 -B scripts/qualify_provider_package.py --help >/dev/null
   python3 -B scripts/qualify_provider_g.py --help >/dev/null
+  python3 -B scripts/qualify_managed_native_lifecycle.py --help >/dev/null
+  python3 -B scripts/release_g_observer.py --help >/dev/null
 fi
 git diff --check

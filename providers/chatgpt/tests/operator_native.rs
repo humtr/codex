@@ -154,7 +154,15 @@ impl Bridge for Synthetic {
                     })
                 });
                 let partial = self.path.parent().unwrap().join("partial-host").exists();
-                let messages = if reviewer {
+                let messages = if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("model-adapter-fixture")
+                    .exists()
+                {
+                    submitted.map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
+                } else if reviewer {
                     json!([{"id":"owned-review-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[assessment.to_string()]},"status":"finished_successfully","end_turn":true}])
                 } else if self
                     .path
@@ -258,7 +266,12 @@ async fn synthetic_operator_service() {
     if root.join("local-function-fixture").exists() {
         config.transport.return_path = ReturnPath::LocalFunction;
     }
-    config.execution.mode = ExecutionMode::Operator;
+    config.execution.mode = if root.join("model-adapter-fixture").exists() {
+        ExecutionMode::ModelAdapter
+    } else {
+        ExecutionMode::Operator
+    };
+    let mode = config.execution.mode;
     config.execution.core = Some(root.join("p/bin/codex"));
     config.execution.home = Some(root.join("h/.codex"));
     config.execution.workspace = Some(root.join("w"));
@@ -272,7 +285,7 @@ async fn synthetic_operator_service() {
             config.execution.workspace.as_deref(),
             Some(root.join("w").as_path())
         );
-        assert_eq!(config.execution.mode, ExecutionMode::Operator);
+        assert_eq!(config.execution.mode, mode);
     }
     config.validate().unwrap();
     let journal = Arc::new(Journal::open(&root.join("provider-state")).unwrap());
