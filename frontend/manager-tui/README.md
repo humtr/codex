@@ -69,10 +69,13 @@ changes. Do not count that completed source change as a new implementation task.
 Context/project settings remain Provider configuration, not separate TUI policy.
 The source cross-provider path asks the explicitly selected candidate Provider to
 encode a complete idle public snapshot and persists it through upstream's existing
-`thread/inject_items`; no Core or Manager changes are involved. Returning from
-Chat first requests one summary on the source Provider, displays its progress and
-waits for the matching compaction item and completed turn before re-entry. Stop,
-error, event loss, changed thread/model or queued input retain the source Provider.
+`thread/inject_items`; no Core or Manager changes are involved. Ordinary return
+from Chat resumes the same native thread and its existing history without a new
+source summary or summary wait. Upstream owns model instruction updates and any
+conditional compaction. The source-summary generation and exact-completion wait
+remain available behind an explicit internal request for later context operations;
+the model picker does not request them. Stop, error, event loss, changed thread/
+model or queued input during that explicit operation retain the source Provider.
 The installed generation is unchanged by source preparation. The exact hosted
 TUI source15da596 and no-Manager Android PTY native↔Chat round trip pass with
 synthetic Responses and actual checkpoint encoding. Separate actual Chat API

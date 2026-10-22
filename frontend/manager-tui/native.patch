@@ -214,7 +214,7 @@ index a7f7f1e..e0c3045 100644
 +            }
 +            #[cfg(unix)]
 +            AppEvent::SelectChatModelProvider { model, effort } => {
-+                if let Some(request)=chat_model_reentry::prepare(self,app_server,model,effort).await {
++                if let Some(request)=chat_model_reentry::prepare(self,app_server,model,effort,false).await {
 +                    return Err(std::io::Error::other(request).into());
 +                }
 +            }

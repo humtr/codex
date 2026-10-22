@@ -225,13 +225,16 @@ def probe(args):
         print('Chat terminal turn settled', flush=True)
         # The provider's own model appears first; the opposite provider is the
         # appended final row in this deliberately two-model fixture.
+        before_return = public(thread)['turns']
         choose_other_provider()
         wait(lambda: public(thread)['modelProvider'] == 'openai')
         print('Terminal returned to native route', flush=True)
-        assert len(requests) == 3, 'Chat to native requires exactly one source summary'
+        assert len(requests) == 2, 'ordinary Chat to native selection must not request a source summary'
+        assert public(thread)['turns'] == before_return, 'model selection must preserve the existing public turns'
         submit('Continue the owned native fixture')
-        wait(lambda: len(requests) == 4 and public(thread)['status']['type'] == 'idle')
+        wait(lambda: len(requests) == 3 and public(thread)['status']['type'] == 'idle')
         assert 'OWNED_PUBLIC_WORK_STATE_7K2Q' in json.dumps(requests[-1]['input'])
+        assert 'Continue the owned Chat fixture' in json.dumps(requests[-1]['input']), 'native request lost the preceding Chat task'
         assert not any('ocx1:' in json.dumps(v) for v in requests[-1]['input'])
         final = settings(thread)
         assert final['sandbox']['type'] == 'dangerFullAccess'
@@ -239,7 +242,7 @@ def probe(args):
         assert all(v['id'] == thread for v in [public(thread)])
         accepted = True
         return {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
-                'nativeToChatNoInference': True, 'chatToNativeSummaries': 1,
+                'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,

@@ -62,7 +62,10 @@ update authority is maintained.
   config owns command-backed, nonsecret routing references. Changes across the
   native/Chat provider boundary re-enter Core with the same home, durable thread, permissions/reviewer and
   terminal. Active work, pending input/tools or side conversations refuse the
-  transition. Selected config profiles survive; no Chat slug is persisted into
+  transition. Ordinary model selection reuses the same upstream-owned history
+  without requesting or waiting for a new source-model summary. Upstream retains
+  its own conditional context-limit and compaction-compatibility handling.
+  Selected config profiles survive; no Chat slug is persisted into
   an ordinary default. `--profile chatgpt` remains an upstream config fallback,
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
   proof; deferred families and unexecuted Pro choices are labelled accordingly.
@@ -2611,9 +2614,15 @@ Preserve current system/developer
 policy and contextual user settings; retain all later input. Never claim to decode
 the old opaque state. The Provider's opaque compaction format is not compatible
 with upstream OpenAI compaction: do not advertise a fabricated common compaction
-hash. Hash absence does not disable token/window compaction. Reverse entry must
-first obtain an upstream-owned readable replacement while the current Provider
-still owns inference; failure or interruption keeps that Provider selected.
+hash. Hash absence does not disable token/window compaction. Ordinary reverse
+entry resumes the same upstream-owned history without an additional source-summary
+request. Existing readable context and canonical results remain in that thread;
+native model-specific instruction updates remain upstream-owned. This does not
+promise that every foreign opaque checkpoint is accepted or disable upstream's
+conditional compaction. Keep explicit source-summary generation and its exact
+completion/interruption handling available for a separately requested context
+operation; ordinary model selection does not initiate it. If that explicit
+operation fails or is interrupted, preserve its source Provider and history.
 
 First admission may wait for the same owned app target and authentication to
 finish loading. Bound this read-only wait; never create a target, change an

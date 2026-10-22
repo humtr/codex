@@ -83,7 +83,7 @@ pub(super) async fn finish(
         app.chat_widget.add_error_message("Model provider unchanged: the displayed thread or source model changed during context preparation.".into());
         return None;
     }
-    plan(app, server, pending.model, Some(pending.effort), true).await
+    plan(app, server, pending.model, Some(pending.effort), false).await
 }
 
 async fn encode_checkpoint(
@@ -196,6 +196,7 @@ pub(super) async fn prepare(
     server: &mut AppServerSession,
     model: String,
     effort: Option<ReasoningEffort>,
+    request_summary: bool,
 ) -> Option<ChatModelReentry> {
     if app
         .chat_model_switch
@@ -209,14 +210,14 @@ pub(super) async fn prepare(
         app.chat_widget.add_error_message("A model provider switch is already preparing context. Wait or interrupt the current compaction.".into());
         return None;
     }
-    plan(app, server, model, effort, false).await
+    plan(app, server, model, effort, request_summary).await
 }
 async fn plan(
     app: &mut App,
     server: &mut AppServerSession,
     model: String,
     effort: Option<ReasoningEffort>,
-    compacted: bool,
+    request_summary: bool,
 ) -> Option<ChatModelReentry> {
     let thread = app.chat_widget.thread_id().filter(|thread| {
         matches!(
@@ -344,7 +345,9 @@ async fn plan(
             app.chat_widget.add_error_message("Model provider unchanged: context persistence could not be confirmed. Existing history remains readable.".into());
             return None;
         }
-    } else if !compacted && snapshot["turns"].as_array().is_some_and(|v| !v.is_empty()) {
+    } else if request_summary && snapshot["turns"].as_array().is_some_and(|v| !v.is_empty()) {
+        // Retain explicit source-summary preparation for future callers. Ordinary
+        // model selection resumes the same upstream-owned history without it.
         app.chat_model_switch.0 = Some(Pending {
             thread,
             model,
@@ -376,7 +379,8 @@ mod tests {
         let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
         let root = tempfile::tempdir().unwrap();
         let mut config = app.config.clone();
-        config.codex_home = codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
+        config.codex_home =
+            codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
         config.model = Some("gpt-6.1-sol".into());
         let binary = root.path().join("provider");
         let response = json!({"type":"message","role":"user","content":[{"type":"input_text","text":"readable fixture context"}]});
@@ -425,8 +429,7 @@ args=["token","--state","/owned/state"]
         );
     }
     #[tokio::test]
-    async fn termux_chat_models_return_waits_for_exact_compaction_completion_and_cancels_failures()
-    {
+    async fn termux_chat_models_explicit_summary_matches_completion_and_cancels_failures() {
         use crate::app_event::AppEvent;
         use codex_app_server_protocol::ServerNotification;
         for outcome in [
@@ -630,7 +633,8 @@ args=["token","--state","/owned/state"]
                     &mut app,
                     &mut server,
                     "chatgpt-desktop/gpt-6".to_string(),
-                    Some(ReasoningEffort::Medium)
+                    Some(ReasoningEffort::Medium),
+                    false,
                 )
                 .await
                 .is_none()
