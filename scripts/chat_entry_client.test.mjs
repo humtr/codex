@@ -10,6 +10,16 @@ const canonical=eval('('+definition+')');
 const graph=()=>({a:{id:'a',parent:null,children:['b'],message:{id:'a',update_time:1,content:{parts:['original'],update_time:7},metadata:{hidden:true}}},b:{id:'b',parent:'a',children:[],message:null}});
 const inputRequestScope=eval('('+source.match(/function inputRequestScope\([\s\S]*?\n  }/)[0]+')');
 const admitObservedRequest=eval('('+source.match(/function admitObservedRequest\([\s\S]*?\n  }/)[0]+')');
+const ownedLane=eval('('+source.match(/function ownedLane\([\s\S]*?\n  }/)[0]+')');
+
+test('native model-adapter lane resolves by exact owned driver without managed assignment metadata',()=>{
+ const id='a'.repeat(48),lane={serverId:'saved-native',streamActive:false,pending:false},lanes=new Map([[id,lane]]);
+ expect(ownedLane(lanes,{lane_id:id})).toBe(lane);
+ expect(ownedLane(lanes,{conversation_id:'saved-native'})).toBe(lane);
+ for(const args of [{},{lane_id:'other'},{lane_id:'b'.repeat(48)},{lane_id:id,conversation_id:'saved-native'},{conversation_id:'unrelated'}])expect(()=>ownedLane(lanes,args)).toThrow();
+ lanes.set('b'.repeat(48),{serverId:'saved-native'});
+ expect(()=>ownedLane(lanes,{conversation_id:'saved-native'})).toThrow('ambiguous');
+});
 
 test('shared wire classifies source and managed requests once, without unrelated traffic',()=>{
  const lanes=new Map([['source',{localId:'local-source',serverId:'saved-source',marker:'source-marker',signature:{name:'source-function'}}],['worker',{localId:'local-worker',serverId:'saved-worker',marker:'worker-marker',signature:{name:'worker-function'}}]]);

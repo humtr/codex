@@ -26,6 +26,18 @@ async function evaluate(action,args={}) {
    if(requests.length>=(plan.max_model_responses??plan.max_source_requests))throw Error('chat_entry_total_request_budget_exhausted');
    if(scope==='source'&&requests.filter(r=>r.scope==='source').length>=(plan.max_source_lane_requests??plan.max_source_requests))throw Error('chat_entry_source_request_budget_exhausted');
   }
+  function ownedLane(lanes,args) {
+   if(args.lane_id!==undefined){
+    if(args.conversation_id!==undefined||!/^[0-9a-f]{48}$/.test(args.lane_id??''))throw Error('explicit_owned_lane_required');
+    const lane=lanes.get(args.lane_id);
+    if(!lane)throw Error('owned_conversation_unavailable_or_ambiguous');
+    return lane;
+   }
+   if(typeof args.conversation_id!=='string')throw Error('explicit_owned_conversation_required');
+   const matches=[...lanes.values()].filter(l=>l.serverId===args.conversation_id);
+   if(matches.length!==1)throw Error('owned_conversation_unavailable_or_ambiguous');
+   return matches[0];
+  }
   if(action==='inspect') {
    const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];
    return {bridge_present:!!s,lanes:[...(s?.lanes??[])].map(([id,l])=>({id,pending:l.pending,streamActive:l.streamActive,stopped:l.stopRequested})),model_requests:0};
@@ -92,10 +104,8 @@ async function evaluate(action,args={}) {
   const common={owner,lane:state.lane};
   if(action==='read_diagnostics')return {model_requests:0,read_errors:state.readErrors};
   if(action==='owned_lane_status'){
-   if(!plan.shared_bridge||typeof args.conversation_id!=='string')throw Error('explicit_owned_conversation_required');
-   const matches=[...s.lanes.values()].filter(l=>l.serverId===args.conversation_id);
-   if(matches.length!==1)throw Error('owned_conversation_unavailable_or_ambiguous');
-   const l=matches[0];
+   if(!plan.shared_bridge)throw Error('shared_source_lifecycle_required');
+   const l=ownedLane(s.lanes,args);
    return {conversation_id:l.serverId,streamActive:l.streamActive===true,pending:l.pending===true,
     stopRequested:l.stopRequested===true,serverStopState:l.serverStopState??'not_observed',model_requests:0};
   }

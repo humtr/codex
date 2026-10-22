@@ -147,8 +147,34 @@ explicit. No failed task was replayed. The distinct continuation-1 retains the
 same Provider/tunnel/input owner and counters without reconnect/init. It confirms
 native thread01a164aa-3447-7253-b7ea-af84566ab2d3, one completed synthetic native
 turn, GPT-6 High selected and0 actual requests in ready-before-Chat.json. Its
-exclusive go.json starts the declared two-turn actual cohort. Await its one final
-notice; do not poll or submit another task while the batch owns the input.
+exclusive go.json started the declared cohort. Its first actual Chat task completed
+on that same thread, with5 original native calls/results,0 unreturned, unchanged
+original tests and7 passing tests. The initial timeout was a qualification error:
+host_settled expected explicit managed-assignment metadata, but native Codex entry
+binds its saved Chat through the owned driver lane. Separate review verifies the
+idle native/settled stream, actual diff, exact final in original CLI after a full
+Ctrl-L redraw, and original native final retained in saved report/finish arguments.
+The visible Chat final is a presentation rather than identical native text.
+Keep continuation-1/result.json failed beside continuation-2's accepted first-task
+review; do not repeat the completed development.
+
+The input observer now accepts an exact48-hex owned driver ID for passive lane
+status as well as an unambiguous saved conversation ID. Twelve Bun tests pass52
+assertions, including rejection of missing/foreign/ambiguous bindings. Tool
+definitions/annotations and the Provider artifact are unchanged. The completed
+TUI and two idle backends have confirmed kernel exits, and the old controller is
+released. Distinct continuation-2 preserves the same native thread, Provider,
+tunnel, app observer, original deadline and1-used/2-total request budget. Its
+request-free preparation cold-resumes the two completed turns, selects native,
+observes one synthetic native return and reselects GPT-6 High. Only the remaining
+new follow-up may be submitted after its ready-before-Chat/go boundary. This is
+two supervisor-reconciled segments, not an uninterrupted two-task batch. Await
+its one final notice after start; do not poll or submit competing input.
+Continuation-2 preparation now passes: the original two completed turns are exact,
+one new synthetic native turn completes with the previous actual Chat final in
+its request input, and GPT-6 High is reselected on the same thread with3 completed
+turns. ready-before-Chat.json still reports1 actual Chat dispatch. Its exclusive
+go.json starts only the remaining new follow-up, retaining the total ceiling2.
 
 The previously published frontend requests a
 fresh source summary for every nonempty Chat-to-native switch; source1c58d1cb
