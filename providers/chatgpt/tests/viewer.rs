@@ -85,19 +85,24 @@ async fn viewer_capability_assets_origin_rfb_and_shutdown_are_independent_of_res
     let capability = viewer.capability.clone();
     let prefix = format!("/viewer/{capability}");
     let host = Arc::new(NoModel(AtomicUsize::new(0)));
+    let slot = Arc::new(std::sync::RwLock::new(None));
     let service = Service::new(
         Config::default(),
         "owned_endpoint_token_012345678901234567890123456789".into(),
         host.clone(),
     )
     .unwrap()
-    .with_viewer(viewer)
+    .with_viewer_slot(slot.clone())
     .unwrap();
     let stop = CancellationToken::new();
     let shutdown = stop.clone();
     let task = tokio::spawn(async move {
         server::serve(listener, service, shutdown).await.unwrap();
     });
+    assert!(http(address, &format!("{prefix}/vnc.html"), "")
+        .await
+        .starts_with("HTTP/1.1 404"));
+    *slot.write().unwrap() = Some(viewer);
     let html = http(address, &format!("{prefix}/vnc.html"), "").await;
     assert!(html.starts_with("HTTP/1.1 200"));
     for expected in [

@@ -34,6 +34,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub trait Host: Send + Sync + 'static {
+    fn approve(&self, _thread: String, _ui: bool) -> BoxFuture<'static, Result<Value, Error>> {
+        Box::pin(async { Err(Error("host_approval_unavailable")) })
+    }
     fn reveal(&self, _thread: String) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Err(Error("host_reveal_unavailable")) })
     }
@@ -52,7 +55,7 @@ pub struct Service {
     token: String,
     host: Arc<dyn Host>,
     sequence: AtomicU64,
-    viewer: Option<Arc<crate::viewer::Viewer>>,
+    viewer: crate::viewer::Slot,
     mcp: Option<Arc<crate::mcp::Broker>>,
     operator: Option<Arc<crate::operator::Operator>>,
 }
@@ -76,7 +79,7 @@ impl Service {
             token,
             host,
             sequence: AtomicU64::new(0),
-            viewer: None,
+            viewer: Arc::new(std::sync::RwLock::new(None)),
             mcp: None,
             operator: None,
         }))
@@ -124,10 +127,7 @@ impl Service {
             Some(operator) => router.merge(operator.router()),
             None => router,
         };
-        match viewer {
-            Some(viewer) => router.merge(viewer.router()),
-            None => router,
-        }
+        router.merge(crate::viewer::router_slot(viewer))
     }
     pub fn with_mcp(mut self: Arc<Self>, mcp: Arc<crate::mcp::Broker>) -> Result<Arc<Self>, Error> {
         Arc::get_mut(&mut self)
@@ -148,9 +148,17 @@ impl Service {
         mut self: Arc<Self>,
         viewer: Arc<crate::viewer::Viewer>,
     ) -> Result<Arc<Self>, Error> {
+        Arc::get_mut(&mut self).ok_or(Error("provider_already_shared"))?;
+        *self.viewer.write().unwrap() = Some(viewer);
+        Ok(self)
+    }
+    pub fn with_viewer_slot(
+        mut self: Arc<Self>,
+        slot: crate::viewer::Slot,
+    ) -> Result<Arc<Self>, Error> {
         Arc::get_mut(&mut self)
             .ok_or(Error("provider_already_shared"))?
-            .viewer = Some(viewer);
+            .viewer = slot;
         Ok(self)
     }
 }
@@ -287,17 +295,39 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     if !authorized(&parts.headers, &service.token) {
         return failure(StatusCode::UNAUTHORIZED, "unauthorized");
     }
-    if parts.uri.path() == "/__reveal" && parts.method == "POST" {
+    if matches!(
+        parts.uri.path(),
+        "/__reveal" | "/__approve" | "/__approve_ui"
+    ) && parts.method == "POST"
+    {
         let Some(thread) = one_header(&parts.headers, "x-codex-thread-id") else {
             return failure(StatusCode::BAD_REQUEST, "invalid_thread_identity");
         };
         if thread.is_empty() || thread.len() > 256 || thread.chars().any(char::is_control) {
             return failure(StatusCode::BAD_REQUEST, "invalid_thread_identity");
         }
-        return match tokio::time::timeout(Duration::from_secs(10),service.host.reveal(thread.to_owned())).await {
-            Ok(Ok(()))=>axum::Json(json!({"app_reveal_requested":true,"inference_submitted":false,"physical_ui_confirmed":false})).into_response(),
-            Ok(Err(e))=>failure(StatusCode::CONFLICT,e.0),
-            Err(_)=>failure(StatusCode::GATEWAY_TIMEOUT,"app_reveal_unconfirmed"),
+        if parts.uri.path() == "/__reveal" {
+            return match tokio::time::timeout(Duration::from_secs(10), service.host.reveal(thread.to_owned())).await {
+                Ok(Ok(()))=>axum::Json(json!({"app_reveal_requested":true,"inference_submitted":false,"physical_ui_confirmed":false})).into_response(),
+                Ok(Err(e))=>failure(StatusCode::CONFLICT,e.0),
+                Err(_)=>failure(StatusCode::GATEWAY_TIMEOUT,"app_reveal_unconfirmed"),
+            };
+        }
+        return match tokio::time::timeout(
+            Duration::from_secs(if parts.uri.path() == "/__approve_ui" {
+                50
+            } else {
+                35
+            }),
+            service
+                .host
+                .approve(thread.to_owned(), parts.uri.path() == "/__approve_ui"),
+        )
+        .await
+        {
+            Ok(Ok(value)) => axum::Json(value).into_response(),
+            Ok(Err(e)) => failure(StatusCode::CONFLICT, e.0),
+            Err(_) => failure(StatusCode::GATEWAY_TIMEOUT, "app_approval_unconfirmed"),
         };
     }
     let config = match service.effective() {
@@ -430,7 +460,7 @@ pub async fn serve(
             if let Some(operator) = operator {
                 operator.close().await;
             }
-            if let Some(viewer) = viewer {
+            if let Some(viewer) = &*viewer.read().unwrap() {
                 viewer.close();
             }
         })

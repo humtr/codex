@@ -1,0 +1,126 @@
+name: Sign and stage qualified optional Provider
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact accepted rewrite/rust-core source
+        required: true
+        type: string
+      candidate_tag:
+        description: Immutable owned input release with qualified Android binary and proof
+        required: true
+        type: string
+      generation:
+        description: Absent immutable chatgpt generation release tag
+        required: true
+        type: string
+      sequence:
+        description: Positive Provider release sequence
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: optional-provider-publication
+  cancel-in-progress: false
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Fetch and verify admitted exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+          GENERATION: ${{ inputs.generation }}
+          SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_TAG" =~ ^chatgpt-input-[a-z0-9-]+$ ]]
+          [[ "$GENERATION" =~ ^chatgpt-[a-z0-9][a-z0-9-]{0,110}[a-z0-9]$ ]]
+          [[ "$SEQUENCE" =~ ^[1-9][0-9]*$ ]]
+          for workflow in rald7-full-acceptance.yml provider-qualification.yml; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&per_page=100" \
+              --jq '.workflow_runs | any(.head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success" and (.event=="push" or .event=="workflow_dispatch"))' | grep -Fqx true
+          done
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -m 0700 "$RUNNER_TEMP/provider-input"
+          gh release download "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/provider-input" \
+            --pattern codex-chatgpt-provider --pattern source-inputs.json --pattern qualification.json
+          test "$(find "$RUNNER_TEMP/provider-input" -type f | wc -l)" -eq 3
+          chmod 0755 "$RUNNER_TEMP/provider-input/codex-chatgpt-provider"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$RUNNER_TEMP/update-public-key.pem" \
+            https://github.com/humtr/codex/releases/download/local-20260914-update-channel-bridge-1/update-public-key.pem
+          echo '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c  '"$RUNNER_TEMP/update-public-key.pem" | sha256sum -c -
+          python3 source/.github/scripts/test_provider_publication.py
+      - name: Build qualified package producer
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("source/release/upstream.json"))["toolchains"]["core_rust"])')
+          rustup toolchain install "$version" --profile minimal
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/provider-builder-target"
+          cargo "+$version" build --manifest-path source/Cargo.toml --release --locked -p codex-release-builder
+      - name: Sign and independently reverify complete payload
+        env:
+          CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GENERATION: ${{ inputs.generation }}
+          SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/provider_signing.py \
+            --source "$GITHUB_WORKSPACE/source" --source-sha "$SOURCE_SHA" \
+            --binary "$RUNNER_TEMP/provider-input/codex-chatgpt-provider" \
+            --source-inputs "$RUNNER_TEMP/provider-input/source-inputs.json" \
+            --qualification "$RUNNER_TEMP/provider-input/qualification.json" \
+            --public-key "$RUNNER_TEMP/update-public-key.pem" --openssl /usr/bin/openssl \
+            --builder "$RUNNER_TEMP/provider-builder-target/release/codex-release-builder" \
+            --runner-temp "$RUNNER_TEMP" --output "$RUNNER_TEMP/provider-signed" \
+            --generation "$GENERATION" --sequence "$SEQUENCE"
+          python3 source/.github/scripts/provider_publication.py export \
+            --package "$RUNNER_TEMP/provider-signed" --output "$RUNNER_TEMP/provider-assets" \
+            --public-key "$RUNNER_TEMP/update-public-key.pem"
+      - name: Stage immutable release without changing any stable head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GENERATION: ${{ inputs.generation }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/provider-index-v1" "$RUNNER_TEMP/provider-index-v1.sig" "$RUNNER_TEMP/provider-assets/"
+          # A name collision is terminal. Never edit/delete/clobber an old asset.
+          if gh release view "$GENERATION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Provider release already exists; inspect its original result' >&2
+            exit 1
+          fi
+          printf 'Qualified optional Provider staging. Stable promotion requires complete public readback and disposable Android consumption.\n' > "$RUNNER_TEMP/provider-notes.txt"
+          gh release create "$GENERATION" "$RUNNER_TEMP/provider-assets/"* \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --prerelease \
+            --title "$GENERATION" --notes-file "$RUNNER_TEMP/provider-notes.txt"
+          python3 source/.github/scripts/provider_publication.py readback \
+            --url "https://github.com/humtr/codex/releases/download/$GENERATION/" \
+            --output "$RUNNER_TEMP/provider-public-readback" --public-key "$RUNNER_TEMP/update-public-key.pem"
+      - name: Retain signed delivery proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: optional-provider-signed-stage
+          path: |
+            ${{ runner.temp }}/provider-signed
+            ${{ runner.temp }}/provider-public-readback
+            ${{ runner.temp }}/provider-index-v1
+            ${{ runner.temp }}/provider-index-v1.sig
+          if-no-files-found: error
+          retention-days: 30

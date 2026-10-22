@@ -11,6 +11,7 @@ use std::{
     io::Read,
     os::{
         fd::AsRawFd,
+        unix::ffi::OsStrExt,
         unix::fs::{MetadataExt, OpenOptionsExt},
     },
     path::{Path, PathBuf},
@@ -27,7 +28,26 @@ use tokio::{
 };
 
 const LIMIT: usize = 16 * 1024 * 1024;
-type Replies = Arc<Mutex<BTreeMap<u64, oneshot::Sender<Result<Value, Error>>>>>;
+type PendingReply = (String, oneshot::Sender<Result<Value, Error>>);
+type Replies = Arc<Mutex<BTreeMap<u64, PendingReply>>>;
+
+fn native_reply(method: &str, row: &Value) -> Result<Value, Error> {
+    if let Some(error) = row.get("error") {
+        // Upstream's fresh thread store has no paged history until the first
+        // turn is persisted. Keep this exact read rejection distinguishable;
+        // no mutation, unrelated error or unsupported API is retried here.
+        if method == "thread/items/list"
+            && error["code"].as_i64() == Some(-32601)
+            && error["message"].as_str() == Some("thread/items/list is not supported yet")
+        {
+            return Err(Error("native_history_not_ready"));
+        }
+        return Err(Error("native_request_rejected"));
+    }
+    row.get("result")
+        .cloned()
+        .ok_or(Error("native_reply_invalid"))
+}
 
 fn read(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
     for parent in path.ancestors().skip(1) {
@@ -53,6 +73,18 @@ fn read(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
         return Err(std::io::Error::other("native record bound"));
     }
     Ok(bytes)
+}
+
+fn binding_for_home(directory: &Path, home: &Path) -> Result<Option<Binding>, Error> {
+    let owner = read(&directory.join("owner"), codex_runtime_binding::OWNER_LIMIT)
+        .map_err(|_| Error("native_binding_invalid"))?;
+    // A different execution home may still use an older Core record format.
+    // Identify its bounded, private owner before interpreting that format.
+    if owner.split(|b| *b == 0).next() != Some(home.as_os_str().as_bytes()) {
+        return Ok(None);
+    }
+    let binding = Binding::read(directory, read).map_err(|_| Error("native_binding_invalid"))?;
+    Ok((binding.home == home).then_some(binding))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +147,23 @@ pub struct Native {
     pub human_requests: Arc<Mutex<BTreeMap<String, Value>>>,
 }
 impl Native {
+    pub async fn verify_scope(&self, thread: &str, workspace: &Path) -> Result<(), Error> {
+        let row = self
+            .call(
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":false}),
+            )
+            .await?;
+        let cwd = row["thread"]["cwd"]
+            .as_str()
+            .ok_or(Error("native_workspace_unavailable"))?;
+        let actual =
+            std::fs::canonicalize(cwd).map_err(|_| Error("native_workspace_unavailable"))?;
+        if actual != workspace || row["thread"]["modelProvider"] != "chatgpt_desktop" {
+            return Err(Error("native_workspace_or_route_changed"));
+        }
+        Ok(())
+    }
     pub async fn public_context(&self, thread: &str) -> Result<Vec<Value>, Error> {
         let row = self
             .call(
@@ -175,6 +224,7 @@ impl Native {
         thread: &str,
         request_id: &str,
         answers: Value,
+        before_send: impl FnOnce() -> Result<(), Error> + Send,
     ) -> Result<(), Error> {
         self.owner.validate(&self.installation)?;
         let mut requests = self.human_requests.lock().await;
@@ -206,6 +256,9 @@ impl Native {
         {
             return Err(Error("native_question_answer_invalid"));
         }
+        // Validation above is a known rejection with no dispatch. Record intent
+        // only at the actual native-send boundary, while the question is locked.
+        before_send()?;
         self.write
             .send(json!({"id":row["id"],"result":{"answers":answers}}))
             .await
@@ -296,16 +349,14 @@ impl Native {
                             }
                             let _ = events.send(row);
                         } else if let Some(id) = row["id"].as_u64() {
-                            if let Some(reply) = replies.lock().await.remove(&id) {
-                                let value = if row.get("error").is_some() { Err(Error("native_request_rejected")) }
-                                    else { row.get("result").cloned().ok_or(Error("native_reply_invalid")) };
-                                let _ = reply.send(value);
+                            if let Some((method, reply)) = replies.lock().await.remove(&id) {
+                                let _ = reply.send(native_reply(&method, &row));
                             }
                         }
                     }
                 }
             }
-            for (_, reply) in std::mem::take(&mut *replies.lock().await) {
+            for (_, (_, reply)) in std::mem::take(&mut *replies.lock().await) {
                 let _ = reply.send(Err(Error("native_delivery_unknown")));
             }
             let _ = events.send(json!({"method":"operator/nativeDisconnected"}));
@@ -328,7 +379,10 @@ impl Native {
         self.owner.validate(&self.installation)?;
         let id = self.sequence.fetch_add(1, Ordering::Relaxed);
         let (send, receive) = oneshot::channel();
-        self.replies.lock().await.insert(id, send);
+        self.replies
+            .lock()
+            .await
+            .insert(id, (method.to_owned(), send));
         if self
             .write
             .send(json!({"id":id,"method":method,"params":params}))
@@ -358,6 +412,14 @@ pub struct Pool {
     clients: Mutex<BTreeMap<PathBuf, Arc<Native>>>,
 }
 impl Pool {
+    pub(crate) fn scoped(&self, config: Config) -> Result<Arc<Self>, Error> {
+        Self::new(
+            config,
+            self.state.clone(),
+            self.base_url.clone(),
+            self.binary.clone(),
+        )
+    }
     pub fn new(
         config: Config,
         state: PathBuf,
@@ -388,28 +450,7 @@ impl Pool {
         }))
     }
     pub fn routing(&self) -> Result<Value, Error> {
-        let registry = self
-            .installation
-            .join(".local/share/codex/core/config/profiles");
-        let result = registration::prepare(
-            &self.config,
-            &self.state,
-            &registry,
-            &self.home,
-            &self.binary,
-            &self.base_url,
-        )?;
-        let profile = PathBuf::from(
-            result["profile"]
-                .as_str()
-                .ok_or(Error("native_profile_unavailable"))?,
-        );
-        let value: toml::Value = toml::from_str(
-            &String::from_utf8(crate::cdp::private_read(&profile, 4 * 1024 * 1024)?)
-                .map_err(|_| Error("native_profile_invalid"))?,
-        )
-        .map_err(|_| Error("native_profile_invalid"))?;
-        serde_json::to_value(value).map_err(|_| Error("native_profile_invalid"))
+        registration::native_routing(&self.config, &self.state, &self.binary, &self.base_url)
     }
     async fn client(&self, owner: Owner) -> Result<Arc<Native>, Error> {
         let mut clients = self.clients.lock().await;
@@ -447,9 +488,7 @@ impl Pool {
                 let directory = entry
                     .map_err(|_| Error("native_binding_unavailable"))?
                     .path();
-                let binding =
-                    Binding::read(&directory, read).map_err(|_| Error("native_binding_invalid"))?;
-                if binding.home != self.home {
+                if binding_for_home(&directory, &self.home)?.is_none() {
                     continue;
                 }
                 let owner = match Owner::load(&directory, &self.home, &self.installation) {
@@ -497,6 +536,7 @@ impl Pool {
         let mut child = tokio::process::Command::new(core)
             .arg("__app-server-catalog-v1")
             .env("CODEX_HOME", &self.home)
+            .current_dir(&self.workspace)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -531,5 +571,96 @@ impl Pool {
         }
         self.client(Owner::load(directory, &self.home, &self.installation)?)
             .await
+    }
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+
+    #[test]
+    fn foreign_legacy_records_do_not_block_current_home_but_own_invalid_records_do() {
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!(
+            "native-record-{}",
+            crate::journal::random_id().unwrap()
+        )));
+        crate::journal::private_directory(&root.0).unwrap();
+        let home = root.0.join("selected-home");
+        let owner = root.0.join("owner");
+        use std::io::Write;
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&owner)
+            .unwrap();
+        file.write_all(b"/another/home\0/old/runtime\0legacy-v0")
+            .unwrap();
+        drop(file);
+        assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+        std::fs::write(
+            &owner,
+            [home.as_os_str().as_bytes(), b"\0/runtime\0legacy-v0"].concat(),
+        )
+        .unwrap();
+        assert_eq!(
+            binding_for_home(&root.0, &home).unwrap_err(),
+            Error("native_binding_invalid")
+        );
+        std::fs::remove_file(&owner).unwrap();
+        std::os::unix::fs::symlink(root.0.join("missing"), &owner).unwrap();
+        assert_eq!(
+            binding_for_home(&root.0, &home).unwrap_err(),
+            Error("native_binding_invalid")
+        );
+    }
+
+    #[test]
+    fn only_exact_paged_history_rejection_is_temporarily_unavailable() {
+        let reply =
+            json!({"error":{"code":-32601,"message":"thread/items/list is not supported yet"}});
+        assert_eq!(
+            native_reply("thread/items/list", &reply).unwrap_err().0,
+            "native_history_not_ready"
+        );
+        for method in ["turn/start", "thread/read", "thread/resume"] {
+            assert_eq!(
+                native_reply(method, &reply).unwrap_err().0,
+                "native_request_rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn other_history_errors_remain_errors_without_disclosing_remote_text() {
+        for reply in [
+            json!({"error":{"code":-32600,"message":"thread/items/list is not supported yet"}}),
+            json!({"error":{"code":-32601,"message":"another unsupported method"}}),
+            json!({"error":{"code":-32603,"message":"private remote details"}}),
+        ] {
+            assert_eq!(
+                native_reply("thread/items/list", &reply).unwrap_err().0,
+                "native_request_rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn successful_empty_history_and_malformed_reply_remain_distinct() {
+        let value = json!({"data":[],"nextCursor":null});
+        assert_eq!(
+            native_reply("thread/items/list", &json!({"result":value})).unwrap(),
+            value
+        );
+        assert_eq!(
+            native_reply("thread/items/list", &json!({})).unwrap_err().0,
+            "native_reply_invalid"
+        );
     }
 }

@@ -32,6 +32,7 @@ def probe(args):
     accepted = False
     requests, failures = [], []
     screen = ''
+    reentry_observations = []
     home = None
     try:
         home, prefix, env = fixture(root, args.core, args.frontend)
@@ -149,8 +150,19 @@ def probe(args):
                 except AssertionError as error:
                     # Provider re-entry temporarily retires/replaces its owned
                     # native backend. Never choose one while identity is ambiguous.
-                    if str(error) != 'one owned thread server required':
-                        raise
+                    if str(error) == 'one owned thread server required':
+                        continue
+                    # A newly re-entered backend may expose thread metadata
+                    # before its public turns materialize. Retry this read only;
+                    # never resend a user turn or another model switch.
+                    detail = error.args[0] if error.args else None
+                    if (isinstance(detail, tuple) and len(detail) == 2
+                            and detail[0] == 'thread/read' and isinstance(detail[1], dict)
+                            and detail[1].get('code') == -32600
+                            and 'is not materialized yet; includeTurns is unavailable before first user message' in detail[1].get('message', '')):
+                        reentry_observations.append('public_turns_not_materialized')
+                        continue
+                    raise
             raise AssertionError('terminal transition timeout: ' +
                 re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen[-3000:]))
 
@@ -232,6 +244,7 @@ def probe(args):
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,
                 'managerAbsent': args.without_manager,
+                'readOnlyReentryTransients': reentry_observations,
                 'coreBuiltFromCurrentSource': args.build_core,
                 'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'),
                     'sha256').hexdigest() for name in ['core', 'frontend', 'provider']}}

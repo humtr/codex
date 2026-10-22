@@ -90,8 +90,8 @@ test('MCP wire contract has repository-owned names, preserves IDs and returns co
  const put=row=>controller.enqueue(new TextEncoder().encode(JSON.stringify(row)+'\n'));
  put(request('tools/list'));await until(()=>lines.length===1);assert.equal(lines[0].id,0);
  const [metadata,execution]=lines[0].result.tools;
- assert.deepEqual(metadata.annotations,{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false});
- assert.deepEqual(execution.annotations,{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true});
+ assert.deepEqual(metadata.annotations,{readOnlyHint:true,destructiveHint:false,idempotentHint:false,openWorldHint:false});
+ assert.deepEqual(execution.annotations,{readOnlyHint:true,destructiveHint:false,idempotentHint:false,openWorldHint:false});
  assert.ok(lines[0].result.tools.every(t=>!/(MUST|Core owns|retry)/.test(t.description)));
  put(request('ping'));await until(()=>lines.length===2);assert.equal(lines[1].id,0);
  put({jsonrpc:'2.0',method:'notifications/initialized'});controller.close();await running;

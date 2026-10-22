@@ -24,9 +24,30 @@ pub trait Bridge: Send + Sync + 'static {
     }
 }
 
+/// Transport is an immutable lane declaration, never a renderer-wide switch.
+pub(crate) struct Transport {
+    pub remote: Arc<dyn Bridge>,
+    pub path: crate::config::ReturnPath,
+}
+impl Bridge for Transport {
+    fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+        if command["op"] == "open" {
+            command["returnPath"] = json!(match self.path {
+                crate::config::ReturnPath::Mcp => "mcp",
+                crate::config::ReturnPath::LocalFunction => "local_function",
+            });
+        }
+        self.remote.operation(command)
+    }
+    fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
+        self.remote.admit_submission(command)
+    }
+}
+
 struct Connection {
     generation: String,
     app: App,
+    initialized: bool,
 }
 #[derive(Clone)]
 enum Source {
@@ -38,6 +59,7 @@ pub struct Remote {
     owner: String,
     connection: Arc<Mutex<Option<Connection>>>,
     mcp: bool,
+    viewer: Option<Arc<crate::viewer::Viewer>>,
 }
 impl Remote {
     pub fn new(descriptor: PathBuf, owner: String) -> Self {
@@ -46,6 +68,7 @@ impl Remote {
             owner,
             connection: Arc::new(Mutex::new(None)),
             mcp: false,
+            viewer: None,
         }
     }
     pub fn pipe(client: Client, owner: String) -> Self {
@@ -54,7 +77,12 @@ impl Remote {
             owner,
             connection: Arc::new(Mutex::new(None)),
             mcp: false,
+            viewer: None,
         }
+    }
+    pub fn with_viewer(mut self, viewer: Option<Arc<crate::viewer::Viewer>>) -> Self {
+        self.viewer = viewer;
+        self
     }
     pub fn with_mcp(mut self) -> Self {
         self.mcp = true;
@@ -67,11 +95,41 @@ impl Bridge for Remote {
         let owner = self.owner.clone();
         let connection = self.connection.clone();
         let mcp = self.mcp;
+        let viewer = self.viewer.clone();
         Box::pin(async move {
             let selected = match &source {
                 Source::Relay(path) => Some(Descriptor::read(path)?),
                 Source::Pipe(_) => None,
             };
+            if command["op"] == "host_stop" {
+                return Err(Error("host_shared_owner"));
+            }
+            if command["op"] == "host_open" {
+                viewer
+                    .as_ref()
+                    .ok_or(Error("provider_viewer_unavailable"))?
+                    .open()
+                    .await?;
+                return Ok(
+                    json!({"viewer_open_requested":true,"inference_submitted":false,"host_started":false}),
+                );
+            }
+            if command["op"] == "host_ensure" {
+                command["op"] = json!("host_status");
+            }
+            let observation = matches!(
+                command["op"].as_str(),
+                Some(
+                    "identity"
+                        | "host_status"
+                        | "chat_list"
+                        | "chat_read"
+                        | "chat_page"
+                        | "project_list"
+                        | "project_read"
+                )
+            );
+            let bindings = json!({"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"});
             let generation = match (&source, &selected) {
                 (_, Some(d)) => d.generation(),
                 (Source::Pipe(c), _) => c.generation.to_string(),
@@ -102,7 +160,21 @@ impl Bridge for Remote {
                         Err(error) => return Err(error),
                     }
                 };
-                let init = json!({"op":"init","owner":owner,"bridgeRevision":context::digest(&include_str!("app_bridge.js")),"returnPath":if mcp {"mcp"}else{"local_function"},"bindings":{"initial":"app://-/assets/app-initial-ed5807835d97.js","shared":"app://-/assets/app-shared-2d77298f0100.js"}});
+                *guard = Some(Connection {
+                    generation: generation.clone(),
+                    app,
+                    initialized: false,
+                });
+            }
+            if !observation
+                && !matches!(
+                    command["op"].as_str(),
+                    Some("snapshot" | "stop" | "release" | "dispose")
+                )
+                && !guard.as_ref().unwrap().initialized
+            {
+                let app = guard.as_ref().unwrap().app.clone();
+                let init = json!({"op":"init","owner":owner,"bridgeRevision":context::digest(&include_str!("app_bridge.js")),"returnPath":"mcp","bindings":bindings});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
                     let value = evaluate_bridge(&app, &init).await?;
@@ -114,15 +186,41 @@ impl Bridge for Remote {
                     }
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
-                *guard = Some(Connection {
-                    generation: generation.clone(),
-                    app,
-                });
+                guard.as_mut().unwrap().initialized = true;
             }
             let app = guard.as_ref().unwrap().app.clone();
             drop(guard);
             command["owner"] = json!(owner);
+            command["bridgeRevision"] = json!(context::digest(&include_str!("app_bridge.js")));
+            if observation {
+                command["readOnlyContext"] = json!(true);
+                command["bindings"] = bindings;
+                command["bridgeRevision"] = json!(context::digest(&include_str!("app_bridge.js")));
+            }
+            if command["op"] == "open" && command.get("returnPath").is_none() {
+                command["returnPath"] = json!(if mcp { "mcp" } else { "local_function" });
+            }
+            if command["op"] == "approve_ui" {
+                let mut check = command.clone();
+                check["op"] = json!("approval_prepare");
+                evaluate_bridge(&app, &check).await?;
+                viewer
+                    .as_ref()
+                    .ok_or(Error("app_approval_viewer_unavailable"))?
+                    .open()
+                    .await?;
+            }
             let mut result = evaluate_bridge(&app, &command).await;
+            if command["op"] == "approve_ui" {
+                let until = tokio::time::Instant::now() + Duration::from_secs(20);
+                while result.as_ref().is_ok_and(|value| value["pending"] == true) {
+                    if tokio::time::Instant::now() >= until {
+                        return Err(Error("app_approval_ui_unavailable"));
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    result = evaluate_bridge(&app, &command).await;
+                }
+            }
             if command["op"] == "identity" {
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 while result == Err(Error("app_auth_loading"))
@@ -136,6 +234,12 @@ impl Bridge for Remote {
                         .as_object_mut()
                         .ok_or(Error("app_identity_unavailable"))?;
                     object.insert("generation".into(), json!(generation));
+                }
+            }
+            if command["op"] == "dispose" && result.as_ref().is_ok_and(|v| v["disposed"] == true) {
+                let mut current = connection.lock().await;
+                if let Some(current) = current.as_mut().filter(|c| c.generation == generation) {
+                    current.initialized = false;
                 }
             }
             if result
@@ -177,13 +281,45 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_auth_context_unavailable",
         "app_auth_loading",
         "app_lane_busy",
+        "app_stop_unconfirmed",
+        "app_lane_declaration_changed",
+        "app_hooks_changed",
+        "app_messages_required",
         "app_bridge_owned",
+        "app_bridge_owner_mismatch",
         "app_bridge_revision_required",
         "app_bridge_revision_conflict",
         "app_reveal_unavailable",
+        "app_approval_unavailable",
+        "app_approval_ambiguous",
+        "app_approval_ui_required",
+        "app_approval_ui_unavailable",
+        "app_approval_manual_required",
+        "app_approval_unconfirmed",
         "app_local_functions_unavailable",
+        "app_return_path_invalid",
+        "app_chat_operations_unavailable",
+        "app_chat_response_invalid",
+        "app_chat_unavailable",
+        "app_chat_auth_expired",
+        "app_chat_forbidden",
+        "app_chat_not_found",
+        "app_chat_temporarily_unavailable",
+        "app_chat_rate_limited",
+        "app_chat_read_pending",
+        "app_chat_request_failed",
+        "app_scope_unavailable",
+        "app_operation_not_read_only",
+        "app_bindings_unavailable",
+        "app_chat_input_unavailable",
+        "app_chat_owned_work",
+        "app_chat_active_unowned",
+        "assignment_budget_invalid",
+        "assignment_budget_changed",
+        "assignment_app_budget_exhausted",
+        "assignment_time_budget_exhausted",
     ];
-    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known).unwrap());
+    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known[..]).unwrap());
     let result = app.evaluate(&expression).await?;
     if let Some(code) = result["error"].as_str() {
         return Err(Error(
@@ -283,6 +419,10 @@ struct Lane {
     host_block: Option<String>,
     #[serde(default)]
     host_reply_messages: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    previous_chats: Vec<String>,
     #[serde(default)]
     rejected: u8,
 }
@@ -316,7 +456,7 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
     Ok(
         json!({"schema":"termux-codex-provider-lane-status-v1","thread":thread,
         "phase":lane.phase,"meaning":meaning,"observation":"last_private_journal",
-        "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),
+        "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),"conversation_id":lane.conversation_id,"previous_chats":lane.previous_chats,
         "host_block":lane.host_block,"host_action_reply_objects":lane.host_reply_messages,"app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
         "tool_return_objects":lane.tool_messages,"last_error":lane.last_error.as_deref()
             .map(|code| if code.len()<=128 && code.bytes().all(|c|c.is_ascii_lowercase() || c.is_ascii_digit() || c==b'_') {code}else{"provider_error"}),
@@ -349,7 +489,22 @@ impl Lane {
             host_block: None,
             host_reply_messages: 0,
             rejected: 0,
+            conversation_id: None,
+            previous_chats: Vec::new(),
         })
+    }
+    fn successor(&self, thread: &str) -> Result<Self, Error> {
+        let mut next = Self::new(thread)?;
+        next.previous_chats = self.previous_chats.clone();
+        if let Some(id) = &self.conversation_id {
+            if !next.previous_chats.contains(id) {
+                next.previous_chats.push(id.clone());
+            }
+        }
+        if next.previous_chats.len() > 256 {
+            return Err(Error("app_chat_lineage_limit"));
+        }
+        Ok(next)
     }
 }
 
@@ -359,6 +514,18 @@ fn observe_counts(
     lane: &mut Lane,
     state: &Value,
 ) -> Result<(), Error> {
+    if let Some(id) = state["serverId"].as_str() {
+        if id.is_empty() || id.len() > 256 || id.chars().any(char::is_control) {
+            return Err(Error("app_conversation_identity_invalid"));
+        }
+        if lane.conversation_id.as_ref().is_some_and(|old| old != id) {
+            return Err(Error("app_conversation_identity_changed"));
+        }
+        if lane.conversation_id.is_none() {
+            lane.conversation_id = Some(id.to_owned());
+            journal.write(key, lane)?;
+        }
+    }
     if state.get("dispatches").is_some()
         || state.get("userMessages").is_some()
         || state.get("toolMessages").is_some()
@@ -395,6 +562,7 @@ pub struct AppHost {
     journal: Arc<Journal>,
     lanes: Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>,
     project_lock: Arc<Mutex<()>>,
+    connector: String,
 }
 impl AppHost {
     pub fn new(bridge: Arc<dyn Bridge>, journal: Arc<Journal>) -> Self {
@@ -403,7 +571,53 @@ impl AppHost {
             journal,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
             project_lock: Arc::new(Mutex::new(())),
+            connector: crate::config::TransportConfig::default().connector_name,
         }
+    }
+    pub fn with_connector(mut self, connector: String) -> Self {
+        self.connector = connector;
+        self
+    }
+    pub async fn stop(&self, thread: &str) -> Result<bool, Error> {
+        let key = context::digest(&thread);
+        let mutex = {
+            let mut lanes = self.lanes.lock().await;
+            if let Some(mutex) = lanes.get(&key) {
+                Some(mutex.clone())
+            } else if let Some(lane) = self.journal.read::<Lane>(&key)? {
+                if lane.native_thread != thread {
+                    return Err(Error("native_thread_identity_conflict"));
+                }
+                let mutex = Arc::new(Mutex::new(lane));
+                lanes.insert(key.clone(), mutex.clone());
+                Some(mutex)
+            } else {
+                None
+            }
+        };
+        let Some(mutex) = mutex else {
+            return Ok(false);
+        };
+        let mut lane = tokio::time::timeout(Duration::from_secs(15), mutex.lock())
+            .await
+            .map_err(|_| Error("app_stop_unconfirmed"))?;
+        if lane.phase == Phase::Idle
+            && lane.pending.is_empty()
+            && matches!(lane.cached.last(), Some(Event::Completed { .. }))
+        {
+            // Durable response settlement remains proof after a clean app
+            // context replacement. Do not recreate a completed conversation.
+            lane.phase = Phase::Stopped;
+            self.journal.write(&key, &*lane)?;
+            return Ok(true);
+        }
+        if lane.phase != Phase::Stopped {
+            match stop_lane(self.bridge.as_ref(), &self.journal, &key, &mut lane).await {
+                Err(Error("app_stop_acknowledged")) => {}
+                other => other?,
+            }
+        }
+        Ok(lane.phase == Phase::Stopped)
     }
     pub async fn shutdown(&self) {
         let lanes = self
@@ -425,9 +639,44 @@ impl AppHost {
                 ) {
                     let _ = stop_lane(bridge.as_ref(), &journal, &key, &mut lane).await;
                 }
+                if matches!(lane.phase, Phase::Idle | Phase::Stopped) {
+                    if let Ok(state) = bridge
+                        .operation(json!({"op":"snapshot","lane":lane.marker}))
+                        .await
+                    {
+                        if state["round"] == lane.round
+                            && state["pending"] == false
+                            && state["streamActive"] == false
+                            && state["approvalPending"] != true
+                            && (lane.phase == Phase::Stopped
+                                && (state["stopped"] == true
+                                    || lane.pending.is_empty()
+                                        && matches!(
+                                            lane.cached.last(),
+                                            Some(Event::Completed { .. })
+                                        )
+                                        && state["error"].is_null())
+                                || lane.phase == Phase::Idle && state["error"].is_null())
+                            && bridge
+                                .operation(json!({"op":"release","lane":lane.marker}))
+                                .await
+                                .is_ok_and(|v| v["released"] == true)
+                        {
+                            return Some(key);
+                        }
+                    }
+                }
+                None
             });
         }
-        while stops.join_next().await.is_some() {}
+        while let Some(result) = stops.join_next().await {
+            if let Ok(Some(key)) = result {
+                self.lanes.lock().await.remove(&key);
+            }
+        }
+        // Passive disposal cannot acquire a missing host or initialize hooks.
+        // Another live owned lane makes disposal refuse; no owner is replaced.
+        let _ = self.bridge.operation(json!({"op":"dispose"})).await;
     }
 }
 
@@ -440,7 +689,84 @@ fn signature(name: &str) -> Value {
     ]})
 }
 
+pub(crate) async fn approve_lane(
+    bridge: Arc<dyn Bridge>,
+    lane: &str,
+    identity: Value,
+    connector: &str,
+    ui: bool,
+) -> Result<Value, Error> {
+    let command = json!({"op":if ui {"approve_ui"} else {"approve"},"lane":lane,"connector":connector,
+                "identity":{"account":identity["account"],"user":identity["user"],"structure":identity["structure"]}});
+    let result = match bridge.operation(command.clone()).await {
+        Err(Error("app_approval_ui_required")) if !ui => {
+            let mut fallback = command;
+            fallback["op"] = json!("approve_ui");
+            bridge.operation(fallback).await?
+        }
+        value => value?,
+    };
+    if result["path"] == "ui" {
+        let message = result["messageId"]
+            .as_str()
+            .ok_or(Error("app_approval_unconfirmed"))?;
+        let mut observed = false;
+        for _ in 0..40 {
+            let snapshot = bridge
+                .operation(json!({"op":"snapshot","lane":lane}))
+                .await?;
+            if snapshot["approvalResponses"]
+                .as_array()
+                .is_some_and(|ids| ids.iter().any(|id| id == message))
+            {
+                observed = true;
+                break;
+            }
+            if snapshot["stopped"] == true {
+                return Err(Error("app_approval_unconfirmed"));
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        if !observed {
+            return Err(Error("app_approval_unconfirmed"));
+        }
+    }
+    if result["requested"] != true
+        || !matches!(result["scope"].as_str(), Some("conversation" | "once"))
+        || !matches!(result["path"].as_str(), Some("action" | "ui"))
+    {
+        return Err(Error("app_approval_unconfirmed"));
+    }
+    Ok(
+        json!({"app_approval_requested":true,"scope":result["scope"],"path":result["path"],"window_open_requested":result["path"]=="ui","native_completion_confirmed":false}),
+    )
+}
+
 impl Host for AppHost {
+    fn approve(&self, thread: String, ui: bool) -> BoxFuture<'static, Result<Value, Error>> {
+        let bridge = self.bridge.clone();
+        let journal = self.journal.clone();
+        let connector = self.connector.clone();
+        Box::pin(async move {
+            let lane: Lane = journal
+                .read(&context::digest(&thread))?
+                .ok_or(Error("native_lane_not_found"))?;
+            if lane.native_thread != thread {
+                return Err(Error("native_thread_identity_conflict"));
+            }
+            if !matches!(lane.phase, Phase::Running | Phase::Dispatching) {
+                return Err(Error("app_approval_unavailable"));
+            }
+            let expected = lane.identity.ok_or(Error("app_identity_unavailable"))?;
+            let current = bridge
+                .operation(json!({"op":"identity","lane":lane.marker}))
+                .await?;
+            if Identity::parse(&current)? != expected {
+                return Err(Error("app_account_changed"));
+            }
+            approve_lane(bridge, &lane.marker, current, &connector, ui).await
+        })
+    }
     fn reveal(&self, thread: String) -> BoxFuture<'static, Result<(), Error>> {
         let bridge = self.bridge.clone();
         let journal = self.journal.clone();
@@ -546,6 +872,34 @@ async fn publish(lane: &mut Lane, events: &mpsc::Sender<Event>, event: Event) ->
         .await
         .map_err(|_| Error("native_observer_closed"))
 }
+
+fn public_delta(lane: &Lane, source: &str, phase: &str, delta: String, full: &str) -> Event {
+    let prefix = format!("{source}:continuation:");
+    let previous = lane.cached.iter().rev().find_map(|event| match event {
+        Event::Text { id, .. } if id == source || id.starts_with(&prefix) => Some(id),
+        _ => None,
+    });
+    let current = previous.is_some_and(
+        |previous| matches!(lane.cached.last(), Some(Event::Text { id, .. }) if id == previous),
+    );
+    let id = if current {
+        previous.unwrap().clone()
+    } else if previous.is_none() {
+        source.to_owned()
+    } else {
+        format!("{prefix}{}", lane.cached.len())
+    };
+    let delta = if previous.is_some() && !current && delta.is_empty() && phase == "final_answer" {
+        full.to_owned()
+    } else {
+        delta
+    };
+    Event::Text {
+        id,
+        phase: phase.into(),
+        delta,
+    }
+}
 fn public_item(id: &str, phase: &str, text: &str) -> Value {
     json!({"id":id,"type":"message","role":"assistant","phase":phase,"content":[{"type":"output_text","text":text}]})
 }
@@ -624,7 +978,7 @@ async fn exchange(
             if matches!(lane.phase, Phase::Idle | Phase::Stopped) && new_turn(lane, request) {
                 // Re-import only at a new native user turn after a settled round.
                 // Old remote chats remain intact. No pending call is reissued.
-                *lane = Lane::new(&request.thread)?;
+                *lane = lane.successor(&request.thread)?;
             } else if !matches!(lane.phase, Phase::New | Phase::Opening) {
                 return Err(Error("owned_app_round_unavailable"));
             }
@@ -661,7 +1015,7 @@ async fn exchange(
             .operation(json!({"op":"release","lane":lane.marker}))
             .await?;
         let identity = lane.identity.clone();
-        *lane = Lane::new(&request.thread)?;
+        *lane = lane.successor(&request.thread)?;
         lane.identity = identity;
         journal.write(key, lane)?;
     }
@@ -680,7 +1034,7 @@ async fn exchange(
             .operation(json!({"op":"release","lane":lane.marker}))
             .await?;
         let identity = lane.identity.clone();
-        *lane = Lane::new(&request.thread)?;
+        *lane = lane.successor(&request.thread)?;
         lane.identity = identity;
         journal.write(key, lane)?;
     }
@@ -688,7 +1042,7 @@ async fn exchange(
         // Opening allocates no inference. Reconcile the same marker and exact
         // declaration; never create a successor because its reply was lost.
         bridge
-            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway),"project":lane.project}))
+            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project}))
             .await?;
         lane.phase = Phase::Idle;
         journal.write(key, lane)?;
@@ -713,7 +1067,7 @@ async fn exchange(
         lane.phase = Phase::Opening;
         journal.write(key, lane)?;
         if bridge
-            .operation(json!({"op":"open","lane":lane.marker,"signature":signature(&lane.gateway),"project":lane.project}))
+            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project}))
             .await
             .is_err()
         {
@@ -805,7 +1159,13 @@ async fn exchange(
         if messages.is_empty() && results.is_empty() {
             return Err(Error("native_request_has_no_new_input"));
         }
-        bridge.admit_submission(json!({"lane":lane.marker,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await?;
+        if cancel.is_cancelled() {
+            return stop_lane(bridge, journal, key, lane).await;
+        }
+        bridge.admit_submission(json!({"lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await?;
+        if cancel.is_cancelled() {
+            return stop_lane(bridge, journal, key, lane).await;
+        }
         lane.request = request_digest;
         lane.turn = request.turn.clone();
         lane.user_input = user_input_identity(request);
@@ -817,7 +1177,7 @@ async fn exchange(
         lane.host_block = None;
         lane.last_error = None;
         journal.write(key, lane)?;
-        let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
+        let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"round":lane.round,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
         if result.is_err() {
             // Snapshot the same app round below. Do not replay submit after a
             // lost evaluate reply; it may already have sent the model request.
@@ -904,6 +1264,8 @@ async fn exchange(
             return Err(Error(match state["error"].as_str() {
                 Some("mcp_host_authentication_required") => "mcp_host_authentication_required",
                 Some("mcp_host_confirmation_required") => "mcp_host_confirmation_required",
+                Some("assignment_app_budget_exhausted") => "assignment_app_budget_exhausted",
+                Some("assignment_time_budget_exhausted") => "assignment_time_budget_exhausted",
                 _ => "app_round_failed",
             }));
         }
@@ -968,16 +1330,8 @@ async fn exchange(
             if (rendered.len() > offset || promoted)
                 && request.compaction != Some(context::Compaction::Checkpoint)
             {
-                publish(
-                    lane,
-                    events,
-                    Event::Text {
-                        id: id.into(),
-                        phase: phase.into(),
-                        delta: rendered[offset..].into(),
-                    },
-                )
-                .await?;
+                let event = public_delta(lane, id, phase, rendered[offset..].into(), &rendered);
+                publish(lane, events, event).await?;
             }
             if phase == "final_answer"
                 && message["end_turn"] == true
@@ -1099,7 +1453,7 @@ async fn exchange(
                     .send(report)
                     .await
                     .map_err(|_| Error("native_observer_closed"))?;
-                let submitted=bridge.operation(json!({"op":"submit","lane":lane.marker,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]})).await;
+                let submitted=bridge.operation(json!({"op":"submit","lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]})).await;
                 if submitted.is_ok() {
                     lane.phase = Phase::Running
                 }
@@ -1254,7 +1608,9 @@ async fn stop_lane(
             if state["round"] == lane.round {
                 observe_counts(journal, key, lane, &state)?;
             }
-            if state["round"] == lane.round && state["stopped"] == true {
+            if (state["round"] == lane.round || lane.round.is_empty() && state["round"].is_null())
+                && state["stopped"] == true
+            {
                 lane.phase = Phase::Stopped;
                 journal.write(key, lane)?;
                 return Err(Error("app_stop_acknowledged"));
@@ -1266,5 +1622,371 @@ async fn stop_lane(
             return Err(Error("app_stop_unconfirmed"));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(test)]
+mod approval_tests {
+    use super::*;
+
+    #[test]
+    fn replay_owned_public_failure_trace_when_supplied() {
+        let Ok(path) = std::env::var("CODEX_PROVIDER_PUBLIC_REPLAY") else {
+            return;
+        };
+        let events: Vec<Event> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(!events.is_empty());
+        let mut old = crate::responses::Projection::new("old".into(), "model".into());
+        assert!(events.iter().cloned().any(|event| old.push(event).is_err()));
+        let mut lane = Lane::new("recorded-public-replay").unwrap();
+        let mut projection = crate::responses::Projection::new("fixed".into(), "model".into());
+        let mut full = BTreeMap::<String, String>::new();
+        let mut original_text = String::new();
+        for event in events {
+            let Event::Text { id, phase, delta } = event else {
+                panic!("expected captured public text");
+            };
+            original_text.push_str(&delta);
+            full.entry(id.clone()).or_default().push_str(&delta);
+            let event = public_delta(&lane, &id, &phase, delta, &full[&id]);
+            lane.cached.push(event.clone());
+            projection.push(event).unwrap();
+        }
+        let frames = projection
+            .push(Event::Completed {
+                input_tokens: 0,
+                output_tokens: 0,
+            })
+            .unwrap();
+        let actual: String = frames.last().unwrap()["response"]["output"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["content"][0]["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(actual, original_text);
+    }
+
+    #[test]
+    fn interleaved_public_suffixes_append_without_reopening_completed_items() {
+        let mut lane = Lane::new("interleaved-public").unwrap();
+        let mut projection = crate::responses::Projection::new("response".into(), "model".into());
+        for (source, phase, delta, full) in [
+            ("a", "commentary", "Initial report", "Initial report"),
+            ("b", "commentary", "Progress", "Progress"),
+            (
+                "a",
+                "commentary",
+                "\nCorrection",
+                "Initial report\nCorrection",
+            ),
+            ("a", "final_answer", "", "Initial report\nCorrection"),
+        ] {
+            let event = public_delta(&lane, source, phase, delta.into(), full);
+            lane.cached.push(event.clone());
+            projection.push(event).unwrap();
+        }
+        let frames = projection
+            .push(Event::Completed {
+                input_tokens: 0,
+                output_tokens: 0,
+            })
+            .unwrap();
+        let output = frames.last().unwrap()["response"]["output"]
+            .as_array()
+            .unwrap();
+        assert_eq!(output.len(), 3);
+        assert_eq!(output[0]["content"][0]["text"], "Initial report");
+        assert_eq!(output[1]["content"][0]["text"], "Progress");
+        assert_eq!(output[2]["content"][0]["text"], "\nCorrection");
+        assert_eq!(output[2]["phase"], "final_answer");
+        assert_ne!(output[0]["id"], output[2]["id"]);
+        assert_eq!(
+            native_output(&lane.cached).unwrap(),
+            output
+                .iter()
+                .map(|v| public_item(
+                    v["id"].as_str().unwrap(),
+                    v["phase"].as_str().unwrap(),
+                    v["content"][0]["text"].as_str().unwrap()
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn phase_only_final_promotion_of_an_older_item_preserves_the_full_final() {
+        let mut lane = Lane::new("older-final").unwrap();
+        let initial = public_delta(
+            &lane,
+            "a",
+            "commentary",
+            "Whole answer".into(),
+            "Whole answer",
+        );
+        lane.cached.push(initial);
+        let second = public_delta(
+            &lane,
+            "b",
+            "commentary",
+            "Other progress".into(),
+            "Other progress",
+        );
+        lane.cached.push(second);
+        let final_event = public_delta(&lane, "a", "final_answer", String::new(), "Whole answer");
+        match &final_event {
+            Event::Text { id, phase, delta } => {
+                assert_ne!(id, "a");
+                assert_eq!(phase, "final_answer");
+                assert_eq!(delta, "Whole answer");
+            }
+            _ => panic!("expected public final"),
+        }
+        lane.cached.push(final_event);
+        let mut live = crate::responses::Projection::new("live".into(), "model".into());
+        let mut replay = crate::responses::Projection::new("replay".into(), "model".into());
+        for event in lane.cached {
+            live.push(event.clone()).unwrap();
+            replay.push(event).unwrap();
+        }
+        let end = Event::Completed {
+            input_tokens: 0,
+            output_tokens: 0,
+        };
+        let left = live.push(end.clone()).unwrap();
+        let right = replay.push(end).unwrap();
+        assert_eq!(
+            left.last().unwrap()["response"]["output"],
+            right.last().unwrap()["response"]["output"]
+        );
+    }
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex as SyncMutex,
+    };
+    #[test]
+    fn saved_chat_identity_survives_legacy_decode_and_successor() {
+        let mut old = serde_json::to_value(Lane::new("thread").unwrap()).unwrap();
+        old.as_object_mut().unwrap().remove("conversation_id");
+        old.as_object_mut().unwrap().remove("previous_chats");
+        let mut lane: Lane = serde_json::from_value(old).unwrap();
+        assert!(lane.previous_chats.is_empty());
+        lane.conversation_id = Some("saved-source".into());
+        let next = lane.successor("thread").unwrap();
+        assert_eq!(next.previous_chats, ["saved-source"]);
+        assert_eq!(next.native_thread, "thread");
+        assert!(next.conversation_id.is_none());
+    }
+    struct Cleanup {
+        calls: SyncMutex<Vec<Value>>,
+    }
+    #[tokio::test]
+    async fn stop_reuses_committed_settlement_after_app_context_disappears() {
+        let root = std::env::temp_dir().join(format!("settled-stop-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(Cleanup {
+            calls: SyncMutex::new(Vec::new()),
+        });
+        let host = AppHost::new(bridge.clone(), journal.clone());
+        let mut lane = Lane::new("completed-native-thread").unwrap();
+        lane.phase = Phase::Idle;
+        lane.cached.push(Event::Completed {
+            input_tokens: 1,
+            output_tokens: 1,
+        });
+        let key = context::digest(&"completed-native-thread");
+        journal.write(&key, &lane).unwrap();
+        assert!(host.stop("completed-native-thread").await.unwrap());
+        assert!(host.stop("completed-native-thread").await.unwrap());
+        assert!(bridge.calls.lock().unwrap().is_empty());
+        assert!(journal.read::<Lane>(&key).unwrap().unwrap().phase == Phase::Stopped);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    impl Bridge for Cleanup {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            self.calls.lock().unwrap().push(command.clone());
+            let result = match command["op"].as_str().unwrap() {
+                "snapshot" => {
+                    Ok(json!({"round":"settled","pending":false,"streamActive":false,"error":null}))
+                }
+                "release" => Ok(json!({"released":true})),
+                "dispose" => Ok(json!({"disposed":true})),
+                _ => panic!("shutdown must not submit or initialize app hooks"),
+            };
+            Box::pin(async move { result })
+        }
+    }
+    #[tokio::test]
+    async fn shutdown_after_receipt_only_stop_requires_matching_completed_round() {
+        for completed in [false, true] {
+            let root =
+                std::env::temp_dir().join(format!("receipt-cleanup-{}", random_id().unwrap()));
+            let journal = Arc::new(Journal::open(&root).unwrap());
+            let bridge = Arc::new(Cleanup {
+                calls: SyncMutex::new(Vec::new()),
+            });
+            let host = AppHost::new(bridge.clone(), journal.clone());
+            let mut lane = Lane::new("completed-thread").unwrap();
+            lane.phase = if completed {
+                Phase::Idle
+            } else {
+                Phase::Stopped
+            };
+            lane.round = "settled".into();
+            lane.conversation_id = Some("saved-source".into());
+            if completed {
+                lane.cached.push(Event::Completed {
+                    input_tokens: 1,
+                    output_tokens: 1,
+                });
+            }
+            let key = context::digest(&"completed-thread");
+            journal.write(&key, &lane).unwrap();
+            host.lanes
+                .lock()
+                .await
+                .insert(key.clone(), Arc::new(Mutex::new(lane)));
+            if completed {
+                assert!(host.stop("completed-thread").await.unwrap());
+                assert!(bridge.calls.lock().unwrap().is_empty());
+            }
+            host.shutdown().await;
+            assert_eq!(host.lanes.lock().await.is_empty(), completed);
+            assert_eq!(
+                bridge
+                    .calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["op"] == "release"),
+                completed
+            );
+            assert_eq!(
+                journal
+                    .read::<Lane>(&key)
+                    .unwrap()
+                    .unwrap()
+                    .conversation_id
+                    .as_deref(),
+                Some("saved-source")
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn shutdown_releases_confirmed_idle_lane_and_preserves_saved_identity() {
+        let root = std::env::temp_dir().join(format!("cleanup-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(Cleanup {
+            calls: SyncMutex::new(Vec::new()),
+        });
+        let host = AppHost::new(bridge.clone(), journal.clone());
+        let mut lane = Lane::new("native-thread").unwrap();
+        lane.phase = Phase::Idle;
+        lane.round = "settled".into();
+        lane.conversation_id = Some("saved-source".into());
+        let key = context::digest(&"native-thread");
+        journal.write(&key, &lane).unwrap();
+        host.lanes
+            .lock()
+            .await
+            .insert(key.clone(), Arc::new(Mutex::new(lane)));
+        host.shutdown().await;
+        assert!(host.lanes.lock().await.is_empty());
+        assert_eq!(
+            journal
+                .read::<Lane>(&key)
+                .unwrap()
+                .unwrap()
+                .conversation_id
+                .as_deref(),
+            Some("saved-source")
+        );
+        assert_eq!(
+            bridge
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|v| v["op"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["snapshot", "release", "dispose"]
+        );
+        drop(host);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    struct Approval {
+        calls: SyncMutex<Vec<Value>>,
+        changed: AtomicBool,
+    }
+    impl Bridge for Approval {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            self.calls.lock().unwrap().push(command.clone());
+            let result = match command["op"].as_str().unwrap() {
+                "identity" => Ok(
+                    json!({"generation":"generation","account":if self.changed.load(Ordering::SeqCst){"other"}else{"account"},"user":"user","structure":"personal"}),
+                ),
+                "approve" => {
+                    assert_eq!(command["connector"], "Selected connector");
+                    Err(Error("app_approval_ui_required"))
+                }
+                "approve_ui" => Ok(
+                    json!({"requested":true,"path":"ui","scope":"conversation","messageId":"original-confirmation"}),
+                ),
+                "snapshot" => {
+                    Ok(json!({"approvalResponses":["original-confirmation"],"stopped":false}))
+                }
+                _ => panic!("unexpected app control {}", command["op"]),
+            };
+            Box::pin(async move { result })
+        }
+    }
+    #[tokio::test]
+    async fn active_managed_lane_approval_uses_original_host_reply_and_rejects_changed_account() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("ap-{}", random_id().unwrap())));
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let bridge = Arc::new(Approval {
+            calls: SyncMutex::new(Vec::new()),
+            changed: AtomicBool::new(false),
+        });
+        let host = AppHost::new(bridge.clone(), journal.clone())
+            .with_connector("Selected connector".into());
+        let mut lane = Lane::new("native-thread").unwrap();
+        lane.phase = Phase::Running;
+        lane.identity=Some(Identity::parse(&json!({"generation":"generation","account":"account","user":"user","structure":"personal"})).unwrap());
+        let key = context::digest(&"native-thread");
+        journal.write(&key, &lane).unwrap();
+        let mutex = Arc::new(Mutex::new(lane));
+        host.lanes.lock().await.insert(key, mutex.clone());
+        // A running response owns the lane mutex; consent must still observe
+        // its journal and the same original app confirmation concurrently.
+        let _active = mutex.lock().await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            host.approve("native-thread".into(), false),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result["scope"], "conversation");
+        assert_eq!(result["window_open_requested"], true);
+        assert_eq!(result["native_completion_confirmed"], false);
+        let before = bridge.calls.lock().unwrap().len();
+        bridge.changed.store(true, Ordering::SeqCst);
+        assert_eq!(
+            host.approve("native-thread".into(), false).await,
+            Err(Error("app_account_changed"))
+        );
+        let calls = bridge.calls.lock().unwrap();
+        assert_eq!(calls.len(), before + 1);
+        assert_eq!(calls.last().unwrap()["op"], "identity");
+        assert!(calls.iter().all(|v| v["op"] != "submit"));
     }
 }

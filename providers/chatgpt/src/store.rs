@@ -204,7 +204,7 @@ fn create_dirs(path: &Path) -> Result<(), ConfigError> {
         )),
     }
 }
-fn lock(path: &Path) -> Result<File, ConfigError> {
+fn lock(path: &Path) -> Result<crate::journal::Lease, ConfigError> {
     let parent = path
         .parent()
         .ok_or(ConfigError::Io("configuration has no parent"))?;
@@ -231,7 +231,7 @@ fn lock(path: &Path) -> Result<File, ConfigError> {
             "configuration is being edited; retry after the other writer finishes",
         ));
     }
-    Ok(file)
+    Ok(crate::journal::Lease::writer(file))
 }
 pub(crate) fn publish_new(source: &Path, destination: &Path) -> Result<(), ConfigError> {
     use std::os::unix::ffi::OsStrExt;
@@ -387,6 +387,24 @@ mod tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn completed_config_writer_releases_inherited_descriptor_without_false_busy_retry() {
+        let root = root();
+        let path = root.join("chatgpt.toml");
+        let held = lock(&path).unwrap();
+        let inherited = held.file.try_clone().unwrap();
+        assert!(lock(&path).is_err());
+        drop(held);
+        update(
+            &path,
+            &[("context.window_tokens".into(), "1000000".into())],
+            &[],
+        )
+        .unwrap();
+        drop(inherited);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn no_op_preserves_file_and_origin_tracking_is_not_defaults_materialized_as_file() {
         let root = root();

@@ -11,6 +11,8 @@ mod manager_dispatch;
 #[cfg(unix)]
 mod manager_tui;
 #[cfg(unix)]
+mod provider;
+#[cfg(unix)]
 mod release_display;
 #[cfg(unix)]
 mod rollback_guard;
@@ -24,6 +26,7 @@ mod system_config;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
     Update(Vec<OsString>),
+    Provider(Vec<OsString>),
     Doctor(Vec<OsString>),
     Termux(Vec<OsString>),
     UnsupportedDaemon,
@@ -181,6 +184,9 @@ where
     }
     match original.first().map(OsString::as_os_str) {
         Some(value) if value == OsStr::new("update") => Ok(PublicDispatchRoute::Update(
+            original.into_iter().skip(1).collect(),
+        )),
+        Some(value) if value == OsStr::new("provider") => Ok(PublicDispatchRoute::Provider(
             original.into_iter().skip(1).collect(),
         )),
         Some(value) if value == OsStr::new("doctor") => Ok(PublicDispatchRoute::Doctor(
@@ -2951,6 +2957,7 @@ struct LocalPublicDispatchContext<
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchCompletion {
     Update(Vec<OsString>),
+    Provider(Vec<OsString>),
     Doctor(DoctorCommandOutcome),
     TermuxUnavailable(&'static str),
 }
@@ -3012,6 +3019,7 @@ fn execute_public_dispatch<
             Err(PublicDispatchExecutionError::UnsupportedDaemon)
         }
         PublicDispatchRoute::Update(args) => Ok(PublicDispatchCompletion::Update(args)),
+        PublicDispatchRoute::Provider(args) => Ok(PublicDispatchCompletion::Provider(args)),
         PublicDispatchRoute::Doctor(args) => run_local_doctor_command(args, context)
             .map(PublicDispatchCompletion::Doctor)
             .map_err(PublicDispatchExecutionError::Doctor),
@@ -12149,6 +12157,9 @@ where
             return 1;
         }
     };
+    if let PublicDispatchRoute::Provider(args) = route {
+        return provider::run(&roots, &args);
+    }
     let process_env = capture_termux_process_env();
     if bare && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none() {
         use std::io::IsTerminal as _;
@@ -12170,7 +12181,7 @@ where
             eprintln!("{message}");
             1
         }
-        Ok(PublicDispatchCompletion::Update(_)) => 2,
+        Ok(PublicDispatchCompletion::Update(_) | PublicDispatchCompletion::Provider(_)) => 2,
         Err(err) => {
             eprintln!("codex: {err}");
             1

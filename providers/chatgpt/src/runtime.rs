@@ -32,9 +32,13 @@ use tokio_util::sync::CancellationToken;
 type LazyHost = Arc<tokio::sync::Mutex<Option<(crate::host::OwnedHost, Arc<Remote>)>>>;
 struct LazyRemote {
     config: crate::config::HostConfig,
+    mcp: bool,
     root: PathBuf,
     owner: String,
     host: LazyHost,
+    viewer: crate::viewer::Slot,
+    journal: Arc<Journal>,
+    port: u16,
 }
 impl crate::app::Bridge for LazyRemote {
     fn operation(
@@ -42,15 +46,86 @@ impl crate::app::Bridge for LazyRemote {
         command: serde_json::Value,
     ) -> futures_util::future::BoxFuture<'static, Result<serde_json::Value, Error>> {
         let config = self.config.clone();
+        let mcp = self.mcp;
         let root = self.root.clone();
         let owner = self.owner.clone();
         let host = self.host.clone();
+        let viewer_slot = self.viewer.clone();
+        let journal = self.journal.clone();
+        let port = self.port;
         Box::pin(async move {
+            if matches!(
+                command["op"].as_str(),
+                Some("host_status" | "host_open" | "host_stop")
+            ) {
+                let mut guard = host.lock().await;
+                if guard.is_none() {
+                    return if command["op"] == "host_open" {
+                        Err(Error("host_not_acquired"))
+                    } else {
+                        Ok(
+                            json!({"present":false,"ready":false,"host_started":false,"inference_submitted":false,"stopped":command["op"]=="host_stop"}),
+                        )
+                    };
+                }
+                if command["op"] == "host_stop" {
+                    let remote = guard.as_ref().unwrap().1.clone();
+                    let observed = remote.operation(json!({"op":"host_status"})).await?;
+                    if !observed["active_lanes"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+                    {
+                        return Err(Error("host_active_work"));
+                    }
+                    // Retain the owner guard throughout teardown; a concurrent
+                    // ensure cannot acquire a replacement before Stop settles.
+                    guard.as_mut().unwrap().0.shutdown().await;
+                    *guard = None;
+                    *viewer_slot.write().unwrap() = None;
+                    if let Some(mut binding) = journal.read::<Binding>(&key())? {
+                        binding.viewer_capability = None;
+                        journal.write(&key(), &binding)?;
+                    }
+                    return Ok(
+                        json!({"stopped":true,"scope":"provider_owned_host","inference_submitted":false}),
+                    );
+                }
+                let remote = guard.as_ref().unwrap().1.clone();
+                drop(guard);
+                return remote.operation(command).await;
+            }
             let remote = {
                 let mut host = host.lock().await;
                 if host.is_none() {
+                    if matches!(
+                        command["op"].as_str(),
+                        Some("stop" | "snapshot" | "release" | "dispose")
+                    ) {
+                        return Err(Error("owned_app_round_unavailable"));
+                    }
                     let owned = crate::host::OwnedHost::start(&config, &root).await?;
-                    let remote = Arc::new(Remote::pipe(owned.client.clone(), owner).with_mcp());
+                    let viewer = config.viewer_assets.as_ref().and_then(|assets| {
+                        match crate::viewer::Viewer::new(
+                            owned.viewer_socket(),
+                            assets.clone(),
+                            port,
+                        ) {
+                            Ok(viewer) => Some(viewer),
+                            Err(error) => {
+                                eprintln!("optional viewer unavailable: {}", error.0);
+                                None
+                            }
+                        }
+                    });
+                    if let Some(viewer) = &viewer {
+                        let mut binding: Binding =
+                            journal.read(&key())?.ok_or(Error("provider_not_running"))?;
+                        binding.viewer_capability = Some(viewer.capability.clone());
+                        journal.write(&key(), &binding)?;
+                        *viewer_slot.write().unwrap() = Some(viewer.clone());
+                    }
+                    let remote = Remote::pipe(owned.client.clone(), owner).with_viewer(viewer);
+                    let remote = Arc::new(if mcp { remote.with_mcp() } else { remote });
                     *host = Some((owned, remote));
                 }
                 host.as_ref().unwrap().1.clone()
@@ -189,7 +264,11 @@ pub async fn ensure_token(root: &Path) -> Result<String, Error> {
         let settings = store::Snapshot::open(&path)
             .and_then(|v| v.config())
             .map_err(|_| Error("invalid_provider_configuration"))?;
-        if settings.host.rootfs.is_none() {
+        if settings.host.rootfs.is_none()
+            && !(settings.execution.core.is_some()
+                && settings.execution.home.is_some()
+                && settings.execution.workspace.is_some())
+        {
             return Err(Error("host_rootfs_required"));
         }
     }
@@ -362,23 +441,53 @@ pub async fn stop(root: &Path) -> Result<serde_json::Value, Error> {
 }
 
 pub async fn reveal(root: &Path, thread: &str) -> Result<serde_json::Value, Error> {
+    app_control(root, thread, "reveal").await
+}
+
+pub async fn approve(root: &Path, thread: &str, ui: bool) -> Result<serde_json::Value, Error> {
+    app_control(root, thread, if ui { "approve_ui" } else { "approve" }).await
+}
+
+async fn app_control(
+    root: &Path,
+    thread: &str,
+    operation: &str,
+) -> Result<serde_json::Value, Error> {
+    let approval = operation != "reveal";
+    let unconfirmed = if approval {
+        "app_approval_unconfirmed"
+    } else {
+        "app_reveal_unconfirmed"
+    };
     if thread.is_empty() || thread.len() > 256 || !thread.bytes().all(|c| c.is_ascii_graphic()) {
         return Err(Error("invalid_thread_identity"));
     }
-    token(root).await?; // verify an existing owner; never bootstrap for navigation
+    token(root).await?; // verify an existing owner; never bootstrap for app controls
     let selected = binding(root)?;
-    tokio::time::timeout(Duration::from_secs(12),async {
+    tokio::time::timeout(Duration::from_secs(if operation == "approve_ui" {55} else if approval {40} else {12}),async {
         let mut socket=tokio::net::TcpStream::connect(("127.0.0.1",selected.port)).await.map_err(|_|Error("provider_unavailable"))?;
-        socket.write_all(format!("POST /__reveal HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\nAuthorization: Bearer {}\r\nX-Codex-Thread-Id: {thread}\r\n\r\n",selected.token).as_bytes()).await.map_err(|_|Error("app_reveal_unconfirmed"))?;
-        let mut bytes=Vec::new();socket.take(8193).read_to_end(&mut bytes).await.map_err(|_|Error("app_reveal_unconfirmed"))?;
-        if bytes.len()>8192 {return Err(Error("app_reveal_unconfirmed"));}
-        let text=String::from_utf8(bytes).map_err(|_|Error("app_reveal_unconfirmed"))?;
-        let (headers,body)=text.split_once("\r\n\r\n").ok_or(Error("app_reveal_unconfirmed"))?;
-        if !headers.starts_with("HTTP/1.1 200 ") {return Err(Error("app_reveal_unconfirmed"));}
-        let value:serde_json::Value=serde_json::from_str(body).map_err(|_|Error("app_reveal_unconfirmed"))?;
-        if value["app_reveal_requested"]!=true {return Err(Error("app_reveal_unconfirmed"));}
+        socket.write_all(format!("POST /__{operation} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\nAuthorization: Bearer {}\r\nX-Codex-Thread-Id: {thread}\r\n\r\n",selected.token).as_bytes()).await.map_err(|_|Error(unconfirmed))?;
+        let mut bytes=Vec::new();socket.take(8193).read_to_end(&mut bytes).await.map_err(|_|Error(unconfirmed))?;
+        if bytes.len()>8192 {return Err(Error(unconfirmed));}
+        let text=String::from_utf8(bytes).map_err(|_|Error(unconfirmed))?;
+        let (headers,body)=text.split_once("\r\n\r\n").ok_or(Error(unconfirmed))?;
+        let value:serde_json::Value=serde_json::from_str(body).map_err(|_|Error(unconfirmed))?;
+        if !headers.starts_with("HTTP/1.1 200 ") {
+            return Err(Error(match value["error"]["code"].as_str() {
+                Some("app_approval_ui_required")=>"app_approval_ui_required",
+                Some("app_approval_ui_unavailable")=>"app_approval_ui_unavailable",
+                Some("app_approval_viewer_unavailable")=>"app_approval_viewer_unavailable",
+                Some("app_approval_manual_required")=>"app_approval_manual_required",
+                Some("app_approval_ambiguous")=>"app_approval_ambiguous",
+                Some("app_approval_unavailable")=>"app_approval_unavailable",
+                Some("app_account_changed")=>"app_account_changed",
+                Some("operator_work_not_running")=>"operator_work_not_running",
+                _=>unconfirmed,
+            }));
+        }
+        if value[if approval { "app_approval_requested" } else { "app_reveal_requested" }]!=true {return Err(Error(unconfirmed));}
         Ok(value)
-    }).await.map_err(|_|Error("app_reveal_unconfirmed"))?
+    }).await.map_err(|_|Error(unconfirmed))?
 }
 
 pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
@@ -415,7 +524,52 @@ pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
     )
     .await
 }
-async fn request_viewer_activity(program: &Path, url: &str) -> Result<(), Error> {
+/// CLI and remote MCP use the same admitted tool call. This only observes an
+/// existing service and never bootstraps it or retries an uncertain mutation.
+pub async fn control(
+    root: &Path,
+    tool: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    token(root).await?;
+    let selected = binding(root)?;
+    let row = json!({"jsonrpc":"2.0","id":random_id()?,"method":"tools/call","params":{"name":tool,"arguments":args}});
+    let response = tokio::time::timeout(
+        Duration::from_secs(610),
+        crate::mcp_stdio::forward(selected.port, &row, Some(&selected.token)),
+    )
+    .await
+    .map_err(|_| Error("mcp_observer_timeout"))??
+    .ok_or(Error("mcp_response_invalid"))?;
+    if response.get("error").is_some() {
+        return Err(Error("mcp_request_rejected"));
+    }
+    let value: serde_json::Value = serde_json::from_str(
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .ok_or(Error("mcp_response_invalid"))?,
+    )
+    .map_err(|_| Error("mcp_response_invalid"))?;
+    Ok(json!({"is_error":response["result"]["isError"],"result":value}))
+}
+/// A local filesystem owner can use a stable work handle without displaying its
+/// generation capability. Remote readers never gain this filesystem facade.
+pub fn work_capability(root: &Path, work: &str) -> Result<String, Error> {
+    if work.len() != 48 || !work.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(Error("operator_work_unavailable"));
+    }
+    let record = Journal::inspect(root, &digest(&("operator-work-v1", work)))?
+        .ok_or(Error("operator_work_unavailable"))?;
+    if record["id"] != work {
+        return Err(Error("operator_record_invalid"));
+    }
+    record["capability"]
+        .as_str()
+        .filter(|value| value.len() == 48 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .ok_or(Error("operator_record_invalid"))
+}
+pub(crate) async fn request_viewer_activity(program: &Path, url: &str) -> Result<(), Error> {
     let mut command = tokio::process::Command::new(program);
     command
         .arg(format!("start -a android.intent.action.VIEW -d {url}"))
@@ -480,29 +634,22 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .local_addr()
         .map_err(|_| Error("provider_port_unavailable"))?
         .port();
-    let operator_mode = settings.execution.mode == crate::config::ExecutionMode::Operator;
-    let mut owned = None;
+    let native_controls = settings.execution.core.is_some()
+        && settings.execution.home.is_some()
+        && settings.execution.workspace.is_some();
     let lazy_host = Arc::new(tokio::sync::Mutex::new(None));
+    let viewer_slot: crate::viewer::Slot = Arc::new(std::sync::RwLock::new(None));
     let bridge: Arc<dyn crate::app::Bridge> = if let Some(path) = descriptor {
-        let remote = Remote::new(path, journal.owner.clone());
-        Arc::new(
-            if operator_mode || settings.transport.return_path == crate::config::ReturnPath::Mcp {
-                remote.with_mcp()
-            } else {
-                remote
-            },
-        )
-    } else if operator_mode {
-        Arc::new(LazyRemote {
-            config: settings.host.clone(),
-            root: root.clone(),
-            owner: journal.owner.clone(),
-            host: lazy_host.clone(),
-        })
-    } else {
-        let host = crate::host::OwnedHost::start(&settings.host, &root).await?;
-        let remote = Remote::pipe(host.client.clone(), journal.owner.clone());
-        owned = Some(host);
+        if let (Some(socket), Some(assets)) =
+            (&settings.host.viewer_socket, &settings.host.viewer_assets)
+        {
+            match crate::viewer::Viewer::new(socket.clone(), assets.clone(), port) {
+                Ok(viewer) => *viewer_slot.write().unwrap() = Some(viewer),
+                Err(error) => eprintln!("optional viewer unavailable: {}", error.0),
+            }
+        }
+        let remote = Remote::new(path, journal.owner.clone())
+            .with_viewer(viewer_slot.read().unwrap().clone());
         Arc::new(
             if settings.transport.return_path == crate::config::ReturnPath::Mcp {
                 remote.with_mcp()
@@ -510,21 +657,38 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
                 remote
             },
         )
+    } else {
+        Arc::new(LazyRemote {
+            config: settings.host.clone(),
+            mcp: settings.transport.return_path == crate::config::ReturnPath::Mcp,
+            root: root.clone(),
+            owner: journal.owner.clone(),
+            host: lazy_host.clone(),
+            viewer: viewer_slot.clone(),
+            journal: journal.clone(),
+            port,
+        })
     };
-    let mcp = (!operator_mode && settings.transport.return_path == crate::config::ReturnPath::Mcp)
-        .then(|| crate::mcp::Broker::new(journal.clone()));
+    let mcp = (!native_controls).then(|| {
+        crate::mcp::Broker::with_controls(journal.clone(), bridge.clone(), settings.clone())
+    });
     let bridge: Arc<dyn crate::app::Bridge> = match &mcp {
-        Some(broker) => Arc::new(crate::mcp_bridge::McpBridge::new(
-            bridge,
-            broker.clone(),
-            journal.clone(),
-            settings.transport.connector_name.clone(),
-        )?),
-        None => bridge,
+        Some(broker) if settings.transport.return_path == crate::config::ReturnPath::Mcp => {
+            Arc::new(crate::mcp_bridge::McpBridge::new(
+                bridge,
+                broker.clone(),
+                journal.clone(),
+                settings.transport.connector_name.clone(),
+            )?)
+        }
+        _ => bridge,
     };
     let token = random_id()?;
-    let host = Arc::new(AppHost::new(bridge.clone(), journal.clone()));
-    let mut service = if operator_mode {
+    let host = Arc::new(
+        AppHost::new(bridge.clone(), journal.clone())
+            .with_connector(settings.transport.connector_name.clone()),
+    );
+    let mut service = if native_controls {
         let pool = crate::operator_native::Pool::new(
             settings.clone(),
             root.clone(),
@@ -546,16 +710,12 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     if let Some(mcp) = mcp {
         service = service.with_mcp(mcp)?;
     }
-    let mut viewer_capability = None;
-    if let (Some(owned), Some(assets)) = (&owned, &settings.host.viewer_assets) {
-        match crate::viewer::Viewer::new(owned.viewer_socket(), assets.clone(), port) {
-            Ok(viewer) => {
-                viewer_capability = Some(viewer.capability.clone());
-                service = service.with_viewer(viewer)?;
-            }
-            Err(error) => eprintln!("optional viewer unavailable: {}", error.0),
-        }
-    }
+    let viewer_capability = viewer_slot
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|v| v.capability.clone());
+    service = service.with_viewer_slot(viewer_slot)?;
     journal.write(
         &key(),
         &Binding {
@@ -583,9 +743,6 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .await
         .map_err(|_| Error("provider_server_failed"));
     host.shutdown().await;
-    if let Some(host) = &mut owned {
-        host.shutdown().await;
-    }
     if let Some((host, _)) = &mut *lazy_host.lock().await {
         host.shutdown().await;
     }
@@ -595,6 +752,141 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn missing_lane_observation_and_stop_never_acquire_a_host() {
+        use crate::app::Bridge;
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("ls-{}", random_id().unwrap())));
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let host = Arc::new(tokio::sync::Mutex::new(None));
+        let remote = LazyRemote {
+            config: Default::default(),
+            mcp: true,
+            root: root.0.clone(),
+            owner: journal.owner.clone(),
+            host: host.clone(),
+            viewer: Arc::new(std::sync::RwLock::new(None)),
+            journal,
+            port: 0,
+        };
+        assert_eq!(
+            remote.operation(json!({"op":"host_status"})).await.unwrap()["host_started"],
+            false
+        );
+        for op in ["snapshot", "stop", "release", "dispose"] {
+            assert_eq!(
+                remote
+                    .operation(json!({"op":op,"lane":"unavailable-owned-lane"}))
+                    .await,
+                Err(Error("owned_app_round_unavailable"))
+            );
+            assert!(host.lock().await.is_none());
+            assert!(!root.0.join("desktop").exists());
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "explicit Android rootfs/viewer assets; empty disposable profile, read-only identity probe, zero Chat"]
+    async fn lazy_operator_viewer_registers_after_host_start_without_chat() {
+        use crate::app::Bridge;
+        use std::future::IntoFuture;
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Cleanup(std::env::temp_dir().join(format!("lv-{}", &random_id().unwrap()[..8])));
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        journal
+            .write(
+                &key(),
+                &Binding {
+                    schema: "termux-codex-responses-service-v1".into(),
+                    process: Process::read(std::process::id()).unwrap(),
+                    port,
+                    token: "a".repeat(48),
+                    viewer_capability: None,
+                },
+            )
+            .unwrap();
+        let slot: crate::viewer::Slot = Arc::new(std::sync::RwLock::new(None));
+        let host = Arc::new(tokio::sync::Mutex::new(None));
+        let remote = LazyRemote {
+            mcp: true,
+            config: crate::config::HostConfig {
+                rootfs: Some(
+                    std::env::var_os("CHATGPT_PROVIDER_ROOTFS")
+                        .expect("qualified rootfs")
+                        .into(),
+                ),
+                viewer_assets: Some(
+                    std::env::var_os("CHATGPT_PROVIDER_VIEWER_ASSETS")
+                        .expect("qualified assets")
+                        .into(),
+                ),
+                ..Default::default()
+            },
+            root: root.0.clone(),
+            owner: journal.owner.clone(),
+            host: host.clone(),
+            viewer: slot.clone(),
+            journal: journal.clone(),
+            port,
+        };
+        let server = tokio::spawn(
+            axum::serve(listener, crate::viewer::router_slot(slot.clone())).into_future(),
+        );
+        assert!(slot.read().unwrap().is_none());
+        assert!(!root.0.join("desktop").exists());
+        let probe = tokio::spawn(async move {
+            remote
+                .operation(json!({"op":"identity","lane":"readonly-probe"}))
+                .await
+        });
+        let until = tokio::time::Instant::now() + Duration::from_secs(45);
+        let capability = loop {
+            if let Some(viewer) = &*slot.read().unwrap() {
+                break viewer.capability.clone();
+            }
+            assert!(!probe.is_finished(), "read-only host startup failed");
+            assert!(
+                tokio::time::Instant::now() < until,
+                "lazy viewer startup timeout"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let selected: Binding = journal.read(&key()).unwrap().unwrap();
+        assert_eq!(
+            selected.viewer_capability.as_deref(),
+            Some(capability.as_str())
+        );
+        let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        socket.write_all(format!("GET /viewer/{capability}/vnc.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        let mut bytes = Vec::new();
+        socket.read_to_end(&mut bytes).await.unwrap();
+        assert!(bytes.starts_with(b"HTTP/1.1 200"));
+        probe.abort();
+        let _ = probe.await;
+        if let Some((mut owned, _)) = host.lock().await.take() {
+            owned.shutdown().await;
+        }
+        if let Some(viewer) = &*slot.read().unwrap() {
+            viewer.close();
+        }
+        server.abort();
+        let _ = server.await;
+    }
     #[tokio::test]
     async fn viewer_activity_errors_remain_bounded_static_and_do_not_export_the_url() {
         use std::os::unix::fs::PermissionsExt;

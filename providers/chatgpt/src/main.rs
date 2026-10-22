@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -17,14 +17,34 @@ fn run() -> Result<(), String> {
                 .map_err(|_| "arguments must be UTF-8".to_string())
         })
         .collect::<Result<_, _>>()?;
+    if args.as_slice() == ["--artifact-probe"] {
+        return text("codex-provider-artifact-v1\nprovider=chatgpt\ncontrol=provider-payload-v1");
+    }
     if matches!(
         args.first().map(String::as_str),
-        Some("serve" | "status" | "stop" | "reveal" | "view" | "token" | "prepare" | "mcp-stdio")
+        Some(
+            "serve"
+                | "status"
+                | "stop"
+                | "approve"
+                | "approve-ui"
+                | "reveal"
+                | "view"
+                | "token"
+                | "prepare"
+                | "mcp-stdio"
+        )
     ) {
         return runtime_command(&args);
     }
     if args.as_slice() == ["--help"] || args.as_slice() == ["-h"] {
         return text(USAGE);
+    }
+    if matches!(
+        args.first().map(String::as_str),
+        Some("work" | "chats" | "host")
+    ) {
+        return control_command(&args);
     }
     let path = store::config_path().map_err(|e| e.to_string())?;
     match args.first().map(String::as_str) {
@@ -102,6 +122,153 @@ fn run() -> Result<(), String> {
         _ => Err(USAGE.into()),
     }
 }
+fn control_command(args: &[String]) -> Result<(), String> {
+    use codex_chatgpt_provider::runtime;
+    let action = args.get(1).ok_or("work/chats/host requires an action")?;
+    let mut root = runtime::state_path().map_err(|e| e.to_string())?;
+    let mut values = serde_json::Map::new();
+    let mut diagnostic_caps = false;
+    let mut flags = std::collections::BTreeSet::new();
+    if !(args.len() - 2).is_multiple_of(2) {
+        return Err("control options require flag/value pairs".into());
+    }
+    for pair in args[2..].as_chunks::<2>().0 {
+        if !flags.insert(&pair[0]) {
+            return Err("duplicate control option".into());
+        }
+        if pair[0] == "--diagnostic-caps" {
+            diagnostic_caps = pair[1]
+                .parse::<bool>()
+                .map_err(|_| "diagnostic-caps requires true or false")?;
+            continue;
+        }
+        if pair[0] == "--state" {
+            root = pair[1].clone().into();
+            continue;
+        }
+        let field = pair[0]
+            .strip_prefix("--")
+            .ok_or("control options require --field")?
+            .replace('-', "_");
+        let value = if matches!(
+            field.as_str(),
+            "after"
+                | "cursor"
+                | "context_cursor"
+                | "source_cursor"
+                | "list_cursor"
+                | "answers"
+                | "dependencies"
+                | "budget"
+        ) {
+            serde_json::from_str(&pair[1]).map_err(|_| "invalid JSON control value")?
+        } else if matches!(
+            field.as_str(),
+            "offset" | "limit" | "updated_after" | "updated_before" | "max_wait_seconds"
+        ) {
+            serde_json::Value::from(
+                pair[1]
+                    .parse::<u64>()
+                    .map_err(|_| "invalid integer control value")?,
+            )
+        } else {
+            serde_json::Value::String(pair[1].clone())
+        };
+        if values.insert(field, value).is_some() {
+            return Err("duplicate control option".into());
+        }
+    }
+    let tool = match args[0].as_str() {
+        "chats" => {
+            values.insert("action".into(), serde_json::json!(action));
+            "codex_chats"
+        }
+        "host" => {
+            values.insert("action".into(), serde_json::json!(action));
+            "codex_host"
+        }
+        "work" => match action.as_str() {
+            "history" => "codex_history",
+            "status" => "codex_status",
+            "stop" => "codex_stop",
+            "answer" => "codex_answer",
+            "attach" => "codex_attach",
+            "list" | "create" | "resume" | "fork" | "start" | "claim" | "compact" | "takeover"
+            | "events" | "wait" | "chat-input" | "chat-result" | "transfer" | "transfer-accept"
+            | "evaluate" | "stop-tree" => {
+                values.insert("action".into(), serde_json::json!(action.replace('-', "_")));
+                "codex_sessions"
+            }
+            _ => return Err("unsupported work action".into()),
+        },
+        _ => return Err("unsupported control surface".into()),
+    };
+    if args[0] == "work" {
+        if !values.contains_key("controller") {
+            if let Some(work) = values.get("work_id").and_then(serde_json::Value::as_str) {
+                if !matches!(tool, "codex_history" | "codex_status" | "codex_stop")
+                    && values.get("action").is_none_or(|value| {
+                        !matches!(
+                            value.as_str(),
+                            Some("events" | "wait" | "chat_input" | "chat_result")
+                        )
+                    })
+                {
+                    values.insert(
+                        "controller".into(),
+                        serde_json::json!(
+                            runtime::work_capability(&root, work).map_err(|e| e.to_string())?
+                        ),
+                    );
+                }
+            }
+        }
+        if !values.contains_key("parent_controller") {
+            if let Some(parent) = values
+                .get("parent_work_id")
+                .and_then(serde_json::Value::as_str)
+            {
+                values.insert(
+                    "parent_controller".into(),
+                    serde_json::json!(
+                        runtime::work_capability(&root, parent).map_err(|e| e.to_string())?
+                    ),
+                );
+            }
+        }
+    }
+    let executor = tokio::runtime::Runtime::new().map_err(|_| "async runtime is unavailable")?;
+    let value = executor
+        .block_on(runtime::control(
+            &root,
+            tool,
+            serde_json::Value::Object(values),
+        ))
+        .map_err(|e| e.to_string())?;
+    let mut public = value["result"].clone();
+    if !diagnostic_caps {
+        omit_capabilities(&mut public);
+    }
+    text(&serde_json::to_string_pretty(&public).map_err(|_| "control serialization failed")?)?;
+    if value["is_error"] == true {
+        Err("control operation failed; state preserved".into())
+    } else {
+        Ok(())
+    }
+}
+fn omit_capabilities(value: &mut serde_json::Value) {
+    if let serde_json::Value::Object(object) = value {
+        for field in [
+            "controller",
+            "parent_controller",
+            "turn_token",
+            "accept",
+            "receipt",
+        ] {
+            object.remove(field);
+        }
+    }
+}
 fn checkpoint(args: &[String], path: &std::path::Path) -> Result<(), String> {
     use codex_chatgpt_provider::{config::MAX_DECODED_BYTES, handoff::Handoff};
     let mut options = std::collections::BTreeMap::new();
@@ -156,8 +323,13 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
             return Err("invalid or duplicate runtime option".into());
         }
     }
-    if fields.contains_key("--thread") && !matches!(args[0].as_str(), "status" | "reveal") {
-        return Err("--thread is only supported by status and reveal".into());
+    if fields.contains_key("--thread")
+        && !matches!(
+            args[0].as_str(),
+            "status" | "approve" | "approve-ui" | "reveal"
+        )
+    {
+        return Err("--thread is only supported by status, approve and reveal".into());
     }
     let root = fields
         .get("--state")
@@ -250,14 +422,22 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }
-        "reveal"
+        "reveal" | "approve" | "approve-ui"
             if fields
                 .keys()
                 .all(|key| matches!(*key, "--state" | "--thread")) =>
         {
-            let thread = fields.get("--thread").ok_or("reveal requires --thread")?;
+            let thread = fields
+                .get("--thread")
+                .ok_or("app control requires --thread")?;
             let value = executor
-                .block_on(runtime::reveal(&root, thread))
+                .block_on(async {
+                    if matches!(args[0].as_str(), "approve" | "approve-ui") {
+                        runtime::approve(&root, thread, args[0] == "approve-ui").await
+                    } else {
+                        runtime::reveal(&root, thread).await
+                    }
+                })
                 .map_err(|e| e.to_string())?;
             text(&serde_json::to_string_pretty(&value).map_err(|_| "status serialization failed")?)
         }

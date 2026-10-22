@@ -89,7 +89,18 @@ context control. Chat renewal retains the same primary Codex thread, canonical
 history and original CLI reply binding. Incremental handoff replaces the Chat
 reasoning context; it does not require the existing cross-provider /model summary
 cycle, a fork or native-context reset. Synthetic live handoff/report visibility is
-qualified on actual Android; real Chat remains a separate gate in CURRENT.
+qualified on actual Android. Later direct ChatGPT two-turn proof also verifies
+both actual final answers in the original TUI when attached to the exact native
+execution socket; a generic resume may select another backend and encounter an
+external writer. This does not close every real-Chat cross-provider/downshift/
+cold-resume or physical UI gate. The shared bridge, completed E design and bounded F integration,
+G delivery and H retirement are recorded in
+[CURRENT](../../CURRENT.md#agreed-bridge-structure-and-e-work).
+E selects shared Provider CLI/MCP work/read/management interfaces and reuses native
+thread/child navigation, public progress/questions, cancellation and source-bound
+completion notices. A bespoke agent dashboard is not a prerequisite. F implemented
+and boundedly qualified the new composition while Provider remains usable without enhanced
+TUI or Manager; old exact-socket CLI proof retains its original scope.
 Origin metadata does not belong in a synthetic
 user prompt.
 No new UI/control default or live cancellation behavior is introduced by the review.

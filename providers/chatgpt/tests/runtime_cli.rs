@@ -26,6 +26,54 @@ impl Drop for Root {
 }
 
 struct Service(std::process::Child);
+#[test]
+fn app_controls_without_native_binding_observe_absent_host_without_acquisition() {
+    let root = Root::new();
+    let mut service = Service(
+        Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["serve", "--state"])
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut ready = String::new();
+    BufReader::new(service.0.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert!(serde_json::from_str::<Value>(&ready).unwrap()["base_url"].is_string());
+    let status = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args(["host", "status", "--state"])
+        .arg(root.0.join("state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let observed: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(observed["host"]["present"], false);
+    assert_eq!(observed["host"]["host_started"], false);
+    assert!(!root.0.join("state/desktop").exists());
+    assert!(!root.0.join(".codex").exists());
+    assert!(!root.0.join("config").exists());
+    let chats = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args(["chats", "list", "--state"])
+        .arg(root.0.join("state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(!chats.status.success());
+    assert!(String::from_utf8_lossy(&chats.stdout).contains("host_rootfs_required"));
+    assert!(!root.0.join("state/desktop").exists());
+}
 impl Service {
     fn start(root: &Root) -> (Self, Value) {
         Self::start_from(
@@ -34,8 +82,9 @@ impl Service {
         )
     }
     fn start_from(root: &Root, binary: &std::path::Path) -> (Self, Value) {
-        let mut child = Self(
-            Command::new(binary)
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut child = Self(loop {
+            let spawned = Command::new(binary)
                 .args(["serve", "--descriptor"])
                 .arg(root.0.join("descriptor.json"))
                 .arg("--state")
@@ -44,9 +93,18 @@ impl Service {
                 .env("XDG_CONFIG_HOME", root.0.join("config"))
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
-        );
+                .spawn();
+            match spawned {
+                Ok(child) => break child,
+                Err(error)
+                    if error.raw_os_error() == Some(libc::ETXTBSY)
+                        && std::time::Instant::now() < until =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(error) => panic!("owned service fixture did not start: {error}"),
+            }
+        });
         let mut line = String::new();
         BufReader::new(child.0.stdout.take().unwrap())
             .read_line(&mut line)
@@ -73,20 +131,22 @@ impl Drop for Service {
 
 #[test]
 fn reveal_never_bootstraps_a_missing_service_or_creates_state() {
-    let root = Root::new();
-    let output = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
-        .args(["reveal", "--thread", "native-thread", "--state"])
-        .arg(root.0.join("missing-state"))
-        .env("HOME", &root.0)
-        .env("XDG_CONFIG_HOME", root.0.join("config"))
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(
-        !root.0.exists(),
-        "navigation is not a startup or configuration operation"
-    );
+    for command in ["reveal", "approve", "approve-ui"] {
+        let root = Root::new();
+        let output = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args([command, "--thread", "native-thread", "--state"])
+            .arg(root.0.join("missing-state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(
+            !root.0.exists(),
+            "app control is not a startup or configuration operation"
+        );
+    }
 }
 
 #[test]
@@ -392,17 +452,32 @@ async fn stop_requires_kernel_exit_confirmation_after_executable_identity_change
     std::fs::copy(shell, &image).unwrap();
     // Builtins only: no descendant jobs. Keep stdin open so the owned target
     // survives SIGTERM, acknowledges it, then waits for another line.
-    let mut target = tokio::process::Command::new(&image)
-        .args([
-            "-c",
-            "trap 'printf \"TERM_RECEIVED\\n\"' TERM; printf 'READY\\n'; while :; do read -r line; done",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
+    let spawn_until = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut target = loop {
+        let spawned = tokio::process::Command::new(&image)
+            .args([
+                "-c",
+                "trap 'printf \"TERM_RECEIVED\\n\"' TERM; printf 'READY\\n'; while :; do read -r line; done",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn();
+        match spawned {
+            Ok(child) => break child,
+            // Concurrent test forks can briefly inherit the copy's writable
+            // descriptor before their exec closes it. ETXTBSY proves this
+            // fixture has not executed; no started or uncertain child retries.
+            Err(error)
+                if error.raw_os_error() == Some(libc::ETXTBSY)
+                    && tokio::time::Instant::now() < spawn_until =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            Err(error) => panic!("owned Stop fixture did not start: {error}"),
+        }
+    };
     let mut stdout = BufReader::new(target.stdout.take().unwrap()).lines();
     assert_eq!(stdout.next_line().await.unwrap().unwrap(), "READY");
     let process = Process::read(target.id().unwrap()).unwrap();

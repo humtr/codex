@@ -89,7 +89,7 @@ pub fn prepare(
     config
         .validate()
         .map_err(|_| Error("invalid_provider_configuration"))?;
-    let port = base_url
+    base_url
         .strip_prefix("http://127.0.0.1:")
         .and_then(|s| s.strip_suffix("/v1"))
         .and_then(|s| s.parse::<u16>().ok())
@@ -113,19 +113,8 @@ pub fn prepare(
     {
         return Err(Error("existing_user_profile_preserved"));
     }
-    let metadata = projection::catalog(config).map_err(|_| Error("native_catalog_invalid"))?;
-    let bytes = serde_json::to_vec(&metadata).unwrap();
-    let snapshots = state.join("catalogs");
-    private_directory(&snapshots)?;
-    let catalog = snapshots.join(format!("{}.json", digest(&metadata)));
-    if let Some(old) = read(&catalog)? {
-        if old != bytes {
-            return Err(Error("catalog_snapshot_conflict"));
-        }
-    } else {
-        publish(&catalog, &bytes, None)?;
-    }
-    let routing = json!({"model":config.model.default,"model_provider":PROVIDER,"model_reasoning_effort":config.model.reasoning_effort,"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":60000,"refresh_interval_ms":1000}}}});
+    let routing = native_routing(config, state, binary, base_url)?;
+    let catalog = routing["model_catalog_json"].clone();
     let text = MARKER.to_owned()
         + &toml::to_string_pretty(&routing).map_err(|_| Error("profile_serialization_failed"))?;
     // Recheck the local target before changing the shared output. Existing user
@@ -141,5 +130,41 @@ pub fn prepare(
     }
     Ok(
         json!({"prepared":true,"profile":profile,"catalog":catalog,"codex_home":home,"provider":PROVIDER,"native_defaults_changed":false,"app_inference_submitted":false}),
+    )
+}
+
+/// Native thread routing needs a catalog, not publication into user profiles.
+pub fn native_routing(
+    config: &Config,
+    state: &Path,
+    binary: &Path,
+    base_url: &str,
+) -> Result<Value, Error> {
+    config
+        .validate()
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    let port = base_url
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|s| s.strip_suffix("/v1"))
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|p| *p > 0)
+        .ok_or(Error("owned_provider_endpoint_required"))?;
+    if !state.is_absolute() || !binary.is_absolute() || !binary.is_file() {
+        return Err(Error("projection_path_invalid"));
+    }
+    let metadata = projection::catalog(config).map_err(|_| Error("native_catalog_invalid"))?;
+    let bytes = serde_json::to_vec(&metadata).unwrap();
+    let snapshots = state.join("catalogs");
+    private_directory(&snapshots)?;
+    let catalog = snapshots.join(format!("{}.json", digest(&metadata)));
+    if let Some(old) = read(&catalog)? {
+        if old != bytes {
+            return Err(Error("catalog_snapshot_conflict"));
+        }
+    } else {
+        publish(&catalog, &bytes, None)?;
+    }
+    Ok(
+        json!({"model":config.model.default,"model_provider":PROVIDER,"model_reasoning_effort":config.model.reasoning_effort,"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":60000,"refresh_interval_ms":1000}}}}),
     )
 }

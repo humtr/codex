@@ -29,7 +29,14 @@ if [ "$scope" = provider ]; then
   cargo clippy --manifest-path providers/chatgpt/Cargo.toml --all-targets --locked -- -D warnings
   cargo build --manifest-path providers/chatgpt/Cargo.toml --release --locked
   : "${BUN:?set BUN to the qualified optional-provider Bun executable}"
-  "$BUN" test ./providers/chatgpt/*.test.mjs
+  "$BUN" test ./providers/chatgpt/*.test.mjs ./scripts/f_cdp_relay.test.mjs ./scripts/chat_entry_client.test.mjs
   python3 -B -m unittest discover -s providers/chatgpt -p 'test_*.py'
+  python3 -B -m unittest -v scripts/test_provider_qualification.py scripts/test_d3_notify.py scripts/test_provider_f.py scripts/test_provider_f_agents.py
+  python3 -B -m unittest -v scripts/test_provider_g.py
+  # Import/CLI checks only; device fixtures and cleanup never run in source CI.
+  python3 -B scripts/clean_development.py --help >/dev/null
+  python3 -B scripts/qualify_provider_product.py --help >/dev/null
+  python3 -B scripts/qualify_provider_package.py --help >/dev/null
+  python3 -B scripts/qualify_provider_g.py --help >/dev/null
 fi
 git diff --check

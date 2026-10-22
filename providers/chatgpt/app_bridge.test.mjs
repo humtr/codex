@@ -6,11 +6,112 @@ import {pathToFileURL} from 'node:url';
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+test('saved-Chat adoption preserves selected branch and draft without allocating a Chat',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const raw={conversation_id:'old-chat',gizmo_id:null,current_node:'alternate',mapping:{selected:{message:{status:'finished_successfully'}},alternate:{message:{status:'finished_successfully'}}}};
+ f.chatGet=async()=>raw;f.draft='User unsent draft';
+ const adopt={op:'chat_adopt',owner:'owned',lane:'input',conversation_id:'old-chat',branch:'selected',identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}};
+ expect(await bridge(adopt)).toEqual({localId:'old-chat'});
+ expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);expect(f.draft).toBe('User unsent draft');
+ expect(f.hydrated.options).toEqual({mergeActiveBranch:true,preserveAsyncStatus:true});
+ expect(await bridge(adopt)).toEqual({localId:'old-chat'});
+ await expect(bridge({...adopt,branch:'alternate'})).rejects.toThrow('app_lane_declaration_changed');
+ await expect(bridge({...adopt,lane:'other'})).rejects.toThrow('app_chat_owned_work');
+ await bridge({op:'submit',owner:'owned',lane:'input',round:'one',messageId:'stable-message',model:'host',messages:[{role:'user',text:'Related task'}]});
+ await Promise.resolve();
+ expect(f.submitOptions.conversationId).toBe('old-chat');expect(f.submitOptions.parentMessageId).toBe('selected');
+ expect(f.submitOptions.conversationOrigin).toBeNull();expect(f.submitOptions.tppExecutionTarget).toBeNull();expect(f.submitOptions.requestInput).toEqual({isEverydayWorkMode:false});
+ expect(f.sent[0].messages[0].id).toBe('stable-message');expect(f.draft).toBe('User unsent draft');
+ await bridge({op:'release',owner:'owned',lane:'input'});
+ f.active=true;await expect(bridge({...adopt,lane:'busy'})).rejects.toThrow('app_chat_active_unowned');
+ expect(f.sent).toHaveLength(1);expect(f.created).toBe(0);
+}));
+
+test('release cannot abandon a stream that is still active',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'busy',signature:{name:'unused'}});
+ const lane=globalThis[slot].lanes.get('busy');lane.streamActive=true;
+ await expect(bridge({op:'release',owner:'owned',lane:'busy'})).rejects.toThrow('app_lane_busy');
+ await expect(bridge({op:'submit',owner:'owned',lane:'busy',round:'new'})).rejects.toThrow('app_lane_busy');
+ expect(f.sent).toHaveLength(0);expect(globalThis[slot].lanes.has('busy')).toBe(true);
+}));
+
+for(const activity of ['streaming','active-async-turn','active-tpp-turn'])test('installed string activity status fences saved input: '+activity,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ f.activity=activity;
+ await expect(bridge({op:'chat_adopt',owner:'owned',lane:'input',conversation_id:'old-chat',branch:'selected',identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}})).rejects.toThrow('app_chat_active_unowned');
+ expect(f.hydrated).toBeUndefined();expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);
+}));
+
+test('saved-input capability uses the installed predicate and status atom',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ expect((await bridge({op:'host_status',owner:'owned'})).capabilities.saved_input).toBe(true);
+ const state=globalThis[slot];state.api={...state.api,pzn:undefined};
+ expect((await bridge({op:'host_status',owner:'owned'})).capabilities.saved_input).toBe(false);
+ await expect(bridge({op:'chat_adopt',owner:'owned',lane:'input',conversation_id:'old-chat',branch:'selected',identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}})).rejects.toThrow('app_chat_input_unavailable');
+ expect(f.hydrated).toBeUndefined();expect(f.sent).toHaveLength(0);
+}));
+test('stopping an owned empty lane confirms zero dispatch without submitting a model',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'empty',signature:{name:'unused'}});
+ const result=await bridge({op:'stop',owner:'owned',lane:'empty'});
+ expect(result.stopped).toBe(true);expect(result.dispatches).toBe(0);expect(f.sent).toHaveLength(0);
+ await bridge({op:'release',owner:'owned',lane:'empty'});
+ expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+}));
+for(const outcome of ['COMPLETE','IS_STREAMING','FAILURE','lost-stop','identity-missing'])test('active Stop requires server evidence after local abort: '+outcome,async()=>fixture(async({f,bindings})=>{
+ let posts=0,reads=0;
+ f.client.stopCompletion=async body=>{posts++;expect(body).toEqual({conversation_id:'server-owned',exclude_async_types:[]});if(outcome==='lost-stop')throw Error('lost Stop reply');};
+ f.client.startCompletionStream=options=>{
+  f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;
+ };
+ f.chatGet=async(path,options)=>{reads++;expect(path).toBe('/conversation/{conversation_id}/stream_status');expect(options.retry).toBe('never');expect(options.parameters.path.conversation_id).toBe('server-owned');return {status:outcome};};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'active-stop',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'active-stop',round:'one',messages:[{role:'user',text:'task'}]});await Promise.resolve();
+ const lane=globalThis[slot].lanes.get('active-stop');
+ if(outcome==='identity-missing')lane.serverId=undefined;
+ // eHt/JU can synthesize an abort or even a local done; neither is server proof.
+ f.cancelCallback=()=>f.options.at(-1).onComplete({reason:'done'});
+ const stopped=await bridge({op:'stop',owner:'owned',lane:'active-stop'});
+ expect(stopped.localStreamStopped).toBe(true);
+ expect(stopped.stopped).toBe(['COMPLETE','FAILURE'].includes(outcome));
+ expect(stopped.serverStopState).toBe(['COMPLETE','FAILURE'].includes(outcome)?'terminal_observed':outcome==='identity-missing'?'server_identity_unavailable':outcome==='IS_STREAMING'?'still_streaming':'unconfirmed');
+ const repeated=await bridge({op:'stop',owner:'owned',lane:'active-stop'});
+ expect(repeated.stopped).toBe(stopped.stopped);
+ expect(posts).toBe(outcome==='identity-missing'?0:1);
+ expect(reads).toBe(['IS_STREAMING','lost-stop'].includes(outcome)?2:['COMPLETE','FAILURE'].includes(outcome)?1:0);
+ if(!stopped.stopped)await expect(bridge({op:'release',owner:'owned',lane:'active-stop'})).rejects.toThrow('app_stop_unconfirmed');
+ expect(f.sent).toHaveLength(1);
+}));
+test('server-terminal proof clears stale active state and fences late owned starts',()=>fixture(async({bindings,f})=>{
+ let posts=0;
+ f.client.stopCompletion=async()=>{posts++;};
+ f.client.startCompletionStream=options=>{
+  f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify({...options.request,conversation_id:'server-owned'}),chatgptSse:{}});return true;
+ };
+ f.chatGet=async()=>({status:'COMPLETE'});
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'stale-active',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'stale-active',round:'one',messages:[{role:'user',text:'task'}]});await Promise.resolve();
+ const lane=globalThis[slot].lanes.get('stale-active');
+ f.cancelCallback=()=>{lane.streamActive=true;};
+ const result=await bridge({op:'stop',owner:'owned',lane:'stale-active'});
+ expect(result.stopped).toBe(true);expect(result.streamActive).toBe(false);expect(posts).toBe(1);
+ expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',messages:[]})).toThrow('app_dispatch_stopped');
+ expect(()=>f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[]}})).toThrow('app_dispatch_stopped');
+ expect(lane.streamActive).toBe(false);
+ expect((await bridge({op:'stop',owner:'owned',lane:'stale-active'})).stopped).toBe(true);expect(posts).toBe(1);
+}));
+
 async function fixture(run){
  const root=mkdtempSync(join(process.env.TMPDIR,'app-bridge-'));
  const oldDocument=globalThis.document;
- const wire={async safeGet(path,options){const f=globalThis.appBridgeFixture;if(path==='/conversation/{conversation_id}')return {gizmo_id:f.membership};return path==='/gizmos/snorlax/sidebar'?{items:f.projects.map(gizmo=>({gizmo})),cursor:null}:f.projects.find(v=>v.gizmo.id===options.parameters.path.gizmo_id_or_short_url);},async safePost(path,options){const f=globalThis.appBridgeFixture;expect(path).toBe('/projects');expect(options.retry).toBe('never');expect(options.requestBody).toEqual({name:options.requestBody.name,instructions:''});options.assertRequestCurrent();const p={gizmo:{id:'g-p-fixture',display:{name:options.requestBody.name},author:{user_id:'user'},share_recipient:'private'}};f.projects.push(p);return {resource:p};},streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
+ const readSlot=Symbol.for('termux.codex.app.read-backoff.v1');
+ delete globalThis[readSlot];
+ const wire={async safeGet(path,options){const f=globalThis.appBridgeFixture;if(f.chatGet)return f.chatGet(path,options);if(path==='/conversation/{conversation_id}')return {gizmo_id:f.membership};return path==='/gizmos/snorlax/sidebar'?{items:f.projects.map(gizmo=>({gizmo})),cursor:null}:f.projects.find(v=>v.gizmo.id===options.parameters.path.gizmo_id_or_short_url);},async safePost(path,options){const f=globalThis.appBridgeFixture;expect(path).toBe('/projects');expect(options.retry).toBe('never');expect(options.requestBody).toEqual({name:options.requestBody.name,instructions:''});options.assertRequestCurrent();const p={gizmo:{id:'g-p-fixture',display:{name:options.requestBody.name},author:{user_id:'user'},share_recipient:'private'}};f.projects.push(p);return {resource:p};},streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
  const client={prepareCompletionStream(request){return request;},startCompletionStream(options){
+  if(globalThis.appBridgeFixture.rejectStart)return Promise.reject(Error('fixture async failure'));
   globalThis.appBridgeFixture.options.push(options);
   wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});
   options.onDecodedEvent?.({message:{id:'analysis',author:{role:'assistant'},recipient:'all',channel:'analysis',content:{content_type:'text',parts:['private reasoning']}}});
@@ -20,24 +121,33 @@ async function fixture(run){
  const original={...client,streamPost:wire.streamPost};
  const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[]};
  writeFileSync(join(root,'initial.mjs'),`
- export const oMn={kind:'client'},JRn={kind:'messages'};
+ export const oMn={kind:'client'},JRn={kind:'messages'},ozn={kind:'status'};
+ export function pzn(value){return ['streaming','active-async-turn','active-tpp-turn'].includes(value);}
+ export function uCn(_scope,raw,options){globalThis.appBridgeFixture.hydrated={raw,options};}
+ export function jLn(message){const request=message.metadata?.jit_plugin_data?.from_server;return {allowTargetMessageId:(request?.body?.actions?.find(a=>a.allow_once||a.allow)?.allow_once??request?.body?.actions?.find(a=>a.allow_once||a.allow)?.allow)?.target_message_id,model:"host",recipient:"api_tool.call_tool"};}
  export function gRt(){}
  export function aCn(){return 'owned-'+(++globalThis.appBridgeFixture.created);}
- export function eHt(){}
+ export function eHt(){globalThis.appBridgeFixture.cancelCallback?.();}
  export async function yRt(_scope,options){
-  const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
+  globalThis.appBridgeFixture.approvalOptions=options.toolApproval?options:undefined;
+  globalThis.appBridgeFixture.submitOptions=options;
+  const approved=options.toolApproval?{id:"app-approval",author:{role:"tool"},metadata:{jit_plugin_data:{from_client:{type:options.toolApproval.action,target_message_id:options.toolApproval.targetMessageId,remember_answer:options.toolApproval.actionData?.remember_answer??false}}}}:undefined;
+  const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,approved,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
   const client=globalThis.appBridgeFixture.client;
   options.onServerThreadIdChange?.('server-owned');
   const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
-  client.startCompletionStream({request});return true;
+  client.startCompletionStream({request});
+  if(globalThis.appBridgeFixture.holdSubmission)await new Promise(resolve=>{globalThis.appBridgeFixture.releaseSubmission=resolve;});
+  return true;
  }
  export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ f.scope=scope;
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
- try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
+ try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
 test('owned app hooks preserve unowned requests, actual feature gates and public-only output',async()=>fixture(async({f,bindings,original})=>{
@@ -120,7 +230,7 @@ test('only an observed host permission reply continues MCP without a new user ob
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_ARGUMENT');
  lane.messages.set('stopped-confirm',{id:'stopped-confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
  lane.stopRequested=true;
- expect(()=>send({...response,id:'late-reply',metadata:{jit_plugin_data:{from_client:{target_message_id:'stopped-confirm',type:'allow'}}}})).toThrow('app_dispatch_replayed');
+ expect(()=>send({...response,id:'late-reply',metadata:{jit_plugin_data:{from_client:{target_message_id:'stopped-confirm',type:'allow'}}}})).toThrow('app_dispatch_stopped');
  expect(f.sent.length).toBe(2);
 }));
 
@@ -208,6 +318,22 @@ test('opening and release reconcile lost replies and reattach the same owned app
  expect((await bridge({op:'snapshot',owner:'owned',lane:'next'})).roundStarts).toBe(1);
 }));
 
+test('a terminal does not settle a submission whose app acceptance is still pending',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'pending',signature:{name:'operator_no_local_tools'}});
+ f.holdSubmission=true;
+ await bridge({op:'submit',owner:'owned',lane:'pending',round:'first',model:'configured',messages:[{role:'user',text:'First'}]});
+ const partial=await bridge({op:'snapshot',owner:'owned',lane:'pending'});
+ expect(partial.terminals).toEqual(['done']);expect(partial.streamActive).toBe(false);expect(partial.pending).toBe(true);expect(partial.accepted).toBe(false);
+ await expect(bridge({op:'submit',owner:'owned',lane:'pending',round:'second',model:'configured',messages:[{role:'user',text:'Follow-up'}]})).rejects.toThrow('app_lane_busy');
+ expect(f.sent).toHaveLength(1);
+ f.holdSubmission=false;f.releaseSubmission();await Promise.resolve();await Promise.resolve();
+ const settled=await bridge({op:'snapshot',owner:'owned',lane:'pending'});
+ expect(settled.pending).toBe(false);expect(settled.streamActive).toBe(false);expect(settled.accepted).toBe(true);
+ await bridge({op:'submit',owner:'owned',lane:'pending',round:'second',model:'configured',messages:[{role:'user',text:'Follow-up'}]});
+ expect(f.sent).toHaveLength(2);expect(f.created).toBe(1);
+}));
+
 
 test('initial auth loading installs no hooks and identity refresh is read-only',async()=>fixture(async({f,bindings,original})=>{
  f.authLoading=true;expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:false});
@@ -221,7 +347,8 @@ test('initial auth loading installs no hooks and identity refresh is read-only',
 test('MCP mode uses no local function feature gate or result resubmission',async()=>fixture(async({f,bindings,original})=>{
  f.gate=false;
  expect(await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings})).toEqual({ready:true});
- await expect(bridge({op:'init',owner:'owned',returnPath:'local_function',bindings})).rejects.toThrow('app_bridge_owned');
+ expect(await bridge({op:'init',owner:'owned',returnPath:'local_function',bindings})).toEqual({ready:true});
+ await expect(bridge({op:'open',owner:'owned',lane:'unavailable-local',returnPath:'local_function',signature:{name:'local_gateway'}})).rejects.toThrow('app_local_functions_unavailable');
  await bridge({op:'open',owner:'owned',lane:'mcp-lane',signature:{name:'virtual_gateway'}});
  const command={op:'submit',owner:'owned',lane:'mcp-lane',round:'first',model:'configured',messages:[{role:'user',text:'Owned task',hidden:false}],instructions:['MCP native turn policy']};
  await bridge(command);await Promise.resolve();
@@ -234,10 +361,84 @@ test('MCP mode uses no local function feature gate or result resubmission',async
  expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
 }));
 
-
-test('fresh operator bootstrap is non-user and requires its explicit lane admission',async()=>fixture(async({f,bindings})=>{
+test('one hook owner isolates simultaneous MCP and local declarations per lane',async()=>fixture(async({f,bindings,original})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
- await bridge({op:'open',owner:'owned',lane:'successor',signature:{name:'operator_no_local_tools'}});
+ const hook=f.client.prepareCompletionStream;
+ await bridge({op:'open',owner:'owned',lane:'mcp',returnPath:'mcp',signature:{name:'mcp_gateway'}});
+ await bridge({op:'open',owner:'owned',lane:'local',returnPath:'local_function',signature:{name:'local_gateway'}});
+ expect(f.client.prepareCompletionStream).toBe(hook);
+ await expect(bridge({op:'open',owner:'owned',lane:'mcp',returnPath:'local_function',signature:{name:'mcp_gateway'}})).rejects.toThrow('app_lane_declaration_changed');
+ for(const lane of ['mcp','local']) {
+  await bridge({op:'submit',owner:'owned',lane,round:'first',messages:[{role:'user',text:lane}],instructions:[]});
+  await Promise.resolve();
+ }
+ expect(f.sent[0].local_function_signatures).toEqual([]);
+ expect(f.sent[1].local_function_signatures).toEqual([{name:'local_gateway'}]);
+ await bridge({op:'release',owner:'owned',lane:'mcp'});
+ expect(f.client.prepareCompletionStream).toBe(hook);
+ await bridge({op:'release',owner:'owned',lane:'local'});
+ expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
+}));
+
+test('saved Chat APIs read unrelated sources and host state without opening lanes or submitting inference',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const calls=[];
+ f.chatGet=async(path,options)=>{
+  calls.push({path,options});
+  if(path==='/conversations')return {items:[{id:'saved-one',title:'same'},{id:'saved-two',title:'same'}],total:2};
+  return {conversation_id:'unrelated',title:'Unrelated',current_node:'public',mapping:{
+   hidden:{id:'hidden',parent:null,children:['public'],message:{id:'hidden',author:{role:'assistant'},channel:'analysis',content:{content_type:'text',parts:['NEVER_EXPORT']},metadata:{accessToken:'NEVER_EXPORT'}}},
+   public:{id:'public',parent:'hidden',children:[],message:{id:'public',author:{role:'assistant'},channel:'final',content:{content_type:'text',parts:['saved public']}}}
+  }};
+ };
+ const list=await bridge({op:'chat_list',owner:'owned',offset:0,limit:2});
+ expect(list.items.map(i=>i.id)).toEqual(['saved-one','saved-two']);
+ const read=await bridge({op:'chat_read',owner:'owned',conversation_id:'unrelated',identity:{account:'account',structure:'personal',user:'user'}});
+ expect(read.mapping.public.parent).toBe('hidden');
+ expect(read.mapping.public.message.content.parts).toEqual(['saved public']);
+ expect(read.mapping.hidden.message.unavailable).toBe('hidden');
+ expect(JSON.stringify(read)).not.toContain('NEVER_EXPORT');
+ for(const call of calls){
+  expect(call.options.retry).toBe('never');
+  expect(call.options.additionalHeaders).toEqual({'ChatGPT-Account-ID':'account'});
+  expect(call.options.parameters?.query?.include_full_conversation).toBeUndefined();
+ }
+ const host=await bridge({op:'host_status',owner:'owned'});expect(host.active_lanes).toEqual([]);
+ expect(f.created).toBe(0);expect(f.sent).toEqual([]);
+ await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'unrelated',identity:{account:'other'}})).rejects.toThrow('app_account_changed');
+}));
+
+test('model-free reading neither installs nor replaces another live bridge owner',async()=>fixture(async({f,bindings,original})=>{
+ f.chatGet=async()=>({items:[],total:0});f.gate=false;
+ const request={op:'chat_list',owner:'reader',readOnlyContext:true,bindings};
+ expect(await bridge(request)).toEqual({items:[],total:0});
+ expect(globalThis[slot]).toBeUndefined();expect(f.client.prepareCompletionStream).toBe(original.prepareCompletionStream);
+ await bridge({op:'init',owner:'writer',returnPath:'mcp',bindings});
+ const state=globalThis[slot],hook=f.client.prepareCompletionStream;
+ expect(await bridge(request)).toEqual({items:[],total:0});
+ expect(globalThis[slot]).toBe(state);expect(f.client.prepareCompletionStream).toBe(hook);
+ await expect(bridge({...request,op:'submit'})).rejects.toThrow('app_operation_not_read_only');
+ expect(f.created).toBe(0);expect(f.sent).toEqual([]);
+}));
+
+test('one native assignment budget spans successor lanes and rejects excess starts before dispatch',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const limits={maxDispatches:1,deadlineUnixMs:Date.now()+60000};
+ for(const lane of ['source','successor'])await bridge({op:'open',owner:'owned',nativeThread:'same-thread',lane,limits,signature:{name:lane}});
+ await bridge({op:'submit',owner:'owned',lane:'source',round:'one',messages:[{role:'user',text:'first'}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(1);
+ await bridge({op:'submit',owner:'owned',lane:'successor',round:'two',messages:[{role:'user',text:'second'}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(1);
+ const status=await bridge({op:'snapshot',owner:'owned',lane:'successor'});
+ expect(status.rejectedBeforeDispatch).toBe(true);expect(status.budget.reserved).toBe(1);
+ expect(status.error).toBe('assignment_app_budget_exhausted');
+ await expect(bridge({op:'open',owner:'owned',nativeThread:'same-thread',lane:'increase',limits:{...limits,maxDispatches:2},signature:{name:'increase'}})).rejects.toThrow('assignment_budget_changed');
+}));
+
+
+for(const returnPath of ['mcp','local_function'])test(`fresh ${returnPath} operator bootstrap is non-user and requires its explicit lane admission`,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath,bindings});
+ await bridge({op:'open',owner:'owned',lane:'successor',signature:{name:returnPath==='mcp'?'operator_no_local_tools':'operator_local_'+'a'.repeat(48)}});
  await bridge({op:'submit',owner:'owned',lane:'successor',round:'handoff',model:'configured',bootstrap:true,messages:[{role:'developer',text:'Attach through the original MCP control return.',hidden:true}],instructions:['Same native work; read its current attachment.']});
  await Promise.resolve();
  expect(f.sent.length).toBe(1);
@@ -249,6 +450,22 @@ test('fresh operator bootstrap is non-user and requires its explicit lane admiss
  await Promise.resolve();
  const summary=await bridge({op:'snapshot',owner:'owned',lane:'successor'});
  expect(summary.dispatches).toBe(2);expect(summary.userMessages).toBe(0);expect(summary.error).toBe(null);
+}));
+
+test('distinct local operator declarations keep overlapping native work submissions separate',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ const first='operator_local_'+'a'.repeat(48),second='operator_local_'+'b'.repeat(48);
+ await bridge({op:'open',owner:'owned',lane:'first-work',signature:{name:first}});
+ await bridge({op:'open',owner:'owned',lane:'second-work',signature:{name:second}});
+ for(const lane of ['first-work','second-work']){
+  await bridge({op:'submit',owner:'owned',lane,round:'initial',model:'configured',messages:[{role:'user',text:lane}]});
+  await Promise.resolve();
+ }
+ expect(f.sent.map(v=>v.local_function_signatures[0].name)).toEqual([first,second]);
+ for(const lane of ['first-work','second-work']){
+  const observed=await bridge({op:'snapshot',owner:'owned',lane});
+  expect(observed.dispatches).toBe(1);expect(observed.userMessages).toBe(1);expect(observed.error).toBe(null);
+ }
 }));
 
 test('locally rejected non-user submit has zero dispatches and confirms Stop after settling',async()=>fixture(async({f,bindings})=>{
@@ -270,8 +487,192 @@ test('rejecting a new dispatch cannot confirm an older unobserved stream stopped
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'unsettled',signature:{name:'operator_no_local_tools'}});
  globalThis[slot].lanes.get('unsettled').streamActive=true;
- await bridge({op:'submit',owner:'owned',lane:'unsettled',round:'rejected-new',model:'configured',messages:[{role:'developer',text:'Not admitted.',hidden:true}]});
+ await expect(bridge({op:'submit',owner:'owned',lane:'unsettled',round:'rejected-new',model:'configured',messages:[{role:'developer',text:'Not admitted.',hidden:true}]})).rejects.toThrow('app_lane_busy');
  await Promise.resolve();
  const stopped=await bridge({op:'stop',owner:'owned',lane:'unsettled'});
- expect(stopped.dispatches).toBe(0);expect(stopped.rejectedBeforeDispatch).toBe(true);expect(stopped.stopped).toBe(false);expect(f.sent.length).toBe(0);
+ expect(stopped.dispatches).toBe(0);expect(stopped.rejectedBeforeDispatch).toBe(false);expect(stopped.stopped).toBe(false);expect(f.sent.length).toBe(0);
+}));
+
+
+test('delegated one-time app action resumes the original MCP lane without revealing a window',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'permission',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'permission',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
+ await Promise.resolve();
+ const lane=globalThis[slot].lanes.get('permission');
+ const prompt={id:'confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action',body:{connector_name:'Owned connector',actions:[{name:'allow',allow:{target_message_id:'invoke'}}]}}}}};
+ lane.messages.set(prompt.id,prompt);
+ const command={op:'approve',owner:'owned',lane:'permission',connector:'Owned connector',identity:{account:'account',user:'user',structure:'personal'}};
+ await expect(bridge({...command,identity:{...command.identity,account:'other'}})).rejects.toThrow('app_account_changed');
+ await expect(bridge({...command,connector:'Other connector'})).rejects.toThrow('app_approval_manual_required');
+ const other={...prompt,id:'other'};lane.messages.set(other.id,other);
+ await expect(bridge(command)).rejects.toThrow('app_approval_ambiguous');lane.messages.delete(other.id);
+ prompt.metadata.jit_plugin_data.from_server.body.codex_mcp_elicitation={kind:'openaiForm'};
+ await expect(bridge(command)).rejects.toThrow('app_approval_manual_required');delete prompt.metadata.jit_plugin_data.from_server.body.codex_mcp_elicitation;
+ expect(f.sent.length).toBe(1);
+ expect(await bridge(command)).toEqual({requested:true,scope:'once',path:'action'});
+ expect(f.approvalOptions.toolApproval).toEqual({action:'allow',targetMessageId:'invoke',recipient:'api_tool.call_tool'});
+ expect(f.approvalOptions.prompt).toBe('');expect(f.revealed).toBeUndefined();
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'permission'});
+ expect(snapshot.dispatches).toBe(2);expect(snapshot.userMessages).toBe(1);expect(snapshot.hostReplyMessages).toBe(1);expect(snapshot.toolMessages).toBe(0);
+ await expect(bridge(command)).rejects.toThrow('app_approval_ambiguous');
+ lane.hostReplies.clear();await expect(bridge(command)).rejects.toThrow('app_approval_unconfirmed');
+ lane.stopRequested=true;await expect(bridge(command)).rejects.toThrow('app_approval_unavailable');
+ expect(f.sent.length).toBe(2);
+}));
+
+test('conversation scope is preferred over once and a successful approval never sends both',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'scope',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'scope',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});await Promise.resolve();
+ const state=globalThis[slot],lane=state.lanes.get('scope');
+ const action={type:'allow',target_message_id:'scoped-invoke',remember_answer:true};
+ lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action',body:{connector_name:'Owned connector',actions:[{name:'allow',allow:{target_message_id:'once-invoke'},split_action_options:[{label:'Allow Owned connector for this conversation',action}]}]}}}}});
+ const command={op:'approve',owner:'owned',lane:'scope',connector:'Owned connector',identity:{account:'account',user:'user',structure:'personal'}};
+ expect(await bridge(command)).toEqual({requested:true,scope:'conversation',path:'action'});
+ expect(f.approvalOptions.toolApproval.actionData).toEqual(action);
+ expect(f.sent[1].messages[0].metadata.jit_plugin_data.from_client.remember_answer).toBe(true);
+ expect(f.sent.length).toBe(2);
+ await expect(bridge({...command,op:'approve_ui'})).rejects.toThrow('app_approval_ambiguous');expect(f.sent.length).toBe(2);
+}));
+
+test('visible fallback clicks the offered conversation menu item, or once only when that scope is absent',async()=>{
+ for(const [conversation,alreadyOpen,delayed] of [[true,false,false],[true,true,false],[false,false,false],[true,false,true],[true,false,'stop'],[true,false,'render'],[true,false,'render-stop']])await fixture(async({f,bindings})=>{
+  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});await bridge({op:'open',owner:'owned',lane:'ui',signature:{name:'unused'}});
+  await bridge({op:'submit',owner:'owned',lane:'ui',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});await Promise.resolve();
+  const state=globalThis[slot],lane=state.lanes.get('ui'),label='Allow Owned connector for this conversation';
+  const action={type:'allow',target_message_id:'invoke',remember_answer:true};
+  lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action',body:{connector_name:'Owned connector',actions:[{name:'allow',allow:{target_message_id:'invoke'},...(conversation?{split_action_options:[{label,action}]}:{})}]}}}}});
+  let menus=alreadyOpen?1:0,scopedClicks=0,onceClicks=0,focused=0,delayedError; const pointerEvents=[];
+  const node=(text,attributes={})=>({textContent:text,getAttribute:k=>attributes[k]??null,hasAttribute:k=>k in attributes,getBoundingClientRect:()=>({width:100,height:30})});
+  const send=remember=>f.client.startCompletionStream({request:{conversation_id:'ui-alias',messages:[{id:'actual-ui-handler',author:{role:'tool'},metadata:{jit_plugin_data:{from_client:{type:'allow',target_message_id:'invoke',remember_answer:remember}}}}]}});
+  const option={...node(label),click(){scopedClicks++;if(delayed&&delayed!=='render')setTimeout(()=>{try{send(true);}catch(error){delayedError=error;}},40);else send(true);}};
+  const menu={...node(''),querySelectorAll:()=>[option]};
+  const trigger={...node('',{'aria-controls':'owned-menu','aria-haspopup':'menu','aria-expanded':alreadyOpen?'true':'false'}),dispatchEvent(event){pointerEvents.push(event.type);if(event.type==='pointerdown')menus++;},click(){}};
+  const once={...node('Allow once⏎'),click(){onceClicks++;send(false);}};
+  const card={__reactFiberFixture:{memoizedProps:{conversationId:'ui-alias'},memoizedState:{memoizedState:{current:f.scope}}},...node('',{'data-chatgpt-search-message-ids':'confirm'}),contains:()=>false,querySelectorAll:selector=>selector.includes('aria-haspopup')?[trigger]:[once,trigger]};
+  const old=globalThis.electronBridge,oldPointer=globalThis.PointerEvent;
+  globalThis.PointerEvent=class {constructor(type,options){this.type=type;Object.assign(this,options);}};
+  globalThis.electronBridge={sendMessageFromView(){focused++;}};
+  let rendered=!['render','render-stop'].includes(delayed);
+  document.querySelectorAll=selector=>rendered&&selector.includes('data-chatgpt-search-message-ids')?[card]:[];
+  document.getElementById=id=>menus&&id==='owned-menu'?menu:null;
+  try{
+   if(['render','render-stop'].includes(delayed)){
+    expect(await bridge({op:'approve_ui',owner:'owned',lane:'ui',connector:'Owned connector',identity:{account:'account',user:'user',structure:'personal'}})).toEqual({pending:true});
+    expect(lane.approvalIntents).toBeUndefined();expect(lane.approvalPending).not.toBe(true);expect(scopedClicks+onceClicks).toBe(0);expect(f.sent.length).toBe(1);rendered=true;
+    if(delayed==='render-stop'){
+     expect((await bridge({op:'stop',owner:'owned',lane:'ui'})).stopped).toBe(true);
+     await expect(bridge({op:'approve_ui',owner:'owned',lane:'ui',connector:'Owned connector',identity:{account:'account',user:'user',structure:'personal'}})).rejects.toThrow('app_approval_unavailable');
+     expect(scopedClicks+onceClicks).toBe(0);expect(f.sent.length).toBe(1);await bridge({op:'release',owner:'owned',lane:'ui'});return;
+    }
+   }
+   expect(await bridge({op:'approve_ui',owner:'owned',lane:'ui',connector:'Owned connector',identity:{account:'account',user:'user',structure:'personal'}})).toEqual({requested:true,scope:conversation?'conversation':'once',path:'ui',messageId:'confirm'});
+   if(delayed&&delayed!=='render'){
+    const queued=await bridge({op:'snapshot',owner:'owned',lane:'ui'});
+    expect(queued.approvalResponses).toEqual([]);expect(queued.approvalPending).toBe(true);
+    if(delayed==='stop'){
+     expect((await bridge({op:'stop',owner:'owned',lane:'ui'})).stopped).toBe(false);
+     await expect(bridge({op:'release',owner:'owned',lane:'ui'})).rejects.toThrow('app_lane_busy');
+     await expect(bridge({op:'submit',owner:'owned',lane:'ui',round:'new'})).rejects.toThrow('app_lane_busy');
+    }
+    await new Promise(r=>setTimeout(r,60));
+    const settled=await bridge({op:'snapshot',owner:'owned',lane:'ui'});
+    expect(settled.approvalPending).toBe(false);
+    if(delayed==='stop'){
+     expect(delayedError?.message).toBe('app_dispatch_stopped');expect(settled.stopped).toBe(true);
+     expect(settled.approvalResponses).toEqual([]);expect(settled.hostReplyMessages).toBe(0);
+     await bridge({op:'release',owner:'owned',lane:'ui'});
+    }else expect(settled.approvalResponses).toEqual(['confirm']);
+   }
+   expect(focused).toBe(1);expect(f.revealed).toBe('/c/server-owned');
+   expect(scopedClicks).toBe(conversation?1:0);expect(onceClicks).toBe(conversation?0:1);expect(menus).toBe(conversation?1:0);expect(pointerEvents).toEqual(conversation&&!alreadyOpen?['pointerdown','pointerup']:[]);
+   expect(f.sent.length).toBe(delayed==='stop'?1:2);expect(f.approvalOptions).toBeUndefined();
+  }finally{globalThis.electronBridge=old;globalThis.PointerEvent=oldPointer;}
+ });
+});
+
+test('an asynchronous app stream startup failure settles only its owned stream',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'failure',signature:{name:'unused'}});
+ const lane=globalThis[slot].lanes.get('failure');
+ f.rejectStart=true;
+ await expect(f.client.startCompletionStream({request:{conversation_id:lane.localId,messages:[]}})).rejects.toThrow('fixture async failure');
+ const observed=await bridge({op:'snapshot',owner:'owned',lane:'failure'});
+ expect(lane.streamActive).toBe(false);expect(observed.error).toBe('app_stream_failed');expect(observed.dispatches).toBe(0);
+ expect((await bridge({op:'stop',owner:'owned',lane:'failure'})).stopped).toBe(false);
+}));
+
+for(const status of [401,403,404,429,500,503,null])test('saved read failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ f.chatGet=async()=>{throw Object.assign(Error('private request token must not escape'),{responseStatus:status});};
+ const code=({401:'app_chat_auth_expired',403:'app_chat_forbidden',404:'app_chat_not_found',429:'app_chat_rate_limited'})[status]??([500,503].includes(status)?'app_chat_temporarily_unavailable':'app_chat_request_failed');
+ await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow(code);
+ const host=await bridge({op:'host_status',owner:'owned'});
+ expect(JSON.stringify(host)).not.toContain('private request token');
+ if(![401,403,404].includes(status))expect(host.saved_read_failure).toMatchObject({code,http_status:status});
+ expect(f.sent).toHaveLength(0);
+}));
+for(const response of [null,{mapping:{incomplete:null}}])test('invalid saved graph remains an explicit response error: '+JSON.stringify(response),async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});f.chatGet=async()=>response;
+ await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_response_invalid');
+ expect(f.sent).toHaveLength(0);
+}));
+
+// Fake clocks and fixture wire clients only; these cases never contact ChatGPT.
+test('account cooldown suppresses repeated and cross-reader GETs, survives owner release, and backs off',async()=>fixture(async({f,bindings})=>{
+ const realNow=Date.now;let now=1000000,calls=0;Date.now=()=>now;
+ try{
+  await bridge({op:'init',owner:'owned',bindings});
+  f.chatGet=async()=>{calls++;throw Object.assign(Error('private429'),{responseStatus:429});};
+  const read=()=>bridge({op:'chat_read',owner:'owned',conversation_id:'saved'});
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');
+  for(let n=0;n<50;n++)await expect(read()).rejects.toThrow('app_chat_rate_limited');
+  await expect(bridge({op:'chat_list',owner:'owned'})).rejects.toThrow('app_chat_rate_limited');
+  await expect(bridge({op:'chat_page',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_rate_limited');
+  expect(calls).toBe(1);
+  await bridge({op:'dispose',owner:'owned'});
+  await expect(bridge({op:'chat_read',owner:'other-reader',readOnlyContext:true,bindings,conversation_id:'saved'})).rejects.toThrow('app_chat_rate_limited');
+  expect(globalThis[slot]).toBeUndefined();expect(calls).toBe(1);
+  now+=60000;
+  await expect(bridge({op:'chat_read',owner:'other-reader',readOnlyContext:true,bindings,conversation_id:'saved'})).rejects.toThrow('app_chat_rate_limited');
+  expect(calls).toBe(2);
+  const host=await bridge({op:'host_status',owner:'other-reader',readOnlyContext:true,bindings});
+  expect(host.saved_read_backoff.retry_after_seconds).toBe(120);
+  expect(JSON.stringify(host)).not.toContain('private429');
+ }finally{Date.now=realNow;}
+}));
+for(const header of ['180',new Date(1180000).toUTCString()])test('saved GET respects Retry-After '+header,async()=>fixture(async({f,bindings})=>{
+ const realNow=Date.now;let now=1000000,calls=0;Date.now=()=>now;
+ try{
+  await bridge({op:'init',owner:'owned',bindings});
+  f.chatGet=async()=>{calls++;throw Object.assign(Error('limited'),{responseStatus:429,responseHeaders:{'retry-after':header}});};
+  const read=()=>bridge({op:'chat_read',owner:'owned',conversation_id:'saved'});
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');now+=60000;
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');expect(calls).toBe(1);
+  expect((await bridge({op:'host_status',owner:'owned'})).saved_read_backoff.retry_after_seconds).toBe(120);
+ }finally{Date.now=realNow;}
+}));
+test('successful read resets backoff, while another account has independent pacing',async()=>fixture(async({f,bindings})=>{
+ const realNow=Date.now;let now=1000000,calls=0,limited=true;Date.now=()=>now;
+ try{
+  await bridge({op:'init',owner:'owned',bindings});
+  f.chatGet=async()=>{calls++;if(limited)throw Object.assign(Error('limited'),{responseStatus:429});return {mapping:{}};};
+  const read=()=>bridge({op:'chat_read',owner:'owned',conversation_id:'saved'});
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');
+  const get=f.scope.get.bind(f.scope);let account='other';f.scope.get=node=>node.kind==='identity'?{...get(node),accountId:account,authenticatedAccountId:account}:get(node);
+  limited=false;await read();expect(calls).toBe(2);account='account';
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');expect(calls).toBe(2);
+  now+=60000;await read();limited=true;
+  await expect(read()).rejects.toThrow('app_chat_rate_limited');
+  expect((await bridge({op:'host_status',owner:'owned'})).saved_read_backoff.retry_after_seconds).toBe(60);
+ }finally{Date.now=realNow;}
+}));
+test('an in-flight saved GET does not multiply requests or block an idle lane Stop',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});await bridge({op:'open',owner:'owned',lane:'idle',signature:{name:'unused'}});
+ let release,calls=0;f.chatGet=()=>{calls++;return new Promise(resolve=>{release=resolve;});};
+ const first=bridge({op:'chat_read',owner:'owned',conversation_id:'saved'});
+ await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_read_pending');
+ expect((await bridge({op:'stop',owner:'owned',lane:'idle'})).stopped).toBe(true);
+ expect(calls).toBe(1);release({mapping:{}});await first;expect(f.sent).toHaveLength(0);
 }));

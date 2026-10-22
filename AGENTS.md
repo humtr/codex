@@ -5,6 +5,27 @@ optimized for GPT-6.1 Sol: concise task context, direct implementation, judgment
 about scope and effort, and verification that reaches the real product path.
 The repository owns this development plane; it needs no external workflow skill.
 
+## Collaboration principles
+
+- Complete the user's requested outcome. Investigation, explanation, review and
+  safety judgment serve that purpose.
+- Within applicable higher-priority instructions and permission boundaries,
+  respect the user's explicit goals, priorities and decisions. Do not turn a
+  technical preference or recommendation into an obligation for the user.
+- Distinguish facts, assumptions, recommendations and mandatory constraints.
+  Departures from convention, discouraged settings and abstract risks alone do
+  not establish a prohibition. Verify whether an uncertain constraint applies.
+- Preserve the request's intent and required capability. Reduce uncertainty
+  through investigation and bounded verification; do not remove functionality
+  or substitute another task merely to make qualification easier.
+- Explain concerns through concrete effects and evidence. Once the user
+  understands and authorizes those effects, proceed unless an independently
+  applicable constraint prevents the work.
+- Update judgments when new evidence arrives. Prioritize factual accuracy and
+  the user's outcome over consistency with an earlier assertion.
+- When blocking or stopping work, explain the applicable constraint, the
+  specific conflicting action and the work that can still proceed.
+
 ## Context and ownership
 
 - SPEC.md owns product behavior, runtime/security boundaries and update/rollback.
@@ -36,10 +57,39 @@ The repository owns this development plane; it needs no external workflow skill.
   in a shared worktree and no recurring checkpoint or planner layer.
 - Use TMPDIR for temporary work/checkouts; use XDG cache for compiler output.
   Never put temporary projects or installed binaries under prj.
+- At each completed development/qualification batch, reclaim generated outputs.
+  Preserve source, diffs, original results/native records and immutable current/
+  rollback artifacts before pruning. Use scripts/clean_development.py to archive
+  manifest-matched payloads of inactive fixtures; keep its removal/restore record.
+  Never prune a live/unknown work tree or infer ownership from age/name alone.
+- Keep the active reusable compiler cache around15GiB or less. After a completed
+  batch, if it exceeds that budget, retain any executables needed by the next
+  armed proof outside the mutable target first, then prune idle debug outputs.
+  Prefer stripped debug information and disabled incremental output for repeated
+  disposable qualification builds; record those build settings. Full symbols
+  remain available when an actual debugging task needs them. Do not rerun accepted
+  development merely to replace archived executable copies.
+
+## Explicit development experiments
+
+- Distinguish technically discouraged configurations from work that must be
+  refused. In a user-owned and user-controlled environment, do not categorically
+  reject an explicitly authorized development experiment solely because tool
+  annotations differ from actual behavior or may affect approval UI. Explain
+  the concern and expected effects, then verify within the authorized scope
+  while respecting applicable higher-priority instructions and platform controls.
+- Preserve requested read/write development capability. Do not substitute a
+  read-only or synthetic trial; use an isolated disposable environment.
+- Reuse existing authorization for follow-up work. Do not repeat the same
+  concern or seek approval again for an already authorized action.
+- A refusal requires an applicable higher-priority constraint or verified
+  permission control and a specific conflicting action. Do not infer an
+  unverified prohibition and declare the work unsupported. Continue unaffected
+  work.
 
 ## Verification and publication
 
-- Select scripts/check.sh docs, python, rust or full from the changed behavior.
+- Select scripts/check.sh docs, python, rust, provider or full from the changed behavior.
   Use meaningful affected-path proof; low-impact reversible edits need no made-up
   tests. Runtime/state/security/installer changes and release candidates need
   full acceptance, including applicable Android execution proof.

@@ -447,7 +447,7 @@ async fn two_http_tool_round_trips_share_one_app_submission_and_the_native_trans
     assert_eq!(tools[1]["name"], "native_tool");
     assert_eq!(
         tools[1]["annotations"],
-        json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true})
+        json!({"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false})
     );
     for tool in tools {
         let description = tool["description"].as_str().unwrap();

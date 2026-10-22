@@ -56,10 +56,38 @@ struct Record {
     payload: serde_json::Value,
 }
 
+/// Owner-bound flock guard shared by state and configuration writers.
+/// Closing a descriptor alone does not release a lock inherited across fork.
+pub(crate) struct Lease {
+    pub(crate) file: File,
+    writer_pid: Option<u32>,
+}
+impl Lease {
+    pub(crate) fn writer(file: File) -> Self {
+        Self {
+            file,
+            writer_pid: Some(std::process::id()),
+        }
+    }
+    fn reader(file: File) -> Self {
+        Self {
+            file,
+            writer_pid: None,
+        }
+    }
+}
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if self.writer_pid == Some(std::process::id()) {
+            // An inherited child/reader cannot unlock its parent's live lease.
+            unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
 pub struct Journal {
     pub root: PathBuf,
     pub owner: String,
-    _lease: File,
+    _lease: Lease,
 }
 impl Journal {
     /// Read-only inspection while the running provider holds its writer lease.
@@ -77,7 +105,9 @@ impl Journal {
         let reader = Self {
             root: root.into(),
             owner,
-            _lease: File::open(root).map_err(|_| Error("state_directory_unavailable"))?,
+            _lease: Lease::reader(
+                File::open(root).map_err(|_| Error("state_directory_unavailable"))?,
+            ),
         };
         reader.read(key)
     }
@@ -121,7 +151,7 @@ impl Journal {
         Ok(Self {
             root: path.into(),
             owner,
-            _lease: lease,
+            _lease: Lease::writer(lease),
         })
     }
     fn path(&self, key: &str) -> Result<PathBuf, Error> {
@@ -151,6 +181,31 @@ impl Journal {
             }
             Err(error) => Err(error),
         }
+    }
+    /// One-time index migration/recovery only. Never reactivate a lane or accept
+    /// foreign records. Ordinary startup uses the recovered work index instead
+    /// of scanning every transport receipt on every process start.
+    pub(crate) fn records(&self, schema: &str) -> Result<Vec<(String, serde_json::Value)>, Error> {
+        let mut records = Vec::new();
+        for entry in fs::read_dir(&self.root).map_err(|_| Error("state_directory_unavailable"))? {
+            let entry = entry.map_err(|_| Error("state_directory_unavailable"))?;
+            let name = entry.file_name();
+            let Some(key) = name.to_str().and_then(|name| name.strip_suffix(".json")) else {
+                continue;
+            };
+            if key.len() != 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+                continue;
+            }
+            let value = match self.read::<serde_json::Value>(key) {
+                Ok(Some(value)) => value,
+                Ok(None) | Err(Error("foreign_lane_record")) => continue,
+                Err(error) => return Err(error),
+            };
+            if value["schema"] == schema {
+                records.push((key.into(), value));
+            }
+        }
+        Ok(records)
     }
     pub fn write<T: Serialize>(&self, key: &str, value: &T) -> Result<(), Error> {
         let path = self.path(key)?;
@@ -206,6 +261,48 @@ impl Journal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ending_writer_releases_lease_despite_inherited_descriptor_without_unlocking_live_readers() {
+        let root = std::env::temp_dir().join(format!("journal-inherit-{}", random_id().unwrap()));
+        let first = Journal::open(&root).unwrap();
+        let key = "a".repeat(64);
+        first.write(&key, &true).unwrap();
+        assert_eq!(
+            Journal::inspect(&root, &key).unwrap(),
+            Some(serde_json::json!(true))
+        );
+        assert!(matches!(
+            Journal::open(&root),
+            Err(Error("provider_already_running"))
+        ));
+        // A fork child's copied object may close its descriptor, but may not
+        // explicitly unlock the actual parent's still-live writer.
+        let child_copy = Journal {
+            root: root.clone(),
+            owner: first.owner.clone(),
+            _lease: Lease {
+                file: first._lease.file.try_clone().unwrap(),
+                writer_pid: Some(0),
+            },
+        };
+        drop(child_copy);
+        assert!(matches!(
+            Journal::open(&root),
+            Err(Error("provider_already_running"))
+        ));
+        // dup models the same open file description retained by fork before exec.
+        let inherited = first._lease.file.try_clone().unwrap();
+        drop(first);
+        let second = Journal::open(&root).unwrap();
+        drop(inherited);
+        assert!(matches!(
+            Journal::open(&root),
+            Err(Error("provider_already_running"))
+        ));
+        drop(second);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn journal_has_one_writer_survives_restart_and_preserves_foreign_entries() {
         let root = std::env::temp_dir().join(format!("chat-journal-{}", random_id().unwrap()));

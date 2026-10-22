@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import termios
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from qualify_permission_lifecycle import fixture, server_paths, rpc as native_rpc
@@ -24,13 +25,13 @@ TOKEN = 'owned-fixture-bearer-000000000000000000000000'
 
 
 def probe(args):
-    root = Path(tempfile.mkdtemp(prefix='ob-', dir=os.environ['TMPDIR']))
+    root = args.root if getattr(args, 'root', None) else Path(tempfile.mkdtemp(prefix='ob-', dir=os.environ['TMPDIR']))
     processes, masters = [], []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=8)
     screen = ''
     home = None
     try:
-        home, prefix, env = fixture(root, args.core, args.frontend)
+        home, prefix, env = fixture(root, args.core, args.frontend, generation=getattr(args, 'generation', None))
         config_path=home / '.codex/config.toml'
         config_path.write_text(config_path.read_text().replace('approval_policy = "never"','approval_policy = "on-request"')
             .replace('approvals_reviewer = "user"','approvals_reviewer = "auto_review"')
@@ -43,6 +44,8 @@ def probe(args):
         (rules / 'fixture.rules').write_text('prefix_rule(pattern = [' + json.dumps(str(reviewed)) + '], decision = "prompt")\n')
         (root / 'owned-fixture').write_text('owned synthetic operator acceptance\n')
         env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
+        if getattr(args, 'config', None):
+            env['CODEX_PROVIDER_OPERATOR_CONFIG'] = str(args.config)
         auth = root / 'fixture-auth'
         auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + shlex.quote(TOKEN) + '\n')
         auth.chmod(0o700)
@@ -83,6 +86,24 @@ def probe(args):
             value = json.loads(result['content'][0]['text'])
             assert result['isError'] == expect_error, (name, value)
             return value
+
+        def restart_fixture():
+            nonlocal service
+            (root / 'stop-provider').touch()
+            service.wait(timeout=20)
+            assert service.returncode == 0
+            (root / 'stop-provider').unlink()
+            (root / 'provider-ready.json').unlink()
+            closed_bridge_commands = json.loads((root / 'bridge-commands.json').read_text())
+            env['CODEX_PROVIDER_OPERATOR_PORT'] = str(port)
+            service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
+                'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
+                stderr=subprocess.STDOUT, cwd=root / 'w')
+            processes.append(service)
+            wait(lambda: (root / 'provider-ready.json').exists() or service.poll() is not None)
+            assert service.poll() is None
+            assert json.loads((root / 'provider-ready.json').read_text())['port'] == port
+            return closed_bridge_commands
 
         try:
             rpc('codex_sessions', {'action': 'list'}, authorized=False)
@@ -174,7 +195,14 @@ def probe(args):
         assert rpc('codex_status', {'work_id': binding['work_id']})['completed']
         print('Incremental same-thread handoff and completion recorded', flush=True)
 
-        # Same Provider now receives an actual native TUI-origin turn.
+        # Same Provider now receives an actual native TUI-origin turn. Missing
+        # explicit registration must fail before launching a default/API client.
+        profile = tomllib.loads((home / '.codex/chatgpt.config.toml').read_text())
+        assert profile['model_provider'] == 'chatgpt_desktop'
+        route = profile['model_providers']['chatgpt_desktop']
+        assert route['base_url'] == f'http://127.0.0.1:{port}/v1'
+        assert route['requires_openai_auth'] is False
+        assert route['auth']['command'] == str(root / 'fixture-auth')
         master, slave = pty.openpty()
         masters.append(master)
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
@@ -217,7 +245,7 @@ def probe(args):
             if match:
                 for message in submissions[-1]['messages']:
                     if message['role'] == 'user':
-                        assert message['text'] in ['OWNED_CODEX_ENTRY_DEVELOPMENT','OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT','OWNED_FAILED_HOST','OWNED_ENDED_HOST']
+                        assert message['text'] in ['OWNED_CODEX_ENTRY_DEVELOPMENT','OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT','OWNED_AFTER_SERVICE_RESTART','OWNED_FAILED_HOST','OWNED_ENDED_HOST']
                 return {'work_id': match[1], 'controller': match[2]}
 
         cli_binding = wait(driver_binding)
@@ -233,18 +261,38 @@ def probe(args):
         wait(lambda:'ChatGPT is waiting for tool permission' in drain())
         wait(lambda:'ChatGPT is waiting for tool permission' in json.dumps(rpc('codex_history',{'work_id':cli_binding['work_id']})))
         reveal_thread=rpc('codex_status',{'work_id':cli_binding['work_id']})['thread_id']
-        def reveal():
-            request=urllib.request.Request(f'http://127.0.0.1:{port}/__reveal',data=b'',headers={
+        def reveal(operation="reveal"):
+            request=urllib.request.Request(f'http://127.0.0.1:{port}/__{operation}',data=b'',headers={
                 'Authorization':'Bearer '+TOKEN,'X-Codex-Thread-Id':reveal_thread})
             with urllib.request.urlopen(request,timeout=15) as response:return json.load(response)
         revealed=reveal()
         assert revealed['app_reveal_requested'] and not revealed['inference_submitted'] and not revealed['physical_ui_confirmed']
-        (root / 'changed-account').touch()
+        approved = reveal('approve')
+        assert approved['app_approval_requested'] and not approved['window_open_requested'] and not approved['native_completion_confirmed']
+        assert approved['scope']=='conversation' and approved['path']=='action'
+        (root/'approval-ui-required').touch()
+        approval_started=time.monotonic()
+        fallback=reveal('approve')
+        assert time.monotonic()-approval_started>=.3, 'UI approval returned before its real reply observation'
+        assert fallback['scope']=='conversation' and fallback['path']=='ui' and fallback['window_open_requested']
+        (root/'approval-ui-required').unlink()
+        commands_before=len(json.loads((root/'bridge-commands.json').read_text()))
+        (root/'approval-unknown').touch()
         try:
-            reveal()
-            raise AssertionError('reveal admitted another account')
+            reveal('approve')
+            raise AssertionError('uncertain approval was admitted')
         except urllib.error.HTTPError as error:
-            assert error.code==409 and json.load(error)['error']['code']=='app_account_changed'
+            assert error.code==409 and json.load(error)['error']['code']=='app_approval_unconfirmed'
+        after=json.loads((root/'bridge-commands.json').read_text())[commands_before:]
+        assert not any(command['op']=='approve_ui' for command in after), 'uncertain approval triggered UI retry'
+        (root/'approval-unknown').unlink()
+        (root / 'changed-account').touch()
+        for operation in ['reveal', 'approve', 'approve_ui']:
+            try:
+                reveal(operation)
+                raise AssertionError('app control admitted another account')
+            except urllib.error.HTTPError as error:
+                assert error.code==409 and json.load(error)['error']['code']=='app_account_changed'
         denied = rpc('codex_execute', {**cli_binding, 'call_id': 'wrong-account', 'name': command_key,
             'input': json.dumps({'cmd': 'touch wrong-account-effect', 'login': False}), 'report': 'must refuse'}, True)
         assert denied['error'] == 'app_account_changed'
@@ -295,9 +343,15 @@ def probe(args):
         print('Codex entrance: live initial/middle/final, native tools and automatic synthetic Chat renewal passed', flush=True)
         commands_before = json.loads((root / 'bridge-commands.json').read_text())
         opens_before = sum(row['op'] == 'open' for row in commands_before)
+        submissions_before = sum(row['op'] == 'submit' for row in commands_before)
+        (root / 'hold-host-completion').touch()
         os.write(master, b'OWNED_CODEX_FOLLOWUP')
         drain(.4)
         os.write(master, b'\r')
+        wait(lambda: rpc('codex_status', {'work_id':successor['work_id']})['driver_phase']=='waiting_previous_completion')
+        drain(.5)
+        assert sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))==submissions_before
+        (root / 'hold-host-completion').unlink()
         followup = wait(lambda: (value if value != successor else None) if (value := driver_binding()) else None)
         attach(followup)
         rpc('codex_finish', {**followup, 'call_id': 'followup-final', 'text': 'OWNED_FOLLOWUP_COMPLETE'})
@@ -320,6 +374,16 @@ def probe(args):
         wait(lambda:'OWNED_NATIVE_COMPACT_CONTINUED' in drain())
         print('Native inference compaction preserved the same Chat and subsequent task continuity',flush=True)
 
+        (root / 'hold-host-completion').touch()
+        submissions_before=sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))
+        os.write(master,b'OWNED_CANCEL_WAITING_FOLLOWUP');drain(.4);os.write(master,b'\r')
+        wait(lambda:rpc('codex_status',{'work_id':after_compact['work_id']})['driver_phase']=='waiting_previous_completion')
+        queued_stop=rpc('codex_stop',{'work_id':after_compact['work_id']})
+        assert queued_stop['native_stop_confirmed'] and queued_stop['host_stop_confirmed']
+        (root/'hold-host-completion').unlink();drain(.5)
+        assert sum(row['op']=='submit' for row in json.loads((root/'bridge-commands.json').read_text()))==submissions_before
+        print('Terminal-only completion waits for app settlement; Stop fences the queued follow-up without a late dispatch',flush=True)
+
         stopped = rpc('codex_sessions', {'action': 'create', 'call_id': 'stop-entry-create'})
         stop_binding = {'work_id': stopped['work_id'], 'controller': stopped['controller']}
         rpc('codex_sessions', {**stop_binding, 'action': 'start', 'task': 'OWNED_INTERRUPT_RECOVERY'})
@@ -333,6 +397,7 @@ def probe(args):
             'summary': 'Must not transfer running work silently', 'cursor': current['cursor'],'context_cursor':current['context_cursor']}, True)['error'] == 'operator_background_jobs_unsettled'
         stopped_result = rpc('codex_stop', {'work_id': stop_binding['work_id']})
         assert stopped_result['fenced'] and stopped_result['native_stop_confirmed'], stopped_result
+        assert not stopped_result['host_stop_requested'] and not stopped_result['host_stop_confirmed'], 'no recorded host is not a confirmed host Stop'
         assert not (root / 'w/never.txt').exists()
         assert rpc('codex_report', {**stop_binding, 'call_id': 'after-stop', 'text': 'BAD'}, True)['error'] == 'operator_controller_fenced'
         latest = rpc('codex_history', {'work_id': stop_binding['work_id']})
@@ -346,25 +411,31 @@ def probe(args):
         rpc('codex_finish', {**resumed, 'call_id': 'recovered-final', 'text': 'OWNED_STOP_RECOVERY_COMPLETE'})
         print('Owned job stop, stale-controller fence and same-thread explicit recovery passed', flush=True)
 
-        (root / 'stop-provider').touch()
-        service.wait(timeout=20)
-        assert service.returncode == 0
-        (root / 'stop-provider').unlink()
-        (root / 'provider-ready.json').unlink()
-        env['CODEX_PROVIDER_OPERATOR_PORT'] = str(port)
-        service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
-            'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
-            stderr=subprocess.STDOUT, cwd=root / 'w')
-        processes.append(service)
-        wait(lambda: (root / 'provider-ready.json').exists() or service.poll() is not None)
-        assert service.poll() is None
-        assert json.loads((root / 'provider-ready.json').read_text())['port'] == port
+        released_thread = rpc('codex_status', {'work_id': after_compact['work_id']})['thread_id']
+        closed_bridge_commands = restart_fixture()
         assert rpc('codex_attach', resumed, True)['error'] == 'operator_controller_fenced'
         latest = rpc('codex_history', {'work_id': resumed['work_id']})
         claimed = rpc('codex_sessions', {'action': 'claim', 'work_id': resumed['work_id'], 'cursor': latest['cursor'], 'context_cursor': latest['context_cursor']})
         assert claimed['thread_id'] == stopped['thread_id']
+        released_history = rpc('codex_history', {'work_id': after_compact['work_id']})
+        released_claim = rpc('codex_sessions', {'action': 'claim', 'work_id': after_compact['work_id'], 'cursor': released_history['cursor'], 'context_cursor': released_history['context_cursor']})
+        assert released_claim['thread_id'] == released_thread and not released_claim['inference_submitted']
+        restarted_stop = rpc('codex_stop', {'work_id': after_compact['work_id']})
+        assert restarted_stop['native_stop_confirmed'] and restarted_stop['host_stop_confirmed'], restarted_stop
+        assert not restarted_stop['host_stop_requested'] and not restarted_stop['remaining_jobs'], restarted_stop
+        assert json.loads((root / 'bridge-commands.json').read_text()) == closed_bridge_commands, 'recorded released Stop must not recreate or address an app lane'
         assert (root / 'bridge-commands.json').exists()
-        print('Same-endpoint service restart and current-history claim passed without model resubmission', flush=True)
+        print('Same-endpoint restart, current-history claim and recorded released-host Stop passed without app dispatch', flush=True)
+        os.write(master, b'OWNED_AFTER_SERVICE_RESTART')
+        drain(.8)
+        os.write(master, b'\r')
+        restarted_binding = wait(lambda: (value if value['work_id'] == after_compact['work_id'] and value != after_compact else None) if (value := driver_binding()) else None)
+        assert rpc('codex_status', {'work_id': restarted_binding['work_id']})['thread_id'] == released_thread
+        attach(restarted_binding)
+        command(restarted_binding, 'after-released-host', 'printf SAME_THREAD_AFTER_RELEASE')
+        rpc('codex_finish', {**restarted_binding, 'call_id': 'after-released-host-final', 'text': 'OWNED_RELEASE_RESTART_CONTINUED'})
+        wait(lambda: 'OWNED_RELEASE_RESTART_CONTINUED' in drain())
+        print('New genuine user turn continued on the same thread after acknowledged host release', flush=True)
         # Plan-mode question returns to its original native call, not a new user turn.
         question_work = rpc('codex_sessions', {'action': 'create', 'call_id': 'question-create'})
         question_binding = {'work_id': question_work['work_id'], 'controller': question_work['controller']}
@@ -479,9 +550,159 @@ def probe(args):
         assert rpc('codex_stop',{'work_id':ended['work_id']})['native_stop_confirmed']
         print('Explicit host completion without native finish reached CLI/history as incomplete, with no replay',flush=True)
 
+        selected_proof = None
+        if getattr(args, 'inputs', None):
+            # Additional new-control integration proof on real native Android
+            # threads; synthetic reasoning never counts as F live agent proof.
+            before_selected = len(json.loads((root / 'bridge-commands.json').read_text()))
+            budget = {'max_parallel': 2, 'max_app_starts': 12,
+                      'max_native_calls': 24, 'max_elapsed_seconds': 240}
+
+            def selected(label, parent=None, dependencies=None, reasoning='current', parallel=None):
+                workspace = root / ('work-' + label)
+                workspace.mkdir()
+                request = {'action': 'create', 'call_id': 'selected-create-' + label,
+                           'reasoning': reasoning, 'workspace': str(workspace),
+                           'role': label, 'budget': {**budget, **({'max_parallel':parallel} if parallel is not None else {})}}
+                if parent:
+                    request.update(parent_work_id=parent['work_id'], parent_controller=parent['controller'])
+                if dependencies:
+                    request['dependencies'] = dependencies
+                created = rpc('codex_sessions', request)
+                return {'work_id': created['work_id'], 'controller': created['controller']}, created
+
+            def begin(bound, label):
+                started = rpc('codex_sessions', {**bound, 'action': 'start',
+                              'call_id': 'selected-start-' + label, 'task': 'Owned selected task ' + label})
+                bound = {**bound, 'controller': started['controller']}
+                wait(lambda: rpc('codex_status', {'work_id': bound['work_id']})['phase'] == 'running')
+                attach(bound)
+                return bound
+
+            # Project-free synthetic recipes retain their actual scope. The
+            # project-configured service preflight separately proves managed
+            # status/Stop before its first turn, without submitting inference.
+            managed_status_proved = False
+            configured_history = tomllib.loads(args.config.read_text()).get('history', {})
+            if configured_history.get('mode') == 'project':
+                unstarted, _ = selected('managed-status', reasoning='managed')
+                unstarted_status = rpc('codex_status', {'work_id': unstarted['work_id']})
+                assert not unstarted_status['completed'] and unstarted_status['managed_lane'] is None
+                initial_events = rpc('codex_sessions', {'action': 'events', 'work_id': unstarted['work_id']})
+                assert not initial_events['status']['completed'] and initial_events['events'] == []
+                if initial_events['history_observation_available'] is False:
+                    assert initial_events['history_observation_error'] == 'native_history_not_ready'
+                    assert initial_events['delivery'] == 'pending_native_history'
+                initial_wait = rpc('codex_sessions', {'action': 'wait', 'work_id': unstarted['work_id'], 'max_wait_seconds': 0})
+                assert initial_wait['wait_reason'] == 'pending' and initial_wait['events'] == []
+                assert initial_wait['cursor'] == initial_events['cursor']
+                assert rpc('codex_stop', {'work_id': unstarted['work_id']})['native_stop_confirmed']
+                managed_status_proved = True
+            else:
+                missing = rpc('codex_sessions', {'action': 'create', 'call_id': 'managed-without-project',
+                    'reasoning': 'managed', 'role': 'managed-status', 'budget': budget}, True)
+                assert missing['error'] == 'managed_project_required'
+
+            independent_a, _ = selected('independent-a', parallel=1)
+            independent_a = begin(independent_a, 'independent-a')
+            independent_b, _ = selected('independent-b', parallel=1)
+            independent_b = begin(independent_b, 'independent-b')
+            assert rpc('codex_status', {'work_id':independent_a['work_id']})['phase'] == 'running'
+            assert rpc('codex_stop', {'work_id':independent_a['work_id']})['native_stop_confirmed']
+            assert rpc('codex_status', {'work_id':independent_b['work_id']})['phase'] == 'running'
+            command(independent_b, 'independent-effect', 'printf independent > independent.txt')
+            rpc('codex_finish', {**independent_b,'call_id':'independent-final','text':'INDEPENDENT_ROOT_COMPLETE'})
+            restart_fixture()
+            assert rpc('codex_status', {'work_id':independent_a['work_id']})['phase'] == 'stopped'
+            assert rpc('codex_status', {'work_id':independent_b['work_id']})['phase'] == 'completed'
+            # These old threads are unloaded after restart. Stop must observe
+            # their original jobs without a new user turn or model submission.
+            unloaded_stop = rpc('codex_stop', {'work_id':independent_b['work_id']})
+            assert unloaded_stop['native_stop_confirmed'] and unloaded_stop['remaining_jobs'] == [], unloaded_stop
+            assert rpc('codex_status', {'work_id':independent_b['work_id']})['phase'] == 'stopped'
+
+            coordinator, original = selected('coordinator')
+            coordinator = begin(coordinator, 'coordinator')
+            command(coordinator, 'selected-source', 'printf source > source.txt')
+            rpc('codex_finish', {**coordinator, 'call_id': 'selected-source-final', 'text': 'SELECTED_SOURCE_COMPLETE'})
+            observed = rpc('codex_sessions', {'action': 'wait', 'work_id': coordinator['work_id'], 'max_wait_seconds': 1})
+            assert observed['wait_reason'] == 'completed' and observed['status']['completed']
+            restart_fixture()
+            unloaded = rpc('codex_status', {'work_id': coordinator['work_id']})
+            assert unloaded['native_status']['type'] == 'notLoaded', unloaded
+            source = rpc('codex_history', {'work_id': coordinator['work_id']})
+            extended = rpc('codex_sessions', {'work_id':coordinator['work_id'], 'action':'claim', 'call_id':'selected-time-extension',
+                'cursor':source['cursor'], 'context_cursor':source['context_cursor'], 'budget':{**budget,'max_elapsed_seconds':360}})
+            assert extended['thread_id']==original['thread_id'] and extended['assignment']['budget']['max_native_calls']==budget['max_native_calls']
+            retained_start=extended['assignment']['started_at_unix_ms']
+            retained_calls=extended['assignment']['admitted_calls']
+            assert retained_start is not None and retained_calls
+            coordinator={'work_id':coordinator['work_id'],'controller':extended['controller']}
+            coordinator=begin(coordinator,'extended-time')
+            command(coordinator,'selected-extended-check','test "$(cat source.txt)" = source')
+            rpc('codex_finish',{**coordinator,'call_id':'selected-extended-final','text':'EXTENDED_BUDGET_COMPLETE'})
+            source = rpc('codex_history', {'work_id': coordinator['work_id']})
+            offered = rpc('codex_sessions', {**coordinator, 'action': 'transfer', 'call_id': 'selected-transfer',
+                          'reasoning': 'current', 'text': 'source.txt contains source; continue this same native work.',
+                          'cursor': source['cursor'], 'context_cursor': source['context_cursor']})
+            rpc('codex_tools', coordinator, True)
+            successor = {'work_id': coordinator['work_id'], 'controller': offered['controller']}
+            rpc('codex_sessions', {**successor, 'action': 'start', 'task': 'must remain fenced'}, True)
+            accept = {**successor, 'action': 'transfer_accept', 'call_id': 'selected-transfer-accept',
+                      'transfer_receipt': offered['offer']['receipt'], 'cursor': source['cursor'],
+                      'context_cursor': source['context_cursor']}
+            rpc('codex_sessions', {**accept, 'call_id': 'selected-bad-receipt', 'transfer_receipt': 'wrong'}, True)
+            accepted = rpc('codex_sessions', accept)
+            assert accepted['accepted'] and accepted['thread_id'] == original['thread_id']
+            coordinator = begin(successor, 'successor')
+            command(coordinator, 'selected-successor', 'test "$(cat source.txt)" = source; printf successor >> source.txt')
+            rpc('codex_finish', {**coordinator, 'call_id': 'selected-successor-final', 'text': 'SELECTED_SUCCESSOR_COMPLETE'})
+            a, _ = selected('writer-a', coordinator)
+            b, _ = selected('writer-b', coordinator)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as writers:
+                fa = writers.submit(begin, a, 'writer-a')
+                fb = writers.submit(begin, b, 'writer-b')
+                a, b = fa.result(timeout=45), fb.result(timeout=45)
+            queued, _ = selected('writer-queued', coordinator)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as admission:
+                waiting = admission.submit(begin, queued, 'writer-queued')
+                wait(lambda: rpc('codex_status', {'work_id':queued['work_id']})['phase'] == 'queued')
+                assert not waiting.done(), 'same-parent parallel limit failed'
+                assert rpc('codex_stop', {'work_id': a['work_id']})['native_stop_confirmed']
+                queued = waiting.result(timeout=45)
+            assert rpc('codex_stop', {'work_id': queued['work_id']})['native_stop_confirmed']
+            assert rpc('codex_status', {'work_id': b['work_id']})['phase'] == 'running'
+            command(b, 'selected-writer-b', 'printf isolated > result.txt')
+            rpc('codex_finish', {**b, 'call_id': 'selected-writer-b-final', 'text': 'ISOLATED_WRITER_COMPLETE'})
+            h = rpc('codex_history', {'work_id': b['work_id']})
+            evaluated = rpc('codex_sessions', {**b, 'action': 'evaluate', 'call_id': 'selected-evaluation',
+                            'decision': 'accepted', 'text': 'Synthetic independent fixture inspection: isolated result.txt has expected bytes.',
+                            'cursor': h['cursor']})
+            assert evaluated['evaluation']['decision'] == 'accepted'
+            dependent, _ = selected('dependent-review', coordinator, [b['work_id']])
+            dependent = begin(dependent, 'dependent-review')
+            tree = rpc('codex_sessions', {**coordinator, 'action': 'stop_tree'})
+            assert tree['confirmed'] and len(tree['work']) == 5, tree
+            assert (root / 'work-coordinator/source.txt').read_text() == 'sourcesuccessor'
+            assert (root / 'work-writer-b/result.txt').read_text() == 'isolated'
+            assert not (root / 'work-writer-a/result.txt').exists()
+            after_selected = json.loads((root / 'bridge-commands.json').read_text())[before_selected:]
+            assert not any(row['op'] == 'submit' for row in after_selected), 'direct selected work acquired managed reasoning'
+            selected_proof = {'same_thread_successor': original['thread_id'], 'source_fenced_until_receipt': True,
+                              'two_isolated_native_writers': True, 'same_parent_limit_queued_third_writer':True, 'independent_roots_progress_with_parallel_one':True, 'terminal_stop_survived_restart':True, 'per_task_stop_preserved_sibling': True,
+                              'evaluated_dependency': True, 'tree_stop_confirmed_descendants': 5,
+                              'claim_reloaded_observed_notLoaded_thread': True, 'explicit_time_extension_same_native_thread': True, 'extension_retained_call_count':len(retained_calls), 'extension_original_start':retained_start,
+                              'managed_before_first_turn_observable': managed_status_proved,
+                              'new_app_submissions': 0, 'live_reasoning_or_independent_review_qualified': False}
+            print('Selected-work wait/receipt/scope/parallel/dependency/tree-Stop native integration passed, zero Chat', flush=True)
+
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
-            'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True}, indent=2) + '\n')
+            'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True,
+            'terminal_with_pending_submission_did_not_dispatch': True,
+            'settlement_resumed_same_chat': True,
+            'stop_fenced_waiting_followup_without_late_dispatch': True,
+            'selected_control_integration': selected_proof}, indent=2) + '\n')
     finally:
         if home:
             (root / 'stop-provider').touch()
@@ -509,9 +730,37 @@ def probe(args):
 
 
 if __name__ == '__main__':
+    os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--core', type=Path, required=True)
-    parser.add_argument('--frontend', type=Path, required=True)
-    parser.add_argument('--service-test', type=Path, required=True)
-    parser.add_argument('--report', type=Path, required=True)
-    probe(parser.parse_args())
+    parser.add_argument('--inputs', type=Path, help='explicit F source/native/fixture inputs; no historical defaults')
+    parser.add_argument('--core', type=Path)
+    parser.add_argument('--frontend', type=Path)
+    parser.add_argument('--service-test', type=Path)
+    parser.add_argument('--report', type=Path)
+    args=parser.parse_args()
+    if args.inputs:
+        from provider_qualification import prepare, path, reference, require, digest
+        require(not any((args.core,args.frontend,args.service_test,args.report)), '--inputs cannot be combined with implicit/override selectors')
+        resolved=json.loads(prepare(args.inputs).read_text())
+        inputs=resolved['inputs']
+        require(inputs['limits']['mode']=='synthetic_android' and inputs['cases']==['F7-idempotency'], 'this driver qualifies only its declared synthetic F7 subset')
+        args.root=path(inputs['environment']['tmp_root'],directory=True,private=True)
+        require(not list(args.root.iterdir()), 'synthetic root is not empty; preserve and reconcile instead of restarting')
+        require(inputs['native']['home']==str(args.root/'h/.codex') and inputs['native']['workspace']==str(args.root/'w'), 'fixture home/workspace must match explicit prepared roots')
+        recipe=json.loads(reference(inputs['fixture']['manifest']).read_text())
+        require(recipe['schema']=='termux-codex-f-native-fixture-v1','unsupported native fixture recipe')
+        args.generation=path(recipe['generation']['path'],directory=True)
+        require(reference(recipe['generation']['manifest'])==args.generation/'release.manifest','generation manifest mismatch')
+        require(inputs['fixture']['tasks']['sha256']==digest(Path(__file__)), 'synthetic tasks must bind this exact driver source')
+        args.core=reference(inputs['native']['core'])
+        args.config=reference(inputs['candidate']['config'])
+        args.frontend=reference(inputs['native']['frontend'])
+        args.service_test=reference(recipe['service_test'])
+        args.report=Path(inputs['environment']['artifact_root'])/(inputs['run_id']+'.synthetic.json')
+        # This is a distinct exclusive launch, never an automatic retry. The
+        # retained driver report covers its actual cases, not all F7 boundaries.
+        with (args.report.with_suffix('.launch.json')).open('x') as stream:
+            json.dump({'resolved_inputs':str(prepare(args.inputs)),'inputs_sha256':resolved['inputs_sha256'],'pid':os.getpid(),'monotonic_ns':time.monotonic_ns(),'new_chat_requests':0},stream)
+    elif not all((args.core,args.frontend,args.service_test,args.report)):
+        parser.error('supply --inputs, or all legacy --core/--frontend/--service-test/--report options')
+    probe(args)

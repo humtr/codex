@@ -147,8 +147,8 @@ def fixture(root, core, frontend, manager=None, generation=None):
     return home, prefix, env
 
 
-def server_paths(home):
-    expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
+def server_paths(home, runtime=None):
+    expected=Path(runtime) if runtime is not None else home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
     paths=[]
     for family in ['servers','catalogs']:
         for path in (home/'.local/share/codex/core'/family).glob('*/s'):

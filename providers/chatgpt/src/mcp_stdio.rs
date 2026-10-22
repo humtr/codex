@@ -61,7 +61,11 @@ async fn line(
         }
     }
 }
-async fn forward(port: u16, row: &Value, token: Option<&str>) -> Result<Option<Value>, Error> {
+pub(crate) async fn forward(
+    port: u16,
+    row: &Value,
+    token: Option<&str>,
+) -> Result<Option<Value>, Error> {
     let body = row.to_string();
     let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await

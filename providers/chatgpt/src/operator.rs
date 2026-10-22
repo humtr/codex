@@ -2,10 +2,11 @@
 //! dispatch only; Chat lifetime is independent. Upstream is the transcript owner.
 use crate::{
     app::{AppHost, Bridge},
-    config::Config,
+    config::{Config, ReturnPath},
     context::{self, digest},
     journal::{random_id, Journal},
     mcp::{Arguments, Broker},
+    operation::{self, Operations},
     operator_native::{Native, Owner, Pool},
     protocol::{gateway_calls, Error, Request},
     responses::Event,
@@ -26,6 +27,53 @@ use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
 const LIMIT: usize = 16 * 1024 * 1024;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Selection {
+    reasoning: Reasoning,
+    return_path: ReturnPath,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Reasoning {
+    Current,
+    Managed,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Budget {
+    max_parallel: usize,
+    max_app_starts: usize,
+    max_native_calls: usize,
+    max_elapsed_seconds: u64,
+}
+impl Budget {
+    fn extend_time(&self, proposed: Self) -> Result<Self, Error> {
+        if proposed.max_parallel != self.max_parallel
+            || proposed.max_app_starts != self.max_app_starts
+            || proposed.max_native_calls != self.max_native_calls
+            || proposed.max_elapsed_seconds < self.max_elapsed_seconds
+            || proposed.max_elapsed_seconds == 0
+        {
+            return Err(Error("assignment_time_extension_invalid"));
+        }
+        Ok(proposed)
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Assignment {
+    role: String,
+    parent: Option<String>,
+    dependencies: Vec<String>,
+    budget: Budget,
+    #[serde(default)]
+    admitted_calls: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    evaluation: Option<Value>,
+    #[serde(default)]
+    started_at_unix_ms: Option<u64>,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -53,6 +101,81 @@ struct Record {
     observed: Option<Cursor>,
     observed_context: Option<Cursor>,
     policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection: Option<Selection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace: Option<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assignment: Option<Assignment>,
+}
+#[derive(Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkIndex {
+    ids: Vec<String>,
+    pending: Option<Record>,
+}
+fn work_index_key() -> String {
+    digest(&"operator-index-v2")
+}
+fn commit_work_index(journal: &Journal, index: &WorkIndex) -> Result<(), Error> {
+    // Keep the legacy lookup usable at settled downgrade boundaries. A pending
+    // v2 registration must be reconciled before admitting an older writer.
+    if index.pending.is_none() {
+        journal.write(&digest(&"operator-index-v1"), &index.ids)?;
+    }
+    journal.write(&work_index_key(), index)
+}
+fn recover_work_index(journal: &Journal) -> Result<WorkIndex, Error> {
+    let legacy = journal
+        .read::<Vec<String>>(&digest(&"operator-index-v1"))?
+        .unwrap_or_default();
+    let mut index = if let Some(index) = journal.read::<WorkIndex>(&work_index_key())? {
+        index
+    } else {
+        let mut ids = legacy.clone();
+        // Include pre-migration orphan work records; do not mistake an old
+        // incomplete index for authority that those native works do not exist.
+        for (key, value) in journal.records("termux-codex-operator-work-v1")? {
+            let record: Record =
+                serde_json::from_value(value).map_err(|_| Error("operator_record_invalid"))?;
+            if key != digest(&("operator-work-v1", &record.id)) {
+                return Err(Error("operator_record_invalid"));
+            }
+            if !ids.contains(&record.id) {
+                ids.push(record.id);
+            }
+        }
+        WorkIndex { ids, pending: None }
+    };
+    // An explicitly admitted old writer may have registered new settled work.
+    // Its complete records remain authoritative when returning to this source.
+    for id in legacy {
+        if !index.ids.contains(&id) {
+            index.ids.push(id);
+        }
+    }
+    if let Some(record) = &index.pending {
+        let key = digest(&("operator-work-v1", &record.id));
+        if journal.read::<Record>(&key)?.is_none() {
+            journal.write(&key, record)?;
+        }
+        if !index.ids.contains(&record.id) {
+            index.ids.push(record.id.clone());
+        }
+        index.pending = None;
+    }
+    if index.ids.len() > 256
+        || index
+            .ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != index.ids.len()
+    {
+        return Err(Error("operator_record_invalid"));
+    }
+    commit_work_index(journal, &index)?;
+    Ok(index)
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +190,9 @@ struct Work {
     round: String,
     checkpoint: Option<context::Checkpoint>,
     driver_lock: Arc<Mutex<()>>,
+    native_admission: Arc<Mutex<()>>,
+    stops_in_progress: usize,
+    managed_cancel: Option<CancellationToken>,
 }
 enum Command {
     Text {
@@ -78,11 +204,79 @@ enum Command {
     },
     Summary {
         capability: String,
+        round: String,
         text: String,
         ack: oneshot::Sender<Result<(), Error>>,
     },
 }
 type Works = Arc<Mutex<BTreeMap<String, Work>>>;
+struct LimitedBridge {
+    remote: Arc<dyn Bridge>,
+    works: Works,
+}
+impl Bridge for LimitedBridge {
+    fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+        let remote = self.remote.clone();
+        let works = self.works.clone();
+        Box::pin(async move {
+            if command["op"] == "open" {
+                let works = works.lock().await;
+                if let Some(work) = command["nativeThread"]
+                    .as_str()
+                    .and_then(|thread| works.get(thread))
+                    .or_else(|| {
+                        command["nativeParent"]
+                            .as_str()
+                            .and_then(|thread| works.get(thread))
+                    })
+                {
+                    if work.stops_in_progress != 0
+                        || matches!(
+                            work.record.phase.as_str(),
+                            "stop_requested" | "stopped" | "reconciliation_required"
+                        )
+                    {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    if let Some(assignment) = &work.record.assignment {
+                        if command["op"] == "open" {
+                            command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.started_at_unix_ms.map(|start|start.saturating_add(assignment.budget.max_elapsed_seconds.saturating_mul(1000)))});
+                            command["nativeThread"] = json!(work.record.thread);
+                        }
+                    }
+                }
+            }
+            remote.operation(command).await
+        })
+    }
+    fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
+        let remote = self.remote.clone();
+        let works = self.works.clone();
+        Box::pin(async move {
+            let works = works.lock().await;
+            if let Some(work) = command["nativeThread"]
+                .as_str()
+                .and_then(|id| works.get(id))
+                .or_else(|| {
+                    command["nativeParent"]
+                        .as_str()
+                        .and_then(|id| works.get(id))
+                })
+            {
+                if work.stops_in_progress != 0
+                    || matches!(
+                        work.record.phase.as_str(),
+                        "stop_requested" | "stopped" | "reconciliation_required"
+                    )
+                {
+                    return Err(Error("operator_controller_fenced"));
+                }
+            }
+            drop(works);
+            remote.admit_submission(command).await
+        })
+    }
+}
 #[derive(Clone)]
 pub struct Operator {
     pool: Arc<Pool>,
@@ -92,9 +286,24 @@ pub struct Operator {
     config: Config,
     bridge: Arc<dyn Bridge>,
     reviewer: Arc<AppHost>,
+    managed_mcp: Arc<AppHost>,
+    managed_local: Arc<AppHost>,
     token: String,
     session_mutations: Arc<Mutex<()>>,
+    operations: Arc<Operations>,
+    pools: Arc<Mutex<BTreeMap<String, Arc<Pool>>>>,
 }
+fn recovered_phase(phase: &str) -> &str {
+    if matches!(phase, "completed" | "stopped") {
+        phase
+    } else {
+        "reconciliation_required"
+    }
+}
+fn same_assignment_parent(left: Option<&str>, right: Option<&str>) -> bool {
+    left.is_some() && left == right
+}
+
 impl Operator {
     pub fn new(
         pool: Arc<Pool>,
@@ -105,15 +314,11 @@ impl Operator {
         token: String,
     ) -> Result<Arc<Self>, Error> {
         let mut works = BTreeMap::new();
-        for id in journal
-            .read::<Vec<String>>(&digest(&"operator-index-v1"))?
-            .unwrap_or_default()
-        {
+        for id in recover_work_index(&journal)?.ids {
             let mut record: Record = journal
                 .read(&digest(&("operator-work-v1", &id)))?
                 .ok_or(Error("operator_record_missing"))?;
             if record.id != id
-                || record.execution.home != pool.home
                 || record.schema != "termux-codex-operator-work-v1"
                 || works.len() >= 256
             {
@@ -122,8 +327,9 @@ impl Operator {
             // A new service never inherits an old controller or retransmits a call.
             record.capability = random_id()?;
             record.accepted = false;
-            if record.phase != "completed" {
-                record.phase = "reconciliation_required".into();
+            record.phase = recovered_phase(&record.phase).to_owned();
+            if works.contains_key(&record.thread) {
+                return Err(Error("operator_record_invalid"));
             }
             works.insert(
                 record.thread.clone(),
@@ -134,28 +340,215 @@ impl Operator {
                     round: String::new(),
                     checkpoint: None,
                     driver_lock: Arc::new(Mutex::new(())),
+                    native_admission: Arc::new(Mutex::new(())),
+                    stops_in_progress: 0,
+                    managed_cancel: None,
                 },
             );
         }
+        let works = Arc::new(Mutex::new(works));
+        let bridge: Arc<dyn Bridge> = Arc::new(LimitedBridge {
+            remote: bridge,
+            works: works.clone(),
+        });
+        let local_bridge: Arc<dyn Bridge> = Arc::new(crate::app::Transport {
+            remote: bridge.clone(),
+            path: ReturnPath::LocalFunction,
+        });
+        let mcp_bridge: Arc<dyn Bridge> = Arc::new(crate::mcp_bridge::McpBridge::new(
+            Arc::new(crate::app::Transport {
+                remote: bridge.clone(),
+                path: ReturnPath::Mcp,
+            }),
+            broker.clone(),
+            journal.clone(),
+            config.transport.connector_name.clone(),
+        )?);
+        let managed_mcp = Arc::new(
+            AppHost::new(mcp_bridge, journal.clone())
+                .with_connector(config.transport.connector_name.clone()),
+        );
+        let managed_local = Arc::new(
+            AppHost::new(local_bridge, journal.clone())
+                .with_connector(config.transport.connector_name.clone()),
+        );
+        let reviewer = if config.transport.return_path == ReturnPath::Mcp {
+            managed_mcp.clone()
+        } else {
+            managed_local.clone()
+        };
         Ok(Arc::new(Self {
             pool,
             broker: broker.clone(),
-            reviewer: Arc::new(AppHost::new(
-                Arc::new(crate::mcp_bridge::McpBridge::new(
-                    bridge.clone(),
-                    broker.clone(),
-                    journal.clone(),
-                    config.transport.connector_name.clone(),
-                )?),
-                journal.clone(),
-            )),
+            reviewer,
+            managed_mcp,
+            managed_local,
             journal,
-            works: Arc::new(Mutex::new(works)),
+            works,
             config,
             bridge,
             token,
             session_mutations: Arc::new(Mutex::new(())),
+            operations: Arc::new(Operations::default()),
+            pools: Arc::new(Mutex::new(BTreeMap::new())),
         }))
+    }
+    async fn scoped_pool(
+        &self,
+        home: &std::path::Path,
+        workspace: &std::path::Path,
+    ) -> Result<Arc<Pool>, Error> {
+        if home == self.pool.home && workspace == self.pool.workspace {
+            return Ok(self.pool.clone());
+        }
+        for path in [home, workspace] {
+            if !path.is_absolute()
+                || std::fs::canonicalize(path).ok().as_deref() != Some(path)
+                || !path.is_dir()
+            {
+                return Err(Error("native_workspace_identity_invalid"));
+            }
+        }
+        let key = digest(&(home, workspace, &self.config));
+        let mut pools = self.pools.lock().await;
+        if let Some(pool) = pools.get(&key) {
+            return Ok(pool.clone());
+        }
+        let mut config = self.config.clone();
+        config.execution.home = Some(home.to_owned());
+        config.execution.workspace = Some(workspace.to_owned());
+        let pool = self.pool.scoped(config)?;
+        pools.insert(key, pool.clone());
+        Ok(pool)
+    }
+    async fn work_pool(&self, record: &Record) -> Result<Arc<Pool>, Error> {
+        self.scoped_pool(
+            &record.execution.home,
+            record.workspace.as_deref().unwrap_or(&self.pool.workspace),
+        )
+        .await
+    }
+    fn managed(&self, path: ReturnPath) -> Arc<AppHost> {
+        if path == ReturnPath::Mcp {
+            self.managed_mcp.clone()
+        } else {
+            self.managed_local.clone()
+        }
+    }
+    async fn admit_native_call(&self, thread: &str, call_id: &str) -> Result<(), Error> {
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(thread)
+            .ok_or(Error("operator_work_unavailable"))?;
+        if matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
+            || work.stops_in_progress != 0
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
+        let generation = work.record.generation;
+        if let Some(assignment) = &mut work.record.assignment {
+            let id = digest(&(generation, call_id));
+            if assignment.admitted_calls.contains(&id) {
+                return Ok(());
+            }
+            if assignment.admitted_calls.len() >= assignment.budget.max_native_calls {
+                return Err(Error("assignment_native_budget_exhausted"));
+            }
+            if assignment.started_at_unix_ms.is_some_and(|start| {
+                unix_ms().saturating_sub(start)
+                    >= assignment.budget.max_elapsed_seconds.saturating_mul(1000)
+            }) {
+                return Err(Error("assignment_time_budget_exhausted"));
+            }
+            assignment.admitted_calls.insert(id);
+            self.persist(&work.record)?;
+        }
+        Ok(())
+    }
+    async fn wait_assignment(&self, record: &Record) -> Result<(), Error> {
+        let Some(assignment) = &record.assignment else {
+            return Ok(());
+        };
+        loop {
+            let mut works = self.works.lock().await;
+            let current = works
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?;
+            if current.record.capability != record.capability
+                || current.stops_in_progress != 0
+                || matches!(
+                    current.record.phase.as_str(),
+                    "stop_requested" | "stopped" | "reconciliation_required"
+                )
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
+            let mut dependencies_ready = true;
+            for id in &assignment.dependencies {
+                let dependency = works
+                    .values()
+                    .find(|work| &work.record.id == id)
+                    .ok_or(Error("assignment_dependency_unavailable"))?;
+                let evaluation = dependency
+                    .record
+                    .assignment
+                    .as_ref()
+                    .and_then(|a| a.evaluation.as_ref());
+                if evaluation.is_some_and(|v| {
+                    matches!(
+                        v["decision"].as_str(),
+                        Some("rejected" | "changes_requested")
+                    )
+                }) {
+                    return Err(Error("assignment_dependency_not_accepted"));
+                }
+                dependencies_ready &= dependency.record.phase == "completed"
+                    && evaluation.is_some_and(|v| v["decision"] == "accepted");
+            }
+            let active = works
+                .values()
+                .filter(|work| {
+                    work.record.id != record.id
+                        && work.record.assignment.as_ref().is_some_and(|a| {
+                            same_assignment_parent(
+                                a.parent.as_deref(),
+                                assignment.parent.as_deref(),
+                            )
+                        })
+                        && (work.record.native_turn.is_some() || work.record.phase == "admitting")
+                        && !matches!(
+                            work.record.phase.as_str(),
+                            "completed" | "stopped" | "queued"
+                        )
+                })
+                .count();
+            if dependencies_ready && active < assignment.budget.max_parallel {
+                let work = works.get_mut(&record.thread).unwrap();
+                work.record.phase = "admitting".into();
+                work.record
+                    .assignment
+                    .as_mut()
+                    .unwrap()
+                    .started_at_unix_ms
+                    .get_or_insert_with(unix_ms);
+                self.persist(&work.record)?;
+                return Ok(());
+            }
+            let work = works.get_mut(&record.thread).unwrap();
+            let current = work.record.assignment.as_mut().unwrap();
+            let start = *current.started_at_unix_ms.get_or_insert_with(unix_ms);
+            if unix_ms().saturating_sub(start)
+                >= current.budget.max_elapsed_seconds.saturating_mul(1000)
+            {
+                return Err(Error("assignment_time_budget_exhausted"));
+            }
+            if work.record.phase != "queued" {
+                work.record.phase = "queued".into();
+                self.persist(&work.record)?;
+            }
+            drop(works);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
     fn persist(&self, record: &Record) -> Result<(), Error> {
         self.journal
@@ -167,7 +560,26 @@ impl Operator {
         origin: &str,
         request: Option<&Request>,
     ) -> Result<Record, Error> {
-        let execution = self.pool.for_thread(thread).await?.owner.clone();
+        self.register_in(thread, origin, request, self.pool.clone(), None, None)
+            .await
+    }
+    async fn register_in(
+        &self,
+        thread: &str,
+        origin: &str,
+        request: Option<&Request>,
+        pool: Arc<Pool>,
+        selection: Option<Selection>,
+        assignment: Option<Assignment>,
+    ) -> Result<Record, Error> {
+        if let Some(work) = self.works.lock().await.get(thread) {
+            return Ok(work.record.clone());
+        }
+        let native = pool.for_thread(thread).await?;
+        if selection.is_some() {
+            native.verify_scope(thread, &pool.workspace).await?;
+        }
+        let execution = native.owner.clone();
         let mut works = self.works.lock().await;
         if let Some(work) = works.get(thread) {
             return Ok(work.record.clone());
@@ -205,7 +617,19 @@ impl Operator {
             observed: None,
             observed_context: None,
             policy: None,
+            selection,
+            workspace: Some(pool.workspace.clone()),
+            assignment,
         };
+        let mut index = self
+            .journal
+            .read::<WorkIndex>(&work_index_key())?
+            .ok_or(Error("operator_record_missing"))?;
+        if index.pending.is_some() {
+            return Err(Error("operator_registration_reconciliation_required"));
+        }
+        index.pending = Some(record.clone());
+        commit_work_index(&self.journal, &index)?;
         self.persist(&record)?;
         works.insert(
             thread.into(),
@@ -216,12 +640,14 @@ impl Operator {
                 round: String::new(),
                 checkpoint: None,
                 driver_lock: Arc::new(Mutex::new(())),
+                native_admission: Arc::new(Mutex::new(())),
+                stops_in_progress: 0,
+                managed_cancel: None,
             },
         );
-        self.journal.write(
-            &digest(&"operator-index-v1"),
-            &works.values().map(|v| &v.record.id).collect::<Vec<_>>(),
-        )?;
+        index.ids.push(record.id.clone());
+        index.pending = None;
+        commit_work_index(&self.journal, &index)?;
         Ok(record)
     }
     async fn binding(
@@ -242,6 +668,10 @@ impl Operator {
         }
         if require_controller
             && (args["controller"].as_str() != Some(&record.capability)
+                || record
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
                 || !record.accepted
                 || !matches!(
                     record.phase.as_str(),
@@ -254,20 +684,21 @@ impl Operator {
         if require_controller {
             self.verify_identity(&record).await?;
         }
-        let native = match self.pool.for_thread(&record.thread).await {
+        let pool = self.work_pool(&record).await?;
+        let native = match pool.for_thread(&record.thread).await {
             Ok(native) => native,
             Err(Error("native_thread_owner_unavailable"))
                 if matches!(
                     record.phase.as_str(),
-                    "reconciliation_required" | "completed" | "stop_requested"
+                    "reconciliation_required" | "completed" | "stop_requested" | "stopped"
                 ) =>
             {
-                let native = self.pool.prepare().await?;
+                let native = pool.prepare().await?;
                 if args["action"] == "claim" {
                     native
                         .call(
                             "thread/resume",
-                            json!({"threadId":record.thread,"config":self.pool.routing()?}),
+                            json!({"threadId":record.thread,"cwd":pool.workspace,"config":pool.routing()?}),
                         )
                         .await?;
                 }
@@ -275,13 +706,14 @@ impl Operator {
             }
             Err(error) => return Err(error),
         };
+        if record.selection.is_some() {
+            native.verify_scope(&record.thread, &pool.workspace).await?;
+        }
         if native.owner != record.execution {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
             work.record.accepted = false;
-            if work.record.phase != "completed" {
-                work.record.phase = "reconciliation_required".into();
-            }
+            work.record.phase = recovered_phase(&work.record.phase).to_owned();
             self.persist(&work.record)?;
             record = work.record.clone();
             if require_controller {
@@ -361,7 +793,13 @@ impl Operator {
                 .ok_or(Error("native_jobs_unobservable"))?;
             jobs.extend(
                 data.iter()
-                    .filter(|job| owned.iter().any(|call| call["id"] == job["itemId"]))
+                    .filter(|job| {
+                        record
+                            .selection
+                            .as_ref()
+                            .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                            || owned.iter().any(|call| call["id"] == job["itemId"])
+                    })
                     .cloned(),
             );
             cursor = response["nextCursor"].clone();
@@ -375,6 +813,16 @@ impl Operator {
         Err(Error("native_jobs_unobservable"))
     }
     async fn stop_driver(&self, record: &Record) -> Result<bool, Error> {
+        if let Some(selection) = record
+            .selection
+            .as_ref()
+            .filter(|s| s.reasoning == Reasoning::Managed)
+        {
+            return self
+                .managed(selection.return_path)
+                .stop(&record.thread)
+                .await;
+        }
         let driver_lock = self
             .works
             .lock()
@@ -387,7 +835,7 @@ impl Operator {
             .await
             .map_err(|_| Error("app_stop_unconfirmed"))?;
         let Some(lane) = &record.driver else {
-            return Ok(false);
+            return Ok(record.driver_phase == "released_after_stop");
         };
         self.bridge
             .operation(json!({"op":"stop","lane":lane}))
@@ -514,6 +962,62 @@ impl Operator {
             .await
             .map_err(|_| Error("native_delivery_unknown"))?
     }
+    async fn settle_finish(&self, native: &Native, record: &Record) -> Result<(), Error> {
+        if record.phase == "completed" {
+            return Ok(());
+        }
+        if record.phase != "finishing" || !record.accepted || native.owner != record.execution {
+            return Err(Error("operator_reconciliation_required"));
+        }
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let response = native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":true}),
+                    )
+                    .await?;
+                let settled = match &record.native_turn {
+                    Some(id) => response["thread"]["turns"].as_array().is_some_and(|turns| {
+                        turns
+                            .iter()
+                            .any(|turn| turn["id"] == *id && turn["status"] == "completed")
+                    }),
+                    None => response["thread"]["status"]["type"] == "idle",
+                };
+                if settled {
+                    return Ok::<_, Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .map_err(|_| Error("native_completion_unconfirmed"))??;
+        if !self.owned_jobs(native, record).await?.is_empty() {
+            return Err(Error("operator_background_jobs_unsettled"));
+        }
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(&record.thread)
+            .ok_or(Error("operator_work_unavailable"))?;
+        if work.record.capability != record.capability
+            || work.record.generation != record.generation
+            || work.record.native_turn != record.native_turn
+            || !work.record.accepted
+            || work.record.phase != "finishing"
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
+        if !work.record.pending.is_empty() {
+            return Err(Error("operator_pending_completion"));
+        }
+        self.broker.retire(&record.token, false).await?;
+        let mut next = work.record.clone();
+        next.phase = "completed".into();
+        self.persist(&next)?;
+        work.record = next;
+        Ok(())
+    }
     async fn report(&self, args: &Value, final_answer: bool) -> Result<Value, Error> {
         let (record, native) = self.binding(args, false).await?;
         if args["controller"].as_str() != Some(&record.capability) {
@@ -527,7 +1031,12 @@ impl Operator {
                 return Err(Error("operator_call_changed"));
             }
             self.wait_item(&native, &record, id).await?;
-            return Ok(json!({"native_item":id,"recorded":true,"reused":true}));
+            if final_answer {
+                self.settle_finish(&native, &record).await?;
+            }
+            return Ok(
+                json!({"native_item":id,"recorded":true,"reused":true,"completed":final_answer}),
+            );
         }
         if !record.accepted || record.phase != "running" {
             return Err(Error("operator_controller_fenced"));
@@ -571,72 +1080,112 @@ impl Operator {
             .await?;
         self.wait_item(&native, &record, &id).await?;
         if final_answer {
-            tokio::time::timeout(Duration::from_secs(15), async {
-                loop {
-                    let response = native
-                        .call(
-                            "thread/read",
-                            json!({"threadId":record.thread,"includeTurns":true}),
-                        )
-                        .await?;
-                    let settled = match &record.native_turn {
-                        Some(id) => response["thread"]["turns"].as_array().is_some_and(|turns| {
-                            turns
-                                .iter()
-                                .any(|turn| turn["id"] == *id && turn["status"] == "completed")
-                        }),
-                        None => response["thread"]["status"]["type"] == "idle",
-                    };
-                    if settled {
-                        return Ok::<_, Error>(());
-                    }
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                }
-            })
-            .await
-            .map_err(|_| Error("native_completion_unconfirmed"))??;
-            let mut works = self.works.lock().await;
-            let work = works.get_mut(&record.thread).unwrap();
-            if work.record.capability != record.capability {
-                return Ok(json!({"native_item":id,"recorded":true,"completed":true}));
+            let latest = self
+                .works
+                .lock()
+                .await
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?
+                .record
+                .clone();
+            if latest.capability != record.capability {
+                return Err(Error("operator_controller_fenced"));
             }
-            self.broker.retire(&record.token, false).await?;
-            work.record.phase = "completed".into();
-            self.persist(&work.record)?;
+            self.settle_finish(&native, &latest).await?;
         }
         Ok(json!({"native_item":id,"recorded":true,"completed":final_answer}))
     }
     pub async fn call(&self, name: &str, args: Value) -> Result<Value, Error> {
-        let schema = tools()
-            .into_iter()
-            .find(|v| v["name"] == name)
-            .ok_or(Error("mcp_tool_unknown"))?["inputSchema"]
-            .clone();
-        let object = args
-            .as_object()
-            .ok_or(Error("operator_arguments_invalid"))?;
-        if object
-            .keys()
-            .any(|key| schema["properties"].get(key).is_none())
-            || schema["required"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|key| !object.contains_key(key.as_str().unwrap()))
-        {
-            return Err(Error("operator_arguments_invalid"));
-        }
-        for (key, value) in object {
-            let valid = match schema["properties"][key]["type"].as_str() {
-                Some("string") => value.is_string(),
-                Some("object") => value.is_object(),
-                Some("boolean") => value.is_boolean(),
-                _ => false,
-            };
-            if !valid {
-                return Err(Error("operator_arguments_invalid"));
+        validate_arguments(&tools(), name, &args)?;
+        // Only identical logical mutations share this wait. Broker tool calls
+        // already coalesce original-result observers; reads and Stop must remain
+        // independent of a waiting finish or handoff.
+        let summary_round = if name == "codex_native_summary" {
+            let works = self.works.lock().await;
+            Some(
+                works
+                    .values()
+                    .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+                    .ok_or(Error("operator_work_unavailable"))?
+                    .round
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let identity = match name {
+            "codex_report" | "codex_finish" => {
+                Some(json!(["report", args["work_id"], args["call_id"]]))
             }
+            "codex_handoff" => Some(json!([name, args["work_id"], args["call_id"]])),
+            "codex_stop" => Some(json!([name, args["work_id"]])),
+            "codex_sessions" if args["action"] == "chat_input" => Some(json!([
+                "chat-input",
+                args["conversation_id"],
+                args["source_cursor"]["account"],
+                args["call_id"]
+            ])),
+            "codex_sessions"
+                if !matches!(
+                    args["action"].as_str(),
+                    Some("list" | "events" | "wait" | "chat_result")
+                ) =>
+            {
+                Some(
+                    if matches!(args["action"].as_str(), Some("create" | "resume" | "fork")) {
+                        json!(["session-create", args["call_id"]])
+                    } else {
+                        json!([
+                            name,
+                            args["work_id"],
+                            args["controller"],
+                            args["action"],
+                            args["call_id"]
+                        ])
+                    },
+                )
+            }
+            "codex_answer" => Some(json!([
+                name,
+                args["work_id"],
+                args["controller"],
+                args["request_id"]
+            ])),
+            "codex_native_summary" => {
+                let identity = args
+                    .get("call_id")
+                    .map_or_else(|| json!(["round", summary_round]), |id| json!(["call", id]));
+                Some(json!([name, args["work_id"], args["controller"], identity]))
+            }
+            "codex_attach" if args.get("accept").is_some() => Some(json!([
+                name,
+                args["work_id"],
+                args["controller"],
+                args["accept"]
+            ])),
+            _ => None,
+        };
+        if let Some(identity) = identity {
+            let this = self.clone();
+            let fingerprint = digest(&(name, &args));
+            let name = name.to_owned();
+            return self
+                .operations
+                .run(
+                    digest(&identity),
+                    fingerprint,
+                    Box::pin(async move { this.call_inner(&name, args, summary_round).await }),
+                )
+                .await;
         }
+        self.call_inner(name, args, summary_round).await
+    }
+    async fn call_inner(
+        &self,
+        name: &str,
+        args: Value,
+        summary_round: Option<String>,
+    ) -> Result<Value, Error> {
         match name {
             "native_catalog" => Ok(json!(
                 self.broker.catalog(text(&args, "turn_token", 48)?).await?
@@ -649,6 +1198,45 @@ impl Operator {
                     .remove("turn_token");
                 let args = serde_json::from_value(args).map_err(|_| Error("mcp_call_invalid"))?;
                 self.broker.invoke(&token, args).await
+            }
+            "codex_host" => {
+                let action = text(&args, "action", 16)?;
+                if action == "stop"
+                    && self.works.lock().await.values().any(|work| {
+                        work.managed_cancel.is_some()
+                            || work
+                                .record
+                                .selection
+                                .as_ref()
+                                .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                                && !matches!(
+                                    work.record.phase.as_str(),
+                                    "completed" | "stop_requested" | "stopped"
+                                )
+                            || work.record.driver.is_some()
+                                && !matches!(
+                                    work.record.phase.as_str(),
+                                    "completed" | "stop_requested" | "stopped"
+                                )
+                    })
+                {
+                    return Err(Error("host_active_work"));
+                }
+                crate::control::host(self.bridge.as_ref(), &args).await
+            }
+            "codex_chats" => {
+                let secrets = {
+                    let works = self.works.lock().await;
+                    let mut secrets = vec![self.token.clone()];
+                    for work in works.values() {
+                        secrets.extend([work.record.capability.clone(), work.record.token.clone()]);
+                    }
+                    secrets
+                };
+                crate::chats::Chats::new(self.bridge.clone())
+                    .with_public_ids(crate::control::public_work_ids(&self.journal)?)
+                    .call(args, &secrets)
+                    .await
             }
             "codex_sessions" => self.sessions(args).await,
             "codex_attach" => self.attach(args).await,
@@ -687,9 +1275,20 @@ impl Operator {
             }
             "codex_execute" => {
                 let (record, native) = self.binding(&args, false).await?;
+                if record
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                {
+                    return Err(Error("managed_worker_owns_controller"));
+                }
                 self.verify_identity(&record).await?;
                 let call: Arguments = serde_json::from_value(json!({"call_id":args["call_id"],"name":args["name"],"input":args["input"],"report":args["report"]}))
                     .map_err(|_| Error("mcp_call_invalid"))?;
+                if !self.broker.contains_call(&record.token, &call.call_id)? {
+                    self.admit_native_call(&record.thread, &call.call_id)
+                        .await?;
+                }
                 {
                     let works = self.works.lock().await;
                     let work = works.get(&record.thread).unwrap();
@@ -739,15 +1338,43 @@ impl Operator {
                 Ok(result)
             }
             "codex_answer" => {
-                let (record, native) = self.binding(&args, true).await?;
+                let key = digest(&(
+                    "operator-answer-v1",
+                    &args["work_id"],
+                    &args["controller"],
+                    &args["request_id"],
+                ));
+                let fingerprint = digest(&args);
+                if let Some(result) = operation::recover(
+                    &self.journal,
+                    &key,
+                    &fingerprint,
+                    "native_answer_reconciliation_required",
+                )? {
+                    return Ok(result);
+                }
+                let _admission = self.native_admission(&args).await?;
+                let (record, native) = self.binding(&args, false).await?;
+                if args["controller"].as_str() != Some(&record.capability)
+                    || matches!(
+                        record.phase.as_str(),
+                        "stop_requested" | "stopped" | "reconciliation_required"
+                    )
+                {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                text(&args, "request_id", 256)?;
                 native
                     .answer_question(
                         &record.thread,
                         text(&args, "request_id", 256)?,
                         args["answers"].clone(),
+                        || operation::intent(&self.journal, &key, &fingerprint),
                     )
                     .await?;
-                Ok(json!({"answer_forwarded":true,"approval_granted":false}))
+                let result = json!({"answer_forwarded":true,"approval_granted":false});
+                operation::settle(&self.journal, &key, &fingerprint, &result)?;
+                Ok(result)
             }
             "codex_report" => self.report(&args, false).await,
             "codex_finish" => self.report(&args, true).await,
@@ -755,22 +1382,64 @@ impl Operator {
             "codex_stop" => self.stop(args).await,
             "codex_handoff" => self.handoff(args).await,
             "codex_native_summary" => {
+                let (record, _) = self.binding(&args, false).await?;
+                if args["controller"].as_str() != Some(&record.capability) {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                let round = summary_round.ok_or(Error("native_round_not_ready"))?;
+                let identity = if args.get("call_id").is_some() {
+                    json!(["call", text(&args, "call_id", 160)?])
+                } else {
+                    json!(["round", round])
+                };
+                let key = digest(&(
+                    "operator-native-summary-v2",
+                    &record.id,
+                    &record.capability,
+                    identity,
+                ));
+                let fingerprint = digest(&args);
+                if let Some(result) = operation::recover(
+                    &self.journal,
+                    &key,
+                    &fingerprint,
+                    "native_summary_reconciliation_required",
+                )? {
+                    return Ok(result);
+                }
                 let (record, _) = self.binding(&args, true).await?;
                 if record.phase != "native_summary" {
                     return Err(Error("native_summary_not_requested"));
                 }
                 let summary = text(&args, "summary", 256 * 1024)?.to_owned();
-                let sender = self
-                    .works
-                    .lock()
-                    .await
-                    .get(&record.thread)
-                    .and_then(|v| v.active.clone())
-                    .ok_or(Error("native_round_not_ready"))?;
+                if summary.trim().is_empty() {
+                    return Err(Error("empty_compaction_summary"));
+                }
+                let sender = {
+                    let works = self.works.lock().await;
+                    let work = works
+                        .get(&record.thread)
+                        .ok_or(Error("operator_work_unavailable"))?;
+                    if work.round != round
+                        || work.record.capability != record.capability
+                        || !work.record.accepted
+                        || work.record.phase != "native_summary"
+                    {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    work.active.clone().ok_or(Error("native_round_not_ready"))?
+                };
                 let (ack, response) = oneshot::channel();
+                operation::intent_with_context(
+                    &self.journal,
+                    &key,
+                    &fingerprint,
+                    json!({"round":round}),
+                )?;
                 sender
                     .send(Command::Summary {
                         capability: record.capability.clone(),
+                        round: round.clone(),
                         text: summary,
                         ack,
                     })
@@ -779,7 +1448,9 @@ impl Operator {
                 response
                     .await
                     .map_err(|_| Error("native_delivery_unknown"))??;
-                Ok(json!({"native_summary_offered":true,"chat_replaced":false}))
+                let result = json!({"native_summary_offered":true,"chat_replaced":false,"native_round":round});
+                operation::settle(&self.journal, &key, &fingerprint, &result)?;
+                Ok(result)
             }
             _ => Err(Error("mcp_tool_unknown")),
         }
@@ -791,7 +1462,7 @@ impl Operator {
         }
         if matches!(
             record.phase.as_str(),
-            "reconciliation_required" | "stop_requested" | "completed"
+            "reconciliation_required" | "stop_requested" | "completed" | "stopped"
         ) {
             return Err(Error("operator_reconciliation_required"));
         }
@@ -841,9 +1512,22 @@ impl Operator {
                 }),
         ));
         if args["accept"].as_str() == Some(&receipt) {
+            if record
+                .selection
+                .as_ref()
+                .is_some_and(|s| s.reasoning == Reasoning::Managed)
+            {
+                return Err(Error("managed_worker_owns_controller"));
+            }
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
-            if work.record.capability != record.capability {
+            if work.record.capability != record.capability
+                || work.stops_in_progress != 0
+                || matches!(
+                    work.record.phase.as_str(),
+                    "reconciliation_required" | "stop_requested" | "completed" | "stopped"
+                )
+            {
                 return Err(Error("operator_controller_fenced"));
             }
             work.record.accepted = true;
@@ -874,11 +1558,286 @@ impl Operator {
         )
     }
     async fn sessions(&self, args: Value) -> Result<Value, Error> {
+        let receipt = if matches!(
+            args["action"].as_str(),
+            Some(
+                "start"
+                    | "compact"
+                    | "claim"
+                    | "takeover"
+                    | "evaluate"
+                    | "transfer"
+                    | "transfer_accept"
+            )
+        ) && args.get("call_id").is_some()
+        {
+            let call = text(&args, "call_id", 160)?;
+            let key = digest(&(
+                "operator-session-mutation-v1",
+                &args["work_id"],
+                &args["controller"],
+                &args["action"],
+                call,
+            ));
+            let fingerprint = digest(&args);
+            if let Some(result) = operation::recover(
+                &self.journal,
+                &key,
+                &fingerprint,
+                "native_session_mutation_unknown",
+            )? {
+                return Ok(result);
+            }
+            Some((key, fingerprint))
+        } else {
+            None
+        };
+        let result = self.session_action(args, receipt.as_ref()).await?;
+        if let Some((key, fingerprint)) = receipt {
+            operation::settle(&self.journal, &key, &fingerprint, &result)?;
+        }
+        Ok(result)
+    }
+    fn mutation_intent(&self, receipt: Option<&(String, String)>) -> Result<(), Error> {
+        if let Some((key, fingerprint)) = receipt {
+            operation::intent(&self.journal, key, fingerprint)?;
+        }
+        Ok(())
+    }
+    async fn native_admission(
+        &self,
+        args: &Value,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, Error> {
+        let lock = {
+            let works = self.works.lock().await;
+            let work = works
+                .values()
+                .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+                .ok_or(Error("operator_work_unavailable"))?;
+            if work.stops_in_progress != 0 {
+                return Err(Error("operator_controller_fenced"));
+            }
+            work.native_admission.clone()
+        };
+        let admission = lock.lock_owned().await;
+        let works = self.works.lock().await;
+        if works
+            .values()
+            .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+            .is_none_or(|work| work.stops_in_progress != 0)
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
+        Ok(admission)
+    }
+    async fn session_action(
+        &self,
+        args: Value,
+        receipt: Option<&(String, String)>,
+    ) -> Result<Value, Error> {
+        let _admission = if matches!(
+            args["action"].as_str(),
+            Some(
+                "start"
+                    | "compact"
+                    | "claim"
+                    | "takeover"
+                    | "evaluate"
+                    | "transfer"
+                    | "transfer_accept"
+            )
+        ) {
+            Some(self.native_admission(&args).await?)
+        } else {
+            None
+        };
         match args["action"].as_str() {
+            Some("transfer" | "transfer_accept") => self.transfer(args, receipt).await,
+            Some("chat_input" | "chat_result") => {
+                let input = crate::chat_input::Inputs {
+                    bridge: self.bridge.clone(),
+                    journal: self.journal.clone(),
+                    config: self.config.clone(),
+                };
+                let secrets = {
+                    let works = self.works.lock().await;
+                    let mut secrets = vec![self.token.clone()];
+                    for work in works.values() {
+                        secrets.extend([work.record.capability.clone(), work.record.token.clone()]);
+                    }
+                    secrets
+                };
+                if args["action"] == "chat_input" {
+                    let _mutation = self.session_mutations.lock().await;
+                    input.submit(args, &secrets).await
+                } else {
+                    input.result(args, &secrets).await
+                }
+            }
+            Some("wait") => {
+                let (_, native) = self.binding(&args, false).await?;
+                // Subscribe before the first observation so a completion between
+                // observation and waiting cannot be lost. This is local event
+                // observation, with no coordinating model or app submission.
+                let mut events = native.events.subscribe();
+                let seconds = args
+                    .get("max_wait_seconds")
+                    .map(|v| {
+                        v.as_u64()
+                            .filter(|v| *v <= 300)
+                            .ok_or(Error("operator_wait_invalid"))
+                    })
+                    .transpose()?
+                    .unwrap_or(30);
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+                loop {
+                    let mut query = args.clone();
+                    query["action"] = json!("events");
+                    // Call the direct action to avoid another mutation receipt.
+                    let result = Box::pin(self.session_action(query, None)).await?;
+                    if let Some(reason) = wait_reason(&result) {
+                        let mut result = result;
+                        result["wait_reason"] = json!(reason);
+                        return Ok(result);
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        let mut result = result;
+                        result["wait_reason"] = json!("pending");
+                        return Ok(result);
+                    }
+                    // A periodic refresh covers lost notifications and fresh
+                    // host observations without involving a model observer.
+                    let until = deadline.min(tokio::time::Instant::now() + Duration::from_secs(5));
+                    tokio::select! {_=tokio::time::sleep_until(until)=>{},row=events.recv()=>{if matches!(row,Err(tokio::sync::broadcast::error::RecvError::Closed)){return Err(Error("native_connection_closed"));}}}
+                }
+            }
+            Some("stop_tree") => {
+                let (root, _) = self.binding(&args, false).await?;
+                if args["controller"].as_str() != Some(&root.capability) {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                let ids = {
+                    let mut works = self.works.lock().await;
+                    let mut ids = std::collections::BTreeSet::from([root.id.clone()]);
+                    loop {
+                        let previous = ids.len();
+                        for work in works.values() {
+                            if work
+                                .record
+                                .assignment
+                                .as_ref()
+                                .and_then(|a| a.parent.as_ref())
+                                .is_some_and(|parent| ids.contains(parent))
+                            {
+                                ids.insert(work.record.id.clone());
+                            }
+                        }
+                        if previous == ids.len() {
+                            break;
+                        }
+                    }
+                    for work in works
+                        .values_mut()
+                        .filter(|work| ids.contains(&work.record.id))
+                    {
+                        work.record.accepted = false;
+                        work.record.phase = "stop_requested".into();
+                        if let Some(cancel) = &work.managed_cancel {
+                            cancel.cancel();
+                        }
+                        self.persist(&work.record)?;
+                    }
+                    ids
+                };
+                let mut observations = Vec::new();
+                for id in ids {
+                    observations.push(json!({"work_id":id,"stop":match self.stop(json!({"work_id":id})).await {Ok(value)=>value,Err(error)=>json!({"state":"unknown","cause":error.0})}}));
+                }
+                let confirmed = observations.iter().all(|value| {
+                    value["stop"]["native_stop_confirmed"] == true
+                        && (value["stop"]["host_stop_requested"] == false
+                            || value["stop"]["host_stop_confirmed"] == true)
+                });
+                Ok(
+                    json!({"root_work_id":root.id,"fenced":true,"confirmed":confirmed,"work":observations,"inference_submitted":false}),
+                )
+            }
+            Some("evaluate") => {
+                let (record, native) = self.binding(&args, false).await?;
+                if args["controller"].as_str() != Some(&record.capability)
+                    || record.phase != "completed"
+                {
+                    return Err(Error("assignment_result_unsettled"));
+                }
+                let decision = text(&args, "decision", 32)?;
+                if !matches!(decision, "accepted" | "changes_requested" | "rejected") {
+                    return Err(Error("assignment_evaluation_invalid"));
+                }
+                let findings = text(&args, "text", 256 * 1024)?;
+                let history = Self::history(&native, &record.thread).await?;
+                let cursor: Cursor = serde_json::from_value(args["cursor"].clone())
+                    .map_err(|_| Error("operator_cursor_invalid"))?;
+                if cursor != Self::cursor(&history) {
+                    return Err(Error("assignment_evaluation_source_changed"));
+                }
+                let mut works = self.works.lock().await;
+                let work = works.get_mut(&record.thread).unwrap();
+                if work.record.generation != record.generation
+                    || work.record.phase != "completed"
+                    || work.record.capability != record.capability
+                {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                if work.record.assignment.is_none() {
+                    return Err(Error("assignment_unavailable"));
+                }
+                self.mutation_intent(receipt)?;
+                work.record.assignment.as_mut().unwrap().evaluation = Some(
+                    json!({"decision":decision,"findings":findings,"cursor":cursor,"observed_at_unix_ms":unix_ms()}),
+                );
+                self.persist(&work.record)?;
+                Ok(
+                    json!({"work_id":record.id,"evaluation":work.record.assignment.as_ref().unwrap().evaluation,"inference_submitted":false}),
+                )
+            }
             Some("list") => {
                 let works = self.works.lock().await;
                 Ok(
-                    json!({"work":works.values().map(|v|json!({"work_id":v.record.id,"thread_id":v.record.thread,"origin":v.record.origin,"phase":v.record.phase})).collect::<Vec<_>>()}),
+                    json!({"work":works.values().map(|v|json!({"work_id":v.record.id,"thread_id":v.record.thread,"origin":v.record.origin,"phase":v.record.phase,"selection":v.record.selection,"workspace":v.record.workspace})).collect::<Vec<_>>()}),
+                )
+            }
+            Some("events") => {
+                let status = self.status(args.clone()).await?;
+                let (record, native) = self.binding(&args, false).await?;
+                let after = args
+                    .get("cursor")
+                    .map(|value| {
+                        serde_json::from_value::<Cursor>(value.clone())
+                            .map_err(|_| Error("operator_cursor_invalid"))
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| Self::cursor(&[]));
+                let history = match Self::history(&native, &record.thread).await {
+                    Ok(history) => history,
+                    Err(Error("native_history_not_ready")) => {
+                        return Ok(json!({"work_id":record.id,"status":status,"events":[],
+                            "cursor":after,"history_observation_available":false,
+                            "history_observation_error":"native_history_not_ready",
+                            "completed_result":null,"completed_result_available":false,
+                            "delivery":"pending_native_history","inference_submitted":false}));
+                    }
+                    Err(error) => return Err(error),
+                };
+                if !Self::covered(&history, &after) {
+                    return Err(Error("native_history_boundary_changed"));
+                }
+                let completed = completed_result(
+                    status["completed"] == true,
+                    record.native_turn.as_deref(),
+                    &history,
+                );
+                Ok(
+                    json!({"work_id":record.id,"status":status,"events":history[after.count..],"cursor":Self::cursor(&history),"history_observation_available":true,"completed_result_available":completed.is_some(),"completed_result":completed,"delivery":"retrieved_by_original_work_handle","inference_submitted":false}),
                 )
             }
             Some("create" | "resume" | "fork") => {
@@ -887,14 +1846,154 @@ impl Operator {
                 let call = text(&args, "call_id", 160)?;
                 let key = digest(&("operator-session-call-v1", call));
                 let fingerprint = digest(&args);
-                if let Some(previous) = self.journal.read::<Value>(&key)? {
-                    if previous["fingerprint"] != fingerprint {
-                        return Err(Error("operator_call_changed"));
+                if let Some(result) = operation::recover(
+                    &self.journal,
+                    &key,
+                    &fingerprint,
+                    "native_session_creation_unknown",
+                )? {
+                    return Ok(result);
+                }
+                let selection = match args.get("reasoning") {
+                    Some(value) => {
+                        let reasoning = serde_json::from_value::<Reasoning>(value.clone())
+                            .map_err(|_| Error("operator_arguments_invalid"))?;
+                        let return_path = match args.get("return_path") {
+                            Some(value) => serde_json::from_value(value.clone())
+                                .map_err(|_| Error("operator_arguments_invalid"))?,
+                            None => ReturnPath::Mcp,
+                        };
+                        if reasoning == Reasoning::Current && return_path != ReturnPath::Mcp {
+                            return Err(Error("direct_requires_mcp"));
+                        }
+                        if reasoning == Reasoning::Managed
+                            && self.config.history.mode != crate::config::HistoryMode::Project
+                        {
+                            return Err(Error("managed_project_required"));
+                        }
+                        Some(Selection {
+                            reasoning,
+                            return_path,
+                        })
                     }
-                    return previous
-                        .get("result")
-                        .cloned()
-                        .ok_or(Error("native_session_creation_unknown"));
+                    None if args.get("return_path").is_some() => {
+                        return Err(Error("reasoning_selection_required"))
+                    }
+                    None => None,
+                };
+                let assignment = if args.get("role").is_some()
+                    || args.get("parent_work_id").is_some()
+                    || args.get("budget").is_some()
+                    || args.get("dependencies").is_some()
+                {
+                    if selection.is_none() {
+                        return Err(Error("reasoning_selection_required"));
+                    }
+                    let role = text(&args, "role", 64)?.to_owned();
+                    let budget: Budget = serde_json::from_value(args["budget"].clone())
+                        .map_err(|_| Error("assignment_budget_required"))?;
+                    if budget.max_parallel == 0
+                        || budget.max_parallel > 32
+                        || budget.max_app_starts == 0
+                        || budget.max_native_calls == 0
+                        || budget.max_elapsed_seconds == 0
+                    {
+                        return Err(Error("assignment_budget_invalid"));
+                    }
+                    let parent = args
+                        .get("parent_work_id")
+                        .map(|_| text(&args, "parent_work_id", 48).map(str::to_owned))
+                        .transpose()?;
+                    let dependencies: Vec<String> = args
+                        .get("dependencies")
+                        .map(|value| {
+                            serde_json::from_value(value.clone())
+                                .map_err(|_| Error("assignment_dependencies_invalid"))
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    if dependencies.len() > 256
+                        || dependencies
+                            .iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .len()
+                            != dependencies.len()
+                    {
+                        return Err(Error("assignment_dependencies_invalid"));
+                    }
+                    let works = self.works.lock().await;
+                    if let Some(parent) = &parent {
+                        let owner = works
+                            .values()
+                            .find(|work| &work.record.id == parent)
+                            .ok_or(Error("assignment_parent_unavailable"))?;
+                        if args["parent_controller"].as_str() != Some(&owner.record.capability)
+                            || owner.record.assignment.is_none()
+                        {
+                            return Err(Error("assignment_parent_controller_required"));
+                        }
+                        if budget.max_parallel
+                            > owner
+                                .record
+                                .assignment
+                                .as_ref()
+                                .unwrap()
+                                .budget
+                                .max_parallel
+                        {
+                            return Err(Error("assignment_budget_exceeds_parent"));
+                        }
+                    }
+                    for dependency in &dependencies {
+                        let dependency = works
+                            .values()
+                            .find(|work| &work.record.id == dependency)
+                            .ok_or(Error("assignment_dependency_unavailable"))?;
+                        if dependency
+                            .record
+                            .assignment
+                            .as_ref()
+                            .and_then(|assignment| assignment.parent.as_ref())
+                            != parent.as_ref()
+                        {
+                            return Err(Error("assignment_dependency_scope_changed"));
+                        }
+                    }
+                    Some(Assignment {
+                        role,
+                        parent,
+                        dependencies,
+                        budget,
+                        admitted_calls: Default::default(),
+                        evaluation: None,
+                        started_at_unix_ms: None,
+                    })
+                } else {
+                    None
+                };
+                let home = args
+                    .get("execution_home")
+                    .map(|v| text_value_path(v, "native_workspace_identity_invalid"))
+                    .transpose()?
+                    .unwrap_or_else(|| self.pool.home.clone());
+                let workspace = args
+                    .get("workspace")
+                    .map(|v| text_value_path(v, "native_workspace_identity_invalid"))
+                    .transpose()?
+                    .unwrap_or_else(|| self.pool.workspace.clone());
+                let pool = self.scoped_pool(&home, &workspace).await?;
+                if args.get("workspace").is_some()
+                    && self.works.lock().await.values().any(|work| {
+                        let other = work
+                            .record
+                            .workspace
+                            .as_deref()
+                            .unwrap_or(&self.pool.workspace);
+                        !matches!(work.record.phase.as_str(), "completed" | "stopped")
+                            && (workspace.starts_with(other) || other.starts_with(&workspace))
+                    })
+                {
+                    return Err(Error("native_workspace_writer_busy"));
                 }
                 if action == "resume"
                     && self
@@ -905,10 +2004,8 @@ impl Operator {
                 {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
-                self.journal
-                    .write(&key, &json!({"fingerprint":fingerprint}))?;
-                let native = self.pool.prepare().await?;
-                let mut params = json!({"cwd":self.pool.workspace,"config":self.pool.routing()?,"model":self.config.model.default,"modelProvider":"chatgpt_desktop"});
+                let native = pool.prepare().await?;
+                let mut params = json!({"cwd":pool.workspace,"config":pool.routing()?,"model":self.config.model.default,"modelProvider":"chatgpt_desktop"});
                 if action != "create" {
                     params["threadId"] = json!(text(&args, "thread_id", 256)?);
                 }
@@ -917,20 +2014,26 @@ impl Operator {
                     "resume" => "thread/resume",
                     _ => "thread/fork",
                 };
+                operation::intent(&self.journal, &key, &fingerprint)?;
                 let response = native.call(method, params).await?;
                 let thread = response["thread"]["id"]
                     .as_str()
                     .ok_or(Error("native_reply_invalid"))?;
-                let record = self.register(thread, "chatgpt", None).await?;
-                let result = json!({"work_id":record.id,"thread_id":thread,"controller":record.capability,"ready":false});
-                self.journal
-                    .write(&key, &json!({"fingerprint":fingerprint,"result":result}))?;
+                let record = self
+                    .register_in(thread, "chatgpt", None, pool, selection, assignment)
+                    .await?;
+                let result = json!({"work_id":record.id,"thread_id":thread,"controller":record.capability,"selection":record.selection,"workspace":record.workspace,"assignment":record.assignment,"ready":false});
+                operation::settle(&self.journal, &key, &fingerprint, &result)?;
                 Ok(result)
             }
             Some("start") => {
                 let (record, native) = self.binding(&args, false).await?;
                 if args["controller"].as_str() != Some(&record.capability)
-                    || record.phase != "waiting_native"
+                    || !matches!(
+                        record.phase.as_str(),
+                        "waiting_native" | "completed" | "queued"
+                    )
+                    || record.phase == "completed" && record.selection.is_none()
                 {
                     return Err(Error("operator_controller_fenced"));
                 }
@@ -941,15 +2044,70 @@ impl Operator {
                 {
                     return Err(Error("operator_arguments_invalid"));
                 }
+                self.wait_assignment(&record).await?;
                 {
                     let mut works = self.works.lock().await;
+                    if let Some(assignment) = &record.assignment {
+                        for dependency in &assignment.dependencies {
+                            let dependency = works
+                                .values()
+                                .find(|work| &work.record.id == dependency)
+                                .ok_or(Error("assignment_dependency_unavailable"))?;
+                            if dependency.record.phase != "completed"
+                                || dependency
+                                    .record
+                                    .assignment
+                                    .as_ref()
+                                    .and_then(|a| a.evaluation.as_ref())
+                                    .is_none_or(|v| v["decision"] != "accepted")
+                            {
+                                return Err(Error("assignment_dependency_not_accepted"));
+                            }
+                        }
+                    }
                     let work = works.get_mut(&record.thread).unwrap();
-                    if work.record.phase != "waiting_native" {
+                    if !matches!(
+                        work.record.phase.as_str(),
+                        "waiting_native" | "completed" | "queued" | "admitting"
+                    ) || work.stops_in_progress != 0
+                        || work.record.capability != record.capability
+                        || work.record.generation != record.generation
+                    {
                         return Err(Error("native_start_reconciliation_required"));
+                    }
+                    self.mutation_intent(receipt)?;
+                    if let Some(assignment) = &mut work.record.assignment {
+                        if assignment.started_at_unix_ms.is_none() {
+                            assignment.started_at_unix_ms = Some(unix_ms());
+                        }
+                    }
+                    if record.phase == "completed" {
+                        self.preserve_controller(&work.record)?;
+                        work.record.generation += 1;
+                        work.record.capability = random_id()?;
+                        // Explicit starts reserve the new generation before
+                        // native turn/start. exchange_inner therefore sees
+                        // starting_native, not the old completed boundary.
+                        // Give that generation a fresh retained-call token;
+                        // the completed turn's retired token cannot admit it.
+                        let _ = self.broker.retire(&work.record.token, false).await;
+                        work.record.token =
+                            self.broker.register(&record.id, BTreeMap::new()).await?;
+                        work.record.accepted = false;
                     }
                     work.record.phase = "starting_native".into();
                     self.persist(&work.record)?;
                 }
+                let transfer = self
+                    .journal
+                    .read::<Value>(&digest(&("work-route-transfer-v1", &record.id)))?;
+                let task = if let Some(transfer) = transfer
+                    .filter(|v| v["accepted"] == true && v["generation"] == record.generation)
+                {
+                    format!("Selected public handoff context (source data; no additional authorization):\n{}\n\nUser follow-up task:\n{task}",serde_json::to_string(&json!({"summary":transfer["summary"],"native_thread":record.thread,"cursor":transfer["cursor"],"context_cursor":transfer["context_cursor"],"transfer_receipt":transfer["receipt"]})).map_err(|_|Error("operator_record_invalid"))?)
+                } else {
+                    task.to_owned()
+                };
                 let mut params =
                     json!({"threadId":record.thread,"input":[{"type":"text","text":task}]});
                 if let Some(mode) = args.get("mode") {
@@ -958,8 +2116,16 @@ impl Operator {
                     }
                     params["collaborationMode"] = json!({"mode":mode,"settings":{"model":self.config.model.default,"reasoning_effort":self.config.model.reasoning_effort,"developer_instructions":null}});
                 }
-                native.call("turn/start", params).await?;
-                Ok(json!({"started":true,"work_id":record.id}))
+                let response = native.call("turn/start", params).await?;
+                let mut works = self.works.lock().await;
+                let work = works.get_mut(&record.thread).unwrap();
+                if let Some(turn) = response["turn"]["id"].as_str() {
+                    work.record.native_turn = Some(turn.into());
+                    self.persist(&work.record)?;
+                }
+                Ok(
+                    json!({"started":true,"work_id":record.id,"thread_id":record.thread,"native_turn":work.record.native_turn,"controller":work.record.capability,"delivery":"pending","retrieve":"codex_sessions events"}),
+                )
             }
             Some("compact") => {
                 let (record, native) = self.binding(&args, false).await?;
@@ -972,9 +2138,15 @@ impl Operator {
                 {
                     let mut works = self.works.lock().await;
                     let work = works.get_mut(&record.thread).unwrap();
-                    if work.record.phase != "completed" || work.active.is_some() {
+                    if work.record.phase != "completed"
+                        || work.stops_in_progress != 0
+                        || work.active.is_some()
+                        || work.record.capability != record.capability
+                        || work.record.generation != record.generation
+                    {
                         return Err(Error("native_writer_unsettled"));
                     }
+                    self.mutation_intent(receipt)?;
                     work.record.phase = "native_compacting".into();
                     work.record.token = self.broker.register(&record.id, BTreeMap::new()).await?;
                     work.record.accepted = true;
@@ -1013,12 +2185,18 @@ impl Operator {
                 if !self.owned_jobs(&native, &record).await?.is_empty() {
                     return Err(Error("operator_background_jobs_unsettled"));
                 }
+                self.mutation_intent(receipt)?;
                 if record.driver.is_some() {
                     self.stop_driver(&record).await?;
                 }
                 let mut works = self.works.lock().await;
                 let work = works.get_mut(&record.thread).unwrap();
-                if work.record.capability != record.capability || work.record.accepted {
+                if work.record.capability != record.capability
+                    || work.stops_in_progress != 0
+                    || work.record.accepted
+                    || work.record.phase != record.phase
+                    || work.record.generation != record.generation
+                {
                     return Err(Error("operator_controller_fenced"));
                 }
                 self.preserve_controller(&work.record)?;
@@ -1041,7 +2219,7 @@ impl Operator {
                 let (record, native) = self.binding(&args, false).await?;
                 if !matches!(
                     record.phase.as_str(),
-                    "reconciliation_required" | "stop_requested" | "completed"
+                    "reconciliation_required" | "stop_requested" | "completed" | "stopped"
                 ) {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
@@ -1059,24 +2237,97 @@ impl Operator {
                     return Err(Error("native_context_boundary_changed"));
                 }
                 // Restart recovers the same thread at a settled native boundary only.
-                let state = native
+                let mut state = native
                     .call(
                         "thread/read",
                         json!({"threadId":record.thread,"includeTurns":false}),
                     )
                     .await?;
+                if state["thread"]["status"]["type"] == "notLoaded" {
+                    let pool = self.work_pool(&record).await?;
+                    self.mutation_intent(receipt)?;
+                    native
+                        .call(
+                            "thread/resume",
+                            json!({"threadId":record.thread,
+                        "cwd":pool.workspace,"config":pool.routing()?}),
+                        )
+                        .await?;
+                    native.verify_scope(&record.thread, &pool.workspace).await?;
+                    if Self::cursor(&Self::history(&native, &record.thread).await?) != cursor {
+                        return Err(Error("native_history_boundary_changed"));
+                    }
+                    if Self::cursor(&native.public_context(&record.thread).await?) != context_cursor
+                    {
+                        return Err(Error("native_context_boundary_changed"));
+                    }
+                    state = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":record.thread,"includeTurns":false}),
+                        )
+                        .await?;
+                }
                 if !matches!(
                     state["thread"]["status"]["type"].as_str(),
                     Some("idle" | "systemError")
-                ) {
+                ) || !self.owned_jobs(&native, &record).await?.is_empty()
+                {
                     return Err(Error("native_writer_unsettled"));
                 }
+                let extension = if let Some(value) = args.get("budget") {
+                    if !record
+                        .selection
+                        .as_ref()
+                        .is_some_and(|s| s.reasoning == Reasoning::Current)
+                    {
+                        return Err(Error(
+                            "assignment_time_extension_requires_current_reasoning",
+                        ));
+                    }
+                    let assignment = record
+                        .assignment
+                        .as_ref()
+                        .ok_or(Error("assignment_unavailable"))?;
+                    let proposed = serde_json::from_value(value.clone())
+                        .map_err(|_| Error("assignment_budget_invalid"))?;
+                    let proposed = assignment.budget.extend_time(proposed)?;
+                    if let Some(parent) = &assignment.parent {
+                        let works = self.works.lock().await;
+                        let owner = works
+                            .values()
+                            .find(|w| &w.record.id == parent)
+                            .ok_or(Error("assignment_parent_unavailable"))?;
+                        if args["parent_controller"].as_str() != Some(&owner.record.capability) {
+                            return Err(Error("assignment_parent_controller_required"));
+                        }
+                        let budget = &owner
+                            .record
+                            .assignment
+                            .as_ref()
+                            .ok_or(Error("assignment_unavailable"))?
+                            .budget;
+                        if proposed.max_elapsed_seconds > budget.max_elapsed_seconds {
+                            return Err(Error("assignment_budget_exceeds_parent"));
+                        }
+                    }
+                    Some(proposed)
+                } else {
+                    None
+                };
                 let mut works = self.works.lock().await;
                 let work = works.get_mut(&record.thread).unwrap();
-                if work.record.capability != record.capability || work.active.is_some() {
+                if work.record.capability != record.capability
+                    || work.active.is_some()
+                    || work.stops_in_progress != 0
+                {
                     return Err(Error("native_writer_unsettled"));
                 }
+                self.mutation_intent(receipt)?;
                 self.preserve_controller(&work.record)?;
+                if let Some(budget) = extension {
+                    work.record.assignment.as_mut().unwrap().budget = budget;
+                }
                 let _ = self.broker.retire(&record.token, true).await;
                 work.record.capability = random_id()?;
                 work.record.generation += 1;
@@ -1088,7 +2339,7 @@ impl Operator {
                 work.record.accepted = false;
                 self.persist(&work.record)?;
                 Ok(
-                    json!({"work_id":record.id,"thread_id":record.thread,"controller":work.record.capability,"history":history,"recovered_native_receipts":recovered,"inference_submitted":false}),
+                    json!({"work_id":record.id,"thread_id":record.thread,"controller":work.record.capability,"history":history,"recovered_native_receipts":recovered,"assignment":work.record.assignment,"inference_submitted":false}),
                 )
             }
             _ => Err(Error("operator_session_action_invalid")),
@@ -1098,12 +2349,56 @@ impl Operator {
         let mut observed = false;
         let mut host_observation = Value::Null;
         let (mut record, native) = self.binding(&args, false).await?;
+        let managed = record
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.reasoning == Reasoning::Managed);
         let state = native
             .call(
                 "thread/read",
                 json!({"threadId":record.thread,"includeTurns":false}),
             )
             .await?;
+        let managed_lane = if managed {
+            crate::app::inspect_lane(&self.journal.root, &record.thread).ok()
+        } else {
+            None
+        };
+        if managed
+            && record.phase == "running"
+            && state["thread"]["status"]["type"] == "idle"
+            && managed_lane
+                .as_ref()
+                .is_some_and(|lane| lane["phase"] == "idle" && lane["pending_native_calls"] == 0)
+        {
+            // A newly allocated thread may have no persisted turn inventory.
+            // Its lightweight state is still observable. Read full turns only
+            // at a settled completion boundary where that proof is needed.
+            let history = native
+                .call(
+                    "thread/read",
+                    json!({"threadId":record.thread,"includeTurns":true}),
+                )
+                .await?;
+            if history["thread"]["turns"]
+                .as_array()
+                .and_then(|turns| turns.last())
+                .is_some_and(|turn| {
+                    record.native_turn.is_some()
+                        && turn["id"].as_str() == record.native_turn.as_deref()
+                        && turn["status"] == "completed"
+                })
+                && self.owned_jobs(&native, &record).await?.is_empty()
+            {
+                let mut works = self.works.lock().await;
+                let work = works.get_mut(&record.thread).unwrap();
+                if work.record.phase == "running" && work.stops_in_progress == 0 {
+                    work.record.phase = "completed".into();
+                    self.persist(&work.record)?;
+                    record = work.record.clone();
+                }
+            }
+        }
         if let Some(lane) = &record.driver {
             let snapshot = tokio::time::timeout(
                 Duration::from_secs(3),
@@ -1112,7 +2407,7 @@ impl Operator {
             .await;
             if let Ok(Ok(snapshot)) = snapshot {
                 let waiting = host_waiting(&snapshot);
-                host_observation = json!({"dispatches":snapshot["dispatches"].as_u64(),"user_messages":snapshot["userMessages"].as_u64(),"tool_messages":snapshot["toolMessages"].as_u64(),"host_reply_messages":snapshot["hostReplyMessages"].as_u64(),"round_starts":snapshot["roundStarts"].as_u64(),"rejected_before_dispatch":snapshot["rejectedBeforeDispatch"].as_bool(),"waiting_for":waiting,"error":match snapshot["error"].as_str(){Some("app_submit_failed")=>Some("app_submit_failed"),Some("app_stream_failed")=>Some("app_stream_failed"),Some(_)=>Some("app_error"),None=>None}});
+                host_observation = json!({"dispatches":snapshot["dispatches"].as_u64(),"user_messages":snapshot["userMessages"].as_u64(),"tool_messages":snapshot["toolMessages"].as_u64(),"host_reply_messages":snapshot["hostReplyMessages"].as_u64(),"round_starts":snapshot["roundStarts"].as_u64(),"rejected_before_dispatch":snapshot["rejectedBeforeDispatch"].as_bool(),"waiting_for":waiting,"approval_submission_pending":snapshot["approvalPending"].as_bool(),"approval_ui":{"stage":match snapshot["approvalUi"]["stage"].as_str(){Some(v @ ("card"|"menu"|"once"|"clicked"))=>Some(v),_=>None},"cards":snapshot["approvalUi"]["cards"].as_u64(),"triggers":snapshot["approvalUi"]["triggers"].as_u64(),"menus":snapshot["approvalUi"]["menus"].as_u64(),"options":snapshot["approvalUi"]["options"].as_u64()},"error":match snapshot["error"].as_str(){Some("app_submit_failed")=>Some("app_submit_failed"),Some("app_stream_failed")=>Some("app_stream_failed"),Some(_)=>Some("app_error"),None=>None}});
                 observed = true;
                 record.host_observed_at = Some(
                     std::time::SystemTime::now()
@@ -1128,7 +2423,7 @@ impl Operator {
                     "waiting_confirmation"
                 } else if waiting == Some("mcp_host_authentication_required") {
                     "waiting_authentication"
-                } else if snapshot["terminals"] == json!(["done"]) {
+                } else if host_settled(&snapshot) {
                     "stream_settled"
                 } else {
                     "stream_observed"
@@ -1154,37 +2449,212 @@ impl Operator {
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
+            "selection":record.selection,"workspace":record.workspace,"managed_lane":managed_lane,
             "host_state":if observed{record.host_last_state.as_str()}else{"unknown"},"driver_phase":record.driver_phase,"last_observed_host_state":record.host_last_state,"host_observed_at":record.host_observed_at,"host_observation_available":observed,"host_progress":"unknown","host_observation":host_observation,"completed":record.phase=="completed"}),
+        )
+    }
+    async fn transfer(
+        &self,
+        args: Value,
+        receipt: Option<&(String, String)>,
+    ) -> Result<Value, Error> {
+        let (record, native) = self.binding(&args, false).await?;
+        if args["controller"].as_str() != Some(&record.capability) {
+            return Err(Error("operator_controller_fenced"));
+        }
+        let history = Self::history(&native, &record.thread).await?;
+        let context = native.public_context(&record.thread).await?;
+        let cursor: Cursor = serde_json::from_value(args["cursor"].clone())
+            .map_err(|_| Error("operator_cursor_invalid"))?;
+        let context_cursor: Cursor = serde_json::from_value(args["context_cursor"].clone())
+            .map_err(|_| Error("operator_cursor_invalid"))?;
+        if cursor != Self::cursor(&history) || context_cursor != Self::cursor(&context) {
+            return Err(Error("native_history_boundary_changed"));
+        }
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":false}),
+            )
+            .await?;
+        if state["thread"]["status"]["type"] != "idle"
+            || !record.pending.is_empty()
+            || !self.broker.unsettled(&record.token).await?.is_empty()
+            || !self.owned_jobs(&native, &record).await?.is_empty()
+        {
+            return Err(Error("operator_pending_handoff"));
+        }
+        let key = digest(&("work-route-transfer-v1", &record.id));
+        if args["action"] == "transfer_accept" {
+            let mut transfer = self
+                .journal
+                .read::<Value>(&key)?
+                .ok_or(Error("operator_transfer_unavailable"))?;
+            if record.phase != "transfer_prepared"
+                || transfer["generation"] != record.generation
+                || transfer["cursor"] != json!(cursor)
+                || transfer["context_cursor"] != json!(context_cursor)
+                || transfer["receipt"] != args["transfer_receipt"]
+                || !args["transfer_receipt"].is_string()
+            {
+                return Err(Error("operator_transfer_receipt_invalid"));
+            }
+            let selection: Selection = serde_json::from_value(transfer["selection"].clone())
+                .map_err(|_| Error("operator_record_invalid"))?;
+            let mut works = self.works.lock().await;
+            let work = works.get_mut(&record.thread).unwrap();
+            if work.record.phase != "transfer_prepared"
+                || work.record.generation != record.generation
+                || work.record.capability != record.capability
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
+            self.mutation_intent(receipt)?;
+            transfer["accepted"] = json!(true);
+            transfer["accepted_at_unix_ms"] = json!(unix_ms());
+            // A durable offer alone never changes the route. Any crash between
+            // these writes is fenced by startup reconciliation, never replayed.
+            self.journal.write(&key, &transfer)?;
+            work.record.selection = Some(selection);
+            work.record.phase = "completed".into();
+            self.persist(&work.record)?;
+            return Ok(
+                json!({"work_id":record.id,"thread_id":record.thread,"accepted":true,"selection":work.record.selection,"generation":record.generation,"inference_submitted":false}),
+            );
+        }
+        if record.phase != "completed" {
+            return Err(Error("operator_transfer_boundary_required"));
+        }
+        let selection = Selection {
+            reasoning: serde_json::from_value(args["reasoning"].clone())
+                .map_err(|_| Error("reasoning_selection_required"))?,
+            return_path: args
+                .get("return_path")
+                .map(|v| {
+                    serde_json::from_value(v.clone())
+                        .map_err(|_| Error("operator_arguments_invalid"))
+                })
+                .transpose()?
+                .unwrap_or(ReturnPath::Mcp),
+        };
+        if selection.reasoning == Reasoning::Current && selection.return_path != ReturnPath::Mcp {
+            return Err(Error("direct_requires_mcp"));
+        }
+        if selection.reasoning == Reasoning::Managed
+            && self.config.history.mode != crate::config::HistoryMode::Project
+        {
+            return Err(Error("managed_project_required"));
+        }
+        let summary = text(&args, "text", 256 * 1024)?;
+        // Reconcile and stop the old owned host lane before offering a new
+        // generation. The saved source is retained, never adopted by title.
+        if record
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.reasoning == Reasoning::Managed)
+            && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok()
+        {
+            let host = if record.selection.as_ref().unwrap().return_path == ReturnPath::Mcp {
+                &self.managed_mcp
+            } else {
+                &self.managed_local
+            };
+            if !host.stop(&record.thread).await? {
+                return Err(Error("app_stop_unconfirmed"));
+            }
+        }
+        if record.driver.is_some() {
+            self.stop_driver(&record).await?;
+        }
+        let mut works = self.works.lock().await;
+        let work = works.get_mut(&record.thread).unwrap();
+        if work.record.phase != "completed"
+            || work.record.generation != record.generation
+            || work.record.capability != record.capability
+            || work.active.is_some()
+            || work.stops_in_progress != 0
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
+        self.mutation_intent(receipt)?;
+        self.preserve_controller(&work.record)?;
+        work.record.generation += 1;
+        work.record.capability = random_id()?;
+        work.record.accepted = false;
+        work.record.phase = "transfer_prepared".into();
+        work.record.driver = None;
+        work.record.driver_phase = "transfer_prepared".into();
+        let offer = json!({"work_id":record.id,"thread_id":record.thread,"generation":work.record.generation,"selection":selection,"cursor":cursor,"context_cursor":context_cursor,"summary":summary,"receipt":digest(&(&record.id,work.record.generation,&selection,&cursor,&context_cursor,summary)),"accepted":false,"offered_at_unix_ms":unix_ms()});
+        self.journal.write(&key, &offer)?;
+        self.persist(&work.record)?;
+        Ok(
+            json!({"offer":offer,"controller":work.record.capability,"source_fenced":true,"destination_accepted":false,"inference_submitted":false}),
         )
     }
     async fn stop(&self, args: Value) -> Result<Value, Error> {
         let (mut record, native) = self.binding(&args, false).await?;
-        {
+        let admission = {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
             work.record.accepted = false;
+            if let Some(cancel) = &work.managed_cancel {
+                cancel.cancel();
+            }
             work.record.phase = "stop_requested".into();
             self.persist(&work.record)?;
+            work.stops_in_progress += 1;
             record = work.record.clone();
-        }
+            work.native_admission.clone()
+        };
+        // Fence immediately, then drain an admitted start/compact/answer RPC.
+        // Stop never waits behind a report/finish observer or another work.
+        let _admission = admission.lock_owned().await;
         let native_result = tokio::time::timeout(Duration::from_secs(15), async {
-            let state = native
+            let mut state = native
                 .call(
                     "thread/read",
-                    json!({"threadId":record.thread,"includeTurns":true}),
+                    json!({"threadId":record.thread,"includeTurns":false}),
                 )
                 .await?;
-            for turn in state["thread"]["turns"]
-                .as_array()
-                .ok_or(Error("native_history_unavailable"))?
-            {
-                if turn["status"] == "inProgress" {
-                    native
-                        .call(
-                            "turn/interrupt",
-                            json!({"threadId":record.thread,"turnId":turn["id"]}),
-                        )
-                        .await?;
+            if state["thread"]["status"]["type"] == "notLoaded" {
+                let pool = self.work_pool(&record).await?;
+                native.verify_scope(&record.thread, &pool.workspace).await?;
+                native
+                    .call(
+                        "thread/resume",
+                        json!({"threadId":record.thread,"cwd":pool.workspace,"config":pool.routing()?,"excludeTurns":true}),
+                    )
+                    .await?;
+                native.verify_scope(&record.thread, &pool.workspace).await?;
+                state = native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":false}),
+                    )
+                    .await?;
+            }
+            // A never-started idle thread has no turn inventory to interrupt.
+            // Do not require unsupported full-history reads to confirm its Stop.
+            if state["thread"]["status"]["type"] != "idle" {
+                let history = native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":true}),
+                    )
+                    .await?;
+                for turn in history["thread"]["turns"]
+                    .as_array()
+                    .ok_or(Error("native_history_unavailable"))?
+                {
+                    if turn["status"] == "inProgress" {
+                        native
+                            .call(
+                                "turn/interrupt",
+                                json!({"threadId":record.thread,"turnId":turn["id"]}),
+                            )
+                            .await?;
+                    }
                 }
             }
             for job in self.owned_jobs(&native, &record).await? {
@@ -1214,17 +2684,39 @@ impl Operator {
         })
         .await;
         let confirmed = matches!(native_result, Ok(Ok(())));
-        let host_confirmed = if record.driver.is_some() {
+        let host_requested = record.driver.is_some()
+            || record
+                .selection
+                .as_ref()
+                .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok();
+        let host_confirmed = if host_requested {
             self.stop_driver(&record).await.unwrap_or(false)
         } else {
-            false
+            // Absence is not confirmation. Preserve a previously observed and
+            // durably released Stop without recreating the old host lane.
+            record.driver_phase == "released_after_stop"
         };
         // Detach pending model observers without claiming uncertain calls executed.
         let _ = self.broker.retire(&record.token, true).await;
         let jobs = self.owned_jobs(&native, &record).await;
+        {
+            let mut works = self.works.lock().await;
+            let work = works.get_mut(&record.thread).unwrap();
+            work.stops_in_progress -= 1;
+            if confirmed
+                && (!host_requested || host_confirmed)
+                && jobs.as_ref().is_ok_and(Vec::is_empty)
+                && work.stops_in_progress == 0
+                && work.record.phase == "stop_requested"
+            {
+                work.record.phase = "stopped".into();
+                self.persist(&work.record)?;
+            }
+        }
         Ok(
             json!({"fenced":true,"native_stop_requested":true,"native_stop_confirmed":confirmed,
-            "native_stop_state":if confirmed{"confirmed"}else{"unknown"},"host_stop_requested":record.driver.is_some(),"host_stop_confirmed":host_confirmed,
+            "native_stop_state":if confirmed{"confirmed"}else{"unknown"},"host_stop_requested":host_requested,"host_stop_confirmed":host_confirmed,
             "remaining_jobs":jobs.as_ref().ok(),"jobs_observation_available":jobs.is_ok()}),
         )
     }
@@ -1232,14 +2724,13 @@ impl Operator {
         let call = text(&args, "call_id", 160)?;
         let key = digest(&("operator-handoff-call-v1", call, &args["work_id"]));
         let fingerprint = digest(&args);
-        if let Some(previous) = self.journal.read::<Value>(&key)? {
-            if previous["fingerprint"] != fingerprint {
-                return Err(Error("operator_call_changed"));
-            }
-            return previous
-                .get("result")
-                .cloned()
-                .ok_or(Error("operator_handoff_reconciliation_required"));
+        if let Some(result) = operation::recover(
+            &self.journal,
+            &key,
+            &fingerprint,
+            "operator_handoff_reconciliation_required",
+        )? {
+            return Ok(result);
         }
         let (record, native) = self.binding(&args, true).await?;
         if !record.pending.is_empty() {
@@ -1274,8 +2765,7 @@ impl Operator {
             if !self.broker.unsettled(&record.token).await?.is_empty() {
                 return Err(Error("operator_pending_handoff"));
             }
-            self.journal
-                .write(&key, &json!({"fingerprint":fingerprint}))?;
+            operation::intent(&self.journal, &key, &fingerprint)?;
             work.record.accepted = false;
             work.record.phase = "handoff".into();
             self.persist(&work.record)?;
@@ -1286,6 +2776,13 @@ impl Operator {
         let next = {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
+            if work.record.capability != record.capability
+                || work.record.generation != record.generation
+                || work.record.phase != "handoff"
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
             self.preserve_controller(&work.record)?;
             work.record.generation += 1;
             work.record.capability = random_id()?;
@@ -1309,13 +2806,54 @@ impl Operator {
             let generation = next.generation;
             tokio::spawn(async move {
                 let result = async {
+                    // A local function must return its correlated result before
+                    // stopping the source. Never resubmit it after fencing/Stop.
+                    let gate = digest(&(
+                        "operator-local-renew-gate-v1",
+                        &record.id,
+                        &record.capability,
+                    ));
+                    if this.journal.read::<Value>(&gate)?.is_some() {
+                        loop {
+                            if this
+                                .works
+                                .lock()
+                                .await
+                                .get(&record.thread)
+                                .is_none_or(|work| {
+                                    work.record.generation != generation
+                                        || work.record.phase != "handoff"
+                                })
+                            {
+                                return Err(Error("operator_controller_fenced"));
+                            }
+                            if this
+                                .journal
+                                .read::<Value>(&gate)?
+                                .is_some_and(|v| v["returned"] == true)
+                            {
+                                let snapshot = this
+                                    .bridge
+                                    .operation(json!({"op":"snapshot","lane":record.driver}))
+                                    .await?;
+                                if snapshot["error"].is_string() {
+                                    return Err(Error("operator_local_return_unsettled"));
+                                }
+                                if host_settled(&snapshot) {
+                                    break;
+                                }
+                            }
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+                    }
                     if record.driver.is_some() {
                         this.stop_driver(&record).await?;
                     }
                     this.start_driver(next, request).await
                 }
                 .await;
-                if result.is_err() {
+                if let Err(error) = result {
+                    eprintln!("operator_handoff_start_failed: {}", error.0);
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&record.thread).unwrap();
                     if work.record.generation == generation {
@@ -1326,13 +2864,11 @@ impl Operator {
                 }
             });
             let result = json!({"prepared":true,"successor_requested":true,"thread_id":thread});
-            self.journal
-                .write(&key, &json!({"fingerprint":fingerprint,"result":result}))?;
+            operation::settle(&self.journal, &key, &fingerprint, &result)?;
             Ok(result)
         } else {
             let result = json!({"prepared":true,"thread_id":record.thread,"controller":next.capability,"generation":next.generation,"successor_requested":false});
-            self.journal
-                .write(&key, &json!({"fingerprint":fingerprint,"result":result}))?;
+            operation::settle(&self.journal, &key, &fingerprint, &result)?;
             Ok(result)
         }
     }
@@ -1373,23 +2909,34 @@ impl Operator {
             random_id()?
         };
         if reuse {
-            tokio::time::timeout(Duration::from_secs(15), async {
-                loop {
-                    let snapshot = self
-                        .bridge
-                        .operation(json!({"op":"snapshot","lane":marker}))
-                        .await?;
-                    if snapshot["terminals"] == json!(["done"]) {
-                        return Ok::<_, Error>(());
-                    }
-                    if snapshot["error"].is_string() || snapshot["stopped"] == true {
-                        return Err(Error("app_previous_round_unsettled"));
-                    }
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+            {
+                let mut works = self.works.lock().await;
+                let work = works.get_mut(&record.thread).unwrap();
+                if work.record.capability != record.capability {
+                    return Err(Error("operator_controller_fenced"));
                 }
-            })
-            .await
-            .map_err(|_| Error("app_previous_round_unsettled"))??;
+                work.record.driver_phase = "waiting_previous_completion".into();
+                self.persist(&work.record)?;
+            }
+            loop {
+                // Stop fences the record before acquiring driver_lock. Recheck
+                // it during this wait so slow remote completion cannot block Stop.
+                self.driver_admitted(&record).await?;
+                let snapshot = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    self.bridge
+                        .operation(json!({"op":"snapshot","lane":marker})),
+                )
+                .await
+                .map_err(|_| Error("app_previous_round_unobservable"))??;
+                if snapshot["error"].is_string() || snapshot["stopped"] == true {
+                    return Err(Error("app_previous_round_unsettled"));
+                }
+                if host_settled(&snapshot) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
         }
         let observed = self
             .bridge
@@ -1431,13 +2978,30 @@ impl Operator {
             work.record.identity = Some(identity);
             self.persist(&work.record)?;
         }
-        self.bridge.operation(json!({"op":"open","lane":marker,"signature":{"name":"operator_no_local_tools","description":"Use MCP Codex controls","parameters":{"type":"object","properties":{}}},"project":project})).await?;
+        let local = self.config.transport.return_path == ReturnPath::LocalFunction;
+        let gateway = format!("operator_local_{marker}");
+        let signature = if local {
+            local_signature(&gateway)
+        } else {
+            json!({"name":"operator_no_local_tools","description":"Use MCP Codex controls","parameters":{"type":"object","properties":{}}})
+        };
+        self.bridge
+            .operation(json!({"op":"open","lane":marker,"signature":signature,"project":project}))
+            .await?;
         let mut instructions = request
             .instructions
             .iter()
             .map(context::text)
             .collect::<Result<Vec<_>, _>>()?;
-        instructions.push(format!("Operate local Codex through the installed {} MCP connector. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary without replacing Chat. Never invent execution receipts, use local functions, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",self.config.transport.connector_name,record.id,record.capability));
+        let transport = if local {
+            format!("the declared local {gateway} function. Call it with name=<control name> and input=<JSON string encoding its control arguments object>. These controls are the same native Operator Host, not app tools. Control schemas: {}. Do not use an MCP connector",serde_json::to_string(&tools()).unwrap())
+        } else {
+            format!(
+                "the installed {} MCP connector. Do not use local functions",
+                self.config.transport.connector_name
+            )
+        };
+        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. After codex_finish, end your Chat turn. The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
         {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -1464,10 +3028,28 @@ impl Operator {
                 .ok_or(Error("native_user_input_missing"))?;
             json!([{"role":"user","text":context::text(user)?,"hidden":false}])
         } else {
-            json!([{"role":"developer","text":"Use the Codex MCP attachment described in the control instructions and continue its current task.","hidden":true}])
+            json!([{"role":"developer","text":"Use the Codex attachment described in the control instructions and continue its current task.","hidden":true}])
         };
         self.bridge.operation(json!({"op":"submit","lane":marker,"round":random_id()?,"model":request.host_model,"thinkingEffort":request.thinking_effort,
             "messages":messages,"instructions":instructions,"results":[],"bootstrap":bootstrap})).await?;
+        if local {
+            let this = self.clone();
+            let record = record.clone();
+            let marker = marker.clone();
+            tokio::spawn(async move {
+                if let Err(error) = this.drive_local(record.clone(), marker).await {
+                    eprintln!("operator_local_transport_failed: {}", error.0);
+                    let mut works = this.works.lock().await;
+                    if let Some(work) = works.get_mut(&record.thread).filter(|v| {
+                        v.record.capability == record.capability && v.record.phase != "completed"
+                    }) {
+                        work.record.driver_phase = "start_unknown".into();
+                        work.record.accepted = false;
+                        let _ = this.persist(&work.record);
+                    }
+                }
+            });
+        }
         let mut works = self.works.lock().await;
         let work = works.get_mut(&record.thread).unwrap();
         if work.record.capability != record.capability
@@ -1481,17 +3063,208 @@ impl Operator {
         work.record.driver_phase = "started_observation_unknown".into();
         self.persist(&work.record)
     }
+    fn drive_local(&self, record: Record, marker: String) -> BoxFuture<'static, Result<(), Error>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let recipient = format!("local.operator_local_{marker}");
+            let mut corrections = 0u8;
+            loop {
+                let latest = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&record.thread)
+                    .ok_or(Error("operator_work_unavailable"))?
+                    .record
+                    .clone();
+                if latest.capability != record.capability
+                    || latest.driver.as_ref() != Some(&marker)
+                    || matches!(
+                        latest.phase.as_str(),
+                        "completed" | "stop_requested" | "reconciliation_required"
+                    )
+                {
+                    return Ok(());
+                }
+                this.verify_identity(&latest).await?;
+                let snapshot = this
+                    .bridge
+                    .operation(json!({"op":"snapshot","lane":marker}))
+                    .await?;
+                if snapshot["error"].is_string() {
+                    return Err(Error("operator_app_round_failed"));
+                }
+                if snapshot["stopped"] == true {
+                    return Ok(());
+                }
+                if !host_settled(&snapshot) {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+                let mut calls = Vec::new();
+                for message in snapshot["messages"]
+                    .as_array()
+                    .ok_or(Error("invalid_app_snapshot"))?
+                    .iter()
+                    .filter(|v| v["author"]["role"] == "assistant" && v["recipient"] == recipient)
+                {
+                    let id = text(message, "id", 256)?;
+                    let key = digest(&("operator-local-call-v1", &marker, id));
+                    let fingerprint = digest(&message["content"]["text"]);
+                    if local_return_seen(this.journal.read::<Value>(&key)?.as_ref(), &fingerprint)?
+                    {
+                        continue;
+                    }
+                    calls.push(message);
+                }
+                if calls.is_empty() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+                if calls.len() != 1 {
+                    return Err(Error("operator_local_calls_ambiguous"));
+                }
+                let message = calls[0];
+                if message["status"] != "finished_successfully" {
+                    return Err(Error("incomplete_host_call"));
+                }
+                let id = text(message, "id", 256)?.to_owned();
+                let fingerprint = digest(&message["content"]["text"]);
+                let parsed = local_arguments(message);
+                let (name, args) = parsed
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|_| ("invalid_operator_gateway".into(), Value::Null));
+                let key = digest(&("operator-local-call-v1", &marker, &id));
+                // No replay after an observer/process failure, including the
+                // uncertain interval between native effects and app submission.
+                if this.journal.read::<Value>(&key)?.is_some() {
+                    return Err(Error("operator_local_reconciliation_required"));
+                }
+                this.journal.write(
+                    &key,
+                    &json!({"fingerprint":fingerprint,"phase":if parsed.is_ok(){"invoking"}else{"rejected_before_execution"},"name":name}),
+                )?;
+                let gate = digest(&(
+                    "operator-local-renew-gate-v1",
+                    &record.id,
+                    &record.capability,
+                ));
+                let renew = name == "codex_handoff" && args["renew"] == true;
+                if renew {
+                    this.journal
+                        .write(&gate, &json!({"returned":false,"call":id}))?;
+                }
+                let result = match parsed {
+                    Ok(_) => {
+                        corrections = 0;
+                        match this.call(&name, args).await {
+                            Ok(value) => value,
+                            Err(error) => json!({"error":{"code":error.0}}),
+                        }
+                    }
+                    Err(error) => {
+                        corrections += 1;
+                        if corrections > 4 {
+                            return Err(Error("operator_gateway_correction_limit"));
+                        }
+                        error
+                    }
+                };
+                this.journal.write(&key,&json!({"fingerprint":fingerprint,"phase":"return_prepared","name":name,"result":result}))?;
+                let current = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&record.thread)
+                    .unwrap()
+                    .record
+                    .clone();
+                let handing_off = renew && result["prepared"] == true;
+                if (!handing_off && current.capability != record.capability)
+                    || matches!(
+                        current.phase.as_str(),
+                        "stop_requested" | "reconciliation_required"
+                    )
+                {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                // The same driver_lock used by Stop protects the final check
+                // and dispatch; Stop fences before waiting for this lock.
+                let lock = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&record.thread)
+                    .unwrap()
+                    .driver_lock
+                    .clone();
+                let _guard = lock.lock().await;
+                let current = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&record.thread)
+                    .unwrap()
+                    .record
+                    .clone();
+                if matches!(
+                    current.phase.as_str(),
+                    "stop_requested" | "reconciliation_required"
+                ) {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                let request = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&record.thread)
+                    .unwrap()
+                    .request
+                    .clone()
+                    .ok_or(Error("native_round_not_ready"))?;
+                this.bridge.operation(json!({"op":"submit","lane":marker,"round":random_id()?,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]})).await?;
+                this.journal.write(&key,&json!({"fingerprint":fingerprint,"phase":"returned","name":name,"result":result}))?;
+                if handing_off {
+                    this.journal
+                        .write(&gate, &json!({"returned":true,"call":id}))?;
+                    return Ok(());
+                }
+            }
+        })
+    }
     async fn exchange_inner(
         &self,
         request: Request,
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> Result<(), Error> {
-        let native = self.pool.for_thread(&request.thread).await?;
+        let existing_record = self
+            .works
+            .lock()
+            .await
+            .get(&request.thread)
+            .map(|work| work.record.clone());
+        let pool = match &existing_record {
+            Some(record) => self.work_pool(record).await?,
+            None => self.pool.clone(),
+        };
+        let native = pool.for_thread(&request.thread).await?;
         let existed = self.works.lock().await.contains_key(&request.thread);
         let mut record = self
             .register(&request.thread, "codex", Some(&request))
             .await?;
+        if self
+            .works
+            .lock()
+            .await
+            .get(&request.thread)
+            .unwrap()
+            .stops_in_progress
+            != 0
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
         if request.compaction.is_none() {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&request.thread).unwrap();
@@ -1510,7 +3283,7 @@ impl Operator {
         let manual_compact = record.phase == "native_compacting";
         let recovery = matches!(
             record.phase.as_str(),
-            "reconciliation_required" | "stop_requested"
+            "reconciliation_required" | "stop_requested" | "stopped"
         );
         let new_user_turn = (matches!(record.phase.as_str(), "completed" | "finishing")
             || recovery)
@@ -1523,6 +3296,9 @@ impl Operator {
         if new_user_turn {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&request.thread).unwrap();
+            if work.stops_in_progress != 0 {
+                return Err(Error("operator_controller_fenced"));
+            }
             self.preserve_controller(&work.record)?;
             let _ = self.broker.retire(&record.token, recovery).await;
             work.record.capability = random_id()?;
@@ -1543,7 +3319,7 @@ impl Operator {
         }
         if matches!(
             record.phase.as_str(),
-            "reconciliation_required" | "stop_requested" | "completed"
+            "reconciliation_required" | "stop_requested" | "completed" | "stopped"
         ) {
             return Err(Error("operator_reconciliation_required"));
         }
@@ -1562,6 +3338,9 @@ impl Operator {
             let work = works.get_mut(&request.thread).unwrap();
             if work.active.is_some() {
                 return Err(Error("native_lane_busy"));
+            }
+            if work.stops_in_progress != 0 {
+                return Err(Error("operator_controller_fenced"));
             }
             self.broker
                 .settle_with_catalog(&record.token, &received, Some(request.tools.clone()))
@@ -1583,7 +3362,12 @@ impl Operator {
             }
             self.persist(&work.record)?;
         }
-        if !existed || new_user_turn || (manual_compact && record.driver.is_some()) {
+        if record
+            .selection
+            .as_ref()
+            .is_none_or(|s| s.reasoning != Reasoning::Current)
+            && (!existed || new_user_turn || (manual_compact && record.driver.is_some()))
+        {
             let this = self.clone();
             let record = record.clone();
             let request = request.clone();
@@ -1595,7 +3379,8 @@ impl Operator {
                     this.start_driver(record.clone(), request).await
                 }
                 .await;
-                if result.is_err() {
+                if let Err(error) = result {
+                    eprintln!("operator_driver_start_failed: {}", error.0);
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&record.thread).unwrap();
                     if work.record.capability == record.capability {
@@ -1630,7 +3415,7 @@ impl Operator {
                                 }
                                 let failure=if snapshot["error"].is_string() {
                                     Some(("operator_app_round_failed","ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
-                                } else if waiting.is_none() && snapshot["accepted"]==true && snapshot["terminals"]==json!(["done"])
+                                } else if waiting.is_none() && host_settled(&snapshot)
                                     && snapshot["messages"].as_array().is_some_and(|messages|messages.iter().any(|message|
                                         message["author"]["role"]=="assistant" && message["channel"]=="final"
                                         && message["content"]["content_type"]=="text" && message["end_turn"]==true
@@ -1658,8 +3443,8 @@ impl Operator {
                         let failed=result.is_err(); let _=ack.send(result); if failed {break Err(Error("native_delivery_unknown"));}
                         if final_answer { break Ok(()); }
                     },
-                    Some(Command::Summary{capability,text,ack})=>{
-                        let valid={let works=self.works.lock().await;let work=works.get(&request.thread).unwrap();work.record.capability==capability && work.record.accepted && work.record.phase=="native_summary"};
+                    Some(Command::Summary{capability,round:summary_round,text,ack})=>{
+                        let valid={let works=self.works.lock().await;let work=works.get(&request.thread).unwrap();work.record.capability==capability && work.round==summary_round && work.record.accepted && work.record.phase=="native_summary"};
                         if !valid {let _=ack.send(Err(Error("operator_controller_fenced")));continue;}
                         let result=async { let checkpoint=context::Checkpoint::offer(&request,&text)?;
                             self.works.lock().await.get_mut(&request.thread).unwrap().checkpoint=Some(checkpoint.clone());
@@ -1700,7 +3485,7 @@ impl Operator {
             if result.is_err() {
                 // A requested interruption is still awaiting explicit Stop
                 // confirmation; the native observer closing must not erase it.
-                if work.record.phase != "stop_requested" {
+                if !matches!(work.record.phase.as_str(), "stop_requested" | "stopped") {
                     work.record.phase = "reconciliation_required".into();
                 }
                 work.record.accepted = false;
@@ -1720,9 +3505,7 @@ impl Operator {
         let mut works = self.works.lock().await;
         for work in works.values_mut() {
             work.record.accepted = false;
-            if work.record.phase != "completed" {
-                work.record.phase = "reconciliation_required".into();
-            }
+            work.record.phase = recovered_phase(&work.record.phase).to_owned();
             let _ = self.persist(&work.record);
         }
         let drivers = works
@@ -1740,18 +3523,86 @@ impl Operator {
                     tokio::time::timeout(Duration::from_secs(15), this.stop_driver(&record)).await,
                     Ok(Ok(true))
                 ) {
-                    let _ = this
+                    let released = this
                         .bridge
                         .operation(json!({"op":"release","lane":record.driver}))
                         .await;
+                    if matches!(released, Ok(value) if value["released"] == true) {
+                        let mut works = this.works.lock().await;
+                        let work = works.get_mut(&record.thread).unwrap();
+                        if work.record.driver == record.driver {
+                            let mut checkpoint = work.record.clone();
+                            checkpoint.driver = None;
+                            checkpoint.driver_phase = "released_after_stop".into();
+                            checkpoint.host_last_state = "stop_confirmed".into();
+                            checkpoint.host_observed_at = Some(
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                            );
+                            if this.persist(&checkpoint).is_ok() {
+                                work.record = checkpoint;
+                            } else {
+                                eprintln!("operator_shutdown_checkpoint_failed");
+                            }
+                        }
+                    }
                 }
             });
         }
         while stops.join_next().await.is_some() {}
         self.reviewer.shutdown().await;
+        self.managed_mcp.shutdown().await;
+        self.managed_local.shutdown().await;
     }
 }
 impl Host for Operator {
+    fn approve(&self, thread: String, ui: bool) -> BoxFuture<'static, Result<Value, Error>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let record = {
+                let works = this.works.lock().await;
+                let work = works
+                    .get(&thread)
+                    .ok_or(Error("operator_work_unavailable"))?;
+                work.record.clone()
+            };
+            if let Some(selection) = record
+                .selection
+                .as_ref()
+                .filter(|s| s.reasoning == Reasoning::Managed)
+            {
+                if record.phase != "running" {
+                    return Err(Error("operator_work_not_running"));
+                }
+                return this
+                    .managed(selection.return_path)
+                    .approve(thread, ui)
+                    .await;
+            }
+            if record.phase != "running"
+                || this
+                    .works
+                    .lock()
+                    .await
+                    .get(&thread)
+                    .is_none_or(|w| w.active.is_none())
+            {
+                return Err(Error("operator_work_not_running"));
+            }
+            let lane = record.driver.as_ref().ok_or(Error("app_lane_missing"))?;
+            let identity = this.verify_identity(&record).await?;
+            crate::app::approve_lane(
+                this.bridge.clone(),
+                lane,
+                identity,
+                &this.config.transport.connector_name,
+                ui,
+            )
+            .await
+        })
+    }
     fn reveal(&self, thread: String) -> BoxFuture<'static, Result<(), Error>> {
         let this = self.clone();
         Box::pin(async move {
@@ -1763,6 +3614,13 @@ impl Host for Operator {
                 .ok_or(Error("operator_work_unavailable"))?
                 .record
                 .clone();
+            if let Some(selection) = record
+                .selection
+                .as_ref()
+                .filter(|s| s.reasoning == Reasoning::Managed)
+            {
+                return this.managed(selection.return_path).reveal(thread).await;
+            }
             let lane = record.driver.as_ref().ok_or(Error("app_lane_missing"))?;
             let identity = this.verify_identity(&record).await?;
             this.bridge.operation(json!({"op":"reveal","lane":lane,"identity":{"account":identity["account"],"user":identity["user"],"structure":identity["structure"]}})).await?;
@@ -1779,7 +3637,236 @@ impl Host for Operator {
             return self.reviewer.exchange(request, events, cancel);
         }
         let this = self.clone();
-        Box::pin(async move { this.exchange_inner(request, events, cancel).await })
+        Box::pin(async move {
+            let mut record = this
+                .works
+                .lock()
+                .await
+                .get(&request.thread)
+                .map(|work| work.record.clone());
+            if record.is_none()
+                && this.config.execution.mode == crate::config::ExecutionMode::ModelAdapter
+            {
+                record = Some(
+                    this.register_in(
+                        &request.thread,
+                        "codex",
+                        Some(&request),
+                        this.pool.clone(),
+                        Some(Selection {
+                            reasoning: Reasoning::Managed,
+                            return_path: this.config.transport.return_path,
+                        }),
+                        None,
+                    )
+                    .await?,
+                );
+            }
+            let path = match &record {
+                Some(record) => record
+                    .selection
+                    .as_ref()
+                    .filter(|s| s.reasoning == Reasoning::Managed)
+                    .map(|s| s.return_path),
+                None if this.config.execution.mode
+                    == crate::config::ExecutionMode::ModelAdapter =>
+                {
+                    Some(this.config.transport.return_path)
+                }
+                _ => None,
+            };
+            if let Some(path) = path {
+                if let Some(record) = &record {
+                    if this
+                        .works
+                        .lock()
+                        .await
+                        .get(&record.thread)
+                        .unwrap()
+                        .stops_in_progress
+                        != 0
+                        || record.phase == "stop_requested"
+                    {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                }
+                let thread = request.thread.clone();
+                if record.is_some() {
+                    let mut works = this.works.lock().await;
+                    let work = works.get_mut(&thread).unwrap();
+                    if work.managed_cancel.is_some() {
+                        return Err(Error("native_lane_busy"));
+                    }
+                    work.managed_cancel = Some(cancel.clone());
+                    work.record.native_turn = request.turn.clone();
+                    work.record.phase = "running".into();
+                    this.persist(&work.record)?;
+                }
+                let deadline = record
+                    .as_ref()
+                    .and_then(|record| record.assignment.as_ref())
+                    .and_then(|assignment| {
+                        assignment.started_at_unix_ms.map(|start| {
+                            start.saturating_add(
+                                assignment.budget.max_elapsed_seconds.saturating_mul(1000),
+                            )
+                        })
+                    });
+                let timer = deadline.map(|deadline| {
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(
+                            deadline.saturating_sub(unix_ms()),
+                        ))
+                        .await;
+                        cancel.cancel();
+                    })
+                });
+                let (sender, mut receiver) = mpsc::channel(64);
+                let child_cancel = cancel.clone();
+                let forward = async {
+                    while let Some(event) = receiver.recv().await {
+                        if let Event::Tool(call) = &event {
+                            if let Err(error) = this.admit_native_call(&thread, &call.id).await {
+                                child_cancel.cancel();
+                                return Err(error);
+                            }
+                        }
+                        if events.send(event).await.is_err() {
+                            child_cancel.cancel();
+                            return Err(Error("native_observer_lost"));
+                        }
+                    }
+                    Ok(())
+                };
+                let (result, forwarded) = tokio::join!(
+                    this.managed(path).exchange(request, sender, cancel),
+                    forward
+                );
+                if let Some(timer) = timer {
+                    timer.abort();
+                }
+                let result = forwarded.and(result);
+                if record.is_some() {
+                    let mut works = this.works.lock().await;
+                    let work = works.get_mut(&thread).unwrap();
+                    work.managed_cancel = None;
+                    if work.stops_in_progress == 0 && work.record.phase != "stop_requested" {
+                        work.record.phase = if result.is_ok() {
+                            "running"
+                        } else {
+                            "reconciliation_required"
+                        }
+                        .into();
+                        this.persist(&work.record)?;
+                    }
+                }
+                result
+            } else {
+                this.exchange_inner(request, events, cancel).await
+            }
+        })
+    }
+}
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+fn text_value_path(value: &Value, error: &'static str) -> Result<std::path::PathBuf, Error> {
+    let path = std::path::PathBuf::from(value.as_str().ok_or(Error(error))?);
+    if !path.is_absolute()
+        || std::fs::canonicalize(&path).ok().as_ref() != Some(&path)
+        || !path.is_dir()
+    {
+        return Err(Error(error));
+    }
+    Ok(path)
+}
+fn local_return_seen(previous: Option<&Value>, fingerprint: &str) -> Result<bool, Error> {
+    let Some(previous) = previous else {
+        return Ok(false);
+    };
+    if previous["fingerprint"] != fingerprint {
+        return Err(Error("operator_call_changed"));
+    }
+    if previous["phase"] == "returned" {
+        return Ok(true);
+    }
+    Err(Error("operator_local_reconciliation_required"))
+}
+fn local_arguments(message: &Value) -> Result<(String, Value), Value> {
+    let rejected = |line: usize, column: usize| json!({"error":{"code":"operator_arguments_invalid","executed":false,"line":line,"column":column,"message":"Rejected before any control or native action. Correct this local call: name must be an exact control name; input must be a JSON string encoding its arguments object. For codex_execute, its inner input is another string: escape quotes/newlines at both JSON layers, or split a large patch. No part of this proposal executed."}});
+    let input: Value = serde_json::from_str(
+        message["content"]["text"]
+            .as_str()
+            .ok_or_else(|| rejected(0, 0))?,
+    )
+    .map_err(|e| rejected(e.line(), e.column()))?;
+    let name = text(&input, "name", 128)
+        .map_err(|_| rejected(0, 0))?
+        .to_owned();
+    let args: Value =
+        serde_json::from_str(text(&input, "input", LIMIT).map_err(|_| rejected(0, 0))?)
+            .map_err(|e| rejected(e.line(), e.column()))?;
+    if !args.is_object() {
+        return Err(rejected(0, 0));
+    }
+    Ok((name, args))
+}
+fn local_signature(gateway: &str) -> Value {
+    // This app's local API uses kwargs/params, not OpenAI JSON function schemas.
+    // Keep the same string gateway wire type as the qualified model adapter.
+    let names = tools()
+        .iter()
+        .map(|v| v["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    json!({"name":gateway,"type":"kwargs","description":"Call a native Codex Operator Host control. Native Codex owns execution, approvals and records.","params":[
+        {"name":"name","required":true,"type":{"type":"string","description":format!("Exact control name: {names}")}},
+        {"name":"input","required":true,"type":{"type":"string","description":"JSON string encoding the selected control's arguments object, using its advertised schema."}}
+    ]})
+}
+fn completed_result(completed: bool, turn: Option<&str>, history: &[Value]) -> Option<Value> {
+    if !completed {
+        return None;
+    }
+    let turn = turn?;
+    let items: Vec<_> = history
+        .iter()
+        .filter(|row| {
+            row["turn_id"] == turn
+                && row["item"]["type"] == "agentMessage"
+                && row["item"]["phase"] == "final_answer"
+                && row["item"]["text"].as_str().is_some_and(|v| !v.is_empty())
+        })
+        .map(|row| row["item"].clone())
+        .collect();
+    (!items.is_empty())
+        .then(|| json!({"turn_id":turn,"items":items,"source":"native_thread_items"}))
+}
+fn wait_reason(result: &Value) -> Option<&'static str> {
+    let status = &result["status"];
+    if status["completed"] == true
+        && result["history_observation_available"] != false
+        && result["completed_result_available"] != false
+    {
+        Some("completed")
+    } else if status["human_requests"]
+        .as_array()
+        .is_some_and(|v| !v.is_empty())
+    {
+        Some("human_request")
+    } else if matches!(
+        status["phase"].as_str(),
+        Some("stopped" | "reconciliation_required" | "handoff")
+    ) {
+        Some("attention_required")
+    } else {
+        None
     }
 }
 fn host_waiting(snapshot: &Value) -> Option<&'static str> {
@@ -1791,47 +3878,117 @@ fn host_waiting(snapshot: &Value) -> Option<&'static str> {
         .iter()
         .find_map(|item| crate::mcp_bridge::host_block(item, &snapshot["hostResponses"]))
 }
+fn host_settled(snapshot: &Value) -> bool {
+    snapshot["accepted"] == true
+        && snapshot["pending"] == false
+        && snapshot["streamActive"] == false
+        && snapshot["approvalPending"] != true
+        && !snapshot["error"].is_string()
+        && snapshot["stopped"] != true
+        && snapshot["terminals"] == json!(["done"])
+}
 fn text<'a>(args: &'a Value, key: &str, max: usize) -> Result<&'a str, Error> {
     args[key]
         .as_str()
         .filter(|v| !v.is_empty() && v.len() <= max)
         .ok_or(Error("operator_arguments_invalid"))
 }
-fn tools() -> Vec<Value> {
+pub(crate) fn validate_arguments(
+    declarations: &[Value],
+    name: &str,
+    args: &Value,
+) -> Result<(), Error> {
+    let schema = declarations
+        .iter()
+        .find(|v| v["name"] == name)
+        .ok_or(Error("mcp_tool_unknown"))?["inputSchema"]
+        .clone();
+    let object = args
+        .as_object()
+        .ok_or(Error("operator_arguments_invalid"))?;
+    if object
+        .keys()
+        .any(|key| schema["properties"].get(key).is_none())
+        || schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|key| !object.contains_key(key.as_str().unwrap()))
+    {
+        return Err(Error("operator_arguments_invalid"));
+    }
+    for (key, value) in object {
+        let valid = match schema["properties"][key]["type"].as_str() {
+            Some("string") => value.is_string(),
+            Some("object") => value.is_object(),
+            Some("boolean") => value.is_boolean(),
+            Some("integer") => value.as_u64().is_some(),
+            Some("array") => value.as_array().is_some(),
+            _ => false,
+        };
+        if !valid {
+            return Err(Error("operator_arguments_invalid"));
+        }
+    }
+    Ok(())
+}
+pub(crate) fn tools() -> Vec<Value> {
     let field = |name: &str| match name {
+        "list_cursor" => {
+            json!({"type":"object","properties":{"account":{"type":"string"},"offset":{"type":"integer","minimum":0},"filter":{"type":"string"}},"required":["account","offset","filter"],"additionalProperties":false})
+        }
+        "source_cursor" => {
+            json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false})
+        }
         "cursor" | "after" | "context_cursor" | "after_context" => {
             json!({"type":"object","properties":{"count":{"type":"integer","minimum":0},"digest":{"type":"string"}},"required":["count","digest"],"additionalProperties":false})
         }
         "renew" => json!({"type":"boolean"}),
+        "limit" | "offset" | "updated_after" | "updated_before" | "max_wait_seconds" => {
+            json!({"type":"integer","minimum":0})
+        }
+        "dependencies" => {
+            json!({"type":"array","items":{"type":"string"},"maxItems":256,"uniqueItems":true})
+        }
+        "budget" => {
+            json!({"type":"object","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1},"max_native_calls":{"type":"integer","minimum":1},"max_elapsed_seconds":{"type":"integer","minimum":1}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
+        }
         "answers" => {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
         }
         "action" => {
-            json!({"type":"string","enum":["list","create","resume","fork","start","claim","compact","takeover"]})
+            json!({"type":"string","enum":["list","create","resume","fork","start","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
         }
         _ => json!({"type":"string"}),
     };
     let controls = [
-        ("codex_sessions", "List work, create/resume an explicit native thread, start its task, fork independent work or claim settled recovery.", "action work_id controller thread_id task call_id cursor context_cursor mode", "action", false),
+        ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action", false),
+        ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action", true),
+        ("codex_sessions", "List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app/native caps and a longer elapsed cap; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller", false),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id", true),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller", true),
         ("codex_execute", "Execute one advertised native tool under upstream approvals and return its original result. Reuse exact call_id/name/input/report on delivery retries.", "work_id controller call_id name input report", "work_id controller call_id name input report", false),
         ("codex_answer", "Forward the user's supplied answer to a pending native question. This cannot answer approval/reviewer requests.", "work_id controller request_id answers", "work_id controller request_id answers", false),
         ("codex_report", "Record and display a public progress report in the bound native CLI. Retry the same call_id and text after uncertain delivery.", "work_id controller call_id text", "work_id controller call_id text", false),
-        ("codex_finish", "Record a final answer and confirm settled native completion.", "work_id controller call_id text", "work_id controller call_id text", false),
+        ("codex_finish", "Record a final answer and confirm settled native completion. Retry the same call_id and text to observe its item and resume completion settlement without emitting again.", "work_id controller call_id text", "work_id controller call_id text", false),
         ("codex_status", "Observe native execution, unresolved calls, human requests and unknown host progress.", "work_id", "work_id", true),
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id", false),
         ("codex_handoff", "Prepare a grounded summary at a history cursor, fence the old Chat and optionally request a successor on the same Codex thread.", "work_id controller call_id summary cursor context_cursor renew", "work_id controller call_id summary cursor context_cursor", false),
-        ("codex_native_summary", "Answer an upstream-requested inference summary without replacing Chat.", "work_id controller summary", "work_id controller summary", false),
+        ("codex_native_summary", "Answer an upstream-requested inference summary without replacing Chat. Supply a unique stable call_id per summary request and reuse identical arguments on delivery retries; an old keyed receipt cannot answer a later native round.", "work_id controller summary call_id", "work_id controller summary", false),
         ("native_catalog", "Read the isolated native reviewer tool schemas.", "turn_token", "turn_token", true),
         ("native_tool", "Run an isolated reviewer native tool and return its result.", "turn_token call_id name input report", "turn_token call_id name input report", false),
     ];
-    controls.into_iter().map(|(name, description, fields, required, read)| {
-        let properties = fields.split_whitespace().map(|key| (key.to_owned(), field(key))).collect::<serde_json::Map<_,_>>();
+    controls.into_iter().map(|(name, description, fields, required, _read)| {
+        let mut properties = fields.split_whitespace().map(|key| (key.to_owned(), field(key))).collect::<serde_json::Map<_,_>>();
+        if name == "codex_chats" {
+            properties.insert("action".into(), json!({"type":"string","enum":["list","read"]}));
+            properties.insert("after".into(),json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false}));
+        }
+        if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop"]})); }
         json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,
             "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false},
-            "annotations":{"readOnlyHint":read,"destructiveHint":!read,"idempotentHint":read,"openWorldHint":!read}})
+            "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":crate::mcp::idempotent_hint(name),"openWorldHint":false}})
     }).collect()
 }
 
@@ -1904,4 +4061,301 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
         Err(e) => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":e.0}}),
     };
     ([("cache-control", "no-store")], Json(body)).into_response()
+}
+
+#[cfg(test)]
+mod local_tests {
+    use super::*;
+    #[test]
+    fn completed_result_selects_current_final_even_before_later_tool_reports() {
+        let history = vec![
+            json!({"turn_id":"old","item":{"type":"agentMessage","phase":"final_answer","text":"old"}}),
+            json!({"turn_id":"current","item":{"id":"original-final","type":"agentMessage","phase":"final_answer","text":"original final"}}),
+            json!({"turn_id":"current","item":{"type":"commandExecution","exitCode":0}}),
+            json!({"turn_id":"current","item":{"type":"agentMessage","phase":"commentary","text":"later report"}}),
+        ];
+        let result = completed_result(true, Some("current"), &history).unwrap();
+        assert_eq!(result["turn_id"], "current");
+        assert_eq!(result["source"], "native_thread_items");
+        assert_eq!(result["items"], json!([history[1]["item"]]));
+        assert_eq!(history[3]["item"]["text"], "later report");
+    }
+
+    #[test]
+    fn completion_never_substitutes_an_old_or_interrupted_turn_final() {
+        let history = vec![
+            json!({"turn_id":"old","item":{"type":"agentMessage","phase":"final_answer","text":"old final"}}),
+        ];
+        assert!(completed_result(true, Some("new"), &history).is_none());
+        assert!(completed_result(false, Some("old"), &history).is_none());
+        assert!(completed_result(true, None, &history).is_none());
+        assert!(completed_result(true, Some("old"), &[]).is_none());
+    }
+
+    #[test]
+    fn wait_requires_the_observed_current_turn_final_before_delivery() {
+        let mut result = json!({"status":{"completed":true,"phase":"completed","human_requests":[]},
+            "history_observation_available":true,"completed_result_available":false});
+        assert_eq!(wait_reason(&result), None);
+        result["completed_result_available"] = json!(true);
+        assert_eq!(wait_reason(&result), Some("completed"));
+    }
+
+    #[test]
+    fn wait_does_not_deliver_completion_without_observable_history() {
+        let mut result = json!({"status":{"completed":true,"phase":"completed","human_requests":[]},
+            "history_observation_available":false,"events":[]});
+        assert_eq!(wait_reason(&result), None);
+        result["history_observation_available"] = json!(true);
+        assert_eq!(wait_reason(&result), Some("completed"));
+        result["status"]["completed"] = json!(false);
+        result["status"]["phase"] = json!("running");
+        assert_eq!(wait_reason(&result), None);
+    }
+
+    #[test]
+    fn unavailable_history_keeps_real_questions_and_stops_observable() {
+        let mut result = json!({"status":{"completed":false,"phase":"running","human_requests":[{"id":1}]},
+            "history_observation_available":false});
+        assert_eq!(wait_reason(&result), Some("human_request"));
+        result["status"]["human_requests"] = json!([]);
+        for phase in ["stopped", "reconciliation_required", "handoff"] {
+            result["status"]["phase"] = json!(phase);
+            assert_eq!(wait_reason(&result), Some("attention_required"));
+        }
+    }
+
+    #[test]
+    fn interrupted_registration_and_legacy_index_recover_complete_records_once() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("wi-{}", random_id().unwrap())));
+        let journal = Journal::open(&root.0).unwrap();
+        let record = Record {
+            schema: "termux-codex-operator-work-v1".into(),
+            id: "work-one".into(),
+            thread: "thread-one".into(),
+            execution: Owner {
+                directory: root.0.join("server"),
+                home: root.0.join("home"),
+                process: crate::cdp::Process::read(std::process::id()).unwrap(),
+            },
+            origin: "chatgpt".into(),
+            native_turn: None,
+            generation: 1,
+            capability: "a".repeat(48),
+            token: "b".repeat(48),
+            phase: "waiting_native".into(),
+            pending: vec![],
+            receipts: BTreeMap::new(),
+            summary: None,
+            source: None,
+            source_context: None,
+            accepted: false,
+            driver: None,
+            driver_phase: "not_started".into(),
+            identity: None,
+            host_observed_at: None,
+            host_last_state: "unknown".into(),
+            observed: None,
+            observed_context: None,
+            policy: None,
+            selection: None,
+            workspace: None,
+            assignment: None,
+        };
+        let key = digest(&("operator-work-v1", &record.id));
+        // Legacy orphan records survive migration even if their index never
+        // reached disk. Settled legacy serialization gains no new fields.
+        journal.write(&key, &record).unwrap();
+        let serialized = serde_json::to_value(&record).unwrap();
+        for key in ["selection", "workspace", "assignment"] {
+            assert!(serialized.get(key).is_none());
+        }
+        let migrated = recover_work_index(&journal).unwrap();
+        assert_eq!(migrated.ids, vec![record.id.clone()]);
+        let mut next = record.clone();
+        next.id = "work-two".into();
+        next.thread = "thread-two".into();
+        journal
+            .write(
+                &work_index_key(),
+                &WorkIndex {
+                    ids: migrated.ids,
+                    pending: Some(next.clone()),
+                },
+            )
+            .unwrap();
+        let recovered = recover_work_index(&journal).unwrap();
+        assert_eq!(recovered.ids, vec![record.id, next.id.clone()]);
+        assert!(recovered.pending.is_none());
+        let saved: Record = journal
+            .read(&digest(&("operator-work-v1", &next.id)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.thread, next.thread);
+        assert_eq!(recover_work_index(&journal).unwrap().ids, recovered.ids);
+        assert_eq!(
+            journal
+                .read::<Vec<String>>(&digest(&"operator-index-v1"))
+                .unwrap()
+                .unwrap(),
+            recovered.ids
+        );
+    }
+    #[test]
+    fn qualified_idempotency_policy_preserves_every_other_annotation() {
+        let selected = [
+            "native_catalog",
+            "native_tool",
+            "codex_chats",
+            "codex_history",
+            "codex_tools",
+            "codex_status",
+            "codex_execute",
+            "codex_report",
+            "codex_finish",
+            "codex_handoff",
+            "codex_answer",
+            "codex_attach",
+        ];
+        let controls = tools();
+        assert_eq!(controls.len(), 16);
+        assert_eq!(
+            controls
+                .iter()
+                .filter(|v| v["annotations"]["idempotentHint"] == true)
+                .count(),
+            selected.len()
+        );
+        for tool in controls {
+            let name = tool["name"].as_str().unwrap();
+            assert_eq!(
+                tool["annotations"],
+                json!({"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false,"idempotentHint":selected.contains(&name)})
+            );
+        }
+        assert!(!crate::mcp::idempotent_hint("unknown_tool"));
+    }
+    #[test]
+    fn each_local_driver_has_a_distinct_declaration_with_the_full_same_controls() {
+        let first = local_signature(&format!("operator_local_{}", "a".repeat(48)));
+        let second = local_signature(&format!("operator_local_{}", "b".repeat(48)));
+        assert_ne!(first["name"], second["name"]);
+        assert_eq!(first["name"].as_str().unwrap().len(), 63);
+        assert_eq!(first["type"], "kwargs");
+        assert_eq!(first["params"], second["params"]);
+        assert!(first.get("parameters").is_none());
+        let params = first["params"].as_array().unwrap();
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0]["name"], "name");
+        assert_eq!(params[1]["name"], "input");
+        assert!(params
+            .iter()
+            .all(|v| v["required"] == true && v["type"]["type"] == "string"));
+        for control in tools() {
+            assert!(params[0]["type"]["description"]
+                .as_str()
+                .unwrap()
+                .contains(control["name"].as_str().unwrap()));
+        }
+    }
+    #[test]
+    fn invalid_local_json_is_a_correlated_no_effect_result_and_can_be_corrected() {
+        let bad = json!({"content":{"text":json!({"name":"codex_execute","input":"{\"input\":\"patch with \"unescaped\" quote\"}"}).to_string()}});
+        let rejection = local_arguments(&bad).unwrap_err();
+        assert_eq!(rejection["error"]["executed"], false);
+        assert!(rejection["error"]["column"].as_u64().unwrap() > 0);
+        let patch = "*** Begin Patch\n*** Add File: owned.py\n+value = \"quoted\"\n*** End Patch";
+        let good = json!({"content":{"text":json!({"name":"codex_execute","input":json!({"input":patch,"call_id":"owned"}).to_string()}).to_string()}});
+        let (name, args) = local_arguments(&good).unwrap();
+        assert_eq!(name, "codex_execute");
+        assert_eq!(args["input"], patch);
+    }
+    #[test]
+    fn independent_roots_do_not_share_a_parallel_slot_and_confirmed_stops_survive_recovery() {
+        assert!(!same_assignment_parent(None, None));
+        assert!(same_assignment_parent(Some("parent"), Some("parent")));
+        assert!(!same_assignment_parent(Some("parent"), Some("other")));
+        assert!(!same_assignment_parent(Some("parent"), None));
+        assert_eq!(recovered_phase("completed"), "completed");
+        assert_eq!(recovered_phase("stopped"), "stopped");
+        for phase in [
+            "running",
+            "admitting",
+            "starting_native",
+            "stop_requested",
+            "waiting_native",
+            "queued",
+        ] {
+            assert_eq!(recovered_phase(phase), "reconciliation_required");
+        }
+    }
+
+    #[test]
+    fn elapsed_extension_preserves_other_caps_and_rejects_resets() {
+        let original = Budget {
+            max_parallel: 2,
+            max_app_starts: 12,
+            max_native_calls: 100,
+            max_elapsed_seconds: 1200,
+        };
+        let extended = original
+            .extend_time(Budget {
+                max_elapsed_seconds: 3600,
+                ..original.clone()
+            })
+            .unwrap();
+        assert_eq!(extended.max_elapsed_seconds, 3600);
+        assert_eq!(extended.max_native_calls, 100);
+        for invalid in [
+            Budget {
+                max_native_calls: 101,
+                ..original.clone()
+            },
+            Budget {
+                max_app_starts: 13,
+                ..original.clone()
+            },
+            Budget {
+                max_parallel: 3,
+                ..original.clone()
+            },
+            Budget {
+                max_elapsed_seconds: 1199,
+                ..original.clone()
+            },
+        ] {
+            assert!(matches!(
+                original.extend_time(invalid),
+                Err(Error("assignment_time_extension_invalid"))
+            ));
+        }
+    }
+    #[test]
+    fn historical_returns_are_ignored_but_uncertain_or_changed_calls_are_fenced() {
+        assert!(!local_return_seen(None, "same").unwrap());
+        assert!(local_return_seen(
+            Some(&json!({"phase":"returned","fingerprint":"same"})),
+            "same"
+        )
+        .unwrap());
+        for phase in ["invoking", "return_prepared"] {
+            assert_eq!(
+                local_return_seen(Some(&json!({"phase":phase,"fingerprint":"same"})), "same"),
+                Err(Error("operator_local_reconciliation_required"))
+            );
+        }
+        assert_eq!(
+            local_return_seen(
+                Some(&json!({"phase":"returned","fingerprint":"other"})),
+                "same"
+            ),
+            Err(Error("operator_call_changed"))
+        );
+    }
 }

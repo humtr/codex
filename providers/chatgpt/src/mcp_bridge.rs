@@ -14,7 +14,16 @@ use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Mutex;
 
 const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+struct Settlement {
+    round: String,
+    submission: String,
+    received: Vec<(String, Value)>,
+    catalog: Option<BTreeMap<String, Tool>>,
+    #[serde(default)]
+    prepared: bool,
+}
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct Lane {
     gateway: String,
     tools: BTreeMap<String, Tool>,
@@ -30,6 +39,48 @@ struct Lane {
     public: BTreeMap<String, String>,
     last_public: BTreeMap<String, String>,
     complete: bool,
+    #[serde(default)]
+    settlement: Option<Settlement>,
+}
+async fn settle_round(
+    lane: &mut Lane,
+    broker: &Broker,
+    journal: &Journal,
+    key: &str,
+) -> Result<(), Error> {
+    let Some(intent) = lane.settlement.clone() else {
+        return Ok(());
+    };
+    let token = lane.token.clone().ok_or(Error("mcp_turn_unavailable"))?;
+    // Reapplying the exact retained results is safe even if the first durable
+    // Broker commit succeeded but the lane commit/reply was lost. Never submit
+    // to the app or dispatch native effects while reconciling this intent.
+    let result = broker
+        .settle_prepared(&token, &intent.received, intent.catalog.clone(), || {
+            lane.settlement.as_mut().unwrap().prepared = true;
+            journal.write(key, &*lane)
+        })
+        .await;
+    if let Err(error) = result {
+        if !lane.settlement.as_ref().unwrap().prepared {
+            // Broker rejected before preparation or effects, so the old durable
+            // lane is still authoritative. Do not fence it with a false intent.
+            lane.settlement = None;
+        }
+        return Err(error);
+    }
+    let mut next = lane.clone();
+    next.round = intent.round;
+    next.submission = intent.submission;
+    next.public = next.last_public.clone();
+    if let Some(catalog) = intent.catalog {
+        next.tools = catalog;
+    }
+    next.offered.clear();
+    next.settlement = None;
+    journal.write(key, &next)?;
+    *lane = next;
+    Ok(())
 }
 type Lanes = Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>;
 pub struct McpBridge {
@@ -148,6 +199,7 @@ fn apply_host_block(snapshot: &mut Value, item: &Value) {
 impl Bridge for McpBridge {
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
+        let remote = self.remote.clone();
         Box::pin(async move {
             let marker = command["lane"].as_str().ok_or(Error("mcp_lane_required"))?;
             let lane = lanes
@@ -171,7 +223,8 @@ impl Bridge for McpBridge {
                     return Err(Error("mcp_active_route_change"));
                 }
             }
-            Ok(())
+            drop(lane);
+            remote.admit_submission(command).await
         })
     }
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
@@ -247,6 +300,13 @@ impl Bridge for McpBridge {
                 let round = command["round"]
                     .as_str()
                     .ok_or(Error("mcp_round_required"))?;
+                if let Some(intent) = &lane.settlement {
+                    if intent.round != round || intent.submission != digest(&command) {
+                        return Err(Error("mcp_settlement_reconciliation_required"));
+                    }
+                    settle_round(&mut lane, &broker, &journal, &key).await?;
+                    return Ok(json!({"started":true,"retained_mcp_return":true,"reused":true}));
+                }
                 if lane.round == round {
                     if lane.submission != digest(&command) {
                         return Err(Error("mcp_submission_changed"));
@@ -269,7 +329,6 @@ impl Bridge for McpBridge {
                     if lane.model != command["model"] || lane.effort != command["thinkingEffort"] {
                         return Err(Error("mcp_active_route_change"));
                     }
-                    let token = lane.token.as_ref().unwrap().clone();
                     let received = results
                         .iter()
                         .map(|v| {
@@ -295,23 +354,18 @@ impl Bridge for McpBridge {
                     let catalog = tools(&instructions)?;
                     // Record the next virtual-round intent before unblocking the
                     // app's original HTTP invocation. There is no second submit.
-                    let old_round = lane.round.clone();
-                    lane.round = round.into();
-                    journal.write(&key, &*lane)?;
-                    if let Err(error) = broker
-                        .settle_with_catalog(&token, &received, catalog.clone())
-                        .await
-                    {
-                        lane.round = old_round;
-                        return Err(error);
-                    }
-                    lane.public = lane.last_public.clone();
-                    if let Some(catalog) = catalog {
-                        lane.tools = catalog;
-                    }
-                    lane.offered.clear();
-                    lane.submission = digest(&command);
-                    journal.write(&key, &*lane)?;
+                    let mut next = lane.clone();
+                    next.settlement = Some(Settlement {
+                        round: round.into(),
+                        submission: digest(&command),
+                        received,
+                        catalog,
+                        prepared: false,
+                    });
+                    // Keep memory fenced too if the durable write outcome is
+                    // uncertain. A later observer may retry this same commit.
+                    *lane = next;
+                    settle_round(&mut lane, &broker, &journal, &key).await?;
                     return Ok(json!({"started":true,"retained_mcp_return":true}));
                 }
                 if !results.is_empty() {
@@ -338,6 +392,9 @@ impl Bridge for McpBridge {
                 native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Native Codex executes, approves and records actions. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
                 submitted["instructions"] = json!(native_policy);
                 return remote.operation(submitted).await;
+            }
+            if lane.settlement.is_some() {
+                settle_round(&mut lane, &broker, &journal, &key).await?;
             }
             let mut snapshot = remote.operation(command).await?;
             let before = digest(&*lane);
@@ -437,6 +494,162 @@ impl Bridge for McpBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct SettlementRoot(std::path::PathBuf);
+    impl Drop for SettlementRoot {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fn original_call() -> crate::mcp::Arguments {
+        crate::mcp::Arguments {
+            call_id: "native-once".into(),
+            name: "exec".into(),
+            input: "{}".into(),
+            report: "Owned original call".into(),
+        }
+    }
+    async fn pending_settlement() -> (SettlementRoot, Arc<Journal>, Arc<Broker>, Lane) {
+        let root = SettlementRoot(
+            std::env::temp_dir().join(format!("mcp-settlement-{}", random_id().unwrap())),
+        );
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let broker = Broker::new(journal.clone());
+        let request = crate::protocol::Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Owned settlement fixture"}],"tools":[{"type":"function","name":"exec","parameters":{"type":"object"}}]}),
+            &crate::config::Config::default(),
+            Some("owned-native-thread"),
+        )
+        .unwrap();
+        let token = broker
+            .register("owned-native-thread", request.tools.clone())
+            .await
+            .unwrap();
+        broker.enqueue(&token, &original_call()).await.unwrap();
+        let offered = broker.offer(&token).await.unwrap();
+        assert_eq!(offered.len(), 1);
+        let lane = Lane {
+            token: Some(token),
+            tools: request.tools,
+            round: "original-round".into(),
+            real_round: "physical-app-round".into(),
+            offered: offered.clone(),
+            settlement: Some(Settlement {
+                round: "next-round".into(),
+                submission: "original-submission-fingerprint".into(),
+                received: vec![(
+                    offered[0]["id"].as_str().unwrap().into(),
+                    json!({"output":"original native result"}),
+                )],
+                catalog: None,
+                prepared: false,
+            }),
+            ..Lane::default()
+        };
+        (root, journal, broker, lane)
+    }
+    #[tokio::test]
+    async fn rejected_settlement_keeps_the_original_round_without_preparing_an_intent() {
+        let (_root, journal, broker, mut lane) = pending_settlement().await;
+        let key = digest(&"owned-virtual-lane");
+        let mut previous = lane.clone();
+        previous.settlement = None;
+        journal.write(&key, &previous).unwrap();
+        lane.settlement.as_mut().unwrap().received[0].0 = "unknown-call".into();
+        assert_eq!(
+            settle_round(&mut lane, &broker, &journal, &key).await,
+            Err(Error("mcp_result_invalid"))
+        );
+        assert_eq!(lane.round, previous.round);
+        assert!(lane.settlement.is_none());
+        let stored: Lane = journal.read(&key).unwrap().unwrap();
+        assert!(stored.settlement.is_none());
+        assert_eq!(stored.round, previous.round);
+        assert!(
+            !broker.recorded_calls(lane.token.as_ref().unwrap()).unwrap()[0]["settled"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+    #[tokio::test]
+    async fn broker_commit_failure_retains_prepared_intent_until_original_result_reconciles() {
+        let (_root, journal, broker, mut lane) = pending_settlement().await;
+        let key = digest(&"owned-virtual-lane");
+        let token = lane.token.clone().unwrap();
+        let broker_path = journal
+            .root
+            .join(format!("{}.json", digest(&("mcp-turn-v1", &token))));
+        let backup = journal.root.join("owned-broker-record-before-fault");
+        std::fs::rename(&broker_path, &backup).unwrap();
+        crate::journal::private_directory(&broker_path).unwrap();
+        let failed = settle_round(&mut lane, &broker, &journal, &key).await;
+        std::fs::remove_dir(&broker_path).unwrap();
+        std::fs::rename(&backup, &broker_path).unwrap();
+        assert!(failed.is_err());
+        assert_eq!(lane.round, "original-round");
+        assert!(lane.settlement.as_ref().unwrap().prepared);
+        let stored: Lane = journal.read(&key).unwrap().unwrap();
+        assert!(stored.settlement.as_ref().unwrap().prepared);
+        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], false);
+        settle_round(&mut lane, &broker, &journal, &key)
+            .await
+            .unwrap();
+        assert_eq!(lane.round, "next-round");
+        assert!(lane.settlement.is_none());
+        assert_eq!(broker.recorded_calls(&token).unwrap().len(), 1);
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&token, original_call()).await.unwrap(),
+            json!({"output":"original native result"})
+        );
+    }
+    #[tokio::test]
+    async fn lane_ack_loss_after_broker_commit_reuses_the_original_result() {
+        let (_root, journal, broker, mut lane) = pending_settlement().await;
+        let key = digest(&"owned-virtual-lane");
+        let token = lane.token.clone().unwrap();
+        lane.settlement.as_mut().unwrap().prepared = true;
+        journal.write(&key, &lane).unwrap();
+        broker
+            .settle(&token, &lane.settlement.as_ref().unwrap().received)
+            .await
+            .unwrap();
+        let mut recovered: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(recovered.round, "original-round");
+        settle_round(&mut recovered, &broker, &journal, &key)
+            .await
+            .unwrap();
+        assert_eq!(recovered.round, "next-round");
+        assert_eq!(recovered.real_round, "physical-app-round");
+        assert!(recovered.offered.is_empty() && recovered.settlement.is_none());
+        assert_eq!(broker.recorded_calls(&token).unwrap().len(), 1);
+        assert_eq!(
+            broker.invoke(&token, original_call()).await.unwrap(),
+            json!({"output":"original native result"})
+        );
+    }
+    #[tokio::test]
+    async fn a_new_broker_cannot_reactivate_a_prepared_old_round() {
+        let (_root, journal, broker, mut lane) = pending_settlement().await;
+        let key = digest(&"owned-virtual-lane");
+        let token = lane.token.clone().unwrap();
+        lane.settlement.as_mut().unwrap().prepared = true;
+        journal.write(&key, &lane).unwrap();
+        drop(broker);
+        let replacement = Broker::new(journal.clone());
+        let mut recovered: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(
+            settle_round(&mut recovered, &replacement, &journal, &key).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+        assert!(recovered.settlement.as_ref().unwrap().prepared);
+        assert_eq!(recovered.round, "original-round");
+        assert_eq!(replacement.recorded_calls(&token).unwrap().len(), 1);
+        assert_eq!(
+            replacement.catalog(&token).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+    }
     #[test]
     fn historical_confirmation_does_not_mask_a_failed_stream() {
         let item = json!({"id":"confirm","metadata":{"jit_plugin_data":{"from_server":{"type":"confirm_action"}}}});

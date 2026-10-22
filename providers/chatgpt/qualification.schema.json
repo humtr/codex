@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:humtr:codex:bridge-qualification:v1",
+  "title": "Explicit inputs for F bridge qualification; not a trial launcher",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "cases", "candidate", "native", "fixture", "environment", "routes", "limits", "return"],
+  "properties": {
+    "schema": {"const": "termux-codex-bridge-qualification-v1"},
+    "run_id": {"type": "string", "pattern": "^[a-zA-Z0-9_.-]{1,100}$"},
+    "cases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["F1-routes", "F2-chat-input", "F3-reading", "F4-serial-agents", "F5-parallel-agents", "F6-management", "F7-idempotency", "F8-history-inputs", "F9-efficiency"]}},
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["base_commit", "source_root", "source_manifest", "binary", "app_bridge", "config"],
+      "properties": {
+        "base_commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "source_root": {"$ref": "#/$defs/path"},
+        "source_manifest": {"$ref": "#/$defs/file"},
+        "binary": {"$ref": "#/$defs/file"},
+        "app_bridge": {"$ref": "#/$defs/file"},
+        "config": {"$ref": "#/$defs/file"}
+      }
+    },
+    "native": {
+      "type": "object", "additionalProperties": false,
+      "required": ["core", "frontend", "upstream_version", "upstream_source", "home", "workspace"],
+      "properties": {
+        "core": {"$ref": "#/$defs/file"},
+        "frontend": {"$ref": "#/$defs/file"},
+        "upstream_version": {"type": "string", "minLength": 1},
+        "upstream_source": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "home": {"$ref": "#/$defs/path"},
+        "workspace": {"$ref": "#/$defs/path"}
+      }
+    },
+    "fixture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest", "tasks", "seed", "expected_checks"],
+      "properties": {
+        "manifest": {"$ref": "#/$defs/file"},
+        "tasks": {"$ref": "#/$defs/file"},
+        "seed": {"type": "integer"},
+        "expected_checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tmp_root", "artifact_root", "host_session_ref", "account_ref", "connector_profile_ref", "app_version", "app_bindings_manifest"],
+      "properties": {
+        "tmp_root": {"$ref": "#/$defs/path"},
+        "artifact_root": {"$ref": "#/$defs/path"},
+        "host_session_ref": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "account_ref": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "connector_profile_ref": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "app_version": {"type": ["string", "null"]},
+        "app_bindings_manifest": {"anyOf": [{"$ref": "#/$defs/file"}, {"type": "null"}]}
+      }
+    },
+    "routes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/route"}},
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "max_app_starts", "max_model_responses", "max_native_calls", "max_elapsed_seconds", "max_parallel", "supervisor_turns", "pro_automatic", "excluded_models", "authorization_ref"],
+      "properties": {
+        "mode": {"enum": ["offline", "synthetic_android", "live"]},
+        "max_app_starts": {"type": "integer", "minimum": 0},
+        "max_model_responses": {"type": "integer", "minimum": 0},
+        "max_native_calls": {"type": "integer", "minimum": 0},
+        "max_elapsed_seconds": {"type": "integer", "minimum": 1},
+        "max_parallel": {"type": "integer", "minimum": 1},
+        "supervisor_turns": {"const": 0},
+        "pro_automatic": {"const": false},
+        "excluded_models": {"type": "array", "contains": {"const": "gpt-5.6"}, "uniqueItems": true, "items": {"type": "string"}},
+        "authorization_ref": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"enum": ["offline", "synthetic_android"]}}}, "then": {"properties": {"max_app_starts": {"const": 0}, "max_model_responses": {"const": 0}}}},
+        {"if": {"properties": {"mode": {"const": "live"}}}, "then": {"properties": {"max_app_starts": {"minimum": 1}, "max_model_responses": {"minimum": 1}, "authorization_ref": {"type": "string", "minLength": 1}}}}
+      ]
+    },
+    "return": {
+      "type": "object", "additionalProperties": false,
+      "required": ["destination_ref", "terminal_notice", "per_turn_review"],
+      "properties": {
+        "destination_ref": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "terminal_notice": {"type": "boolean"},
+        "per_turn_review": {"const": false}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"limits": {"properties": {"mode": {"const": "live"}}}}},
+      "then": {"properties": {"return": {"properties": {"terminal_notice": {"const": true}, "destination_ref": {"$ref": "#/$defs/path"}}}}}
+    }
+  ],
+  "$defs": {
+    "path": {"type": "string", "pattern": "^/", "minLength": 2},
+    "file": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    },
+    "route": {
+      "type": "object", "additionalProperties": false, "required": ["entry", "reasoning", "return_path"],
+      "properties": {
+        "entry": {"enum": ["codex", "chatgpt_direct", "chatgpt_delegated"]},
+        "reasoning": {"enum": ["current", "managed"]},
+        "return_path": {"enum": ["mcp", "local_function"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"entry": {"const": "chatgpt_direct"}}}, "then": {"properties": {"reasoning": {"const": "current"}, "return_path": {"const": "mcp"}}}},
+        {"if": {"properties": {"entry": {"enum": ["codex", "chatgpt_delegated"]}}}, "then": {"properties": {"reasoning": {"const": "managed"}}}}
+      ]
+    }
+  }
+}

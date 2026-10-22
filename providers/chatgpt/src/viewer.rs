@@ -24,6 +24,28 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+pub type Slot = Arc<std::sync::RwLock<Option<Arc<Viewer>>>>;
+
+pub fn router_slot(slot: Slot) -> Router {
+    Router::new()
+        .route(
+            "/viewer/{capability}/{*path}",
+            get(handle_slot).post(handle_slot),
+        )
+        .with_state(slot)
+}
+async fn handle_slot(
+    State(slot): State<Slot>,
+    path: Path<(String, String)>,
+    request: Request,
+) -> Response {
+    let viewer = slot.read().unwrap().clone();
+    match viewer {
+        Some(viewer) => handle(State(viewer), path, request).await,
+        None => response(StatusCode::NOT_FOUND, "text/plain", "Not found"),
+    }
+}
+
 pub struct Viewer {
     pub capability: String,
     socket: PathBuf,
@@ -66,9 +88,13 @@ impl Viewer {
         Ok(viewer)
     }
     pub fn router(self: Arc<Self>) -> Router {
-        Router::new()
-            .route("/viewer/{capability}/{*path}", get(handle).post(handle))
-            .with_state(self)
+        router_slot(Arc::new(std::sync::RwLock::new(Some(self))))
+    }
+    pub(crate) async fn open(&self) -> Result<(), Error> {
+        let url=format!("http://127.0.0.1:{}/viewer/{}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{}%2Fwebsock", self.port, self.capability, self.capability);
+        let prefix =
+            PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
+        crate::runtime::request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await
     }
     pub(crate) fn close(&self) {
         self.shutdown.cancel();

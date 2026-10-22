@@ -21,6 +21,7 @@ pub const FIELDS: &[&str] = &[
     "catalog",
     "host.rootfs",
     "host.viewer_assets",
+    "host.viewer_socket",
     "execution.mode",
     "execution.core",
     "execution.home",
@@ -79,6 +80,8 @@ pub struct ExecutionConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct HostConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer_socket: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rootfs: Option<std::path::PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewer_assets: Option<std::path::PathBuf>,
@@ -136,7 +139,7 @@ impl Default for TransportConfig {
             max_wire_bytes: MAX_WIRE_BYTES,
             max_decoded_bytes: MAX_DECODED_BYTES,
             return_path: ReturnPath::LocalFunction,
-            connector_name: "Termux Codex".into(),
+            connector_name: "Termux Bridge".into(),
         }
     }
 }
@@ -204,6 +207,7 @@ impl Config {
         if [
             &self.host.rootfs,
             &self.host.viewer_assets,
+            &self.host.viewer_socket,
             &self.execution.core,
             &self.execution.home,
             &self.execution.workspace,
@@ -233,14 +237,6 @@ impl Config {
                 "operator execution requires explicit Core, execution home and workspace",
             ));
         }
-        if self.execution.mode == ExecutionMode::Operator
-            && self.transport.return_path != ReturnPath::Mcp
-        {
-            return Err(ConfigError::Invalid(
-                "operator execution requires MCP return transport",
-            ));
-        }
-
         if self
             .catalog
             .route(&self.model.default, &self.model.reasoning_effort)
@@ -379,6 +375,7 @@ mod tests {
     }
     #[test]
     fn return_transport_is_explicit_and_connector_branding_is_configurable() {
+        assert_eq!(Config::default().transport.connector_name, "Termux Bridge");
         assert_eq!(
             Config::default().transport.return_path,
             ReturnPath::LocalFunction
@@ -402,7 +399,7 @@ mod tests {
 mod operator_tests {
     use super::*;
     #[test]
-    fn operator_is_explicit_and_requires_a_complete_mcp_execution_binding() {
+    fn operator_is_explicit_and_requires_a_complete_execution_binding_for_both_transports() {
         let base = Config::default();
         assert_eq!(base.execution.mode, ExecutionMode::ModelAdapter);
         let mut config = base;
@@ -411,7 +408,7 @@ mod operator_tests {
         config.execution.core = Some("/owned/core".into());
         config.execution.home = Some("/owned/codex".into());
         config.execution.workspace = Some("/owned/work".into());
-        assert!(config.validate().is_err());
+        config.validate().unwrap();
         config.transport.return_path = ReturnPath::Mcp;
         config.validate().unwrap();
         config.execution.home = Some("/owned/../other".into());

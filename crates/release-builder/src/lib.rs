@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+pub mod provider;
 mod runtime_patch;
 
 use std::collections::BTreeSet;
@@ -170,7 +171,12 @@ const USAGE: &str = concat!(
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
     "--release-sequence <POSITIVE_DECIMAL> --release-base <HTTPS_BASE_URL> ",
     "--private-key <ABSOLUTE_FILE> --openssl <ABSOLUTE_EXECUTABLE> ",
-    "--output <ABSENT_ABSOLUTE_DIRECTORY>"
+    "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
+    "       codex-release-builder provider-package --binary <ABSOLUTE_FILE> ",
+    "--assets <ABSOLUTE_DIRECTORY> --source-inputs <ABSOLUTE_FILE> ",
+    "--source-sha <GIT_COMMIT> --generation-id <chatgpt-ID> ",
+    "--release-sequence <POSITIVE_DECIMAL> --private-key <ABSOLUTE_FILE> ",
+    "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>"
 );
 
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -3937,6 +3943,7 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
+        Some("provider-package") => provider::command(&args),
         Some("adapt-manager-tui") => match adapt_frontend(&args) {
             Ok(()) => 0,
             Err(error) => {

@@ -13,7 +13,7 @@ use codex_chatgpt_provider::{
 use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -22,16 +22,61 @@ struct Synthetic {
     path: PathBuf,
     commands: Mutex<Vec<Value>>,
     stopped: Mutex<BTreeMap<String, bool>>,
+    released: Mutex<BTreeSet<String>>,
+    ui_approval_at: Mutex<Option<std::time::Instant>>,
+}
+fn fixture_base_url(port: u16, requested: Option<String>) -> String {
+    let base = requested.unwrap_or_else(|| format!("http://127.0.0.1:{port}/v1"));
+    let selected = base
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|value| value.strip_suffix("/v1"))
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|value| *value != 0)
+        .expect("explicit fixture HTTP proxy must use a loopback port");
+    assert_eq!(base, format!("http://127.0.0.1:{selected}/v1"));
+    base
+}
+#[test]
+fn fixture_http_proxy_keeps_the_default_or_explicit_loopback_endpoint() {
+    assert_eq!(fixture_base_url(3210, None), "http://127.0.0.1:3210/v1");
+    assert_eq!(
+        fixture_base_url(3210, Some("http://127.0.0.1:4321/v1".into())),
+        "http://127.0.0.1:4321/v1"
+    );
+}
+#[test]
+fn fixture_http_proxy_rejects_other_destinations() {
+    for value in [
+        "http://example.com:4321/v1",
+        "http://127.0.0.1:0/v1",
+        "http://127.0.0.1:4321/v1/other",
+        "http://127.0.0.1:04321/v1",
+        "http://127.0.0.1:4321@other/v1",
+    ] {
+        assert!(std::panic::catch_unwind(|| fixture_base_url(3210, Some(value.into()))).is_err());
+    }
 }
 impl Bridge for Synthetic {
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
-        self.commands.lock().unwrap().push(command.clone());
-        std::fs::write(
-            &self.path,
-            serde_json::to_vec(&*self.commands.lock().unwrap()).unwrap(),
-        )
-        .unwrap();
+        {
+            let mut commands = self.commands.lock().unwrap();
+            commands.push(command.clone());
+            let temporary = self.path.with_extension("tmp");
+            std::fs::write(&temporary, serde_json::to_vec(&*commands).unwrap()).unwrap();
+            std::fs::rename(temporary, &self.path).unwrap();
+        }
         let lane = command["lane"].as_str().unwrap_or("").to_owned();
+        if matches!(command["op"].as_str(), Some("stop" | "snapshot"))
+            && (self.released.lock().unwrap().contains(&lane)
+                || !self
+                    .commands
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["op"] == "open" && row["lane"] == lane))
+        {
+            return Box::pin(async { Err(Error("app_lane_missing")) });
+        }
         if command["op"] == "snapshot"
             && self
                 .path
@@ -48,7 +93,23 @@ impl Bridge for Synthetic {
                 json!({"generation":"fixture","account":if self.path.parent().unwrap().join("changed-account").exists(){"changed-synthetic-account"}else{"owned-synthetic-account"},"user":"owned-synthetic-user","structure":"personal",
                     "present":self.commands.lock().unwrap().iter().any(|row|row["op"]=="open" && row["lane"]==lane)})
             }
-            "open" => json!({"localId":lane}),
+            "open" => {
+                if command["signature"]["name"]
+                    .as_str()
+                    .is_some_and(|v| v.starts_with("operator_local_"))
+                    && (command["signature"]["type"] != "kwargs"
+                        || command["signature"]["params"]
+                            .as_array()
+                            .is_none_or(|params| {
+                                params.len() != 2
+                                    || params.iter().any(|v| v["type"]["type"] != "string")
+                            }))
+                {
+                    return Box::pin(async { Err(Error("synthetic_app_declaration_invalid")) });
+                }
+                self.released.lock().unwrap().remove(&lane);
+                json!({"localId":lane})
+            }
             "submit" => {
                 if self.path.parent().unwrap().join("reject-submit").exists() {
                     return Box::pin(async { Err(Error("synthetic_submit_unknown")) });
@@ -78,7 +139,12 @@ impl Bridge for Synthetic {
                 let reviewer = commands
                     .iter()
                     .find(|row| row["op"] == "open" && row["lane"] == lane)
-                    .is_some_and(|row| row["signature"]["name"] != "operator_no_local_tools");
+                    .is_some_and(|row| {
+                        row["signature"]["name"].as_str().is_some_and(|name| {
+                            name != "operator_no_local_tools"
+                                && !name.starts_with("operator_local_")
+                        })
+                    });
                 let assessment = json!({"risk_level":"low","user_authorization":"high","outcome":if self.path.parent().unwrap().join("deny-review").exists(){"deny"}else{"allow"},"rationale":"Only this owned disposable fixture program is in scope."});
                 let ended = submitted.is_some_and(|row| {
                     row["messages"].as_array().is_some_and(|messages| {
@@ -90,6 +156,35 @@ impl Bridge for Synthetic {
                 let partial = self.path.parent().unwrap().join("partial-host").exists();
                 let messages = if reviewer {
                     json!([{"id":"owned-review-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[assessment.to_string()]},"status":"finished_successfully","end_turn":true}])
+                } else if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("local-function-fixture")
+                    .exists()
+                {
+                    let offered =
+                        std::fs::read(self.path.parent().unwrap().join("local-request.json"))
+                            .ok()
+                            .and_then(|v| serde_json::from_slice::<Value>(&v).ok());
+                    match offered
+                        .filter(|v| submitted.is_some_and(|row| row["round"] == v["round"]))
+                    {
+                        Some(v) => {
+                            let gateway = commands
+                                .iter()
+                                .find(|row| row["op"] == "open" && row["lane"] == lane)
+                                .unwrap()["signature"]["name"]
+                                .as_str()
+                                .unwrap();
+                            let input = v["input_override"]
+                                .as_str()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| v["arguments"].to_string());
+                            json!([{"id":v["id"],"author":{"role":"assistant"},"recipient":format!("local.{gateway}"),"channel":"commentary","content":{"content_type":"code","text":json!({"name":v["name"],"input":input}).to_string()},"status":"finished_successfully","end_turn":false}])
+                        }
+                        None => json!([]),
+                    }
                 } else if ended {
                     json!([{"id":"owned-incomplete-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Required operator connector is unavailable."]},"status":"finished_successfully","end_turn":true}])
                 } else if partial {
@@ -113,10 +208,39 @@ impl Bridge for Synthetic {
                 } else {
                     json!([])
                 };
-                json!({"round":submitted.map(|row|&row["round"]),"accepted":ended||partial,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"messages":messages,"terminals":["done"],"roundStarts":1,"dispatches":1,"userMessages":1,"toolMessages":0})
+                json!({"round":submitted.map(|row|&row["round"]),"accepted":submitted.is_some(),"pending":self.path.parent().unwrap().join("hold-host-completion").exists(),"streamActive":false,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"approvalResponses":if self.ui_approval_at.lock().unwrap().is_some_and(|at|at.elapsed()>=std::time::Duration::from_millis(350)){json!(["fixture-confirmation"])}else{json!([])},"messages":messages,"terminals":["done"],"roundStarts":1,"dispatches":1,"userMessages":1,"toolMessages":0})
             }
-            "release" => json!({"released":true}),
+            "release" => {
+                self.released.lock().unwrap().insert(lane);
+                json!({"released":true})
+            }
             "reveal" => json!({"requested":true}),
+            "dispose" => json!({"disposed":true}),
+            "approve" => {
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("approval-ui-required")
+                    .exists()
+                {
+                    return Box::pin(async { Err(Error("app_approval_ui_required")) });
+                }
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("approval-unknown")
+                    .exists()
+                {
+                    return Box::pin(async { Err(Error("app_approval_unconfirmed")) });
+                }
+                json!({"requested":true,"scope":"conversation","path":"action"})
+            }
+            "approve_ui" => {
+                *self.ui_approval_at.lock().unwrap() = Some(std::time::Instant::now());
+                json!({"requested":true,"scope":"conversation","path":"ui","messageId":"fixture-confirmation"})
+            }
             _ => return Box::pin(async { Err(Error("unexpected_synthetic_operation")) }),
         };
         Box::pin(async move { Ok(value) })
@@ -131,10 +255,25 @@ async fn synthetic_operator_service() {
     assert!(root.is_absolute() && root.join("owned-fixture").is_file());
     let mut config = Config::default();
     config.transport.return_path = ReturnPath::Mcp;
+    if root.join("local-function-fixture").exists() {
+        config.transport.return_path = ReturnPath::LocalFunction;
+    }
     config.execution.mode = ExecutionMode::Operator;
     config.execution.core = Some(root.join("p/bin/codex"));
     config.execution.home = Some(root.join("h/.codex"));
     config.execution.workspace = Some(root.join("w"));
+    if let Some(path) = std::env::var_os("CODEX_PROVIDER_OPERATOR_CONFIG") {
+        config = Config::parse(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            config.execution.home.as_deref(),
+            Some(root.join("h/.codex").as_path())
+        );
+        assert_eq!(
+            config.execution.workspace.as_deref(),
+            Some(root.join("w").as_path())
+        );
+        assert_eq!(config.execution.mode, ExecutionMode::Operator);
+    }
     config.validate().unwrap();
     let journal = Arc::new(Journal::open(&root.join("provider-state")).unwrap());
     let selected_port = std::env::var("CODEX_PROVIDER_OPERATOR_PORT")
@@ -148,14 +287,28 @@ async fn synthetic_operator_service() {
     let pool = Pool::new(
         config.clone(),
         root.join("provider-state"),
-        format!("http://127.0.0.1:{port}/v1"),
+        fixture_base_url(port, std::env::var("CODEX_PROVIDER_OPERATOR_BASE_URL").ok()),
         root.join("fixture-auth"),
+    )
+    .unwrap();
+    // This explicit fixture also launches a TUI client below. Managed routing
+    // itself must not publish user profiles; prepare this disposable client's
+    // profile explicitly, just as the installed public prepare command does.
+    codex_chatgpt_provider::registration::prepare(
+        &config,
+        &root.join("provider-state"),
+        &root.join("profile-registry"),
+        &root.join("h/.codex"),
+        &root.join("fixture-auth"),
+        &format!("http://127.0.0.1:{port}/v1"),
     )
     .unwrap();
     let bridge = Arc::new(Synthetic {
         path: root.join("bridge-commands.json"),
         commands: Mutex::new(vec![]),
         stopped: Mutex::new(BTreeMap::new()),
+        released: Mutex::new(BTreeSet::new()),
+        ui_approval_at: Mutex::new(None),
     });
     let operator = Operator::new(
         pool,

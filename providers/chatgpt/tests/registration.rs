@@ -127,3 +127,49 @@ fn user_profile_and_foreign_shared_output_are_preserved_before_projection() {
     );
     assert!(!state.join("catalogs").exists());
 }
+
+#[test]
+fn managed_routing_preserves_user_profiles_and_only_publishes_owned_catalogs() {
+    let root = Root::new();
+    let home = root.0.join("home");
+    let state = root.0.join("state");
+    let shared = root.0.join("registry/chatgpt.config.toml");
+    let local = home.join("chatgpt.config.toml");
+    fs::write(&shared, "# existing shared user profile\n").unwrap();
+    fs::write(&local, "# existing local user profile\n").unwrap();
+    fs::write(home.join("config.toml"), "# native user defaults\n").unwrap();
+    let mut config = Config::default();
+    config.execution.home = Some(home.clone());
+    config.execution.workspace = Some(root.0.clone());
+    let binary = std::env::current_exe().unwrap();
+    let pool = codex_chatgpt_provider::operator_native::Pool::new(
+        config,
+        state.clone(),
+        "http://127.0.0.1:12345/v1".to_owned(),
+        binary.clone(),
+    )
+    .unwrap();
+    let first = pool.routing().unwrap();
+    assert_eq!(first, pool.routing().unwrap());
+    assert_eq!(first["model_provider"], PROVIDER);
+    let routing = &first["model_providers"][PROVIDER];
+    assert_eq!(routing["base_url"], "http://127.0.0.1:12345/v1");
+    assert_eq!(routing["requires_openai_auth"], false);
+    assert_eq!(routing["auth"]["command"], binary.to_str().unwrap());
+    assert_eq!(routing["auth"]["args"][2], state.to_str().unwrap());
+    let catalog = PathBuf::from(first["model_catalog_json"].as_str().unwrap());
+    assert_eq!(catalog.parent().unwrap(), state.join("catalogs"));
+    assert_eq!(fs::read_dir(state.join("catalogs")).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_to_string(&shared).unwrap(),
+        "# existing shared user profile\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&local).unwrap(),
+        "# existing local user profile\n"
+    );
+    assert_eq!(
+        fs::read_to_string(home.join("config.toml")).unwrap(),
+        "# native user defaults\n"
+    );
+}

@@ -7,6 +7,17 @@ on:
       - providers/chatgpt/**
       - crates/runtime-binding/**
       - scripts/qualify_provider_operator.py
+      - scripts/qualify_provider_*.py
+      - scripts/provider_qualification.py
+      - scripts/clean_development.py
+      - scripts/test_provider_qualification.py
+      - scripts/chat_entry_client.mjs
+      - scripts/d3_*
+      - scripts/test_d3_notify.py
+      - scripts/test_provider_f.py
+      - scripts/test_provider_f_agents.py
+      - scripts/f_cdp_relay*
+      - scripts/fixtures/d3/**
       - scripts/check.sh
       - .github/workflows/provider-qualification.yml
 permissions:

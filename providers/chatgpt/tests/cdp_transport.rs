@@ -177,7 +177,7 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
             assert_eq!(peer.await.unwrap(), (1, 0, 0));
         } else {
             assert_eq!(result.unwrap()["account"], "owned-account");
-            assert_eq!(peer.await.unwrap(), (2, 2, 2));
+            assert_eq!(peer.await.unwrap(), (2, 0, 2));
         }
     }
 }
@@ -380,7 +380,7 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
         let peer = tokio::spawn(async move {
             let (socket, _) = socket.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
-            for _ in 0..4 {
+            for _ in 0..3 {
                 let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                     panic!("CDP frame required")
                 };
@@ -401,7 +401,7 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                             .0;
                         let command: Value = serde_json::from_str(command).unwrap();
                         let value = match command["op"].as_str().unwrap() {
-                            "init" => json!({"ready":true}),
+                            "init" => panic!("identity observation must not install writer hooks"),
                             "identity" => {
                                 json!({"account":"fixture-account","user":"fixture-user","structure":"personal","present":false})
                             }
@@ -435,4 +435,76 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
     }
     drop(remote);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn passive_cleanup_does_not_initialize_and_successful_disposal_reinitializes_on_next_open() {
+    use codex_chatgpt_provider::app::{Bridge, Remote};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (native, peer) = tokio::io::duplex(262144);
+    let (read, write) = tokio::io::split(native);
+    let remote = Remote::pipe(
+        Client::pipe(read, write, "cleanup-fixture".into()),
+        "owned".into(),
+    );
+    let task = tokio::spawn(async move {
+        let (read, mut write) = tokio::io::split(peer);
+        let mut reader = BufReader::new(read);
+        let mut operations = Vec::new();
+        loop {
+            let mut bytes = Vec::new();
+            assert!(reader.read_until(0, &mut bytes).await.unwrap() > 0);
+            bytes.pop();
+            let request: Value = serde_json::from_slice(&bytes).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    json!({"targetInfos":[{"targetId":"main","type":"page","url":"app://-/index.html"}]})
+                }
+                "Target.attachToTarget" => json!({"sessionId":"main"}),
+                "Runtime.evaluate" => {
+                    let expression = request["params"]["expression"].as_str().unwrap();
+                    let command: Value = serde_json::from_str(
+                        expression
+                            .split_once("const command=")
+                            .unwrap()
+                            .1
+                            .split_once(";\n")
+                            .unwrap()
+                            .0,
+                    )
+                    .unwrap();
+                    assert!(command["bridgeRevision"].is_string());
+                    let op = command["op"].as_str().unwrap().to_owned();
+                    operations.push(op.clone());
+                    json!({"result":{"value":{"value":match op.as_str() {
+                        "init" => json!({"ready":true}),
+                        "dispose" => json!({"disposed":true}),
+                        "release" => json!({"released":true}),
+                        _ => json!({"ready":true}),
+                    }}}})
+                }
+                _ => panic!("unexpected CDP operation"),
+            };
+            write
+                .write_all(format!("{}\0", json!({"id":request["id"],"result":result})).as_bytes())
+                .await
+                .unwrap();
+            if operations.len() == 9 {
+                break;
+            }
+        }
+        operations
+    });
+    for op in [
+        "snapshot", "stop", "release", "dispose", "open", "dispose", "open",
+    ] {
+        remote
+            .operation(json!({"op":op,"lane":"one"}))
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        task.await.unwrap(),
+        ["snapshot", "stop", "release", "dispose", "init", "open", "dispose", "init", "open"]
+    );
 }

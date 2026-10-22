@@ -95,6 +95,49 @@ async fn native_auth_bootstraps_one_rust_service_and_reclaims_endpoint_without_c
         "concurrent auth must reuse one service credential"
     );
     let status = runtime::status(&root.join("state")).await.unwrap();
+    let absent = runtime::control(
+        &root.join("state"),
+        "codex_host",
+        json!({"action":"status"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(absent["is_error"], false);
+    assert_eq!(absent["result"]["host"]["present"], false);
+    assert!(
+        !root.join("state/desktop").exists(),
+        "authentication must not acquire an app"
+    );
+    // Acquisition is explicit. A fresh logged-out profile can report unavailable
+    // app/auth context, while still retaining the owned host for login/reuse.
+    let ensured = runtime::control(
+        &root.join("state"),
+        "codex_host",
+        json!({"action":"ensure"}),
+    )
+    .await
+    .unwrap();
+    if ensured["is_error"] == true {
+        let cause = ensured["result"]["error"].as_str().unwrap();
+        assert!(
+            matches!(
+                cause,
+                "app_scope_unavailable"
+                    | "app_auth_loading"
+                    | "app_auth_context_unavailable"
+                    | "app_target_unavailable"
+                    | "app_bindings_unavailable"
+            ),
+            "unexpected fresh-profile readiness: {cause}"
+        );
+    } else {
+        assert_eq!(ensured["result"]["inference_submitted"], false);
+    }
+    assert!(root.join("state/desktop/home").is_dir());
+    assert_eq!(
+        runtime::status(&root.join("state")).await.unwrap()["process"],
+        status["process"]
+    );
     let viewer_capability = if settings.host.viewer_assets.is_some() {
         use futures_util::StreamExt;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -171,7 +214,7 @@ async fn native_auth_bootstraps_one_rust_service_and_reclaims_endpoint_without_c
     cleanup.stop();
     println!(
         "{}",
-        json!({"accepted":true,"concurrentAuthOneService":true,"sameEndpointAfterRestart":true,"credentialRotated":true,"readonlyStatus":true,"actualPrivateRfbViewer":settings.host.viewer_assets.is_some(),"physicalUiObserved":false,"chatSubmissions":0,"existingProfilesRead":false})
+        json!({"accepted":true,"concurrentAuthOneService":true,"authenticationAcquiredNoHost":true,"explicitHostEnsure":true,"freshProfileReadinessError":ensured["result"]["error"],"sameEndpointAfterRestart":true,"credentialRotated":true,"readonlyStatus":true,"actualPrivateRfbViewer":settings.host.viewer_assets.is_some(),"physicalUiObserved":false,"chatSubmissions":0,"existingProfilesRead":false})
     );
 }
 
@@ -248,5 +291,84 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
     println!(
         "{}",
         json!({"accepted":true,"browser":version["product"],"privateRustPipe":true,"appTarget":true,"chatSubmissions":0,"existingProfilesRead":false,"testProfileRemoved":true})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "explicit owned Android app crash/restart; fresh profile, zero Chat"]
+async fn official_app_loss_releases_pipe_and_restarts_preserving_the_owned_profile() {
+    use std::os::unix::fs::DirBuilderExt;
+    use std::time::Duration;
+    let root = std::env::temp_dir().join(format!("gl-{}", &random_id().unwrap()[..8]));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    let _cleanup = Cleanup(root.clone());
+    let _journal = Journal::open(&root).unwrap();
+    let config = HostConfig {
+        rootfs: Some(
+            std::env::var_os("CHATGPT_PROVIDER_ROOTFS")
+                .expect("qualified app rootfs")
+                .into(),
+        ),
+        ..Default::default()
+    };
+    let mut first = OwnedHost::start(&config, &root).await.unwrap();
+    first
+        .client
+        .request("Browser.getVersion", json!({}), None)
+        .await
+        .unwrap();
+    let sentinel = root.join("desktop/home/owned-retention-sentinel");
+    std::fs::write(&sentinel, b"preserve-owned-profile-on-loss").unwrap();
+    // Close the actual child browser through its owned private pipe. This is a
+    // transport-loss test, not a claim of Android reboot or model cancellation.
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        first.client.request("Browser.close", json!({}), None),
+    )
+    .await;
+    let until = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            first.client.request("Browser.getVersion", json!({}), None),
+        )
+        .await;
+        if result.is_err() || result.unwrap().is_err() {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < until,
+            "owned pipe failed to observe host loss"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        OwnedHost::start(&config, &root).await.err(),
+        Some(codex_chatgpt_provider::protocol::Error("host_profile_busy"))
+    );
+    first.shutdown().await;
+    drop(first);
+    assert_eq!(
+        std::fs::read(&sentinel).unwrap(),
+        b"preserve-owned-profile-on-loss"
+    );
+    let mut second = OwnedHost::start(&config, &root).await.unwrap();
+    second
+        .client
+        .request("Browser.getVersion", json!({}), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&sentinel).unwrap(),
+        b"preserve-owned-profile-on-loss"
+    );
+    second.shutdown().await;
+    drop(second);
+    println!(
+        "{}",
+        json!({"accepted":true,"actualPrivatePipeLoss":true,"explicitRestart":true,"profilePreserved":true,"competingOwnerRejected":true,"androidReboot":false,"chatSubmissions":0})
     );
 }

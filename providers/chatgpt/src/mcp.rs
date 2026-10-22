@@ -18,6 +18,25 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Notify};
 
 const LIMIT: usize = 16 * 1024 * 1024;
+/// Rust Provider declarations share the qualified operation policy. Mixed
+/// legacy controls stay conservative; this hint never changes authorization.
+pub(crate) fn idempotent_hint(name: &str) -> bool {
+    matches!(
+        name,
+        "native_catalog"
+            | "native_tool"
+            | "codex_chats"
+            | "codex_history"
+            | "codex_tools"
+            | "codex_status"
+            | "codex_execute"
+            | "codex_report"
+            | "codex_finish"
+            | "codex_handoff"
+            | "codex_answer"
+            | "codex_attach"
+    )
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct Invocation {
     fingerprint: String,
@@ -40,6 +59,7 @@ pub struct Broker {
     journal: Arc<Journal>,
     turns: Mutex<BTreeMap<String, Turn>>,
     changed: Notify,
+    controls: Option<crate::control::Controls>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +75,24 @@ impl Broker {
             journal,
             turns: Mutex::new(BTreeMap::new()),
             changed: Notify::new(),
+            controls: None,
+        })
+    }
+    pub fn with_controls(
+        journal: Arc<Journal>,
+        bridge: Arc<dyn crate::app::Bridge>,
+        config: crate::config::Config,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            journal: journal.clone(),
+            turns: Mutex::new(BTreeMap::new()),
+            changed: Notify::new(),
+            controls: Some(crate::control::Controls {
+                bridge,
+                journal,
+                config,
+                mutations: Mutex::new(()),
+            }),
         })
     }
     fn persist(&self, token: &str, turn: &Turn) -> Result<(), Error> {
@@ -261,6 +299,18 @@ impl Broker {
         results: &[(String, Value)],
         catalog: Option<BTreeMap<String, Tool>>,
     ) -> Result<(), Error> {
+        self.settle_prepared(token, results, catalog, || Ok(()))
+            .await
+    }
+    /// Keep validation, preparation and commit in one admission section. A
+    /// known validation rejection must not leave a newly prepared lane intent.
+    pub(crate) async fn settle_prepared(
+        &self,
+        token: &str,
+        results: &[(String, Value)],
+        catalog: Option<BTreeMap<String, Tool>>,
+        prepare: impl FnOnce() -> Result<(), Error> + Send,
+    ) -> Result<(), Error> {
         let mut turns = self.turns.lock().await;
         let turn = turns
             .get_mut(token)
@@ -286,13 +336,14 @@ impl Broker {
             }
         }
         if let Some(catalog) = catalog {
-            if next.calls.values().any(|v| v.result.is_none()) {
+            if next.tools != catalog && next.calls.values().any(|v| v.result.is_none()) {
                 return Err(Error("mcp_pending_catalog_change"));
             }
             next.tools = catalog;
         }
         // All-or-nothing catalog/result validation and durable commit precede
         // waking the model, which may immediately discover/call the new tools.
+        prepare()?;
         self.persist(token, &next)?;
         *turn = next;
         self.changed.notify_waiters();
@@ -388,16 +439,37 @@ async fn http(State(broker): State<Arc<Broker>>, request: Request) -> Response {
             _ => Err(Error("mcp_protocol_unqualified")),
         },
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools":[
-            {"name":"native_catalog","description":"Read the tool names and input schemas available to the selected native Codex turn.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},
-            {"name":"native_tool","description":"Run one advertised native Codex tool and return its execution result.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true}}
-        ]})),
+        "tools/list" => {
+            let mut declaration = json!({"tools":[
+                {"name":"native_catalog","description":"Read the tool names and input schemas available to the selected native Codex turn.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":idempotent_hint("native_catalog"),"openWorldHint":false}},
+                {"name":"native_tool","description":"Run one advertised native Codex tool and return its execution result.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":idempotent_hint("native_tool"),"openWorldHint":false}}
+            ]});
+            if broker.controls.is_some() {
+                declaration["tools"]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend(crate::control::tools());
+            }
+            Ok(declaration)
+        }
         "tools/call" => {
             let args = &row["params"]["arguments"];
             let token = args["turn_token"]
                 .as_str()
                 .filter(|v| v.len() == 48 && v.bytes().all(|b| b.is_ascii_hexdigit()));
-            let value = if let Some(token) = token {
+            let source_name = row["params"]["name"]
+                .as_str()
+                .filter(|name| matches!(*name, "codex_chats" | "codex_host" | "codex_sessions"));
+            let value = if let (Some(controls), Some(name)) = (&broker.controls, source_name) {
+                let secrets = broker
+                    .turns
+                    .lock()
+                    .await
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                controls.call(name, args.clone(), &secrets).await
+            } else if let Some(token) = token {
                 match row["params"]["name"].as_str() {
                     Some("native_catalog") if args.as_object().is_some_and(|v| v.len() == 1) => {
                         broker.catalog(token).await.map(|v| json!(v))
