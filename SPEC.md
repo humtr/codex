@@ -1366,6 +1366,13 @@ Native Pool lookup includes qualified runtime binding, execution home, canonical
 workspace and routing configuration. Independent child workspaces must not be
 routed through a fixed-workspace Pool by changing only a displayed cwd. Preserve
 Core's server/config isolation and native child/history semantics.
+During Provider discovery, a structurally valid historical record whose PID now
+belongs to a different executable is not a native server candidate. It must not
+block an independently verified current thread. Never connect to that process or
+repair/delete its record. Selected execution bindings still require exact
+PID/start/image and peer/socket validation; malformed records and ambiguous live
+native writers remain errors. A discovery exclusion does not authorize takeover,
+model/tool replay or acceptance of a changed selected owner.
 
 The work owner may inspect, stop and supply genuine follow-up input. Its managed
 worker holds the current native execution controller; a coordinator cannot issue

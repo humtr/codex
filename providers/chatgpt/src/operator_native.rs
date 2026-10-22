@@ -493,7 +493,11 @@ impl Pool {
                 }
                 let owner = match Owner::load(&directory, &self.home, &self.installation) {
                     Ok(owner) => owner,
-                    Err(Error("stale_process_owner")) => continue,
+                    // Historical PID files can name a different live executable
+                    // after PID reuse. It cannot own this native rendezvous. Do
+                    // not connect to it or let it block another verified thread;
+                    // selected Owner validation retains the strict rejection.
+                    Err(Error("stale_process_owner" | "native_runtime_owner_changed")) => continue,
                     Err(error) => return Err(error),
                 };
                 let client = self.client(owner).await?;
@@ -577,6 +581,95 @@ impl Pool {
 #[cfg(test)]
 mod reply_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn discovery_excludes_reused_nonruntime_pid_without_weakening_selected_owner() {
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!(
+            "native-discovery-{}",
+            crate::journal::random_id().unwrap()
+        )));
+        let installation = root.0.join("installation");
+        let home = installation.join("execution-home");
+        let workspace = root.0.join("work");
+        for path in [&home, &workspace] {
+            crate::journal::private_directory(path).unwrap();
+        }
+        let program = installation.join(".local/lib/codex/core/generations/fixture/runtime");
+        let config = b"";
+        let name = codex_runtime_binding::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            config,
+            None,
+        );
+        let directory = installation
+            .join(".local/share/codex/core/servers")
+            .join(name);
+        crate::journal::private_directory(&directory.join("config")).unwrap();
+        let owner =
+            codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false);
+        let process = Process::read(std::process::id()).unwrap();
+        assert_ne!(process.image, program);
+        use std::io::Write;
+        for (name, bytes) in [
+            ("owner", owner),
+            ("config/config.toml", config.to_vec()),
+            ("pid", process.pid.to_string().into_bytes()),
+        ] {
+            let mut file = File::options()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(directory.join(name))
+                .unwrap();
+            file.write_all(&bytes).unwrap();
+        }
+        // A selected binding still rejects this live process identity. Discovery
+        // must not connect to it, or let it poison another thread's lookup.
+        assert_eq!(
+            Owner::load(&directory, &home, &installation).unwrap_err(),
+            Error("native_runtime_owner_changed")
+        );
+        let pool = Pool {
+            config: Config::default(),
+            state: root.0.join("state"),
+            installation,
+            home,
+            workspace,
+            base_url: "http://127.0.0.1:9".into(),
+            binary: root.0.join("provider"),
+            clients: Mutex::new(BTreeMap::new()),
+        };
+        assert_eq!(
+            pool.for_thread("unrelated-native-thread")
+                .await
+                .err()
+                .unwrap(),
+            Error("native_thread_owner_unavailable")
+        );
+        assert_eq!(Process::read(process.pid).unwrap(), process);
+        // Do not turn discovery into a blanket ignore of invalid private state.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            directory.join("pid"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert_eq!(
+            pool.for_thread("unrelated-native-thread")
+                .await
+                .err()
+                .unwrap(),
+            Error("native_binding_invalid")
+        );
+    }
 
     #[test]
     fn foreign_legacy_records_do_not_block_current_home_but_own_invalid_records_do() {
