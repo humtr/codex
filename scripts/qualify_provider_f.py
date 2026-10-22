@@ -384,6 +384,9 @@ class Batch:
         save(self.root / (name + "-source-intent.json"), started, True)
         outcome = "submission_or_observation_failed"
         try:
+            snapshot = self.client.call("snapshot")
+            if snapshot.get("source_released") is True:
+                self.client.call("new_source")
             self.client.call("submit", {"step": step, "text": task})
             result = self.source_wait(name, marker)
             save(self.root / (name + "-source-private.json"), result)

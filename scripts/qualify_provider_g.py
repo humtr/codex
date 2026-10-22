@@ -355,7 +355,6 @@ def run(root):
         if 'managed-local' in cases:batch.managed('managed-local',TASK,route='local_function',workspace=root/'w-managed-local')
         for step,name in enumerate(['direct','general'],1):
             if name not in cases:continue
-            if step>1:batch.client.call('new_source')
             batch.source_task(name,(root/('task-'+name+'.txt')).read_text(),'G_'+name.upper()+'_COMPLETE',step)
             batch.client.call('release_source')
         for _ in range(20):batch.drain();time.sleep(.05)

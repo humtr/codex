@@ -18,6 +18,14 @@ const save=(name,value)=>{
 async function evaluate(action,args={}) {
  const expression=`(${async function(action,args,bridge,owner,revision,plan) {
   const b=eval('('+bridge+')'),slot=Symbol.for('termux.codex.chat-entry.client.v1');
+  function inputRequestScope(lanes,sourceLane,request) {
+   const entry=[...lanes].find(([,l])=>request.conversation_id!=null&&[l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id)||request.messages?.some(m=>m.metadata?.termux_codex_lane===l.marker)||request.local_function_signatures?.some(f=>f.name===l.signature?.name));
+   return entry?{lane_id:entry[0],scope:entry[0]===sourceLane?'source':'managed'}:null;
+  }
+  function admitObservedRequest(requests,scope,plan) {
+   if(requests.length>=(plan.max_model_responses??plan.max_source_requests))throw Error('chat_entry_total_request_budget_exhausted');
+   if(scope==='source'&&requests.filter(r=>r.scope==='source').length>=(plan.max_source_lane_requests??plan.max_source_requests))throw Error('chat_entry_source_request_budget_exhausted');
+  }
   if(action==='inspect') {
    const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];
    return {bridge_present:!!s,lanes:[...(s?.lanes??[])].map(([id,l])=>({id,pending:l.pending,streamActive:l.streamActive,stopped:l.stopRequested})),model_requests:0};
@@ -58,17 +66,17 @@ async function evaluate(action,args={}) {
    state.wireWrapper=function(path,options) {
     if(path!=='/f/conversation')return state.originalWire.call(this,path,options);
     const request=JSON.parse(options?.body??'{}'),before=options.chatgptSse?.onBeforeRequestStart;
-    const owned=[...s.lanes.values()].some(l=>request.conversation_id!=null&&[l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id)||request.messages?.some(m=>m.metadata?.termux_codex_lane===l.marker)||request.local_function_signatures?.some(f=>f.name===l.signature.name));
-    if(!owned)return state.originalWire.call(this,path,options);
+    const observed=inputRequestScope(s.lanes,state.lane,request);
+    if(!observed)return state.originalWire.call(this,path,options);
     return state.originalWire.call(this,path,{...options,chatgptSse:{...options.chatgptSse,onBeforeRequestStart(v){
-     if(state.requests.length>=plan.max_source_requests)throw Error('chat_entry_source_request_budget_exhausted');
+     admitObservedRequest(state.requests,observed.scope,plan);
      state.requests.push({UTC:new Date().toISOString(),monotonic:performance.now(),body_bytes:new TextEncoder().encode(options.body).length,
       model:request.model,effort:request.thinking_effort,conversation_id:request.conversation_id??null,parent_message_id:request.parent_message_id??null,
-      message_ids:request.messages?.map(m=>m.id),roles:request.messages?.map(m=>m.author?.role)});
+      message_ids:request.messages?.map(m=>m.id),roles:request.messages?.map(m=>m.author?.role),...observed});
      return before?.(v);
     }}});
    };
-   await b({op:'open',owner,lane:state.lane,returnPath:'mcp',project:project.id,signature:{name:'no_local_tools',description:'Use the installed MCP connector',parameters:{type:'object',properties:{}}},...(plan.shared_bridge?{nativeThread:'input-client:'+(plan.input_client_id??owner),limits:{maxDispatches:plan.max_source_requests,deadlineUnixMs:state.deadlineUnixMs}}:{})});
+   await b({op:'open',owner,lane:state.lane,returnPath:'mcp',project:project.id,signature:{name:'no_local_tools',description:'Use the installed MCP connector',parameters:{type:'object',properties:{}}},...(plan.shared_bridge?{nativeThread:'input-client:'+(plan.input_client_id??owner),limits:{maxDispatches:plan.max_source_lane_requests??plan.max_source_requests,deadlineUnixMs:state.deadlineUnixMs}}:{})});
    // Open against the original hooks before installing the passive observer.
    // A released bridge may currently expose its saved wire function.
    s.saved.streamPost=state.wireWrapper;
@@ -101,7 +109,7 @@ async function evaluate(action,args={}) {
   if(action==='new_source'){
    if(!plan.shared_bridge||state.lane!==null)throw Error('prior_source_must_be_released');
    state.lane='chat-entry-source-'+(++state.sourceCount);
-   await b({op:'open',owner,lane:state.lane,returnPath:'mcp',project:state.project.id,nativeThread:'input-client:'+(plan.input_client_id??owner),limits:{maxDispatches:plan.max_source_requests,deadlineUnixMs:state.deadlineUnixMs},signature:{name:'no_local_tools',description:'Use the installed MCP connector',parameters:{type:'object',properties:{}}}});
+   await b({op:'open',owner,lane:state.lane,returnPath:'mcp',project:state.project.id,nativeThread:'input-client:'+(plan.input_client_id??owner),limits:{maxDispatches:plan.max_source_lane_requests??plan.max_source_requests,deadlineUnixMs:state.deadlineUnixMs},signature:{name:'no_local_tools',description:'Use the installed MCP connector',parameters:{type:'object',properties:{}}}});
    return {opened:true,model_requests:0};
   }
   if(action==='submit') {

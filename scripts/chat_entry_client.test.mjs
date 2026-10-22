@@ -8,6 +8,27 @@ const source=readFileSync(new URL('./chat_entry_client.mjs',import.meta.url),'ut
 const definition=source.match(/const canonical=(.*);\n   const digest=/)[1];
 const canonical=eval('('+definition+')');
 const graph=()=>({a:{id:'a',parent:null,children:['b'],message:{id:'a',update_time:1,content:{parts:['original'],update_time:7},metadata:{hidden:true}}},b:{id:'b',parent:'a',children:[],message:null}});
+const inputRequestScope=eval('('+source.match(/function inputRequestScope\([\s\S]*?\n  }/)[0]+')');
+const admitObservedRequest=eval('('+source.match(/function admitObservedRequest\([\s\S]*?\n  }/)[0]+')');
+
+test('shared wire classifies source and managed requests once, without unrelated traffic',()=>{
+ const lanes=new Map([['source',{localId:'local-source',serverId:'saved-source',marker:'source-marker',signature:{name:'source-function'}}],['worker',{localId:'local-worker',serverId:'saved-worker',marker:'worker-marker',signature:{name:'worker-function'}}]]);
+ expect(inputRequestScope(lanes,'source',{conversation_id:'saved-source'})).toEqual({lane_id:'source',scope:'source'});
+ expect(inputRequestScope(lanes,null,{conversation_id:'saved-worker'})).toEqual({lane_id:'worker',scope:'managed'});
+ expect(inputRequestScope(lanes,'source',{messages:[{metadata:{termux_codex_lane:'worker-marker'}}]})).toEqual({lane_id:'worker',scope:'managed'});
+ expect(inputRequestScope(lanes,'source',{local_function_signatures:[{name:'source-function'}]}).scope).toBe('source');
+ expect(inputRequestScope(lanes,'source',{conversation_id:'unrelated'})).toBeNull();
+});
+
+test('source and total wire ceilings reject before forwarding; managed requests are not charged twice',()=>{
+ const plan={max_source_requests:4,max_source_lane_requests:2,max_model_responses:4};
+ const rows=[{scope:'managed'},{scope:'managed'}];
+ expect(()=>admitObservedRequest(rows,'source',plan)).not.toThrow();rows.push({scope:'source'});
+ expect(()=>admitObservedRequest(rows,'source',plan)).not.toThrow();rows.push({scope:'source'});
+ expect(()=>admitObservedRequest(rows,'source',plan)).toThrow('total_request_budget');
+ expect(()=>admitObservedRequest(rows.slice(2),'source',plan)).toThrow('source_request_budget');
+ expect(()=>admitObservedRequest([{scope:'managed'}],'managed',{max_source_requests:1})).toThrow('total_request_budget');
+});
 
 test('title preservation ignores only volatile message timestamps and object order',()=>{
  const before=graph(),after=graph();after.a.message.update_time=2;

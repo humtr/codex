@@ -11,7 +11,7 @@ A–D are complete at their retained scopes. E design/source decisions and F1–
 bounded implementation/integration are complete. G product qualification/delivery
 is active: isolated Android composition and signed optional Provider package/
 install/update/rollback checks have bounded acceptance. Physical reboot and actual
-public wrapper update/use/rollback/use now pass independent review. Latest
+public wrapper update/use/rollback/use now pass independent review. Published
 Provider88257d2a passes84 composition and113 remote/signed-package steps; fresh
 owned-profile host lifecycle passes3 actual Android tests without inference.
 Exact source c65d3f8900bc77755407d137157890d71209c96e passes all three hosted
@@ -56,8 +56,100 @@ Source1c58d1cb's ordinary same-thread model return without an automatic source
 summary now passes both synthetic Android compositions and retained R11 history
 selection. The new frontend/current Provider combination also passes combined
 cold replacement/Stop and20 retained turns in two independently reviewed segments.
-Next freeze/admit the changed exact Provider source/artifact, then close broader
-host/context/approval and actual retained-route boundaries.
+Exact-source/hosted-artifact, new-payload composition/package verification and
+affected actual managed/direct MCP development now pass on that hosted binary.
+Next close installed TUI return/re-entry and the applicable broader runtime and
+release boundaries without repeating these accepted tasks.
+The qualified recovery changes, their contracts and retained qualification helpers
+are now committed/pushed as06062c04b8ed8f4e3b0d6a1887ba6c175b991573. The exact-source
+batch TMPDIR/ga.l7q7bulh passes Source acceptance39813564790 and Provider
+qualification39813564681, including165 Rust tests (28 explicit opt-in ignores),
+159 JavaScript tests,36+56+17 Python tests, formatting/Clippy/release and hosted
+Android compilation. The candidate's7 exact files/source/run binding verify;
+binary0eff9a019638a15f13e53ac3b97e62f4f8954fb72fa29af55d46693b5085b70d
+passes4 isolated actual Android artifact/models/catalog/config commands. Batch
+time415.816s,0 Chat/native-account requests, no signing/publication/activation.
+Original CLI exits/logs, completed workflows, artifact and independent-review.json
+are retained with206 file hashes at ~/.cache/codex/acceptance/phase-g-source-06062c04;
+the final notice is canonically received on this same primary. Ignored tests are
+not passed. Reuse this accepted exact-source proof; do not redispatch those runs.
+The unchanged native frontend recipe retains its exact1c58d1cb qualification.
+The distinct TMPDIR/gp.an4db7mh batch tests this hosted binary with the accepted
+Core0502f7dd/frontend6b924d78, public rollback Provider88257d2a and unchanged accepted
+builder61c38d51. Its scope is disposable Base/Manager/Full configuration/service
+composition and private-signed localhost-TLS install/update/rollback/rejection
+checks; it is not public signing or current device activation. Original state and
+generation86 manifest are bound before launch. It submits0 Chat/native-account
+requests. It passes84 composition steps (Base27, Manager-without-TUI29, Full28)
+and113 package steps (Base57, Full56) in95.251s. Independent review verifies197
+recorded exit expectations,185 original noncredential stdout hashes and4 legitimate
+private package signatures/new-binary hashes;12 credential stdout bodies were
+deliberately not retained. Operating activation bytes remain unchanged. Canonical
+completion notification is received on the same primary. Evidence is archived with
+674 file hashes at ~/.cache/codex/acceptance/phase-g-installed-06062c04. Automatic
+archive-backed cleanup removed27 inactive manifest payload copies,4,048,912,384
+allocated bytes. This accepts the new private payload composition/lifecycle, not
+public signing/promotion or live inference. Do not repeat the197 accepted steps.
+
+The affected actual-route cohort at TMPDIR/gv.4w1z31p6 is independently accepted
+on hosted Provider0eff9a01, installed with Core0502f7dd/frontend6b924d78 in private
+signed fixtures gg.7gm0jtvi/gn.lv3y_wie. Actual remote16-tool/read readiness preceded
+inputs. Managed MCP development took155.648s with1 Chat dispatch; direct MCP took
+207.971s with1 dispatch. Their unchanged original suites plus added regressions
+pass7/8 tests, and12 original native calls/results have0 unreturned/replayed inputs.
+Complete tracked/untracked sources, canonical/native and original CLI finals match.
+The direct visible saved final is a Korean presentation; its report/finish JSON
+arguments retain the exact native final. Allowance deductions remain unknown.
+
+Live-1's original failure was before inference: an expired, released R11 test
+observer remained after its bridge disappeared. Only its verified orphaned hooks
+were retired, with0 conversation/model actions. Live-2 completed managed development
+then failed before direct submission because the qualification script had released
+its source lane without reopening it. Reconciliation verifies0 direct source
+submissions and an unchanged workspace; that completed task was never repeated.
+Live-3 used a distinct intent and the inherited same-owner deadline/counters for
+only the untransported direct input. All failed receipts remain immutable. This
+accepts two tasks in two segments, not an uninterrupted two-task run.
+
+The source observer now labels owned source/managed requests, ignores unrelated
+traffic and checks separate source/whole-wire ceilings before forwarding; managed
+requests are counted once. Eleven Bun tests cover matching and budget guards.
+Common source_task observes the lane and opens it only after source_released=true;
+exclusive intent precedes lifecycle changes, and an uncertain observation never
+submits. Related F/G helper tests pass41/41. These are qualification helpers; hosted
+Provider source/binary stays unchanged.
+
+Live-3's combined audit and return handling completed in234.730s. Candidate
+Provider23831 and backend23970 have kernel-confirmed exits. Original Provider
+route restoration passes actual remote16-tool/read verification, and the final
+notice is canonically received on the same primary. Original receipts, all work
+sources, native records and independent-review.json are archived with3010 hashes
+at ~/.cache/codex/acceptance/phase-g-actual-06062c04. Archive-backed cleanup removed6
+inactive manifest payload copies,878,034,944 allocated bytes; source/work/native
+records remain. This accepts affected development entrances, not public admission
+or whole G.
+
+The next distinct cohort is prepared under TMPDIR/gtr.mnv0xlcj, with fresh signed
+fixture gg.vr6cinu6/gn.nr2d1s34 and the same admitted artifact inputs. Scope: one
+original TUI/native thread across native -> Chat development -> native -> Chat
+follow-up development; two actual GPT-6 High starts maximum, two local synthetic
+native replies,0 native-account inference and0 automatic source summaries. Actual
+Chat input waits for ready-before-Chat.json plus an exclusive go.json after model/
+reasoning selection and remote16-tool/read verification. The native synthetic
+responses test transcript/transport continuity, not native-model intelligence.
+Original services/profile and the return route are preserved. One final notice
+follows the entire batch; consult its intents/results before continuation and do
+not infer inference or acceptance from preparation/worker launch.
+Its first preparation stopped at the owned fixture's folder-trust dialog with0
+Chat/development inputs and no work record. The exact waiting TUI and two empty
+backends were stopped with kernel receipts; private project trust was then made
+explicit. No failed task was replayed. The distinct continuation-1 retains the
+same Provider/tunnel/input owner and counters without reconnect/init. It confirms
+native thread01a164aa-3447-7253-b7ea-af84566ab2d3, one completed synthetic native
+turn, GPT-6 High selected and0 actual requests in ready-before-Chat.json. Its
+exclusive go.json starts the declared two-turn actual cohort. Await its one final
+notice; do not poll or submit another task while the batch owns the input.
+
 The previously published frontend requests a
 fresh source summary for every nonempty Chat-to-native switch; source1c58d1cb
 removes that picker policy at the user's direction and retains explicit summary
@@ -1520,7 +1612,8 @@ CLI/native/app-command records, helper inputs and independent-review.json are
 archived with2775 file hashes under
 ~/.cache/codex/acceptance/phase-g-retained-composition-1c58d1c. Its final notice is
 canonically received on the same primary; profile switching did not create a new
-thread. Inactive manifest payload cleanup retains restore records in cleanup.jsonl.
+thread. Inactive cleanup archived/removed6 manifest-matched payloads,878,034,944
+allocated bytes; cleanup.jsonl retains restore records.
 Do not repeat the baseline restart/Stop work or labels1..16 to erase failed receipts.
 Whole G and permanent operating activation remain unfinished.
 

@@ -61,11 +61,11 @@ class GDriver(unittest.TestCase):
                 elif action == 'release_source':
                     assert self.lane
                     self.lane = False
-                return {'requests': []}
+                return {'requests': [], 'source_released': not self.lane}
 
         class Batch:
             def __init__(self, root):
-                self.plan = {'cases': ['managed-local', 'direct', 'general']}
+                self.plan = {'cases': cases}
                 self.client = Client()
                 self.steps = []
                 self.control_observations = 0
@@ -78,19 +78,27 @@ class GDriver(unittest.TestCase):
                 events.append(name)
 
             def source_task(self, name, *args):
+                if self.client.call('snapshot')['source_released']:
+                    self.client.call('new_source')
                 assert self.client.lane
                 events.append(name)
 
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:
-            root = Path(temp)
-            (root/'plan.json').write_text(json.dumps({'cases':['managed-local','direct','general']}))
-            for name in ('direct', 'general'):
-                (root / ('task-' + name + '.txt')).write_text('isolated task')
-            with patch.object(g, 'Batch', Batch), patch.object(g, 'audit', return_value=[]), patch.object(g.time, 'sleep'):
-                g.run(root)
-            self.assertTrue(json.loads((root / 'result.json').read_text())['automated_gates'])
-        self.assertEqual(events, ['init', 'managed-local', 'direct', 'release_source',
-                                  'new_source', 'general', 'release_source', 'snapshot', 'dispose'])
+        for cases, expected in [
+            (['managed-local', 'direct', 'general'], ['init', 'managed-local', 'snapshot', 'direct',
+                'release_source', 'snapshot', 'new_source', 'general', 'release_source', 'snapshot', 'dispose']),
+            (['general'], ['init', 'snapshot', 'general', 'release_source', 'snapshot', 'dispose']),
+        ]:
+            with self.subTest(cases=cases), tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:
+                events.clear()
+                root = Path(temp)
+                (root/'plan.json').write_text(json.dumps({'cases':cases}))
+                for name in ('direct', 'general'):
+                    (root / ('task-' + name + '.txt')).write_text('isolated task')
+                with patch.object(g, 'Batch', Batch), patch.object(g, 'audit', return_value=[]), patch.object(g.time, 'sleep'):
+                    g.run(root)
+                self.assertTrue(json.loads((root / 'result.json').read_text())['automated_gates'])
+                self.assertEqual(events, expected)
+
 
 
 if __name__ == '__main__':

@@ -72,10 +72,31 @@ class FDriverTests(unittest.TestCase):
             with patch.object(batch,'source_wait',side_effect=RuntimeError('title_preservation_unconfirmed')):
                 with self.assertRaisesRegex(RuntimeError,'title_preservation'):
                     batch.source_task('original','task','DONE',1)
-            batch.client.call.assert_called_once_with('submit',{'step':1,'text':'task'})
+            self.assertEqual(batch.client.call.call_args_list,[unittest.mock.call('snapshot'),
+                unittest.mock.call('submit',{'step':1,'text':'task'})])
             self.assertEqual(len(batch.steps),1)
             self.assertEqual(batch.steps[0]['outcome'],'submission_or_observation_failed')
             self.assertGreaterEqual(batch.steps[0]['elapsed_seconds'],0)
+
+    def test_released_source_reopens_once_before_first_submission(self):
+        batch=object.__new__(Batch);batch.client=unittest.mock.Mock();batch.steps=[]
+        batch.client.call.return_value={'source_released':True,'submissions':[],'requests':[]}
+        with tempfile.TemporaryDirectory() as directory:
+            batch.root=Path(directory)
+            with patch.object(batch,'source_wait',return_value={'saved':True}):
+                self.assertEqual(batch.source_task('direct','task','DONE',1),{'saved':True})
+                with self.assertRaises(FileExistsError):batch.source_task('direct','task','DONE',1)
+            self.assertEqual(batch.client.call.call_args_list,[unittest.mock.call('snapshot'),
+                unittest.mock.call('new_source'),unittest.mock.call('submit',{'step':1,'text':'task'})])
+
+    def test_uncertain_source_snapshot_never_opens_or_submits(self):
+        batch=object.__new__(Batch);batch.client=unittest.mock.Mock();batch.steps=[]
+        batch.client.call.side_effect=RuntimeError('observation_unknown')
+        with tempfile.TemporaryDirectory() as directory:
+            batch.root=Path(directory)
+            with self.assertRaisesRegex(RuntimeError,'observation_unknown'):
+                batch.source_task('direct','task','DONE',1)
+            batch.client.call.assert_called_once_with('snapshot')
 
     def test_static_inputs_are_rehashed_on_change_and_forced_final_review(self):
         import os
