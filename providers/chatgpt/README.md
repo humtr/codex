@@ -7,28 +7,30 @@ applies its approval/reviewer policy and owns canonical history. Neither Core no
 Manager links Provider implementation. Manager and enhanced TUI are not required
 for the upstream configuration route.
 
-[CURRENT](../../CURRENT.md#operating-baseline) distinguishes installed software,
-qualified source and release/activation. The installed adapter remains the preserved
-JS/Bun/Python installation because the current development host still references
-it. The Rust Provider has admitted native/app/development proof and signed opt-in
-public generation chatgpt-6aa228034346-s3. It is not
-permanently activated on this device. Source integration,
-a successful build and a model listing do not change that state.
+[CURRENT](../../CURRENT.md#operating-baseline) distinguishes accepted source,
+signed publication, selected packages and actual running owners. The accepted
+public generation is `chatgpt-6aa228034346-s3`, with release sequence3. Provider
+is the component name; `chatgpt` is its CLI identifier. The sequence is release
+metadata, not part of the component name.
+This device selects Full93 and this signed Provider generation. Its shared native
+profile binds the immutable Rust executable; same-account owned-host readiness,
+local16-tool MCP and the existing tunnel have been verified without model work.
 
 ## Bridge design and implementation status
 
-The agreed architecture is one optional bridge with a model adapter, a native tool
-adapter and shared session/connection management. ChatGPT supplies judgment; the
-bridge connects it to native execution and records. `operator` remains the legacy
-code/config/API label for native-work controls, not another reasoning agent.
+Provider contains the ChatGPT–Codex bridge: model/native-tool adapters and shared
+session, connection and host management. MCP is a tool/result protocol used by
+that bridge; the app displays its MCP connection as **Termux Bridge**. ChatGPT
+supplies judgment; native Codex executes, approves and records. `operator` remains
+a code/config/API label for native-work controls, not another reasoning agent.
 
-E is complete with [selected interface/lifecycle contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
-and [source capability findings](../../CURRENT.md#linux-app-and-host-capability-research):
-identity/context mapping, existing-Chat input/control transfer, coordinated tasks,
-app/host management and recovery. Common idempotency source implementation and
-static compilation are complete; F combined runtime integration/qualification has
-bounded acceptance in CURRENT's F1–F9 final review. Current legacy interfaces
-and their bounded proofs remain distinct from that target.
+E's [selected contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
+and [capability findings](../../CURRENT.md#linux-app-and-host-capability-research)
+are settled. F1–F9 common integration and G's declared runtime/public delivery
+scope are accepted. H source/worktree retirement and Provider/full verification
+are complete and committed. Original actual, synthetic, interrupted and failed
+proofs retain their own inputs and limits; see
+[CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
 
 All annotation values except idempotentHint are intentionally fixed. The
 [idempotency study](../../CURRENT.md#idempotency-preliminary-research-and-phased-work)
@@ -42,38 +44,21 @@ performance benefit. In the observed ChatGPT backend tools/list response,
 idempotentHint is omitted even though the Rust service emits it; internal
 consumption is unknown. Other hints must remain unchanged.
 
-The [E source implementation](../../CURRENT.md#idempotency-preliminary-research-and-phased-work)
-adds in-flight duplicate result sharing, durable mutation receipts, finish
-settlement resumption, recoverable work registration and retained MCP-round
-settlement, per-work native admission/Stop fencing and round-bound summary
-receipts. Candidate22e2d492 was the E static-check/release-build checkpoint,
-without runtime acceptance at that time. The later F1–F9 review records changed-
-candidate native/app, recovery and Android proof and applies the Rust hint policy
-on candidate40. G admits source6aa2280 and public Provider3 after exact-source
-qualification, retained-capability review, signed/public readback and actual
-Android immutable/stable update/use/rollback. The earlier approval task's source
-final remains failed; a distinct same-thread report-only turn closes final
-delivery without repeating its reviewer/program/effect. H retires the duplicate
-source runtime and installer after preserving unique user1m work, licenses and
-experiment history. Installed/device selection remains separate.
-
-G uses explicit-input Android qualification in disposable signed Core
-fixtures: Base, Manager without enhanced TUI, Full, Provider relocation/restart/
-rollback and original native/TUI profile composition. Those initial lifecycle
-fixtures use no existing app profile or actual Chat inference. Later real usage,
-TUI re-entry and approval proof retain their explicit scopes.
-The [G evidence/status](../../CURRENT.md#current-status-and-next-action)
-records Provider3 signing/full readback and14 actual Android immutable/stable
-consumer commands, including update/use/rollback. Earlier Provider2's18-command
-proof remains separately preserved. Permanent device
-activation remains separate. `scripts/qualify_provider_product.py` is qualification
-tooling, not an installed runtime dependency.
+The [idempotency implementation](../../CURRENT.md#idempotency-preliminary-research-and-phased-work)
+shares in-flight duplicate results and durable mutation/finish/registration/round
+receipts, with per-work admission and Stop fencing. Other hints remain unchanged.
+G admits source6aa2280 after exact-source qualification, retained-capability review,
+signing, complete12-asset public readback and14 actual Android immutable/stable
+consumer commands. The earlier approval task's source final remains failed;
+a distinct same-thread report-only turn closes the corrected native-final path
+without repeating its reviewer/program/effect. Earlier public generations keep
+their own evidence. Package selection and operating activation are separate actions.
 
 ### Optional package selection
 
-Public Core/Full90 exposes these commands without Manager or enhanced TUI. This
-device remains on86 after its rollback proof, so these commands become available
-here only after explicitly updating to the admitted replacement:
+Public Core/Full90 and later expose these commands without Manager or enhanced
+TUI. This device has been explicitly updated to Full93; other installations must
+first update Core to a compatible signed generation.
 
 ```sh
 codex provider install chatgpt
@@ -142,80 +127,38 @@ Stable native work, one current controller, related Chat reuse, grounded handoff
 original question/result return and model-free status are integration boundaries.
 
 The [ChatGPT-operated Codex workflow](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
-implements opt-in MCP controls for local sessions/context, tool discovery,
-development, reports and completion, with either Codex or ChatGPT as the entrance.
-It is distinct from the current two-tool MCP return transport. D historically selected
-operator/MCP and a local-function fallback; the combined bridge target above now
-refines that direction without changing historical evidence or legacy names.
-Effective installed/bare-config defaults remain unchanged. The opt-in control
-API is implemented and its synthetic Android qualification is recorded in CURRENT.
-The primary Codex thread keeps long-term history while Chat conversations are replaced after
-substantial MCP work. Each successor receives the accepted summary, confirmed
-incremental native work and current state. Old-controller fencing, source coverage,
-late events, unresolved calls and successor acknowledgment have bounded synthetic
-proof. Initial actual Chat attachment/receipt and conversation approval pass, as
-does ten-cycle TMPDIR development with25 commands/11 patches/all36 original native
-execution results, tests and CLI/history final independently verified. C also passes
-direct AI development, actual Chat renewal and active interruption/recovery. C2
-adds five genuine development user turns in one saved Chat and source-authored
-handoff/current receipt/actual successor development in the same native thread.
-D's actual matched route comparison records app23 vs2 dispatches for two completed
-user turns per route; original20 native execution results each are verified.
-Its additional generated-code quality finding and supervisor failures remain visible
-in CURRENT. G retains product/lifecycle qualification and signed delivery.
-Origin/control/handoff context uses existing non-user tool returns; local
-bindings preserve the actual reply destination across Chat replacement.
+shares native Responses dispatch, approvals, events and history across managed,
+direct and general-delegation entrances. The work interface selects its reasoning
+source and transport per work; a service-wide `execution.mode` value alone does
+not choose the combined route. Built-in defaults remain model_adapter/local_function;
+this device explicitly selects MCP in Provider-owned configuration.
 
-The single [work order](../../CURRENT.md#product-completion-scope-and-work-order)
-now places [E design and functional decisions](../../CURRENT.md#agreed-bridge-structure-and-e-work)
-before F implementation/qualification and G delivery; H owns retirement. E is
-complete with app/host findings, shared contracts, user behavior, common idempotency
-source and F1–F9 acceptance/input definitions. F implemented and boundedly qualified the
-common managed path and all three usage modes, including saved-Chat discovery/selection/read from both
-Codex and ChatGPT, covering managed work, direct development and unrelated
-accessible conversations without a native work binding or a new model request.
-Preserve message order/source/branch identity, page the complete selected range
-and expose unavailable content. The one-report app-API read is bounded evidence;
-the reusable interfaces, both-entrance source agreement and completeness/access
-checks now have the declared F actual/fixture evidence in CURRENT. Reading does
-not submit messages, resume work or transfer control. G retains broader product,
-lifecycle and delivery checks. No live trial is started by this documentation work.
-C/C2 and D/D2/D3 retain their bounded scopes. chat-entry.5wv7_5h3 independently
-passes direct two-turn native development, 13 tests, 17 original call/result pairs,
-both complete CLI finals, restoration and same-session notice. Its original
-terminal-verifier false negative is preserved alongside the corrected independent
-verdict. It does not qualify general ChatGPT delegation or combined routing.
-Legacy operator/local is outside the immediate preferred comparison with its
-code/proof retained. D2 covers all four legacy Codex-entry combinations, not
-actual quota/billing. Work/MCP Events
-and SIWC plan usage are outside the ordinary-Chat allowance target; identity-only
-SIWC and existing owned session/token paths remain optional research candidates.
-Linux-app removal is not a G prerequisite. G retains product/lifecycle and signed
-composition after F, before operating replacement; device activation stays
-separate. F implements multi-agent/orchestration after the common bridge design;
-postponing that discussion did not defer implementation. Define required existing-
-Chat input and direct/managed transfer per workflow instead of excluding them
-wholesale. Detailed context-capacity policy retains its follow-up status. Existing
-code/config support stays until shared code and H's preservation/migration review
-are assessed. No uncertain mid-task
-switch or silent legacy-runtime fallback is allowed. SPEC distinguishes the current
-model-adapter behavior from the opt-in operator contract. The operator reuses
-native Responses tool dispatch and its approval/event/history
-path while managing Chat handoff separately. A native-context reset or compaction
-does not create/attach a successor Chat.
+The primary native thread retains long-term history while Chat contexts can be
+replaced. Successors require grounded summary/current receipt and old-controller
+fencing. Original questions, results and CLI return bindings survive handoff.
+A native compaction/reset does not create or attach a successor Chat. No uncertain
+mid-task switch or silent legacy fallback is allowed.
 
-The retained [agent/orchestration direction](../../SPEC.md#agent-and-orchestration-extension-direction)
-uses this bridge to assign work, read selected prior results, return questions and
-coordinate implementation/review/correction or isolated parallel tasks.
-An agent is a reasoning role/task rather than a single Chat. F supplies common
-interfaces/continuity and then implements coordinated workflows; concrete policies
-and quality/cost proof remain unfinished, with their evidence boundaries in CURRENT.
+Saved-Chat discovery/read works from both entrances for work-linked or unrelated
+accessible conversations. Preserve message order, source and branch identity;
+page the full requested range and expose unavailable content. Reading starts no
+model task, resumes no work and transfers no control. General delegation and
+[agent/orchestration](../../SPEC.md#agent-and-orchestration-extension-direction)
+reuse this common bridge and independent native roles/contexts. Their actual,
+synthetic and recovered-result scopes are accepted in
+[CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery); a universal quality,
+latency, billing or capacity advantage remains unproven.
+
+E/F design/integration, G product/public delivery and H preservation/retirement
+are complete at their [recorded scopes](../../CURRENT.md#product-completion-scope-and-work-order).
+Original failed/interrupted cohorts and exact comparison inputs remain preserved.
+Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
+polish stay separate follow-ups. Linux-app removal is not a prerequisite.
 
 ## Opt-in operator controls
 
-F's source candidate adds a common `work`, `chats` and `host` CLI over the same
-authenticated MCP service. It is under qualification; these commands do not
-describe the currently activated device binary. `host status` observes service
+The signed Provider exposes common `work`, `chats` and `host` CLI commands over
+the same authenticated MCP service. `host status` observes service
 and app state without acquiring a missing host. App/source controls can run
 without a native execution binding; native work requires the declared
 Core/home/workspace. `chats list` supports project/title/time filters and an
@@ -433,16 +376,15 @@ retains its lower priority under [app management and viewer work](../../CURRENT.
 E's [app/host capability research](../../CURRENT.md#linux-app-and-host-capability-research)
 covers authenticated Chat/project APIs, session reuse/input, process ownership,
 connection/readiness/recovery, configuration and shared management surfaces.
-Inspect both Rust and development helpers for reusable mechanisms and duplication;
-do not treat this as only a terminal-command rename or defer required management
-logic together with viewer polish. Available APIs, confirmed effects and unknowns
-must be recorded before selecting F implementation.
+F implements the selected common management interfaces; H preserves reusable
+qualification helpers and retires duplicate launch policy. Viewer usability stays
+a separate physical validation scope.
 
 ## Existing result transports
 
-`transport.return_path` chooses `local_function` (current default) or explicit
+`transport.return_path` chooses `local_function` (built-in default) or explicit
 `mcp`. This is a result-transport setting within the existing model adapter, not
-selection of the proposed ChatGPT-operated workflow. Return path/connector changes
+selection of the ChatGPT-operated workflow. Return path/connector changes
 require settled service restart; uncertain dispatch never triggers fallback.
 
 Local functions return actual native results on their original app calls.
@@ -548,8 +490,8 @@ Automated qualification never
 samples Pro or GPT-5.6; live trials first declare purpose, scope and expected
 submissions. Missing Bun is an unfinished
 app-bridge/qualification gate, not a Core or production Provider dependency.
-Actual Android and app execution proof, signed composition/lifecycle and bounded
-activation remain separate.
+Source, actual Android/app proof, signed delivery and device activation each
+retain their own evidence; package selection alone does not establish readiness.
 
 The Android qualification job retains an unsigned snapshot for30 days, including
 the executable, exact source/run/toolchain identity, dependency lock and licenses.
@@ -577,13 +519,13 @@ analysis, failure/correction, tests and latest-state resume. The single
 gates. That no-MCP proof alone does not qualify MCP controls; separately recorded
 C/C2, D2/D3 and direct-entry proof apply at their exact inputs/scopes. F common
 integration/general delegation and G's declared product/delivery scope are
-accepted with their recorded limits. Provider3 does not repeat earlier development
-or replace an old failed result with a passing one.
+accepted with their recorded limits. Release sequence3 neither repeats earlier
+development nor replaces an old failed result with a passing one.
 
 The experimental installer/runtime source is retired from the active tree after
 accepted Rust replacement. Exact source, user1m changes/tests and licenses are
-preserved in experiment history and private retirement evidence. The still-pinned
-installed payload, credentials, conversations and host remain unchanged until a
-separate device migration. Use authenticated optional Provider package selection
-for new installations; no automatic legacy fallback is provided. Reusable
+preserved in experiment history and private retirement evidence. Preserve pinned
+installed payloads, credentials and conversations through an explicit device
+migration; source retirement alone does not activate a replacement. Use the
+authenticated Provider package interface for new installations. Reusable
 qualification tooling remains. See [NOTICE](NOTICE.md) for provenance and licenses.

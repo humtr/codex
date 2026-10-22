@@ -85,12 +85,12 @@ with synthetic Responses and actual checkpoint encoding. Later hosted5da0254d
 Provider/frontend composition passes actual original-TUI same-thread return and
 Chat re-entry, retaining prior turns and the explicit interruption. The later
 6aa2280 Provider discovery correction has hosted/private Android and signed public
-Provider3 acceptance, including a distinct same-thread report-only final. The
-accepted scopes and separate device activation are in
+Provider acceptance (release sequence3), including a distinct same-thread
+report-only final. Accepted scopes and the actual device baseline are in
 [CURRENT](../../CURRENT.md#current-status-and-next-action).
 
-The [ChatGPT-operated MCP proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
-has opt-in Phase B source and bounded synthetic Android proof in CURRENT.
+The [ChatGPT-operated MCP workflow](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
+has bounded actual/synthetic integration and G delivery acceptance in CURRENT.
 TUI displays the same bound work and
 receives native execution plus public report/final events; it does not become
 another executor, planner or canonical history owner. Existing cross-provider
