@@ -9,8 +9,9 @@ for the upstream configuration route.
 
 [CURRENT](../../CURRENT.md#operating-baseline) distinguishes installed software,
 qualified source and release/activation. The installed adapter remains the preserved
-JS/Bun/Python experiment; the Rust candidate has real native/app/development proof
-and now has signed opt-in public generation chatgpt-c65d3f8900bc-s2. It is not
+JS/Bun/Python installation because the current development host still references
+it. The Rust Provider has admitted native/app/development proof and signed opt-in
+public generation chatgpt-6aa228034346-s3. It is not
 permanently activated on this device. Source integration,
 a successful build and a model listing do not change that state.
 
@@ -35,8 +36,8 @@ remains historical research; E settled and implemented the common operation/
 duplicate/result-recovery contract and per-tool targets. F qualified
 and applied them at the recorded scope. The Rust policy selects true for fresh source/native reads and
 keyed execution/report/finish/handoff/answer/attach operations; mixed host/session/
-summary/Stop tools retain false. The retained JavaScript adapter is separately
-qualified and keeps its declarations. Hint changes alone have no demonstrated
+summary/Stop tools retain false. Historical JavaScript declarations stay in the
+preserved experiment/installation. Hint changes alone have no demonstrated
 performance benefit. In the observed ChatGPT backend tools/list response,
 idempotentHint is omitted even though the Rust service emits it; internal
 consumption is unknown. Other hints must remain unchanged.
@@ -48,16 +49,23 @@ settlement, per-work native admission/Stop fencing and round-bound summary
 receipts. Candidate22e2d492 was the E static-check/release-build checkpoint,
 without runtime acceptance at that time. The later F1–F9 review records changed-
 candidate native/app, recovery and Android proof and applies the Rust hint policy
-on candidate40. Source c65d3f8 and its public Provider2 delivery have passed
-independent qualification; the installed adapter remains separate. G retains
-broader declared runtime/real-Chat TUI/lifecycle qualification.
+on candidate40. G admits source6aa2280 and public Provider3 after exact-source
+qualification, retained-capability review, signed/public readback and actual
+Android immutable/stable update/use/rollback. The earlier approval task's source
+final remains failed; a distinct same-thread report-only turn closes final
+delivery without repeating its reviewer/program/effect. H retires the duplicate
+source runtime and installer after preserving unique user1m work, licenses and
+experiment history. Installed/device selection remains separate.
 
-G has started with explicit-input Android qualification in disposable signed Core
+G uses explicit-input Android qualification in disposable signed Core
 fixtures: Base, Manager without enhanced TUI, Full, Provider relocation/restart/
-rollback and original native/TUI profile composition. This uses no existing app
-profile or actual Chat inference. The [G evidence/status](../../CURRENT.md#g-product-qualification)
-records the later signed public package, full readback and18 actual Android
-immutable/stable consumer commands, including update/rollback. Permanent device
+rollback and original native/TUI profile composition. Those initial lifecycle
+fixtures use no existing app profile or actual Chat inference. Later real usage,
+TUI re-entry and approval proof retain their explicit scopes.
+The [G evidence/status](../../CURRENT.md#current-status-and-next-action)
+records Provider3 signing/full readback and14 actual Android immutable/stable
+consumer commands, including update/use/rollback. Earlier Provider2's18-command
+proof remains separately preserved. Permanent device
 activation remains separate. `scripts/qualify_provider_product.py` is qualification
 tooling, not an installed runtime dependency.
 
@@ -359,7 +367,8 @@ compatible host-route/history changes at request admission.
 
 `/model` is the primary enhanced-TUI selection surface; upstream `--profile chatgpt`
 is the configuration fallback, distinct from Manager login accounts. Current exact
-source/device composition proof and pending real-Chat TUI/lifecycle gates are in
+source/device composition proof, accepted actual TUI re-entry and separate device
+activation are in
 [CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
 
 ## Service and observation
@@ -409,22 +418,17 @@ Mobile keyboard/scroll/Esc/fullscreen controls require physical acceptance beyon
 HTTP/WebSocket/RFB fixtures. Revealing a conversation does not prove the visible
 Android screen changed. Do not restart a live owner to apply host settings.
 
-For the existing Linux development environment, the notification's viewer-opening
-action is also available from the repository root:
+For an explicitly configured installed Provider, open its optional viewer with:
 
 ```sh
-python -B providers/chatgpt/open_dual_trial.py linux
+codex provider chatgpt view --state /absolute/private/provider-state
 ```
 
-It requires the current owned running Linux session/viewer, resolves that session
-at invocation and requests Android browser opening. It does not start the Linux
-app or submit a model task; intent success does not confirm physical visibility.
-This is an existing development helper, not a unified installed management CLI.
-Terminal start/status/view/stop management and noVNC mobile layout/interaction
-work is recorded under [app management and viewer work](../../CURRENT.md#linux-chatgpt-app-management-and-deferred-viewer-work).
-App/host management research/contracts are complete in E; implementation is F;
-noVNC visual/touch/IME polish retains its lower priority. No new command is implemented
-by that proposal.
+The command uses the configured viewer assets/private RFB capability. It may
+start the Provider service and submits no model task; intent success does not
+confirm physical visibility. Existing notifications and their pinned installed
+helpers remain unchanged by source retirement. noVNC visual/touch/IME polish
+retains its lower priority under [app management and viewer work](../../CURRENT.md#linux-chatgpt-app-management-and-deferred-viewer-work).
 
 E's [app/host capability research](../../CURRENT.md#linux-app-and-host-capability-research)
 covers authenticated Chat/project APIs, session reuse/input, process ownership,
@@ -538,12 +542,14 @@ Archive/delete/temporary retention is not admitted. Full contracts are in
 BUN=/absolute/path/to/qualified/bun scripts/check.sh provider
 ```
 
-This runs Rust fmt/tests/clippy/release plus retained JS/Python regression suites
-in disposable roots without Chat submissions. Automated qualification never
+This runs Rust fmt/tests/clippy/release plus app-bridge/CDP and Python package/
+qualification regression suites in disposable roots without Chat submissions.
+Automated qualification never
 samples Pro or GPT-5.6; live trials first declare purpose, scope and expected
 submissions. Missing Bun is an unfinished
-reference-suite gate, not a Core dependency. Actual Android and app execution
-proof, signed composition/lifecycle and bounded activation remain separate.
+app-bridge/qualification gate, not a Core or production Provider dependency.
+Actual Android and app execution proof, signed composition/lifecycle and bounded
+activation remain separate.
 
 The Android qualification job retains an unsigned snapshot for30 days, including
 the executable, exact source/run/toolchain identity, dependency lock and licenses.
@@ -570,13 +576,14 @@ analysis, failure/correction, tests and latest-state resume. The single
 [acceptance matrix](../../CURRENT.md#remaining-acceptance-and-delivery) owns open
 gates. That no-MCP proof alone does not qualify MCP controls; separately recorded
 C/C2, D2/D3 and direct-entry proof apply at their exact inputs/scopes. F common
-integration/general delegation now have separate bounded acceptance; G product
-and delivery gates remain unfinished.
+integration/general delegation and G's declared product/delivery scope are
+accepted with their recorded limits. Provider3 does not repeat earlier development
+or replace an old failed result with a passing one.
 
-The preserved experimental installer is a development/migration reference, not
-signed Provider delivery or an automatic fallback. Port behavior/proof before
-removing runtime responsibilities; preserve unique experiment source/user1m edits,
-licenses, credentials and conversations. No whole historical Core/TUI/release
-snapshot is merged. Retire superseded JS/Bun/Python product requirements only after
-accepted Rust replacement; qualification tooling may remain. See [NOTICE](NOTICE.md)
-for reused-source provenance and licenses.
+The experimental installer/runtime source is retired from the active tree after
+accepted Rust replacement. Exact source, user1m changes/tests and licenses are
+preserved in experiment history and private retirement evidence. The still-pinned
+installed payload, credentials, conversations and host remain unchanged until a
+separate device migration. Use authenticated optional Provider package selection
+for new installations; no automatic legacy fallback is provided. Reusable
+qualification tooling remains. See [NOTICE](NOTICE.md) for provenance and licenses.

@@ -153,6 +153,8 @@ def generations():
             cases += [root / name for name in ('base', 'manager-no-tui', 'full')]
         if root.name.startswith('gpub.'):
             cases.append(root / 'consumer')
+        if root.name.startswith('gp.'):
+            cases.append(root / 'c')
         for case in cases:
             if not (case / 'fixture-key.pem').is_file():
                 continue

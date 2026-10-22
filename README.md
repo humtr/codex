@@ -11,8 +11,8 @@ The product has one public command, `codex`, and four components:
   notifications, windows and task assistance;
 - an optional TUI, extending the upstream terminal UI and integrating Manager
   and provider capabilities;
-- an optional Provider for ChatGPT model connection, currently experimental;
-  its approved target is a Rust adapter with a minimal app-side JavaScript bridge.
+- an optional Rust Provider for ChatGPT model connection, with a minimal
+  app-side JavaScript bridge.
 
 Every Termux Codex execution passes through Core. Actual tools, reviewer,
 conversation storage, compaction and resume remain upstream-owned. Optional
@@ -41,11 +41,14 @@ matched development comparisons. F qualified/applied the Rust idempotency policy
 preserving all other annotation values. Actual, synthetic and recovered-result
 evidence and their limitations are recorded in CURRENT's F final review; existing
 C/C2, D2/D3 and direct ChatGPT two-turn proof retain their own scopes.
-Alternate app-free clients remain optional research. G's public signed
-Base89/Full90 and optional Provider2 delivery, readback and actual Android
-update/rollback consumption pass on exact source c65d3f8. Broader declared
-runtime/real-Chat TUI/lifecycle qualification remains active, while device
-activation and H retirement retain separate gates. Installed/bare-config defaults,
+Alternate app-free clients remain optional research. G's declared scope is
+accepted: retained runtime/capability review, exact6aa2280 signed Provider3,
+complete public readback, actual Android immutable/stable update/use/rollback and
+non-forced promotion. Earlier Base89/Full90 and Provider2 retain their exact
+c65d3f8 evidence. A distinct report-only turn closes the corrected native-final
+path without repeating the earlier reviewer/program/effect. H retires replaced
+source after preserving unique work, licenses and pinned dependencies; CURRENT
+records its verification. Device activation remains separate. Installed/bare-config defaults,
 legacy `execution.mode` names and active runtime remain unchanged.
 The same Codex thread retains long-term history while replaceable Chat conversations
 receive summaries plus confirmed incremental work and current state. Origin/control and
@@ -118,24 +121,26 @@ owns its login and Chat inference. Active source and focused qualification now l
 [the optional Provider](providers/chatgpt/README.md). Historical experiment source
 and unique drivers remain preserved for reviewed integration/closure; provenance
 belongs to the Provider NOTICE and bounded proof to CURRENT.
-The installed adapter remains JS/Bun/Python. The independent Rust candidate
-already implements transport/configuration/host lifetime and has separate actual
-authenticated-app, native tools, project and direct AI-development proofs. It is
-not permanently activated or a signed Provider release; its optional app-renderer
+The still-pinned installed adapter remains JS/Bun/Python. The Rust Provider
+implements transport/configuration/host lifetime and has accepted actual
+authenticated-app, native tools, project and direct AI-development proofs. Signed
+opt-in generation chatgpt-6aa228034346-s3 is public; it is not permanently
+activated on this device. Its optional app-renderer
 bridge remains part of the qualified app transport. Neither source integration
 nor a model listing replaces the app's login or actual runtime qualification.
 G adds an independent signed optional payload and source Core commands for explicit
 install/status/rollback and `codex provider chatgpt ...` dispatch. These candidate
 commands do not change the currently installed Core. Package selection preserves
-existing profiles until explicit `prepare`; see the [package interface](providers/chatgpt/README.md#optional-package-selection-g-candidate).
+existing profiles until explicit `prepare`; see the [package interface](providers/chatgpt/README.md#optional-package-selection).
 The MCP app's display name is **Termux Bridge**, configurable through
 `transport.connector_name`. The CLI provider identifier remains `chatgpt`.
 
-The recorded installed-pilot transition failure is `unsupported_desktop_route`
+The retained Full60 transition failure is `unsupported_desktop_route`
 when old-model compaction reaches the Chat endpoint; foreign opaque checkpoints
-also require readable handoff. Preserve existing conversations. Source API/PTY
-handoff and real Chat summary have separate bounded proofs; they do not qualify
-every long conversation or a new signed operating composition. See
+also require readable handoff. Current readable-history model selection reuses
+the same native thread without requesting a fresh summary, and actual TUI
+return/re-entry has bounded acceptance. Preserve the old opaque conversation;
+that proof does not make its checkpoint readable. See
 [current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
 
 The Rust candidate owns editable configuration/catalog data at
@@ -354,7 +359,8 @@ fixture signing key, with no real account or Chat request.
 The repository owns its development rules in `AGENTS.md`, optimized for
 GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.
 `scripts/check.sh docs`, `python`, `rust`, `provider`, or `full` selects the relevant
-gate. The independent `provider` gate needs its qualified reference-test Bun;
+gate. The independent `provider` gate needs qualified Bun for app-bridge and
+development CDP tests;
 ordinary Core checks do not.
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
@@ -381,8 +387,9 @@ available to the input controller.
 
 
 The optional [ChatGPT provider source](providers/chatgpt/README.md) is integrated
-under providers/chatgpt, with its own offline source qualification. Its development
-installer and existing app/user data remain separate from signed Base/Full delivery.
+under providers/chatgpt, with its own offline source qualification. Its
+experimental installer is retired from active source; preserved installations and
+app/user data remain separate from signed Base/Full delivery.
 Source integration does not activate a new operating Provider. CURRENT is the
 single authority for the revised work sequence, completed proof and remaining
 context/project/lifecycle/packaging gates. The broader MCP control path has opt-in
@@ -390,7 +397,8 @@ source and separate synthetic/real-Chat qualification. The shared bridge structu
 three usage modes and remaining work are recorded in CURRENT: E settled design,
 features and app/host management; F implemented and boundedly qualified the
 bridge and common saved-Chat discovery/selection/read from Codex and ChatGPT.
-G product/delivery qualification is active; H retires obsolete paths after accepted replacement;
+G product/delivery qualification is accepted at its declared scope; H retires
+obsolete source after that accepted replacement;
 bare configuration still uses model_adapter/local_function. Documentation does not
 activate the combined design or change the installed Provider.
 No automatic fallback after uncertain execution is allowed.

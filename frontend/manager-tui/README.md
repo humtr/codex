@@ -79,11 +79,15 @@ the model picker does not request them. Source1c58d1cb passes its native build,
 same-thread transitions with/without Manager using0 source summaries and3 local
 responses each. Stop, error, event loss, changed thread/
 model or queued input during that explicit operation retain the source Provider.
-The installed generation is unchanged by source preparation. The exact hosted
-TUI source15da596 and no-Manager Android PTY native↔Chat round trip pass with
-synthetic Responses and actual checkpoint encoding. Separate actual Chat API
-summary/re-entry proof is not a real-Chat TUI run. Remaining physical/live and
-signed lifecycle gates are in [CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
+The installed generation is unchanged by source preparation. Earlier hosted
+TUI source15da596 and no-Manager Android PTY native↔Chat round trip passed
+with synthetic Responses and actual checkpoint encoding. Later hosted5da0254d
+Provider/frontend composition passes actual original-TUI same-thread return and
+Chat re-entry, retaining prior turns and the explicit interruption. The later
+6aa2280 Provider discovery correction has hosted/private Android and signed public
+Provider3 acceptance, including a distinct same-thread report-only final. The
+accepted scopes and separate device activation are in
+[CURRENT](../../CURRENT.md#current-status-and-next-action).
 
 The [ChatGPT-operated MCP proposal](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
 has opt-in Phase B source and bounded synthetic Android proof in CURRENT.

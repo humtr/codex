@@ -2137,8 +2137,9 @@ private desktop's exact app class and controller ancestry, never a window title
 or another desktop/profile. Serialize duplicate launch taps, preserve authentication
 and running work, and do not submit Chat or create a conversation by switching
 windows. This qualification UI is not a Core dependency or a second Provider
-execution path; retained Python/Bun qualification helpers are retired with the
-experiment, not added to the Rust Provider payload.
+execution path. Superseded desktop/adapter helpers retire with the experiment;
+reusable qualification tools remain development dependencies and are not added
+to the Rust Provider payload.
 
 The Chat provider source lives under `providers/chatgpt`, outside crates/core,
 Manager and TUI. Its approved implementation target is a native Rust adapter
@@ -2179,6 +2180,17 @@ execution or fallback after uncertain dispatch. Old signed generations remain
 explicit rollback targets. Preserve installation identities, login/profile data,
 remote conversation associations, live jobs and current configuration overrides
 through bounded migration; source integration alone never activates a replacement.
+
+After G admission, H retires the source JS/Bun/Python adapter, experimental
+installer/profile writer and duplicate desktop/viewer launch policy. The supported
+installation path is Core's authenticated optional Provider package interface.
+Keep Rust's explicit before-start local-function alternative, app-side bridge,
+embedded viewer assets, native configuration/approval/history interfaces and
+reusable qualification tools. Preserve original experiment refs, exact user1m
+changes/tests, licenses and immutable current/pinned/rollback payloads before
+closing inactive experiment worktrees. A still-referenced installed experiment
+stays in place until a separately authorized device migration; source retirement
+does not alter its launchers, authentication, profiles or running host.
 
 Native automatic reviewers have their own Provider lanes and remain outside the
 configured ChatGPT project. Recognize upstream guardian_review thread metadata;
@@ -2792,11 +2804,12 @@ the accepted-input controller, reusing a matching build already in progress.
 
 Provider-only source changes under providers/chatgpt use the independent optional
 provider gate and do not rebuild unchanged Core/Manager or make Bun a Core
-prerequisite. During Rust migration, qualify the Rust package and minimum app-side
-bridge together, retaining legacy tests as differential evidence until equivalent
-coverage passes. Missing Rust/device/bridge gates are unfinished, not a reason to
-fall back to legacy admission. After cutover, the provider gate must not require
-Bun/Python merely to execute the production adapter. Scope Cargo lock/toolchain/
+prerequisite. Qualify the Rust package and minimum app-side bridge together.
+After G/H cutover, legacy differential source/tests remain in preserved experiment
+history; the active gate covers Rust, the app bridge, CDP qualification and package
+tools. Missing Rust/device/bridge gates are unfinished, not a reason to fall back
+to legacy admission. The provider gate must not require Bun/Python merely to
+execute the production adapter. Scope Cargo lock/toolchain/
 shared-build changes by their actual consumers; do not exclude changed shared
 inputs from Core qualification. Classification still requires a successful accepted predecessor;
 otherwise the conservative full Core gate runs. Changes to Core/shared build inputs
