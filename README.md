@@ -48,7 +48,7 @@ public releases and this device's actual selections/processes. Core owns signed
 installation, update, diagnosis, activation and rollback. Manager, TUI and Provider
 remain independent optional components. Ordinary account configuration does not
 force a model; an explicit session/profile selection remains supported.
-This device now selects Full93 and the signed Rust ChatGPT Provider, with its
+This device now selects Full94 and the signed Rust ChatGPT Provider, with its
 generated profile and same-account host verified; existing sessions retain their
 pinned executable until normal exit.
 

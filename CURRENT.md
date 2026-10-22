@@ -13,12 +13,12 @@ source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted
 G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 
-The operating device update is also complete: signed Full93 (previous Full86),
+The operating device update is also complete: signed Full94 (previous Full93),
 ChatGPT Provider release sequence3, generated Rust profile, same-account native
 host and existing Termux Bridge tunnel on a permanent path.0 new model requests.
 The next work is the separately deferred optional backlog below; G/H needs no
 replay or additional release. Existing clients remain pinned until normal exit;
-new launches use the selected Full93.
+new launches use the selected Full94.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
 sequence3 identifies one publication, not a product named “Provider release sequence 3”. The bridge
@@ -36,8 +36,8 @@ Unknown `providers/chatgpt/target/` content remains untouched.
 | Plane | Verified state |
 | --- | --- |
 | Implementation | Accepted G source6aa2280; H source retirement e0f0927 on rewrite/rust-core. H Provider167 Rust/67 JavaScript/81 Python; full364 Rust/141 Python and Clippy pass. Provider release sequence 28 opt-in tests and Core1 ignored test remain explicitly ignored |
-| Public Core | Base89; Full93/source5da0254d. Provider-only main promotion6e89e76 leaves Core pointers unchanged. Earlier Full90 admission retains its own evidence; it is not evidence for different Full bytes |
-| Operating Core | User-authorized signed Full86→Full93 update exit0; previous Full86 retained. Upstream0.163.0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; next launches use Full93, existing clients remain pinned |
+| Public Core | Base89; Full94/sourcee0f0927, promoted after H source admission by main09ed858. G's earlier Full93/source5da0254d pointer observation and Full90 admission retain their original scopes |
+| Operating Core | User-authorized signed Full86→Full93 update, then93→94 after H's new stable promotion; both exit0. Previous Full93; upstream0.163.0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full94, existing clients remain pinned |
 | Public/selected Provider | chatgpt-6aa228034346-s3, release sequence3, binary SHA2565ef3536c94137b24d86e10a9366a674baeca87e701c5ef30d824a83d8433d62d. Public immutable signing/readback, Android consumption and stable promotion accepted; operating installation exit0 |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
@@ -46,7 +46,8 @@ Unknown `providers/chatgpt/target/` content remains untouched.
 ### Latest handoff boundary
 
 Device evidence: `~/.cache/codex/acceptance/device-runtime-update-full93-provider-s3`.
-`device-update-review.json` accepts the actual Core/Provider selections, kernel
+`device-update-review.json` and `followup-full94/result.json` accept the actual
+Core/Provider selections, kernel
 owner plus immutable Provider hash, same-account host readiness, authenticated
 MCP initialize/list/read (16 tools), existing tunnel readiness and8 CLI/config
 smokes. All ordinary account config/auth bytes remain unchanged. Only the known
@@ -64,6 +65,11 @@ passes without re-login or model work. The initial cold app_scope_unavailable,
 relay-rejected Browser.close (no effect) and unsupported `--profile features`
 observer command remain original failures; they were not retried as effects.
 Supported `--profile chatgpt mcp list` loads the generated profile successfully.
+
+H source admission subsequently promoted Full94 automatically. The final93→94
+update uses that new immutable stable input, not a replay of the completed86→93
+cycle. The same-account host stays ready and account config/auth hashes remain
+unchanged. Previous93 and the original86/88 backup remain.
 
 The permanent MCP wrapper is `~/.local/state/codex/providers/chatgpt/mcp-stdio`;
 the existing codex-provider-rust-trial alias now invokes it. Old experiment
@@ -141,7 +147,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | F1–F9 | Common Rust bridge, delegation, reading, continuity and host integration boundedly accepted |
 | G | Exact-source capability review, corrected native-final delivery, signing/readback, actual Android consumers and non-forced stable promotion accepted |
 | H | Unique work preserved, duplicate source/worktrees retired, affected Provider/full gates independently reviewed, source committed/pushed e0f0927 |
-| Device update | Separately authorized after G/H and completed: Full93 / Provider release sequence3, explicit profile/auth/history migration, owned-host/local MCP/tunnel and8-command operating smoke accepted;0 model requests |
+| Device update | Separately authorized after G/H and completed: Full94 / Provider release sequence3, explicit profile/auth/history migration, owned-host/local MCP/tunnel and8-command operating smoke accepted;0 model requests |
 
 ### G product qualification
 

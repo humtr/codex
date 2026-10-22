@@ -12,7 +12,7 @@ signed publication, selected packages and actual running owners. The accepted
 public generation is `chatgpt-6aa228034346-s3`, with release sequence3. Provider
 is the component name; `chatgpt` is its CLI identifier. The sequence is release
 metadata, not part of the component name.
-This device selects Full93 and this signed Provider generation. Its shared native
+This device selects Full94 and this signed Provider generation. Its shared native
 profile binds the immutable Rust executable; same-account owned-host readiness,
 local16-tool MCP and the existing tunnel have been verified without model work.
 
@@ -57,7 +57,7 @@ their own evidence. Package selection and operating activation are separate acti
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
-TUI. This device has been explicitly updated to Full93; other installations must
+TUI. This device has been explicitly updated to Full94; other installations must
 first update Core to a compatible signed generation.
 
 ```sh
