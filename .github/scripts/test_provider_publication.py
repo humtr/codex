@@ -127,6 +127,8 @@ class ProviderPublicationTests(unittest.TestCase):
             self.assertEqual(result['paths'],['provider-index-v1','provider-index-v1.sig','provider-source-v1'])
         args.apply=True
         calls=[]
+        blobs={}
+        promoted_entries=[]
         outputs={'provider-index-v1':index.read_bytes(),'provider-index-v1.sig':signature.read_bytes(),'provider-source-v1':b'a'*40+b'\n'}
         def fake_api(path,method='GET',body=None):
             calls.append((path,method,body))
@@ -134,13 +136,16 @@ class ProviderPublicationTests(unittest.TestCase):
             if path=='git/commits/'+'a'*40:return {'sha':'a'*40}
             if path=='git/commits/'+args.expected_main:return {'tree':{'sha':'tree-before'}}
             if path=='git/trees/tree-before':return {'tree':[]}
-            if path=='git/blobs':return {'sha':'blob-'+str(len(calls))}
+            if path=='git/blobs':
+                identity='blob-'+str(len(calls));blobs[identity]=body['content'];return {'sha':identity}
             if path=='git/trees':
-                self.assertEqual({v['path'] for v in body['tree']},set(outputs));return {'sha':'tree-after'}
+                self.assertEqual({v['path'] for v in body['tree']},set(outputs));promoted_entries.extend(body['tree']);return {'sha':'tree-after'}
+            if path=='git/trees/tree-after':return {'tree':promoted_entries}
+            if path.startswith('git/blobs/'):return {'content':blobs[path.rsplit('/',1)[1]],'encoding':'base64'}
             if path=='git/commits':return {'sha':'c'*40}
             if path=='git/refs/heads/main':self.assertEqual(body,{'sha':'c'*40,'force':False});return {}
             if path.startswith('contents/'):
-                name=path.split('/',1)[1].split('?')[0];return {'content':base64.b64encode(outputs[name]).decode()}
+                raise AssertionError('contents API text conversion is not binary signature readback')
             raise AssertionError(path)
         with patch.object(promotion,'api',side_effect=fake_api):
             self.assertTrue(promotion.promote(args)['promoted'])

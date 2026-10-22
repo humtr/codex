@@ -89,9 +89,12 @@ def promote(args):
     actual = api('git/ref/heads/main')['object']['sha']
     if actual != commit:
         raise RuntimeError('Provider promotion was not confirmed; do not retry: ' + actual)
+    # Contents API can transcode non-UTF-8 signature bytes while still reporting
+    # the original size/blob SHA. Read the committed tree's canonical Git blobs.
+    committed = {entry['path']: entry for entry in api('git/trees/' + tree)['tree']}
     for name, expected in paths.items():
-        served = api('contents/' + name + '?ref=' + commit)
-        if base64.b64decode(served['content']) != expected:
+        served = api('git/blobs/' + committed[name]['sha'])
+        if served.get('encoding') != 'base64' or base64.b64decode(served['content']) != expected:
             raise ValueError('promoted Provider pointer readback mismatch')
     return dict(promoted=True, mutation=True, generation=fields['generation_id'], previous_main=before,
                 current_main=commit, mutation_reply_error=mutation_error, base_full_heads_modified=False)

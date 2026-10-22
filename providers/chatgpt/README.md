@@ -10,7 +10,8 @@ for the upstream configuration route.
 [CURRENT](../../CURRENT.md#operating-baseline) distinguishes installed software,
 qualified source and release/activation. The installed adapter remains the preserved
 JS/Bun/Python experiment; the Rust candidate has real native/app/development proof
-but is not a signed, permanently activated Provider release. Source integration,
+and now has signed opt-in public generation chatgpt-c65d3f8900bc-s2. It is not
+permanently activated on this device. Source integration,
 a successful build and a model listing do not change that state.
 
 ## Bridge design and implementation status
@@ -47,22 +48,24 @@ settlement, per-work native admission/Stop fencing and round-bound summary
 receipts. Candidate22e2d492 was the E static-check/release-build checkpoint,
 without runtime acceptance at that time. The later F1–F9 review records changed-
 candidate native/app, recovery and Android proof and applies the Rust hint policy
-on candidate40. Source remains uncommitted and separate from the installed adapter;
-G retains broader product/lifecycle qualification and delivery.
+on candidate40. Source c65d3f8 and its public Provider2 delivery have passed
+independent qualification; the installed adapter remains separate. G retains
+broader declared runtime/real-Chat TUI/lifecycle qualification.
 
 G has started with explicit-input Android qualification in disposable signed Core
 fixtures: Base, Manager without enhanced TUI, Full, Provider relocation/restart/
 rollback and original native/TUI profile composition. This uses no existing app
 profile or actual Chat inference. The [G evidence/status](../../CURRENT.md#g-product-qualification)
-separates these checks from an authenticated Provider package, public delivery
-and device activation. `scripts/qualify_provider_product.py` is qualification
+records the later signed public package, full readback and18 actual Android
+immutable/stable consumer commands, including update/rollback. Permanent device
+activation remains separate. `scripts/qualify_provider_product.py` is qualification
 tooling, not an installed runtime dependency.
 
-### Optional package selection (G candidate)
+### Optional package selection
 
-The source Core exposes these commands without Manager or enhanced TUI. They are
-not available in the currently installed Core until its separately qualified
-replacement is activated:
+Public Core/Full90 exposes these commands without Manager or enhanced TUI. This
+device remains on86 after its rollback proof, so these commands become available
+here only after explicitly updating to the admitted replacement:
 
 ```sh
 codex provider install chatgpt

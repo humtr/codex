@@ -41,9 +41,10 @@ matched development comparisons. F qualified/applied the Rust idempotency policy
 preserving all other annotation values. Actual, synthetic and recovered-result
 evidence and their limitations are recorded in CURRENT's F final review; existing
 C/C2, D2/D3 and direct ChatGPT two-turn proof retain their own scopes.
-Alternate app-free clients remain optional research. G's
-product/lifecycle qualification has started with isolated Android compositions;
-signed delivery remains pending, while device
+Alternate app-free clients remain optional research. G's public signed
+Base89/Full90 and optional Provider2 delivery, readback and actual Android
+update/rollback consumption pass on exact source c65d3f8. Broader declared
+runtime/real-Chat TUI/lifecycle qualification remains active, while device
 activation and H retirement retain separate gates. Installed/bare-config defaults,
 legacy `execution.mode` names and active runtime remain unchanged.
 The same Codex thread retains long-term history while replaceable Chat conversations

@@ -151,6 +151,8 @@ def generations():
         cases = [root]
         if root.name.startswith(('g-product-', 'g-package-')):
             cases += [root / name for name in ('base', 'manager-no-tui', 'full')]
+        if root.name.startswith('gpub.'):
+            cases.append(root / 'consumer')
         for case in cases:
             if not (case / 'fixture-key.pem').is_file():
                 continue

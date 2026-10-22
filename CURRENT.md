@@ -14,7 +14,13 @@ install/update/rollback checks have bounded acceptance. Physical reboot and actu
 public wrapper update/use/rollback/use now pass independent review. Latest
 Provider88257d2a passes84 composition and113 remote/signed-package steps; fresh
 owned-profile host lifecycle passes3 actual Android tests without inference.
-Original failed batch results remain preserved; product publication is unfinished.
+Exact source c65d3f8900bc77755407d137157890d71209c96e passes all three hosted
+source/Provider/Core gates. Public Base89, Full90 and optional Provider2 are
+signed, publicly read back and promoted non-forced. Actual Android consumption
+of the Provider's public immutable and promoted stable paths passes18 commands,
+including update/reinstall/rollback. This closes delivery, not all G runtime
+boundaries: real-Chat TUI/downshift/cold-resume, broader host/approval/context and
+longer-duration retained-route proof remain. Original failed batches stay failed.
 H retirement follows
 accepted replacement. The
 [phase table](#product-completion-scope-and-work-order),
@@ -43,8 +49,10 @@ does not re-establish login, model progress or functional readiness. Last retain
 authenticated readiness/idle-state proof is2026-10-21T23:44:28Z below. No Chat
 request, refresh, service restart, native work or new trial ran in this review.
 
-Next, close the retained host/context/approval transition matrix on the latest
-source and freeze the accepted exact source for CI and signed public delivery.
+Next, close the retained host/context/approval and real-Chat TUI transition matrix
+using the admitted public payloads. Delivery is independently accepted at
+phase-g-post-device-20261022T081337Z/public-delivery-review.json. Source is
+committed; do not rerun accepted signing, package, reboot or device development.
 Accepted installed compositions, reboot and device update tasks must not be
 replayed. Publication/default replacement and device
 activation retain their separate gates. Do not rerun accepted F development just
@@ -661,7 +669,7 @@ applicable proof still required. Independent Core/Manager/Base/Full work remains
 | D3 | Unattended MCP development and result-loss qualification | Bounded acceptance complete: retained normal B/C six turns plus fresh A-only d3.uplix9nz four tasks completed by one controller, no supervisor resume/mid-run repair, sealed inputs unchanged. Both automatic recoveries and final independent native/diff/test/CLI/saved-Chat audit pass.4 app starts,4 saved Chats,14 original calls/results,0 unreturned/replayed effects. Prior connection and same-session notice verified. Arbitrary failure/long-run gates remain outside this proof |
 | E | Resolve design, feature scope and acceptance; implement the settled idempotency contract | Complete: three flows, identity/ownership, reading/input/control, serial/parallel agents, app/host management, per-tool idempotency targets and F1–F9 input/evidence contracts; common source implemented, all-target static gates and source-only22e2d492 release build pass. No runtime/live acceptance inferred |
 | F | Implement the E design, qualify and apply selected paths | Complete at the declared bounded F1–F9 integration scope. Common routes, reading/input/return, serial/parallel agents, host management and common idempotency are implemented; Rust target hints are applied and checked. The actual/synthetic/recovered evidence and limitations below are part of this verdict; original failed runs remain failed |
-| G (active) | Finish product qualification, package and publish; qualify activation separately | Android Base/Manager-without-TUI/Full, signed optional package and native/Chat/native TUI checks have their exact-input acceptance. Four installed compositions and the same-Chat cold follow-up pass independent review. Physical reboot, request-free recovery and actual public wrapper update/use/rollback/use now pass; the two development tasks returned14/14 native calls with18/23 passing tests. The device cohort required recovery between tasks and is not an uninterrupted unattended pass. Latest Provider88257d2a still needs affected package/composition and remaining lifecycle acceptance, exact-source public signing/readback, disposable consumer and non-forced promotion. Existing public Core update proof does not publish this Provider. Linux app removal is not a prerequisite |
+| G (active) | Finish product qualification, package and publish; qualify activation separately | Current88257d2a package/composition, exact-source CI, signed public Base89/Full90/Provider2, complete readback, actual Android public/stable consumer and non-forced promotions pass. Four installed usage combinations, same-Chat cold follow-up, physical reboot and actual86→88 update/use/rollback/use retain their independent acceptance. The two development tasks returned14/14 calls with18/23 passing tests. Broader declared runtime/real-Chat TUI/downshift/cold-resume, host-loss/approval/context and longer-duration retained-route gates remain; delivery does not establish them. Current physical installation remains86/previous88. Linux app removal is not a prerequisite |
 | H | Close superseded experiment and code | Preserve unique work/user1m edits/licenses/proof and admitted rollback generations; remove replaced implementation policy only after accepted replacement |
 
 Historical F call hold: released by the user at2026-10-21T13:15:32.187345+00:00 after the limit banner disappeared.
@@ -686,14 +694,26 @@ helper tests pass. New model-free qualification is accepted at
 ~/.cache/codex/acceptance/phase-g-post-device-20261022T081337Z/review.json:
 84 composition steps,113 signed/remote-package steps,3 actual fresh-profile host
 tests and synthetic native approval/question/handoff/Stop/recovery boundaries.
-These have0 actual Chat requests. Exact-source release and the remaining applicable G
-lifecycle gates are unfinished. Preserve original failed results and accepted
+These have0 actual Chat requests. Exact-source public delivery now passes, including
+signed Provider2, full public readback, actual18-command consumer and non-forced
+promotion; see public-delivery-review.json in that evidence root. Remaining
+runtime/real-Chat TUI/lifecycle gates are unfinished. Preserve original failed results and accepted
 development without replay. Reboot recovery used wrlab; later primary turns
 resumed under janmori101 then wrlab for quota restoration. Neither profile's settings were
 changed by this audit. The saved ready-to-reboot marker is consumed, not renewed.
 Quota-driven profile switches and supervisor-session resumption are excluded
 from product failure/recovery costs, as clarified by the user. Recorded technical
 lane-release and connector-cache fixes remain independently scoped findings.
+
+The next isolated runtime preparation is TMPDIR/gt.z1my9k_g. Actual public
+Core90/0502f7dd executes on Termux and public signed Provider2/88257d2a installs
+and lists models there, with0 Chat inputs. Its first install failed before any
+Provider selection because the downloaded Core had been copied as0700; the
+owned fixture entrypoint now matches its signed0755 mode. The original failure
+and a distinct successful preparation intent remain. No live trial is armed:
+configure the borrowed-host service, verify current owner/account and actual
+remote16-tool/read readiness, then declare the bounded real-Chat TUI/summary/
+downshift/cold-resume scope before input. Preserve this next-proof fixture.
 
 The following F service/process descriptions are historical pre-reboot evidence;
 they are not current liveness claims. The earlier combined bundle passes
@@ -1271,6 +1291,55 @@ Stop, restart/claim, uncertain successor takeover and host failure/completion
 settlement. These synthetic replies do not establish live model judgment or
 arbitrary long-duration context saturation. No accepted real development was
 repeated; public signing/promotion remains a separate unfinished gate.
+
+That preceding package checkpoint is superseded for delivery by
+phase-g-post-device-20261022T081337Z/public-delivery-review.json. Exact c65d3f8
+source passed Source acceptance39747992023, Provider39747992008 and independent
+Core39747992036; the hosted Android Provider artifact also verifies against that
+source. The admitted local88257d2a binary retains its actual Android task evidence.
+Eight continuity/reading/host/control modules are byte-identical to accepted F40;
+the changed app shutdown guard has its current regression and actual cleanup proof.
+
+Optional Provider signing runs39749708015/39750097551 publish two immutable same-
+binary generations, chatgpt-c65d3f8900bc-s1/s2, with complete12-asset public readback
+for each. This second signature enables genuine public upgrade/rollback proof;
+it repeats no development or model request. Actual Termux consumer at
+TMPDIR/gpub.m7wj71mf passes12 immutable-install/prepare/dispatch/upgrade/rollback
+commands plus6 promoted stable update/no-op/rollback commands. Its owned Core
+fixture retains its current signing key and separately admits the actual public
+update authority; real package signatures are never bypassed. Original native
+defaults/profile and the operating device remain unchanged. Public stable selects
+Provider2 through main13a27a432f6407a0dee0f104ffdffd453f061e2c; the optional payload
+is not permanently activated on this device.
+
+The automatic Core run39748559162 passed Base/Full build, Android smoke, signing,
+complete public readback and disposable consumer. Base89 promoted. Full90's CAS
+then correctly rejected a stale expected main: the intervening one-file readonly
+Provider workflow registration was our deployment edit. Its failed original run
+is preserved. After verifying that exact intervening diff and signed component-
+input source/manifest binding, a distinct non-forced promotion on latest main
+accepted Full90 without rebuilding or replaying tests. Public stable readback and
+canonical Git blobs match. Recovery commit is afb0f39a741293716de4f0288dfa40cc454dc65f;
+Provider promotion afterward changes only its three independent pointer files.
+Serialize main metadata edits after an active promotion settles.
+
+GitHub Contents API was observed transcoding a64-byte binary signature into96
+decoded bytes while reporting the original blob SHA/size. Git blob API and raw
+public bytes remain exact. Provider promotion now verifies the committed tree's
+canonical blobs; the regression fails before the fix and all6 publication tests
+pass afterward. The Core promotion itself was not repeated for this readback
+error. Signed/public manifests remain immutable. Current physical86/previous88,
+profiles, credentials, conversations and the original Bridge service are retained.
+G remains active at its declared runtime boundaries; this delivery review submits
+0 actual Chat requests and does not qualify arbitrary context saturation or model
+judgment. H and permanent activation remain separate.
+The affected Python gate passes141 tests (18+112+11), workflow boundary tests5,
+publication regressions6 and diff/docs checks. The cleanup helper now recognizes
+the generated gpub.*/consumer fixture; after verified inactivity it archives6
+manifest-matched payload copies (878,034,944 allocated bytes), independently
+verifying3 existing archive objects. Results/source/signed packages remain. The
+active compiler cache is2.3GiB. This retention change does not qualify a runtime
+transition or replay any accepted development.
 
 The exact-source CI freeze retains all298 source files, their hashes and a
 pre-commit archive in phase-g-post-device-20261022T081337Z. source-freeze.json
@@ -4619,8 +4688,8 @@ protected state and signed lifecycle gates cannot be retired as path optimizatio
 | Core update information/prompt | User-confirmed85→86 success; Core bytes unchanged; release-date/other display details observed as unknown | Low priority with the next substantive Core change: [deferred Core follow-up](#deferred-core-follow-up), including component information and a prompt on each eligible bare launch; preserve upstream/noninteractive behavior |
 | ChatGPT project setup/management | Existing history configuration, authenticated project list/read/create and bounded membership proof; E selected project/context/placement contracts and F qualified selected operations | G: retained product access/lifecycle combinations. Broader setup UI retains lower priority: [project setup and management](#chatgpt-projects-and-history). Preserve existing chats/context and optional-component independence |
 | Viewer and desktop | E app/host management research; F Rust private RFB/HTTP/control fixtures and actual owned fresh-profile RFB; existing notification/terminal Linux viewer opener; old desktop font/icon observations | noVNC usability retains lower priority: [development host management and viewer usability](#deferred-linux-chatgpt-development-host-management). G when shipped: physical current viewer/keyboard/scroll/login; old observations do not qualify a changed viewer. Viewer stays optional for inference |
-| Packaging/composition | Independent hosted Android Provider build, Phase A snapshot lifecycle; initial and changed-Core G Android Base/Manager-without-TUI/Full config/profile/service checks; original Full/no-Manager synthetic PTY; new signed optional payload/public dispatch with83 Base/Full install/reinstall/update/rollback, signer/sequence/collision/live-owner and negative steps | G: retained installed-entrypoint inference, broader provisioning/component/cold-recovery boundaries and authenticated remote delivery. The local fixture-signed package proof does not establish public delivery or in-flight/version-data migration. No implicit desktop download/login |
-| Experiment retirement/publication | Source/provenance and user1m changes preserved; existing Base/Full release process | G: build/smoke/sign/readback/disposable consumer/non-forced promotion then separate activation. H: remove superseded code only after unique-source/license/user-state review; no legacy runtime auto-fallback |
+| Packaging/composition | Current88257d2a passes84 composition/113 signed-remote steps. Exact c65d3f8 CI, public Base89/Full90/Provider1/2 signing/readback and actual Termux immutable/stable install/update/rollback18 commands pass; Provider2/Core Full90 promote non-forced. Four earlier installed entrypoint development routes retain their independent actual proof | G: broader declared component/cold-recovery/in-flight version-data boundaries. Public delivery is closed, not inferred from local fixture signing. No implicit desktop download/login or permanent operating activation |
+| Experiment retirement/publication | Source/provenance/user1m changes and immutable original results preserved; G public signed delivery accepted in public-delivery-review.json, including recovered Core CAS and Provider-only promotion | G: finish remaining declared runtime acceptance; permanent device/default activation is separate. H: retire only accepted replacements after unique-source/license/user-state review; retain profile-pinned/current/rollback artifacts and no uncertain auto-fallback |
 
 Native prefix-rule matching misses double-quoted executable paths in the reviewed
 upstream shell-command/src/bash.rs command_name parser. The allow/deny fixture uses
