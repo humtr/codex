@@ -1,6 +1,6 @@
 # Operating state and product completion
 
-Reviewed 2026-10-23 UTC. `rewrite/rust-core` owns implementation; `main` pins
+Reviewed 2026-10-22 UTC. `rewrite/rust-core` owns implementation; `main` pins
 accepted exact sources for signed publication. SPEC owns product contracts,
 README user instructions, and this file the operating baseline and remaining work.
 Superseded development narratives remain in Git at `e0f0927` and earlier commits;
