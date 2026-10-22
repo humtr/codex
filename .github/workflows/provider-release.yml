@@ -1,0 +1,30 @@
+name: Sign and stage qualified optional Provider
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact accepted rewrite/rust-core source
+        required: true
+        type: string
+      candidate_tag:
+        description: Immutable owned input release with qualified Android binary and proof
+        required: true
+        type: string
+      generation:
+        description: Absent immutable chatgpt generation release tag
+        required: true
+        type: string
+      sequence:
+        description: Positive Provider release sequence
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  accepted_source_required:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch on the accepted implementation source
+        run: |
+          echo 'Run this workflow on the exact accepted rewrite/rust-core revision; main contains no signing implementation.' >&2
+          exit 1
