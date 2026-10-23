@@ -123,7 +123,7 @@ async fn encode_checkpoint(
             "--thread",
             &thread.to_string(),
             "--from-model",
-            config.model.as_deref()?,
+            snapshot.get("model")?.as_str()?,
             "--model",
             model,
             "--effort",
@@ -730,14 +730,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn termux_chat_models_checkpoint_child_receives_eof_without_starting_auth() {
+    async fn termux_chat_models_checkpoint_uses_saved_model_without_a_configured_default() {
         use std::os::unix::fs::PermissionsExt;
         let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
         let root = tempfile::tempdir().unwrap();
         let mut config = app.config.clone();
         config.codex_home =
             codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
-        config.model = Some("gpt-6.1-sol".into());
+        config.model = None;
         let binary = root.path().join("provider");
         let response = json!({"type":"message","role":"user","content":[{"type":"input_text","text":"readable fixture context"}]});
         std::fs::write(
@@ -745,6 +745,7 @@ mod tests {
             format!(
                 r#"#!/bin/sh
 [ "$1" = checkpoint ] || exit 1
+[ "$5" = saved-native-model ] || exit 1
 cat >/dev/null
 printf '%s\n' '{response}'
 "#
@@ -772,17 +773,20 @@ args=["token","--state","/owned/state"]
         )
         .unwrap();
         std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(
-            encode_checkpoint(
-                &config,
-                &json!({"public":"snapshot"}),
-                ThreadId::new(),
-                "chatgpt-desktop/gpt-6",
-                &ReasoningEffort::None
-            )
-            .await
-            .is_some()
-        );
+        for configured_default in [None, Some("different-default".into())] {
+            config.model = configured_default;
+            assert!(
+                encode_checkpoint(
+                    &config,
+                    &json!({"model":"saved-native-model","public":"snapshot"}),
+                    ThreadId::new(),
+                    "chatgpt-desktop/gpt-6",
+                    &ReasoningEffort::None
+                )
+                .await
+                .is_some()
+            );
+        }
     }
     #[tokio::test]
     async fn termux_chat_models_explicit_summary_matches_completion_and_cancels_failures() {

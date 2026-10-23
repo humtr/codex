@@ -86,6 +86,8 @@ update authority is maintained.
   transition. Ordinary model selection reuses the same upstream-owned history
   without requesting or waiting for a new source-model summary. Upstream retains
   its own conditional context-limit and compaction-compatibility handling.
+  History handoff uses the model in the verified native thread snapshot; an
+  absent or different default model in account configuration cannot gate it.
   A native systemError whose final recorded turn is failed is a settled boundary
   for provider re-entry, provided the same input/tool/active-work guards and full
   public-history read succeed. It must not strand a failed Chat request in that
