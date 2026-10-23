@@ -353,7 +353,7 @@ def probe(args):
                         and len(state['turns']) == expected_turns
                         and state['turns'][-1]['status'] == 'failed')
             wait(failed_settled)
-            submit('/model gpt-6.1-sol')
+            submit('/model gpt-6.1-sol --speed=standard')
             wait(lambda: public(thread)['modelProvider'] == 'openai')
             assert len(public(thread)['turns']) == expected_turns
             submit('/model chatgpt-desktop/gpt-6 --reasoning=none')
