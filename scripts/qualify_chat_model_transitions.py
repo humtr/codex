@@ -224,11 +224,13 @@ def probe(args):
             choose_other_provider()
             wait(lambda: empty_metadata('openai'))
             assert not requests, 'empty Chat to native selection must not infer'
-            snapshot = public(thread)
+            # The unchanged backend still rejects full-history reads on an
+            # untouched thread; verify its actual rollout, not that unavailable API.
+            snapshot = rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})['thread']
             assert snapshot['turns'] == [], 'empty selection must not add a public turn'
             rollout = Path(snapshot['path'])
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
-            assert not any(row.get('type') in ('response_item', 'compacted') for row in records), 'empty selection must not inject a checkpoint'
+            assert len(records) == 1 and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread, 'empty selection must retain metadata only, without a checkpoint'
             accepted = True
             return {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
