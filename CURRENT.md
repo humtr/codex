@@ -13,8 +13,8 @@ source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted
 G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 
-The operating device update is also complete: signed Full94 (previous Full93),
-ChatGPT Provider release sequence3, generated Rust profile, same-account native
+The operating device update is complete: signed Full95 (previous Full94),
+ChatGPT Provider release sequence4 (previous3), generated Rust profile, same-account native
 host and existing Termux Bridge tunnel on a permanent path.0 new model requests.
 The entrypoint/fresh-user guide is documented. The user has deferred minimum
 setup/login implementation and repository separation/cleanup; record those under
@@ -25,10 +25,10 @@ now distinguishes current MCP selection/short task
 requests from proposed reusable skill/UI conveniences. No setup command, bundled
 workflow skill or task panel is shipped. G/H needs no replay or additional release
 for documentation. Existing clients remain pinned until normal exit; new launches
-use the selected Full94.
+use the selected Full95.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
-sequence3 identifies one publication, not another component name. The bridge
+sequences identify publications, not another component name. The bridge
 is the Provider's app/native tool-and-result connection; MCP is a protocol it
 uses. The app displays that MCP connection as **Termux Bridge**.
 
@@ -45,8 +45,9 @@ the Linux tunnel runtime, repair `native_binding_invalid`, and audit environment
 experiment hardcoding throughout the repository and installed service definitions.
 This batch is distinct from accepted G/H and submits no Chat/model request.
 Device repair, source/documentation review and affected validation are complete.
-Implementation/documentation changes remain uncommitted and unpublished; installed
-signed Core/Provider selections are unchanged by the source fix.
+Source is committed/pushed as `81890a7b16c4199310f71599eeb8c463e59c6104`, published
+as signed Provider release sequence4 and applied on this device. The matching
+automatic Core publication is Full95. Publication/activation proof is below.
 
 Private original evidence and restore records:
 `~/.cache/codex/acceptance/device-runit-provider-20261023T011419Z`, also referenced
@@ -71,8 +72,9 @@ observations, failed operation receipts and the user's failed creation attempts.
   A separate tunnel-exit intent was submitted once with the corrected shared
   configuration; readback confirms its replacement started2026-10-23T02:33:09Z,
   local health/ready200, main-channel probe `ok` and successful remote polling.
-  Do not repeat either TERM proof. Final observed Provider30277, host keeper20345
-  and tunnel keeper24014 are supervised; root/monitor/tdev identities are unchanged.
+  Do not repeat either TERM proof. Before publication, Provider30277, host
+  keeper20345 and tunnel keeper24014 were supervised; their release replacements
+  are recorded below. Root/monitor/tdev identities are unchanged.
 - The initially selected global `tunnel-client` was a Linux/CGO-disabled build;
   its DNS errors existed before this batch. It and the old Linux backup were
   removed from executable paths and archived with hashes. Global `tunnel-client`
@@ -101,8 +103,8 @@ observations, failed operation receipts and the user's failed creation attempts.
   kernel executable prove nonownership; live/unsafe/current/unknown records stay
   strict. The final Provider gate passes168 Rust,68 JavaScript and82 Python tests,
   fmt, Clippy and release build on Android.28 existing opt-in Rust cases remain
-  explicitly ignored. Installed signed Provider remains release sequence3; the source
-  guard is not yet published/deployed.
+  explicitly ignored. The guard is now included in signed release sequence4 and
+  the operating device; the initial repair/qualification proofs remain distinct.
 - Initial hardcoding inventory searched268 tracked files. Private inventory is
   under `hardcoding-audit/`; it includes publication origins, platform paths,
   model data, ports and personal/experiment references. Historical G/D3/direct
@@ -128,22 +130,68 @@ observations, failed operation receipts and the user's failed creation attempts.
   about4.7GiB, below15GiB. The owned temporary owner-read diagnostic was reclaimed
   after retaining its source/results; unknown repository target content and
   original failed observations remain intact. `batch-result.json` binds final
-  source hashes, gate logs, device readback and cleanup records. No source release,
-  public promotion, old G/H replay or model request was performed in this batch.
+  source hashes, gate logs, device readback and cleanup records. Publication used
+  the separate new-input batch below. Original G/H effects were not replayed.
+
+### Published correction and latest device activation
+
+Private evidence: `~/.cache/codex/acceptance/binding-release-20261023T030234Z`, also
+referenced by `~/.local/state/codex/binding-release-latest-root`.
+
+- Exact source81890a7 passed remote source acceptance39892880727, Provider
+  qualification/Android build39892880760 and independent Core qualification
+  39893274182. The hosted Android Provider binary is SHA256
+  `e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a`.
+- Fresh Android proof for those exact bytes passes84 composition and113 signed
+  package steps, plus actual native create/confirmed Stop alongside inactive
+  same-home legacy records. The native fixture socket is101 bytes. Unchanged
+  native tool/continuity/app modules reuse their accepted exact-input G evidence;
+  this is not a replay or a new uninterrupted G cohort.0 model requests.
+- Signing run39893882682 published immutable `chatgpt-81890a7b16c4-s4`, sequence4.
+  All12 public assets were read back and verified, followed by10 actual Android
+  public-consumer steps and4 stable update/use/rollback steps. Non-forced main
+  promotion `e140291f493e230210a4a9b18e080f8f3e850792` changes only the3 Provider
+  pointer files and preserves the independent Base/Full history.
+- Core's existing automatic path39893484764 completed signing, full public
+  readback, disposable update proof and stable promotion for Full95/source81890a7
+  on Base89. Device94→95 update is confirmed; previous94 remains admitted.
+- The first Provider device update returned busy with selection3 unchanged:
+  native catalog32038 still held an inherited package lease after the services
+  stopped. Kernel FD/lock records and native API proved0 loaded threads and0
+  children. Complete catalog metadata was preserved, then that exact idle owner
+  was gracefully stopped through pidfd. Exclusive package-lease availability was
+  verified before the distinct unblocked update intent. Preserve the original
+  rejection and `idle-catalog-stop-*` records; no user job/conversation was removed.
+- Device selection is now Provider4/previous3. The common service environment's
+  observer and explicit generated profile bind the new immutable image. Provider
+  29335, host keeper29422 and tunnel keeper29429 are supervised; the same account
+  is ready with no active lanes, remote tunnel polling and main-channel probe
+  succeed. Root20592, monitor20682 and all tdev process identities are unchanged.
+  Ordinary config/auth hashes are unchanged by activation. MCP initialize/list/
+  existing-work read returns16 tools and clean EOF; no model request or physical
+  viewer claim. Core94/Provider3 and original backups remain available for rollback.
 
 ## Operating baseline
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Accepted G source6aa2280; H source retirement e0f0927 on rewrite/rust-core. H Provider167 Rust/67 JavaScript/81 Python; full364 Rust/141 Python and Clippy pass. 28 opt-in Provider tests and Core1 ignored test remain explicitly ignored |
-| Public Core | Base89; Full94/sourcee0f0927, promoted after H source admission by main09ed858. G's earlier Full93/source5da0254d pointer observation and Full90 admission retain their original scopes |
-| Operating Core | User-authorized signed Full86→Full93 update, then93→94 after H's new stable promotion; both exit0. Previous Full93; upstream0.163.0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full94, existing clients remain pinned |
-| Public/selected Provider | chatgpt-6aa228034346-s3, release sequence3, binary SHA2565ef3536c94137b24d86e10a9366a674baeca87e701c5ef30d824a83d8433d62d. Public immutable signing/readback, Android consumption and stable promotion accepted; operating installation exit0 |
+| Implementation | Binding/environment correction81890a7 committed/pushed after G6aa2280 and H e0f0927. Provider168 Rust/68 JavaScript/82 Python; full364 Rust/141 Python and Clippy pass. 28 opt-in Provider tests and Core1 ignored test remain explicitly ignored |
+| Public Core | Base89; Full95/source81890a7, signed/read back/qualified/promoted by39893484764. Earlier Full94/e0f0927 and G's earlier Full93/Full90 retain their original scopes |
+| Operating Core | Signed Full95, previous94, upstream0.163.0; actual94→95 exit0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full95, existing clients remain pinned |
+| Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
 | Retained dependencies | Immutable JS/Bun/Python installation c3642b19a87cdace158f and its526 verified files, rootfs, optional noVNC, current/previous payloads and original proofs remain preserved. Source retirement did not remove installed user data |
 
 ### Latest handoff boundary
+
+The latest boundary is the published correction/device activation above:
+`binding-release-20261023T030234Z`. Selected and actual supervised Provider4,
+Full95/previous94, same-account host, authenticated16-tool MCP, remote polling
+and unchanged protected config/auth/tdev identities are verified. Read its
+original failed-update/lease records before any new maintenance. No old effects
+or release proofs are scheduled for replay. The earlier G/H activation below is
+retained context and does not supersede this selection.
 
 Device evidence: `~/.cache/codex/acceptance/device-runtime-update-full93-provider-s3`.
 `device-update-review.json` and `followup-full94/result.json` accept the actual
@@ -246,7 +294,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | F1–F9 | Common Rust bridge, delegation, reading, continuity and host integration boundedly accepted |
 | G | Exact-source capability review, corrected native-final delivery, signing/readback, actual Android consumers and non-forced stable promotion accepted |
 | H | Unique work preserved, duplicate source/worktrees retired, affected Provider/full gates independently reviewed, source committed/pushed e0f0927 |
-| Device update | Separately authorized after G/H and completed: Full94 / Provider release sequence3, explicit profile/auth/history migration, owned-host/local MCP/tunnel and8-command operating smoke accepted;0 model requests |
+| Device update | Initial G/H activation: Full94 / Provider sequence3 with preserved profile/auth/history. Published binding correction: Full95 / Provider sequence4, supervised same-account host, authenticated16-tool MCP, remote polling and protected-state readback accepted;0 model requests |
 
 ### G product qualification
 
@@ -486,6 +534,7 @@ to fix an observer, packaging or reporting failure.
 | Wrong receiving thread or model/config authority: prior-primary bindings and unsupported models.new_thread settings | Bind final notification to actual CODEX_THREAD_ID and verify canonical receipt/turn_context. Ordinary configs stay unpinned; only this development supervisor selects gpt-6.1-sol/high. Generated Core config is output, not the common preference file |
 | Stale promotion parent and binary Contents API conversion: prior Full90 CAS rejection and binary-readback-red.log | Read the latest main only after prior mutations settle, preserve independent histories and use non-forced promotion. Reconcile unknown mutation once before any retry. Read signatures through canonical Git blobs/raw bytes, not the text Contents API |
 | Retiring unique/user/current data as generic cleanup | Before H removal, preserve experiment refs, exact source/user1m patch and regression, licenses, original proofs and pinned/current/rollback dependencies. Check process references. Use clean_development.py only for owned generated payloads; never prune unknown target contents or an active/unknown worktree |
+| Provider update stays busy after its services exit: binding-release-20261023T030234Z | Inspect kernel FD/lock holders as well as executable paths. A native catalog can inherit the Provider directory lease. Preserve metadata and prove no loaded threads, active jobs or children before gracefully stopping that exact idle owner; verify exclusive lease availability before a new update intent. Keep an unchanged-selection rejection distinct from an uncertain mutation |
 
 
 ## Verification and publication

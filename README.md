@@ -63,8 +63,8 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 A–H are complete at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
 [CURRENT](CURRENT.md#operating-baseline) records accepted sources, signed releases,
-device selections and actual running processes. This device selects Full94 and
-ChatGPT Provider release sequence3; existing sessions keep their pinned executable
+device selections and actual running processes. This device selects Full95 and
+ChatGPT Provider release sequence4; existing sessions keep their pinned executable
 until normal exit. Ordinary account configuration does not force a model.
 
 Fresh Core installation exists. Provider app provisioning, first login and remote
@@ -346,6 +346,11 @@ it first. Keep active native work and pending calls settled before shutdown or
 package changes. Disabling only the host keeper leaves an already acquired app
 running; inspect/stop that idle owned host explicitly if desired. Direct ChatGPT
 primary reasoning does not need an always-on Linux app.
+
+An idle native catalog can retain an inherited Provider package lease after the
+service exits. If selection reports busy, inspect the actual FD/lock holder and
+its loaded threads/jobs. Preserve metadata and settle work before stopping that
+exact idle owner. Service shutdown alone does not prove the package is unused.
 
 This is an explicit configuration of the existing device. Future shared minimum
 setup should offer service registration/enabling for the selected entrance,

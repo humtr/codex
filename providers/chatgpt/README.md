@@ -9,12 +9,16 @@ for the upstream configuration route.
 
 [CURRENT](../../CURRENT.md#operating-baseline) distinguishes accepted source,
 signed publication, selected packages and actual running owners. The accepted
-public generation is `chatgpt-6aa228034346-s3`, with release sequence3. Provider
+public generation is `chatgpt-81890a7b16c4-s4`, with release sequence4. Provider
 is the component name; `chatgpt` is its CLI identifier. The sequence is release
 metadata, not part of the component name.
-This device selects Full94 and this signed Provider generation. Its shared native
+This device selects Full95 and this signed Provider generation. Its shared native
 profile binds the immutable Rust executable; same-account owned-host readiness,
 local16-tool MCP and the existing tunnel have been verified without model work.
+Release sequence4 includes the recognized inactive-legacy binding discovery fix;
+exact hosted Android bytes, signed delivery, disposable public/stable consumption
+and this device's activation are recorded in CURRENT. Original G evidence retains
+its original release sequence3 scope.
 
 ## Bridge design and implementation status
 
@@ -226,7 +230,7 @@ This document does not introduce a new command or change installed behavior.
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
-TUI. This device has been explicitly updated to Full94; other installations must
+TUI. This device has been explicitly updated to Full95; other installations must
 first update Core to a compatible signed generation.
 
 ```sh
@@ -253,6 +257,13 @@ lease or immutable executable blocks selection changes; the installer never stop
 jobs. Rollback retains the sequence high water and the previous admitted verifier
 key, including across later authority changes. Neither command deletes older
 payloads, downloads a desktop/rootfs, logs in or submits model work.
+
+The package lease can remain inherited by a native catalog daemon after Provider
+exits. Diagnose busy selection through kernel FD/lock ownership and actual loaded
+threads/jobs. Preserve the catalog's metadata, settle its work, and gracefully
+stop only a verified idle owner before checking exclusive lease availability.
+An unchanged-selection rejection and an uncertain mutation require different
+reconciliation; neither is permission to remove a lock or kill unrelated runtimes.
 
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
