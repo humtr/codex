@@ -182,10 +182,11 @@ def probe(args):
         def submit(text):
             # Backend idle can precede the TUI's turn-completed notification.
             drain(1)
-            for byte in text.encode():
-                os.write(master, bytes([byte]))
-                drain(.04)
-            drain(.8)
+            # One bracketed paste is an atomic composer event. Byte-by-byte
+            # startup input can leave trailing command text after a slow frame,
+            # correctly tripping the pending-input guard rather than testing reentry.
+            os.write(master, b'\x1b[200~' + text.encode() + b'\x1b[201~')
+            drain(1)
             os.write(master, b'\r')
 
         def choose_other_provider():
