@@ -171,7 +171,7 @@ impl Bridge for Remote {
                     command["op"].as_str(),
                     Some("snapshot" | "stop" | "release" | "dispose")
                 )
-                && !guard.as_ref().unwrap().initialized
+                && (!guard.as_ref().unwrap().initialized || command["op"] == "open")
             {
                 let app = guard.as_ref().unwrap().app.clone();
                 let init = json!({"op":"init","owner":owner,"bridgeRevision":context::digest(&include_str!("app_bridge.js")),"returnPath":"mcp","bindings":bindings});
@@ -970,11 +970,22 @@ async fn exchange(
         .operation(json!({"op":"identity","lane":lane.marker}))
         .await?;
     let current = Identity::parse(&observed)?;
-    if let Some(old) = &lane.identity {
+    if let Some(old) = lane.identity.clone() {
         if !old.account_matches(&current) {
-            return Err(Error("app_account_changed"));
-        }
-        if old.generation != current.generation || observed["present"] != true {
+            if request.history.account_change == crate::config::AccountChange::NewChat
+                && matches!(lane.phase, Phase::Idle | Phase::Stopped)
+                && lane.pending.is_empty()
+                && new_turn(lane, request)
+                && lane.user_input != user_input_identity(request)
+            {
+                // A new native input uses the currently selected app account.
+                // Keep the previous account's chat; never continue its remote
+                // conversation, replay its calls or send its results elsewhere.
+                *lane = lane.successor(&request.thread)?;
+            } else {
+                return Err(Error("app_account_changed"));
+            }
+        } else if old.generation != current.generation || observed["present"] != true {
             if matches!(lane.phase, Phase::Idle | Phase::Stopped) && new_turn(lane, request) {
                 // Re-import only at a new native user turn after a settled round.
                 // Old remote chats remain intact. No pending call is reissued.

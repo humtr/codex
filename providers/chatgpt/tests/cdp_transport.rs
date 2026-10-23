@@ -600,3 +600,69 @@ async fn passive_cleanup_does_not_initialize_and_successful_disposal_reinitializ
         ["snapshot", "stop", "release", "dispose", "init", "open", "dispose", "init", "open"]
     );
 }
+
+#[tokio::test]
+async fn new_lane_open_revalidates_bridge_initialization_on_the_same_renderer() {
+    use codex_chatgpt_provider::app::{Bridge, Remote};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (native, peer) = tokio::io::duplex(65536);
+    let (read, write) = tokio::io::split(native);
+    let remote = Remote::pipe(
+        Client::pipe(read, write, "same-renderer".into()),
+        "owned".into(),
+    );
+    let peer = tokio::spawn(async move {
+        let (read, mut write) = tokio::io::split(peer);
+        let mut reader = BufReader::new(read);
+        let mut operations = Vec::new();
+        loop {
+            let mut bytes = Vec::new();
+            assert!(reader.read_until(0, &mut bytes).await.unwrap() > 0);
+            bytes.pop();
+            let request: Value = serde_json::from_slice(&bytes).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    json!({"targetInfos":[{"targetId":"main","type":"page","url":"app://-/index.html"}]})
+                }
+                "Target.attachToTarget" => json!({"sessionId":"main"}),
+                "Runtime.evaluate" => {
+                    let expression = request["params"]["expression"].as_str().unwrap();
+                    if expression.starts_with("(()=>{const visible=") {
+                        json!({"result":{"value":true}})
+                    } else {
+                        let command: Value = serde_json::from_str(
+                            expression
+                                .split_once("const command=")
+                                .unwrap()
+                                .1
+                                .split_once(";\n")
+                                .unwrap()
+                                .0,
+                        )
+                        .unwrap();
+                        let op = command["op"].as_str().unwrap();
+                        assert!(matches!(op, "init" | "open"));
+                        operations.push(op.to_owned());
+                        json!({"result":{"value":{"value":if op=="init"{json!({"ready":true})}else{json!({"localId":"new-owned-chat"})}}}})
+                    }
+                }
+                _ => panic!("lane reentry must not submit inference"),
+            };
+            write
+                .write_all(format!("{}\0", json!({"id":request["id"],"result":result})).as_bytes())
+                .await
+                .unwrap();
+            if operations.iter().filter(|v| v.as_str() == "open").count() == 2 {
+                break;
+            }
+        }
+        assert_eq!(operations, vec!["init", "open", "init", "open"]);
+    });
+    for lane in ["account-one-lane", "account-two-lane"] {
+        remote
+            .operation(json!({"op":"open","lane":lane}))
+            .await
+            .unwrap();
+    }
+    peer.await.unwrap();
+}

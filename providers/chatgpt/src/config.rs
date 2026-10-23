@@ -15,6 +15,7 @@ pub const FIELDS: &[&str] = &[
     "transport.return_path",
     "transport.connector_name",
     "history.mode",
+    "history.account_change",
     "history.project_name",
     "history.project_id",
     "history.create_if_missing",
@@ -148,6 +149,7 @@ impl Default for TransportConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct HistoryConfig {
     pub mode: HistoryMode,
+    pub account_change: AccountChange,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -158,11 +160,20 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             mode: HistoryMode::Retain,
+            account_change: AccountChange::NewChat,
             project_name: None,
             project_id: None,
             create_if_missing: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountChange {
+    #[default]
+    NewChat,
+    Refuse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -344,6 +355,21 @@ mod tests {
             value
         );
     }
+    #[test]
+    fn app_account_policy_is_configuration_without_account_identifiers() {
+        assert_eq!(
+            Config::default().history.account_change,
+            AccountChange::NewChat
+        );
+        let strict = Config::parse(b"[history]\naccount_change='refuse'\n").unwrap();
+        assert_eq!(strict.history.account_change, AccountChange::Refuse);
+        assert_eq!(
+            Config::parse(strict.render().unwrap().as_bytes()).unwrap(),
+            strict
+        );
+        assert!(Config::parse(b"[history]\naccount_change='some-fixed-account'\n").is_err());
+    }
+
     #[test]
     fn preserves_user_context_override_without_arbitrary_32k_or_1m_bound() {
         for tokens in [16_384, 1_000_000, 2_000_000] {

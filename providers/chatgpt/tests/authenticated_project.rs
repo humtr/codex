@@ -34,6 +34,7 @@ async fn actual_app_creates_or_reuses_one_project_without_chat() {
         project_name: Some("Termux Codex".into()),
         project_id: None,
         create_if_missing: true,
+        ..HistoryConfig::default()
     };
     let first = project::resolve(&bridge, &journal, &history, &identity).await;
     // Disposing our empty bridge is safe even when a project operation failed;

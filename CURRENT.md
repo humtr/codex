@@ -8,32 +8,93 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-The account-independent repair is in final qualification. Signed Provider5
-(source655d5b4, SHA740cc895...) is published/stably promoted and selected on this
-device, with its generated routing and observer binding updated. Source/native
-changes preserve the actual execution home/workspace, failed-history return,
-inline model routing and explicit speed; ordinary cold resume additionally needs
-only the verified installed Provider definition in thread-scoped configuration.
-Frontend832209c native run39988508151 is qualifying that last resume path.
+The account-independent repair is installed as signed Provider7,
+`chatgpt-e5815af1487e-s7` (sourcee5815af, Android SHA256
+`860a4b5f91a4de5f509a04c5acc4ce3222830a6793f0f4ff12ee4031c9029c75`).
+Previous Provider6 remains the rollback generation. All six existing execution
+homes use the shared generated routing; its auth/checkpoint reference and runit
+observer now select7. Configuration execution.home/workspace remain explicit-work
+defaults; incoming native work derives its actual verified home and workspace.
 
-The combined Android cohort with frontend62d48cf passes two accounts, different
-workspaces, cold backend/Provider replacement, Stop, first/existing prompt failure
-and native/Chat return:9 native inputs,7 synthetic app submissions,0 real Chat.
-Provider655d5b4 passes170 Rust/68 JS tests, Clippy and84/113 hosted Android product/
-package steps. Public complete readback, disposable install/rollback and stable
-consumer proof pass; Provider signing39984198412 and promotion preserve Core heads.
+One actual Chat prompt in a separate owned execution home returns the exact
+requested final marker, with1 completed native turn and an untouched workspace.
+No real account credentials were copied: the native-only auth fixture is inert,
+while the installed Provider uses the existing authenticated app. Cold re-entry
+reads the same original completed turn without another input. The owned test
+work is stopped and its backend kernel exit confirmed; original user work and
+other runtimes remain. The first two live setups stopped at native onboarding
+with0 inputs; the first armed attempt hit the recorded Android legacy-PID defect
+before app admission. Its failed turn remains preserved and was not replayed.
 
-Physical restart exposed an additional real startup-order defect before any live
-model request: one early empty index page was accepted without probing, then kept
-instead of the later main conversation page. Read-only inspection confirms0 DOM
-nodes on the old selection and a visible composer/valid app scope after applying
-uniform target readiness. CDP selection now checks every candidate, even a lone
-one, without window-order/count or localized button-label dependencies. The
-single-launcher→later-main regression and7 retained transport tests pass. Full
-Provider qualification/release and device real-Chat proof remain open. Services
-are deliberately stopped during bounded app diagnostics; restore them after the
-qualified package is bound. No credentials or conversations were removed.
-Evidence: `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`.
+The final Android cohort passes two execution accounts, workspace changes, cold
+backend/Provider replacement, Stop, first/existing prompt failure, native/Chat
+return and ordinary cold resume without a provider profile:10 native inputs,
+8 synthetic app submissions,0 real Chat. The accepted raw frontend is SHA256
+`fd41020f7cce570ca8b5f69c3bb45654fd504cf1a38327224f9e2ad29b89f60f`;
+sourcee5815af produces identical production bytes to832209c. Native run
+39993537363 passes55 focused tests,94 retained upstream tests and lint; the corrected
+ConfigBuilder fixture supplies its required provider name. Inputs bind in92ba5e6;
+Core publication40000802027 is finishing. Current Core remains Full101; ordinary
+profile-free live resume/native return through the new installed helper are pending.
+
+Provider passes171 Rust tests/Clippy (28 existing opt-in cases ignored), with68 JS
+and82 Python tests retained at unchanged scope. Source39993517090,
+Core39994065873 and independent Android Provider39993516891 pass. New exact Android
+composition/package proofs pass, signed publication39994723096 passes complete
+public readback, disposable consumer/install/rollback and non-forced stable
+promotion. A separate default stable7 consumer check retains rollback/high-water.
+
+The defects were wrapper dependencies: configured-home filtering before native
+owner discovery; failed-history return requiring idle only; inline `/model`
+bypassing the installed catalog/re-entry path; ordinary resume omitting the
+installed Provider definition; accepting one early empty app page without
+readiness; and Android hidepid returning EACCES for a reused PID directory while
+its stat returns ENOENT. The fix resolves only verified dynamic ownership,
+forwards a non-selecting thread-scoped Provider definition, checks terminal
+failed-history guards, and inspects every app page for a visible composer. Known
+legacy nonowners are excluded without deleting records, signalling them or
+weakening unknown/unsafe binding checks. Real-device read-only global discovery
+and an owned zombie regression cover the last defect.
+
+For0.164, the relevant upstream changes are inline model/reasoning/speed and
+permission arguments, saved-thread setting restoration, compressed-history
+resume, repeated CLI override preservation and compaction fixes. Keep the
+upstream fixes and retained native features; the local routing/state changes
+above adapt the wrapper. Official release:
+https://github.com/openai/codex/releases/tag/rust-v0.164.0 .
+
+The user additionally requires Linux app account changes and multi-account MCP
+registration without account-specific source constants. The app reads its live
+authenticated identity; the account-change candidate now uses configurable
+`history.account_change` (`new_chat` default, `refuse` optional). A settled new
+native user input can create a fresh chat under the selected app account, while
+pending/unknown/old-turn work remains bound. Account/user/workspace-switch and
+return, configured refusal and pending-call guards pass alongside transport tests.
+This candidate is not installed yet. Account, workspace, tunnel and connector
+values remain user/transport configuration; no real account branch was added.
+
+Provider MCP has no account/plugin-ID whitelist. Read-only remote metadata shows
+one organization and one ChatGPT workspace associated with the existing tunnel.
+Registered native credentials identify two distinct ChatGPT accounts; `szob` is
+not associated. An additive union update using an existing private admin reference
+was refused with403 automatic org/workspace association verification; readback
+proves the original associations unchanged. OpenAI requests a reviewed mapping
+(request req_5671614652684397a7d687629fef0444). No second tunnel, public endpoint,
+credential change or inference was created. Remote configuration/permissions
+remain an external prerequisite for that account's actual MCP registration.
+Evidence: `tunnel-account-association-proof.json`, private metadata/readback and
+`app-account-and-transport-tests.log` in the evidence root below.
+
+Original failed/aborted attempts are preserved, not counted as passing gates.
+Completed owned native/product/package payloads were archived with distinct
+`clean_development.py` restore records. Source/native records, immutable public
+current/rollback packages and unknown `providers/chatgpt/target/` are preserved.
+Active reusable local compiler targets total about5GiB.
+Evidence: `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`:
+`combined-final-acceptance.json`, `frontend-production-byte-comparison.json`,
+`real-global-discovery-fixed.json`, `legacy-proc-visibility-audit.json`,
+`hidden-pid-e5815af/{plan,consumer-proof,stable-consumer-proof}.json`,
+`live-first-prompt-7/live-first-prompt-result.json`, `live-owned-reconcile/result.json`.
 
 Read-only incident review at2026-10-23T14:23–14:36Z observes device selection
 Full101/source51f3108/upstream0.164.0, previous Full99. This supersedes the earlier

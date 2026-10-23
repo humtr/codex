@@ -37,6 +37,8 @@ struct State {
     public_markup: bool,
     generation: String,
     account: String,
+    user: String,
+    structure: String,
     lanes: std::collections::BTreeSet<String>,
 }
 #[derive(Clone, Default)]
@@ -51,7 +53,7 @@ impl Bridge for App {
             state.commands.push(command.clone());
             match command["op"].as_str().unwrap() {
                 "identity" => Ok(
-                    json!({"generation":if state.generation.is_empty(){"fixture-generation"}else{&state.generation},"account":if state.account.is_empty(){"fixture-account"}else{&state.account},"user":"fixture-user","structure":"personal","present":state.lanes.contains(command["lane"].as_str().unwrap())}),
+                    json!({"generation":if state.generation.is_empty(){"fixture-generation"}else{&state.generation},"account":if state.account.is_empty(){"fixture-account"}else{&state.account},"user":if state.user.is_empty(){"fixture-user"}else{&state.user},"structure":if state.structure.is_empty(){"personal"}else{&state.structure},"present":state.lanes.contains(command["lane"].as_str().unwrap())}),
                 ),
                 "open" => {
                     state.lanes.insert(command["lane"].as_str().unwrap().into());
@@ -802,8 +804,123 @@ fn next_turn(mut input: Value) -> Value {
 }
 
 #[tokio::test]
-async fn settled_native_turn_restores_after_host_restart_without_replaying_tools_or_crossing_accounts(
-) {
+async fn new_user_turn_moves_a_settled_lane_between_app_users_and_workspaces() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let settled = settled_input(&host).await;
+    {
+        let mut state = app.state.lock().unwrap();
+        state.account = "second-account".into();
+        state.user = "second-user".into();
+        state.structure = "workspace".into();
+    }
+    let mut no_user_input = settled.clone();
+    no_user_input["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"native-fixture","turn_id":"setting-only"})
+            .to_string()
+            .into();
+    assert_eq!(
+        failure(&host, no_user_input, CancellationToken::new())
+            .await
+            .0,
+        Error("app_account_changed")
+    );
+    let mut second = next_turn(settled);
+    let response = execute(&host, second.clone()).await;
+    second["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend(output(&response));
+    {
+        let mut state = app.state.lock().unwrap();
+        state.account.clear();
+        state.user.clear();
+        state.structure.clear();
+    }
+    second["client_metadata"]["x-codex-turn-metadata"] =
+        json!({"thread_id":"native-fixture","turn_id":"turn-3"})
+            .to_string()
+            .into();
+    second["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"role":"user","content":"Continue after switching back"}));
+    let response = execute(&host, second).await;
+    assert_eq!(output(&response)[0]["content"][0]["text"], "Tests passed");
+    let state = app.state.lock().unwrap();
+    let submits: Vec<_> = state
+        .commands
+        .iter()
+        .filter(|r| r["op"] == "submit")
+        .collect();
+    assert_eq!(submits.len(), 4);
+    assert_ne!(submits[1]["lane"], submits[2]["lane"]);
+    assert_ne!(submits[2]["lane"], submits[3]["lane"]);
+    assert!(submits[2]["results"].as_array().unwrap().is_empty());
+    assert!(submits[3]["results"].as_array().unwrap().is_empty());
+    assert_eq!(
+        state.lanes.len(),
+        3,
+        "old account conversations remain intact"
+    );
+}
+
+#[tokio::test]
+async fn configured_refusal_keeps_a_settled_lane_in_its_original_app_account() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let settled = settled_input(&host).await;
+    app.state.lock().unwrap().account = "second-account".into();
+    let config = Config::parse(b"[history]\naccount_change='refuse'\n").unwrap();
+    let request = Request::parse(next_turn(settled), &config, None).unwrap();
+    let (events, _) = mpsc::channel(64);
+    assert_eq!(
+        host.exchange(request, events, CancellationToken::new())
+            .await,
+        Err(Error("app_account_changed"))
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|r| r["op"] == "submit")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn new_user_turn_cannot_move_unsettled_native_calls_to_another_app_account() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    let first = execute(&host, body()).await;
+    assert!(first.iter().any(|event| matches!(event, Event::Tool(_))));
+    app.state.lock().unwrap().account = "second-account".into();
+    assert_eq!(
+        failure(&host, next_turn(body()), CancellationToken::new())
+            .await
+            .0,
+        Error("app_account_changed")
+    );
+    assert_eq!(
+        app.state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|r| r["op"] == "submit")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn settled_native_turn_restores_after_host_restart_and_new_account_without_replaying_tools() {
     let root = Root::new();
     let app = Arc::new(App::default());
     let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
@@ -823,15 +940,17 @@ async fn settled_native_turn_restores_after_host_restart_without_replaying_tools
             .0,
         Error("owned_app_round_unavailable")
     );
-    // A changed app account is never an implicit destination for native history.
+    // A model/effort-only change still cannot move an old turn. A genuinely
+    // new native user input can select the new app account and a fresh lane.
     app.state.lock().unwrap().account = "other-account".into();
+    let mut setting_only = settled.clone();
+    setting_only["reasoning"] = json!({"effort":"high"});
     assert_eq!(
-        failure(&host, next_turn(settled.clone()), CancellationToken::new())
+        failure(&host, setting_only, CancellationToken::new())
             .await
             .0,
         Error("app_account_changed")
     );
-    app.state.lock().unwrap().account.clear();
     let result = execute(&host, next_turn(settled)).await;
     assert_eq!(output(&result)[0]["content"][0]["text"], "Tests passed");
     let s = app.state.lock().unwrap();

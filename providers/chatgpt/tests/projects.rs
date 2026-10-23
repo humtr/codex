@@ -86,6 +86,7 @@ fn setup() -> (Root, Journal, HistoryConfig, Value) {
             project_name: Some("Codex".into()),
             project_id: None,
             create_if_missing: true,
+            ..HistoryConfig::default()
         },
         json!({"account":"account","user":"user","structure":"personal"}),
     )

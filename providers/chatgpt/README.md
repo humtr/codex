@@ -109,6 +109,28 @@ codex provider chatgpt config validate
 These fields select defaults for explicitly created native work. Terminal Chat
 requests follow the actual native session's account and working directory,
 including after account switches; no Provider configuration change is needed.
+
+The Linux app account is read from its current authenticated state. Account IDs,
+workspace IDs and connector IDs are not compiled into Provider. Configure the
+common account-switch policy through `history.account_change`: `new_chat` (default)
+uses a fresh remote chat for a new native user input after the previous round is
+settled; `refuse` requires the original app account. Pending/unknown requests and
+native tool results keep their original identity and are never replayed into
+another account. Connector branding remains `transport.connector_name`; tunnel
+IDs, credential references and remote organization/workspace associations belong
+to the tunnel configuration. Adding another ChatGPT account does not require a
+code change. Each account still needs its own plugin registration and valid
+Secure MCP Tunnel association/permissions.
+
+```sh
+codex provider chatgpt config set history.account_change new_chat
+```
+
+The config file remains the source of policy; select `refuse` there if switching
+accounts should require a separate native conversation. Account values are read
+from the logged-in app. A tunnel's organization/workspace associations are remote
+configuration, and its ID/credential references stay in the `tunnel-client`
+profile. Keep existing associations when adding another configured account.
 Do not edit an existing work binding underneath running work; reconcile and
 settle it before a deliberate configuration change/restart.
 

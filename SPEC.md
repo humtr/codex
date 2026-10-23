@@ -1388,12 +1388,12 @@ Codex-origin Responses discover the unique loaded thread across Core's verified
 execution homes and derive the workspace from native thread metadata. Provider
 execution.home/workspace are defaults for explicit work creation, not restrictions
 on the account or workspace of an incoming Codex session. Native account changes,
-cold resume and working-directory changes revalidate that binding on each request;
-recognized legacy rendezvous records whose process stat is absent or terminal
+cold resume and working-directory changes revalidate that binding on each request.
+Recognized legacy rendezvous records whose process stat is absent or terminal
 cannot block another verified owner. Android may hide a reused foreign PID's
 directory while reporting its stat absent. Discovery preserves those records and
 never connects to or signals that PID; unknown codecs and unsafe records refuse.
-a genuinely new native turn may reconcile a settled Codex-origin work to its new
+A genuinely new native turn may reconcile a settled Codex-origin work to its new
 owner/workspace while rotating its old controller. Ambiguous writers, pending
 effects and stale controllers retain their existing refusals. Explicit Chat-owned
 work remains bound to its selected execution scope until reconciled transfer.
@@ -2609,9 +2609,16 @@ owned host generation using identifier-only app state, never a token dump. Check
 that identity before warm submissions/results and again after a completed app
 round, before publishing executable calls, committing a summary or declaring
 completion. Account/host changes during inference must not authorize later native
-effects. An account mismatch refuses before sending canonical history or results;
-restoring the original account reconciles the existing round without resubmission.
-A settled lane may be rebuilt from current
+effects. An account mismatch on pending/uncertain work or an old native turn
+refuses before sending history or results; restoring the original account
+reconciles that round without resubmission. A settled lane with no pending calls
+may, under `history.account_change="new_chat"` (the default), use the app's newly authenticated account at a genuinely new native user turn
+containing a new user input. Open a fresh account-scoped remote conversation from
+current canonical native input, resolve any project in that account, and retain
+the old remote chat. `history.account_change="refuse"` retains the original-account
+requirement. Account-dependent values belong to user/transport configuration;
+code never adds branches for particular account, workspace, tunnel or connector IDs.
+A settled lane may also be rebuilt from current
 native canonical input at a new native user turn after its app context disappears;
 retain the old remote chat. A model/effort-only change is not a new user turn.
 Pending/uncertain rounds and executable cached calls must not be replayed into a
