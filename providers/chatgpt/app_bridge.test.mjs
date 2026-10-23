@@ -145,7 +145,7 @@ async function fixture(run){
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
  const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
  f.scope=scope;
- globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:scope}}}};}};
+ globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:f.scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
@@ -342,6 +342,51 @@ test('initial auth loading installs no hooks and identity refresh is read-only',
  f.authLoading=true;await expect(bridge({op:'identity',owner:'owned',lane:'not-opened'})).rejects.toThrow('app_auth_loading');
  f.authLoading=false;expect((await bridge({op:'identity',owner:'owned',lane:'not-opened'})).account).toBe('account');
  expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);
+}));
+
+for(const replaceClient of [false,true])test(`login scope replacement uses the current account, client replaced=${replaceClient}`,async()=>fixture(async({f,bindings,original})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'old',signature:{name:'old_gateway'}});
+ const old=globalThis[slot],scope=f.scope;
+ if(replaceClient)f.client={prepareCompletionStream:original.prepareCompletionStream,startCompletionStream:original.startCompletionStream};
+ const auth={authMethod:'chatgpt',accountId:'second-account',authenticatedAccountId:'second-account',userId:'second-user',authenticatedUserId:'second-user',accountStructure:'workspace'};
+ f.scope={...scope,get(node){return node.kind==='identity'?auth:node.kind==='client'?f.client:scope.get(node);}};
+ expect((await bridge({op:'identity',owner:'owned',lane:'old',readOnlyContext:true,bindings})).account).toBe('second-account');
+ await expect(bridge({op:'submit',owner:'owned',lane:'old',round:'race',model:'configured',messages:[{role:'user',text:'Must not reach the previous account'}]})).rejects.toThrow('app_account_changed');
+ expect(f.sent).toHaveLength(0);
+ // An account transition must not take hooks away from active work.
+ old.lanes.get('old').pending=true;
+ await expect(bridge({op:'init',owner:'owned',returnPath:'mcp',bindings})).rejects.toThrow('app_lanes_active');
+ expect(globalThis[slot]).toBe(old);expect(f.sent).toHaveLength(0);
+ old.lanes.get('old').pending=false;
+ expect(await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings})).toEqual({ready:true});
+ await expect(bridge({op:'open',owner:'owned',lane:'wrong',signature:{name:'wrong_gateway'},identity:{account:'account',user:'user',structure:'personal'}})).rejects.toThrow('app_account_changed');
+ await bridge({op:'open',owner:'owned',lane:'current',signature:{name:'current_gateway'}});
+ expect(globalThis[slot].scope).toBe(f.scope);
+ expect(globalThis[slot].lanes.get('current').accountIdentity).toEqual({account:'second-account',user:'second-user',structure:'workspace'});
+ expect(globalThis[slot].lanes.has('old')).toBe(false);
+ expect(f.created).toBe(2);expect(f.sent).toHaveLength(0);
+ // The same renderer may switch back without reviving an old remote lane.
+ f.scope=scope;
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'returned',signature:{name:'return_gateway'}});
+ expect(globalThis[slot].lanes.get('returned').accountIdentity.account).toBe('account');
+ expect(globalThis[slot].lanes.size).toBe(1);expect(f.sent).toHaveLength(0);
+}));
+
+test('an account change after submit admission blocks the actual conversation POST',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'race',signature:{name:'race_gateway'}});
+ const scope=f.scope,start=f.client.startCompletionStream;
+ f.client.startCompletionStream=function(...args){
+  f.scope={...scope,get(node){return node.kind==='identity'?{authMethod:'chatgpt',accountId:'other',authenticatedAccountId:'other',userId:'other-user',authenticatedUserId:'other-user',accountStructure:'personal'}:scope.get(node);}};
+  return start.apply(this,args);
+ };
+ await bridge({op:'submit',owner:'owned',lane:'race',round:'one',model:'configured',messages:[{role:'user',text:'Do not cross account contexts'}]});
+ await Promise.resolve();
+ const lane=globalThis[slot].lanes.get('race');
+ expect(lane.rejectedBeforeDispatch).toBe(true);expect(lane.admissionCause).toBe('app_account_changed');
+ expect(lane.starts.size).toBe(0);expect(f.sent).toHaveLength(0);
 }));
 
 test('MCP mode uses no local function feature gate or result resubmission',async()=>fixture(async({f,bindings,original})=>{

@@ -2612,12 +2612,18 @@ completion. Account/host changes during inference must not authorize later nativ
 effects. An account mismatch on pending/uncertain work or an old native turn
 refuses before sending history or results; restoring the original account
 reconciles that round without resubmission. A settled lane with no pending calls
-may, under `history.account_change="new_chat"` (the default), use the app's newly authenticated account at a genuinely new native user turn
+may, under `history.account_change="new_chat"` (the default), use the app's newly
+authenticated account at a genuinely new native user turn
 containing a new user input. Open a fresh account-scoped remote conversation from
 current canonical native input, resolve any project in that account, and retain
 the old remote chat. `history.account_change="refuse"` retains the original-account
 requirement. Account-dependent values belong to user/transport configuration;
 code never adds branches for particular account, workspace, tunnel or connector IDs.
+Revalidate the visible app scope when opening a new lane. A replaced login scope
+or client retires only passive owned hooks before installing the current context;
+active work keeps its hooks. Check the admitted identity at lane allocation and
+immediately before the actual conversation POST, so a login change between those
+steps cannot submit into the previous or newly selected account by accident.
 A settled lane may also be rebuilt from current
 native canonical input at a new native user turn after its app context disappears;
 retain the old remote chat. A model/effort-only change is not a new user turn.

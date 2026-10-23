@@ -1053,7 +1053,7 @@ async fn exchange(
         // Opening allocates no inference. Reconcile the same marker and exact
         // declaration; never create a successor because its reply was lost.
         bridge
-            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project}))
+            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity}))
             .await?;
         lane.phase = Phase::Idle;
         journal.write(key, lane)?;
@@ -1078,7 +1078,7 @@ async fn exchange(
         lane.phase = Phase::Opening;
         journal.write(key, lane)?;
         if bridge
-            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project}))
+            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity}))
             .await
             .is_err()
         {

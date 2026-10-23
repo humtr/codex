@@ -13,7 +13,7 @@ async function termuxCodexBridge(command) {
     const body=plugin?.from_server?.body;
     return [message.id,body?.target_message_id,body?.codex_mcp_elicitation?.target_message_id,...(body?.actions??[]).flatMap(action=>['allow','allow_once','always_allow','deny','link_created','oauth_redirect'].map(key=>action[key]?.target_message_id).concat((action.split_action_options??[]).map(o=>o.action?.target_message_id)))].filter(v=>typeof v==='string'&&v.length>0);
   };
-  const appContext=async()=>{
+  const appScope=()=>{
     let node=document.querySelector('[contenteditable=true]')||document.querySelector('button');
     while(node&&!Object.keys(node).some(k=>k.startsWith('__reactFiber')))node=node.parentElement;
     let fiber=node?.[Object.keys(node).find(k=>k.startsWith('__reactFiber'))],scope;
@@ -21,7 +21,10 @@ async function termuxCodexBridge(command) {
       const value=hook.memoizedState?.current;
       if(typeof value?.get==='function'&&typeof value?.set==='function'&&value.node&&value.chain&&value.query){scope=value;break;}
     }
-    if(!scope)return null;
+    return scope??null;
+  };
+  const appContext=async()=>{
+    const scope=appScope();if(!scope)return null;
     let api,shared;
     try{api=await import(command.bindings.initial);shared=await import(command.bindings.shared);}catch{fail('app_bindings_unavailable');}
     return {scope,api,shared,client:scope.get(api.oMn),wire:shared.$wt};
@@ -41,12 +44,12 @@ async function termuxCodexBridge(command) {
     if (state) {
       if(state.owner!==command.owner)fail('app_bridge_owned');
       if(state.revision!==command.bridgeRevision)fail('app_bridge_revision_conflict');
-      return {ready:true};
     }
     const context=await appContext();if(!context)return {ready:false};
     const {scope,api,shared,client,wire}=context;
     const auth=scope.get(shared.xNt);
     if(!auth||auth.authLoading||auth.accountLoading)return {ready:false};
+    if(state&&state.scope===scope&&state.client===client&&state.wire===wire)return {ready:true};
     if (!['aCn','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind) fail('app_local_functions_unavailable');
     if (mode==='local_function') {
       if (typeof api.gRt!=='function'||typeof api.bRt!=='function') fail('app_local_functions_unavailable');
@@ -54,6 +57,13 @@ async function termuxCodexBridge(command) {
       if (!scope.get(shared.HAt)) fail('app_local_functions_unavailable');
     }
     if (!['prepareCompletionStream','startCompletionStream'].every(k => typeof client?.[k] === 'function') || typeof wire?.streamPost !== 'function') fail('app_stream_unavailable');
+    if(state){
+      if([...state.lanes.values()].some(l=>l.pending||l.approvalPending||l.streamActive))fail('app_lanes_active');
+      // Login can replace the React scope without replacing the renderer.
+      // Retire only our passive hooks; saved chats and native journals remain.
+      for(const name of ['prepareCompletionStream','startCompletionStream'])if(state.client[name]===state.hooks[name])state.client[name]=state.saved[name];
+      if(state.wire.streamPost===state.hooks.streamPost)state.wire.streamPost=state.saved.streamPost;
+    }
     state = {owner: command.owner, revision:command.bridgeRevision, mode, scope, api, shared, client, wire, lanes: new Map(), workBudgets:new Map(), saved: {}, hooks: {}};
     const owner = request => [...state.lanes.values()].find(l =>
       request?.conversation_id != null && [l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id) ||
@@ -112,6 +122,8 @@ async function termuxCodexBridge(command) {
       const ids = request.messages?.map(m => m.id).join(',');
       const roles = request.messages?.map(m => m.author?.role) || [];
       const rejectDispatch=code=>{lane.rejectedBeforeDispatch=true;lane.admissionCause=code;if(!lane.priorStreamUnsettled)lane.streamActive=false;fail(code);};
+      const auth=appScope()?.get(state.shared.xNt);
+      if(!auth||auth.authLoading||auth.accountLoading||auth.authMethod!=='chatgpt'||auth.accountId!==auth.authenticatedAccountId||auth.userId!==auth.authenticatedUserId||auth.accountId!==lane.accountIdentity.account||auth.userId!==lane.accountIdentity.user||auth.accountStructure!==lane.accountIdentity.structure)rejectDispatch('app_account_changed');
       const bootstrap=lane.nonUserBootstrap===true && (lane.signature.name==='operator_no_local_tools'||/^operator_local_[0-9a-f]{48}$/.test(lane.signature.name)) && !lane.priorStreamUnsettled && roles.length>0 && roles.every(role=>role==='system');
       const reply=request.messages?.length===1?request.messages[0]:null;
       const metadata=reply?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
@@ -293,6 +305,7 @@ async function termuxCodexBridge(command) {
       page_info:result.page_info??null,pagination:result.pagination??null,project_id:result.gizmo_id??null};
   }
   if (command.op === 'open'||command.op==='chat_adopt') {
+    if(command.identity&&['account','user','structure'].some(k=>identity()[k]!==command.identity[k]))fail('app_account_changed');
     const mode=command.returnPath??state.mode;
     if(!['mcp','local_function'].includes(mode))fail('app_return_path_invalid');
     const existing=state.lanes.get(command.lane);
@@ -545,6 +558,8 @@ async function termuxCodexBridge(command) {
   if (command.op === 'submit') {
     if (lane.mode==='mcp' && command.results?.length) fail('app_mcp_result_resubmit_forbidden');
     if (lane.round === command.round) return {started:true,reused:true};
+    const selected=appScope();
+    if(!selected||['account','user','structure'].some(k=>identity(selected)[k]!==lane.accountIdentity[k]))fail('app_account_changed');
     if (lane.pending||lane.approvalPending||lane.streamActive) fail('app_lane_busy');
     lane.round = command.round;
     lane.priorStreamUnsettled=lane.streamActive===true;
