@@ -32,10 +32,24 @@ process identities remain unchanged. Existing model preferences were preserved.
 Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/shared-fix-delivery.json`.
 Existing clients retain their old executable until normal exit; new clients use97.
 
-Separate authorized work remains in progress: native automatic review for
-untrusted commands with Full Access separate; official0.164 qualification; and
-manual update build request/wait/continue UX. Ordinary entry must not request
-a build. Those unfinished changes are not part of the narrow session hotfix.
+The manual updater is being delivered first against the retained0.163 runtime
+and already-qualified native frontend. The user wants to trigger the upstream
+update themselves; keep this device's upstream version unchanged during delivery.
+Manual update checks official freshness, requests a missing qualified build once,
+and offers wait/current-entry/exit without requesting CI during ordinary entry.
+Private Android CLI witnesses cover those paths, signature refusal and terminal
+restoration; final exact-source/public delivery remains pending.
+
+Native automatic review is a common Codex capability for ordinary models,
+independent of ChatGPT Provider/MCP/Manager. The0.164 implementation and all draft
+inputs are preserved at `prep/0.164-native-review` (`fa307ffb0ec76122127964ec7f858dc7937e7405`).
+Private Android Base/no-Manager witnesses pass allow/deny/reviewer transport
+failure/Full Access without prompt exec rules. Original native contexts and
+failed prequalification/observer records are preserved without replay. The
+candidate still needs menu/lifecycle/native build and final acceptance before
+publication. ChatGPT-backed model review is a separate compatibility scope.
+Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z`.
+
 
 
 The earlier physical-directory empty-session `/model` correction was committed,

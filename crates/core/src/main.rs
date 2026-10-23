@@ -11,6 +11,8 @@ mod manager_dispatch;
 #[cfg(unix)]
 mod manager_tui;
 #[cfg(unix)]
+mod manual_update;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod release_display;
@@ -4066,13 +4068,14 @@ const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
 #[cfg(test)]
 const UPDATE_PRIVATE_KEY_ENV: &str = "CODEX_TERMUX_UPDATE_PRIVATE_KEY";
 #[cfg(unix)]
-const DEFAULT_UPSTREAM_LATEST_URL: &str = "https://releases.openai.com/codex/channels/latest";
+const DEFAULT_UPSTREAM_LATEST_URL: &str =
+    "https://api.github.com/repos/openai/codex/releases/latest";
 #[cfg(unix)]
 const UPSTREAM_RELEASE_METADATA_BASE: &str = "https://releases.openai.com/codex/releases";
 #[cfg(unix)]
 const UPSTREAM_PACKAGE_ASSET: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
 #[cfg(unix)]
-const UPSTREAM_RELEASE_METADATA_MAX_BYTES: usize = 128 * 1024;
+const UPSTREAM_RELEASE_METADATA_MAX_BYTES: usize = 1024 * 1024;
 #[cfg(unix)]
 const UPDATE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(test)]
@@ -9942,7 +9945,7 @@ fn run_bare_startup_update_preflight(roots: &LocalCoreRoots) {
 
     match startup_update_prompt() {
         StartupPromptDecision::Update => {
-            if run_core_update(Vec::new()) == 0 {
+            if run_core_update_mode(Vec::new(), false) == 0 {
                 let _ = remove_startup_advisory(roots);
             } else {
                 let failure = StartupAdvisoryRecord::failure(now, &before.current, Some(&record));
@@ -11969,20 +11972,29 @@ fn rollback_signed_local_release(
 
 #[cfg(unix)]
 const UPDATE_USAGE: &str =
-    "usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
+    "usage: codex update [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
 #[cfg(unix)]
 fn print_update_usage() {
     println!("{UPDATE_USAGE}");
     println!(
         "automatic update retrieves a signed, Termux-patched release from the wrapper channel"
     );
+    println!("missing official releases: request owner CI and wait; c continues with the installed version");
+    println!("--no-wait requests/reuses the build and continues immediately; ordinary codex never requests a build");
     println!("{}", rollback_guard::UPDATE_HOLD_CAPABILITY_LINE);
 }
 
 #[cfg(unix)]
 fn run_core_update(args: Vec<OsString>) -> i32 {
+    run_core_update_mode(args, true)
+}
+
+#[cfg(unix)]
+fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
     let force = args.len() == 1 && args[0] == OsStr::new("--force");
-    if args.is_empty() || force {
+    let no_wait = args.len() == 1 && args[0] == OsStr::new("--no-wait");
+    let wait = args.len() == 1 && args[0] == OsStr::new("--wait");
+    if args.is_empty() || force || no_wait || wait {
         let mut presentation = UpdatePresentation::new();
         let roots = match LocalCoreRoots::from_environment() {
             Ok(roots) => roots,
@@ -11992,7 +12004,7 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             }
         };
         let process_env = capture_termux_process_env();
-        let _lease = match maintenance::UpdateLease::acquire(&roots) {
+        let lease = match maintenance::UpdateLease::acquire(&roots) {
             Ok(lease) => lease,
             Err(err) => {
                 presentation.fail(&err);
@@ -12004,30 +12016,79 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         } else {
             UpdateHoldPolicy::Enforce
         };
-        return match activate_unified_update_with_hold_policy(
-            &roots,
-            &process_env,
-            hold_policy,
-            Some(&mut presentation),
-        ) {
-            Ok((SignedUpdateOutcome::Activated(outcome), local_derived)) => {
-                if local_derived {
-                    presentation.finish_local_activation(&outcome.current_version);
-                } else {
-                    presentation.finish_signed_activation(&outcome.current_version);
-                }
-                0
-            }
-            Ok((SignedUpdateOutcome::AlreadyCurrent(target), _)) => {
-                presentation.finish_current(&target.version);
-                0
-            }
-            Err(err) => {
-                presentation.fail(&err);
-                1
-            }
+        let public_freshness = manual
+            && !force
+            && std::env::var_os(UPDATE_INDEX_URL_ENV).is_none()
+            && std::env::var_os(UPDATE_VERSION_ENV).is_none();
+        let result = if public_freshness {
+            activate_signed_update_channel_with_hold_policy(
+                &roots,
+                &process_env,
+                hold_policy,
+                Some(&mut presentation),
+            )
+            .map(|outcome| (outcome, false))
+        } else {
+            activate_unified_update_with_hold_policy(
+                &roots,
+                &process_env,
+                hold_policy,
+                Some(&mut presentation),
+            )
         };
+        drop(lease);
+        if public_freshness {
+            match result {
+                Ok((outcome, false)) => {
+                    return match manual_update::finish(
+                        &roots,
+                        &process_env,
+                        outcome,
+                        no_wait,
+                        &mut presentation,
+                    ) {
+                        Ok(code) => code,
+                        Err(error) => {
+                            presentation.fail(&error);
+                            1
+                        }
+                    };
+                }
+                result => return finish_legacy_update_result(result, &mut presentation),
+            }
+        }
+        return finish_legacy_update_result(result, &mut presentation);
     }
+    run_explicit_core_update(args)
+}
+
+#[cfg(unix)]
+fn finish_legacy_update_result(
+    result: Result<(SignedUpdateOutcome, bool), LocalProductError>,
+    presentation: &mut UpdatePresentation,
+) -> i32 {
+    match result {
+        Ok((SignedUpdateOutcome::Activated(outcome), local_derived)) => {
+            if local_derived {
+                presentation.finish_local_activation(&outcome.current_version);
+            } else {
+                presentation.finish_signed_activation(&outcome.current_version);
+            }
+            0
+        }
+        Ok((SignedUpdateOutcome::AlreadyCurrent(target), _)) => {
+            presentation.finish_current(&target.version);
+            0
+        }
+        Err(err) => {
+            presentation.fail(&err);
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
+fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
     if args.len() == 1 && args[0] == OsStr::new("--help") {
         print_update_usage();
         return 0;
@@ -18431,6 +18492,23 @@ esac
                 .root
                 .join("release-server/source-generations/rald2-channel-next"),
         );
+        // A manual update now checks upstream freshness even after installing
+        // a ready signed release. The fixture reports that exact version; device
+        // signing credentials must still never enter the production path.
+        let curl = fixture.prefix.join("bin/curl");
+        let official = format!(
+            r#"{{"tag_name":"rust-v9.9.9","draft":false,"prerelease":false,"assets":[{{"name":"{UPSTREAM_PACKAGE_ASSET}","digest":"sha256:{}"}}]}}"#,
+            "a".repeat(64)
+        );
+        let script = std::fs::read_to_string(&curl).unwrap().replace(
+            "case \"$url\" in\n",
+            &format!(
+                "case \"$url\" in\n  '{}' ) printf '%s\\n' {}; exit 0 ;;\n",
+                DEFAULT_UPSTREAM_LATEST_URL,
+                b5_shell_quote_text(&official)
+            ),
+        );
+        std::fs::write(&curl, script).unwrap();
         std::fs::write(&fixture.curl_log, b"").unwrap();
 
         let maintainer_key = fixture
@@ -18475,7 +18553,7 @@ esac
 "));
         assert!(!gh_log.exists(), "ordinary update must not invoke gh");
         let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
-        assert!(!ordinary_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
+        assert!(ordinary_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
 
         let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
         assert_eq!(

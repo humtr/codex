@@ -374,6 +374,16 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
+Manual update also checks the official stable version. If its qualified release
+is missing, it requests the repository's build pipeline once and waits for the
+signed result. During the wait, press `c` to enter the installed version or `q`
+to leave the updater; the build request remains recorded. `codex update --no-wait`
+requests/reuses a build and continues immediately on a terminal. `--wait` waits
+explicitly. A missing-build request needs `gh` and repository access (`gh auth
+login`); installing an already prepared public release does not. Ordinary `codex`
+entry uses the installed version without requesting a build. Builds and signing
+run on the server; installation and signature verification run on the device.
+
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
 standalone Core/upstream edition; Full includes Manager/enhanced TUI. The signed

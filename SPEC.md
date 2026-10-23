@@ -3105,6 +3105,28 @@ evidence only and is not a product-path result.
 
 ## 6. Artifact and patch qualification
 
+Explicit `codex update` also checks the official stable release. A current wrapper
+channel alone does not mean the installed upstream version is current. Ready
+signed releases install through ordinary admission. If the official release is
+newer and the matching Full/Base release is not yet ready, manual update requests
+the existing owner CI discovery/qualification pipeline once through authenticated
+GitHub CLI, reuses a matching pending request, then waits for signed publication.
+It never replaces Full with Base or locally compiles a missing frontend. Build
+failures remain failures; signature/digest/admission errors never become build
+requests. CI remains the only signing/publication authority.
+
+Normal `codex` entry never requests a build. During manual waiting, `c` continues
+with the installed version while the CI request remains pending; `q` leaves the
+updater. `--wait` explicitly waits; `--no-wait` requests/reuses the build then
+continues on a terminal (returns pending status on noninteractive streams).
+The update lease is released before requesting or waiting and reacquired only
+for ordinary signed activation. An uncertain dispatch is not resent. A known failed request permits a new
+explicit update invocation, after preserving its original run receipt.
+An active rollback hold, forced held release and explicit custom update source
+retain their existing bounded semantics and do not request public CI builds.
+Anonymous users can install ready public releases; requesting a missing build
+requires GitHub CLI authentication with permission on the owned repository.
+
 The sole upstream input for the first supported target is the exact versioned
 OpenAI asset
 `https://releases.openai.com/codex/releases/<version>/codex-package-aarch64-unknown-linux-musl.tar.gz`,

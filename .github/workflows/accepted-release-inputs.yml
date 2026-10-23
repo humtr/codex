@@ -1,4 +1,5 @@
 name: Advance accepted release inputs
+run-name: ${{ inputs.requested_upstream && format('Codex build request {0}', inputs.requested_upstream) || 'Advance accepted release inputs' }}
 on:
   schedule:
     - cron: '0 */6 * * *'
@@ -10,6 +11,10 @@ on:
         default: false
       completed_run:
         description: Optional completion handshake; it grants no proof authority
+        type: string
+        default: ''
+      requested_upstream:
+        description: Manual update request label; official discovery remains authoritative
         type: string
         default: ''
 permissions:
@@ -72,6 +77,32 @@ jobs:
           git -C accepted-controller checkout --detach FETCH_HEAD
           test "$(git -C accepted-controller rev-parse HEAD)" = "$accepted"
 
+      - name: Admit documentation-only source for official discovery
+        id: discoverable
+        env:
+          REQUESTED_UPSTREAM: ${{ inputs.requested_upstream }}
+          SOURCE_ACCEPTED: ${{ steps.source.outputs.accepted }}
+        run: |
+          set -euo pipefail
+          if test -n "$REQUESTED_UPSTREAM"; then
+            [[ "$REQUESTED_UPSTREAM" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          fi
+          if test "$SOURCE_ACCEPTED" = true; then
+            echo 'accepted=true' >> "$GITHUB_OUTPUT"
+          else
+            # Execute only the accepted controller. A docs-only head may request
+            # discovery, but a new product tuple still needs both exact gates.
+            python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import pathlib, subprocess, sys
+          sys.path.insert(0, str(pathlib.Path('accepted-controller/.github/scripts').resolve()))
+          from release_control import same_product_inputs
+          head = subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip()
+          accepted = subprocess.check_output(['git','-C','accepted-controller','rev-parse','HEAD'],text=True).strip()
+          if same_product_inputs(pathlib.Path('source').resolve(), accepted, head):
+              print('accepted=true')
+          PYTHON
+          fi
+
       - name: Notify owner of completed failure
         if: inputs.completed_run != ''
         env:
@@ -91,7 +122,7 @@ jobs:
 
       - name: Discover official stable and submit independent base inputs
         id: discovery
-        if: steps.source.outputs.accepted == 'true' && (github.event_name == 'schedule' || inputs.discover_upstream)
+        if: steps.discoverable.outputs.accepted == 'true' && (github.event_name == 'schedule' || inputs.discover_upstream)
         env:
           GH_TOKEN: ${{ github.token }}
           TMPDIR: ${{ runner.temp }}
