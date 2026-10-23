@@ -633,15 +633,6 @@ impl Operator {
         self.journal
             .write(&digest(&("operator-work-v1", &record.id)), record)
     }
-    async fn register(
-        &self,
-        thread: &str,
-        origin: &str,
-        request: Option<&Request>,
-    ) -> Result<Record, Error> {
-        self.register_in(thread, origin, request, self.pool.clone(), None, None)
-            .await
-    }
     async fn register_in(
         &self,
         thread: &str,
@@ -753,7 +744,12 @@ impl Operator {
             self.verify_identity(&record).await?;
         }
         let pool = self.work_pool(&record).await?;
-        let native = match pool.for_thread(&record.thread).await {
+        let selected = if record.origin == "codex" {
+            self.pool.discover_thread(&record.thread).await
+        } else {
+            pool.for_thread(&record.thread).await
+        };
+        let native = match selected {
             Ok(native) => native,
             Err(Error("native_thread_owner_unavailable"))
                 if matches!(
@@ -775,7 +771,13 @@ impl Operator {
             Err(error) => return Err(error),
         };
         if record.selection.is_some() {
-            native.verify_scope(&record.thread, &pool.workspace).await?;
+            if native.owner == record.execution {
+                native.verify_scope(&record.thread, &pool.workspace).await?;
+            } else {
+                // Read-only observers may see a native account switch before
+                // its first new turn. Keep control fenced until reconciliation.
+                native.workspace(&record.thread).await?;
+            }
         }
         {
             let mut works = self.works.lock().await;
@@ -802,11 +804,17 @@ impl Operator {
         Ok((record, native))
     }
 
-    async fn rebind_native_round(&self, record: &Record, request: &Request) -> Result<(), Error> {
-        let pool = self.work_pool(record).await?;
-        let native = pool.for_thread(&record.thread).await?;
+    async fn rebind_native_round(
+        &self,
+        record: &Record,
+        request: &Request,
+        native: &Native,
+        pool: &Pool,
+    ) -> Result<(), Error> {
         native.verify_scope(&record.thread, &pool.workspace).await?;
-        if native.owner == record.execution {
+        if native.owner == record.execution
+            && record.workspace.as_deref() == Some(pool.workspace.as_path())
+        {
             return Ok(());
         }
         // An upstream CLI resume of the same scoped thread can replace its
@@ -828,10 +836,12 @@ impl Operator {
         if turn["id"].as_str() != request.turn.as_deref() || turn["status"] != "inProgress" {
             return Err(Error("native_round_not_ready"));
         }
-        self.recovery_receipts(&native, record).await?;
+        self.recovery_receipts(native, record).await?;
         let mut works = self.works.lock().await;
         let work = works.get_mut(&record.thread).unwrap();
-        if work.record.execution == native.owner {
+        if work.record.execution == native.owner
+            && work.record.workspace.as_deref() == Some(pool.workspace.as_path())
+        {
             return Ok(());
         }
         if work.record.execution != record.execution
@@ -854,6 +864,7 @@ impl Operator {
         work.record.capability = random_id()?;
         work.record.generation += 1;
         work.record.execution = native.owner.clone();
+        work.record.workspace = Some(pool.workspace.clone());
         work.record.accepted = false;
         if work
             .record
@@ -2821,12 +2832,24 @@ impl Operator {
                     .ok_or(Error("native_history_unavailable"))?
                 {
                     if turn["status"] == "inProgress" {
-                        native
+                        if let Err(error) = native
                             .call(
                                 "turn/interrupt",
                                 json!({"threadId":record.thread,"turnId":turn["id"]}),
                             )
-                            .await?;
+                            .await
+                        {
+                            if error != Error("native_request_rejected") {
+                                return Err(error);
+                            }
+                            // The turn can finish between the history read and
+                            // interrupt. Confirm settlement without sending it
+                            // again; an active/unknown thread keeps the failure.
+                            let latest = native.call("thread/read", json!({"threadId":record.thread,"includeTurns":false})).await?;
+                            if !matches!(latest["thread"]["status"]["type"].as_str(), Some("idle" | "systemError")) {
+                                return Err(error);
+                            }
+                        }
                     }
                 }
             }
@@ -3416,21 +3439,12 @@ impl Operator {
         request: Request,
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
+        native: Arc<Native>,
+        pool: Arc<Pool>,
     ) -> Result<(), Error> {
-        let existing_record = self
-            .works
-            .lock()
-            .await
-            .get(&request.thread)
-            .map(|work| work.record.clone());
-        let pool = match &existing_record {
-            Some(record) => self.work_pool(record).await?,
-            None => self.pool.clone(),
-        };
-        let native = pool.for_thread(&request.thread).await?;
         let existed = self.works.lock().await.contains_key(&request.thread);
         let mut record = self
-            .register(&request.thread, "codex", Some(&request))
+            .register_in(&request.thread, "codex", Some(&request), pool, None, None)
             .await?;
         if self
             .works
@@ -3818,6 +3832,9 @@ impl Host for Operator {
         }
         let this = self.clone();
         Box::pin(async move {
+            let native = this.pool.discover_thread(&request.thread).await?;
+            let workspace = native.workspace(&request.thread).await?;
+            let pool = this.scoped_pool(&native.owner.home, &workspace).await?;
             let mut record = this
                 .works
                 .lock()
@@ -3832,7 +3849,7 @@ impl Host for Operator {
                         &request.thread,
                         "codex",
                         Some(&request),
-                        this.pool.clone(),
+                        pool.clone(),
                         Some(Selection {
                             reasoning: Reasoning::Managed,
                             return_path: this.config.transport.return_path,
@@ -3857,7 +3874,8 @@ impl Host for Operator {
             };
             if let Some(prior) = &record {
                 if path.is_some() || prior.origin == "codex" {
-                    this.rebind_native_round(prior, &request).await?;
+                    this.rebind_native_round(prior, &request, &native, &pool)
+                        .await?;
                     record = this
                         .works
                         .lock()
@@ -3945,7 +3963,8 @@ impl Host for Operator {
                 }
                 result
             } else {
-                this.exchange_inner(request, events, cancel).await
+                this.exchange_inner(request, events, cancel, native, pool)
+                    .await
             }
         })
     }

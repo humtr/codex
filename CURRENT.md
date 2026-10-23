@@ -8,9 +8,46 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-The device now selects signed Full99/source d2963887 with upstream0.163.0,
-previous Full97. The manual updater is published and installed; no0.164 device
-activation occurred. Source39944222876 and Core39944223025 pass. Publication
+Read-only incident review at2026-10-23T14:23–14:36Z observes device selection
+Full101/source51f3108/upstream0.164.0, previous Full99. This supersedes the earlier
+Full99 device baseline below; this review did not perform activation. The user
+reports `native_thread_owner_unavailable` on the first Chat-model prompt and an
+inability to read/leave the resulting session. Treat that product path as open,
+not covered by the accepted empty-session transition witness.
+
+- Provider configuration selects execution home `wrlab`; the live Full101 Chat
+  catalog binding selects `janmori101`. `Pool::for_thread` excludes other homes
+  before querying loaded threads, and first unregistered Responses admission
+  uses the configured pool. Both live `wrlab` servers reported0 loaded threads.
+  This establishes a cross-account discovery gap: a native thread in the other
+  home cannot be admitted through that default pool. Resolve the actual verified
+  native home/workspace per request, retaining unique writer/runtime validation;
+  changing the global Provider home only moves the failure to another account.
+- Two saved Chat-model sessions, including the recent failed0.164 session, pass
+  metadata and full-history reads through both Full101 servers while unloaded;
+  each returns1 turn and its original file size remains unchanged. One loaded
+  idle paginated thread returns exact -32601 `list_turns is not supported yet`,
+  while the active populated thread reads successfully. This demonstrates
+  state-dependent API support, not corruption or the exact cause of the TUI failure.
+  The failed session's loaded-state read/re-entry still needs bounded proof.
+- `qualify_chat_model_transitions.py` points both model routes directly at its
+  synthetic Responses backend; it uses the Provider binary for checkpoints but
+  bypasses production Operator admission. The exact0.164 empty witness uses
+  0 requests. Neither establishes first-prompt admission across account homes or
+  populated/failed-turn return through the actual Provider. Before claiming this
+  path fixed, qualify those cases, cold resume and native return together.
+
+Original filtered read-only evidence, without conversation bodies or credentials:
+`~/.cache/codex/acceptance/chat-model-incident-20261023T142344Z/`
+(`read-only-observation.json`, `saved-thread-read-observation.json`,
+`loaded-thread-read-observation.json`, `history-mode-observation.json`).
+This review submits0 model requests and changes no runtime, service, account
+configuration or conversation. Existing untracked `providers/chatgpt/target/`
+is preserved; no generated build payload was created or pruned.
+
+The earlier device delivery selected signed Full99/source d2963887 with
+upstream0.163.0, previous Full97. The manual updater was published and installed.
+Source39944222876 and Core39944223025 pass. Publication
 39945787744 passes Base98 and Full99 Android smoke, signing, complete public
 readback, disposable update and non-forced stable promotion. Device97→99 exits0;
 all14 protected config/auth hashes and8 service identities remain unchanged.
@@ -38,7 +75,8 @@ retains its independent accepted proof. A final disposable `codex update --wait`
 uses the unchanged installed Full99 Core, one simulated CI-completion signal and
 real public signed assets: exit0, current Full101, previous Full99, fixture
 configuration preserved. The actual owner-CI request was proven separately above.
-The device remains on0.163 for the user to update. Evidence:
+That delivery left the device on0.163; the incident observation above now finds
+Full101 selected. Evidence for the earlier disposable update:
 `manual-wait-public-install-transport-fixed-result.json`. The first private
 transport helper had a syntax error before request/install; its original
 failure and zero-effect audit remain preserved and are not counted as a pass.
@@ -299,7 +337,7 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 | --- | --- |
 | Implementation | Manual updater d2963887 and accepted0.164 source51f3108 committed/pushed. Native27a9186 passes53 focused/94 upstream tests and lint; exact Source/Core, Android menu/approval/lifecycle/empty-session and public gates pass. Upstream reviewer eligibility is unchanged; only a summary of the discarded Untrusted experiment remains. Retained Provider168 Rust/68 JavaScript/82 Python evidence remains applicable; Provider28/Core1 opt-in tests remain explicitly ignored |
 | Public Core | Full101/source51f3108, signed/read back/qualified/promoted by39961048227, with accepted Base100/source dfb328d2 from39952551488. Full99/source d2963887 retains39945787744 proof; earlier releases retain their original scopes |
-| Operating Core | Signed Full99, previous97, upstream0.163.0; actual97→99 exit0. Manual update installed;0.164 was activated only in a disposable fixture. Protected config/auth and services preserved. New launches use Full99; existing clients retain their pinned executables |
+| Operating Core | Incident review observes signed Full101/source51f3108, previous Full99, upstream0.164.0. This review performed no activation. Prior97→99 delivery retains its protected-state proof; existing clients retain their pinned executables. Chat first-prompt/account discovery and reported history return remain open as described above |
 | Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
@@ -307,10 +345,11 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 ### Latest handoff boundary
 
-The latest completed boundary under `auto-review-policy-20261023T080559Z` is the
+The latest completed delivery boundary under `auto-review-policy-20261023T080559Z` is the
 manual updater on physical Full99 and public0.164 Full101. Exact frontend inputs,
 source/Core, publication and disposable wait/install acceptance are complete.
-Physical0.164 activation is deliberately left to the user's `codex update`.
+That batch left physical0.164 activation to the user's `codex update`; the later
+incident review above observes Full101 selected and records the open Chat path.
 Provider4, host/services and protected user settings were not changed by this
 0.164 qualification. Upstream native review routing works in a local transport
 witness; successful live OpenAI reviewer transport remains unproven. The separate

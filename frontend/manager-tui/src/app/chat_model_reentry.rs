@@ -344,6 +344,20 @@ async fn public_snapshot(
     }
 }
 
+fn settled_for_provider_switch(snapshot: &Value) -> bool {
+    let Some(turns) = snapshot["turns"].as_array() else {
+        return false;
+    };
+    if turns.iter().any(|turn| turn["status"] == "inProgress") {
+        return false;
+    }
+    match snapshot["status"]["type"].as_str() {
+        Some("idle") => true,
+        Some("systemError") => turns.last().is_some_and(|turn| turn["status"] == "failed"),
+        _ => false,
+    }
+}
+
 async fn plan(
     app: &mut App,
     server: &mut AppServerSession,
@@ -436,7 +450,7 @@ async fn plan(
             return None;
         }
     };
-    if snapshot["status"]["type"] != "idle" {
+    if !settled_for_provider_switch(&snapshot) {
         app.chat_widget.add_error_message(
             "Model provider unchanged: conversation work is not settled.".into(),
         );
@@ -525,6 +539,27 @@ async fn plan(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn termux_chat_models_failed_turn_can_leave_provider_without_admitting_active_work() {
+        for (status, turns, expected) in [
+            ("idle", json!([]), true),
+            ("idle", json!([{"status":"completed"}]), true),
+            ("systemError", json!([{"status":"failed"}]), true),
+            ("systemError", json!([]), false),
+            ("systemError", json!([{"status":"completed"}]), false),
+            ("systemError", json!([{"status":"inProgress"}]), false),
+            ("active", json!([{"status":"failed"}]), false),
+            ("notLoaded", json!([{"status":"failed"}]), false),
+            ("idle", json!([{"status":"inProgress"}]), false),
+        ] {
+            assert_eq!(
+                settled_for_provider_switch(&json!({"status":{"type":status},"turns":turns})),
+                expected,
+                "{status}"
+            );
+        }
+    }
+
     #[test]
     fn termux_chat_models_blank_history_errors_are_exact_and_thread_bound() {
         use codex_app_server_client::TypedRequestError;

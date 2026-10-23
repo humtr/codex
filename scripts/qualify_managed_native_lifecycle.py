@@ -12,6 +12,7 @@ from pathlib import Path
 import pty
 import select
 import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -49,6 +50,7 @@ def probe(args):
     started = time.monotonic()
     result = {'accepted': False, 'root': str(root), 'actual_Chat_requests': 0,
               'provider_restart': args.restart_provider,
+              'account_roundtrip': args.account_roundtrip,
               'followup_turns': args.followup_turns, 'idle_seconds': args.idle_seconds}
     warm_submissions, provider_exit = [], None
     try:
@@ -93,6 +95,20 @@ def probe(args):
         wait(lambda: (root / 'provider-ready.json').exists())
         port = json.loads((root / 'provider-ready.json').read_text())['port']
         (root / 'info.json').write_text(json.dumps({'state': str(root / 'provider-state')}) + '\n')
+        selected_home = home / '.codex'
+        selected_workspace = root / 'w'
+        account_homes = []
+        if args.account_roundtrip:
+            for name in ['one', 'two']:
+                subprocess.run([str(prefix / 'bin/codex'), 'termux', 'profile', 'create', name],
+                               env=env, cwd=root / 'w', check=True, capture_output=True)
+                account = home / '.local/share/codex/manager/profiles' / name / 'home'
+                for source in (home / '.codex').iterdir():
+                    if source.is_file():
+                        shutil.copy2(source, account / source.name)
+                account_homes.append(account)
+            selected_home = account_homes[0]
+            (root / 'other-workspace').mkdir(mode=0o700)
 
         def control(name, arguments):
             request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
@@ -122,10 +138,12 @@ def probe(args):
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
             command = [str(prefix / 'bin/codex'), '--no-alt-screen', '--profile', 'chatgpt',
-                '-c', 'model_reasoning_effort="none"', '-c', 'tui.animations=false']
+                '-c', 'model_reasoning_effort="none"', '-c', 'tui.animations=false',
+                '-C', str(selected_workspace)]
             if thread is not None:
                 command += ['resume', thread]
-            process = subprocess.Popen(command, env=env, cwd=root / 'w', stdin=slave,
+            launch_env = dict(env, CODEX_HOME=str(selected_home))
+            process = subprocess.Popen(command, env=launch_env, cwd=selected_workspace, stdin=slave,
                 stdout=slave, stderr=slave, start_new_session=True)
             os.close(slave)
             def ready():
@@ -157,6 +175,8 @@ def probe(args):
         submit('OWNED_WARM_MANAGED_LIFECYCLE')
         wait(lambda: settled(thread, 1))
         first = record()
+        assert first['execution']['home'] == str(selected_home)
+        assert first['workspace'] == str(selected_workspace)
         binding = {'work_id': first['id']}
         wait(lambda: control('codex_status', binding).get('completed'))
         (root / 'warm-native.json').write_text(json.dumps(public(thread), indent=2) + '\n')
@@ -214,6 +234,9 @@ def probe(args):
             observer = threading.Thread(target=observe)
             observer.start()
             steps.append('owned Provider also exits and restarts on the same endpoint/state')
+        if args.account_roundtrip:
+            selected_home = account_homes[1]
+            selected_workspace = root / 'other-workspace'
         launch(thread)
         assert len(public(thread)['turns']) == 1, 'resume must not infer'
         # A status read intentionally observes the new owner before admission.
@@ -227,6 +250,8 @@ def probe(args):
         assert rebound['execution'] != first['execution']
         assert rebound['generation'] == first['generation'] + 1
         assert rebound['capability'] != first['capability']
+        assert rebound['execution']['home'] == str(selected_home)
+        assert rebound['workspace'] == str(selected_workspace)
         assert public(thread)['turns'][0] == json.loads((root / 'warm-native.json').read_text())['turns'][0]
         steps.append('same-thread cold TUI resume rebinds owner under concurrent status reads')
 
@@ -279,16 +304,79 @@ def probe(args):
             'before': resources_before, 'after': resources_after,
             'rss_growth_kib': rss_growth, 'max_rss_growth_mib': args.max_rss_growth_mib,
             'idle_elapsed_seconds': time.monotonic() - idle_started}, indent=2) + '\n')
-        final = public(thread)
         expected_turns = 4 + args.followup_turns
+        failed_index = None
+        if args.account_roundtrip:
+            # Normal client cleanup releases its writer; leave unrelated servers
+            # running, then resume the same thread back in the first account.
+            submit('/quit')
+            process.wait(timeout=15)
+            os.close(master)
+            master = None
+            selected_home = account_homes[0]
+            selected_workspace = root / 'w'
+            launch(thread)
+            assert len(public(thread)['turns']) == expected_turns
+            submit('OWNED_DISTINCT_ACCOUNT_RETURN')
+            expected_turns += 1
+            wait(lambda: settled(thread, expected_turns))
+            wait(lambda: control('codex_status', binding).get('completed'))
+            assert record()['execution']['home'] == str(selected_home)
+            assert record()['workspace'] == str(selected_workspace)
+            assert public(thread)['turns'][:-1] == retained
+            steps.append('account one → two with workspace change → one, same native thread and original history')
+
+            # Reproduce the reported pre-app admission failure in this owned
+            # binding only. Pause observers so no control attempts owner recovery
+            # during the fault. Restore the original PID even on failure.
+            stop_observer.set()
+            observer.join(timeout=30)
+            assert not observer.is_alive()
+            observer = None
+            pid_file = Path(record()['execution']['directory']) / 'pid'
+            assert pid_file.is_relative_to(home / '.local/share/codex/core')
+            original_pid = pid_file.read_bytes()
+            error_screen_start = len(screen)
+            try:
+                pid_file.write_text(str(2**32 - 1))
+                submit('OWNED_DISTINCT_EXPECTED_ADMISSION_FAILURE')
+                wait(lambda: 'native_thread_owner_unavailable' in screen[error_screen_start:])
+            finally:
+                pid_file.write_bytes(original_pid)
+            expected_turns += 1
+            failed_index = expected_turns - 1
+            def failed_settled():
+                state = public(thread)
+                (root / 'failed-native-read.json').write_text(json.dumps(state, indent=2) + '\n')
+                return (state['status']['type'] in ['idle', 'systemError']
+                        and len(state['turns']) == expected_turns
+                        and state['turns'][-1]['status'] == 'failed')
+            wait(failed_settled)
+            submit('/model gpt-6.1-sol')
+            wait(lambda: public(thread)['modelProvider'] == 'openai')
+            assert len(public(thread)['turns']) == expected_turns
+            submit('/model chatgpt-desktop/gpt-6 none')
+            wait(lambda: public(thread)['modelProvider'] == 'chatgpt_desktop')
+            submit('OWNED_DISTINCT_AFTER_ACCOUNT_AND_MODEL_RETURN')
+            expected_turns += 1
+            wait(lambda: settled(thread, expected_turns))
+            wait(lambda: control('codex_status', binding).get('completed'))
+            steps.append('exact native_thread_owner_unavailable → readable history → native model → Chat model → new prompt')
+            result['account_homes'] = [str(value) for value in account_homes]
+            result['provider_default_home'] = str(home / '.codex')
+            result['workspace_rebound'] = True
+            result['failed_request_native_return'] = True
+            result['admission_fault'] = 'owned PID restored byte-for-byte; no app submission for the failed input'
+        final = public(thread)
         assert len(final['turns']) == expected_turns and len({turn['id'] for turn in final['turns']}) == expected_turns
         for index, turn in enumerate(final['turns']):
-            if index == 2:  # The separately confirmed Stop turn.
+            if index in [2, failed_index]:  # Confirmed Stop or deliberately failed admission.
                 continue
             assert any(item.get('type') == 'agentMessage' and item.get('phase') == 'final_answer'
                 and item.get('text') == 'OWNED_MANAGED_ROUND_COMPLETE' for item in turn['items'])
         submissions = warm_submissions + [row for row in json.loads((root / 'bridge-commands.json').read_text()) if row['op'] == 'submit']
-        assert len(submissions) == expected_turns and len({row['round'] for row in submissions}) == expected_turns
+        expected_submissions = expected_turns - int(failed_index is not None)
+        assert len(submissions) == expected_submissions and len({row['round'] for row in submissions}) == expected_submissions
         assert all(row['nativeThread'] == thread for row in submissions)
         assert not any('transport_error' in row for row in observations)
         read_errors = [row for row in observations if 'error' in row]
@@ -338,6 +426,8 @@ def probe(args):
 if __name__ == '__main__':
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--account-roundtrip', action='store_true',
+                        help='different Provider default, two Manager accounts/workspaces, failed-turn model return')
     parser.add_argument('--restart-provider', action='store_true')
     parser.add_argument('--followup-turns', type=int, default=0, choices=range(0, 65), metavar='0..64')
     parser.add_argument('--idle-seconds', type=int, default=0, choices=range(0, 601), metavar='0..600')

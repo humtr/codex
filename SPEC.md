@@ -86,6 +86,10 @@ update authority is maintained.
   transition. Ordinary model selection reuses the same upstream-owned history
   without requesting or waiting for a new source-model summary. Upstream retains
   its own conditional context-limit and compaction-compatibility handling.
+  A native systemError whose final recorded turn is failed is a settled boundary
+  for provider re-entry, provided the same input/tool/active-work guards and full
+  public-history read succeed. It must not strand a failed Chat request in that
+  provider or turn an active/unknown task into an idle one.
   A newly persisted, idle conversation with no user turns may cross the provider
   boundary without a context checkpoint. If the qualified backend rejects full
   history before its first message, accept only its exact recognized response
@@ -1376,6 +1380,15 @@ F resolves the native thread/work binding before dispatching each Responses
 request: managed reasoning reuses the existing model-adapter/AppHost/McpBridge
 mechanisms; current-Chat reasoning reuses the native-control Host without opening
 a primary Chat. Both interfaces are registered in one optional Provider service.
+Codex-origin Responses discover the unique loaded thread across Core's verified
+execution homes and derive the workspace from native thread metadata. Provider
+execution.home/workspace are defaults for explicit work creation, not restrictions
+on the account or workspace of an incoming Codex session. Native account changes,
+cold resume and working-directory changes revalidate that binding on each request;
+a genuinely new native turn may reconcile a settled Codex-origin work to its new
+owner/workspace while rotating its old controller. Ambiguous writers, pending
+effects and stale controllers retain their existing refusals. Explicit Chat-owned
+work remains bound to its selected execution scope until reconciled transfer.
 Existing operator-driven managed execution remains a compatibility route until
 changed-path comparison and H review; its name is not the architecture. Managed
 MCP is the selected new opt-in preference and managed local is an explicit

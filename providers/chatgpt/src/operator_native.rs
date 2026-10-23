@@ -75,12 +75,13 @@ fn read(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn binding_for_home(directory: &Path, home: &Path) -> Result<Option<Binding>, Error> {
+fn binding_for_home(directory: &Path, home: Option<&Path>) -> Result<Option<Binding>, Error> {
     let owner = read(&directory.join("owner"), codex_runtime_binding::OWNER_LIMIT)
         .map_err(|_| Error("native_binding_invalid"))?;
     // A different execution home may still use an older Core record format.
     // Identify its bounded, private owner before interpreting that format.
-    if owner.split(|b| *b == 0).next() != Some(home.as_os_str().as_bytes()) {
+    if home.is_some_and(|home| owner.split(|b| *b == 0).next() != Some(home.as_os_str().as_bytes()))
+    {
         return Ok(None);
     }
     // The old home/runtime and catalog-v1 shapes predate config-v1. A dead or
@@ -116,7 +117,7 @@ fn binding_for_home(directory: &Path, home: &Path) -> Result<Option<Binding>, Er
         }
     }
     let binding = Binding::read(directory, read).map_err(|_| Error("native_binding_invalid"))?;
-    Ok((binding.home == home).then_some(binding))
+    Ok(Some(binding))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,7 +180,7 @@ pub struct Native {
     pub human_requests: Arc<Mutex<BTreeMap<String, Value>>>,
 }
 impl Native {
-    pub async fn verify_scope(&self, thread: &str, workspace: &Path) -> Result<(), Error> {
+    pub async fn workspace(&self, thread: &str) -> Result<PathBuf, Error> {
         let row = self
             .call(
                 "thread/read",
@@ -191,7 +192,13 @@ impl Native {
             .ok_or(Error("native_workspace_unavailable"))?;
         let actual =
             std::fs::canonicalize(cwd).map_err(|_| Error("native_workspace_unavailable"))?;
-        if actual != workspace || row["thread"]["modelProvider"] != "chatgpt_desktop" {
+        if row["thread"]["id"] != thread || row["thread"]["modelProvider"] != "chatgpt_desktop" {
+            return Err(Error("native_workspace_or_route_changed"));
+        }
+        Ok(actual)
+    }
+    pub async fn verify_scope(&self, thread: &str, workspace: &Path) -> Result<(), Error> {
+        if self.workspace(thread).await? != workspace {
             return Err(Error("native_workspace_or_route_changed"));
         }
         Ok(())
@@ -503,6 +510,14 @@ impl Pool {
         Ok(client)
     }
     pub async fn for_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
+        self.find_thread(thread, Some(&self.home)).await
+    }
+    /// Incoming native requests carry a thread identity, not a Provider-default
+    /// account. Discover its unique live owner before selecting an execution scope.
+    pub async fn discover_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
+        self.find_thread(thread, None).await
+    }
+    async fn find_thread(&self, thread: &str, home: Option<&Path>) -> Result<Arc<Native>, Error> {
         let mut found = None;
         let state = self.installation.join(".local/share/codex/core");
         for family in codex_runtime_binding::FAMILIES {
@@ -520,10 +535,10 @@ impl Pool {
                 let directory = entry
                     .map_err(|_| Error("native_binding_unavailable"))?
                     .path();
-                if binding_for_home(&directory, &self.home)?.is_none() {
+                let Some(binding) = binding_for_home(&directory, home)? else {
                     continue;
-                }
-                let owner = match Owner::load(&directory, &self.home, &self.installation) {
+                };
+                let owner = match Owner::load(&directory, &binding.home, &self.installation) {
                     Ok(owner) => owner,
                     // Historical PID files can name a different live executable
                     // after PID reuse. It cannot own this native rendezvous. Do
@@ -613,6 +628,56 @@ impl Pool {
 #[cfg(test)]
 mod reply_tests {
     use super::*;
+
+    #[test]
+    fn request_discovery_accepts_other_homes_without_relaxing_binding_integrity() {
+        let root = std::env::temp_dir().join(format!(
+            "native-scope-{}",
+            crate::journal::random_id().unwrap()
+        ));
+        let home = root.join("account");
+        let program = root.join("runtime");
+        let config = b"opaque native settings";
+        let directory = root
+            .join("servers")
+            .join(codex_runtime_binding::configuration_namespace(
+                &home,
+                program.as_os_str(),
+                None,
+                config,
+                None,
+            ));
+        crate::journal::private_directory(&directory.join("config")).unwrap();
+        use std::io::Write;
+        for (name, bytes) in [
+            (
+                "owner",
+                codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+            ),
+            ("config/config.toml", config.to_vec()),
+        ] {
+            let mut file = File::options()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(directory.join(name))
+                .unwrap();
+            file.write_all(&bytes).unwrap();
+        }
+        assert!(binding_for_home(&directory, Some(&root.join("default")))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            binding_for_home(&directory, None).unwrap().unwrap().home,
+            home
+        );
+        std::fs::write(directory.join("config/config.toml"), b"changed").unwrap();
+        assert_eq!(
+            binding_for_home(&directory, None).unwrap_err(),
+            Error("native_binding_invalid")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn discovery_excludes_reused_nonruntime_pid_without_weakening_selected_owner() {
@@ -734,7 +799,7 @@ mod reply_tests {
             }
             // This live PID belongs to a different executable; no socket or
             // historical config exists, and neither should be read or repaired.
-            assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+            assert!(binding_for_home(&root.0, Some(&home)).unwrap().is_none());
             assert_eq!(std::fs::read(root.0.join("owner")).unwrap(), owner);
             assert_eq!(
                 std::fs::read_to_string(root.0.join("pid")).unwrap(),
@@ -742,13 +807,13 @@ mod reply_tests {
             );
 
             std::fs::write(root.0.join("pid"), u32::MAX.to_string()).unwrap();
-            assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+            assert!(binding_for_home(&root.0, Some(&home)).unwrap().is_none());
 
             // A private PID read is mandatory even for an inactive old codec.
             std::fs::set_permissions(root.0.join("pid"), std::fs::Permissions::from_mode(0o644))
                 .unwrap();
             assert_eq!(
-                binding_for_home(&root.0, &home).unwrap_err(),
+                binding_for_home(&root.0, Some(&home)).unwrap_err(),
                 Error("native_binding_invalid")
             );
             std::fs::set_permissions(root.0.join("pid"), std::fs::Permissions::from_mode(0o600))
@@ -769,7 +834,7 @@ mod reply_tests {
             .unwrap();
             std::fs::write(root.0.join("pid"), process.pid.to_string()).unwrap();
             assert_eq!(
-                binding_for_home(&root.0, &home).unwrap_err(),
+                binding_for_home(&root.0, Some(&home)).unwrap_err(),
                 Error("native_binding_invalid")
             );
         }
@@ -800,20 +865,20 @@ mod reply_tests {
         file.write_all(b"/another/home\0/old/runtime\0legacy-v0")
             .unwrap();
         drop(file);
-        assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+        assert!(binding_for_home(&root.0, Some(&home)).unwrap().is_none());
         std::fs::write(
             &owner,
             [home.as_os_str().as_bytes(), b"\0/runtime\0legacy-v0"].concat(),
         )
         .unwrap();
         assert_eq!(
-            binding_for_home(&root.0, &home).unwrap_err(),
+            binding_for_home(&root.0, Some(&home)).unwrap_err(),
             Error("native_binding_invalid")
         );
         std::fs::remove_file(&owner).unwrap();
         std::os::unix::fs::symlink(root.0.join("missing"), &owner).unwrap();
         assert_eq!(
-            binding_for_home(&root.0, &home).unwrap_err(),
+            binding_for_home(&root.0, Some(&home)).unwrap_err(),
             Error("native_binding_invalid")
         );
     }
