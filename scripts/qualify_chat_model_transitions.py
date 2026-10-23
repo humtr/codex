@@ -40,6 +40,9 @@ def probe(args):
     try:
         check_native_socket_budget(root / 'h')
         home, prefix, env = fixture(root, args.core, args.frontend)
+        if args.shared_sessions:
+            subprocess.run([str(prefix / 'bin/codex'), 'termux', 'profile', 'create', 'fixture'],
+                           env=env, cwd=root / 'w', check=True, capture_output=True)
         if args.without_manager:
             # Verified generated fixture copy only; never the installed Manager.
             manager=home/'.local/lib/codex/core/generations/local-permission-fixture/manager'
@@ -130,7 +133,7 @@ def probe(args):
             # Let Core prepare the same supported shared topology as a Manager
             # account, rather than substituting the canonical history root.
             account = home / '.local/share/codex/manager/profiles/fixture/home'
-            account.mkdir(parents=True, mode=0o700)
+            assert account.is_dir() and not account.is_symlink()
             for path in (home / '.codex').iterdir():
                 assert path.is_file() and not path.is_symlink()
                 shutil.copy2(path, account / path.name)
@@ -138,7 +141,10 @@ def probe(args):
 
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
-        process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen'], env=env,
+        launch = [str(prefix / 'bin/codex')]
+        if args.shared_sessions and not args.without_manager:
+            launch += ['termux', 'profile', 'use', 'fixture', '--']
+        process = subprocess.Popen(launch + ['--no-alt-screen'], env=env,
             cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
 
@@ -242,7 +248,8 @@ def probe(args):
             assert snapshot['turns'] == [], 'empty selection must not add a public turn'
             rollout = Path(snapshot['path'])
             if args.shared_sessions:
-                assert rollout != rollout.resolve(), 'backend must return the account alias path'
+                assert (account / 'sessions').is_symlink()
+                assert (account / 'sessions').resolve() == home / '.codex/sessions'
                 assert rollout.resolve().is_relative_to(home / '.codex/sessions')
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
             assert records and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread
