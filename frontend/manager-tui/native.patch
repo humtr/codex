@@ -1,131 +1,5 @@
-diff --git a/codex-rs/app-server/src/config_manager_service.rs b/codex-rs/app-server/src/config_manager_service.rs
-index df807ba..7b044e8 100644
---- a/codex-rs/app-server/src/config_manager_service.rs
-+++ b/codex-rs/app-server/src/config_manager_service.rs
-@@ -771,7 +771,11 @@ fn toml_value_to_value(value: &TomlValue) -> anyhow::Result<toml_edit::Value> {
-
- fn validate_config(value: &TomlValue) -> anyhow::Result<()> {
-     let config: ConfigToml = value.clone().try_into()?;
--    if config.approval_policy == Some(AskForApproval::UnlessTrusted) {
-+    if config.approval_policy == Some(AskForApproval::UnlessTrusted)
-+        && !std::env::var_os("CODEX_PROFILE_CORE")
-+            .as_deref()
-+            .is_some_and(|core| std::path::Path::new(core).is_absolute())
-+    {
-         anyhow::bail!(
-             "approval_policy = \"untrusted\" is no longer supported; remove this setting"
-         );
-diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
-index 3f6c1cc..ac63b73 100644
---- a/codex-rs/core/src/config/mod.rs
-+++ b/codex-rs/core/src/config/mod.rs
-@@ -3883,7 +3883,11 @@ impl Config {
-             candidate_permission_profile: &permission_profile,
-             credential_broker_base_url: cfg.openai_base_url.as_deref(),
-         });
--        if cfg.approval_policy == Some(AskForApproval::UnlessTrusted) {
-+        if cfg.approval_policy == Some(AskForApproval::UnlessTrusted)
-+            && !std::env::var_os("CODEX_PROFILE_CORE")
-+                .as_deref()
-+                .is_some_and(|core| std::path::Path::new(core).is_absolute())
-+        {
-             return Err(std::io::Error::new(
-                 ErrorKind::InvalidData,
-                 UnsupportedUntrustedApprovalPolicyError,
-diff --git a/codex-rs/ext/guardian-reviewer/src/routing.rs b/codex-rs/ext/guardian-reviewer/src/routing.rs
-index 28d9777..fc5e23f 100644
---- a/codex-rs/ext/guardian-reviewer/src/routing.rs
-+++ b/codex-rs/ext/guardian-reviewer/src/routing.rs
-@@ -51,14 +51,21 @@ pub struct ReviewRequest<'a, H> {
-     pub metrics: Option<Arc<dyn ExtensionMetrics>>,
- }
-
-+fn termux_untrusted_review() -> bool {
-+    std::env::var_os("CODEX_PROFILE_CORE")
-+        .as_deref()
-+        .is_some_and(|core| std::path::Path::new(core).is_absolute())
-+}
-+
- pub fn routes_approval_policy_to_guardian(
-     policy: AskForApproval,
-     reviewer: ApprovalsReviewer,
- ) -> bool {
--    matches!(
-+    (matches!(
-         policy,
-         AskForApproval::OnRequest | AskForApproval::Granular(_)
--    ) && reviewer == ApprovalsReviewer::AutoReview
-+    ) || matches!(policy, AskForApproval::UnlessTrusted) && termux_untrusted_review())
-+        && reviewer == ApprovalsReviewer::AutoReview
- }
-
- impl<H: ReviewHost> ReviewRequest<'_, H> {
-diff --git a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
-index 3a59454..40ddda3 100644
---- a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
-+++ b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
-@@ -9,7 +9,10 @@ use pretty_assertions::assert_eq;
- #[test]
- fn approval_routing_depends_on_policy_and_reviewer() {
-     for (policy, expected) in [
--        (AskForApproval::UnlessTrusted, [false, false]),
-+        (
-+            AskForApproval::UnlessTrusted,
-+            [false, super::termux_untrusted_review()],
-+        ),
-         (AskForApproval::OnRequest, [false, true]),
-         (
-             AskForApproval::Granular(GranularApprovalConfig {
-diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs b/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
-index 2b3d192..50c91b1 100644
---- a/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
-+++ b/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
-@@ -23,7 +23,6 @@ use codex_protocol::mcp::is_node_repl_backed_connector;
- use codex_protocol::openai_models::GuardianModelPolicy;
- use codex_protocol::openai_models::GuardianReviewMode;
- use codex_protocol::openai_models::GuardianScope;
--use codex_protocol::protocol::AskForApproval;
- use codex_protocol::protocol::TruncationPolicy;
- use std::sync::Weak;
-
-@@ -60,9 +59,9 @@ impl GuardianApprovalReviewer {
-         }
-         if !input.require_guardian
-             && (input.approvals_reviewer == ApprovalsReviewer::User
--                || !matches!(
-+                || !codex_guardian_reviewer::routes_approval_policy_to_guardian(
-                     input.approval_policy,
--                    AskForApproval::OnRequest | AskForApproval::Granular(_)
-+                    input.approvals_reviewer,
-                 ))
-         {
-             return ApprovalDecision::AskUser;
-diff --git a/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs b/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
-index e6fb25f..22b5de2 100644
---- a/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
-+++ b/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
-@@ -29,7 +29,6 @@ use codex_guardian_reviewer::ReviewerPool;
- use codex_guardian_reviewer::ReviewerTasks;
- use codex_protocol::ThreadId;
- use codex_protocol::config_types::ApprovalsReviewer;
--use codex_protocol::protocol::AskForApproval;
- use codex_protocol::protocol::InternalSessionSource;
- use codex_protocol::protocol::SessionSource;
- use codex_protocol::protocol::ThreadSource;
-@@ -166,9 +165,9 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
-     ) -> ExtensionFuture<'a, ()> {
-         Box::pin(async move {
-             if input.session_source.is_internal()
--                || !matches!(
-+                || !codex_guardian_reviewer::routes_approval_policy_to_guardian(
-                     input.config.permissions.approval_policy.value(),
--                    AskForApproval::OnRequest | AskForApproval::Granular(_)
-+                    input.config.approvals_reviewer,
-                 )
-                 || input.config.approvals_reviewer != ApprovalsReviewer::AutoReview
-             {
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 093a6af..94d1466 100644
+index 093a6af..d947d8a 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -157,14 +31,8 @@ index 093a6af..94d1466 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -437,10 +442,12 @@ struct AutoReviewMode {
- /// the experiment means they want Auto-review enabled immediately.
- fn auto_review_mode() -> AutoReviewMode {
-     AutoReviewMode {
--        approval_policy: AskForApproval::OnRequest,
-+        approval_policy: crate::termux_permissions::auto_approval_policy(
-+            crate::termux_permissions::enabled(),
-+        ),
+@@ -440,7 +445,7 @@ fn auto_review_mode() -> AutoReviewMode {
+         approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
 -            BUILT_IN_PERMISSION_PROFILE_WORKSPACE,
@@ -172,7 +40,7 @@ index 093a6af..94d1466 100644
          ),
      }
  }
-@@ -535,6 +542,10 @@ struct InitialHistoryReplayBuffer {
+@@ -535,6 +540,10 @@ struct InitialHistoryReplayBuffer {
  }
 
  pub(crate) struct App {
@@ -183,7 +51,7 @@ index 093a6af..94d1466 100644
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1229,6 +1240,10 @@ impl App {
+@@ -1229,6 +1238,10 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -887,24 +755,11 @@ index aa5de8b..c27a44b 100644
 +#[path = "termux_chat_model_selection_tests.rs"]
 +mod termux_chat_model_selection_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index a91e85c..fcd635c 100644
+index a91e85c..6bd4ecf 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
-@@ -118,15 +118,31 @@ impl ChatWidget {
-                 });
-
+@@ -120,7 +120,12 @@ impl ChatWidget {
                  if guardian_approval_enabled {
-+                    let reviewed = crate::termux_permissions::auto_review_preset(
-+                        &preset,
-+                        crate::termux_permissions::enabled(),
-+                    );
-+                    let reviewed_disabled_reason = self
-+                        .config
-+                        .permissions
-+                        .approval_policy
-+                        .can_set(&reviewed.approval)
-+                        .err()
-+                        .map(|error| error.to_string());
                      items.push(SelectionItem {
                          name: APPROVE_FOR_ME_LABEL.to_string(),
 -                        description: Some(AUTO_REVIEW_DESCRIPTION.to_string()),
@@ -917,31 +772,16 @@ index a91e85c..fcd635c 100644
                          is_current: current_review_policy == ApprovalsReviewer::AutoReview
                              && (Self::preset_matches_current(
                                  current_approval,
-                                 &current_permission_profile,
-                                 self.config.cwd.as_path(),
--                                &preset,
-+                                &reviewed,
-                             ) || (current_approval == AskForApproval::OnRequest
-                                 && self
-                                     .config
-@@ -134,14 +150,14 @@ impl ChatWidget {
-                                     .requirements()
-                                     .auto_review_required_for_model(self.current_model()))),
-                         actions: self.permission_mode_actions(
--                            &preset,
-+                            &reviewed,
-                             APPROVE_FOR_ME_LABEL.to_string(),
-                             ApprovalsReviewer::AutoReview,
-                             /*profile_selection*/ None,
+@@ -141,7 +146,7 @@ impl ChatWidget {
                              /*return_to_permissions*/ !include_read_only,
                          ),
                          dismiss_on_select: true,
 -                        disabled_reason: approval_disabled_reason
-+                        disabled_reason: reviewed_disabled_reason
++                        disabled_reason: default_disabled_reason
                              .or_else(|| guardian_disabled_reason(true)),
                          ..Default::default()
                      });
-@@ -410,6 +426,9 @@ impl ChatWidget {
+@@ -410,6 +415,9 @@ impl ChatWidget {
                      && current_permission_profile.network_sandbox_policy()
                          == preset.permission_profile.network_sandbox_policy()
              }
@@ -951,7 +791,7 @@ index a91e85c..fcd635c 100644
              "auto" => {
                  let file_system_policy = current_permission_profile.file_system_sandbox_policy();
                  matches!(
-@@ -515,3 +534,7 @@ impl ChatWidget {
+@@ -515,3 +523,7 @@ impl ChatWidget {
          });
      }
  }
@@ -960,7 +800,7 @@ index a91e85c..fcd635c 100644
 +#[path = "termux_permission_popups_tests.rs"]
 +mod termux_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
-index 444a11d..c18c95f 100644
+index 444a11d..0ee2b06 100644
 --- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 @@ -52,7 +52,9 @@ impl ChatWidget {
@@ -974,23 +814,8 @@ index 444a11d..c18c95f 100644
                  continue;
              }
              for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
-@@ -62,6 +64,14 @@ impl ChatWidget {
-                 {
-                     continue;
-                 }
-+                let preset = if reviewer == ApprovalsReviewer::AutoReview {
-+                    crate::termux_permissions::auto_review_preset(
-+                        &preset,
-+                        crate::termux_permissions::enabled(),
-+                    )
-+                } else {
-+                    preset.clone()
-+                };
-                 let approval = AskForApproval::from(preset.approval);
-                 if discovery
-                     .disabled_reason(
 diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-index b6614dc..e3540e3 100644
+index b6614dc..2d28089 100644
 --- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -6,6 +6,9 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
@@ -1003,7 +828,7 @@ index b6614dc..e3540e3 100644
      match preset.id {
          "read-only" => "Read workspace files, with approval required for edits or internet access",
          "auto" => {
-@@ -173,20 +176,29 @@ impl ChatWidget {
+@@ -173,20 +176,25 @@ impl ChatWidget {
          let mut items = vec![self.builtin_permission_mode_selection_item(
              &discovery,
              default,
@@ -1016,32 +841,29 @@ index b6614dc..e3540e3 100644
          if self.config.features.enabled(Feature::GuardianApproval) {
 -            items.push(self.builtin_permission_mode_selection_item(
 -                &discovery,
-+            let reviewed = crate::termux_permissions::auto_review_preset(
-                 default,
+-                default,
 -                ":workspace",
 -                AUTO_REVIEW_DESCRIPTION.to_string(),
 -                AskForApproval::OnRequest,
 -                ApprovalsReviewer::AutoReview,
 -            ));
-+                crate::termux_permissions::enabled(),
-+            );
 +            items.push(
 +                self.builtin_permission_mode_selection_item(
 +                    &discovery,
-+                    &reviewed,
++                    default,
 +                    &default.active_permission_profile.id,
 +                    crate::termux_permissions::review_description(
 +                        crate::termux_permissions::enabled(),
 +                    )
 +                    .to_string(),
-+                    AskForApproval::from(reviewed.approval),
++                    AskForApproval::from(default.approval),
 +                    ApprovalsReviewer::AutoReview,
 +                ),
 +            );
          }
          items.push(self.builtin_permission_mode_selection_item(
              &discovery,
-@@ -196,14 +208,16 @@ impl ChatWidget {
+@@ -196,14 +204,16 @@ impl ChatWidget {
              AskForApproval::from(full_access.approval),
              ApprovalsReviewer::User,
          ));

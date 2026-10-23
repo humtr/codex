@@ -68,7 +68,7 @@ fn termux_permissions_auto_preserves_reviewer_policy_and_disables_sandbox() {
         full.approval,
         codex_protocol::protocol::AskForApproval::Never
     );
-    assert!(review_description(true).contains("no filesystem sandbox"));
+    assert!(review_description(true).contains("without a sandbox"));
 }
 
 #[test]
@@ -102,34 +102,6 @@ fn termux_permissions_unselected_upstream_and_custom_presets_are_preserved() {
         custom.active_permission_profile
     );
     assert_eq!(adapted[0].description, custom.description);
-}
-
-#[test]
-fn termux_permissions_auto_review_requires_untrusted_and_preserves_other_modes() {
-    let presets = adapt(
-        codex_utils_approval_presets::builtin_approval_presets(),
-        true,
-    );
-    for preset in &presets {
-        let reviewed = auto_review_preset(preset, true);
-        assert_eq!(reviewed.permission_profile, preset.permission_profile);
-        assert_eq!(
-            reviewed.active_permission_profile,
-            preset.active_permission_profile
-        );
-        assert_eq!(
-            reviewed.approval,
-            if preset.id == "auto" {
-                AskForApproval::UnlessTrusted
-            } else {
-                preset.approval
-            }
-        );
-        assert_eq!(auto_review_preset(preset, false).approval, preset.approval);
-    }
-    assert_eq!(auto_approval_policy(false), AskForApproval::OnRequest);
-    assert_eq!(auto_approval_policy(true), AskForApproval::UnlessTrusted);
-    assert!(review_description(true).contains("not already trusted"));
 }
 
 #[test]

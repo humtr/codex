@@ -8,47 +8,61 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-The fresh shared-account `/model` correction is committed/pushed, signed as
-Full97/sourcecb1684b2, and applied on this device (previous Full96). The backend
-reported the account's `sessions` alias while the guard demanded a physical
-path; the previous physical-directory fixture missed the real shared topology.
-Parent resolution now accepts that alias while retaining containment, leaf
-no-follow, ownership/mode/size, inode/time stability and root metadata checks.
+The device now selects signed Full99/source d2963887 with upstream0.163.0,
+previous Full97. The manual updater is published and installed; no0.164 device
+activation occurred. Source39944222876 and Core39944223025 pass. Publication
+39945787744 passes Base98 and Full99 Android smoke, signing, complete public
+readback, disposable update and non-forced stable promotion. Device97→99 exits0;
+all14 protected config/auth hashes and8 service identities remain unchanged.
+Existing model preferences, Provider4 and running conversations are preserved.
+Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/manual163-delivery.json`.
 
-Native39926532880 builds and passes53 focused regressions, retained upstream
-feature gates and lint; its raw SHA256 is9454f44a2271ca9c0ab421ddeff91df22bd0a025f154e11616233b99ac49356d.
-Actual Android registered-account and no-Manager shared-home roundtrips pass
-with0 model requests/checkpoints and2 native settings audit events each. The
-old Full96 failure remains preserved. A completed direct-home roundtrip had a
-bad final lexical-path observer assertion; original native audits were accepted
-offline without replay. The later registered entry is a distinct fixture scope.
-
-Publication39932543113 passes signing, complete public readback, disposable
-update and non-forced stable promotion. Device96→97 exits0; installed TUI SHA256
-a3be875524a6e83b6eee45d2ec8189e18ec647aeeb9b234908048bdcc66ae654 matches
-exactly the candidate's common54-byte FD adaptation. Core/Manager/runtime and
-Provider bytes are unchanged; all14 protected config/auth hashes and8 service
-process identities remain unchanged. Existing model preferences were preserved.
-Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/shared-fix-delivery.json`.
-Existing clients retain their old executable until normal exit; new clients use97.
-
-The manual updater is being delivered first against the retained0.163 runtime
-and already-qualified native frontend. The user wants to trigger the upstream
-update themselves; keep this device's upstream version unchanged during delivery.
 Manual update checks official freshness, requests a missing qualified build once,
 and offers wait/current-entry/exit without requesting CI during ordinary entry.
 Private Android CLI witnesses cover those paths, signature refusal and terminal
-restoration; final exact-source/public delivery remains pending.
+restoration. The exact0.163 Full continuation witness requests a synthetic missing
+0.164 once and reaches the existing native TUI. An actual updater-driven remote
+build request still needs a distinct disposable intent after accepted0.164 source
+inputs are ready; uncertain dispatches must never be blindly repeated.
 
-Native automatic review is a common Codex capability for ordinary models,
-independent of ChatGPT Provider/MCP/Manager. The0.164 implementation and all draft
-inputs are preserved at `prep/0.164-native-review` (`fa307ffb0ec76122127964ec7f858dc7937e7405`).
-Private Android Base/no-Manager witnesses pass allow/deny/reviewer transport
-failure/Full Access without prompt exec rules. Original native contexts and
-failed prequalification/observer records are preserved without replay. The
-candidate still needs menu/lifecycle/native build and final acceptance before
-publication. ChatGPT-backed model review is a separate compatibility scope.
-Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z`.
+The shared-account empty-session `/model` correction remains the accepted Full97
+native frontend (raw9454f44a..., installed a3be8755...). Its native39926532880
+passes53 focused regressions, retained upstream feature gates and lint. Actual
+Android shared-account and no-Manager roundtrips use0 model requests/checkpoints.
+The complete-public-conversation fix was already published/applied and is not
+replayed by this updater delivery. Its original evidence remains in
+`shared-fix-delivery.json` beside the current updater evidence.
+
+Native automatic review investigation now retains upstream OnRequest/AutoReview
+behavior. The user requires an eligible approval request to reach the native
+reviewer, not model review of every untrusted command. The proposed Untrusted
+restoration and expanded routing were an unnecessary scope expansion and have
+been removed from the0.164 candidate. They were never installed or published.
+Original experiment sources, outcomes and the correction are preserved in the
+private evidence root; do not resume that experiment as required product work.
+
+The current conversation's stored native settings are OnRequest/AutoReview with
+Disabled/danger-full-access, model gpt-6.1-sol/high. Current Full99 Core/runtime/
+frontend bytes, copied unchanged into an owned fixture, produce one real native
+Guardian invocation and one program effect when a specific native prompt rule
+requires approval. The original main context is OnRequest/AutoReview/Disabled;
+the upstream-created reviewer context is Never/read-only. No user config or rule
+was edited; the fixture server has exited. Responses were synthetic local test
+transport, so this proves invocation/result routing, not the live OpenAI reviewer
+endpoint or account. No evidence yet establishes that the user's ordinary
+commands required approval or that the real reviewer transport failed. Keep that
+uncertainty distinct from a disabled reviewer or a confirmed runtime defect.
+Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/native-onrequest-current-offline-audit.json`.
+Earlier OnRequest lifecycle witnesses remain accepted at their recorded scopes;
+completed effects and uncertain calls must not be replayed.
+
+The separate0.164 upgrade candidate at `prep/0.164-native-review` now retains
+unchanged upstream backend/configuration/reviewer code and53 frontend focused
+tests. Its28 exact raw UI/FD/resume blocks change478 bytes, plus54 common FD
+bytes (532 total). It still needs exact native build, Android/lifecycle, signed
+public and actual updater-request acceptance before release. Keep this device
+on0.163; the user will trigger the later upstream update. ChatGPT-backed model
+review remains a separate compatibility scope. G/H and services need no replay.
 
 
 
@@ -92,7 +106,7 @@ source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted
 G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 
-The operating device update is complete: signed Full97 (previous Full96),
+The operating device update is complete: signed Full99 (previous Full97),
 ChatGPT Provider release sequence4 (previous3), generated Rust profile, same-account native
 host and existing Termux Bridge tunnel on a permanent path.0 new real model requests.
 The entrypoint/fresh-user guide is documented. The user has deferred minimum
@@ -104,7 +118,7 @@ now distinguishes current MCP selection/short task
 requests from proposed reusable skill/UI conveniences. No setup command, bundled
 workflow skill or task panel is shipped. G/H needs no replay or additional release
 for documentation. Existing clients remain pinned until normal exit; new launches
-use the selected Full97.
+use the selected Full99.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
 sequences identify publications, not another component name. The bridge

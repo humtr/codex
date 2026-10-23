@@ -126,7 +126,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
         (home / '.codex' / name).write_text(json.dumps(catalog))
         (home / '.codex' / name).chmod(0o600)
     (home / '.codex/config.toml').write_text(
-        'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "none"\n'
+        'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\n'
         'model_catalog_json = ' + json.dumps(str(home / '.codex/native-models.json')) + '\n'
         'approval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\ncheck_for_update_on_startup = false\n'
         '[tui]\nscreen_reader_detection_done = true\n[features]\nmemories = false\n')

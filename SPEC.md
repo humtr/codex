@@ -40,29 +40,19 @@ alone does not qualify Android tools, reviewer, cold resume or side conversation
 New0.164.0 builds use `termux-fd-remap-v6`, with official archive SHA256
 5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5 and raw CLI
 8813c8d8a4cea2eeba271b72ab22f49628b184b24ab18dbef06b4ce41e9a8d39.
-Its45 disjoint original-byte-guarded blocks change572 bytes; common FD remaps
-change54, so the complete report binds `changed_bytes=626`. Exact zero padding
-after `.fini` holds the FD35 strings and two bounded approval UI trampolines.
-The source tuple is official6aaac694803004a63c6f393d153c96d22521a6b9;
-its native frontend uses the official Rust1.99.1 toolchain and retains1308
-external dependency records while normalizing166 workspace release versions.
-Named/legacy permission menus, the permission shortcut and experiment toggle
-must use Untrusted plus Auto-review for Approve for me; Ask for approval remains
-OnRequest plus User, and Full Access remains Never. Native backend policy owns
-review admission, requirements and execution. Automatic review is common Codex
-execution behavior for ordinary native models; it does not depend on the ChatGPT
-Provider, MCP, or Manager. A Provider-backed model requires separate reviewer
-compatibility proof and must not silently fall back to Full Access. This exact policy still requires
-actual Android tool/reviewer/settings/resume and signed lifecycle qualification
-before publication; construction or byte inspection alone is insufficient.
-Official0.164 retains the internal Untrusted execution policy but rejects its
-explicit configuration at load/write boundaries. The Termux compatibility layer
-may restore that configuration acceptance for the existing Approve for me mode;
-native command classification, managed constraints and reviewer decisions remain intact.
-Its legacy reviewer routing also excludes Untrusted. The compatibility layer may
-route this policy to the existing automatic reviewer under the same Core binding;
-User review and Never/Full Access retain their original routing.
-The optional frontend permits this only with an absolute Core bridge binding.
+Its28 disjoint original-byte-guarded blocks change478 bytes; common FD remaps
+change54, so the complete report binds `changed_bytes=532`. Exact zero padding
+after `.fini` holds only the FD35 strings. The source tuple is official
+6aaac694803004a63c6f393d153c96d22521a6b9, Rust1.99.1, with1308 retained external
+lock records and166 workspace release versions normalized. Menus, shortcuts and
+the experiment toggle retain OnRequest/AutoReview; Full Access retains Never.
+Backend configuration acceptance, command classification, approval triggers,
+Guardian lifecycle, model selection, prompts and decisions remain upstream-owned
+and unchanged. An absent review on an ordinarily allowed command is not a defect;
+a defect requires a native approval request that fails to reach its selected
+reviewer. The discarded Untrusted restoration experiment is not a release input.
+Actual Android admission/lifecycle and signed/public acceptance remain required.
+
 Qualification permits only the two guarded configuration checks, the Core-bound
 reviewer routing, contributor/prewarming gates and the native policy/reviewer matrix regression outside TUI
 source, verified against pristine source; it must reject other backend changes. Raw-runtime acceptance guards require their own exact-byte adaptation
@@ -3077,7 +3067,7 @@ defaults only if they pass. Never retry a workload or silently change accounts.
 Manager reads its own notification policy and renders the same existing native
 completion callback and hook matchers. Missing configuration enables no automatic
 hooks; malformed configuration does not become default notification enrollment.
-Its system-layer fragment also supplies `approval_policy = "untrusted"` and
+Its system-layer fragment also supplies `approval_policy = "on-request"` and
 `approvals_reviewer = "auto_review"` as convenience defaults. Upstream precedence
 keeps account/project/config-profile/CLI choices authoritative, including explicit
 user review or full access. Core neither selects this reviewer nor interprets
@@ -3097,16 +3087,17 @@ leases and shared conversation preparation remain Core-owned in this slice.
 
 ### Termux permission selection
 
+Approve for me selects the upstream automatic reviewer for native approval
+requests. It does not promise a model review for every command. Preserve
+OnRequest eligibility and establish a specific missing reviewer invocation
+before changing approval behavior. Do not restore Untrusted or broaden admission
+merely because ordinary allowed commands showed no review.
+
 For a qualified Termux runtime, the upstream TUI permission picker and its
 permission shortcuts must preserve the supported no-sandbox execution policy.
 `Ask for approval` selects `danger-full-access`, `on-request` and the user
-reviewer. `Approve for me` selects `danger-full-access`, `untrusted` and
-`auto_review`: native command rules and safe-command classification remain
-authoritative, while other commands must reach the reviewer before execution.
-No artificial prompt rule, model instruction or command rewriting may stand in
-for that native admission. A reviewer denial must prevent the effect; reviewer
-failure must not silently execute it. `Full Access` selects `danger-full-access`
-and `never` and remains a separate explicit choice. Changing
+reviewer. `Approve for me` selects `danger-full-access`, `on-request` and
+`auto_review`. `Full Access` selects `danger-full-access` and `never`. Changing
 reviewer must not select Linux workspace sandboxing or restart a shared server.
 Qualified local frontend resume must explicitly carry the effective supported
 Termux permission selection even when it came from Core's system defaults, so
@@ -3120,13 +3111,9 @@ explicit CLI sandbox requests remain Core usage failures. User-supplied
 named/custom profiles retain upstream semantics. This adaptation
 must not impose a profile allowlist that silently falls back from an explicit
 restricted request to unrestricted execution.
-The UI must describe the actual no-sandbox permissions and native untrusted
-command review. Auto review does not provide filesystem/network isolation or
-promise a model review for an explicitly trusted/safe command. The picker,
-auto-review shortcut, Manager convenience defaults, resume, side conversations
-and account/provider transitions must preserve the chosen approval policy and
-reviewer together. Explicit user/profile/CLI policy replacements retain upstream
-precedence. Read-only and explicitly requested workspace sandbox policies remain
+The UI must describe the actual no-sandbox permissions; auto review evaluates
+only approval requests and does not imply that every unrestricted command is
+reviewed. Read-only and explicitly requested workspace sandbox policies remain
 unsupported; a compatibility adaptation must not reinterpret such explicit
 requests as full access. Core does not own approval decisions or add synthetic
 CLI overrides. Manager is not required for this capability.
@@ -3313,8 +3300,7 @@ a successful directory check cannot qualify stale exported bytes.
 
 For any authorized official producer, an explicit version selector must be one
 stable `MAJOR.MINOR.PATCH` value; otherwise the bounded official
-`https://api.github.com/repos/openai/codex/releases/latest` metadata (bounded to
-1MiB) selects the
+`https://releases.openai.com/codex/channels/latest` metadata selects the
 `rust-v<version>` tag and digest for the exact
 `codex-package-aarch64-unknown-linux-musl.tar.gz` asset. The metadata is a
 version/digest selector, not an activation authority. The producer must download

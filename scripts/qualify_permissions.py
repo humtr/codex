@@ -7,6 +7,7 @@ The shared-server cases additionally inspect native settings notifications.
 """
 
 import argparse
+import contextlib
 import ast
 import fcntl
 import hashlib
@@ -29,6 +30,7 @@ import tomllib
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
 from rald3_preflight import parse_descriptor
 from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from qualify_permission_lifecycle import fixture
 
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)", re.S)
@@ -61,18 +63,35 @@ def notifications(trace, method):
 
 
 def qualify(core, generation, parent, mode, prepare_preview=None, public_key=None):
-    with tempfile.TemporaryDirectory(prefix="pq", dir=parent) as temporary:
+    with contextlib.nullcontext(tempfile.mkdtemp(prefix="pq", dir=parent)) as temporary:
         root = Path(temporary)
+        print("Owned permission fixture", root, flush=True)
         home, prefix = root / "h", root / "p"
         if public_key is not None:
             fields = dict(line.split("\t", 1) for line in
                           (generation / "generation.meta").read_text().splitlines()[1:])
         else:
             fields = parse_descriptor(generation / "generation.meta")
+        expected_settings = EXPECTED
+        private_base = public_key is not None and fields["helper_count"] == "2"
+        if private_base:
+            # The established private Base fixture validates its exact six-file
+            # inventory and signs a canonical disposable copy. The legacy Full
+            # publication parser intentionally does not admit this v4 layout.
+            fixture(root, core, None, generation=generation)
+            generation = root / "local-permission-fixture"
+            public_key = root / "fixture-public.pem"
+            fields = parse_descriptor(generation / "generation.meta")
+            # The common fixture creates this known inert API-key file; this
+            # menu-only scope uses a custom unauthenticated loopback provider.
+            auth = home / ".codex/auth.json"
+            assert json.loads(auth.read_text()) == {"OPENAI_API_KEY": "owned-inert-fixture", "auth_mode": "apikey"}
+            auth.unlink()
         identity = fields["generation_id"]
         assert ";permission_policy=" in fields["patch_report"]
         runtime = home / ".local/lib/codex/core/generations" / identity
-        materialize_signed_generation(generation, runtime)
+        if not private_base:
+            materialize_signed_generation(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
                           home / ".local/share/codex/core/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -86,9 +105,11 @@ def qualify(core, generation, parent, mode, prepare_preview=None, public_key=Non
         if public_key is not None:
             (home / ".local/share/codex/core/activation-state").write_text(
                 fixture_activation_state(identity, public_key))
-            os.symlink(shutil.which("openssl"), prefix / "bin/openssl")
+            if not private_base:
+                os.symlink(shutil.which("openssl"), prefix / "bin/openssl")
         named = 'default_permissions = ":danger-full-access"\n' if mode == "named" else ""
-        config = named + f'''model = "fixture-model"
+        config = named + f'''model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
 model_provider = "fixture"
 check_for_update_on_startup = false
 [projects."{root}"]
@@ -124,6 +145,9 @@ requires_openai_auth = false
                                    stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         server = None
+        transcript = bytearray()
+        accepted = False
+        (root / "intent.json").write_text(json.dumps({"mode": mode, "upstream": fields["upstream_package_version"], "generation": str(generation), "model_turns": 0, "installed_state_changes": 0}, indent=2))
 
         def drain(seconds):
             output = bytearray()
@@ -139,6 +163,7 @@ requires_openai_auth = false
                     if b"\x1b[c" in data:
                         os.write(master, b"\x1b[?1;2c")
                     output.extend(data)
+                    transcript.extend(data)
             assert process.poll() is None, "native TUI exited: " + ANSI.sub("", output.decode(errors="replace"))[-2500:]
             assert not (home / ".codex/auth.json").exists(), "unexpected auth onboarding"
             return ANSI.sub("", output.decode(errors="replace"))
@@ -177,7 +202,7 @@ requires_openai_auth = false
                 assert time.monotonic() < deadline, "permission discovery did not finish: " + output[-3000:]
                 output += drain(.5)
             assert "Read Only" not in output, "unsupported choice exposed"
-            assert "without a sandbox" in output, "misleading sandbox description"
+            assert "without a sandbox" in output or "no filesystem sandbox" in output, "misleading sandbox description"
             assert "sandbox.afe" not in output, "stale inline description tail"
             if current:
                 assert current + " (current)" in output, "wrong current selection"
@@ -185,7 +210,7 @@ requires_openai_auth = false
         try:
             boot = drain(1)
             deadline = time.monotonic() + 60
-            while "fixture-model" not in boot:
+            while "gpt-6.1-sol" not in boot.lower():
                 assert process.poll() is None, "owned native client exited during initialization"
                 assert "Sign in with ChatGPT" not in boot, "unexpected auth onboarding"
                 assert time.monotonic() < deadline, "fixture TUI did not initialize"
@@ -238,7 +263,8 @@ requires_openai_auth = false
                            and row["activePermissionProfile"]["id"] == ":danger-full-access"
                            for row in settings), "native sandbox was reintroduced"
                 actual = [(row["approvalPolicy"], row["approvalsReviewer"]) for row in settings]
-                assert actual[-5:] == EXPECTED, "native reviewer or approval routing changed"
+                assert actual[-5:] == expected_settings, "native reviewer or approval routing changed"
+            accepted = True
             print(f"PASS {mode}: four menu selections, current marker, two shortcuts, "
                   f"same thread, no model turn; native settings events={len(events) if server else 'embedded acknowledgements'}",
                   flush=True)
@@ -267,6 +293,8 @@ requires_openai_auth = false
                 process.kill()
                 process.wait()
             os.close(master)
+            (root / "terminal.log").write_bytes(transcript)
+            (root / "result.json").write_text(json.dumps({"accepted": accepted, "mode": mode, "client_exit": process.returncode, "settings_events": len(notifications(trace, "thread/settings/updated")), "model_turns": len(notifications(trace, "turn/started"))}, indent=2))
 
 
 def main():

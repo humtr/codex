@@ -27,8 +27,6 @@ INPUTS = (
     "frontend/manager-tui/src",
     "frontend/manager-tui/apply.py",
     "frontend/manager-tui/test_apply.py",
-    "frontend/manager-tui/check_backend_boundary.py",
-    "frontend/manager-tui/test_backend_boundary.py",
     "frontend/manager-tui/normalize_lock.py",
     "frontend/manager-tui/test_normalize_lock.py",
     "frontend/manager-tui/check_command_boundary.py",

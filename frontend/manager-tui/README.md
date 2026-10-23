@@ -10,11 +10,10 @@ source or installed baseline. CURRENT records those independently. Every new pai
 must pass exact native/device gates before publication. Official runtime remains
 the sole execution backend.
 
-`native.patch` contains integration changes to existing upstream files. Exact
-backend configuration guards and reviewer routing restore Untrusted automatic
-review only when an absolute Core binding is present. The strict
-`check_backend_boundary.py` rejects all other backend changes. Native command
-classification, review decisions and managed constraints retain upstream behavior.
+`native.patch` contains TUI integration changes to existing upstream files.
+Backend configuration, command classification, approval eligibility and Guardian
+reviewer behavior remain unchanged. Approve for me retains OnRequest/AutoReview;
+it reviews native approval requests rather than all ordinary commands.
 The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable

@@ -1,4 +1,4 @@
-"""Owned Android reviewer admission/effect proof without prompt exec rules.
+"""Owned Android proof of native OnRequest/AutoReview approval routing.
 
 Uses a local synthetic Responses server; preserves original native records and
 does not change any operating account, service or selected generation.
@@ -40,9 +40,13 @@ def probe(args):
         program = work / 'owned-effect'
         program.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf effect > "${0}.effect"\nprintf "OWNED_NATIVE_REVIEW_EFFECT\\n"\n')
         program.chmod(0o700)
-        # The ordinary untrusted classifier must request review for this unknown
-        # executable. No prefix_rule, sandbox escalation or prompt instruction.
+        # A single explicit native approval rule is a legitimate OnRequest
+        # trigger. It exists only in this owned fixture, never in user config.
         assert not (home / '.codex/rules').exists()
+        if args.trigger == 'prompt-rule':
+            rules = home / '.codex/rules'
+            rules.mkdir(mode=0o700)
+            (rules / 'owned.rules').write_text('prefix_rule(pattern = [' + json.dumps(str(program)) + '], decision = "prompt")\n')
         for name in ['native-models.json', 'models_cache.json']:
             path = home / '.codex' / name
             catalog = json.loads(path.read_text())
@@ -122,14 +126,10 @@ def probe(args):
         threading.Thread(target=model.serve_forever, daemon=True).start()
         env['OPENAI_BASE_URL'] = f'http://127.0.0.1:{model.server_port}/v1'
         config = home / '.codex/config.toml'
-        text = config.read_text().replace('approval_policy = "never"', 'approval_policy = "untrusted"')
+        text = config.read_text().replace('approval_policy = "never"', 'approval_policy = "on-request"')
         text = text.replace('approvals_reviewer = "user"', 'approvals_reviewer = "auto_review"')
-        if args.select_in_menu:
-            assert args.decision == 'allow'
-            text = text.replace('approval_policy = "untrusted"', 'approval_policy = "on-request"')
-            text = text.replace('approvals_reviewer = "auto_review"', 'approvals_reviewer = "user"')
         if args.decision == 'full-access':
-            text = text.replace('approval_policy = "untrusted"', 'approval_policy = "never"')
+            text = text.replace('approval_policy = "on-request"', 'approval_policy = "never"')
             text = text.replace('approvals_reviewer = "auto_review"', 'approvals_reviewer = "user"')
         text = text.replace('[features]\n', '[features]\nguardian_approval = true\nplugins = false\n')
         text += '\n[projects.' + json.dumps(str(work)) + ']\ntrust_level="trusted"\n'
@@ -173,17 +173,6 @@ def probe(args):
             server_owners.append((pid, Path(f'/proc/{pid}/exe').resolve(), Path(f'/proc/{pid}/stat').read_text().split(')')[1].split()[19]))
         assert server_owners, 'owned native server identity must be retained before the one turn'
         result['thread'] = thread
-        if args.select_in_menu:
-            rpc(home, 'thread/inject_items', {'threadId': thread, 'items': [{'type': 'message',
-                'role': 'user', 'content': [{'type': 'input_text', 'text': 'Owned UI settings qualification marker; no command requested.'}]}]})
-            os.write(master, b'/permissions\r')
-            wait(lambda: 'Approve for me' in screen)
-            os.write(master, b'\x1b[B\r')
-            wait(lambda: tomllib.loads(config.read_text()).get('approval_policy') == 'untrusted')
-            state = rpc(home, 'thread/resume', {'threadId': thread})
-            assert state['approvalPolicy'] == 'untrusted' and state['approvalsReviewer'] == 'auto_review', state
-            assert state['sandbox']['type'] == 'dangerFullAccess', state
-            result['nativeMenuSelection'] = {key: state[key] for key in ['approvalPolicy', 'approvalsReviewer', 'sandbox']}
         rpc(home, 'turn/start', {'threadId': thread, 'input': [{'type': 'text',
             'text': 'Run the one owned-effect program in this disposable workspace once, then report its native result.',
             'text_elements': []}]})
@@ -191,15 +180,28 @@ def probe(args):
             {'threadId': thread, 'includeTurns': True})['thread']['status']['type'] == 'idle')
         effect = program.with_name(program.name + '.effect').exists()
         assert effect == (args.decision in ['allow', 'full-access']), (args.decision, counts, effect)
-        assert (counts['guardian'] == 0) if args.decision == 'full-access' else (counts['guardian'] >= 1), counts
-        assert not (home / '.codex/rules').exists()
-        result.update(accepted=True, counts=counts, commandEffect=effect, promptRules=False,
+        reviewed = args.trigger == 'prompt-rule' and args.decision != 'full-access'
+        assert (counts['guardian'] >= 1) if reviewed else (counts['guardian'] == 0), counts
+        result.update(accepted=True, counts=counts, commandEffect=effect, promptRules=args.trigger == 'prompt-rule',
+            trigger=args.trigger, approvalPolicy='never' if args.decision == 'full-access' else 'on-request',
             actualAndroidTerminal=True, realModelInference=False, productionChanged=False,
             maximumNativeSocketBytes=check_native_socket_budget(home),
             input_sha256={'core': hashlib.sha256(args.core.read_bytes()).hexdigest(),
                 'generation': hashlib.sha256((args.generation / 'generation.meta').read_bytes()).hexdigest()})
+        contexts = []
+        for rollout in (home / '.codex/sessions').rglob('*.jsonl'):
+            for line in rollout.read_text().splitlines():
+                row = json.loads(line)
+                if row.get('type') == 'turn_context' and row['payload'].get('thread_id', thread) == thread:
+                    payload = row['payload']
+                    if payload.get('cwd') == str(work):
+                        contexts.append({key: payload.get(key) for key in ['approval_policy', 'approvals_reviewer', 'sandbox_policy', 'permission_profile']})
+        expected_policy = 'never' if args.decision == 'full-access' else 'on-request'
+        assert any(row['approval_policy'] == expected_policy and row['approvals_reviewer'] == ('user' if args.decision == 'full-access' else 'auto_review') and row['sandbox_policy']['type'] == 'danger-full-access' for row in contexts), contexts
+        result['nativeContexts'] = contexts
         return result
     except BaseException as error:
+        result['accepted'] = False
         result['error'] = type(error).__name__ + ': ' + str(error)
         raise
     finally:
@@ -247,7 +249,10 @@ if __name__ == '__main__':
     parser.add_argument('--generation', type=Path, required=True)
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--manager', type=Path)
-    parser.add_argument('--select-in-menu', action='store_true')
+    parser.add_argument('--trigger', choices=['prompt-rule', 'ordinary'], default='prompt-rule')
     parser.add_argument('--decision', choices=['allow', 'deny', 'failure', 'full-access'], required=True)
     parser.add_argument('--report', type=Path, required=True)
-    print(json.dumps(probe(parser.parse_args())))
+    args = parser.parse_args()
+    if args.trigger == 'ordinary' and args.decision not in ['allow', 'full-access']:
+        parser.error('ordinary control has no review decision')
+    print(json.dumps(probe(args)))

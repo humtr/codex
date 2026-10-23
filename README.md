@@ -158,14 +158,14 @@ an earlier thread or `codex resume THREAD_ID` for a known thread. `codex exec "T
 Core. Full also offers `/switch` for configured accounts. Ordinary configuration
 does not force a model or reasoning effort.
 
-Use `/permissions` to select **Approve for me** for native automatic review of
-commands not already trusted. This is common Codex behavior for ordinary models;
-it does not require the ChatGPT Provider or MCP. **Ask for approval** uses user
-approval, and **Full Access** is a separate mode without automatic review.
-Termux runs these modes without Linux filesystem/network isolation. Existing
-explicit settings are preserved; after upgrading from the old OnRequest/Auto
-pair, select Approve for me again to use the corrected Untrusted/Auto policy.
-ChatGPT-backed model review compatibility is a separate qualification scope.
+Use `/permissions` to select **Approve for me**. Native Codex automatically
+reviews actions that its approval policy sends for approval; ordinary allowed
+commands can run without a reviewer call. Termux uses `danger-full-access` with
+`on-request` and `auto_review`, retaining upstream approval triggers. **Full
+Access** also selects `never`; it is a different choice. These modes provide no
+Linux filesystem/network isolation. Native automatic review does not require
+the ChatGPT Provider, MCP or Manager. ChatGPT-backed model compatibility remains
+a separate verification scope.
 
 ### Terminal with Termux Bridge tools
 
