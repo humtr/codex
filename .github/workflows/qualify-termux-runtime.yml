@@ -524,8 +524,11 @@ jobs:
           if test "$BASE_ONLY" != true && ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/manager.err"; then
             verify_failed=1
           fi
-          if ! grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
-            "$RUNNER_TEMP/core.out"; then
+          # Help wording is not a wire protocol. Verify the updater entry and
+          # required manual wait choices without freezing the complete sentence.
+          if ! grep -Fq 'usage: codex update ' "$RUNNER_TEMP/core.out" ||
+             ! grep -Fq -- '--wait' "$RUNNER_TEMP/core.out" ||
+             ! grep -Fq -- '--no-wait' "$RUNNER_TEMP/core.out"; then
             verify_failed=1
           fi
           if ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/core.err"; then
