@@ -62,10 +62,9 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 A–H are complete at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-[CURRENT](CURRENT.md#operating-baseline) records accepted sources, signed releases,
-device selections and actual running processes. This device selects Full96 and
-ChatGPT Provider release sequence4; existing sessions keep their pinned executable
-until normal exit. Ordinary account configuration does not force a model.
+[CURRENT](CURRENT.md#operating-baseline) owns accepted sources, signed releases,
+device selections and actual running processes. Existing sessions keep their pinned
+executable until normal exit. Ordinary account configuration does not force a model.
 
 Fresh Core installation exists. Provider app provisioning, first login and remote
 connection setup still require the [manual steps below](#fresh-install) and the
