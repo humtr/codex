@@ -40,14 +40,6 @@ def probe(args):
     try:
         check_native_socket_budget(root / 'h')
         home, prefix, env = fixture(root, args.core, args.frontend)
-        if args.shared_sessions:
-            # Match Manager's real account layout instead of testing only a
-            # physical sessions directory inside an isolated CODEX_HOME.
-            shared = root / 'shared-sessions'
-            shared.mkdir(mode=0o700)
-            sessions = home / '.codex/sessions'
-            assert not sessions.exists() and not sessions.is_symlink()
-            sessions.symlink_to(shared, target_is_directory=True)
         if args.without_manager:
             # Verified generated fixture copy only; never the installed Manager.
             manager=home/'.local/lib/codex/core/generations/local-permission-fixture/manager'
@@ -134,6 +126,15 @@ def probe(args):
         config.write_text('openai_base_url=' + json.dumps(address) + '\n' +
                           config.read_text() + '\n[projects.' + json.dumps(str(root / 'w')) +
                           ']\ntrust_level="trusted"\n')
+        if args.shared_sessions:
+            # Let Core prepare the same supported shared topology as a Manager
+            # account, rather than substituting the canonical history root.
+            account = home / '.local/share/codex/manager/profiles/fixture/home'
+            account.mkdir(parents=True, mode=0o700)
+            for path in (home / '.codex').iterdir():
+                assert path.is_file() and not path.is_symlink()
+                shutil.copy2(path, account / path.name)
+            env['CODEX_HOME'] = str(account)
 
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
@@ -242,7 +243,7 @@ def probe(args):
             rollout = Path(snapshot['path'])
             if args.shared_sessions:
                 assert rollout != rollout.resolve(), 'backend must return the account alias path'
-                assert rollout.resolve().is_relative_to(root / 'shared-sessions')
+                assert rollout.resolve().is_relative_to(home / '.codex/sessions')
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
             assert records and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread
             settings = records[1:]
