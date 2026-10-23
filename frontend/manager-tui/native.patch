@@ -755,7 +755,7 @@ index aa5de8b..c27a44b 100644
 +#[path = "termux_chat_model_selection_tests.rs"]
 +mod termux_chat_model_selection_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index a91e85c..6bd4ecf 100644
+index a91e85c..694c645 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
 @@ -120,7 +120,12 @@ impl ChatWidget {
@@ -772,15 +772,6 @@ index a91e85c..6bd4ecf 100644
                          is_current: current_review_policy == ApprovalsReviewer::AutoReview
                              && (Self::preset_matches_current(
                                  current_approval,
-@@ -141,7 +146,7 @@ impl ChatWidget {
-                             /*return_to_permissions*/ !include_read_only,
-                         ),
-                         dismiss_on_select: true,
--                        disabled_reason: approval_disabled_reason
-+                        disabled_reason: default_disabled_reason
-                             .or_else(|| guardian_disabled_reason(true)),
-                         ..Default::default()
-                     });
 @@ -410,6 +415,9 @@ impl ChatWidget {
                      && current_permission_profile.network_sandbox_policy()
                          == preset.permission_profile.network_sandbox_policy()
