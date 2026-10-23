@@ -8,13 +8,29 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-The user reports that a genuinely fresh session still refuses `/model` in Full96.
-Read-only inspection confirms its account `sessions` directory is a symlink to
-the shared history root; the previous blank-rollout guard rejects the backend's
-legitimate account path. The earlier isolated physical-directory proof did not
-cover this installed Manager layout. Correct the directory alias handling while
-retaining containment, leaf no-follow, file identity and metadata-only checks;
-qualify the real shared layout, publish and activate before claiming resolution.
+The fresh shared-account `/model` correction is committed/pushed, signed as
+Full97/sourcecb1684b2, and applied on this device (previous Full96). The backend
+reported the account's `sessions` alias while the guard demanded a physical
+path; the previous physical-directory fixture missed the real shared topology.
+Parent resolution now accepts that alias while retaining containment, leaf
+no-follow, ownership/mode/size, inode/time stability and root metadata checks.
+
+Native39926532880 builds and passes53 focused regressions, retained upstream
+feature gates and lint; its raw SHA256 is9454f44a2271ca9c0ab421ddeff91df22bd0a025f154e11616233b99ac49356d.
+Actual Android registered-account and no-Manager shared-home roundtrips pass
+with0 model requests/checkpoints and2 native settings audit events each. The
+old Full96 failure remains preserved. A completed direct-home roundtrip had a
+bad final lexical-path observer assertion; original native audits were accepted
+offline without replay. The later registered entry is a distinct fixture scope.
+
+Publication39932543113 passes signing, complete public readback, disposable
+update and non-forced stable promotion. Device96→97 exits0; installed TUI SHA256
+a3be875524a6e83b6eee45d2ec8189e18ec647aeeb9b234908048bdcc66ae654 matches
+exactly the candidate's common54-byte FD adaptation. Core/Manager/runtime and
+Provider bytes are unchanged; all14 protected config/auth hashes and8 service
+process identities remain unchanged. Existing model preferences were preserved.
+Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/shared-fix-delivery.json`.
+Existing clients retain their old executable until normal exit; new clients use97.
 
 Separate authorized work remains in progress: native automatic review for
 untrusted commands with Full Access separate; official0.164 qualification; and
@@ -62,7 +78,7 @@ source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted
 G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 
-The operating device update is complete: signed Full96 (previous Full95),
+The operating device update is complete: signed Full97 (previous Full96),
 ChatGPT Provider release sequence4 (previous3), generated Rust profile, same-account native
 host and existing Termux Bridge tunnel on a permanent path.0 new real model requests.
 The entrypoint/fresh-user guide is documented. The user has deferred minimum
@@ -74,7 +90,7 @@ now distinguishes current MCP selection/short task
 requests from proposed reusable skill/UI conveniences. No setup command, bundled
 workflow skill or task panel is shipped. G/H needs no replay or additional release
 for documentation. Existing clients remain pinned until normal exit; new launches
-use the selected Full96.
+use the selected Full97.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
 sequences identify publications, not another component name. The bridge
@@ -225,8 +241,8 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 | Plane | Verified state |
 | --- | --- |
 | Implementation | Empty-session TUI correctionf2cec230, qualification driverb56abc55 and accepted frontend registration786b7e28 committed/pushed. Native52 focused/94 upstream tests and lint, Android empty/history transitions with/without Manager, exact source/Core gates pass. Unchanged runtime retains full364 Rust/141 Python/Clippy and Provider168 Rust/68 JavaScript/82 Python evidence; Provider28/Core1 opt-in tests remain explicitly ignored |
-| Public Core | Base89; Full96/source786b7e28, signed/read back/qualified/promoted by39906074479. Earlier Full95/81890a7, Full94/e0f0927 and G's Full93/Full90 retain their original scopes |
-| Operating Core | Signed Full96, previous95, upstream0.163.0; actual95→96 exit0 and installed frontend hash matches Android-qualified bytes. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full96, existing clients remain pinned |
+| Public Core | Full97/sourcecb1684b2, signed/read back/qualified/promoted by39932543113. Full96/source786b7e28 retains39906074479 proof. Earlier Full95/81890a7, Full94/e0f0927 and G's Full93/Full90 retain their original scopes |
+| Operating Core | Signed Full97, previous96, upstream0.163.0; actual96→97 exit0 and installed frontend hash matches Android-qualified bytes. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full97, existing clients remain pinned |
 | Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
@@ -234,10 +250,12 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 ### Latest handoff boundary
 
-The latest boundary is `empty-model-switch-20261023T043019Z`: selected Full96,
-previous95, accepted native sourcef2cec230, final source786b7e28, publication
-39906074479 and actual device activation. Provider4, same-account ready host,
-service/tdev/root/monitor identities and protected config/auth are unchanged.
+The latest completed boundary is the shared-session hotfix under
+`auto-review-policy-20261023T080559Z`: Full97, previous96, native sourcedf75d98,
+registered sourcecb1684b2, publication39932543113 and actual device activation.
+Provider4, same-account ready host, service/tdev/root/monitor identities and
+protected config/auth remain unchanged. Separate automatic-review and0.164
+update implementation is still in progress; its prototype is not a public release.
 The prior `binding-release-20261023T030234Z` owns authenticated16-tool MCP,
 remote polling and original Provider failed-update/lease records. Read those
 before Provider maintenance; neither that publication nor its effects need

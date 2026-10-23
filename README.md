@@ -182,7 +182,8 @@ managed Chat work additionally needs the app/login and project configuration.
 First complete [Provider setup](providers/chatgpt/README.md#first-time-setup).
 In Full, run `codex`, open `/model`, and choose the Provider's ChatGPT model and
 effort. A fresh idle session can switch before its first message; no initial
-prompt or thread name is required. The same thread is retained without an empty
+prompt or thread name is required. This includes Manager accounts that share
+the sessions directory. The same thread is retained without an empty
 checkpoint. After updating Full, exit and reopen an existing Codex client to use
 the updated picker. For Base or explicit configuration selection:
 
