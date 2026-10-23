@@ -8,6 +8,20 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
+New correction in progress: a genuinely fresh idle `/model` provider switch
+reproduces `the complete public conversation could not be read` on Full95.
+The qualified backend's exact `list_turns is not supported yet` response occurs
+after blank-thread persistence. A named-thread control succeeds; do not name,
+submit to or pre-read full history in the fresh-thread regression. The TUI source
+now verifies a bounded canonical metadata-only root rollout before treating this
+specific rejection as empty, rechecks before re-entry, and skips empty checkpoints.
+Existing/nonempty/unknown history remains strict. Native frontend build,52 focused
+tests, fresh Android terminal proof, signed publication and device activation
+are pending; this source edit alone does not change the installed Full95.
+Private evidence: `~/.cache/codex/acceptance/empty-model-switch-20261023T043019Z`
+(`~/.local/state/codex/empty-model-switch-latest-root`). No user session input or
+model request was submitted during reproduction. Provider release4 is unchanged.
+
 A–D, E design, F1–F9 bounded integration, G qualification/public delivery and H
 source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted

@@ -48,7 +48,7 @@ preview assets remain protected until their clients exit.
 The frontend passes its upstream-resolved model catalog to Core's existing
 backend coordinator before local startup. Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
-Manager discovers both native and catalog-bound writers. The current50-test native
+Manager discovers both native and catalog-bound writers. The current52-test native
 gate includes catalog handoff, socket-output rejection and Core daemon ownership
 alongside profile, permission, window and upstream command regressions. Separate
 upstream-feature gates exercise0.162's managed worktrees, shared pinning, copy/
@@ -67,7 +67,15 @@ Current source consumes Provider-owned configuration/capability data instead of
 hardcoded Chat model/effort lists, retaining native session actions for same-Chat
 changes. Do not count that completed source change as a new implementation task.
 Context/project settings remain Provider configuration, not separate TUI policy.
-The source cross-provider path asks the explicitly selected candidate Provider to
+For an empty idle session, model switching preserves the same UUID and adds no
+checkpoint or synthetic turn. The qualified backend can reject full-history
+reads before the first message. Only its exact known rejection plus an owned,
+stable, bounded rollout containing solely matching root session metadata permits
+empty re-entry; inherited/extra history and unknown read failures still refuse.
+The Android transition driver has an `--empty-roundtrip` proof that does not name
+the thread, read its full history or send a model turn before selecting `/model`.
+
+For a nonempty session, the source cross-provider path asks the explicitly selected candidate Provider to
 encode a complete idle public snapshot and persists it through upstream's existing
 `thread/inject_items`; no Core or Manager changes are involved. Ordinary return
 from Chat resumes the same native thread and its existing history without a new

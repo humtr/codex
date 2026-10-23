@@ -24,10 +24,11 @@ import time
 import termios
 
 from qualify_permission_lifecycle import fixture, rpc, server_paths
+from qualify_provider_chat_entry import check_native_socket_budget
 
 
 def probe(args):
-    root = Path(tempfile.mkdtemp(prefix='chat-tui-', dir=os.environ['TMPDIR']))
+    root = Path(tempfile.mkdtemp(prefix='ct.', dir=os.environ['TMPDIR']))
     process = master = server = None
     accepted = False
     requests, failures = [], []
@@ -35,6 +36,7 @@ def probe(args):
     reentry_observations = []
     home = None
     try:
+        check_native_socket_budget(root / 'h')
         home, prefix, env = fixture(root, args.core, args.frontend)
         if args.without_manager:
             # Verified generated fixture copy only; never the installed Manager.
@@ -209,6 +211,31 @@ def probe(args):
             except (OSError,ValueError):pass
         (root/'safe-runtime.json').write_text(json.dumps(diagnostics,indent=2)+'\n')
         assert len(diagnostics)==1, 'the selected Core did not execute the qualified frontend; use --build-core or verify the artifact source'
+        if args.empty_roundtrip:
+            def empty_metadata(provider):
+                snapshot = rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})['thread']
+                return snapshot['id'] == thread and snapshot['status']['type'] == 'idle' and snapshot['modelProvider'] == provider
+
+            # A genuine fresh thread: do not name it or query full history first.
+            # Those operations can materialize history and mask this regression.
+            choose_other_provider()
+            wait(lambda: empty_metadata('chatgpt_desktop'))
+            assert not requests, 'empty native to Chat selection must not infer'
+            choose_other_provider()
+            wait(lambda: empty_metadata('openai'))
+            assert not requests, 'empty Chat to native selection must not infer'
+            snapshot = public(thread)
+            assert snapshot['turns'] == [], 'empty selection must not add a public turn'
+            rollout = Path(snapshot['path'])
+            records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
+            assert not any(row.get('type') in ('response_item', 'compacted') for row in records), 'empty selection must not inject a checkpoint'
+            accepted = True
+            return {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
+                    'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
+                    'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
+                    'maximumNativeSocketBytes': check_native_socket_budget(home),
+                    'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
+                                     for name in ['core', 'frontend', 'provider']}}
         rpc(home, 'thread/name/set', {'threadId': thread, 'name': 'Owned transition fixture'})
         drain(.5)
         submit('Keep OWNED_PUBLIC_WORK_STATE_7K2Q while changing providers')
@@ -289,6 +316,8 @@ if __name__ == '__main__':
     for name in ['frontend', 'provider', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--without-manager', action='store_true')
+    parser.add_argument('--empty-roundtrip', action='store_true',
+                        help='switch a genuinely fresh thread native to Chat and back without any model turn')
     args = parser.parse_args()
     if args.build_core:
         source=Path(__file__).resolve().parents[1]

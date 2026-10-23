@@ -5,7 +5,9 @@ use crate::termux_chat_models;
 use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ReasoningEffort;
 use serde_json::Value;
+use std::io::Read;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -212,6 +214,122 @@ pub(super) async fn prepare(
     }
     plan(app, server, model, effort, request_summary).await
 }
+
+fn blank_history_read_error(error: &color_eyre::Report, thread: ThreadId) -> bool {
+    matches!(
+        error.downcast_ref::<codex_app_server_client::TypedRequestError>(),
+        Some(codex_app_server_client::TypedRequestError::Server { method, source })
+            if method == "thread/read"
+                && ((source.code == -32601 && source.message == "list_turns is not supported yet")
+                    || (source.code == -32600 && source.message == format!(
+                        "thread {thread} is not materialized yet; includeTurns is unavailable before first user message"
+                    )))
+    )
+}
+
+// Metadata-only thread reads omit turns even for populated threads. The backend
+// error alone is never evidence of emptiness: require the complete canonical
+// rollout to contain exactly one root session metadata record, using upstream's
+// decoder and without changing history or asking a model to materialize it.
+fn blank_rollout(
+    config: &crate::legacy_core::config::Config,
+    snapshot: &Value,
+    thread: ThreadId,
+) -> bool {
+    let Some(path) = snapshot["path"].as_str().map(PathBuf::from) else {
+        return false;
+    };
+    let Ok(sessions) = std::fs::canonicalize(config.codex_home.join("sessions")) else {
+        return false;
+    };
+    if snapshot["id"] != thread.to_string()
+        || snapshot["status"]["type"] != "idle"
+        || snapshot["ephemeral"] != false
+        || snapshot["turns"]
+            .as_array()
+            .is_none_or(|turns| !turns.is_empty())
+        || !path.starts_with(&sessions)
+        || std::fs::canonicalize(&path).ok().as_ref() != Some(&path)
+    {
+        return false;
+    }
+    let Ok(file) = std::fs::File::options()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&path)
+    else {
+        return false;
+    };
+    let Ok(before) = file.metadata() else {
+        return false;
+    };
+    const LIMIT: u64 = 32 * 1024 * 1024;
+    if !before.is_file()
+        || before.uid() != unsafe { libc::geteuid() }
+        || before.mode() & 0o022 != 0
+        || before.len() > LIMIT
+    {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    if (&file).take(LIMIT + 1).read_to_end(&mut bytes).is_err()
+        || bytes.len() as u64 != before.len()
+    {
+        return false;
+    }
+    let Ok(after) = std::fs::symlink_metadata(&path) else {
+        return false;
+    };
+    if (
+        before.dev(),
+        before.ino(),
+        before.len(),
+        before.mtime(),
+        before.mtime_nsec(),
+        before.ctime(),
+        before.ctime_nsec(),
+    ) != (
+        after.dev(),
+        after.ino(),
+        after.len(),
+        after.mtime(),
+        after.mtime_nsec(),
+        after.ctime(),
+        after.ctime_nsec(),
+    ) {
+        return false;
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+        return false;
+    };
+    let Ok(line) = codex_rollout::decode_rollout_line(value) else {
+        return false;
+    };
+    matches!(line.item, codex_rollout::RolloutItem::SessionMeta(meta)
+        if meta.meta.id == thread && meta.meta.session_id == thread.into()
+            && meta.meta.forked_from_id.is_none()
+            && meta.meta.forked_from_ordinal_exclusive.is_none()
+            && meta.meta.parent_thread_id.is_none()
+            && meta.meta.history_base.is_none()
+            && meta.meta.subagent_history_start_ordinal.is_none())
+}
+
+async fn public_snapshot(
+    server: &mut AppServerSession,
+    config: &crate::legacy_core::config::Config,
+    thread: ThreadId,
+) -> Option<Value> {
+    match server.thread_read(thread, true).await {
+        Ok(snapshot) => serde_json::to_value(snapshot).ok(),
+        Err(error) if blank_history_read_error(&error, thread) => {
+            let snapshot =
+                serde_json::to_value(server.thread_read(thread, false).await.ok()?).ok()?;
+            blank_rollout(config, &snapshot, thread).then_some(snapshot)
+        }
+        Err(_) => None,
+    }
+}
+
 async fn plan(
     app: &mut App,
     server: &mut AppServerSession,
@@ -289,25 +407,45 @@ async fn plan(
         );
         return None;
     }
-    let snapshot =
-        match tokio::time::timeout(Duration::from_secs(10), server.thread_read(thread, true)).await
-        {
-            Ok(Ok(snapshot)) => serde_json::to_value(snapshot).ok()?,
-            _ => {
-                app.chat_widget.add_error_message(
-                    "Model provider unchanged: the complete public conversation could not be read."
-                        .into(),
-                );
-                return None;
-            }
-        };
+    let snapshot = match tokio::time::timeout(
+        Duration::from_secs(10),
+        public_snapshot(server, app.chat_widget.config_ref(), thread),
+    )
+    .await
+    {
+        Ok(Some(snapshot)) => snapshot,
+        _ => {
+            app.chat_widget.add_error_message(
+                "Model provider unchanged: the complete public conversation could not be read."
+                    .into(),
+            );
+            return None;
+        }
+    };
     if snapshot["status"]["type"] != "idle" {
         app.chat_widget.add_error_message(
             "Model provider unchanged: conversation work is not settled.".into(),
         );
         return None;
     }
-    if entering {
+    let empty = snapshot["turns"].as_array().is_some_and(Vec::is_empty);
+    if empty {
+        // No history needs encoding, including when leaving a never-used Chat
+        // route. Confirm the source did not acquire a turn while preparing.
+        let confirmed = tokio::time::timeout(
+            Duration::from_secs(10),
+            public_snapshot(server, app.chat_widget.config_ref(), thread),
+        )
+        .await
+        .ok()??;
+        if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
+            app.chat_widget.add_error_message(
+                "Model provider unchanged: the conversation changed during context preparation."
+                    .into(),
+            );
+            return None;
+        }
+    } else if entering {
         let Some(checkpoint) = encode_checkpoint(
             app.chat_widget.config_ref(),
             &snapshot,
@@ -373,6 +511,123 @@ async fn plan(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn termux_chat_models_blank_history_errors_are_exact_and_thread_bound() {
+        use codex_app_server_client::TypedRequestError;
+        use codex_app_server_protocol::JSONRPCErrorError;
+        let thread = ThreadId::new();
+        let blank = format!(
+            "thread {thread} is not materialized yet; includeTurns is unavailable before first user message"
+        );
+        for (method, code, message, accepted) in [
+            (
+                "thread/read",
+                -32601,
+                "list_turns is not supported yet".to_string(),
+                true,
+            ),
+            ("thread/read", -32600, blank.clone(), true),
+            ("thread/read", -32603, blank.clone(), false),
+            (
+                "thread/read",
+                -32600,
+                blank.replace(&thread.to_string(), &ThreadId::new().to_string()),
+                false,
+            ),
+            (
+                "thread/read",
+                -32601,
+                "thread/items/list is not supported yet".into(),
+                false,
+            ),
+            ("thread/read", -32600, "no rollout found".into(), false),
+            (
+                "thread/resume",
+                -32601,
+                "list_turns is not supported yet".into(),
+                false,
+            ),
+        ] {
+            let error: color_eyre::Report = TypedRequestError::Server {
+                method: method.into(),
+                source: JSONRPCErrorError {
+                    code,
+                    message,
+                    data: None,
+                },
+            }
+            .into();
+            assert_eq!(blank_history_read_error(&error, thread), accepted);
+        }
+        assert!(!blank_history_read_error(
+            &color_eyre::eyre::eyre!("transport lost"),
+            thread
+        ));
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_blank_rollout_requires_only_owned_root_metadata() {
+        use std::os::unix::fs::PermissionsExt;
+        let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
+        let root = tempfile::tempdir().unwrap();
+        let mut config = app.config.clone();
+        config.codex_home =
+            codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
+        let sessions = root.path().join("sessions");
+        std::fs::create_dir(&sessions).unwrap();
+        let path = sessions.join("blank.jsonl");
+        let thread = ThreadId::new();
+        let meta = codex_protocol::protocol::SessionMeta {
+            id: thread,
+            session_id: thread.into(),
+            ..Default::default()
+        };
+        let record =
+            json!({"timestamp":"2026-10-23T00:00:00Z","type":"session_meta","payload":meta});
+        let snapshot = json!({"id":thread.to_string(),"status":{"type":"idle"},"ephemeral":false,"path":path,"turns":[]});
+        let bytes = serde_json::to_vec(&record).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(blank_rollout(&config, &snapshot, thread));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        for extra in [
+            json!({"type":"response_item","payload":{"type":"message","role":"user"}}),
+            record.clone(),
+        ] {
+            std::fs::write(&path, format!("{record}\n{extra}\n")).unwrap();
+            assert!(!blank_rollout(&config, &snapshot, thread));
+        }
+        for field in ["forked_from_id", "parent_thread_id"] {
+            let mut inherited = record.clone();
+            inherited["payload"][field] = json!(ThreadId::new());
+            std::fs::write(&path, inherited.to_string()).unwrap();
+            assert!(!blank_rollout(&config, &snapshot, thread));
+        }
+        std::fs::write(&path, b"{truncated").unwrap();
+        assert!(!blank_rollout(&config, &snapshot, thread));
+        std::fs::write(&path, &bytes).unwrap();
+        for (field, value) in [
+            ("id", json!(ThreadId::new())),
+            ("status", json!({"type":"active"})),
+            ("ephemeral", json!(true)),
+            ("turns", json!([{"id":"turn"}])),
+        ] {
+            let mut changed = snapshot.clone();
+            changed[field] = value;
+            assert!(!blank_rollout(&config, &changed, thread));
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(!blank_rollout(&config, &snapshot, thread));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = sessions.join("alias.jsonl");
+        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        let mut linked = snapshot.clone();
+        linked["path"] = json!(alias);
+        assert!(!blank_rollout(&config, &linked, thread));
+        std::fs::remove_file(&path).unwrap();
+        assert!(!blank_rollout(&config, &snapshot, thread));
+    }
+
     #[tokio::test]
     async fn termux_chat_models_checkpoint_child_receives_eof_without_starting_auth() {
         use std::os::unix::fs::PermissionsExt;

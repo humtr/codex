@@ -65,6 +65,15 @@ update authority is maintained.
   transition. Ordinary model selection reuses the same upstream-owned history
   without requesting or waiting for a new source-model summary. Upstream retains
   its own conditional context-limit and compaction-compatibility handling.
+  A newly persisted, idle conversation with no user turns may cross the provider
+  boundary without a context checkpoint. If the qualified backend rejects full
+  history before its first message, accept only its exact recognized response
+  after a metadata read and a bounded, owned, stable native rollout containing
+  solely that thread's canonical session metadata prove it is empty. Forked or
+  inherited history, extra records, malformed/unsafe files and all other read
+  failures remain refusals. Revalidate emptiness before re-entry; preserve the
+  same UUID/home/CWD and submit no synthetic message, summary, metadata rewrite
+  or empty checkpoint merely to make switching work.
   Selected config profiles survive; no Chat slug is persisted into
   an ordinary default. `--profile chatgpt` remains an upstream config fallback,
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
