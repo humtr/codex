@@ -158,6 +158,15 @@ an earlier thread or `codex resume THREAD_ID` for a known thread. `codex exec "T
 Core. Full also offers `/switch` for configured accounts. Ordinary configuration
 does not force a model or reasoning effort.
 
+Use `/permissions` to select **Approve for me**. Native Codex automatically
+reviews actions that its approval policy sends for approval; ordinary allowed
+commands can run without a reviewer call. Termux uses `danger-full-access` with
+`on-request` and `auto_review`, retaining upstream approval triggers. **Full
+Access** also selects `never`; it is a different choice. These modes provide no
+Linux filesystem/network isolation. Native automatic review does not require
+the ChatGPT Provider, MCP or Manager. ChatGPT-backed model compatibility remains
+a separate verification scope.
+
 ### Terminal with Termux Bridge tools
 
 You can also register Provider's `mcp-stdio` wrapper as a local Codex MCP server.

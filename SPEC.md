@@ -3064,6 +3064,12 @@ leases and shared conversation preparation remain Core-owned in this slice.
 
 ### Termux permission selection
 
+Approve for me selects the upstream automatic reviewer for native approval
+requests. It does not promise a model review for every command. Preserve
+OnRequest eligibility and establish a specific missing reviewer invocation
+before changing approval behavior. Do not restore Untrusted or broaden admission
+merely because ordinary allowed commands showed no review.
+
 For a qualified Termux runtime, the upstream TUI permission picker and its
 permission shortcuts must preserve the supported no-sandbox execution policy.
 `Ask for approval` selects `danger-full-access`, `on-request` and the user
