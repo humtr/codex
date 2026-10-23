@@ -45,7 +45,7 @@ async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous
                             assert_eq!(request["sessionId"], "main");
                             json!({"result":{"value":true}})
                         } else {
-                            assert!(text.contains("labels.has('Chat')&&labels.has('Work')"));
+                            assert!(text.contains("[contenteditable=\"true\"]"));
                             assert!(!text.contains(".click(") && !text.contains("fetch("));
                             probes += 1;
                             if case == 3 && request["sessionId"] == "main" {
@@ -94,6 +94,66 @@ async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous
 }
 
 #[tokio::test]
+async fn single_empty_launcher_is_released_before_later_main_window_is_selected() {
+    use codex_chatgpt_provider::protocol::Error;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (native, peer) = tokio::io::duplex(65536);
+    let (read, write) = tokio::io::split(native);
+    let client = Client::pipe(read, write, "cold-start-fixture".into());
+    let peer = tokio::spawn(async move {
+        let (read, mut write) = tokio::io::split(peer);
+        let mut reader = BufReader::new(read);
+        let mut scans = 0;
+        let mut detached = Vec::new();
+        loop {
+            let mut bytes = Vec::new();
+            assert!(reader.read_until(0, &mut bytes).await.unwrap() > 0);
+            bytes.pop();
+            let request: Value = serde_json::from_slice(&bytes).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    scans += 1;
+                    let aux =
+                        json!({"targetId":"launcher","type":"page","url":"app://-/index.html"});
+                    let main = json!({"targetId":"main","type":"page","url":"app://-/index.html"});
+                    json!({"targetInfos":if scans == 1 {json!([aux])} else {json!([aux,main])}})
+                }
+                "Target.attachToTarget" => json!({"sessionId":request["params"]["targetId"]}),
+                "Runtime.evaluate" => {
+                    let probe = request["params"]["expression"].as_str().unwrap();
+                    assert!(probe.contains("contenteditable"));
+                    assert!(
+                        !probe.contains("Chat")
+                            && !probe.contains("Work")
+                            && !probe.contains(".click(")
+                    );
+                    json!({"result":{"value":request["sessionId"]=="main"}})
+                }
+                "Target.detachFromTarget" => {
+                    detached.push(request["params"]["sessionId"].as_str().unwrap().to_owned());
+                    json!({})
+                }
+                _ => panic!("cold discovery must only inspect existing surfaces"),
+            };
+            write
+                .write_all(format!("{}\0", json!({"id":request["id"],"result":result})).as_bytes())
+                .await
+                .unwrap();
+            if scans == 2 && detached.len() == 2 {
+                break;
+            }
+        }
+        assert_eq!(detached, vec!["launcher", "launcher"]);
+    });
+    assert!(matches!(
+        client.app().await,
+        Err(Error("app_target_unavailable"))
+    ));
+    assert!(client.app().await.is_ok());
+    peer.await.unwrap();
+}
+
+#[tokio::test]
 async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_targets() {
     use codex_chatgpt_provider::{
         app::{Bridge, Remote},
@@ -126,6 +186,14 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
                     "Target.attachToTarget" => {
                         assert!(!ambiguous);
                         json!({"sessionId":"owned-session"})
+                    }
+                    "Runtime.evaluate"
+                        if !request["params"]["expression"]
+                            .as_str()
+                            .unwrap()
+                            .contains("const command=") =>
+                    {
+                        json!({"result":{"value":true}})
                     }
                     "Runtime.evaluate" => {
                         let command = request["params"]["expression"]
@@ -232,7 +300,7 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
                 .await
                 .unwrap();
         }
-        for _ in 0..3 {
+        for _ in 0..4 {
             let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                 panic!("expected app request")
             };
@@ -247,7 +315,15 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
                 }
                 "Runtime.evaluate" => {
                     assert_eq!(request["sessionId"], "owned-session");
-                    json!({"result":{"value":{"ready":true}}})
+                    if request["params"]["expression"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("(()=>{const visible=")
+                    {
+                        json!({"result":{"value":true}})
+                    } else {
+                        json!({"result":{"value":{"ready":true}}})
+                    }
                 }
                 _ => panic!("unexpected CDP operation"),
             };
@@ -380,7 +456,7 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
         let peer = tokio::spawn(async move {
             let (socket, _) = socket.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
-            for _ in 0..3 {
+            for _ in 0..4 {
                 let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                     panic!("CDP frame required")
                 };
@@ -390,6 +466,14 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                         json!({"targetInfos":[{"targetId":"owned","type":"page","url":"app://-/index.html"}]})
                     }
                     "Target.attachToTarget" => json!({"sessionId":"owned-session"}),
+                    "Runtime.evaluate"
+                        if request["params"]["expression"]
+                            .as_str()
+                            .unwrap()
+                            .starts_with("(()=>{const visible=") =>
+                    {
+                        json!({"result":{"value":true}})
+                    }
                     "Runtime.evaluate" => {
                         let expression = request["params"]["expression"].as_str().unwrap();
                         let command = expression
@@ -461,6 +545,14 @@ async fn passive_cleanup_does_not_initialize_and_successful_disposal_reinitializ
                     json!({"targetInfos":[{"targetId":"main","type":"page","url":"app://-/index.html"}]})
                 }
                 "Target.attachToTarget" => json!({"sessionId":"main"}),
+                "Runtime.evaluate"
+                    if request["params"]["expression"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("(()=>{const visible=") =>
+                {
+                    json!({"result":{"value":true}})
+                }
                 "Runtime.evaluate" => {
                     let expression = request["params"]["expression"].as_str().unwrap();
                     let command: Value = serde_json::from_str(

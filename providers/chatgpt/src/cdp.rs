@@ -317,86 +317,68 @@ impl Client {
         if roots.is_empty() {
             return Err(Error("app_target_unavailable"));
         }
-        if roots.len() != 1 {
-            let ids = roots
-                .iter()
-                .filter_map(|t| t["targetId"].as_str())
-                .collect::<std::collections::BTreeSet<_>>();
-            if roots.len() > 16 || ids.len() != roots.len() {
-                return Err(Error("unique_app_target_required"));
-            }
-            // Electron pre-creates withdrawn sign-in/launcher index pages. Their
-            // URL is identical, but they have no main Chat/Work surface. Probe
-            // without clicking, changing focus or allocating a conversation.
-            let probe = r#"(()=>{const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
-                if([...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(visible))return true;
-                const labels=new Set([...document.querySelectorAll('button')].filter(visible).map(e=>e.textContent?.trim()));
-                return labels.has('Chat')&&labels.has('Work');})()"#;
-            let mut attached = Vec::new();
-            let selection = async {
-                let mut eligible = Vec::new();
-                for target in roots {
-                    let result = self
-                        .request(
-                            "Target.attachToTarget",
-                            json!({"targetId":target["targetId"],"flatten":true}),
-                            None,
-                        )
-                        .await?;
-                    let session = result["sessionId"]
-                        .as_str()
-                        .ok_or(Error("app_session_unavailable"))?
-                        .to_owned();
-                    attached.push(App {
-                        client: self.clone(),
-                        session,
-                    });
-                    if attached.last().unwrap().evaluate(probe).await? == true {
-                        eligible.push(attached.len() - 1);
-                    }
-                }
-                if eligible.len() == 1 {
-                    Ok(eligible[0])
-                } else {
-                    Err(Error(if eligible.is_empty() {
-                        "app_target_unavailable"
-                    } else {
-                        "unique_app_target_required"
-                    }))
-                }
-            }
-            .await;
-            // Release every inspected auxiliary session, including earlier
-            // candidates when a later page disappears or evaluation fails.
-            for (index, app) in attached.iter().enumerate() {
-                if selection.as_ref().ok() == Some(&index) {
-                    continue;
-                }
-                let _ = self
+        let ids = roots
+            .iter()
+            .filter_map(|t| t["targetId"].as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        if roots.len() > 16 || ids.len() != roots.len() {
+            return Err(Error("unique_app_target_required"));
+        }
+        // Even a single initial index page can be an empty launcher. Require
+        // the visible composer every time; window order/count and localized
+        // button labels cannot establish the active conversation surface.
+        let probe = r#"(()=>{const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
+            return [...document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],textarea')]
+                .some(e=>visible(e)&&!e.disabled);})()"#;
+        let mut attached = Vec::new();
+        let selection = async {
+            let mut eligible = Vec::new();
+            for target in roots {
+                let result = self
                     .request(
-                        "Target.detachFromTarget",
-                        json!({"sessionId":app.session}),
+                        "Target.attachToTarget",
+                        json!({"targetId":target["targetId"],"flatten":true}),
                         None,
                     )
-                    .await;
+                    .await?;
+                let session = result["sessionId"]
+                    .as_str()
+                    .ok_or(Error("app_session_unavailable"))?
+                    .to_owned();
+                attached.push(App {
+                    client: self.clone(),
+                    session,
+                });
+                if attached.last().unwrap().evaluate(probe).await? == true {
+                    eligible.push(attached.len() - 1);
+                }
             }
-            return selection.map(|index| attached.swap_remove(index));
+            if eligible.len() == 1 {
+                Ok(eligible[0])
+            } else {
+                Err(Error(if eligible.is_empty() {
+                    "app_target_unavailable"
+                } else {
+                    "unique_app_target_required"
+                }))
+            }
         }
-        let result = self
-            .request(
-                "Target.attachToTarget",
-                json!({"targetId":roots[0]["targetId"],"flatten":true}),
-                None,
-            )
-            .await?;
-        let session = result["sessionId"]
-            .as_str()
-            .ok_or(Error("app_session_unavailable"))?
-            .to_owned();
-        Ok(App {
-            client: self.clone(),
-            session,
-        })
+        .await;
+        // Release every inspected auxiliary session, including earlier
+        // candidates when a later page disappears or evaluation fails.
+        for (index, app) in attached.iter().enumerate() {
+            if selection.as_ref().ok() == Some(&index) {
+                continue;
+            }
+            let _ = self
+                .request(
+                    "Target.detachFromTarget",
+                    json!({"sessionId":app.session}),
+                    None,
+                )
+                .await;
+        }
+        selection.map(|index| attached.swap_remove(index))
     }
 }
 

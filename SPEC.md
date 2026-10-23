@@ -2255,7 +2255,9 @@ Its failure must not disable native Codex, account commands or window management
 When Electron retains several index-page targets after sign-in, select the sole
 main Chat/Work surface through read-only DOM capability inspection. Do not select
 by target order, activate/create a chat, or attach inference to an auxiliary
-window. Duplicate target identities or multiple eligible main surfaces refuse;
+window. Even one initial index page must pass the visible-composer check before
+attachment is retained. Window count, creation order and localized button labels
+are not readiness evidence. Duplicate target identities or multiple eligible main surfaces refuse;
 an unready surface remains a readiness failure. App account and bridge admission
 still run after target selection.
 Reuse existing upstream provider configuration and bounded local contracts; do
