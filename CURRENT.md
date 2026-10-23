@@ -8,8 +8,22 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-The fresh empty-session `/model` correction is committed, pushed, published and
-applied: signed Full96/source786b7e28, previous Full95. Its native frontend is
+The user reports that a genuinely fresh session still refuses `/model` in Full96.
+Read-only inspection confirms its account `sessions` directory is a symlink to
+the shared history root; the previous blank-rollout guard rejects the backend's
+legitimate account path. The earlier isolated physical-directory proof did not
+cover this installed Manager layout. Correct the directory alias handling while
+retaining containment, leaf no-follow, file identity and metadata-only checks;
+qualify the real shared layout, publish and activate before claiming resolution.
+
+Separate authorized work remains in progress: native automatic review for
+untrusted commands with Full Access separate; official0.164 qualification; and
+manual update build request/wait/continue UX. Ordinary entry must not request
+a build. Those unfinished changes are not part of the narrow session hotfix.
+
+
+The earlier physical-directory empty-session `/model` correction was committed,
+pushed, published and applied: signed Full96/source786b7e28, previous Full95. Its native frontend is
 qualified sourcef2cec230; Provider release4 and the Core/Manager/runtime bytes
 are unchanged. Existing Codex clients keep their executable until normal exit;
 reopen them to use the corrected picker. No initial message or name is needed.

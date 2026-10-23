@@ -236,19 +236,30 @@ fn blank_rollout(
     snapshot: &Value,
     thread: ThreadId,
 ) -> bool {
-    let Some(path) = snapshot["path"].as_str().map(PathBuf::from) else {
+    let Some(reported_path) = snapshot["path"].as_str().map(PathBuf::from) else {
         return false;
     };
     let Ok(sessions) = std::fs::canonicalize(config.codex_home.join("sessions")) else {
         return false;
     };
-    if snapshot["id"] != thread.to_string()
+    // Account homes share sessions through a directory symlink. Resolve the
+    // parent, retaining the leaf for O_NOFOLLOW rather than following file links.
+    let Some(parent) = reported_path.parent() else {
+        return false;
+    };
+    let (Ok(directory), Some(name)) = (std::fs::canonicalize(parent), reported_path.file_name())
+    else {
+        return false;
+    };
+    let path = directory.join(name);
+    if !reported_path.is_absolute()
+        || snapshot["id"] != thread.to_string()
         || snapshot["status"]["type"] != "idle"
         || snapshot["ephemeral"] != false
         || snapshot["turns"]
             .as_array()
             .is_none_or(|turns| !turns.is_empty())
-        || !path.starts_with(&sessions)
+        || !directory.starts_with(&sessions)
         || std::fs::canonicalize(&path).ok().as_ref() != Some(&path)
     {
         return false;
@@ -297,6 +308,9 @@ fn blank_rollout(
         after.ctime(),
         after.ctime_nsec(),
     ) {
+        return false;
+    }
+    if std::fs::canonicalize(parent).ok().as_ref() != Some(&directory) {
         return false;
     }
     let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
@@ -625,6 +639,49 @@ mod tests {
         linked["path"] = json!(alias);
         assert!(!blank_rollout(&config, &linked, thread));
         std::fs::remove_file(&path).unwrap();
+        assert!(!blank_rollout(&config, &snapshot, thread));
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_blank_rollout_accepts_shared_sessions_directory_only() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::symlink;
+        let (app, _, _) = super::super::tests::make_test_app_with_channels().await;
+        let root = tempfile::tempdir().unwrap();
+        let shared = root.path().join("shared-sessions");
+        let home = root.path().join("account");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        symlink(&shared, home.join("sessions")).unwrap();
+        let mut config = app.config.clone();
+        config.codex_home =
+            codex_utils_absolute_path::AbsolutePathBuf::try_from(home.clone()).unwrap();
+        let thread = ThreadId::new();
+        let meta = codex_protocol::protocol::SessionMeta {
+            id: thread,
+            session_id: thread.into(),
+            ..Default::default()
+        };
+        let record =
+            json!({"timestamp":"2026-10-23T00:00:00Z","type":"session_meta","payload":meta});
+        let path = shared.join("blank.jsonl");
+        std::fs::write(&path, record.to_string()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut snapshot = json!({"id":thread.to_string(),"status":{"type":"idle"},"ephemeral":false,"path":home.join("sessions/blank.jsonl"),"turns":[]});
+        assert!(blank_rollout(&config, &snapshot, thread));
+        snapshot["path"] = json!(path);
+        assert!(blank_rollout(&config, &snapshot, thread));
+        symlink(&path, shared.join("leaf.jsonl")).unwrap();
+        snapshot["path"] = json!(home.join("sessions/leaf.jsonl"));
+        assert!(!blank_rollout(&config, &snapshot, thread));
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::copy(&path, outside.join("blank.jsonl")).unwrap();
+        symlink(&outside, shared.join("escape")).unwrap();
+        snapshot["path"] = json!(home.join("sessions/escape/blank.jsonl"));
+        assert!(!blank_rollout(&config, &snapshot, thread));
+        std::fs::write(&path, format!("{record}\n{record}\n")).unwrap();
+        snapshot["path"] = json!(home.join("sessions/blank.jsonl"));
         assert!(!blank_rollout(&config, &snapshot, thread));
     }
 

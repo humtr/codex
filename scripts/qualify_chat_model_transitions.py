@@ -40,6 +40,14 @@ def probe(args):
     try:
         check_native_socket_budget(root / 'h')
         home, prefix, env = fixture(root, args.core, args.frontend)
+        if args.shared_sessions:
+            # Match Manager's real account layout instead of testing only a
+            # physical sessions directory inside an isolated CODEX_HOME.
+            shared = root / 'shared-sessions'
+            shared.mkdir(mode=0o700)
+            sessions = home / '.codex/sessions'
+            assert not sessions.exists() and not sessions.is_symlink()
+            sessions.symlink_to(shared, target_is_directory=True)
         if args.without_manager:
             # Verified generated fixture copy only; never the installed Manager.
             manager=home/'.local/lib/codex/core/generations/local-permission-fixture/manager'
@@ -232,6 +240,9 @@ def probe(args):
             snapshot = rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})['thread']
             assert snapshot['turns'] == [], 'empty selection must not add a public turn'
             rollout = Path(snapshot['path'])
+            if args.shared_sessions:
+                assert rollout != rollout.resolve(), 'backend must return the account alias path'
+                assert rollout.resolve().is_relative_to(root / 'shared-sessions')
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
             assert records and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread
             settings = records[1:]
@@ -242,6 +253,7 @@ def probe(args):
             report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
                     'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
+                    'sharedSessionsDirectory': args.shared_sessions,
                     'nativeSettingsAuditEvents': len(settings),
                     'maximumNativeSocketBytes': check_native_socket_budget(home),
                     'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
@@ -338,6 +350,8 @@ if __name__ == '__main__':
     parser.add_argument('--without-manager', action='store_true')
     parser.add_argument('--empty-roundtrip', action='store_true',
                         help='switch a genuinely fresh thread native to Chat and back without any model turn')
+    parser.add_argument('--shared-sessions', action='store_true',
+                        help='use the shared sessions directory symlink of real Manager accounts')
     args = parser.parse_args()
     if args.build_core:
         source=Path(__file__).resolve().parents[1]
