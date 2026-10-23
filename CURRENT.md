@@ -15,9 +15,10 @@ Provider7 is the rollback generation. Signed Core Full106/source72b6ad4,
 upstream0.164.0, is published and installed; Full102 is the rollback generation.
 Its native frontend source18ef075 uses the saved thread's model for handoff,
 independent of a missing/different account default. Real populated native→Chat
-response→native return passes on the installed generation. The additional
-ChatGPT account's MCP registration remains externally blocked by the remote
-association verification described below.
+response→native return passes on the installed generation. Another account's
+MCP registration needs that workspace's administrator credential and the matching
+Linux app login in the current workspace-scoped setup. Those prerequisites are
+not present; registration absence is expected, not an outstanding wrapper defect.
 
 Account-specific identifiers are not compiled into the production Provider,
 Core or Manager source audit. Native admission discovers the uniquely verified
@@ -114,16 +115,21 @@ Current existing tunnel health/control-plane polling also returns `ok`.
 Termux Bridge has no account/plugin-ID whitelist. Connector names remain
 `transport.connector_name`; tunnel IDs/private credential references remain in
 the tunnel-client profile, with remote organization/workspace association config.
-The existing tunnel has one organization and one workspace; one of two known
-ChatGPT identities is not associated. An additive association update was rejected
-with403 automatic organization/workspace relationship verification, request
-`req_82da4b5f380f41ea8887ee5c323c0ae2`. The corrected additive request includes
-both the missing workspace and its owner/default organization from existing
-authenticated identity metadata; it is not a repeated identical request.
-Readback proves the original associations
-unchanged. The additional account's actual MCP registration remains blocked by
-that remote reviewed-association requirement. No second tunnel, replacement
-endpoint, account whitelist or credential change was created.
+The existing tunnel has one organization and one workspace. The user clarifies
+that the available administrator credential is not for the additional account's
+workspace (`szob`), and using that workspace's Secure MCP connection also requires
+logging into the Linux app as that account in the current setup. The missing
+registration is therefore an expected consequence of absent workspace credentials
+and the unmatched app login, not evidence of hardcoded ownership or a wrapper bug.
+Account-independent code does not grant cross-workspace permissions.
+
+Retain the original additive association attempt's403
+`tunnel_principal_association_unverified`, request
+`req_82da4b5f380f41ea8887ee5c323c0ae2`, and unchanged-association readback as
+observations under the available credential. That response does not establish
+that a reviewed override is the only route with the correct workspace credential
+and matching login. No further provisioning, login change, additional tunnel or
+credential change is requested by this clarification.
 
 Evidence root: `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`.
 Key records: `app-account-provider8-final/{plan,delivery,consumer-proof,stable-consumer-proof,device-mcp-metadata-proof}.json`,
@@ -152,7 +158,7 @@ records, source, current/rollback public packages and unknown
 | Operating Core | Signed Full106/source72b6ad4, previous Full102, upstream0.164.0; existing clients retain their pinned executables |
 | Public/selected Provider | Sequence8/sourcea5cd3e2, previous7, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
-| MCP | Authenticated local16-tool inventory accepted; another configured ChatGPT identity needs remotely reviewed tunnel association after403 |
+| MCP | Authenticated local16-tool inventory accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
 | Retained dependencies | Immutable c3642b19a87cdace158f JS/Bun/Python installation, rootfs, optional noVNC, current/rollback payloads and original proofs remain |
 
