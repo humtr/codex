@@ -355,7 +355,7 @@ def probe(args):
             submit('/model gpt-6.1-sol')
             wait(lambda: public(thread)['modelProvider'] == 'openai')
             assert len(public(thread)['turns']) == expected_turns
-            submit('/model chatgpt-desktop/gpt-6 none')
+            submit('/model chatgpt-desktop/gpt-6 --reasoning=none')
             wait(lambda: public(thread)['modelProvider'] == 'chatgpt_desktop')
             submit('OWNED_DISTINCT_AFTER_ACCOUNT_AND_MODEL_RETURN')
             expected_turns += 1

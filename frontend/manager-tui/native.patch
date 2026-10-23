@@ -139,10 +139,9 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 6687d05..3847af1 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -143,6 +143,19 @@ impl App {
+@@ -143,6 +143,19 @@
              return Ok(AppRunControl::Continue);
          }
 
@@ -162,10 +161,11 @@ index 6687d05..3847af1 100644
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -490,6 +503,40 @@ impl App {
+@@ -489,6 +502,40 @@
+             }
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
-             }
++            }
 +            #[cfg(unix)]
 +            AppEvent::OpenProfilePicker => {
 +                profile_manager::open(self).await;
@@ -199,11 +199,10 @@ index 6687d05..3847af1 100644
 +                if let Some(request) = profile_manager::prepare(self, app_server, profile).await {
 +                    return Err(std::io::Error::other(request).into());
 +                }
-+            }
+             }
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
-                     || !app_server.uses_remote_workspace()
-@@ -2116,6 +2163,18 @@ impl App {
+@@ -2116,6 +2163,18 @@
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -222,6 +221,26 @@ index 6687d05..3847af1 100644
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
+@@ -2600,6 +2659,19 @@
+                 self.persist_daybreak_selection(app_server, thread_id, enabled).await;
+             }
+             AppEvent::SelectSessionModel { model, effort, service_tier } => {
++                #[cfg(unix)]
++                if crate::termux_permissions::enabled()
++                    && crate::termux_chat_models::needs_reentry(
++                        &self.chat_widget.config_ref().model_provider_id, &model)
++                {
++                    if let Some(mut request) = chat_model_reentry::prepare(
++                        self, app_server, model, effort, false).await
++                    {
++                        request.set_service_tier(service_tier);
++                        return Err(std::io::Error::other(request).into());
++                    }
++                    return Ok(());
++                }
+                 self.app_event_tx.send(AppEvent::FollowTranscript);
+                 self.select_session_model(app_server, model, effort, service_tier).await;
+             }
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
 index 85e4dc1..19badd6 100644
 --- a/codex-rs/tui/src/app/startup.rs
@@ -1165,3 +1184,21 @@ index d3fde72..169d862 100644
          None
      } else {
          daemon_recovery::check(
+
+diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/chatwidget/model_command.rs
+--- a/codex-rs/tui/src/chatwidget/model_command.rs
++++ b/codex-rs/tui/src/chatwidget/model_command.rs
+@@ -128,8 +128,12 @@
+         .model
+         .clone()
+         .unwrap_or_else(|| chat.current_model().to_owned());
++    #[cfg(unix)]
++    let models = crate::termux_chat_models::augment(&chat.config, chat.model_catalog.models.clone());
++    #[cfg(not(unix))]
++    let models = &chat.model_catalog.models;
+     let Some(model) =
+-        chat.model_catalog.models.iter().find(|model| {
++        models.iter().find(|model| {
+             model.model == model_name && (args.model.is_none() || model.show_in_picker)
+         })
+     else {

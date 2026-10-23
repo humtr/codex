@@ -106,9 +106,11 @@ codex provider chatgpt config set \
 codex provider chatgpt config validate
 ```
 
-These fields bind native work to one explicit Core/account/project. They do not
-force a model in ordinary account config. Do not edit bindings underneath running
-work; reconcile and settle it before a deliberate configuration change/restart.
+These fields select defaults for explicitly created native work. Terminal Chat
+requests follow the actual native session's account and working directory,
+including after account switches; no Provider configuration change is needed.
+Do not edit an existing work binding underneath running work; reconcile and
+settle it before a deliberate configuration change/restart.
 
 ### Direct ChatGPT connection without a Linux app
 

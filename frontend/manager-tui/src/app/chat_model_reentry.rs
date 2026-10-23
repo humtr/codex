@@ -171,6 +171,15 @@ pub(crate) struct ChatModelReentry {
     return_profile: Option<String>,
 }
 impl ChatModelReentry {
+    pub(super) fn set_service_tier(&mut self, tier: Option<String>) {
+        if let Some(tier) = tier {
+            self.args.extend([
+                "-c".into(),
+                format!("service_tier={}", serde_json::to_string(&tier).unwrap()),
+            ]);
+        }
+    }
+
     pub(crate) fn from_error(error: &std::io::Error) -> Option<&Self> {
         error.get_ref()?.downcast_ref::<Self>()
     }
