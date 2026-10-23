@@ -110,6 +110,9 @@ def qualify(core, generation, parent, mode, prepare_preview=None, public_key=Non
         named = 'default_permissions = ":danger-full-access"\n' if mode == "named" else ""
         config = named + f'''model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
+# Explicit private baseline overrides optional Manager convenience defaults.
+approval_policy = "on-request"
+approvals_reviewer = "user"
 model_provider = "fixture"
 check_for_update_on_startup = false
 [projects."{root}"]
