@@ -153,7 +153,7 @@ while True:time.sleep(60)
     reviews = []
     submits = []
     recoveries = []
-    admission = {"alias": "codex-provider-rust-trial", "profile_dir": str(case / "profiles"),
+    admission = {"alias": "local-fixture-tunnel", "profile_dir": str(case / "profiles"),
                  "tunnel_id": "local-owned-tunnel", "config_path": "owned-config", "profile_path": "owned-profile",
                  "process_running": True, "ready": True, "healthy": True,
                  "process": {"target_kind": "command", "target_value": str(case / "mcp-stdio"), "started_at": "initial"}}
@@ -581,7 +581,7 @@ for line in sys.stdin:
             raise AssertionError("foreign tunnel admitted recovery")
     assert len(operations) == 2 and not (guard.case / "recovery-tunnel-intent.json").exists()
     checks.append({"name": "foreign-tunnel-owner-blocks-reconnect-before-mutation", "accepted": True})
-    admission = {"alias": "codex-provider-rust-trial", "profile_dir": str(guard.case / "profiles"),
+    admission = {"alias": "local-fixture-tunnel", "profile_dir": str(guard.case / "profiles"),
                  "tunnel_id": "owned-test-tunnel", "config_path": "owned-config", "profile_path": "owned-profile",
                  "process_running": True, "ready": True, "healthy": True,
                  "process": {"target_kind": "command", "target_value": str(guard.case / "mcp-stdio")}}

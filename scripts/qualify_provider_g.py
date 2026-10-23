@@ -23,6 +23,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 if not (SOURCE / 'providers/chatgpt').is_dir():
     SOURCE = Path(json.loads((Path(__file__).parent / 'plan.json').read_text())['repository'])
 sys.path.insert(0, str(SOURCE / 'scripts'))
+from provider_qualification import explicit_input
 from qualify_permission_lifecycle import fixture
 from qualify_provider_chat_entry import control, native_work, InputClient, preflight_native, cli_final_visible
 from qualify_provider_f import Batch, save, stamp, sha, creation_call_id, followup_branch, input_completed
@@ -64,6 +65,11 @@ def require_connector_ready(info, proof):
 
 
 def prepare(args):
+    prior = explicit_input('PRIOR_ROOT')
+    connector = explicit_input('CONNECTOR_REFERENCE')
+    bun = explicit_input('BUN')
+    tunnel_profile = explicit_input('TUNNEL_PROFILE')
+    tunnel_alias = explicit_input('TUNNEL_ALIAS', path=False)
     os.umask(0o077)
     root = Path(tempfile.mkdtemp(prefix='gg.', dir=os.environ['TMPDIR']))
     native = Path(tempfile.mkdtemp(prefix='gn.', dir=os.environ['TMPDIR']))
@@ -82,7 +88,6 @@ def prepare(args):
                     '--private-key',native/'fixture-key.pem','--openssl',shutil.which('openssl'),'--output',root/'package'],check=True,capture_output=True)
     subprocess.run([launcher,'provider','install','chatgpt','--local',root/'package'],env=env,check=True,capture_output=True)
     package_binary=home/'.local/lib/codex/providers/chatgpt/generations/chatgpt-g-live-1/codex-chatgpt-provider'
-    prior=Path('/data/data/com.termux/files/usr/tmp/f-live.djzsl5pm')
     old_env=json.loads((prior/'environment-private.json').read_text())
     old_config=Path(old_env.get('XDG_CONFIG_HOME',str(Path(old_env['HOME'])/'.config')))/'codex/providers/chatgpt.toml'
     settings=root/'config/codex/providers/chatgpt.toml';settings.parent.mkdir(parents=True)
@@ -102,13 +107,13 @@ def prepare(args):
     save(root/'profile-prepare.json',json.loads(prepared.stdout),True)
     info=dict(mode='common',binary=str(package_binary),binary_sha256=sha(package_binary),state=str(root/'state'),home=str(home/'.codex'),
               workspace=str(native/'w'),core=str(launcher),fixture_home=str(home),fixture_root=str(native),pid=process.pid,
-              port=int(ready['base_url'].split(':')[-1].split('/')[0]),connector_reference='/data/data/com.termux/files/usr/tmp/pm.ycwegh4e/connector-private.json',
+              port=int(ready['base_url'].split(':')[-1].split('/')[0]),connector_reference=str(connector),prior_root=str(prior),tunnel_profile=str(tunnel_profile),tunnel_alias=tunnel_alias,
               desktop_session=str(prior/'relay'),expected_tools=['native_catalog','native_tool','codex_host','codex_chats','codex_sessions','codex_attach','codex_history','codex_tools','codex_execute','codex_answer','codex_report','codex_finish','codex_status','codex_stop','codex_handoff','codex_native_summary'])
     save(root/'info.json',info,True);save(root/'environment-private.json',env,True)
     plan=dict(schema='termux-codex-g-live-v1',repository=str(SOURCE),desktop_session=str(prior/'relay'),project_name='Termux Provider: G',
               bindings=dict(initial='app://-/assets/app-initial-ed5807835d97.js',shared='app://-/assets/app-shared-2d77298f0100.js'),
               provider_owner=(root/'state/owner-v1').read_text(),shared_bridge=True,phase_label='G',input_client_id=input_client_id(root),
-              bun=str(Path.home()/'.local/lib/codex-web-experiment/c3642b19a87cdace158f/bun'),connector_name='Termux Bridge',
+              bun=str(bun),connector_name='Termux Bridge',
               host_model='gpt-6-thinking',thinking_effort='extended',max_source_requests=20,max_user_turns=2,max_elapsed_seconds=1800,max_no_progress_seconds=240,
               assignment_budget=dict(max_parallel=1,max_app_starts=16,max_native_calls=40,max_elapsed_seconds=900),
               max_control_observations=700,max_model_responses=20,actual_Chat_requests_so_far=0)
@@ -130,28 +135,30 @@ def prepare(args):
     preflight_native(root,info,env)
     files=[p for p in root.rglob('*') if p.is_file() and (p.parent==root and p.suffix in ('.py','.mjs','.txt') or p.parent==root/'candidate')]
     sealed={str(p.relative_to(root)):sha(p) for p in files}
-    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
+    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
     save(root/'sealed-inputs.json',sealed,True)
     save(root/'setup-complete.json',dict(prepared=True,actual_Chat_requests=0,service_pid=process.pid,public_package_selected=True,native_preflight=True),True)
     print(json.dumps(dict(root=str(root),native_fixture=str(native),prepared=True,actual_Chat_requests=0)))
 
 
 def connect(root):
-    prior=Path('/data/data/com.termux/files/usr/tmp/f-live.djzsl5pm')
+    info=json.loads((root/'info.json').read_text())
+    prior=Path(info['prior_root'])
+    profile=json.loads(Path(info['tunnel_profile']).read_text())['control_plane']
+    alias=info['tunnel_alias']
     te=json.loads((prior/'tunnel-environment-private.json').read_text())
     def run(name,args):
         out=subprocess.run(args,env=te,capture_output=True,timeout=65)
         (root/(name+'-private.json')).write_bytes(out.stdout);(root/(name+'.stderr')).write_bytes(out.stderr)
         assert out.returncode==0,name+' failed; inspect before another action'
         return json.loads(out.stdout)
-    status=run('tunnel-before',['tunnel-client','runtimes','status','codex-provider-rust-trial','--json'])
-    assert status['process_running'] and status['healthy'] and status['alias']=='codex-provider-rust-trial'
+    status=run('tunnel-before',['tunnel-client','runtimes','status',alias,'--json'])
+    assert status['process_running'] and status['healthy'] and status['alias']==alias
     save(root/'tunnel-switch-intent.json',dict(prior=sha(prior/'mcp-stdio'),new=sha(root/'mcp-stdio'),actual_Chat_requests=0,**stamp()),True)
-    run('tunnel-disconnect',['tunnel-client','runtimes','disconnect','codex-provider-rust-trial','--json'])
-    profile=json.loads(Path('/data/data/com.termux/files/usr/tmp/provider-mcp-live-985reoob/profiles/rust-provider-trial.yaml').read_text())['control_plane']
-    run('tunnel-connect',['tunnel-client','runtimes','connect','--alias','codex-provider-rust-trial','--tunnel-id',profile['tunnel_id'],'--runtime-api-key',profile['api_key'],
+    run('tunnel-disconnect',['tunnel-client','runtimes','disconnect',alias,'--json'])
+    run('tunnel-connect',['tunnel-client','runtimes','connect','--alias',alias,'--tunnel-id',profile['tunnel_id'],'--runtime-api-key',profile['api_key'],
          '--profile','g-product','--profile-dir',str(root/'profiles'),'--mcp-command',str(root/'mcp-stdio'),'--json'])
-    after=run('tunnel-after',['tunnel-client','runtimes','status','codex-provider-rust-trial','--json'])
+    after=run('tunnel-after',['tunnel-client','runtimes','status',alias,'--json'])
     assert after['process_running'] and after['healthy'] and after['ready']
     plan=json.loads((root/'plan.json').read_text())
     refresh=subprocess.run([plan['bun'],str(SOURCE/'scripts/d3_refresh.mjs'),str(root)],capture_output=True,timeout=260)
@@ -203,7 +210,7 @@ def prepare_remaining(prior):
         (root/('task-'+name+'.txt')).write_text(text)
     files=[p for p in root.rglob('*') if p.is_file() and (p.parent==root or p.parent==root/'candidate')]
     sealed={str(p.relative_to(root)):sha(p) for p in files}
-    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
+    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
     info=json.loads((root/'info.json').read_text())
     config=Path(json.loads((root/'environment-private.json').read_text())['XDG_CONFIG_HOME'])/'codex/providers/chatgpt.toml'
     sealed[str(config)]=sha(config)
@@ -248,7 +255,7 @@ def prepare_cold(root, prior_requests=0):
     assert not (root/'plan.json').exists()
     assert isinstance(prior_requests,int) and 0<=prior_requests<4
     request_ceiling=4-prior_requests
-    prior=Path('/data/data/com.termux/files/usr/tmp/gg.iprzgrte')
+    prior=explicit_input('PRIOR_BATCH')
     target=next(w for w in native_work(root) if w['selection']['reasoning']=='current')
     assert target['phase']=='stopped' and not target['pending']
     shutil.copytree(prior/'candidate',root/'candidate')
@@ -273,7 +280,7 @@ def prepare_cold(root, prior_requests=0):
     (root/'task-cold.txt').write_text(task+'\n')
     files=[root/name for name in ['run.py','notify.py','client.mjs','info.json','environment-private.json','plan.json','baseline-files.json','release_label-before.py','task-cold.txt','refresh-private.json']]
     files+=list((root/'candidate').iterdir())
-    files+=[SOURCE/name for name in ['scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']]
+    files+=[SOURCE/name for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']]
     save(root/'sealed-inputs.json',{str(p):sha(p) for p in files if p.is_file()},True)
     save(root/'connection-ready.json',dict(ready=True,Chat_requests=0,recovered_same_endpoint=True),True)
     print(json.dumps(dict(root=str(root),prepared=True,model_requests=0,additional_dispatch_ceiling=request_ceiling)))

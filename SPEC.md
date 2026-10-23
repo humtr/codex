@@ -1373,6 +1373,14 @@ repair/delete its record. Selected execution bindings still require exact
 PID/start/image and peer/socket validation; malformed records and ambiguous live
 native writers remain errors. A discovery exclusion does not authorize takeover,
 model/tool replay or acceptance of a changed selected owner.
+The same exclusion applies before namespace decoding to the two known historical
+owner shapes (home/runtime, optionally followed by `catalog-v1`) only when private
+owner/PID reads and the kernel prove the recorded process is absent or now has a
+different executable. Preserve those records without interpreting their old codec.
+A matching live owner, unreadable/unsafe owner or PID, unknown owner shape and any
+malformed current config-v1 record remain errors. A bounded explicit device repair
+may separately archive a verified inactive historical record, preserving its
+complete contents and restore path; ordinary discovery performs no such mutation.
 
 The work owner may inspect, stop and supply genuine follow-up input. Its managed
 worker holds the current native execution controller; a coordinator cannot issue
@@ -2096,6 +2104,52 @@ live lease holder or bypass failed readiness of a recorded live process; preserv
 pending lanes. No Chat is submitted by startup/authentication/preparation. `status`
 remains read-only. Bound startup time and retain content-free errors in a private
 startup log; no alternate launcher, Manager dependency or new supervisor is added.
+
+#### Explicit device service integration
+
+An owner may explicitly opt an already configured Provider and its existing
+OpenAI Secure Tunnel runtime into Termux's runit services. This is device service
+configuration, not implicit Core launch behavior or a bundled provisioning flow.
+Provider owns the bridge/MCP service; the tunnel runtime transports its MCP
+traffic. They remain separate processes. Use the existing `termux-services`
+startup/root-recovery mechanism rather than tmux or another daemon manager.
+
+Run Provider's existing `serve` command in the foreground under runit. A separate
+opt-in host keeper may observe that service and use `host ensure` only when the
+owned host is confirmed absent. Provider still owns Xvnc, the Linux app, private
+pipes, profile lease and optional viewer. Do not supervise another Xvnc against
+that profile, replace a live/unready owner or retry unknown work. Host acquisition
+must use provisioned assets and retained login, without model input. A status
+timeout or present-but-unready host remains unknown/pending, not permission to
+restart it. Disabling the host keeper preserves lazy direct-Chat operation.
+
+Run the existing configured tunnel runtime/profile in the foreground under its
+own runit service, after authenticated local Provider readiness. Reuse its
+remote tunnel and credential references; never create another remote tunnel or
+expose credentials merely to change supervision. Local readiness does not prove
+remote control-plane health. Stop the exact old runtime before starting its
+replacement; do not run tmux and runit owners concurrently.
+
+Select an Android-compatible tunnel image explicitly; an executable name/version
+probe alone does not establish platform compatibility. Do not change a system
+resolver to accommodate an incompatible Linux runtime. Keep service-selected
+paths/profile in private common configuration; native execution home/workspace
+remain Provider-config authority. Observation may use the admitted immutable
+Provider image to avoid Core activation-lock contention, with explicit rebinding
+during package/service maintenance. A failed observation preserves the current
+transport; only a confirmed Provider PID/start change renews its exact owned local
+tunnel child. MCP stdio stdout remains reserved for protocol messages, separate
+from diagnostics.
+
+Runit may restart an exited service, but it must not replay native/Chat work,
+submit prompts, grant approval, perform updates or change account/model settings.
+The device's existing root recovery can recreate the registered supervisors.
+It cannot recover a fully killed Termux UID without the next external Boot/login
+opportunity. Intentional maintenance must first disable the relevant service;
+otherwise desired-up supervision will start it again. Service enablement, dependency
+checks, private bounded logs and explicit disable/restore instructions belong in
+the future shared minimum-setup scope; automatic installation remains deferred.
+
 `status --thread ID` may additionally inspect that native thread's private lane
 journal without connecting to the app or starting a service. Report observed
 transport phase, pending native call count, cached public event count, separate

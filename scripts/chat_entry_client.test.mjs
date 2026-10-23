@@ -102,6 +102,20 @@ test('connector refresh rejects a mismatched configured name before app access',
 });
 
 const refreshSource=readFileSync(new URL('./d3_refresh.mjs',import.meta.url),'utf8');
+test('connector refresh requires explicit paths before app access',()=>{
+ const root=mkdtempSync(join(process.env.TMPDIR,'g-refresh-inputs-'));
+ try{
+  writeFileSync(join(root,'info.json'),JSON.stringify({}));
+  let result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain('explicit_connector_reference_required');
+  writeFileSync(join(root,'connector.json'),JSON.stringify({matches:[{name:'Termux Bridge',connector_id:'owned'}]}));
+  writeFileSync(join(root,'info.json'),JSON.stringify({connector_reference:join(root,'connector.json')}));
+  result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain('explicit_desktop_session_required');
+ }finally{rmSync(root,{recursive:true});}
+});
 const readConnectorWhenReady=eval('('+refreshSource.match(/async function readConnectorWhenReady\([\s\S]*?\n\}/)[0]+')');
 const uninitialized=()=>new TypeError("Cannot read properties of undefined (reading 'httpFetch')");
 

@@ -33,41 +33,46 @@ and direct development use the same native execution path through MCP. The
 primary Codex thread retains durable history while Chat contexts can be replaced.
 Origin, controller identity and original tool-return bindings survive handoff.
 
+## Start here
+
+Install **Full** for the usual terminal experience (Core, Manager and TUI).
+Install **Base** when you want only Core and upstream Codex. ChatGPT Provider
+is an optional separate package in either edition.
+
+| Where you start | Who reasons about the task | Required setup |
+| --- | --- | --- |
+| Terminal: ordinary Codex | Your selected native Codex model | Base or Full; native Codex login |
+| Terminal: Codex using Termux Bridge tools | Your selected Codex model; a managed Chat only for work explicitly delegated there | Native Codex plus Provider's local MCP connection; app/login for managed Chat work |
+| Terminal: Codex with ChatGPT | A managed Chat in the provisioned Linux ChatGPT app | Base or Full, Provider, app/login; MCP connection if using its MCP return path |
+| ChatGPT: direct local development | The Chat you are currently using | Base or Full, Provider/native execution binding, reachable MCP connection; no Linux app for primary direct work |
+| ChatGPT: delegate managed development | A separate managed work Chat; the current Chat requests and receives the work | Direct-entry setup plus the Linux app/login and an explicit ChatGPT project |
+
+Core is installation/runtime support. Manager provides account/window conveniences.
+TUI is the terminal interface. Provider owns the ChatGPT connection. **Termux
+Bridge** is the app's MCP connection name. These are components and connection
+roles; release numbers do not create differently named products.
+
+A working native installation does not require Provider. Direct ChatGPT work
+needs a connected MCP service, but its primary current-Chat reasoning does not
+need the Linux app. Managed Chats and app-backed reviewers do need that app.
+See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
+[the remaining first-time setup gap](#bootstrap-and-minimum-setup-status).
+
 ## Current status
 
-A–H are complete at their [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-The [selected contracts](SPEC.md#e-selected-common-interfaces-and-lifecycle) cover
-identity/context mapping, existing-Chat input, control transfer, coordinated
-agents and host management. G accepts exact source6aa2280 and signed ChatGPT
-Provider generation `chatgpt-6aa228034346-s3` (release sequence3), with full public
-readback and actual Android update/use/rollback. H retires superseded source
-while preserving unique work, licenses, original proof and pinned dependencies.
+A–H are complete at their
+[recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
+[CURRENT](CURRENT.md#operating-baseline) records accepted sources, signed releases,
+device selections and actual running processes. This device selects Full94 and
+ChatGPT Provider release sequence3; existing sessions keep their pinned executable
+until normal exit. Ordinary account configuration does not force a model.
 
-[CURRENT](CURRENT.md#operating-baseline) distinguishes accepted source, signed
-public releases and this device's actual selections/processes. Core owns signed
-installation, update, diagnosis, activation and rollback. Manager, TUI and Provider
-remain independent optional components. Ordinary account configuration does not
-force a model; an explicit session/profile selection remains supported.
-This device now selects Full94 and the signed Rust ChatGPT Provider, with its
-generated profile and same-account host verified; existing sessions retain their
-pinned executable until normal exit.
-
-`codex termux help` lists the installed Manager commands. Profiles separate
-execution preferences and authentication while sharing upstream conversation
-storage. `notify show/set` controls Termux notification/toast delivery;
-`notify test` sends fixed test text and reports each selected provider's result.
-Notifications return to the live workload's registered window by default, with or
-without tmux (`notify set --focus window`). Native-origin capable Termux runs in
-the invoking terminal. Official APK fallback creates one named dedicated terminal
-per launch, then reuses it. A tap consumes the notification; use a fresh one for
-another return. Return never starts/resumes Codex. Stock APK lacks atomic existing-
-window selection: manual rename or a closing-window race can open an inert empty terminal. `--focus termux` only brings the app forward.
-The `UserInputRequest` notification selector covers structured questions and
-follow-up input requests, with their question text. Each conversation updates one
-notification, so a generic input reminder cannot remain beside its follow-up body.
-Diagnosis and recovery remain available through Core
-`codex doctor`, `codex update`, and `codex update --rollback`.
-Exact contracts belong to `SPEC.md`.
+Fresh Core installation exists. Provider app provisioning, first login and remote
+connection setup still require the [manual steps below](#fresh-install) and the
+[Provider guide](providers/chatgpt/README.md#first-time-setup). The shared minimum
+setup flow and repository separation remain
+[deferred implementation work](CURRENT.md#deferred-setup-and-repository-work).
+Diagnosis and local recovery use `codex doctor` and `codex update --rollback`.
 
 To run the direct Core path for one invocation while Manager is installed:
 
@@ -78,6 +83,328 @@ CODEX_TERMUX_CORE_ONLY=1 codex
 This keeps signed Core execution and its safety preparation while skipping
 Manager profile/window policy, the optional TUI and Manager notification hooks
 for that run.
+
+## Fresh install
+
+These steps are for a **new** Termux installation. On an existing managed
+installation, use `codex update`; fresh bootstrap deliberately refuses existing
+authoritative state or a different existing `codex` executable.
+
+The Android/AArch64 release needs Termux's shell, curl and OpenSSL. If the latter
+two are missing, install their Termux packages explicitly:
+
+```sh
+pkg install curl openssl-tool
+```
+
+No repository clone, Rust compiler, release private key or GitHub login is needed.
+The accepted immutable installer selects the signed stable release. Run this
+block for Full; change `--variant full` to `--variant base` for Base:
+
+```sh
+(
+  set -eu
+  codex_install_tmp="$(mktemp -d "${TMPDIR:?}/codex-install.XXXXXX")"
+  trap 'rm -rf -- "$codex_install_tmp"' EXIT
+  "$PREFIX/bin/curl" -q --fail --silent --show-error --location \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+    --output "$codex_install_tmp/install-online.sh" \
+    'https://raw.githubusercontent.com/humtr/codex/eba60a7a72cacc9f6be126606ee992c00e662f5d/install-online.sh'
+  "$PREFIX/bin/sh" "$codex_install_tmp/install-online.sh" --variant full
+)
+```
+
+The frontend verifies the pinned public key, signed index and release inventory;
+`install.sh -> bootstrap/codex-bootstrap -> Core` owns persistent installation.
+For a downloaded signed bundle, the existing local/offline `install.sh` path
+remains available. Full does **not** install Provider or the Linux ChatGPT app.
+
+For native-model Codex, log in and then open your real project (direct ChatGPT
+entry can skip this native subscription login):
+
+```sh
+codex login
+codex login status
+cd /absolute/path/to/your-project
+codex
+```
+
+Replace the project path with an existing project. If you intentionally use device
+login, `codex login --device-auth` is also supported. Native Codex owns this login;
+it does not sign into the separate Linux ChatGPT app. Existing login should be
+reused rather than logging out/recreating it. To conditionally invoke native
+login from a setup script, use `codex login status || codex login`.
+
+Full's optional named account example is:
+
+```sh
+codex termux profile create work
+codex termux profile use work -- login
+codex termux profile use work
+```
+
+`work` is an example account ID. `codex termux profile default work` explicitly
+makes it the default for future launches. A Manager account and upstream
+`--profile chatgpt` are different concepts: the first chooses account/settings;
+the second selects generated ChatGPT model routing within that account.
+
+## Usage by entrypoint
+
+### Terminal with native Codex
+
+From your project, run `codex` and give the task. Use `codex resume` to select
+an earlier thread or `codex resume THREAD_ID` for a known thread. `codex exec "TASK"` is the noninteractive entrypoint. These are upstream commands through
+Core. Full also offers `/switch` for configured accounts. Ordinary configuration
+does not force a model or reasoning effort.
+
+### Terminal with Termux Bridge tools
+
+You can also register Provider's `mcp-stdio` wrapper as a local Codex MCP server.
+For this configured device, an explicit registration in the selected account is:
+
+```sh
+codex mcp add termux-bridge -- "$HOME/.local/state/codex/providers/chatgpt/mcp-stdio"
+```
+
+On a fresh device, first prepare Provider and its running service as described
+in the [Provider guide](providers/chatgpt/README.md#first-time-setup); use that
+installation's wrapper path. MCP registration belongs to the active Codex account
+and is not automatically added by the background services. This local stdio
+connection uses the process's standard input/output; it needs no remote tunnel.
+
+The model selected in Codex remains the primary decision maker. MCP supplies
+tools; it does not select ChatGPT as the primary model. Explicitly delegated
+managed Chat work additionally needs the app/login and project configuration.
+
+### Terminal with ChatGPT reasoning
+
+First complete [Provider setup](providers/chatgpt/README.md#first-time-setup).
+In Full, run `codex`, open `/model`, and choose the Provider's ChatGPT model and
+effort. For Base or explicit configuration selection:
+
+```sh
+cd /absolute/path/to/your-project
+codex --profile chatgpt
+```
+
+Give the task in that same terminal. Native Codex still owns tools, approval,
+history and the final result; Provider connects the managed app Chat. Existing
+readable-thread model transitions retain their qualified scopes. An old foreign
+opaque checkpoint needs its own supported handoff; do not discard history to
+force a switch. `--profile chatgpt` neither selects a Manager account nor logs
+into the Linux app.
+
+### Connect ChatGPT once
+
+First complete the [direct connection setup](providers/chatgpt/README.md#direct-chatgpt-connection-without-a-linux-app).
+Provider's authenticated service needs a working remote transport. In ChatGPT
+web, open Plugins, add a custom MCP server named **Termux Bridge**, choose your
+reachable Server URL or the configured Secure MCP Tunnel, and complete its
+authentication/consent. Install the resulting plugin. Workspace access controls
+still apply. See the [official OpenAI connection instructions](https://developers.openai.com/api/docs/guides/custom-mcp-server).
+
+In a conversation, type `@` and select the installed Termux Bridge entry from the
+picker, then describe the task. Do not assume that typing its name alone enables
+an unavailable connection. The local `127.0.0.1` URL and `mcp-stdio` command are
+not remote Server URLs; a configured tunnel can invoke that local command.
+
+### ChatGPT with direct local development
+
+With Termux Bridge selected, ask:
+
+> Work in /absolute/path/to/your-project from this Chat. Fix [problem] and verify it.
+
+This Chat supplies reasoning (`reasoning=current`); native Codex executes,
+approves and records. The assistant handles the advertised attachment and native
+tool protocol, including project instructions, existing changes and actual final
+results. You do not need to spell out protocol fields, call sequences or private
+credentials. This primary path needs neither a Linux app nor an extra native
+Codex subscription login. Separately configured app-backed reviewers retain
+their own prerequisites.
+
+### ChatGPT delegating managed development
+
+Use the same MCP connection, with a provisioned/authenticated Linux app and
+[explicit project configuration](providers/chatgpt/README.md#managed-chat-project).
+With Termux Bridge selected, ask:
+
+> Delegate [task] in /absolute/path/to/your-project to a separate work Chat.
+> Bring back its progress and original final result.
+
+The current Chat requests/observes the work; a separate managed Chat does the
+reasoning (`reasoning=managed`). Managed work can use MCP (default) or explicitly selected
+`local_function` internally. That internal transport choice does not create a
+second direct ChatGPT entrypoint. `work wait`/events retrieve original results;
+uncertain calls are observed by their existing handles rather than resent.
+
+### Manage existing work from ChatGPT
+
+Keep Termux Bridge selected and use ordinary requests:
+
+| Request | What the assistant should do |
+| --- | --- |
+| Show work and its current state on this device | List existing work and inspect its status; do not start another task |
+| Get the original result for this work | Read the existing work's events/history; do not rerun it |
+| Continue this completed work with [next task] | Reconcile its state and reuse its work/native thread at a supported boundary |
+| Stop this work | Request interruption and report confirmed versus pending Stop state |
+
+When several works match, select the returned work ID before an action. Local
+status/result controls already exist; there is no shipped project picker or
+task dashboard. A reusable plugin skill and an optional compact work panel are
+[proposed follow-ups](providers/chatgpt/README.md#chatgpt-entry-and-task-management),
+not prerequisites or installed features. A ChatGPT project instruction can hold
+your workspace and preferred direct/delegated route where available, but it does
+not connect MCP, establish native control or replace local project instructions.
+See the [official project guide](https://learn.chatgpt.com/docs/projects).
+
+## Bootstrap and minimum setup status
+
+| Layer | Exists now | What still needs manual setup |
+| --- | --- | --- |
+| Base/Full bootstrap | Signed online installer and audited local bootstrap | Termux/prerequisite packages; native upstream login |
+| Native login | Upstream first-run/login/device-login flow | User completes the official account authentication/consent |
+| Provider installation | `codex provider install/update/status/rollback chatgpt` | Selecting an execution home/workspace and preparing routing/service |
+| App-backed reasoning | Rust host/service/viewer commands | Official app/rootfs and optional viewer assets must already be provisioned; first app login |
+| Direct ChatGPT entry | Authenticated MCP stdio and native work controls | Tunnel/remote transport credentials and adding the connection in ChatGPT |
+| Minimal combined setup | No installed `setup` command yet | A small reusable configuration/login wrapper is the next requested convenience |
+| ChatGPT task convenience | Select the connected MCP plugin and ask short tasks | A bundled workflow skill and optional work panel remain proposals |
+
+The useful next step is a **small minimum-setup flow**, not a new onboarding
+framework: collect only missing execution/app/connection inputs, reuse existing
+settings/login, call the existing installers and official login/viewer controls,
+and check readiness without starting a model task. Native and app login stay
+separate and are requested only for the chosen entrypoint. User authentication
+and consent remain in their official UI. The agreed follow-up is one shared
+implementation, run explicitly or called after a fresh interactive install.
+Implementation is deferred for now; ordinary Codex launch must not acquire apps,
+change configuration or start model work implicitly.
+
+The existing device was migrated manually using preserved profiles; that is not
+proof of a complete fresh-user app provisioning/login flow. Detailed manual
+steps and precise prerequisites are in the [Provider guide](providers/chatgpt/README.md#first-time-setup).
+
+## Background services on this device
+
+Provider contains the bridge and exposes its MCP service as **Termux Bridge**.
+The **OpenAI Secure Tunnel runtime** transports that MCP traffic; it is a separate
+program, not the bridge. Keeping an interactive Codex conversation open is not
+required for ChatGPT entry.
+
+This device explicitly registers these services beside tdev in
+`$PREFIX/var/service/`:
+
+| Service | Responsibility |
+| --- | --- |
+| `codex-chatgpt-provider` | Foreground Provider `serve`, restarted by runit if the process exits |
+| `codex-chatgpt-tunnel` | Existing OpenAI `tunnel-client` runtime/profile, with the same remote tunnel and credential references; renew local transport after Provider owner changes |
+| `codex-chatgpt-host` | Observe Provider and acquire its provisioned Linux app/Xvnc when the owned host is confirmed absent; no model request |
+
+Xvnc, the app, private pipes and optional viewer remain Provider-owned. There is
+no separate competing Xvnc service. Present-but-unready/unknown host state is
+preserved for inspection rather than automatically killed. No viewer window,
+new task, login, update or model selection is triggered by service startup.
+
+Standard `termux-services`/runit starts enabled services at the next shell startup
+and restarts individual exited services. This device additionally installs the
+owner's `~/prj/termux-services` recovery layer: `$PREFIX/bin/service-daemon`,
+the shell startup hook and `~/.termux/boot/00-start-services`. Its independent
+15-second monitor restores a lost runit root. That extra layer is not required
+for normal runit operation; it improves root-loss recovery. Termux:Boot must be
+available for its boot hook to run. A fully killed Termux UID requires the next
+Boot/login execution opportunity; no service runs while the whole environment
+is stopped.
+
+Inspect the actual services with:
+
+```sh
+sv status "$PREFIX/var/service/codex-chatgpt-provider" \
+  "$PREFIX/var/service/codex-chatgpt-tunnel" \
+  "$PREFIX/var/service/codex-chatgpt-host"
+codex provider chatgpt status
+codex provider chatgpt host status
+```
+
+`sv status` proves a process is supervised, not app login or remote tunnel health.
+Use the existing tunnel profile's local health/readiness endpoint as well.
+The previous tmux-managed runtime is retired; this device uses runit, not
+`tunnel-client runtimes connect/stop`, for local lifetime management. Remote
+tunnel registration is unchanged.
+
+This device's private `~/.local/state/codex/providers/chatgpt/runit/environment`
+holds the executable paths, state and tunnel profile. Service/MCP wrappers read
+that common file; Provider configuration selects the native execution home and
+workspace. Interactive account switches do not retarget the services. The tunnel
+must use an Android-compatible runtime; this device selects native0.0.14. The
+immutable Provider observer path must be rebound during deliberate package/service
+maintenance after pending work has settled.
+
+For deliberate maintenance, use `sv-disable` in dependency order: tunnel, host,
+then Provider. Re-enable Provider, then host if wanted, then tunnel with
+`sv-enable`. An enabled supervisor restarts a process stopped directly; disable
+it first. Keep active native work and pending calls settled before shutdown or
+package changes. Disabling only the host keeper leaves an already acquired app
+running; inspect/stop that idle owned host explicitly if desired. Direct ChatGPT
+primary reasoning does not need an always-on Linux app.
+
+This is an explicit configuration of the existing device. Future shared minimum
+setup should offer service registration/enabling for the selected entrance,
+including dependency checks, private logs and disable/restore instructions.
+Neither the current installer nor ordinary `codex` launch installs these service
+definitions automatically. See the [Provider service details](providers/chatgpt/README.md#device-runit-services).
+
+## Updating
+
+After installation, ordinary updates remain Core-owned:
+
+```sh
+codex update
+```
+
+The default route consumes the signed stable channel. It does not delegate to
+the upstream self-updater, and publication credentials are not device update
+authority.
+
+Update output separates the upstream Codex version from the Termux edition and
+release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
+standalone Core/upstream edition; Full includes Manager/enhanced TUI. The signed
+release date is the UTC date that the immutable release was prepared, not the
+device installation date. Older releases or unavailable optional metadata show
+`unavailable`; valid updates still work. An already-current update also shows
+the installed edition/release information, without installing again.
+
+### Older browser-bridge releases
+
+Published browser-bridge releases before the Manager TUI may reject a direct
+update with “R10 browser helper bridge contract is invalid.” Run this one-time
+migration from the immutable signed Release, then ordinary updates. The existing
+Core verifies its trusted signature and complete inventory; profiles, conversations
+and running clients are preserved. The temporary download is always cleaned.
+
+```sh
+(
+  set -eu
+  migration="$(mktemp -d "${TMPDIR:?}/codex-migration.XXXXXX")"
+  trap 'rm -rf -- "$migration"' EXIT
+  gh release download local-hosted-0-161-0-ab644771ac89-manager-tui-bridge \
+    --repo humtr/codex --dir "$migration" \
+    --pattern core --pattern generation.meta --pattern manager --pattern runtime \
+    --pattern codex-code-mode-host --pattern helper-0 --pattern helper-1 \
+    --pattern release.manifest --pattern release.sig
+  chmod 0644 "$migration/generation.meta" "$migration/release.manifest" "$migration/release.sig"
+  mkdir "$migration/helpers"
+  mv "$migration/helper-0" "$migration/helpers/0"
+  mv "$migration/helper-1" "$migration/helpers/1"
+  chmod 0755 "$migration/core" "$migration/manager" "$migration/runtime" \
+    "$migration/codex-code-mode-host" "$migration/helpers/0" "$migration/helpers/1"
+  codex update --local "$migration"
+  codex update
+)
+```
+
+## Profile selection and optional tmux
+
+### Login accounts and configuration profiles
 
 Profiles support creation, deletion, renaming and a saved default. A damaged saved account choice stops launch with an error; it never silently selects a different account. All lifecycle commands are available in the installed Manager:
 
@@ -101,88 +428,12 @@ login accounts. Optional shared configs live at
 missing filename in each owned execution home. Existing local configs take
 priority, and base settings/login files stay unchanged. Existing registrations
 and account-local upstream profiles work without Manager; new shared registration
-requires Manager. The optional ChatGPT Provider
-uses this common registration; `/model` selects its model and supported effort,
-while `--profile chatgpt` remains the fallback. The signed Linux app still
-owns its login and Chat inference. Active source and focused qualification now live in
-[the optional Provider](providers/chatgpt/README.md). Historical experiment source
-and unique drivers remain preserved for reviewed integration/closure; provenance
-belongs to the Provider NOTICE and bounded proof to CURRENT.
-The signed Rust Provider implements transport, configuration and host lifetime,
-with bounded authenticated-app, native-tool, project and real-development proof.
-Use Core's authenticated `codex provider` package interface; explicit `prepare`
-binds the selected immutable executable to the shared ChatGPT profile. Selection
-alone does not replace an existing profile or upgrade a running process. See the
-[package interface](providers/chatgpt/README.md#optional-package-selection).
-Preserved legacy installations and experiment history remain available for
-rollback/provenance; new installation uses the signed Provider package.
+requires Manager. See the
+[Provider guide](providers/chatgpt/README.md#first-time-setup) for the shared
+ChatGPT profile. Package selection and explicit profile preparation are
+separate; neither upgrades an already running process.
 
-The retained Full60 transition failure is `unsupported_desktop_route`
-when old-model compaction reaches the Chat endpoint; foreign opaque checkpoints
-also require readable handoff. Current readable-history model selection reuses
-the same native thread without requesting a fresh summary, and actual TUI
-return/re-entry has bounded acceptance. Preserve the old opaque conversation;
-that proof does not make its checkpoint readable. See
-[current diagnosis](CURRENT.md#confirmed-operating-chat-blocker).
-
-The Rust candidate owns editable configuration/catalog data at
-`~/.config/codex/providers/chatgpt.toml` (honoring `XDG_CONFIG_HOME`), including
-model/effort/context and remote ChatGPT project settings. The installed JS adapter
-does not read this file. The preserved1,000,000-token setting is an operator
-override, not a measured Chat capacity. Model/effort changes within one selected
-Provider use native session settings; cross-provider history requires its own
-qualified handoff. Project mode reuses/creates an explicitly configured remote
-project for new chats; it does not move/delete existing chats or prove lower Chat
-message costs. See [configuration](CURRENT.md#context-and-easy-configuration),
-[project behavior](CURRENT.md#chatgpt-projects-and-history) and the
-[remaining acceptance](CURRENT.md#remaining-acceptance-and-delivery).
-
-## Fresh install
-
-A fresh Termux environment needs the existing Termux shell, curl, and OpenSSL.
-No Rust compiler, package-manager install, release private key, or GitHub account
-is required on the device.
-
-The accepted public entrypoint is the immutable online installer:
-
-```sh
-"$PREFIX/bin/curl" -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 --max-filesize 131072 'https://raw.githubusercontent.com/humtr/codex/eba60a7a72cacc9f6be126606ee992c00e662f5d/install-online.sh' | "$PREFIX/bin/sh"
-```
-
-The network frontend is only acquisition. It pins the accepted bootstrap public
-key, verifies the signed stable index and release manifest before using their
-network-selected values, downloads the bounded signed inventory, and delegates
-all persistent writes to the existing local
-`install.sh -> bootstrap/codex-bootstrap -> Core` path.
-
-For an already downloaded signed bundle, `install.sh` remains the local/offline
-frontend defined by `SPEC.md`.
-The online installer defaults to full. Save the same script and run
-`sh install-online.sh --variant base` for the standalone Core/upstream edition.
-Component acquisition is automatic; both editions install a complete signed
-generation through the same lifecycle.
-
-## Updating
-
-After installation, ordinary updates remain Core-owned:
-
-```sh
-codex update
-```
-
-The default route consumes the signed stable channel. It does not delegate to
-the upstream self-updater, and publication credentials are not device update
-authority.
-
-Update output separates the upstream Codex version from the Termux edition and
-release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
-standalone Core/upstream edition; Full includes Manager/enhanced TUI. The signed
-release date is the UTC date that the immutable release was prepared, not the
-device installation date. Older releases or unavailable optional metadata show
-`unavailable`; valid updates still work. An already-current update also shows
-the installed edition/release information, without installing again.
-
-## Profile selection and optional tmux
+### Terminal selection and tmux
 
 ```sh
 codex termux launch
@@ -202,6 +453,22 @@ Requesting another tmux container from inside tmux is refused; no extra pane or
 workload is created in that terminal. Use a separate Termux terminal for independent work.
 Changing execution mode requires a safe new launch, rather than migrating a live
 Codex process. Independent launches never share a workload or cover another launch.
+
+## Notifications (Full)
+
+`codex termux help` lists the installed Manager commands. Profiles separate
+execution preferences and authentication while sharing upstream conversation
+storage. `notify show/set` controls Termux notification/toast delivery;
+`notify test` sends fixed test text and reports each selected provider's result.
+Notifications return to the live workload's registered window by default, with or
+without tmux (`notify set --focus window`). Native-origin capable Termux runs in
+the invoking terminal. Official APK fallback creates one named dedicated terminal
+per launch, then reuses it. A tap consumes the notification; use a fresh one for
+another return. Return never starts/resumes Codex. Stock APK lacks atomic existing-
+window selection: manual rename or a closing-window race can open an inert empty terminal. `--focus termux` only brings the app forward.
+The `UserInputRequest` notification selector covers structured questions and
+follow-up input requests, with their question text. Each conversation updates one
+notification, so a generic input reminder cannot remain beside its follow-up body.
 
 ## Active work across accounts
 
@@ -233,9 +500,10 @@ without this helper. See SPEC for authoritative scope and failure behavior.
 
 ## Documents
 
-- `SPEC.md` — normative product and architecture contract
-- `CURRENT.md` — operating baseline, proof and remaining work
-- `AGENTS.md` — repository-local execution and safety rules
+- [Provider guide](providers/chatgpt/README.md) — connection, login and work controls
+- [SPEC.md](SPEC.md) — normative product and architecture contract
+- [CURRENT.md](CURRENT.md) — operating baseline, proof and deferred work
+- [AGENTS.md](AGENTS.md) — repository-local execution and safety rules
 
 ## Branches
 
@@ -248,32 +516,12 @@ Current stable-channel promotion changes only the signed public index authority
 on `main` through the accepted non-forced CAS release path; implementation
 development continues on `rewrite/rust-core`.
 
-Published browser-bridge releases before the Manager TUI may reject a direct
-update with “R10 browser helper bridge contract is invalid.” Run this one-time
-migration from the immutable signed Release, then ordinary updates. The existing
-Core verifies its trusted signature and complete inventory; profiles, conversations
-and running clients are preserved. The temporary download is always cleaned.
-
-```sh
-(
-  set -eu
-  migration="$(mktemp -d "${TMPDIR:?}/codex-migration.XXXXXX")"
-  trap 'rm -rf -- "$migration"' EXIT
-  gh release download local-hosted-0-161-0-ab644771ac89-manager-tui-bridge \
-    --repo humtr/codex --dir "$migration" \
-    --pattern core --pattern generation.meta --pattern manager --pattern runtime \
-    --pattern codex-code-mode-host --pattern helper-0 --pattern helper-1 \
-    --pattern release.manifest --pattern release.sig
-  chmod 0644 "$migration/generation.meta" "$migration/release.manifest" "$migration/release.sig"
-  mkdir "$migration/helpers"
-  mv "$migration/helper-0" "$migration/helpers/0"
-  mv "$migration/helper-1" "$migration/helpers/1"
-  chmod 0755 "$migration/core" "$migration/manager" "$migration/runtime" \
-    "$migration/codex-code-mode-host" "$migration/helpers/0" "$migration/helpers/1"
-  codex update --local "$migration"
-  codex update
-)
-```
+Repository separation/cleanup is
+[deferred](CURRENT.md#repository-separation-and-cleanup): retain the old repository
+as an archive, move development to a fresh private `codex`, and use a separately
+named public distribution repository. Names and endpoints have not changed.
+The owner accepts a brief installation/update outage during the eventual move;
+the new bootstrap and Core/Provider update paths still need verification.
 
 ## Account usage and automatic switching (Full)
 

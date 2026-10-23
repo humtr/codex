@@ -4,10 +4,12 @@ import {createHash} from 'node:crypto';
 import {connectDesktop} from '../providers/chatgpt/desktop_cdp.mjs';
 
 const root=process.argv[2], action=process.argv[3], route=process.argv[4];
+const setupPlan=JSON.parse(readFileSync(root+'/plan.json','utf8'));
+if(typeof setupPlan.desktop_session!=='string')throw Error('explicit_desktop_session_required');
 const name='Termux Provider: D3';
 const bridge=readFileSync(root+'/candidate/app_bridge.js','utf8');
 const revision=createHash('sha256').update(JSON.stringify(bridge)).digest('hex');
-const c=await connectDesktop(process.env.HOME+'/.local/share/codex-web-experiment/linux-desktop/session.json',undefined,{app:true});
+const c=await connectDesktop(setupPlan.desktop_session,undefined,{app:true});
 try {
  if(action==='project'||action==='rename') {
   const prior=action==='rename'?JSON.parse(readFileSync(root+'/project.json','utf8')):null;

@@ -31,6 +31,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 if not (SOURCE / "scripts").is_dir():
     SOURCE = Path(json.loads((Path(__file__).parent / "plan.json").read_text())["repository"])
 sys.path.insert(0, str(SOURCE / "scripts"))
+from provider_qualification import explicit_input
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_d3 import stop_owned_pid
 
@@ -118,7 +119,12 @@ def preflight_native(root, info, env):
 def prepare(root):
     assert not (root / "plan.json").exists(), "already prepared"
     os.umask(0o077)
-    d2 = Path("/data/data/com.termux/files/usr/tmp/d2.jucx6dti")
+    d2 = explicit_input("D2_ROOT")
+    desktop_session = explicit_input("DESKTOP_SESSION")
+    connector_reference = explicit_input("CONNECTOR_REFERENCE")
+    tunnel_profile = explicit_input("TUNNEL_PROFILE")
+    tunnel_alias = explicit_input("TUNNEL_ALIAS", path=False)
+    frontend = explicit_input("FRONTEND")
     frozen = json.loads((d2 / "corrected-candidate-inputs.json").read_text())
     assert all(sha(SOURCE / name) == digest for name, digest in frozen["source"].items()), "qualified product input drift"
     (root / "candidate").mkdir()
@@ -144,7 +150,6 @@ def prepare(root):
     save(root / "native-fixture.json", {"root": str(native), "owner": str(root), **stamp()})
     check_native_socket_budget(native / "h")
     core = Path(os.environ["PREFIX"]) / "bin/codex"
-    frontend = Path.home() / ".cache/codex/acceptance/development-audit-1t4txdwt/tui-handoff-39129327503/codex"
     home, prefix, env = fixture(native, core, frontend)
     workspace = root / "w"
     workspace.mkdir()
@@ -173,15 +178,16 @@ class OriginalTests(unittest.TestCase):
         [("core", prefix / "bin/codex"), ("home", home / ".codex"), ("workspace", workspace)]))
     info = {"mode": "operator", "return_path": "mcp", "binary": str(root / "candidate/provider"),
         "sha256": frozen["binary_sha256"], "state": str(root / "state"), "home": str(home / ".codex"),
-        "workspace": str(workspace), "core": str(prefix / "bin/codex"), "fixture_home": str(home), "fixture_root": str(native)}
+        "workspace": str(workspace), "core": str(prefix / "bin/codex"), "fixture_home": str(home), "fixture_root": str(native), "desktop_session": str(desktop_session),
+        "connector_reference": str(connector_reference), "tunnel_profile": str(tunnel_profile), "tunnel_alias": tunnel_alias}
     save(root / "info.json", info)
     save(root / "environment-private.json", env)
     for argv in [["git", "init", "-q"], ["git", "add", "."], ["git", "-c", "user.name=Owned trial", "-c", "user.email=owned@example.invalid", "commit", "-qm", "frozen Chat-entry baseline"]]:
         subprocess.run(argv, cwd=workspace, env=env, check=True, capture_output=True)
-    host = json.loads((Path.home() / ".local/share/codex-web-experiment/linux-desktop/session.json").read_text())
+    host = json.loads(desktop_session.read_text())
     descriptor = json.loads((Path(host["root"]) / "desktop-host.json").read_text())
     plan = {"repository": str(SOURCE), "prepared": stamp(), "cache": str(cache), "source_HEAD": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True).strip(),
-        "qualified_product": frozen, "desktop_session": str(Path.home() / ".local/share/codex-web-experiment/linux-desktop/session.json"),
+        "qualified_product": frozen, "desktop_session": str(desktop_session),
         "bun": descriptor["host"]["image"], "project_name": "Termux Provider: Chat entry", "host_model": "gpt-6", "thinking_effort": "extended",
         "bindings": {"initial": "app://-/assets/app-initial-ed5807835d97.js", "shared": "app://-/assets/app-shared-2d77298f0100.js"},
         "max_user_turns": 2, "max_source_requests": 4, "expected_saved_chats": 1, "task_timeout_seconds": 1200,
@@ -208,7 +214,7 @@ def ready_prior(root):
     states = [control(info, env, "codex_status", {"work_id": w["work_id"]}) for w in control(info, env, "codex_sessions", {"action": "list"})["work"]]
     assert all(not s["pending_calls"] and not s["human_requests"] and s["native_status"]["type"] == "notLoaded" and s["driver_phase"] == "released_after_stop" for s in states)
     te = json.loads((root / "tunnel-environment-private.json").read_text())
-    tunnel = invoke(root, "prior-current-tunnel", ["tunnel-client", "runtimes", "status", "codex-provider-rust-trial", "--json"], te)
+    tunnel = invoke(root, "prior-current-tunnel", ["tunnel-client", "runtimes", "status", json.loads((root / "info.json").read_text())["tunnel_alias"], "--json"], te)
     assert tunnel["process_running"] and tunnel["ready"] and tunnel["healthy"]
     previous = json.loads((root / "prior-tunnel-private.json").read_text())
     assert tunnel["profile_dir"] == previous["profile_dir"], "prior tunnel owner changed"
@@ -219,12 +225,13 @@ def setup(root):
     assert not (root / "setup-intent.json").exists(), "setup already requested; reconcile, do not retry"
     info = json.loads((root / "info.json").read_text())
     env = json.loads((root / "environment-private.json").read_text())
+    profile = json.loads(Path(info["tunnel_profile"]).read_text())["control_plane"]
     # The MCP list probe cannot prove native preparation. Exercise the exact
     # private catalog preparation before releasing the user's idle connection.
     preflight_native(root, info, env)
     prior, pe, te = ready_prior(root)
     save(root / "setup-intent.json", stamp(), True)
-    invoke(root, "prior-tunnel-stop", ["tunnel-client", "runtimes", "stop", "codex-provider-rust-trial", "--json"], te)
+    invoke(root, "prior-tunnel-stop", ["tunnel-client", "runtimes", "stop", json.loads((root / "info.json").read_text())["tunnel_alias"], "--json"], te)
     invoke(root, "prior-provider-stop", [prior["binary"], "stop", "--state", prior["state"]], pe)
     p = subprocess.Popen([info["binary"], "serve", "--state", info["state"], "--port", "0"], cwd=info["workspace"], env=env,
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=(root / "provider.log").open("ab"), text=True, start_new_session=True)
@@ -237,13 +244,12 @@ def setup(root):
     save(root / "info.json", info)
     invoke(root, "profile-prepare", [info["binary"], "prepare", "--home", info["home"], "--state", info["state"]], env)
     control(info, env, "codex_sessions", {"action": "list"})
-    profile = json.loads(Path("/data/data/com.termux/files/usr/tmp/provider-mcp-live-985reoob/profiles/rust-provider-trial.yaml").read_text())["control_plane"]
     wrapper = root / "mcp-stdio"
     wrapper.write_text("#!" + os.environ["PREFIX"] + "/bin/sh\nexec " + shlex.join([os.environ["PREFIX"] + "/bin/env", "-i", *[k + "=" + v for k, v in env.items()], info["binary"], "mcp-stdio", "--state", info["state"]]) + "\n")
     wrapper.chmod(0o700)
-    invoke(root, "trial-tunnel-connect", ["tunnel-client", "runtimes", "connect", "--alias", "codex-provider-rust-trial", "--tunnel-id", profile["tunnel_id"],
+    invoke(root, "trial-tunnel-connect", ["tunnel-client", "runtimes", "connect", "--alias", json.loads((root / "info.json").read_text())["tunnel_alias"], "--tunnel-id", profile["tunnel_id"],
         "--runtime-api-key", profile["api_key"], "--profile", "chat-entry-direct", "--profile-dir", str(root / "profiles"), "--mcp-command", str(wrapper), "--json"], te, 60)
-    tunnel = invoke(root, "trial-tunnel-ready", ["tunnel-client", "runtimes", "status", "codex-provider-rust-trial", "--json"], te)
+    tunnel = invoke(root, "trial-tunnel-ready", ["tunnel-client", "runtimes", "status", json.loads((root / "info.json").read_text())["tunnel_alias"], "--json"], te)
     assert tunnel["process_running"] and tunnel["ready"] and tunnel["healthy"]
     plan = json.loads((root / "plan.json").read_text())
     refresh = subprocess.run([plan["bun"], str(root / "refresh.mjs"), str(root)], capture_output=True, text=True, timeout=150)
@@ -256,7 +262,7 @@ def setup(root):
     finally:
         client.close()
     files = ["run.py", "client.mjs", "refresh.mjs", "manage.py", "plan.json", "request-1.txt", "request-2.txt", "candidate/provider", "candidate/app_bridge.js", "config/codex/providers/chatgpt.toml", "baseline/ledger.py", "baseline/test_original.py"]
-    helpers = [SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_provider_d3.py", SOURCE / "scripts/qualify_tasks.py", SOURCE / "providers/chatgpt/desktop_cdp.mjs"]
+    helpers = [SOURCE / "scripts/provider_qualification.py", SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_provider_d3.py", SOURCE / "scripts/qualify_tasks.py", SOURCE / "providers/chatgpt/desktop_cdp.mjs"]
     save(root / "sealed-inputs.json", {**{name: sha(root / name) for name in files}, **{str(path): sha(path) for path in helpers}})
     save(root / "setup-complete.json", {"model_requests": 0, "provider_has_app_host": False, **stamp()})
     print(json.dumps({"setup_ready": True, "root": str(root), "model_requests": 0}))
@@ -502,9 +508,9 @@ print("independent API/CLI cases passed")
 
 def restore(root, info, env):
     te = json.loads((root / "tunnel-environment-private.json").read_text())
-    tunnel = invoke(root, "trial-tunnel-before-close", ["tunnel-client", "runtimes", "status", "codex-provider-rust-trial", "--json"], te)
+    tunnel = invoke(root, "trial-tunnel-before-close", ["tunnel-client", "runtimes", "status", json.loads((root / "info.json").read_text())["tunnel_alias"], "--json"], te)
     assert tunnel["profile_dir"] == str(root / "profiles"), "tunnel owner changed"
-    invoke(root, "trial-tunnel-stop", ["tunnel-client", "runtimes", "stop", "codex-provider-rust-trial", "--json"], te)
+    invoke(root, "trial-tunnel-stop", ["tunnel-client", "runtimes", "stop", json.loads((root / "info.json").read_text())["tunnel_alias"], "--json"], te)
     invoke(root, "trial-provider-stop", [info["binary"], "stop", "--state", info["state"]], env)
     p = subprocess.run([sys.executable, "-B", str(root / "manage.py"), "prior-service", "start"], capture_output=True, text=True, timeout=150)
     (root / "restore.log").write_text(p.stdout + p.stderr)

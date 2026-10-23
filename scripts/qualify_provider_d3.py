@@ -34,6 +34,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 if not (SOURCE / "scripts").is_dir():
     SOURCE = Path(json.loads((Path(__file__).parent / "plan.json").read_text())["repository"])
 sys.path.insert(0, str(SOURCE / "scripts"))
+from provider_qualification import explicit_input
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 
 
@@ -95,7 +96,6 @@ def owned_fault_tunnel(case, observed):
     assert admitted["process_running"] and admitted["ready"] and admitted["healthy"], "initial tunnel admission absent"
     for key in ("alias", "profile_dir", "tunnel_id", "config_path", "profile_path"):
         assert admitted.get(key) and observed.get(key) == admitted[key], "tunnel registry identity changed"
-    assert observed["alias"] == "codex-provider-rust-trial"
     assert observed["process"] == admitted["process"], "tunnel process registration changed"
     assert observed["process"]["target_kind"] == "command"
     assert observed["process"]["target_value"] == str(case / "mcp-stdio"), "tunnel command owner changed"
@@ -103,7 +103,7 @@ def owned_fault_tunnel(case, observed):
 
 
 def tunnel_profile():
-    path = Path("/data/data/com.termux/files/usr/tmp/provider-mcp-live-985reoob/profiles/rust-provider-trial.yaml")
+    path = explicit_input("TUNNEL_PROFILE")
     return json.loads(path.read_text())["control_plane"]
 
 
@@ -119,8 +119,9 @@ def repaired_tunnel(case, before, after):
 
 
 def reconnect_fault_tunnel(case, thread, results_digest):
+    alias = json.loads((case / "tunnel-ready-private.json").read_text())["alias"]
     env = tunnel_environment()
-    command = ["tunnel-client", "runtimes", "status", "codex-provider-rust-trial", "--json"]
+    command = ["tunnel-client", "runtimes", "status", alias, "--json"]
     before = local_json(command, env)
     assert owned_fault_tunnel(case, before)
     profile = tunnel_profile()
@@ -131,7 +132,7 @@ def reconnect_fault_tunnel(case, thread, results_digest):
     # The injected EOF can already have ended the owner. No Stop is needed then.
     if before["process_running"]:
         try:
-            stopped = local_json(["tunnel-client", "runtimes", "stop", "codex-provider-rust-trial", "--json"], env)
+            stopped = local_json(["tunnel-client", "runtimes", "stop", alias, "--json"], env)
         except AssertionError:
             observed = local_json(command, env)
             assert owned_fault_tunnel(case, observed)
@@ -142,7 +143,7 @@ def reconnect_fault_tunnel(case, thread, results_digest):
     save(case / "recovery-tunnel-stop-private.json", stopped)
     connect_error = None
     try:
-        connected = local_json(["tunnel-client", "runtimes", "connect", "--alias", "codex-provider-rust-trial",
+        connected = local_json(["tunnel-client", "runtimes", "connect", "--alias", alias,
             "--tunnel-id", profile["tunnel_id"], "--runtime-api-key", profile["api_key"],
             "--profile", "d2-" + case.name, "--profile-dir", str(case / "profiles"),
             "--mcp-command", str(case / "mcp-stdio"), "--json"], env)
@@ -347,6 +348,15 @@ def task_rules(name, plan):
 
 
 def prepare(args):
+    desktop_session = explicit_input("DESKTOP_SESSION")
+    connector_reference = explicit_input("CONNECTOR_REFERENCE")
+    frontend = explicit_input("FRONTEND")
+    bun = explicit_input("BUN")
+    source_environment = explicit_input("PRIOR_ENVIRONMENT")
+    tunnel_alias = explicit_input("TUNNEL_ALIAS", path=False)
+    tunnel_environment()
+    tunnel_profile()
+    stopped_work_proof = args.stopped_work_proof or explicit_input("STOPPED_WORK_PROOF")
     d2 = args.d2.resolve()
     frozen = json.loads((d2 / "corrected-candidate-inputs.json").read_text())
     assert all(sha(SOURCE / path) == digest for path, digest in frozen["source"].items()), "D2 input drift"
@@ -370,6 +380,7 @@ def prepare(args):
              ["normal_adapter", "normal_operator", "fault_operator", "fault_adapter"])
     baseline = {str(p.relative_to(root / "baseline")): sha(p) for p in (root / "baseline").rglob("*") if p.is_file()}
     plan = {"version": 1, "repository": str(SOURCE), "prepared": now(), "d2": str(d2), "cache": str(cache),
+            "desktop_session": str(desktop_session), "bun": str(bun),
             "candidate_sha256": frozen["binary_sha256"], "baseline": baseline, "order": order,
             "matched_comparison_order": order, "max_total_app_dispatches": 24, "negative_app_dispatches": 0,
             "expected_genuine_user_tasks": 10, "expected_app_requests": [10, 14],
@@ -403,13 +414,9 @@ def prepare(args):
     previous = json.loads((prior_source / "info.json").read_text())
     previous["return_path"] = "mcp"
     save(prior / "info.json", previous)
-    source_environment = prior_source / "environment-private.json"
-    if not source_environment.exists():
-        source_environment = Path("/data/data/com.termux/files/usr/tmp/dr.43cajaz7/environment-private.json")
     shutil.copy2(source_environment, prior / "environment-private.json")
-    save(root / "prior-ownership.json", {"original": previous, "tunnel_profile_dir": str(prior_source / "profiles"),
-         "stopped_work_proof": str(args.stopped_work_proof or Path("/data/data/com.termux/files/usr/tmp/d.n3y8udaf/operator/native-stop.json"))})
-    frontend = Path.home() / ".cache/codex/acceptance/development-audit-1t4txdwt/tui-handoff-39129327503/codex"
+    save(root / "prior-ownership.json", {"original": previous, "tunnel_profile_dir": str(prior_source / "profiles"), "tunnel_alias": tunnel_alias,
+         "stopped_work_proof": str(stopped_work_proof)})
     core = Path(os.environ["PREFIX"]) / "bin/codex"
     for name in order:
         case = root / name
@@ -425,6 +432,7 @@ def prepare(args):
                 "home": str(home / ".codex"), "workspace": str(case / "w"), "core": str(prefix / "bin/codex"),
                 "runtime": str(home / ".local/lib/codex/core/generations/local-permission-fixture/runtime"),
                 "fixture_root": str(short), "binary": str(root / "candidate/provider"),
+                "desktop_session": str(desktop_session), "connector_reference": str(connector_reference),
                 "bridge": str(root / "candidate/app_bridge.js"), "sha256": frozen["binary_sha256"]}
         for key, path in [("core_sha256", core), ("runtime_sha256", Path(info["runtime"])),
                           ("frontend_sha256", Path(info["runtime"]).parent / "helpers/2")]:
@@ -453,7 +461,7 @@ def prepare(args):
         assert len({v[key] for v in infos}) == 1
     save(root / "inputs.json", {"source_HEAD": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True).strip(),
          "helper_inputs": {str(p.relative_to(SOURCE)): sha(p) for p in [
-             SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_tasks.py",
+             SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_tasks.py", SOURCE / "scripts/provider_qualification.py",
              SOURCE / "providers/chatgpt/desktop_cdp.mjs"]},
          "qualified_D2_source": frozen, "files": {str(p.relative_to(root)): sha(p) for p in root.rglob("*")
           if p.is_file() and ".git" not in p.parts and "environment-private" not in p.name}})
@@ -496,8 +504,10 @@ def seal(root):
 
 
 def tunnel_environment():
-    pointer = Path("/data/data/com.termux/files/usr/tmp/pc.7I90nl/current-readiness-root")
-    return json.loads((Path(pointer.read_text()) / "process-environment-private.json").read_text())["tunnel_environment"]
+    value = json.loads(explicit_input("TUNNEL_ENVIRONMENT").read_text())
+    environment = value.get("tunnel_environment", value)
+    assert isinstance(environment, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in environment.items()), "explicit tunnel environment must contain strings"
+    return environment
 
 
 def local_json(command, env):
@@ -528,14 +538,14 @@ def preflight(root):
     info = ownership["original"]
     env = json.loads((root / "prior-service/environment-private.json").read_text())
     assert sha(Path(info["binary"])) == info["sha256"]
-    host = json.loads((Path.home() / ".local/share/codex-web-experiment/linux-desktop/session.json").read_text())
+    host = json.loads(explicit_input("DESKTOP_SESSION").read_text())
     proc = Path("/proc", str(host["pid"]))
     assert (proc / "exe").resolve() == Path(host["image"]).resolve()
     fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
     assert fields[0] != "Z" and fields[19] == str(host["start"]), "desktop ownership changed"
     status = local_json([info["binary"], "status", "--state", info["state"]], env)
     assert status["live"] and status["process"]["pid"] == info["pid"] and status["process"]["image"] == info["binary"]
-    tunnel = local_json(["tunnel-client", "runtimes", "status", "codex-provider-rust-trial", "--json"], tunnel_environment())
+    tunnel = local_json(["tunnel-client", "runtimes", "status", ownership["tunnel_alias"], "--json"], tunnel_environment())
     assert tunnel["process_running"] and tunnel["ready"] and tunnel["healthy"]
     assert tunnel["profile_dir"] == ownership["tunnel_profile_dir"], "trial tunnel ownership changed"
     works = control(info, env, "codex_sessions", {"action": "list"})["work"]
@@ -558,7 +568,7 @@ def acquire(root):
     save(root / "lease-intent.json", evidence, exclusive=True)
     info = json.loads((root / "prior-ownership.json").read_text())["original"]
     env = json.loads((root / "prior-service/environment-private.json").read_text())
-    local_json(["tunnel-client", "runtimes", "stop", "codex-provider-rust-trial", "--json"], tunnel_environment())
+    local_json(["tunnel-client", "runtimes", "stop", json.loads((root / "prior-ownership.json").read_text())["tunnel_alias"], "--json"], tunnel_environment())
     local_json([info["binary"], "stop", "--state", info["state"]], env)
     save(root / "lease-ready.json", {"previous_connection_released": True, "desktop_restarted": False, **now()}, exclusive=True)
 
@@ -683,7 +693,7 @@ class Trial:
     def service(self, script, *args):
         command = [sys.executable, "-B", str(self.root / script), *args]
         if script.endswith(".mjs"):
-            command = [str(Path.home() / ".local/lib/codex-web-experiment/c3642b19a87cdace158f/bun"), str(self.root / script), *args]
+            command = [self.plan["bun"], str(self.root / script), *args]
             if script == "app_setup.mjs":
                 if (self.root / "validator-repair.json").exists():
                     command[1] = str(self.root / "app_setup-revision2.mjs")

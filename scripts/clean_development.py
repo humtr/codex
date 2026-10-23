@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import time
 
-TMP = Path(os.environ.get('TMPDIR', '/data/data/com.termux/files/usr/tmp')).resolve()
+TMP = Path(tempfile.gettempdir()).resolve()
 CACHE = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'codex'
 PAYLOADS = ('runtime', 'codex-code-mode-host', 'helpers/2')
 

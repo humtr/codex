@@ -23,6 +23,21 @@ class InvalidInputs(ValueError):
     pass
 
 
+def explicit_input(name, *, path=True, environment=None):
+    """Historical live drivers must name their input, never select an old device."""
+    environment = os.environ if environment is None else environment
+    key = "CODEX_QUALIFICATION_" + name
+    value = environment.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise InvalidInputs(f"explicit {key} input is required")
+    if not path:
+        return value
+    try:
+        return Path(value).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise InvalidInputs(f"explicit {key} path is unavailable") from None
+
+
 def require(condition, message):
     if not condition:
         raise InvalidInputs(message)

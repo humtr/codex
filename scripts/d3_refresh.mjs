@@ -34,12 +34,14 @@ const operatorNames=['native_catalog','native_tool','codex_sessions','codex_atta
 const expectedNames=info.expected_tools??(info.mode==='operator'?operatorNames:['native_catalog','native_tool']);
 if(!Array.isArray(expectedNames)||new Set(expectedNames).size!==expectedNames.length||!expectedNames.every(v=>typeof v==='string'))throw Error('explicit_tool_catalog_invalid');
 const expected=expectedNames.length;
-const prior=JSON.parse(readFileSync(info.connector_reference??'/data/data/com.termux/files/usr/tmp/pm.ycwegh4e/connector-private.json','utf8')).matches;
+if(typeof info.connector_reference!=='string'||!info.connector_reference.trim())throw Error('explicit_connector_reference_required');
+const prior=JSON.parse(readFileSync(info.connector_reference,'utf8')).matches;
 const connectorName=info.connector_name??prior[0]?.name;
 if(prior.length!==1||typeof connectorName!=='string'||!connectorName.trim()||connectorName.length>160||prior[0].name!==connectorName)throw Error('exact_owned_connector_required');
+if(typeof info.desktop_session!=='string'||!info.desktop_session.trim())throw Error('explicit_desktop_session_required');
 const id=prior[0].connector_id;
 const attemptDir=directory+'/refresh-'+Date.now();mkdirSync(attemptDir,{mode:0o700});
-const c=await connectDesktop(info.desktop_session??process.env.HOME+'/.local/share/codex-web-experiment/linux-desktop/session.json',undefined,{app:true});
+const c=await connectDesktop(info.desktop_session,undefined,{app:true});
 try {
  for(let attempt=1;attempt<=3;attempt++) {
   const slot='__d3MetadataRefresh_'+attempt+'_'+Date.now();

@@ -54,6 +54,175 @@ a distinct same-thread report-only turn closes the corrected native-final path
 without repeating its reviewer/program/effect. Earlier public generations keep
 their own evidence. Package selection and operating activation are separate actions.
 
+## First-time setup
+
+This is the current manual procedure. There is no installed Provider `setup`
+command yet. Core/Full installation is documented in the
+[main guide](../../README.md#fresh-install). Existing configured devices should
+use their current configuration; these examples are for first-time setup.
+
+### Choose the entrypoint and execution account
+
+| Entry | Primary reasoning | Linux app needed? | Remote MCP needed? |
+| --- | --- | --- | --- |
+| Terminal with ChatGPT | Managed app Chat | Yes, with app login | Only for MCP inner returns; local_function does not need it |
+| ChatGPT direct | Current Chat (`reasoning=current`) | No for primary direct work | Yes |
+| ChatGPT general delegation | Managed work Chat (`reasoning=managed`) | Yes, with app login and project configuration | Yes for the requesting Chat |
+
+Native Codex login, Linux app login and the ChatGPT MCP connection are separate
+boundaries. Direct current-Chat work does not require a native subscription login
+or a Linux app for primary reasoning; separately configured app reviewers do.
+Never copy tokens between them or into chat prompts.
+
+Install/select the signed Provider, then inspect its status/catalog:
+
+```sh
+codex provider install chatgpt
+codex provider status chatgpt
+codex provider chatgpt models
+```
+
+Package selection is not proof of app login, service readiness or a working tunnel.
+For a fresh default execution account, set these example variables. Replace the
+project path with your existing project. For a named Manager account, replace
+`codex_provider_home` with that account's existing registered home instead;
+`codex termux profile current` shows its account ID, not its filesystem path.
+The registered `work` account home is
+`~/.local/share/codex/manager/profiles/work/home`. An explicit `CODEX_HOME` wins
+over a saved Manager default; do not silently substitute another account.
+
+```sh
+codex_provider_home="$HOME/.codex"
+codex_project=/absolute/path/to/your-project
+(umask 077; mkdir -p "$codex_provider_home")
+codex provider chatgpt config set \
+  execution.core "$PREFIX/bin/codex" \
+  execution.home "$codex_provider_home" \
+  execution.workspace "$codex_project"
+codex provider chatgpt config validate
+```
+
+These fields bind native work to one explicit Core/account/project. They do not
+force a model in ordinary account config. Do not edit bindings underneath running
+work; reconcile and settle it before a deliberate configuration change/restart.
+
+### Direct ChatGPT connection without a Linux app
+
+With the native binding above, run the service in one Termux terminal:
+
+```sh
+codex provider chatgpt serve
+```
+
+Keep it running (or use your existing owned service supervisor). In another
+terminal, use `status` and `work list` to observe it. `mcp-stdio` is the local
+MCP command for a tunnel/transport; it requires an existing authenticated service:
+
+```sh
+codex provider chatgpt status
+codex provider chatgpt work list
+codex provider chatgpt mcp-stdio
+```
+
+The last command speaks MCP JSON-RPC on stdin/stdout; it is not an interactive
+chat command. Configure your actual transport to invoke it, with the same HOME,
+PREFIX and Provider state. In ChatGPT web, add a custom MCP server named
+**Termux Bridge** through Plugins. Choose your transport's reachable Server URL
+or configured Secure MCP Tunnel, complete authentication/connection consent,
+install the resulting plugin and verify tool discovery. Select it with the `@`
+picker in a conversation. The local loopback URL is not a public connector URL.
+Account/workspace availability still applies; see the
+[official OpenAI connection instructions](https://developers.openai.com/api/docs/guides/custom-mcp-server).
+
+Remote tunnel provisioning/credentials and connection registration currently
+remain manual. Existing `tunnel-client runtimes connect/status` can supervise a
+configured local MCP command, but Provider does not supply a universal remote
+endpoint or create a remote account. The installed device's permanent wrapper
+and remote alias in CURRENT are local operating state, not fresh-install defaults.
+This device's local runtime now uses [runit services](#device-runit-services);
+do not start a second tmux runtime against the same remote tunnel.
+
+Once connected, use [direct development](../../README.md#chatgpt-with-direct-local-development).
+The assistant selects `reasoning=current` and completes the native attach/receipt/
+execution/final protocol through advertised tools. No Linux rootfs is required
+for this primary path.
+
+### Linux app and login for app-backed reasoning
+
+This branch additionally needs the official app in an already provisioned Linux
+rootfs and the Termux `proot`/`Xvnc` executables. Their packages are `proot` and
+`tigervnc`. An optional viewer needs compatible noVNC assets. **The signed Provider
+package does not provision the app/rootfs or noVNC assets.** The historical
+experiment installer is retired; it is not a supported fresh-install shortcut.
+
+After you have provisioned those assets, set their actual absolute paths:
+
+```sh
+codex provider chatgpt config set \
+  host.rootfs /absolute/path/to/provisioned-rootfs \
+  host.viewer_assets /absolute/path/to/compatible-novnc-assets
+codex provider chatgpt prepare --home "$codex_provider_home"
+codex provider chatgpt host ensure
+codex provider chatgpt view
+```
+
+`prepare` publishes generated routing and can start the service, without model
+work. `host ensure` acquires the app. `view` opens its optional viewer. Complete
+the official app login in that UI, then inspect:
+
+```sh
+codex provider chatgpt host status
+```
+
+The app must report ready in the intended account. Opening a window or receiving
+a successful Android intent alone does not establish that. A cold app can be
+unready while initializing; inspect its current state rather than repeatedly
+restarting it. Do not copy the existing device's login files into another user's
+setup. Native `codex login` is not a substitute for this app login.
+
+Terminal use can now select `/model` in Full or run `codex --profile chatgpt`.
+The built-in local_function return avoids a separate MCP connection for this
+terminal-managed path. If you explicitly choose MCP returns, configure and verify
+that connection before sending work. General ChatGPT delegation additionally
+needs the remote connection described above and an explicit project below.
+
+### Managed Chat project
+
+For new managed work, choose the destination explicitly:
+
+```sh
+codex provider chatgpt config set \
+  history.mode project history.project_name "Codex"
+```
+
+`Codex` is an example project name. Set `history.project_id` to disambiguate an
+existing owned private project. `history.create_if_missing` controls creation
+(default true); configuring it does not itself submit a task or create a project.
+Do not change an active work's destination underneath it. General delegation
+selects `reasoning=managed`; the actual managed task requires app readiness and
+its own work/receipt/budget controls. See the
+[entrypoint example](../../README.md#chatgpt-delegating-managed-development).
+
+### Small shared setup flow to implement later
+
+The requested follow-up is one shared minimum-setup implementation, callable
+explicitly and after a fresh interactive install. It should fill only missing
+inputs, preserve existing settings/login, install/select components through their
+existing authorities, open the necessary official login UI and verify readiness
+without sending a model task. Native, app and connection authentication must
+remain distinct. Asset/remote-service inputs still need explicit sources; an
+already working manually migrated device is not a fresh provisioning recipe.
+Offer standard termux-services/runit registration for the selected entrance:
+Provider and the configured OpenAI Secure Tunnel runtime for remote entry,
+and the Provider-owned host keeper when eager app readiness is wanted. Reuse
+existing credentials/remote registration; include private bounded logs,
+dependency/readiness checks and persistent disable/restore operations. The
+runtime check must establish Android compatibility before enabling the tunnel;
+an executable name or a successful version print alone does not establish it.
+The owner's additional runit-root recovery layer is optional, not a prerequisite. This service
+registration is an explicit device action here, not an implemented setup command.
+This document does not introduce a new command or change installed behavior.
+
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
@@ -155,6 +324,75 @@ Original failed/interrupted cohorts and exact comparison inputs remain preserved
 Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
 polish stay separate follow-ups. Linux-app removal is not a prerequisite.
 
+## ChatGPT entry and task management
+
+### What can be used now
+
+Connect once using the manual procedure above, then select Termux Bridge from
+the ChatGPT plugin picker. The [main guide](../../README.md#usage-by-entrypoint)
+uses short task requests for direct work, managed delegation and existing-work
+management. API fields and controller receipts are the assistant's concern;
+users identify the project/task and the desired reasoning source.
+
+| User intent | Existing control path |
+| --- | --- |
+| Work from this Chat | `codex_sessions` with current reasoning, native attach/receipt, tools/report/finish |
+| Delegate to a separate work Chat | Managed work with explicit app/project readiness; retrieve its original final |
+| List or inspect work | `codex_sessions` list and `codex_status` |
+| Retrieve an existing result | Events/wait and public history on that work; no new task |
+| Continue a settled task | Reconcile and resume/start the related work at its supported boundary |
+| Stop a selected task | `codex_stop`; use tree Stop only when that whole scope is requested |
+
+The assistant should report the returned work/thread identity with progress and
+results so follow-ups can address the same work. Resolve ambiguous targets before
+mutation. Prefer original native events/final items over a fresh summary task.
+Do not treat an unready app as blocking primary current-Chat reasoning; managed
+work and app-backed reviewers have their own readiness requirements.
+
+A supported ChatGPT project instruction may hold a chosen absolute workspace
+and preference for "this Chat" or "a separate work Chat". That is contextual
+guidance: it does not enable a connection, validate a local path or assign a
+controller. Native project instructions still come from the real workspace.
+ChatGPT project availability and connection use must be checked in the actual
+client; configuring Provider's `history.project_name` does not install user-facing
+instructions or bind the requesting Chat to that project.
+See the [official project guide](https://learn.chatgpt.com/docs/projects).
+
+### Proposed convenience, not shipped behavior
+
+The recommended small next step is to package the existing MCP app with **one
+shared workflow skill** under Termux Bridge. It would carry both direct and
+managed procedures, including discovery, finite work budgets, native attachment,
+project instructions, original question/result delivery and uncertain-call
+reconciliation. Users would select the plugin and state the task; route choice
+would remain explicit or come from a displayed/confirmed preference. Automatic
+skill selection is not guaranteed on every request. This repository currently
+ships neither that skill nor a combined plugin package.
+
+Official OpenAI documentation describes
+[plugins bundling reusable skills and app connections](https://learn.chatgpt.com/docs/migrate-custom-gpts).
+This is a packaging option for the current Provider, not another executor or a
+second history authority. Exact account access and real direct/delegated
+selection still need verification before delivery.
+
+If text requests still make work hard to manage, a later **compact work panel**
+could offer these controls over the same service:
+
+| Panel area | Proposed content/actions |
+| --- | --- |
+| Connection and readiness | Device/service, bound account/workspace, tunnel observation, and app readiness only for routes that need it |
+| Task entry | Choose this Chat or a separate work Chat; show the selected workspace/project and task before submission |
+| Existing work | Work/thread identity, phase, pending human input and original result; inspect, continue or Stop the selected scope |
+
+Official [MCP Apps UI support](https://developers.openai.com/plugins/build/app-quickstart)
+makes an embedded ChatGPT panel possible. No such UI resources or panel exist in
+the current tools-only service. A panel would reuse existing Provider controls,
+route direct reasoning through the active Chat, preserve native approvals and
+human answers, and distinguish requested Stop from confirmed interruption.
+It must not create another transcript store, retry uncertain effects or convert
+ordinary status reads into app acquisition/model requests. The proposed order is
+skill packaging, then optional panel work; implementation remains deferred.
+
 ## Opt-in operator controls
 
 The signed Provider exposes common `work`, `chats` and `host` CLI commands over
@@ -188,8 +426,8 @@ hidden terminal on follow-up. Result receipts expose that binding; old receipts
 without it retain their original strict parent check. `work transfer` and
 `transfer-accept` fence a completed source and require the target receipt before
 changing its route. Actual combined routes/agents/fault/efficiency evidence and
-selected hint application are recorded in the bounded F final review; G owns
-remaining product qualification, activation and public delivery.
+selected hint application retain their bounded evidence. G public delivery and
+H retirement are complete; see CURRENT for the actual device baseline.
 
 The qualified source candidate waits on local owned-stream state during an
 active input. Completion still requires the saved original message. A failed
@@ -200,7 +438,7 @@ least60s, increasing up to300s on repeated limits and honoring `Retry-After`.
 no saved-Chat HTTP request. Bounded actual Android pacing proof is recorded in
 CURRENT; it does not establish whole-F acceptance.
 
-The candidate adds `execution.mode="operator"` with absolute `execution.core`,
+The explicit configuration `execution.mode="operator"` requires absolute `execution.core`,
 `execution.home` and `execution.workspace`. `transport.return_path="mcp"` exposes
 the controls through the Chat-side connector; `"local_function"` uses the same
 Operator Host through app local functions without that connector or tunnel. D2
@@ -208,9 +446,9 @@ implements this local binding and compares all four control/transport combinatio
 from Codex. All four matched six-task real-development/handoff runs pass; detailed timing,
 request counts, independent audits and retained failures are in CURRENT. ChatGPT-first
 local discovery is deferred. The default remains `model_adapter`; binding/transport
-changes need a service restart. The target direction does not make an unbound default
-operator configuration valid or activate it on the device. Use a disposable
-qualification home until G accepts the remaining host/product and delivery gates. `mcp-stdio` passes the private local bearer;
+changes need a service restart. An unbound operator configuration is invalid. Current G/H acceptance and the
+operating device are recorded in CURRENT; fresh setup remains the procedure
+above. `mcp-stdio` passes the private local bearer;
 never put that credential in Chat prompts or a remote tool argument.
 
 | Control | Behavior |
@@ -273,13 +511,13 @@ handoff and recovery require their source cursors. Later committed instructions
 return with the original MCP tool result. Input queued by upstream during an
 active turn becomes observable when upstream commits it on a subsequent round.
 
-## Candidate configuration and commands
+## Configuration and commands
 
-The source executable is `codex-chatgpt-provider`; these are candidate developer
-commands, not commands promised by the current signed installation. Its settings
-and catalog have one authority:
+The executable is `codex-chatgpt-provider`. The selected signed package exposes
+these commands through `codex provider chatgpt ...`. Its settings and catalog have
+one authority:
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, default
-`~/.config/codex/providers/chatgpt.toml`. The installed JS adapter does not read it.
+`~/.config/codex/providers/chatgpt.toml`.
 User-facing ChatGPT project setup/management is deferred; existing project
 configuration/operations will remain its authority. Scope and priority are in
 [CURRENT.md](../../CURRENT.md#chatgpt-projects-and-history).
@@ -316,7 +554,7 @@ activation are in
 
 ## Service and observation
 
-| Candidate command | Effect |
+| Provider command | Effect |
 | --- | --- |
 | `serve [--descriptor PATH] [--state PATH] [--port PORT]` | Run the loopback Responses/control service; app-backed model work uses a provisioned owned host or explicit qualification relay, while direct Chat-first native work needs no app host |
 | `token [--state PATH]` | Authenticate and optionally start that same configured executable; never paste its credential output into chat/logs |
@@ -379,6 +617,70 @@ connection/readiness/recovery, configuration and shared management surfaces.
 F implements the selected common management interfaces; H preserves reusable
 qualification helpers and retires duplicate launch policy. Viewer usability stays
 a separate physical validation scope.
+
+## Device runit services
+
+The user explicitly opted the existing device into the shared runit directory
+`$PREFIX/var/service/`, beside the unchanged tdev services. Component ownership
+does not change: Provider implements the bridge/MCP service; OpenAI's existing
+`tunnel-client` transports MCP; Provider owns the Linux app/Xvnc/private pipes.
+No new tunnel implementation or remote tunnel is introduced.
+
+| Registered service | Local configuration |
+| --- | --- |
+| `codex-chatgpt-provider` | Runs `codex provider chatgpt serve` in the foreground with the existing state and explicit service environment |
+| `codex-chatgpt-tunnel` | Runs the existing `tunnel-profile/chatgpt-provider.yaml` through `tunnel-client run`; its keeper waits for authenticated Provider readiness and renews stdio on Provider PID/start changes |
+| `codex-chatgpt-host` | Every15s observes host status and invokes `host ensure` only for confirmed absence; preserves present/unready/unknown owners |
+
+Service helpers and private rotated logs live under
+`~/.local/state/codex/providers/chatgpt/runit/`. Each service has a runit `log/run`
+using `svlogd`, capped at1MB per file with5 retained rotations. The tunnel profile's
+pre-existing private application log is separate. Helpers select the existing
+Core/account/workspace/state; inherited interactive account/profile switches do
+not retarget them. No credential value is stored in a run script. The tunnel
+profile retains its existing credential file reference. Shared private
+`runit/environment` supplies `CODEX_SERVICE_HOME`, `CODEX_SERVICE_PREFIX`,
+`CODEX_SERVICE_CORE`, `CODEX_PROVIDER_STATE`, `CODEX_PROVIDER_BIN`,
+`TUNNEL_CLIENT_BIN`, `TUNNEL_PROFILE_DIR` and `TUNNEL_PROFILE_NAME`. The observer
+uses an explicitly selected admitted immutable Provider image, avoiding repeated
+Core activation-lock contention; rebind it during deliberate package/service
+maintenance. Provider's `execution.home` and `execution.workspace` select native
+execution, rather than a hardcoded account name in the service scripts.
+
+The tunnel executable must be Android-compatible. This device's global
+`tunnel-client` is native0.0.14; inactive Linux images were archived outside
+executable paths. Do not infer compatibility from the filename or modify a system
+resolver to accommodate a Linux binary. The MCP wrapper keeps stderr separate
+from its JSON-RPC stdout; runit service logs may merge their own stderr.
+
+Provider restart rotates its local bearer. The tunnel keeper detects the changed
+Provider owner and ends only its own exact child runtime before runit restarts
+that transport. It does not reconnect by creating a remote tunnel, retry a model
+request or replay native effects. Service Stop and native task Stop remain
+different operations. Inspect original work before any maintenance/recovery.
+
+Runit restarts exited processes. The host keeper reacquires a confirmed missing
+host; it does not repair an arbitrary hung/partially failed app/display by killing
+it. Inspect such unknown state and settle work before deliberate host/service
+repair. Logs/readiness never establish physical viewer usability. Xvnc is acquired
+through Provider; no independent Xvnc or browser/desktop launcher is installed.
+
+The old local tmux runtime was explicitly stopped before runit activation. Its
+remote alias remains, but `tunnel-client runtimes` local metadata describes that
+retired tmux lifetime and is not authoritative for these services. Use `sv status`,
+Provider status and the configured runtime's current local health endpoint.
+Local health/ready responses and remote control-plane health are separate checks.
+
+Start/restore with `sv-enable codex-chatgpt-provider`, optionally
+`sv-enable codex-chatgpt-host`, then `sv-enable codex-chatgpt-tunnel`.
+For persistent maintenance disable tunnel, host, then Provider using `sv-disable`.
+Stopping only a process will trigger desired-up recovery. Standard
+termux-services/runit is sufficient; the owner's optional `service-daemon`
+root-recovery layer adds root-loss repair and is installed from
+`~/prj/termux-services`, not this repository. Neither layer survives a fully killed
+Termux UID without an external Boot/login opportunity. Future minimal setup
+should register the appropriate services explicitly; no general installer or
+login automation is delivered by this device configuration.
 
 ## Existing result transports
 
@@ -467,7 +769,7 @@ returns the actual answer on the original call; physical question UI is separate
 Project mode is explicit, for example:
 
 ```sh
-codex-chatgpt-provider config set history.mode project history.project_name "Codex"
+codex provider chatgpt config set history.mode project history.project_name "Codex"
 ```
 
 `history.project_id` disambiguates an exact owned private/unshared project;
@@ -479,6 +781,36 @@ Archive/delete/temporary retention is not admitted. Full contracts are in
 [SPEC](../../SPEC.md#approved-provider-configuration-context-and-remote-project-behavior).
 
 ## Verification and migration
+
+Historical live G, D3 and direct-entry drivers no longer select a particular
+device's temporary roots, experimental app installation or tunnel alias. They
+require explicit existing inputs, validated before preparation. Input names below
+have the prefix `CODEX_QUALIFICATION_`; path inputs must resolve to existing paths.
+These are development-driver inputs, not general user setup options.
+
+| Driver | Explicit input names |
+| --- | --- |
+| G prepare | `PRIOR_ROOT`, `CONNECTOR_REFERENCE`, `BUN`, `TUNNEL_PROFILE`, `TUNNEL_ALIAS` |
+| G cold continuation | `PRIOR_BATCH` |
+| Direct-entry prepare | `D2_ROOT`, `DESKTOP_SESSION`, `CONNECTOR_REFERENCE`, `TUNNEL_PROFILE`, `TUNNEL_ALIAS`, `FRONTEND` |
+| D3 prepare | `DESKTOP_SESSION`, `CONNECTOR_REFERENCE`, `FRONTEND`, `BUN`, `PRIOR_ENVIRONMENT`, `TUNNEL_ALIAS`, `TUNNEL_ENVIRONMENT`, `TUNNEL_PROFILE`; `STOPPED_WORK_PROOF` when its CLI option is absent |
+
+`TUNNEL_ALIAS` is a string. `TUNNEL_PROFILE` is the explicit private JSON profile
+containing `control_plane`; `TUNNEL_ENVIRONMENT` is a private JSON string map or an
+object containing that map as `tunnel_environment`. Keep these inputs private.
+D3 subsequent tunnel operations require the same explicit environment/profile;
+its admitted case record determines the alias for fault recovery. App refresh
+uses the recorded connector and desktop paths and verifies exact connector
+ownership before app access. A missing input never falls back to a live device.
+Accepted historical fixtures/results remain closed; changing these drivers does
+not authorize replaying them. New work needs its own explicit intent, inputs and
+reconciled service state. These legacy tmux-era drivers do not manage the current
+runit services.
+
+Intentional fixed values remain: protocol/ABI and socket limits, supported app
+API bindings and asset identities, bounded test scenarios, editable Provider
+defaults, and the current signed publication origins. Repository separation is
+deferred; changing those trust origins is a separate coordinated migration.
 
 ```sh
 BUN=/absolute/path/to/qualified/bun scripts/check.sh provider

@@ -83,6 +83,38 @@ fn binding_for_home(directory: &Path, home: &Path) -> Result<Option<Binding>, Er
     if owner.split(|b| *b == 0).next() != Some(home.as_os_str().as_bytes()) {
         return Ok(None);
     }
+    // The old home/runtime and catalog-v1 shapes predate config-v1. A dead or
+    // reused PID cannot serve this rendezvous, even when its old codec cannot
+    // be decoded. Do not let it poison lookup of an independently valid thread.
+    // Current/unknown codecs and matching live owners retain strict decoding.
+    let fields = owner.split(|b| *b == 0).collect::<Vec<_>>();
+    let historical_program = fields
+        .get(1)
+        .map(|value| Path::new(std::ffi::OsStr::from_bytes(value)));
+    if matches!(fields.as_slice(), [_, _] | [_, _, b"catalog-v1"])
+        && historical_program.is_some_and(|program| {
+            program.is_absolute() && program.file_name().is_some_and(|name| name == "runtime")
+        })
+    {
+        let pid = String::from_utf8(
+            read(&directory.join("pid"), 128).map_err(|_| Error("native_binding_invalid"))?,
+        )
+        .map_err(|_| Error("native_binding_invalid"))?
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| Error("native_binding_invalid"))?;
+        match Process::read(pid) {
+            Err(Error("stale_process_owner"))
+                if std::fs::symlink_metadata(format!("/proc/{pid}"))
+                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                return Ok(None);
+            }
+            Ok(process) if process.image.as_os_str().as_bytes() != fields[1] => return Ok(None),
+            Ok(_) => (),
+            Err(error) => return Err(error),
+        }
+    }
     let binding = Binding::read(directory, read).map_err(|_| Error("native_binding_invalid"))?;
     Ok((binding.home == home).then_some(binding))
 }
@@ -669,6 +701,78 @@ mod reply_tests {
                 .unwrap(),
             Error("native_binding_invalid")
         );
+    }
+
+    #[test]
+    fn known_legacy_lookup_excludes_only_confirmed_nonowners_and_preserves_records() {
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!(
+            "native-legacy-{}",
+            crate::journal::random_id().unwrap()
+        )));
+        crate::journal::private_directory(&root.0).unwrap();
+        let home = root.0.join("home");
+        let process = Process::read(std::process::id()).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in [b"".as_slice(), b"\0catalog-v1"] {
+            let owner = [
+                home.as_os_str().as_bytes(),
+                b"\0/retained/old/runtime",
+                suffix,
+            ]
+            .concat();
+            std::fs::write(root.0.join("owner"), &owner).unwrap();
+            std::fs::write(root.0.join("pid"), process.pid.to_string()).unwrap();
+            for name in ["owner", "pid"] {
+                std::fs::set_permissions(root.0.join(name), std::fs::Permissions::from_mode(0o600))
+                    .unwrap();
+            }
+            // This live PID belongs to a different executable; no socket or
+            // historical config exists, and neither should be read or repaired.
+            assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+            assert_eq!(std::fs::read(root.0.join("owner")).unwrap(), owner);
+            assert_eq!(
+                std::fs::read_to_string(root.0.join("pid")).unwrap(),
+                process.pid.to_string()
+            );
+
+            std::fs::write(root.0.join("pid"), u32::MAX.to_string()).unwrap();
+            assert!(binding_for_home(&root.0, &home).unwrap().is_none());
+
+            // A private PID read is mandatory even for an inactive old codec.
+            std::fs::set_permissions(root.0.join("pid"), std::fs::Permissions::from_mode(0o644))
+                .unwrap();
+            assert_eq!(
+                binding_for_home(&root.0, &home).unwrap_err(),
+                Error("native_binding_invalid")
+            );
+            std::fs::set_permissions(root.0.join("pid"), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+
+            // The exact matching live executable remains unsupported, never
+            // silently ignored or admitted through its historical format.
+            std::fs::write(
+                root.0.join("owner"),
+                [
+                    home.as_os_str().as_bytes(),
+                    b"\0",
+                    process.image.as_os_str().as_bytes(),
+                    suffix,
+                ]
+                .concat(),
+            )
+            .unwrap();
+            std::fs::write(root.0.join("pid"), process.pid.to_string()).unwrap();
+            assert_eq!(
+                binding_for_home(&root.0, &home).unwrap_err(),
+                Error("native_binding_invalid")
+            );
+        }
     }
 
     #[test]

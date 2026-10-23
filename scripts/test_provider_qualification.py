@@ -8,6 +8,20 @@ from scripts import provider_qualification as q
 
 
 class QualificationInputs(unittest.TestCase):
+    def test_historical_driver_inputs_never_default_to_an_operating_device(self):
+        for value in [None, "", " "]:
+            environment = {} if value is None else {"CODEX_QUALIFICATION_PRIOR_ROOT": value}
+            with self.subTest(value=value), self.assertRaisesRegex(q.InvalidInputs, "PRIOR_ROOT"):
+                q.explicit_input("PRIOR_ROOT", environment=environment)
+        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as name:
+            environment = {"CODEX_QUALIFICATION_PRIOR_ROOT": name}
+            self.assertEqual(q.explicit_input("PRIOR_ROOT", environment=environment), Path(name).resolve())
+            environment["CODEX_QUALIFICATION_PRIOR_ROOT"] = str(Path(name) / "absent")
+            with self.assertRaisesRegex(q.InvalidInputs, "path is unavailable"):
+                q.explicit_input("PRIOR_ROOT", environment=environment)
+        self.assertEqual(q.explicit_input("TUNNEL_ALIAS", path=False,
+            environment={"CODEX_QUALIFICATION_TUNNEL_ALIAS": "explicit-owned-alias"}), "explicit-owned-alias")
+
     def test_source_inventory_includes_embedded_non_code_assets(self):
         with tempfile.TemporaryDirectory(prefix="fs.",dir=os.environ["TMPDIR"]) as temporary:
             root=Path(temporary);p=root / "providers/chatgpt";p.mkdir(parents=True)

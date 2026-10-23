@@ -1,6 +1,6 @@
 # Operating state and product completion
 
-Reviewed 2026-10-22 UTC. `rewrite/rust-core` owns implementation; `main` pins
+Reviewed 2026-10-23 UTC. `rewrite/rust-core` owns implementation; `main` pins
 accepted exact sources for signed publication. SPEC owns product contracts,
 README user instructions, and this file the operating baseline and remaining work.
 Superseded development narratives remain in Git at `e0f0927` and earlier commits;
@@ -16,12 +16,19 @@ G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 The operating device update is also complete: signed Full94 (previous Full93),
 ChatGPT Provider release sequence3, generated Rust profile, same-account native
 host and existing Termux Bridge tunnel on a permanent path.0 new model requests.
-The next work is the separately deferred optional backlog below; G/H needs no
-replay or additional release. Existing clients remain pinned until normal exit;
-new launches use the selected Full94.
+The entrypoint/fresh-user guide is documented. The user has deferred minimum
+setup/login implementation and repository separation/cleanup; record those under
+[deferred work](#deferred-setup-and-repository-work). The user subsequently
+authorized device service integration and a binding/hardcoding follow-up below;
+the deferred repository/setup projects are not being implemented. ChatGPT entry
+now distinguishes current MCP selection/short task
+requests from proposed reusable skill/UI conveniences. No setup command, bundled
+workflow skill or task panel is shipped. G/H needs no replay or additional release
+for documentation. Existing clients remain pinned until normal exit; new launches
+use the selected Full94.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
-sequence3 identifies one publication, not a product named “Provider release sequence 3”. The bridge
+sequence3 identifies one publication, not another component name. The bridge
 is the Provider's app/native tool-and-result connection; MCP is a protocol it
 uses. The app displays that MCP connection as **Termux Bridge**.
 
@@ -31,11 +38,104 @@ selection does not upgrade their process in place. No completed reviewer,
 program effect, Chat trial, signing or promotion is scheduled for replay.
 Unknown `providers/chatgpt/target/` content remains untouched.
 
+### Current follow-up batch: services, native binding and environment assumptions
+
+User-authorized on2026-10-23: register required device services beside tdev, retire
+the Linux tunnel runtime, repair `native_binding_invalid`, and audit environment/
+experiment hardcoding throughout the repository and installed service definitions.
+This batch is distinct from accepted G/H and submits no Chat/model request.
+Device repair, source/documentation review and affected validation are complete.
+Implementation/documentation changes remain uncommitted and unpublished; installed
+signed Core/Provider selections are unchanged by the source fix.
+
+Private original evidence and restore records:
+`~/.cache/codex/acceptance/device-runit-provider-20261023T011419Z`, also referenced
+by `~/.local/state/codex/device-runit-latest-root`. Preserve original red/cold
+observations, failed operation receipts and the user's failed creation attempts.
+
+- The existing `~/prj/termux-services` source matches the installed
+  `$PREFIX/bin/service-daemon`, shell hook and Boot hook. Root20592 and independent
+  15s monitor20682 were healthy. tdev20635 and its Android tunnel runtimes20716/
+  20717 remain unchanged; no shared-root restart/kill was performed.
+- Registered/enabled `codex-chatgpt-provider`, `codex-chatgpt-tunnel` and
+  `codex-chatgpt-host` in `$PREFIX/var/service/`. Provider owns app/Xvnc; the host
+  keeper acquires only confirmed absence, preserving unready/unknown owners.
+  The old standalone Provider and exact tmux runtime were stopped once after
+  empty native work/host-lane checks. The remote tunnel, login and profiles remain.
+- One distinct idle Provider TERM proof confirmed runit's automatic replacement
+  in1.6s, followed by same-account host/Xvnc recovery and renewed MCP transport.
+  Native tunnel0.0.14 reports local health/ready200 and main-channel probe `ok`;
+  metrics establish successful control-plane polling. No physical viewer or new
+  model-task claim is made. The real runtime is Android/CGO, originally the tdev
+  installation's `~/.local/share/tdev/bin/tunnel-client` image.
+  A separate tunnel-exit intent was submitted once with the corrected shared
+  configuration; readback confirms its replacement started2026-10-23T02:33:09Z,
+  local health/ready200, main-channel probe `ok` and successful remote polling.
+  Do not repeat either TERM proof. Final observed Provider30277, host keeper20345
+  and tunnel keeper24014 are supervised; root/monitor/tdev identities are unchanged.
+- The initially selected global `tunnel-client` was a Linux/CGO-disabled build;
+  its DNS errors existed before this batch. It and the old Linux backup were
+  removed from executable paths and archived with hashes. Global `tunnel-client`
+  is now an independent Android0.0.14 copy, SHA256
+  `2a1ddb1ab27832398194070a629fc7e87e5ba937c4b008ffc029b21610fb1865`.
+  Never edit a resolver file or restore the Linux image as the normal runtime.
+- Service observation originally collided on Core's activation lock and treated
+  unknown readiness as owner replacement. Corrected helpers preserve unknown
+  observations, observe through the admitted immutable Provider image, and
+  renew only on confirmed PID/start change. Shared private
+  `~/.local/state/codex/providers/chatgpt/runit/environment` holds selected paths/
+  profile; run/MCP scripts no longer embed an execution-account name. Native
+  execution home/workspace remain Provider-config authority. Rebind the immutable
+  observer path during deliberate package/service maintenance.
+- The user-reported native creation failure reached Core but Provider registration
+  scanned two same-home Full60 records with older owner shapes, whose recorded
+  PIDs23327/21410 were absent. Current catalog metadata/namespace/owner are valid.
+  Both old sockets were confirmed inactive and whole directories were archived
+  under `native-binding-failure/inactive-legacy-records`, with exact restore
+  paths/inventory; no conversations or live server were removed.
+- A distinct model-free create in `~/prj/termux` then succeeded with current/MCP
+  routing and explicit role/budget. That qualification work was stopped with
+  native confirmation; no turn/start, model request, tool effect or file edit.
+  Original failed calls/unknown native thread creations were not retransmitted.
+  Source now excludes only known historical owner shapes whose private PID and
+  kernel executable prove nonownership; live/unsafe/current/unknown records stay
+  strict. The final Provider gate passes168 Rust,68 JavaScript and82 Python tests,
+  fmt, Clippy and release build on Android.28 existing opt-in Rust cases remain
+  explicitly ignored. Installed signed Provider remains release sequence3; the source
+  guard is not yet published/deployed.
+- Initial hardcoding inventory searched268 tracked files. Private inventory is
+  under `hardcoding-audit/`; it includes publication origins, platform paths,
+  model data, ports and personal/experiment references. Historical G/D3/direct
+  drivers now require explicit old-fixture/desktop/connector/
+  tunnel/runtime inputs instead of selecting old temporary roots or a live
+  alias. Do not execute those historical trials. Their original proofs are closed.
+  All97 tracked Python files parse. Personal/experiment matches fell from33 in9
+  files to7 in3 files: isolated stock-APK proof paths and historical CURRENT
+  evidence only. Runtime/script operating paths no longer select an old personal
+  install or live tunnel alias. Intentional protocol/ABI/socket limits, editable
+  Provider defaults, qualified app identities and signed publication origins were
+  reviewed and retained; repository/trust-origin migration remains deferred.
+- Final protected-state comparison found the native execution account's existing
+  Sol6.1/high model pins and a new trust entry for the explicitly requested
+  `~/prj/termux` workspace. Removed only the ordinary model/effort keys under the
+  standing user instruction, preserving project trust and all other fields.
+  That account's `features list` passes with empty stderr; all auth files and other
+  baseline config hashes remain unchanged. Backup/delta:
+  `native-profile-model-unpin.json`. Current development session choice persists.
+- Final full gate passes364 Rust/141 Python and Clippy; Core's existing1 opt-in
+  case remains explicitly ignored. Docs whitespace and58 local links pass;
+  installed service/helper shell syntax passes. Reusable compiler caches total
+  about4.7GiB, below15GiB. The owned temporary owner-read diagnostic was reclaimed
+  after retaining its source/results; unknown repository target content and
+  original failed observations remain intact. `batch-result.json` binds final
+  source hashes, gate logs, device readback and cleanup records. No source release,
+  public promotion, old G/H replay or model request was performed in this batch.
+
 ## Operating baseline
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Accepted G source6aa2280; H source retirement e0f0927 on rewrite/rust-core. H Provider167 Rust/67 JavaScript/81 Python; full364 Rust/141 Python and Clippy pass. Provider release sequence 28 opt-in tests and Core1 ignored test remain explicitly ignored |
+| Implementation | Accepted G source6aa2280; H source retirement e0f0927 on rewrite/rust-core. H Provider167 Rust/67 JavaScript/81 Python; full364 Rust/141 Python and Clippy pass. 28 opt-in Provider tests and Core1 ignored test remain explicitly ignored |
 | Public Core | Base89; Full94/sourcee0f0927, promoted after H source admission by main09ed858. G's earlier Full93/source5da0254d pointer observation and Full90 admission retain their original scopes |
 | Operating Core | User-authorized signed Full86→Full93 update, then93→94 after H's new stable promotion; both exit0. Previous Full93; upstream0.163.0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full94, existing clients remain pinned |
 | Public/selected Provider | chatgpt-6aa228034346-s3, release sequence3, binary SHA2565ef3536c94137b24d86e10a9366a674baeca87e701c5ef30d824a83d8433d62d. Public immutable signing/readback, Android consumption and stable promotion accepted; operating installation exit0 |
@@ -47,8 +147,7 @@ Unknown `providers/chatgpt/target/` content remains untouched.
 
 Device evidence: `~/.cache/codex/acceptance/device-runtime-update-full93-provider-s3`.
 `device-update-review.json` and `followup-full94/result.json` accept the actual
-Core/Provider selections, kernel
-owner plus immutable Provider hash, same-account host readiness, authenticated
+Core/Provider selections, kernel owner plus immutable Provider hash, same-account host readiness, authenticated
 MCP initialize/list/read (16 tools), existing tunnel readiness and8 CLI/config
 smokes. All ordinary account config/auth bytes remain unchanged. Only the known
 generated shared ChatGPT profile was explicitly rebound; account-local links and
@@ -293,6 +392,63 @@ Use supported upstream readable handoff at a settled boundary. Original negative
 chat-full60-operating-diagnosis.json / chat-full60-cross-provider-admission.json.
 Known box/MemoryCite formatting fixes have bounded stream-safe proof; they do not
 reclassify the historical failed trial.
+
+## Deferred setup and repository work
+
+These are follow-ups, not reopened G/H gates or authorization to start their
+implementation during the documentation task.
+
+### Shared minimum setup and login
+
+Use one implementation behind an explicit setup entrypoint and fresh interactive
+post-install invocation. Collect only missing inputs for the selected entrance;
+reuse configuration, accounts and login. Native login, Linux app login and remote
+MCP authentication remain distinct. Use existing installers/host/login controls
+and model-free readiness checks. Preserve ordinary launch behavior and unpinned
+native model settings. No new setup command exists yet. The manual procedure is
+in the [Provider guide](providers/chatgpt/README.md#first-time-setup).
+
+### ChatGPT entry and task management
+
+Existing tools support listing/observing work, original result retrieval,
+supported continuation and confirmed Stop. Users can select the installed Termux
+Bridge MCP connection and ask short natural-language tasks; `reasoning=current`
+and `reasoning=managed` are assistant-facing routing fields. Connection selection
+and natural-language routing do not establish a universal automatic default.
+
+The proposed convenience is a Termux Bridge plugin with one reusable workflow
+skill for both routes, followed only as needed by a compact project/work panel.
+It should reuse existing Provider controls and native history/approval, expose
+readiness, bound workspace, reasoning source, work/thread identity, pending human
+requests and original results, and reconcile uncertain operations without resend.
+No bundled skill, UI resource, project picker or dashboard is implemented. Exact
+packaging/selection behavior and actual client support need bounded proof before
+becoming a public contract. See the [current/proposed split](providers/chatgpt/README.md#chatgpt-entry-and-task-management).
+
+### Repository separation and cleanup
+
+The user wants a clean development repository without accumulated PR/Actions
+history; implementation is explicitly deferred. The intended layout is an old
+repository retained as an archive, a fresh private development repository keeping
+the `codex` name/source, and a separately named public distribution repository.
+`codex-archive` and `codex-dist` are example names, not created destinations.
+Preserve Git source/commit/tag provenance and the independent implementation and
+publication histories; a fresh GitHub PR/Actions history does not require
+squashing source history or deleting the old repository.
+
+Only this owner's device is currently in use; the user accepts a brief install/
+update outage. Zero-downtime migration is not required. Reusing the old repository
+name removes its redirect, so explicitly reconnect bootstrap, Base/Full and
+Provider indices, Release asset URLs, publication origin validators, source pins,
+documentation and CI. Git source transfer does not transfer Release attachments,
+Actions settings/secrets, app permissions or other repository metadata. Configure
+scoped cross-repository publication rights; keep signing/auth credentials private.
+Retain immutable original artifacts, signatures, proofs and rollback sources.
+Future qualification must check fresh install and this device's Core/Provider
+update paths against the new public distribution, with applicable signed release
+and Android acceptance. Existing local execution can continue during the outage.
+No rename, repository creation, visibility change, source move or endpoint change
+has been performed for this task.
 
 ## Development artifact retention
 
