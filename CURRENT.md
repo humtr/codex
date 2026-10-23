@@ -8,28 +8,49 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-New correction in progress: a genuinely fresh idle `/model` provider switch
-reproduces `the complete public conversation could not be read` on Full95.
-The qualified backend's exact `list_turns is not supported yet` response occurs
-after blank-thread persistence. A named-thread control succeeds; do not name,
-submit to or pre-read full history in the fresh-thread regression. The TUI source
-now verifies a bounded canonical metadata-only root rollout before treating this
-specific rejection as empty, rechecks before re-entry, and skips empty checkpoints.
-Existing/nonempty/unknown history remains strict. Native frontend build,52 focused
-tests, fresh Android terminal proof, signed publication and device activation
-are pending; this source edit alone does not change the installed Full95.
+The fresh empty-session `/model` correction is committed, pushed, published and
+applied: signed Full96/source786b7e28, previous Full95. Its native frontend is
+qualified sourcef2cec230; Provider release4 and the Core/Manager/runtime bytes
+are unchanged. Existing Codex clients keep their executable until normal exit;
+reopen them to use the corrected picker. No initial message or name is needed.
+
+Full95 reproduced `the complete public conversation could not be read`: the
+backend returns exact `list_turns is not supported yet` after blank-thread
+persistence. A named-thread control succeeds and must not replace the fresh
+regression. TUI now proves an owned, stable, bounded canonical root rollout
+contains solely matching session metadata, rechecks it and skips empty
+checkpoints. Existing/nonempty/unknown history remains strict.
+
 Private evidence: `~/.cache/codex/acceptance/empty-model-switch-20261023T043019Z`
-(`~/.local/state/codex/empty-model-switch-latest-root`). No user session input or
-model request was submitted during reproduction. Provider release4 is unchanged.
+(`~/.local/state/codex/empty-model-switch-latest-root`). Native39902097313 passes
+the actual build,52 focused tests,94 retained upstream tests and lint; source
+acceptance39905694291 and independent Core39905695947 pass. Android terminal
+proof covers empty and existing-history native↔Chat transitions with/without
+Manager. Empty cases use0 requests/checkpoints; history cases use3 local synthetic
+responses each.0 real model/Chat requests and no user-session input were submitted.
+The first empty-case observer's exit1 is retained: offline audit confirms native
+settings events, not conversation turns. A separate pending-input refusal occurred
+before persistence/handoff; after confirmed termination, a distinct atomic-input
+case passed. Do not replay completed switches to erase those original failures.
+
+Publication39906074479 passes Android smoke, signing, all13 public asset readbacks,
+disposable update and non-forced stable promotiondf61d83. Actual device95→96
+exit0; installed TUI SHA256800f0c266926743889498f3d5b9de9abe7fc8ab59c15bd07c02e1866bf3f1ba3
+matches the standard54-byte adaptation of qualified raw71e59737. Provider, host,
+tunnel, tdev, root and monitor process identities plus14 protected config/auth
+hashes are unchanged. No service/client restart or physical viewer test occurred.
+Manifest-owned inactive fixture payloads were archived/reclaimed with original
+records retained; reusable compiler caches remain about4.7GiB. Original G/H and
+the earlier Provider publication were not replayed.
 
 A–D, E design, F1–F9 bounded integration, G qualification/public delivery and H
 source retirement are complete at their recorded scopes. H is committed and
 pushed as `e0f0927`; its Rust runtime/embedded assets are unchanged from accepted
 G source `6aa228034346f43b39590afe83aa9232e9e72207`.
 
-The operating device update is complete: signed Full95 (previous Full94),
+The operating device update is complete: signed Full96 (previous Full95),
 ChatGPT Provider release sequence4 (previous3), generated Rust profile, same-account native
-host and existing Termux Bridge tunnel on a permanent path.0 new model requests.
+host and existing Termux Bridge tunnel on a permanent path.0 new real model requests.
 The entrypoint/fresh-user guide is documented. The user has deferred minimum
 setup/login implementation and repository separation/cleanup; record those under
 [deferred work](#deferred-setup-and-repository-work). The user subsequently
@@ -39,7 +60,7 @@ now distinguishes current MCP selection/short task
 requests from proposed reusable skill/UI conveniences. No setup command, bundled
 workflow skill or task panel is shipped. G/H needs no replay or additional release
 for documentation. Existing clients remain pinned until normal exit; new launches
-use the selected Full95.
+use the selected Full96.
 
 Provider is the component name; `chatgpt` is its CLI identifier. Release
 sequences identify publications, not another component name. The bridge
@@ -189,9 +210,9 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Binding/environment correction81890a7 committed/pushed after G6aa2280 and H e0f0927. Provider168 Rust/68 JavaScript/82 Python; full364 Rust/141 Python and Clippy pass. 28 opt-in Provider tests and Core1 ignored test remain explicitly ignored |
-| Public Core | Base89; Full95/source81890a7, signed/read back/qualified/promoted by39893484764. Earlier Full94/e0f0927 and G's earlier Full93/Full90 retain their original scopes |
-| Operating Core | Signed Full95, previous94, upstream0.163.0; actual94→95 exit0. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full95, existing clients remain pinned |
+| Implementation | Empty-session TUI correctionf2cec230, qualification driverb56abc55 and accepted frontend registration786b7e28 committed/pushed. Native52 focused/94 upstream tests and lint, Android empty/history transitions with/without Manager, exact source/Core gates pass. Unchanged runtime retains full364 Rust/141 Python/Clippy and Provider168 Rust/68 JavaScript/82 Python evidence; Provider28/Core1 opt-in tests remain explicitly ignored |
+| Public Core | Base89; Full96/source786b7e28, signed/read back/qualified/promoted by39906074479. Earlier Full95/81890a7, Full94/e0f0927 and G's Full93/Full90 retain their original scopes |
+| Operating Core | Signed Full96, previous95, upstream0.163.0; actual95→96 exit0 and installed frontend hash matches Android-qualified bytes. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full96, existing clients remain pinned |
 | Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
@@ -199,13 +220,14 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 ### Latest handoff boundary
 
-The latest boundary is the published correction/device activation above:
-`binding-release-20261023T030234Z`. Selected and actual supervised Provider4,
-Full95/previous94, same-account host, authenticated16-tool MCP, remote polling
-and unchanged protected config/auth/tdev identities are verified. Read its
-original failed-update/lease records before any new maintenance. No old effects
-or release proofs are scheduled for replay. The earlier G/H activation below is
-retained context and does not supersede this selection.
+The latest boundary is `empty-model-switch-20261023T043019Z`: selected Full96,
+previous95, accepted native sourcef2cec230, final source786b7e28, publication
+39906074479 and actual device activation. Provider4, same-account ready host,
+service/tdev/root/monitor identities and protected config/auth are unchanged.
+The prior `binding-release-20261023T030234Z` owns authenticated16-tool MCP,
+remote polling and original Provider failed-update/lease records. Read those
+before Provider maintenance; neither that publication nor its effects need
+replay. The earlier G/H activation below does not supersede this selection.
 
 Device evidence: `~/.cache/codex/acceptance/device-runtime-update-full93-provider-s3`.
 `device-update-review.json` and `followup-full94/result.json` accept the actual
@@ -308,7 +330,7 @@ belongs to Provider configuration; neither Manager nor Core maintains its own li
 | F1–F9 | Common Rust bridge, delegation, reading, continuity and host integration boundedly accepted |
 | G | Exact-source capability review, corrected native-final delivery, signing/readback, actual Android consumers and non-forced stable promotion accepted |
 | H | Unique work preserved, duplicate source/worktrees retired, affected Provider/full gates independently reviewed, source committed/pushed e0f0927 |
-| Device update | Initial G/H activation: Full94 / Provider sequence3 with preserved profile/auth/history. Published binding correction: Full95 / Provider sequence4, supervised same-account host, authenticated16-tool MCP, remote polling and protected-state readback accepted;0 model requests |
+| Device update | Initial G/H activation: Full94 / Provider sequence3. Binding correction: Full95 / Provider sequence4, same-account host, authenticated16-tool MCP and remote polling. Empty-session correction: Full96 / previous95, same Provider4/services/config/auth and exact qualified TUI hash;0 real model requests |
 
 ### G product qualification
 

@@ -82,10 +82,14 @@ from Chat resumes the same native thread and its existing history without a new
 source summary or summary wait. Upstream owns model instruction updates and any
 conditional compaction. The source-summary generation and exact-completion wait
 remain available behind an explicit internal request for later context operations;
-the model picker does not request them. Source1c58d1cb passes its native build,
-50 focused tests,94 retained upstream tests/lint and actual Android synthetic
-same-thread transitions with/without Manager using0 source summaries and3 local
-responses each. Stop, error, event loss, changed thread/
+the model picker does not request them. Empty-history correction sourcef2cec230
+passes its native build,52 focused tests,94 retained upstream tests and lint.
+Actual Android terminal proofs cover fresh empty and existing-history round trips
+with/without Manager. Empty cases send0 model requests and inject0 checkpoints;
+the existing-history cases use3 local synthetic responses each,0 source summaries
+and0 Chat submissions. Native settings audit events remain ordinary metadata,
+not conversation turns. Earlier source1c58d1cb's50-test proof retains its scope.
+Stop, error, event loss, changed thread/
 model or queued input during that explicit operation retain the source Provider.
 The installed generation is unchanged by source preparation. Earlier hosted
 TUI source15da596 and no-Manager Android PTY native↔Chat round trip passed

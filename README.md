@@ -63,7 +63,7 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 A–H are complete at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
 [CURRENT](CURRENT.md#operating-baseline) records accepted sources, signed releases,
-device selections and actual running processes. This device selects Full95 and
+device selections and actual running processes. This device selects Full96 and
 ChatGPT Provider release sequence4; existing sessions keep their pinned executable
 until normal exit. Ordinary account configuration does not force a model.
 
@@ -181,7 +181,10 @@ managed Chat work additionally needs the app/login and project configuration.
 
 First complete [Provider setup](providers/chatgpt/README.md#first-time-setup).
 In Full, run `codex`, open `/model`, and choose the Provider's ChatGPT model and
-effort. For Base or explicit configuration selection:
+effort. A fresh idle session can switch before its first message; no initial
+prompt or thread name is required. The same thread is retained without an empty
+checkpoint. After updating Full, exit and reopen an existing Codex client to use
+the updated picker. For Base or explicit configuration selection:
 
 ```sh
 cd /absolute/path/to/your-project
