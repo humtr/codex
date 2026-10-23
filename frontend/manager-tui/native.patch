@@ -236,7 +236,7 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
 +                        request.set_service_tier(service_tier);
 +                        return Err(std::io::Error::other(request).into());
 +                    }
-+                    return Ok(());
++                    return Ok(AppRunControl::Continue);
 +                }
                  self.app_event_tx.send(AppEvent::FollowTranscript);
                  self.select_session_model(app_server, model, effort, service_tier).await;
