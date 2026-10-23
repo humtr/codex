@@ -59,7 +59,13 @@ def probe(args):
         (root / 'owned-fixture').write_text('owned managed lifecycle; no account access\n')
         (root / 'model-adapter-fixture').touch()
         auth = root / 'fixture-auth'
-        auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + shlex.quote(TOKEN) + '\n')
+        if args.provider is not None:
+            auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\ncase "$1" in\n'
+                            'token) printf %s ' + shlex.quote(TOKEN) + ';;\n'
+                            'checkpoint) exec ' + shlex.quote(str(args.provider)) + ' "$@";;\n'
+                            '*) exit 1;;\nesac\n')
+        else:
+            auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + shlex.quote(TOKEN) + '\n')
         auth.chmod(0o700)
         env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
         with (root / 'provider-test.log').open('wb') as output:
@@ -478,7 +484,8 @@ def probe(args):
         result.update(elapsed_seconds=time.monotonic() - started, status_observations=len(observations),
             driver_sha256=hashlib.file_digest(Path(__file__).open('rb'), 'sha256').hexdigest(),
             input_sha256={name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
-                for name in ['core', 'frontend', 'service_test']})
+                for name in ['core', 'frontend', 'service_test', 'provider']
+                if getattr(args, name) is not None})
         args.report.write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result), flush=True)
 
@@ -488,6 +495,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--account-roundtrip', action='store_true',
                         help='different Provider default, two Manager accounts/workspaces, failed-turn model return')
+    parser.add_argument('--provider', type=Path,
+                        help='exact Provider executable for real populated-history checkpoints')
     parser.add_argument('--restart-provider', action='store_true')
     parser.add_argument('--followup-turns', type=int, default=0, choices=range(0, 65), metavar='0..64')
     parser.add_argument('--idle-seconds', type=int, default=0, choices=range(0, 601), metavar='0..600')
@@ -495,6 +504,10 @@ if __name__ == '__main__':
     for name in ['core', 'frontend', 'service-test', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
+    if args.account_roundtrip and args.provider is None:
+        parser.error('--account-roundtrip requires --provider for actual history checkpoint execution')
     for name in ['core', 'frontend', 'service_test']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
+    if args.provider is not None:
+        args.provider = args.provider.resolve(strict=True)
     probe(args)
