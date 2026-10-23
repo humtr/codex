@@ -146,9 +146,11 @@ def probe(args):
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
             command = [str(prefix / 'bin/codex'), '--no-alt-screen']
             if provider_profile:
-                command += ['--profile', 'chatgpt']
-            command += ['-c', 'model_reasoning_effort="none"', '-c', 'tui.animations=false',
-                '-C', str(selected_workspace)]
+                command += ['--profile', 'chatgpt', '-c', 'model_reasoning_effort="none"',
+                            '-c', 'tui.animations=false']
+            # An effort CLI override intentionally selects current config in
+            # upstream0.164. Plain resume must carry no model-routing overrides.
+            command += ['-C', str(selected_workspace)]
             if thread is not None:
                 command += ['resume', thread]
             launch_env = dict(env, CODEX_HOME=str(selected_home))
@@ -157,7 +159,9 @@ def probe(args):
             os.close(slave)
             def ready():
                 assert process.poll() is None, 'owned TUI exited before readiness: ' + screen[-1500:]
-                return 'GPT-6' in screen
+                # Use the qualified terminal lifecycle, not a catalog label:
+                # plain resume may display the saved canonical model ID.
+                return 'state=idle:app=codex' in screen
             wait(ready)
             drain(.8)
 
@@ -318,6 +322,7 @@ def probe(args):
         if args.account_roundtrip:
             # Normal client cleanup releases its writer; leave unrelated servers
             # running, then resume the same thread back in the first account.
+            observation_stage = 'account_owner_replacement'
             submit('/quit')
             process.wait(timeout=15)
             os.close(master)
@@ -333,6 +338,7 @@ def probe(args):
             assert record()['execution']['home'] == str(selected_home)
             assert record()['workspace'] == str(selected_workspace)
             assert public(thread)['turns'][:-1] == retained
+            observation_stage = 'post_account_rebind'
             steps.append('account one → two with workspace change → one, same native thread and original history')
 
             # Reproduce the reported pre-app admission failure in this owned
@@ -390,7 +396,7 @@ def probe(args):
         assert not any('transport_error' in row for row in observations)
         read_errors = [row for row in observations if 'error' in row]
         assert all(row['error'] == 'native_observation_superseded'
-            or row.get('observation_stage') == 'cold_owner_replacement'
+            or row.get('observation_stage') in ['cold_owner_replacement', 'account_owner_replacement']
             and row['error'] in ['native_delivery_unknown', 'native_thread_owner_unavailable',
                 'native_socket_unavailable'] for row in read_errors), read_errors
         (root / 'final-native.json').write_text(json.dumps(final, indent=2) + '\n')
@@ -459,6 +465,7 @@ def probe(args):
                 home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
             launch(fresh, provider_profile=False)
             resumed = public(fresh)
+            (root / 'ordinary-resumed-native.json').write_text(json.dumps(resumed, indent=2) + '\n')
             assert resumed['modelProvider'] == 'chatgpt_desktop' and resumed['turns'] == saved_turns
             submit('/model gpt-6.1-sol')
             wait(lambda: public(fresh)['modelProvider'] == 'openai')

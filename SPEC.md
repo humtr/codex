@@ -1389,6 +1389,10 @@ execution homes and derive the workspace from native thread metadata. Provider
 execution.home/workspace are defaults for explicit work creation, not restrictions
 on the account or workspace of an incoming Codex session. Native account changes,
 cold resume and working-directory changes revalidate that binding on each request;
+recognized legacy rendezvous records whose process stat is absent or terminal
+cannot block another verified owner. Android may hide a reused foreign PID's
+directory while reporting its stat absent. Discovery preserves those records and
+never connects to or signals that PID; unknown codecs and unsafe records refuse.
 a genuinely new native turn may reconcile a settled Codex-origin work to its new
 owner/workspace while rotating its old controller. Ambiguous writers, pending
 effects and stale controllers retain their existing refusals. Explicit Chat-owned

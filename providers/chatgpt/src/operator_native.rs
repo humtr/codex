@@ -75,6 +75,21 @@ fn read(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn confirmed_unavailable_process(pid: u32) -> bool {
+    // Android may hide a reused foreign PID: /proc/PID reports EACCES while
+    // /proc/PID/stat reports ENOENT. Inspect the same process record used by
+    // Process::read, rather than requiring the directory itself to disappear.
+    let file = match File::open(format!("/proc/{pid}/stat")) {
+        Ok(file) => file,
+        Err(error) => return error.kind() == std::io::ErrorKind::NotFound,
+    };
+    let mut stat = String::new();
+    file.take(4096).read_to_string(&mut stat).is_ok()
+        && stat
+            .rsplit_once(')')
+            .is_some_and(|(_, fields)| matches!(fields.split_whitespace().next(), Some("Z" | "X")))
+}
+
 fn binding_for_home(directory: &Path, home: Option<&Path>) -> Result<Option<Binding>, Error> {
     let owner = read(&directory.join("owner"), codex_runtime_binding::OWNER_LIMIT)
         .map_err(|_| Error("native_binding_invalid"))?;
@@ -105,10 +120,7 @@ fn binding_for_home(directory: &Path, home: Option<&Path>) -> Result<Option<Bind
         .parse::<u32>()
         .map_err(|_| Error("native_binding_invalid"))?;
         match Process::read(pid) {
-            Err(Error("stale_process_owner"))
-                if std::fs::symlink_metadata(format!("/proc/{pid}"))
-                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-            {
+            Err(Error("stale_process_owner")) if confirmed_unavailable_process(pid) => {
                 return Ok(None);
             }
             Ok(process) if process.image.as_os_str().as_bytes() != fields[1] => return Ok(None),
@@ -808,6 +820,23 @@ mod reply_tests {
 
             std::fs::write(root.0.join("pid"), u32::MAX.to_string()).unwrap();
             assert!(binding_for_home(&root.0, Some(&home)).unwrap().is_none());
+
+            // An unreaped completed child still has a /proc directory, but
+            // cannot own the old socket. Preserve the record and reap our child.
+            let mut child = std::process::Command::new("sh")
+                .args(["-c", "exit 0"])
+                .spawn()
+                .unwrap();
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while !confirmed_unavailable_process(child.id()) {
+                assert!(std::time::Instant::now() < until);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            std::fs::write(root.0.join("pid"), child.id().to_string()).unwrap();
+            let excluded = binding_for_home(&root.0, None);
+            assert!(child.wait().unwrap().success());
+            assert!(excluded.unwrap().is_none());
+            assert_eq!(std::fs::read(root.0.join("owner")).unwrap(), owner);
 
             // A private PID read is mandatory even for an inactive old codec.
             std::fs::set_permissions(root.0.join("pid"), std::fs::Permissions::from_mode(0o644))

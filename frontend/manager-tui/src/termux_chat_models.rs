@@ -399,7 +399,7 @@ mod tests {
         std::fs::write(&catalog, include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
         std::fs::set_permissions(&catalog, std::fs::Permissions::from_mode(0o600)).unwrap();
         let profile = format!(
-            "{BEGIN}model_provider = \"{PROVIDER}\"\nmodel_catalog_json = {:?}\n[model_providers.{PROVIDER}]\nbase_url = \"http://127.0.0.1:12345/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.{PROVIDER}.auth]\ncommand = \"/owned/codex-chatgpt-provider\"\nargs = [\"token\", \"--state\", \"/owned/provider-state\"]\n",
+            "{BEGIN}model_provider = \"{PROVIDER}\"\nmodel_catalog_json = {:?}\n[model_providers.{PROVIDER}]\nname = \"Chat Provider\"\nbase_url = \"http://127.0.0.1:12345/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.{PROVIDER}.auth]\ncommand = \"/owned/codex-chatgpt-provider\"\nargs = [\"token\", \"--state\", \"/owned/provider-state\"]\n",
             catalog.to_str().unwrap()
         );
         let path = home.path().join("chatgpt.config.toml");
