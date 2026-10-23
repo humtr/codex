@@ -25,6 +25,7 @@ import termios
 
 from qualify_permission_lifecycle import fixture, rpc, server_paths
 from qualify_provider_chat_entry import check_native_socket_budget
+from clean_development import fixture_cleanup
 
 
 def probe(args):
@@ -35,6 +36,7 @@ def probe(args):
     screen = ''
     reentry_observations = []
     home = None
+    report = None
     try:
         check_native_socket_budget(root / 'h')
         home, prefix, env = fixture(root, args.core, args.frontend)
@@ -232,12 +234,13 @@ def probe(args):
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
             assert len(records) == 1 and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread, 'empty selection must retain metadata only, without a checkpoint'
             accepted = True
-            return {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
+            report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
                     'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
                     'maximumNativeSocketBytes': check_native_socket_budget(home),
                     'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
                                      for name in ['core', 'frontend', 'provider']}}
+            return report
         rpc(home, 'thread/name/set', {'threadId': thread, 'name': 'Owned transition fixture'})
         drain(.5)
         submit('Keep OWNED_PUBLIC_WORK_STATE_7K2Q while changing providers')
@@ -270,7 +273,7 @@ def probe(args):
         assert final['approvalPolicy'] == 'never' and final['approvalsReviewer'] == 'user'
         assert all(v['id'] == thread for v in [public(thread)])
         accepted = True
-        return {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
+        report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                 'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
@@ -280,6 +283,7 @@ def probe(args):
                 'coreBuiltFromCurrentSource': args.build_core,
                 'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'),
                     'sha256').hexdigest() for name in ['core', 'frontend', 'provider']}}
+        return report
     finally:
         if process is not None:
             try:
@@ -302,11 +306,19 @@ def probe(args):
         if server is not None:
             server.shutdown()
             server.server_close()
+        # Preserve original native records and readback before reclaiming only
+        # manifest-matched generated payloads. Success does not erase evidence.
+        (root / 'terminal.log').write_text(screen)
+        (root / 'requests.json').write_text(json.dumps(requests))
         if accepted:
-            shutil.rmtree(root)
+            record = root / 'payload-cleanup.jsonl'
+            try:
+                retention = fixture_cleanup(record, True, root)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                retention = {'error': type(error).__name__, 'payloads_preserved': True}
+            report.update(fixtureRoot=str(root), payloadRetention={'record': str(record), **retention})
+            (root / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         else:
-            (root / 'terminal.log').write_text(screen)
-            (root / 'requests.json').write_text(json.dumps(requests))
             print('Owned synthetic diagnostic retained:', root)
 
 
