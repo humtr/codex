@@ -56,16 +56,15 @@ behavior. The user requires an eligible approval request to reach the native
 reviewer, not model review of every untrusted command. The proposed Untrusted
 restoration and expanded routing were an unnecessary scope expansion and have
 been removed from the0.164 candidate. They were never installed or published.
-Original experiment sources, outcomes and the correction are preserved in the
-private evidence root. A standalone50,513-byte patch, exact-base manifest and
-reapplication notes also reside at
-`~/.local/state/codex/experiments/untrusted-guardian-0.164/`.
-The patch passed apply-check against source dfb328d2, and prototype witnesses
-cover allow/deny/reviewer failure/full-access plus menu/shortcut behavior using
-local synthetic Responses. Exact final-source native build, resume/account
-transitions and signed public acceptance were not completed for that experiment.
-It is a reusable experimental prototype, not a qualified feature or a current
-Core/config toggle. Do not resume it as required product work.
+The experiment made otherwise untrusted commands require approval and routed
+those requests to the existing upstream Guardian, without adding a reviewer
+engine or OS sandbox. Local synthetic Responses witnesses covered allow, deny,
+reviewer failure, full-access bypass and menu/shortcut behavior. Exact final-source
+native build, resume/account transitions and signed public acceptance were not
+completed, so this was not a qualified feature. At the user's request, standalone
+patches and reapplication code were removed; retain only this experiment summary
+and original test results. No separate feature, Core/config toggle or future
+reapplication task is maintained.
 
 The current conversation's stored native settings are OnRequest/AutoReview with
 Disabled/danger-full-access, model gpt-6.1-sol/high. Current Full99 Core/runtime/
@@ -298,7 +297,7 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Manual updater d2963887 and accepted0.164 source51f3108 committed/pushed. Native27a9186 passes53 focused/94 upstream tests and lint; exact Source/Core, Android menu/approval/lifecycle/empty-session and public gates pass. Upstream reviewer eligibility is unchanged; the Untrusted experiment is archived separately. Retained Provider168 Rust/68 JavaScript/82 Python evidence remains applicable; Provider28/Core1 opt-in tests remain explicitly ignored |
+| Implementation | Manual updater d2963887 and accepted0.164 source51f3108 committed/pushed. Native27a9186 passes53 focused/94 upstream tests and lint; exact Source/Core, Android menu/approval/lifecycle/empty-session and public gates pass. Upstream reviewer eligibility is unchanged; only a summary of the discarded Untrusted experiment remains. Retained Provider168 Rust/68 JavaScript/82 Python evidence remains applicable; Provider28/Core1 opt-in tests remain explicitly ignored |
 | Public Core | Full101/source51f3108, signed/read back/qualified/promoted by39961048227, with accepted Base100/source dfb328d2 from39952551488. Full99/source d2963887 retains39945787744 proof; earlier releases retain their original scopes |
 | Operating Core | Signed Full99, previous97, upstream0.163.0; actual97→99 exit0. Manual update installed;0.164 was activated only in a disposable fixture. Protected config/auth and services preserved. New launches use Full99; existing clients retain their pinned executables |
 | Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
@@ -315,7 +314,8 @@ Physical0.164 activation is deliberately left to the user's `codex update`.
 Provider4, host/services and protected user settings were not changed by this
 0.164 qualification. Upstream native review routing works in a local transport
 witness; successful live OpenAI reviewer transport remains unproven. The separate
-Untrusted experiment is preserved outside the active product and is not qualified.
+Untrusted experiment is documented only; standalone code was removed at the user's
+request.
 The prior `binding-release-20261023T030234Z` owns authenticated16-tool MCP,
 remote polling and original Provider failed-update/lease records. Read those
 before Provider maintenance; neither that publication nor its effects need
