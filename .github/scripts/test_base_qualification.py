@@ -101,15 +101,15 @@ class BaseQualificationTests(unittest.TestCase):
     def test_real_base_smoke_never_requires_manager_or_frontend(self):
         script = step('Run exact Manager, Core, and runtime smoke natively')
         script = script.replace('${{ needs.producer.outputs.upstream_version }}','0.161.0')
-        usage = 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback'
+        usage = 'usage: codex update [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback'
         warning = ('linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"\n'
                    'WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"\n')
-        for fault in (None,'runtime-version','runtime-stderr','core-failure'):
+        for fault in (None,'runtime-version','runtime-stderr','core-failure','stale-help'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp);candidate = root/'rald3-smoke/candidate';candidate.mkdir(parents=True)
                 tools = root/'tools';tools.mkdir()
                 linker = root/'rald4-bionic/bin/linker64';linker.parent.mkdir(parents=True)
-                linker.write_text('#!/bin/sh\nprintf \'%s\\n\' \''+usage+'\'\nprintf \'%s\' \''+warning+'\' >&2\nexit '+('1' if fault=='core-failure' else '0')+'\n')
+                linker.write_text('#!/bin/sh\nprintf \'%s\\n\' \''+(usage if fault != 'stale-help' else 'usage: codex update --help')+'\'\nprintf \'%s\' \''+warning+'\' >&2\nexit '+('1' if fault=='core-failure' else '0')+'\n')
                 linker.chmod(0o755)
                 runtime = candidate/'runtime'
                 runtime.write_text('#!/bin/sh\necho codex-cli '+('0.162.0' if fault=='runtime-version' else '0.161.0')+'\n'+('echo failure >&2\n' if fault=='runtime-stderr' else ''))

@@ -9,7 +9,6 @@ import json
 import os
 from pathlib import Path
 import pty
-import re
 import select
 import signal
 import struct
@@ -20,11 +19,7 @@ import termios
 import time
 
 from qualify_permission_lifecycle import fixture, server_paths
-
-
-def visible(text):
-    text = re.sub(r'\x1b\].*?(?:\x07|\x1b\\)', '', text, flags=re.S)
-    return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+from qualification_diagnostics import terminal_contains
 
 
 def probe(args):
@@ -110,7 +105,9 @@ def probe(args):
                 else:
                     os.write(master, b'\x03' if args.mode == 'ctrl-c' else b'c' if args.mode == 'continue' else b'q')
                 key_sent = True
-            if expected_tui and 'OpenAI Codex (v' + installed + ')' in visible(transcript):
+            if (expected_tui and terminal_contains(transcript, 'OpenAI Codex (v' + installed + ')')
+                    and terminal_contains(transcript, 'Ask Codex to do anything')
+                    and server_paths(home)):
                 break
             if process.poll() is not None:
                 assert not expected_tui, transcript[-2000:]
