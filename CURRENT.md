@@ -21,9 +21,27 @@ Manual update checks official freshness, requests a missing qualified build once
 and offers wait/current-entry/exit without requesting CI during ordinary entry.
 Private Android CLI witnesses cover those paths, signature refusal and terminal
 restoration. The exact0.163 Full continuation witness requests a synthetic missing
-0.164 once and reaches the existing native TUI. An actual updater-driven remote
-build request still needs a distinct disposable intent after accepted0.164 source
-inputs are ready; uncertain dispatches must never be blindly repeated.
+0.164 once and reaches the existing native TUI. A separate disposable Full99
+invocation of the actual installed updater submitted real owner-CI request
+39952665418, recorded its exact run ID and exited0 without changing either
+selection. The controller successfully reused the already-running native build;
+no duplicate native build was requested. Original receipt and result:
+`manual-owner-ci-result.json` in the evidence root above. Uncertain dispatches
+must never be blindly repeated.
+
+Public0.164 is now accepted and published: signed Full101/source
+`51f31089ebd8d55d1169c0274bcc8707a3a2c178`, with Base100/source dfb328d2.
+Exact Source39960402293 and Core39960404755 pass. Full publication39961048227
+passes integrated Android build/smoke, signing, complete public readback,
+disposable update and non-forced stable promotion. Base publication39952551488
+retains its independent accepted proof. A final disposable `codex update --wait`
+uses the unchanged installed Full99 Core, one simulated CI-completion signal and
+real public signed assets: exit0, current Full101, previous Full99, fixture
+configuration preserved. The actual owner-CI request was proven separately above.
+The device remains on0.163 for the user to update. Evidence:
+`manual-wait-public-install-transport-fixed-result.json`. The first private
+transport helper had a syntax error before request/install; its original
+failure and zero-effect audit remain preserved and are not counted as a pass.
 
 The shared-account empty-session `/model` correction remains the accepted Full97
 native frontend (raw9454f44a..., installed a3be8755...). Its native39926532880
@@ -39,7 +57,15 @@ reviewer, not model review of every untrusted command. The proposed Untrusted
 restoration and expanded routing were an unnecessary scope expansion and have
 been removed from the0.164 candidate. They were never installed or published.
 Original experiment sources, outcomes and the correction are preserved in the
-private evidence root; do not resume that experiment as required product work.
+private evidence root. A standalone50,513-byte patch, exact-base manifest and
+reapplication notes also reside at
+`~/.local/state/codex/experiments/untrusted-guardian-0.164/`.
+The patch passed apply-check against source dfb328d2, and prototype witnesses
+cover allow/deny/reviewer failure/full-access plus menu/shortcut behavior using
+local synthetic Responses. Exact final-source native build, resume/account
+transitions and signed public acceptance were not completed for that experiment.
+It is a reusable experimental prototype, not a qualified feature or a current
+Core/config toggle. Do not resume it as required product work.
 
 The current conversation's stored native settings are OnRequest/AutoReview with
 Disabled/danger-full-access, model gpt-6.1-sol/high. Current Full99 Core/runtime/
@@ -56,13 +82,17 @@ Evidence: `~/.cache/codex/acceptance/auto-review-policy-20261023T080559Z/native-
 Earlier OnRequest lifecycle witnesses remain accepted at their recorded scopes;
 completed effects and uncertain calls must not be replayed.
 
-The separate0.164 upgrade candidate at `prep/0.164-native-review` now retains
-unchanged upstream backend/configuration/reviewer code and53 frontend focused
-tests. Its28 exact raw UI/FD/resume blocks change478 bytes, plus54 common FD
-bytes (532 total). It still needs exact native build, Android/lifecycle, signed
-public and actual updater-request acceptance before release. Keep this device
-on0.163; the user will trigger the later upstream update. ChatGPT-backed model
-review remains a separate compatibility scope. G/H and services need no replay.
+The accepted0.164 build retains unchanged upstream backend/configuration/reviewer
+code. Exact frontend source27a9186/native39953993176 passes53 focused tests,
+94 retained upstream tests and lint; immutable inputs are bound in source51f3108.
+Its28 exact raw UI/FD/resume blocks change478 bytes, plus54 common FD bytes
+(532 total). Android native approval denial, cold resume/side-thread inheritance,
+Full shared/named permission menus/shortcuts and the no-Manager empty-session
+native/Chat model roundtrip pass. These use local synthetic/model-free transports;
+no real model request or Chat submission is claimed. Original failed compile and
+private observer/setup attempts remain preserved; accepted effects were not
+replayed. ChatGPT-backed model review remains a separate compatibility scope.
+G/H and services need no replay; setup and repository projects remain deferred.
 
 
 
@@ -268,9 +298,9 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Empty-session TUI correctionf2cec230, qualification driverb56abc55 and accepted frontend registration786b7e28 committed/pushed. Native52 focused/94 upstream tests and lint, Android empty/history transitions with/without Manager, exact source/Core gates pass. Unchanged runtime retains full364 Rust/141 Python/Clippy and Provider168 Rust/68 JavaScript/82 Python evidence; Provider28/Core1 opt-in tests remain explicitly ignored |
-| Public Core | Full97/sourcecb1684b2, signed/read back/qualified/promoted by39932543113. Full96/source786b7e28 retains39906074479 proof. Earlier Full95/81890a7, Full94/e0f0927 and G's Full93/Full90 retain their original scopes |
-| Operating Core | Signed Full97, previous96, upstream0.163.0; actual96→97 exit0 and installed frontend hash matches Android-qualified bytes. Original Full86/88 and account/shared-profile backup retained in device-runtime-update-full93-provider-s3; new launches use Full97, existing clients remain pinned |
+| Implementation | Manual updater d2963887 and accepted0.164 source51f3108 committed/pushed. Native27a9186 passes53 focused/94 upstream tests and lint; exact Source/Core, Android menu/approval/lifecycle/empty-session and public gates pass. Upstream reviewer eligibility is unchanged; the Untrusted experiment is archived separately. Retained Provider168 Rust/68 JavaScript/82 Python evidence remains applicable; Provider28/Core1 opt-in tests remain explicitly ignored |
+| Public Core | Full101/source51f3108, signed/read back/qualified/promoted by39961048227, with accepted Base100/source dfb328d2 from39952551488. Full99/source d2963887 retains39945787744 proof; earlier releases retain their original scopes |
+| Operating Core | Signed Full99, previous97, upstream0.163.0; actual97→99 exit0. Manual update installed;0.164 was activated only in a disposable fixture. Protected config/auth and services preserved. New launches use Full99; existing clients retain their pinned executables |
 | Public/selected Provider | chatgpt-81890a7b16c4-s4, release sequence4, previous3; binary SHA256e65ccd78b8a95ab454fa42d227a1668e92ba3db335844685ac0dea032bfa658a. Public immutable signing/readback, Android consumption, stable promotion and operating activation accepted |
 | Host/profile | App26.1007.21434 / Chromium155.0.8059.40 under the signed Rust-owned private-pipe host; same authenticated account and no active lanes verified. Original login/history retained. No new Chat inference or physical viewer observation is claimed |
 | Retired source | experiment/web-termux08e9856 and experiment/web-provider6aab6cd refs/history preserved; exact299-file snapshots, user1m profile/test edits, Cargo.lock deletion, licenses and restore records under phase-h-retirement-6aa2280.34 duplicate files and2 inactive worktrees retired |
@@ -278,12 +308,14 @@ referenced by `~/.local/state/codex/binding-release-latest-root`.
 
 ### Latest handoff boundary
 
-The latest completed boundary is the shared-session hotfix under
-`auto-review-policy-20261023T080559Z`: Full97, previous96, native sourcedf75d98,
-registered sourcecb1684b2, publication39932543113 and actual device activation.
-Provider4, same-account ready host, service/tdev/root/monitor identities and
-protected config/auth remain unchanged. Separate automatic-review and0.164
-update implementation is still in progress; its prototype is not a public release.
+The latest completed boundary under `auto-review-policy-20261023T080559Z` is the
+manual updater on physical Full99 and public0.164 Full101. Exact frontend inputs,
+source/Core, publication and disposable wait/install acceptance are complete.
+Physical0.164 activation is deliberately left to the user's `codex update`.
+Provider4, host/services and protected user settings were not changed by this
+0.164 qualification. Upstream native review routing works in a local transport
+witness; successful live OpenAI reviewer transport remains unproven. The separate
+Untrusted experiment is preserved outside the active product and is not qualified.
 The prior `binding-release-20261023T030234Z` owns authenticated16-tool MCP,
 remote polling and original Provider failed-update/lease records. Read those
 before Provider maintenance; neither that publication nor its effects need
