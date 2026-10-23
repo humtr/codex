@@ -408,6 +408,39 @@ async fn observer_loss_after_submit_reconciles_same_round_without_resubmission()
     );
 }
 
+#[tokio::test]
+async fn pre_policy_completed_request_replays_after_upgrade_without_remote_access() {
+    use sha2::{Digest, Sha256};
+    let root = Root::new();
+    let journal = Arc::new(Journal::open(&root.0).unwrap());
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().stage = 1; // The fixture returns a final answer.
+    let host = AppHost::new(app.clone(), journal.clone());
+    let first = execute(&host, body()).await;
+    assert!(matches!(first.last(), Some(Event::Completed { .. })));
+    let request = Request::parse(body(), &Config::default(), None).unwrap();
+    let legacy = serde_json::to_string(&request)
+        .unwrap()
+        .replace("\"account_change\":\"new_chat\",", "");
+    assert_eq!(
+        serde_json::to_string(&request.history).unwrap(),
+        r#"{"mode":"retain","create_if_missing":true}"#
+    );
+    let key = codex_chatgpt_provider::context::digest(&request.thread);
+    let mut record: Value = journal.read(&key).unwrap().unwrap();
+    record["request"] = json!(format!("{:x}", Sha256::digest(legacy.as_bytes())));
+    journal.write(&key, &record).unwrap();
+    drop(host);
+    let commands = {
+        let mut state = app.state.lock().unwrap();
+        state.account = "different-current-account".into();
+        state.commands.len()
+    };
+    let reloaded = AppHost::new(app.clone(), journal);
+    assert_eq!(output(&execute(&reloaded, body()).await), output(&first));
+    assert_eq!(app.state.lock().unwrap().commands.len(), commands);
+}
+
 async fn failure(host: &AppHost, body: Value, cancel: CancellationToken) -> (Error, Vec<Event>) {
     let request = Request::parse(body, &Config::default(), None).unwrap();
     let (events, mut receive) = mpsc::channel(64);

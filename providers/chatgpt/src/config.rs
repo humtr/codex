@@ -149,6 +149,8 @@ impl Default for TransportConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct HistoryConfig {
     pub mode: HistoryMode,
+    // Preserve pre-policy request fingerprints for durable response replay.
+    #[serde(skip_serializing_if = "AccountChange::is_default")]
     pub account_change: AccountChange,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_name: Option<String>,
@@ -174,6 +176,11 @@ pub enum AccountChange {
     #[default]
     NewChat,
     Refuse,
+}
+impl AccountChange {
+    fn is_default(&self) -> bool {
+        *self == Self::NewChat
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

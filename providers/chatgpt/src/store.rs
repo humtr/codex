@@ -122,8 +122,10 @@ impl Snapshot {
             let effective=config.effective_context(&model.id,&Default::default())?;
             Ok((model.id.clone(),serde_json::json!({"settings":effective,"origins":{"window_tokens":if model.context.window_tokens.is_some(){"model"}else{origins["context.window_tokens"]},"auto_compact_token_limit":if model.context.auto_compact_token_limit.is_some(){"model"}else{origins["context.auto_compact_token_limit"]}}})))
         }).collect::<Result<BTreeMap<_,_>,ConfigError>>()?;
+        let mut settings = serde_json::json!(&config);
+        settings["history"]["account_change"] = serde_json::json!(config.history.account_change);
         Ok(
-            serde_json::json!({"effective_model_contexts":contexts,"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":self.config()?,"origins":origins}),
+            serde_json::json!({"effective_model_contexts":contexts,"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":settings,"origins":origins}),
         )
     }
     pub fn commit_bytes(&self, bytes: &[u8]) -> Result<bool, ConfigError> {
@@ -426,6 +428,11 @@ mod tests {
         let effective = Snapshot::open(&path).unwrap().effective().unwrap();
         assert_eq!(effective["origins"]["context.window_tokens"], "file");
         assert_eq!(effective["origins"]["model.default"], "default");
+        assert_eq!(
+            effective["settings"]["history"]["account_change"],
+            "new_chat"
+        );
+        assert_eq!(effective["origins"]["history.account_change"], "default");
         assert_eq!(effective["runtime_application"], "not_queried");
         fs::remove_dir_all(root).unwrap();
     }
