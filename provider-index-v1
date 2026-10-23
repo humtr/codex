@@ -1,7 +1,7 @@
 codex-provider-index-v1
 provider	chatgpt
 channel	stable
-generation_id	chatgpt-655d5b4c88c0-s5
-release_sequence	5
-release_base	https://github.com/humtr/codex/releases/download/chatgpt-655d5b4c88c0-s5/
-manifest_sha256	90ed34f1a5354d4a66829346dfdbda347c1f3adb2a85fcd10c6436e6d08d1fb6
+generation_id	chatgpt-57c7eec27cd4-s6
+release_sequence	6
+release_base	https://github.com/humtr/codex/releases/download/chatgpt-57c7eec27cd4-s6/
+manifest_sha256	ce409921e0cde7acebd7f54946166473489bf8d8e293922fafc396e7b468baf3
