@@ -145,7 +145,12 @@ impl Handoff {
         if snapshot["id"] != thread {
             return Err(Error("handoff_thread_mismatch"));
         }
-        if snapshot["status"]["type"] != "idle" {
+        let failed_boundary = snapshot["status"]["type"] == "systemError"
+            && snapshot["turns"]
+                .as_array()
+                .and_then(|turns| turns.last())
+                .is_some_and(|turn| turn["status"] == "failed");
+        if snapshot["status"]["type"] != "idle" && !failed_boundary {
             return Err(Error("handoff_work_unsettled"));
         }
         if snapshot.get("nextCursor").is_some_and(|v| !v.is_null())
@@ -288,6 +293,42 @@ mod tests {
         assert_eq!(messages[2].role, "user");
         assert_eq!(history.len(), 5);
     }
+    #[test]
+    fn failed_native_history_can_enter_chat_without_admitting_unsettled_work() {
+        let mut value = snapshot();
+        value["status"]["type"] = json!("systemError");
+        for (status, accepted) in [
+            ("failed", true),
+            ("completed", false),
+            ("inProgress", false),
+        ] {
+            value["turns"][0]["status"] = json!(status);
+            assert_eq!(
+                Handoff::prepare(
+                    &value,
+                    "thread",
+                    "native",
+                    "chatgpt-desktop/gpt-6",
+                    "none",
+                    &Config::default()
+                )
+                .is_ok(),
+                accepted
+            );
+        }
+        value["turns"][0]["status"] = json!("failed");
+        value["turns"][0]["items"][2]["status"] = json!("inProgress");
+        assert!(Handoff::prepare(
+            &value,
+            "thread",
+            "native",
+            "chatgpt-desktop/gpt-6",
+            "none",
+            &Config::default()
+        )
+        .is_err());
+    }
+
     #[test]
     fn incomplete_busy_unknown_and_tampered_history_refuse_without_inference() {
         for (path, value) in [
