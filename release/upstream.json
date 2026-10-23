@@ -9,13 +9,7 @@
     "core_rust": "1.98.0",
     "frontend_rust": "1.95.0"
   },
-  "frontend": {
-    "source": "1c58d1cb4732fa654a37db5ddd073acc375a6a58",
-    "run_id": "39799995620",
-    "sha256": "6b924d78d885afa68dbb818aa4f8608748f78cd668884f4e7585d4d4cba63c09",
-    "input_url": "https://github.com/humtr/codex/releases/download/manager-tui-native-v0.163.0-1c58d1cb4732/manager-tui-inputs-0.163.0-1c58d1cb4732.tar.gz",
-    "input_sha256": "b53dbed1da6da65a0529eeff010fc89d6f304b195d751d5ff0377571ed97641a"
-  },
+  "frontend": null,
   "qualification": {
     "focused_tests": 52,
     "lock_audit": {
