@@ -232,11 +232,16 @@ def probe(args):
             assert snapshot['turns'] == [], 'empty selection must not add a public turn'
             rollout = Path(snapshot['path'])
             records = [json.loads(line) for line in rollout.read_text().splitlines() if line.strip()]
-            assert len(records) == 1 and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread, 'empty selection must retain metadata only, without a checkpoint'
+            assert records and records[0]['type'] == 'session_meta' and records[0]['payload']['id'] == thread
+            settings = records[1:]
+            assert all(row['type'] == 'event_msg' and row['payload']['type'] == 'thread_settings_applied'
+                       and row['payload']['thread_id'] == thread for row in settings), 'empty selection must not add conversation or checkpoint records'
+            assert [row['payload']['thread_settings']['model_provider_id'] for row in settings] == ['chatgpt_desktop', 'openai'], 'native audit must retain the actual provider roundtrip'
             accepted = True
             report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
                     'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
+                    'nativeSettingsAuditEvents': len(settings),
                     'maximumNativeSocketBytes': check_native_socket_budget(home),
                     'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
                                      for name in ['core', 'frontend', 'provider']}}
