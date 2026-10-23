@@ -194,6 +194,33 @@ pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
     checked_routing(value)
 }
 
+/// Make a saved provider resolvable without changing the current selection.
+pub(crate) fn add_installed_provider(config: &Config, session: &mut toml::Value) {
+    if config.config_layer_stack.layers_low_to_high().any(|layer| {
+        layer
+            .config
+            .get("model_providers")
+            .and_then(|providers| providers.get(PROVIDER))
+            .is_some()
+    }) {
+        return;
+    }
+    let Some(routing) = installed_routing(config) else {
+        return;
+    };
+    let Some(table) = session.as_table_mut() else {
+        return;
+    };
+    let providers = table
+        .entry("model_providers")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if let Some(providers) = providers.as_table_mut() {
+        providers
+            .entry(PROVIDER)
+            .or_insert_with(|| routing["model_providers"][PROVIDER].clone());
+    }
+}
+
 fn routing_profile_path(local: &Path, shared: Option<&Path>) -> Option<std::path::PathBuf> {
     match std::fs::symlink_metadata(local) {
         Ok(meta)
@@ -393,6 +420,36 @@ mod tests {
             installed_routing(&config).is_some(),
             "marked routing must decode"
         );
+        // An ordinary resume can resolve its saved provider; a fresh native
+        // thread retains its original defaults and explicit routes still win.
+        let mut session = toml::Value::Table(toml::Table::new());
+        add_installed_provider(&config, &mut session);
+        assert_eq!(session.as_table().unwrap().len(), 1);
+        assert_eq!(
+            session["model_providers"][PROVIDER]["auth"]["command"].as_str(),
+            Some("/owned/codex-chatgpt-provider")
+        );
+        assert!(session.get("model_provider").is_none());
+        assert!(session.get("model_catalog_json").is_none());
+        let mut resumed_overrides: Vec<_> = session
+            .as_table()
+            .unwrap()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        resumed_overrides.push(("model_provider".into(), PROVIDER.into()));
+        let resumed = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .cli_overrides(resumed_overrides)
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(resumed.model_provider_id, PROVIDER);
+        let mut explicit: toml::Value =
+            toml::from_str("[model_providers.chatgpt_desktop]\nname='User route'\n").unwrap();
+        let original = explicit.clone();
+        add_installed_provider(&config, &mut explicit);
+        assert_eq!(explicit, original);
         let models = chat_catalog(&config).expect("actual installed ModelInfo catalog must decode");
         assert_eq!(models.len(), 2);
         assert!(models.iter().any(|m| m.model == "chatgpt-desktop/gpt-6"));

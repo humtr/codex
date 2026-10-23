@@ -102,7 +102,11 @@ update authority is maintained.
   same UUID/home/CWD and submit no synthetic message, summary, metadata rewrite
   or empty checkpoint merely to make switching work.
   Selected config profiles survive; no Chat slug is persisted into
-  an ordinary default. `--profile chatgpt` remains an upstream config fallback,
+  an ordinary default. Ordinary local resume receives the installed, verified
+  Provider definition as a thread-scoped reference so a saved Chat conversation
+  opens without requiring `--profile chatgpt`. This does not select a provider,
+  model or catalog for new native work, or replace an explicit user definition.
+  `--profile chatgpt` remains an upstream config fallback,
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
   proof; deferred families and unexecuted Pro choices are labelled accordingly.
   Model/effort changes within the selected Chat provider use upstream session

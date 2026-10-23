@@ -8,7 +8,13 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
-Account-independent repair is being qualified; it is not installed yet. Provider
+Account-independent repair is being qualified; it is not installed yet. Ordinary
+cold resume exposed a separate saved-provider configuration gap after the
+combined account/failure-return proof passed. The local frontend now supplies
+only the verified installed Provider definition to thread-scoped configuration,
+without selecting its model/catalog or overriding explicit definitions. The
+combined driver now requires cold resume without `--profile chatgpt` and
+model-free return. Provider
 source5083007 discovers each incoming native thread across verified execution
 homes, derives its actual workspace and reconciles new native turns after an
 account/workspace change. Read-only status can observe the changed owner before

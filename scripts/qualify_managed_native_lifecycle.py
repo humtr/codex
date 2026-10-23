@@ -139,13 +139,15 @@ def probe(args):
                     except OSError:
                         return
 
-        def launch(thread=None):
+        def launch(thread=None, provider_profile=True):
             nonlocal process, master, screen
             screen = ''
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 180, 0, 0))
-            command = [str(prefix / 'bin/codex'), '--no-alt-screen', '--profile', 'chatgpt',
-                '-c', 'model_reasoning_effort="none"', '-c', 'tui.animations=false',
+            command = [str(prefix / 'bin/codex'), '--no-alt-screen']
+            if provider_profile:
+                command += ['--profile', 'chatgpt']
+            command += ['-c', 'model_reasoning_effort="none"', '-c', 'tui.animations=false',
                 '-C', str(selected_workspace)]
             if thread is not None:
                 command += ['resume', thread]
@@ -446,6 +448,23 @@ def probe(args):
             fresh_submissions = [row for row in json.loads((root / 'bridge-commands.json').read_text())
                                  if row['op'] == 'submit' and row.get('nativeThread') == fresh]
             assert len(fresh_submissions) == 1
+            saved_turns = public(fresh)['turns']
+            submit('/quit')
+            process.wait(timeout=15)
+            os.close(master)
+            master = None
+            # This fixture owns every backend in server_paths; stop only the
+            # exact runtime identity recorded for this completed thread.
+            owners.append(stop_owned_pid(int(matching[0].read_text()),
+                home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
+            launch(fresh, provider_profile=False)
+            resumed = public(fresh)
+            assert resumed['modelProvider'] == 'chatgpt_desktop' and resumed['turns'] == saved_turns
+            submit('/model gpt-6.1-sol')
+            wait(lambda: public(fresh)['modelProvider'] == 'openai')
+            assert public(fresh)['turns'] == saved_turns
+            result['ordinary_cold_resume_without_profile'] = True
+            steps.append('ordinary cold resume needs no provider profile and returns to native without inference')
             additional_inputs, additional_submissions = 2, len(fresh_submissions)
             result['fresh_first_failure_return'] = True
             result['fresh_thread_id'] = fresh

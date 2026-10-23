@@ -468,10 +468,9 @@ index e2b86c9..07394a6 100644
      /// Apply an explicit Astra selection and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index a9476b1..4cde786 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -896,6 +896,11 @@ impl AppServerSession {
+@@ -896,6 +896,11 @@
          remote_cwd_override: Option<&std::path::Path>,
          selected_profile: Option<&PermissionProfileSelection>,
      ) -> Result<AppServerStartedThread> {
@@ -483,7 +482,7 @@ index a9476b1..4cde786 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1062,6 +1067,11 @@ impl AppServerSession {
+@@ -1062,6 +1067,11 @@
          permission_mode: ForkPermissionMode,
          config_source: ForkConfigSource,
      ) -> Result<AppServerStartedThread> {
@@ -495,11 +494,10 @@ index a9476b1..4cde786 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1967,10 +1977,32 @@ fn approvals_reviewer_override_from_config(
- fn config_request_overrides_from_config(
+@@ -1968,29 +1978,55 @@
      config: &Config,
      thread_params_mode: ThreadParamsMode,
-+) -> Option<HashMap<String, serde_json::Value>> {
+ ) -> Option<HashMap<String, serde_json::Value>> {
 +    // A qualified Termux local frontend uses the official app-server, including
 +    // when invocation/profile settings differ from that daemon's defaults.
 +    // Keep those settings thread-scoped through the existing public API.
@@ -512,7 +510,7 @@ index a9476b1..4cde786 100644
 +    config: &Config,
 +    thread_params_mode: ThreadParamsMode,
 +    local_launch: bool,
- ) -> Option<HashMap<String, serde_json::Value>> {
++) -> Option<HashMap<String, serde_json::Value>> {
      let mut session_config = toml::Value::Table(toml::Table::new());
      for layer in config.config_layer_stack.layers_low_to_high() {
 -        if matches!(&layer.name, ConfigLayerSource::SessionFlags) {
@@ -528,8 +526,12 @@ index a9476b1..4cde786 100644
 +        {
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
++    }
++    if local_launch {
++        crate::termux_chat_models::add_installed_provider(config, &mut session_config);
      }
-@@ -1979,18 +2011,19 @@ fn config_request_overrides_from_config(
+     let mut overrides: HashMap<_, _> = session_config
+         .as_table()
          .into_iter()
          .flatten()
          .filter(|(key, _)| {
@@ -561,7 +563,7 @@ index a9476b1..4cde786 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2268,6 +2301,11 @@ fn thread_resume_params_from_config(
+@@ -2268,6 +2304,11 @@
          ),
          ..ThreadResumeParams::default()
      };
@@ -573,10 +575,12 @@ index a9476b1..4cde786 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3612,6 +3650,45 @@ mod tests {
+@@ -3610,6 +3651,45 @@
+         assert_eq!(start.config, Some(expected_config.clone()));
+         assert_eq!(resume.config, Some(expected_config.clone()));
          assert_eq!(fork.config, Some(expected_config));
-     }
-
++    }
++
 +    #[tokio::test]
 +    async fn termux_chat_models_local_thread_keeps_profile_and_session_settings() -> Result<()> {
 +        let home = tempfile::tempdir()?;
@@ -614,11 +618,9 @@ index a9476b1..4cde786 100644
 +        assert!(!ordinary.contains_key("developer_instructions"));
 +        assert_eq!(std::fs::read_to_string(path)?, contents);
 +        Ok(())
-+    }
-+
+     }
+
      #[tokio::test]
-     async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
-         let home = tempfile::tempdir()?;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
 index cfe0499..41087ef 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
