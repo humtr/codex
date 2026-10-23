@@ -105,7 +105,7 @@ jobs:
           python3 experiment/frontend/manager-tui/apply.py upstream
           python3 experiment/frontend/manager-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
-          test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
+          python3 experiment/frontend/manager-tui/check_backend_boundary.py upstream
       - name: Preserve freshness of byte-identical upstream packages
         shell: bash
         run: |
@@ -150,14 +150,10 @@ jobs:
           set -euo pipefail
           cd upstream
           just fmt
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_backend_boundary.py" "$GITHUB_WORKSPACE/upstream"
           git diff --check
           git add -N codex-rs/tui
-          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-formatted.patch"
-          python3 - <<'PYTHON'
-          import subprocess
-          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
-          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
-          PYTHON
+          git diff -- codex-rs/tui codex-rs/core/src/config/mod.rs codex-rs/app-server/src/config_manager_service.rs codex-rs/ext/guardian-reviewer codex-rs/ext/guardian-v2 > "$RUNNER_TEMP/profile-tui-formatted.patch"
       - name: Build actual patched CLI with pinned external dependencies
         shell: bash
         run: |
@@ -251,6 +247,14 @@ jobs:
           export CARGO_BIN_EXE_codex="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
           export CARGO_BIN_EXE_codex_code_mode_host="$host/codex-code-mode-host"
           PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
+      - name: Verify native reviewer routing with and without Core binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          for core in '' /qualified/core; do
+            CODEX_PROFILE_CORE="$core" cargo nextest run --locked --target aarch64-unknown-linux-musl -p codex-guardian-reviewer -E 'test(approval_routing_depends_on_policy_and_reviewer)' 2>&1 | tee -a "$RUNNER_TEMP/profile-tui-review-routing.log"
+          done
       - name: Inspect TUI lint fixes
         shell: bash
         run: |
@@ -292,15 +296,10 @@ jobs:
               core.write_bytes(original)
               daemon.write_bytes(daemon_original)
           PYTHON
-          git diff --exit-code -- codex-rs/core
           git diff --exit-code -- codex-rs/tui/src/daemon_startup.rs
-          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_backend_boundary.py" "$GITHUB_WORKSPACE/upstream"
+          git diff -- codex-rs/tui codex-rs/core/src/config/mod.rs codex-rs/app-server/src/config_manager_service.rs codex-rs/ext/guardian-reviewer codex-rs/ext/guardian-v2 > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
-          python3 - <<'PYTHON'
-          import subprocess
-          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
-          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
-          PYTHON
       - name: Retain native focus and pending snapshots
         if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -308,6 +307,7 @@ jobs:
           name: manager-tui-native-proof
           path: |
             ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-review-routing.log
             ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-linted.patch

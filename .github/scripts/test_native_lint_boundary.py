@@ -1,5 +1,6 @@
 """The real hosted lint allowance cannot become an upstream source modification."""
 import os
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
@@ -34,8 +35,32 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 daemon = upstream / 'codex-rs/tui/src/daemon_startup.rs'
                 daemon.parent.mkdir()
                 daemon.write_bytes(b'pub fn uses_wsl_drvfs() {}\n')
+                checker = WORKFLOW.parents[2] / 'frontend/manager-tui/check_backend_boundary.py'
+                spec = importlib.util.spec_from_file_location('owned_boundary', checker)
+                boundary = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(boundary)
+                for name, (variable, indent) in boundary.GUARDS.items():
+                    path = upstream / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(' ' * indent + f'if {variable}.approval_policy == Some(AskForApproval::UnlessTrusted) {{\n  reject();\n}}\n')
+                for name, replacements in boundary.TRANSFORMS.items():
+                    path = upstream / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text('\n'.join(before for before, _ in replacements))
                 for args in (['init', '-q'], ['add', '.'], ['-c', 'user.name=Owned', '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'owned']):
                     subprocess.run([git, *args], cwd=upstream, check=True, capture_output=True)
+                for name, (variable, indent) in boundary.GUARDS.items():
+                    path = upstream / name
+                    path.write_text(boundary.compatible(path.read_text(), variable, indent))
+                for name, replacements in boundary.TRANSFORMS.items():
+                    path = upstream / name
+                    value = path.read_text()
+                    for before, after in replacements:
+                        value = value.replace(before, after)
+                    path.write_text(value)
+                check_target = root / 'experiment/frontend/manager-tui/check_backend_boundary.py'
+                check_target.parent.mkdir(parents=True)
+                shutil.copy2(checker, check_target)
                 if fault == 'foreign-source':
                     core.write_bytes(b'foreign\n')
                 if fault == 'foreign-daemon':
@@ -60,9 +85,9 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     sys.exit(7 if fault == 'failure' else 0)
                 '''))
                 (tools / 'just').chmod(0o755)
-                (root / 'profile-tui-formatted.patch').write_bytes(b'')
+                (root / 'profile-tui-formatted.patch').write_bytes(subprocess.check_output([git, 'diff', '--', 'codex-rs/tui', *boundary.GUARDS, *boundary.TRANSFORMS], cwd=upstream))
                 env = {**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
-                       'RUNNER_TEMP': str(root), 'LINT_FAULT': fault or '', 'PYTHONDONTWRITEBYTECODE': '1'}
+                       'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root), 'LINT_FAULT': fault or '', 'PYTHONDONTWRITEBYTECODE': '1'}
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
                                         text=True, capture_output=True, timeout=15)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1000:])

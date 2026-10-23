@@ -1,5 +1,131 @@
+diff --git a/codex-rs/app-server/src/config_manager_service.rs b/codex-rs/app-server/src/config_manager_service.rs
+index df807ba..7b044e8 100644
+--- a/codex-rs/app-server/src/config_manager_service.rs
++++ b/codex-rs/app-server/src/config_manager_service.rs
+@@ -771,7 +771,11 @@ fn toml_value_to_value(value: &TomlValue) -> anyhow::Result<toml_edit::Value> {
+
+ fn validate_config(value: &TomlValue) -> anyhow::Result<()> {
+     let config: ConfigToml = value.clone().try_into()?;
+-    if config.approval_policy == Some(AskForApproval::UnlessTrusted) {
++    if config.approval_policy == Some(AskForApproval::UnlessTrusted)
++        && !std::env::var_os("CODEX_PROFILE_CORE")
++            .as_deref()
++            .is_some_and(|core| std::path::Path::new(core).is_absolute())
++    {
+         anyhow::bail!(
+             "approval_policy = \"untrusted\" is no longer supported; remove this setting"
+         );
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index 3f6c1cc..ac63b73 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -3883,7 +3883,11 @@ impl Config {
+             candidate_permission_profile: &permission_profile,
+             credential_broker_base_url: cfg.openai_base_url.as_deref(),
+         });
+-        if cfg.approval_policy == Some(AskForApproval::UnlessTrusted) {
++        if cfg.approval_policy == Some(AskForApproval::UnlessTrusted)
++            && !std::env::var_os("CODEX_PROFILE_CORE")
++                .as_deref()
++                .is_some_and(|core| std::path::Path::new(core).is_absolute())
++        {
+             return Err(std::io::Error::new(
+                 ErrorKind::InvalidData,
+                 UnsupportedUntrustedApprovalPolicyError,
+diff --git a/codex-rs/ext/guardian-reviewer/src/routing.rs b/codex-rs/ext/guardian-reviewer/src/routing.rs
+index 28d9777..fc5e23f 100644
+--- a/codex-rs/ext/guardian-reviewer/src/routing.rs
++++ b/codex-rs/ext/guardian-reviewer/src/routing.rs
+@@ -51,14 +51,21 @@ pub struct ReviewRequest<'a, H> {
+     pub metrics: Option<Arc<dyn ExtensionMetrics>>,
+ }
+
++fn termux_untrusted_review() -> bool {
++    std::env::var_os("CODEX_PROFILE_CORE")
++        .as_deref()
++        .is_some_and(|core| std::path::Path::new(core).is_absolute())
++}
++
+ pub fn routes_approval_policy_to_guardian(
+     policy: AskForApproval,
+     reviewer: ApprovalsReviewer,
+ ) -> bool {
+-    matches!(
++    (matches!(
+         policy,
+         AskForApproval::OnRequest | AskForApproval::Granular(_)
+-    ) && reviewer == ApprovalsReviewer::AutoReview
++    ) || matches!(policy, AskForApproval::UnlessTrusted) && termux_untrusted_review())
++        && reviewer == ApprovalsReviewer::AutoReview
+ }
+
+ impl<H: ReviewHost> ReviewRequest<'_, H> {
+diff --git a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
+index 3a59454..40ddda3 100644
+--- a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
++++ b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
+@@ -9,7 +9,10 @@ use pretty_assertions::assert_eq;
+ #[test]
+ fn approval_routing_depends_on_policy_and_reviewer() {
+     for (policy, expected) in [
+-        (AskForApproval::UnlessTrusted, [false, false]),
++        (
++            AskForApproval::UnlessTrusted,
++            [false, super::termux_untrusted_review()],
++        ),
+         (AskForApproval::OnRequest, [false, true]),
+         (
+             AskForApproval::Granular(GranularApprovalConfig {
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs b/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
+index 2b3d192..50c91b1 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/approval.rs
+@@ -23,7 +23,6 @@ use codex_protocol::mcp::is_node_repl_backed_connector;
+ use codex_protocol::openai_models::GuardianModelPolicy;
+ use codex_protocol::openai_models::GuardianReviewMode;
+ use codex_protocol::openai_models::GuardianScope;
+-use codex_protocol::protocol::AskForApproval;
+ use codex_protocol::protocol::TruncationPolicy;
+ use std::sync::Weak;
+
+@@ -60,9 +59,9 @@ impl GuardianApprovalReviewer {
+         }
+         if !input.require_guardian
+             && (input.approvals_reviewer == ApprovalsReviewer::User
+-                || !matches!(
++                || !codex_guardian_reviewer::routes_approval_policy_to_guardian(
+                     input.approval_policy,
+-                    AskForApproval::OnRequest | AskForApproval::Granular(_)
++                    input.approvals_reviewer,
+                 ))
+         {
+             return ApprovalDecision::AskUser;
+diff --git a/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs b/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
+index e6fb25f..22b5de2 100644
+--- a/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
++++ b/codex-rs/ext/guardian-v2/src/sync_reviewer/mod.rs
+@@ -29,7 +29,6 @@ use codex_guardian_reviewer::ReviewerPool;
+ use codex_guardian_reviewer::ReviewerTasks;
+ use codex_protocol::ThreadId;
+ use codex_protocol::config_types::ApprovalsReviewer;
+-use codex_protocol::protocol::AskForApproval;
+ use codex_protocol::protocol::InternalSessionSource;
+ use codex_protocol::protocol::SessionSource;
+ use codex_protocol::protocol::ThreadSource;
+@@ -166,9 +165,9 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
+     ) -> ExtensionFuture<'a, ()> {
+         Box::pin(async move {
+             if input.session_source.is_internal()
+-                || !matches!(
++                || !codex_guardian_reviewer::routes_approval_policy_to_guardian(
+                     input.config.permissions.approval_policy.value(),
+-                    AskForApproval::OnRequest | AskForApproval::Granular(_)
++                    input.config.approvals_reviewer,
+                 )
+                 || input.config.approvals_reviewer != ApprovalsReviewer::AutoReview
+             {
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 1b07e98..6d9fc8b 100644
+index 093a6af..94d1466 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -10,28 +136,35 @@ index 1b07e98..6d9fc8b 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -216,6 +215,8 @@ pub(crate) mod app_server_requests;
- mod app_server_thread_ownership;
- mod backend_banner_fallback;
+@@ -218,6 +217,8 @@ mod backend_banner_fallback;
+ mod backend_events;
+ mod backend_sessions;
  mod background_requests;
 +#[cfg(unix)]
 +pub(crate) mod chat_model_reentry;
  mod composer_hints;
  mod config_panel;
  mod config_persistence;
-@@ -237,6 +238,10 @@ mod managed_worktree_creation;
+@@ -239,7 +240,11 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
 +#[cfg(unix)]
 +pub(crate) mod profile_manager;
+ mod quick_dials;
 +#[cfg(unix)]
 +pub(crate) mod quota_switch;
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -436,7 +441,7 @@ fn auto_review_mode() -> AutoReviewMode {
-         approval_policy: AskForApproval::OnRequest,
+@@ -437,10 +442,12 @@ struct AutoReviewMode {
+ /// the experiment means they want Auto-review enabled immediately.
+ fn auto_review_mode() -> AutoReviewMode {
+     AutoReviewMode {
+-        approval_policy: AskForApproval::OnRequest,
++        approval_policy: crate::termux_permissions::auto_approval_policy(
++            crate::termux_permissions::enabled(),
++        ),
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
 -            BUILT_IN_PERMISSION_PROFILE_WORKSPACE,
@@ -39,7 +172,7 @@ index 1b07e98..6d9fc8b 100644
          ),
      }
  }
-@@ -531,6 +536,10 @@ struct InitialHistoryReplayBuffer {
+@@ -535,6 +542,10 @@ struct InitialHistoryReplayBuffer {
  }
 
  pub(crate) struct App {
@@ -50,7 +183,7 @@ index 1b07e98..6d9fc8b 100644
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1218,6 +1227,10 @@ impl App {
+@@ -1229,6 +1240,10 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -58,11 +191,11 @@ index 1b07e98..6d9fc8b 100644
 +        crate::termux_terminal::sync(self.chat_widget.thread_id().map(|id| id.to_string()));
 +        #[cfg(unix)]
 +        quota_switch::show_notice(self);
-         self.sync_thread_title_progress();
          self.chat_widget
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
+         if tui.is_owned_screen() {
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 2821d6d..7d731fc 100644
+index cd8f167..dc725da 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
 @@ -98,6 +98,11 @@ impl App {
@@ -83,9 +216,9 @@ index 2821d6d..7d731fc 100644
              AppServerEvent::Disconnected { message } => {
 +                #[cfg(unix)]
 +                super::chat_model_reentry::cancel(self);
-                 if self.begin_reconnect() {
-                     return;
-                 }
+                 // The request result distinguishes a refused start from a lost reply.
+                 if self.pending_startup_thread_start
+                     && !matches!(self.app_server_target, crate::AppServerTarget::Embedded)
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
 index ada9e88..a5a1e67 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
@@ -138,10 +271,10 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index a7f7f1e..e0c3045 100644
+index 6687d05..3847af1 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -139,6 +139,19 @@ impl App {
+@@ -143,6 +143,19 @@ impl App {
              return Ok(AppRunControl::Continue);
          }
 
@@ -161,7 +294,7 @@ index a7f7f1e..e0c3045 100644
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -484,6 +497,40 @@ impl App {
+@@ -490,6 +503,40 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -202,7 +335,7 @@ index a7f7f1e..e0c3045 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -2110,6 +2157,18 @@ impl App {
+@@ -2116,6 +2163,18 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -222,10 +355,10 @@ index a7f7f1e..e0c3045 100644
                  if self
                      .active_thread_model_setting_update_params(model.clone())
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index 4c329f3..93698dc 100644
+index 85e4dc1..19badd6 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -884,6 +884,10 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -889,6 +889,10 @@ See the Codex keymap documentation for supported actions and examples."
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
@@ -237,7 +370,7 @@ index 4c329f3..93698dc 100644
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index 9394604..17fda2a 100644
+index a0efb33..d76f88e 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
 @@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
@@ -252,10 +385,10 @@ index 9394604..17fda2a 100644
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index 40c30df..36949f4 100644
+index ae45328..c264afb 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
-@@ -86,7 +86,7 @@ mod recap_generation;
+@@ -93,7 +93,7 @@ mod recap_generation;
  mod resume_shutdown_tests;
  mod safety_buffering;
  #[path = "tests/session_lifecycle_requests.rs"]
@@ -264,7 +397,7 @@ index 40c30df..36949f4 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -6259,6 +6259,10 @@ async fn make_test_app() -> Box<App> {
+@@ -6393,6 +6393,10 @@ async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
 
      Box::new(App {
@@ -275,7 +408,7 @@ index 40c30df..36949f4 100644
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6384,6 +6388,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6519,6 +6523,10 @@ pub(super) async fn make_test_app_with_channels() -> (
 
      (
          Box::new(App {
@@ -286,7 +419,7 @@ index 40c30df..36949f4 100644
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7374,7 +7382,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+@@ -7510,7 +7518,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
 
@@ -295,7 +428,7 @@ index 40c30df..36949f4 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7384,7 +7392,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7520,7 +7528,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
 
@@ -305,7 +438,7 @@ index 40c30df..36949f4 100644
      turn_id: &str,
      status: TurnStatus,
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 062efa3..38676c9 100644
+index 787c7e0..6d026c2 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -43,8 +43,9 @@ use tokio_tungstenite::tungstenite::Error as WebSocketError;
@@ -320,7 +453,7 @@ index 062efa3..38676c9 100644
 
  fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
      match error {
-@@ -398,7 +399,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
+@@ -401,7 +402,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
 
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
@@ -329,7 +462,7 @@ index 062efa3..38676c9 100644
      config: &Config,
      blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
      failed_thread_name: Option<&'static str>,
-@@ -908,7 +909,10 @@ fn create_history_rollout(
+@@ -927,7 +928,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
 
@@ -342,23 +475,10 @@ index 062efa3..38676c9 100644
          .lock()
          .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index c8d16dc..475903b 100644
+index 07a9869..8f5e429 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
-@@ -894,6 +894,12 @@ impl App {
-                         explicit_profile
-                             .and_then(RuntimePermissionProfileOverride::turn_permission_profile),
-                     );
-+                    crate::termux_permissions::validate(
-+                        &config.permissions.effective_permission_profile(),
-+                        crate::termux_permissions::enabled()
-+                            && app_server.thread_params_mode()
-+                                == crate::app_server_session::ThreadParamsMode::Embedded,
-+                    )?;
-                     let response = app_server
-                         .turn_start(
-                             thread_id,
-@@ -2072,6 +2078,10 @@ impl App {
+@@ -1921,6 +1921,10 @@ impl App {
              ThreadBufferedEvent::Notification(notification) => {
                  self.cache_collab_receiver_threads_for_notification(notification.as_ref());
                  let tip_ready = self.turn_tips.observe(&notification, Instant::now());
@@ -369,7 +489,7 @@ index c8d16dc..475903b 100644
                  self.chat_widget
                      .handle_server_notification(*notification, /*replay_kind*/ None);
                  // History cells queued by completion must be applied before anchoring its tip.
-@@ -2080,6 +2090,8 @@ impl App {
+@@ -1929,6 +1933,8 @@ impl App {
                  }
              }
              ThreadBufferedEvent::Request(request) => {
@@ -378,8 +498,25 @@ index c8d16dc..475903b 100644
                  if self
                      .pending_app_server_requests
                      .contains_server_request(request.as_ref())
+diff --git a/codex-rs/tui/src/app/user_turn_submission.rs b/codex-rs/tui/src/app/user_turn_submission.rs
+index 4f41521..bc736d6 100644
+--- a/codex-rs/tui/src/app/user_turn_submission.rs
++++ b/codex-rs/tui/src/app/user_turn_submission.rs
+@@ -152,6 +152,12 @@ pub(super) async fn try_submit_user_turn(
+         }),
+         explicit_profile.and_then(RuntimePermissionProfileOverride::turn_permission_profile),
+     );
++    crate::termux_permissions::validate(
++        &config.permissions.effective_permission_profile(),
++        crate::termux_permissions::enabled()
++            && app_server.thread_params_mode()
++                == crate::app_server_session::ThreadParamsMode::Embedded,
++    )?;
+     let response = app_server
+         .turn_start(
+             thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index a201931..a413fca 100644
+index e2b86c9..07394a6 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -638,6 +638,43 @@ pub(crate) enum AppEvent {
@@ -441,13 +578,13 @@ index a201931..a413fca 100644
 +        turn: String,
 +    },
 
-     /// Apply a final Astra picker action and offer the flourish only if it changed the model on
+     /// Apply an explicit Astra selection and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 837fcb1..aadf668 100644
+index a9476b1..4cde786 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -871,6 +871,11 @@ impl AppServerSession {
+@@ -896,6 +896,11 @@ impl AppServerSession {
          remote_cwd_override: Option<&std::path::Path>,
          selected_profile: Option<&PermissionProfileSelection>,
      ) -> Result<AppServerStartedThread> {
@@ -459,7 +596,7 @@ index 837fcb1..aadf668 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1037,6 +1042,11 @@ impl AppServerSession {
+@@ -1062,6 +1067,11 @@ impl AppServerSession {
          permission_mode: ForkPermissionMode,
          config_source: ForkConfigSource,
      ) -> Result<AppServerStartedThread> {
@@ -471,7 +608,7 @@ index 837fcb1..aadf668 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1940,10 +1950,32 @@ fn approvals_reviewer_override_from_config(
+@@ -1967,10 +1977,32 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -505,7 +642,7 @@ index 837fcb1..aadf668 100644
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
      }
-@@ -1952,18 +1984,19 @@ fn config_request_overrides_from_config(
+@@ -1979,18 +2011,19 @@ fn config_request_overrides_from_config(
          .into_iter()
          .flatten()
          .filter(|(key, _)| {
@@ -537,7 +674,7 @@ index 837fcb1..aadf668 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2241,6 +2274,11 @@ fn thread_resume_params_from_config(
+@@ -2268,6 +2301,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -549,7 +686,7 @@ index 837fcb1..aadf668 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3585,6 +3623,45 @@ mod tests {
+@@ -3612,6 +3650,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
 
@@ -614,10 +751,10 @@ index cfe0499..41087ef 100644
          let session_config = if matches!(
              model_settings,
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index 2ad3f1c..bc1e92a 100644
+index 90e854d..fd5d14e 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-@@ -487,6 +487,10 @@ pub enum InputResult {
+@@ -494,6 +494,10 @@ pub enum InputResult {
  }
 
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
@@ -625,9 +762,9 @@ index 2ad3f1c..bc1e92a 100644
 +    if command == SlashCommand::Switch && args.is_empty() {
 +        return true;
 +    }
-     if command == SlashCommand::Export {
-         return true;
-     }
+     if matches!(
+         command,
+         SlashCommand::Export | SlashCommand::Title | SlashCommand::Statusline
 diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
 index 4c455ed..b842f88 100644
 --- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
@@ -642,10 +779,10 @@ index 4c455ed..b842f88 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 2f74f84..f88e189 100644
+index 4b9d285..3629702 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
-@@ -442,6 +442,7 @@ use crate::streaming::controller::PlanStreamController;
+@@ -446,6 +446,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
 
@@ -653,7 +790,7 @@ index 2f74f84..f88e189 100644
  use chrono::Local;
  use codex_app_server_protocol::AskForApproval;
  use codex_file_search::FileMatch;
-@@ -453,7 +454,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+@@ -457,7 +458,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
  use codex_protocol::plan_tool::StepStatus;
  use codex_protocol::plan_tool::UpdatePlanArgs;
  use codex_utils_approval_presets::ApprovalPreset;
@@ -661,7 +798,7 @@ index 2f74f84..f88e189 100644
  use strum::IntoEnumIterator;
  use unicode_segmentation::UnicodeSegmentation;
 
-@@ -461,7 +461,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
+@@ -465,7 +465,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
  const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
  const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
  const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
@@ -750,11 +887,24 @@ index aa5de8b..c27a44b 100644
 +#[path = "termux_chat_model_selection_tests.rs"]
 +mod termux_chat_model_selection_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index 62877cf..3d2730b 100644
+index a91e85c..fcd635c 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
-@@ -120,7 +120,12 @@ impl ChatWidget {
+@@ -118,15 +118,31 @@ impl ChatWidget {
+                 });
+
                  if guardian_approval_enabled {
++                    let reviewed = crate::termux_permissions::auto_review_preset(
++                        &preset,
++                        crate::termux_permissions::enabled(),
++                    );
++                    let reviewed_disabled_reason = self
++                        .config
++                        .permissions
++                        .approval_policy
++                        .can_set(&reviewed.approval)
++                        .err()
++                        .map(|error| error.to_string());
                      items.push(SelectionItem {
                          name: APPROVE_FOR_ME_LABEL.to_string(),
 -                        description: Some(AUTO_REVIEW_DESCRIPTION.to_string()),
@@ -767,7 +917,31 @@ index 62877cf..3d2730b 100644
                          is_current: current_review_policy == ApprovalsReviewer::AutoReview
                              && (Self::preset_matches_current(
                                  current_approval,
-@@ -411,6 +416,9 @@ impl ChatWidget {
+                                 &current_permission_profile,
+                                 self.config.cwd.as_path(),
+-                                &preset,
++                                &reviewed,
+                             ) || (current_approval == AskForApproval::OnRequest
+                                 && self
+                                     .config
+@@ -134,14 +150,14 @@ impl ChatWidget {
+                                     .requirements()
+                                     .auto_review_required_for_model(self.current_model()))),
+                         actions: self.permission_mode_actions(
+-                            &preset,
++                            &reviewed,
+                             APPROVE_FOR_ME_LABEL.to_string(),
+                             ApprovalsReviewer::AutoReview,
+                             /*profile_selection*/ None,
+                             /*return_to_permissions*/ !include_read_only,
+                         ),
+                         dismiss_on_select: true,
+-                        disabled_reason: approval_disabled_reason
++                        disabled_reason: reviewed_disabled_reason
+                             .or_else(|| guardian_disabled_reason(true)),
+                         ..Default::default()
+                     });
+@@ -410,6 +426,9 @@ impl ChatWidget {
                      && current_permission_profile.network_sandbox_policy()
                          == preset.permission_profile.network_sandbox_policy()
              }
@@ -777,7 +951,7 @@ index 62877cf..3d2730b 100644
              "auto" => {
                  let file_system_policy = current_permission_profile.file_system_sandbox_policy();
                  matches!(
-@@ -516,3 +524,7 @@ impl ChatWidget {
+@@ -515,3 +534,7 @@ impl ChatWidget {
          });
      }
  }
@@ -786,7 +960,7 @@ index 62877cf..3d2730b 100644
 +#[path = "termux_permission_popups_tests.rs"]
 +mod termux_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
-index 444a11d..0ee2b06 100644
+index 444a11d..c18c95f 100644
 --- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 @@ -52,7 +52,9 @@ impl ChatWidget {
@@ -800,12 +974,27 @@ index 444a11d..0ee2b06 100644
                  continue;
              }
              for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
+@@ -62,6 +64,14 @@ impl ChatWidget {
+                 {
+                     continue;
+                 }
++                let preset = if reviewer == ApprovalsReviewer::AutoReview {
++                    crate::termux_permissions::auto_review_preset(
++                        &preset,
++                        crate::termux_permissions::enabled(),
++                    )
++                } else {
++                    preset.clone()
++                };
+                 let approval = AskForApproval::from(preset.approval);
+                 if discovery
+                     .disabled_reason(
 diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-index 4e2fcb6..47be0a3 100644
+index b6614dc..e3540e3 100644
 --- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-@@ -5,6 +5,9 @@ use crate::permission_discovery::PermissionDiscovery;
- use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
+@@ -6,6 +6,9 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
+ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 
  pub(super) fn permission_preset_description(preset: &ApprovalPreset) -> &'static str {
 +    if crate::termux_permissions::enabled() && preset.id == "auto" {
@@ -814,7 +1003,7 @@ index 4e2fcb6..47be0a3 100644
      match preset.id {
          "read-only" => "Read workspace files, with approval required for edits or internet access",
          "auto" => {
-@@ -77,20 +80,25 @@ impl ChatWidget {
+@@ -173,20 +176,29 @@ impl ChatWidget {
          let mut items = vec![self.builtin_permission_mode_selection_item(
              &discovery,
              default,
@@ -827,29 +1016,32 @@ index 4e2fcb6..47be0a3 100644
          if self.config.features.enabled(Feature::GuardianApproval) {
 -            items.push(self.builtin_permission_mode_selection_item(
 -                &discovery,
--                default,
++            let reviewed = crate::termux_permissions::auto_review_preset(
+                 default,
 -                ":workspace",
 -                AUTO_REVIEW_DESCRIPTION.to_string(),
 -                AskForApproval::OnRequest,
 -                ApprovalsReviewer::AutoReview,
 -            ));
++                crate::termux_permissions::enabled(),
++            );
 +            items.push(
 +                self.builtin_permission_mode_selection_item(
 +                    &discovery,
-+                    default,
++                    &reviewed,
 +                    &default.active_permission_profile.id,
 +                    crate::termux_permissions::review_description(
 +                        crate::termux_permissions::enabled(),
 +                    )
 +                    .to_string(),
-+                    AskForApproval::OnRequest,
++                    AskForApproval::from(reviewed.approval),
 +                    ApprovalsReviewer::AutoReview,
 +                ),
 +            );
          }
          items.push(self.builtin_permission_mode_selection_item(
              &discovery,
-@@ -100,14 +108,16 @@ impl ChatWidget {
+@@ -196,14 +208,16 @@ impl ChatWidget {
              AskForApproval::from(full_access.approval),
              ApprovalsReviewer::User,
          ));
@@ -875,10 +1067,10 @@ index 4e2fcb6..47be0a3 100644
              discovery
                  .profiles
 diff --git a/codex-rs/tui/src/chatwidget/rate_limits.rs b/codex-rs/tui/src/chatwidget/rate_limits.rs
-index 0e48527..3b7f7d7 100644
+index 0e48527..2c03b07 100644
 --- a/codex-rs/tui/src/chatwidget/rate_limits.rs
 +++ b/codex-rs/tui/src/chatwidget/rate_limits.rs
-@@ -641,6 +641,28 @@ impl ChatWidget {
+@@ -641,6 +641,29 @@ impl ChatWidget {
          self.request_redraw();
      }
 
@@ -888,7 +1080,8 @@ index 0e48527..3b7f7d7 100644
 +        mut params: crate::bottom_pane::SelectionViewParams,
 +    ) -> bool {
 +        params.initial_selected_idx = self.bottom_pane.selected_index_for_active_view(view_id);
-+        params.initial_tab_id = self.bottom_pane
++        params.initial_tab_id = self
++            .bottom_pane
 +            .active_tab_id_for_active_view(view_id)
 +            .map(str::to_owned);
 +
@@ -908,10 +1101,10 @@ index 0e48527..3b7f7d7 100644
          self.local_settings.notices.hide_rate_limit_model_nudge = Some(hidden);
          if hidden {
 diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
-index ac9b5c8..ebdcad9 100644
+index 3e9e3db..476c91a 100644
 --- a/codex-rs/tui/src/chatwidget/session_model_selection.rs
 +++ b/codex-rs/tui/src/chatwidget/session_model_selection.rs
-@@ -47,6 +47,12 @@ impl ChatWidget {
+@@ -55,6 +55,12 @@ impl ChatWidget {
          model: String,
          effort: Option<ReasoningEffortConfig>,
      ) -> Option<SelectionSecondaryAction> {
@@ -925,7 +1118,7 @@ index ac9b5c8..ebdcad9 100644
          if model == LUNA_RESERVE_MODEL {
              return None;
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 5327f80..99e589c 100644
+index e9ea6e4..0ce09bd 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 @@ -309,6 +309,10 @@ impl ChatWidget {
@@ -939,7 +1132,7 @@ index 5327f80..99e589c 100644
              SlashCommand::Fork => {
                  self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
              }
-@@ -1340,6 +1344,8 @@ impl ChatWidget {
+@@ -1363,6 +1367,8 @@ impl ChatWidget {
              | SlashCommand::Theme
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
@@ -949,10 +1142,10 @@ index 5327f80..99e589c 100644
      }
 
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 8534d75..c866eeb 100644
+index 1cc51a1..6e57f48 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -297,6 +297,9 @@ mod status_command_tests;
+@@ -301,6 +301,9 @@ mod status_surface_command_tests;
  mod status_surface_previews;
  #[path = "tests/subagent_activity_tests.rs"]
  mod subagent_activity;
@@ -978,10 +1171,10 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index a3fb544..d1829e4 100644
+index 147ff23..95b80be 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
-@@ -138,7 +138,11 @@ mod experimental_features;
+@@ -139,7 +139,11 @@ mod experimental_features;
  mod markdown_copy;
  mod permission_discovery;
  mod pets;
@@ -993,8 +1186,8 @@ index a3fb544..d1829e4 100644
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
-@@ -232,6 +236,10 @@ mod terminal_palette;
- mod terminal_probe;
+@@ -234,6 +238,10 @@ mod terminal_probe;
+ mod terminal_size_telemetry;
  mod terminal_title;
  mod terminal_visualization_instructions;
 +#[cfg(unix)]
@@ -1004,7 +1197,7 @@ index a3fb544..d1829e4 100644
  mod text_formatting;
  mod text_selection;
  mod theme_picker;
-@@ -572,6 +580,8 @@ async fn start_app_server(
+@@ -589,6 +597,8 @@ async fn start_app_server(
      environment_manager: Arc<EnvironmentManager>,
      embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
  ) -> color_eyre::Result<AppServerClient> {
@@ -1013,16 +1206,16 @@ index a3fb544..d1829e4 100644
      let connection = if matches!(target, AppServerTarget::Embedded) {
          None
      } else {
-@@ -1042,7 +1052,7 @@ fn app_server_target_for_launch(
-         return Ok(AppServerTarget::Embedded);
-     }
-     Ok(match explicit_remote_endpoint {
+@@ -1086,7 +1096,7 @@ fn app_server_target_for_launch(
+                 allow_embedded_fallback: false,
+             }
+         }
 -        Some(endpoint) => AppServerTarget::Remote { endpoint },
 +        Some(endpoint) => profile_transport::target(endpoint, termux_permissions::enabled()),
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1104,18 +1114,34 @@ pub async fn run_main(
+@@ -1148,18 +1158,34 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -1082,10 +1275,10 @@ index effb98e..0eb41c3 100644
  use std::time::Duration;
  use uuid::Uuid;
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index afb372b..d10859a 100644
+index dfd0538..7557d9c 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
-@@ -33,6 +33,8 @@ pub enum SlashCommand {
+@@ -34,6 +34,8 @@ pub enum SlashCommand {
      Archive,
      Delete,
      Resume,
@@ -1094,7 +1287,7 @@ index afb372b..d10859a 100644
      Fork,
      Worktree,
      App,
-@@ -100,6 +102,8 @@ impl SlashCommand {
+@@ -101,6 +103,8 @@ impl SlashCommand {
              SlashCommand::Review => "review my current changes and find issues",
              SlashCommand::Rename => "rename the current thread",
              SlashCommand::Resume => "resume a saved chat",
@@ -1103,7 +1296,7 @@ index afb372b..d10859a 100644
              SlashCommand::Archive => "archive this session",
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
-@@ -195,6 +199,10 @@ impl SlashCommand {
+@@ -201,6 +205,10 @@ impl SlashCommand {
 
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
@@ -1114,7 +1307,7 @@ index afb372b..d10859a 100644
          matches!(
              self,
              SlashCommand::Copy
-@@ -220,6 +228,10 @@ impl SlashCommand {
+@@ -226,6 +234,10 @@ impl SlashCommand {
 
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
@@ -1125,7 +1318,7 @@ index afb372b..d10859a 100644
          matches!(
              self,
              SlashCommand::New
-@@ -242,6 +254,8 @@ impl SlashCommand {
+@@ -248,6 +260,8 @@ impl SlashCommand {
      /// Whether this command can be run while a task is in progress.
      pub fn available_during_task(self) -> bool {
          match self {
@@ -1135,10 +1328,10 @@ index afb372b..d10859a 100644
              | SlashCommand::Delete
              | SlashCommand::Fork
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index c29d464..31eb94b 100644
+index d3fde72..169d862 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
-@@ -505,7 +505,10 @@ pub(super) async fn run_main_inner(
+@@ -545,7 +545,10 @@ pub(super) async fn run_main_inner(
      } else {
          None
      };
@@ -1147,10 +1340,10 @@ index c29d464..31eb94b 100644
 +        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
 +    let auto_start_daemon = !core_owned
 +        && config.features.enabled(Feature::DaemonAutoStart)
+         && implicit_connection
          && !cli.agents_overview
          && !cli.no_daemon
-         && !app_server_target.uses_remote_workspace();
-@@ -577,7 +580,7 @@ pub(super) async fn run_main_inner(
+@@ -617,7 +620,7 @@ pub(super) async fn run_main_inner(
          }
      }
      // The overview must inspect the shared server's agents regardless of local settings.

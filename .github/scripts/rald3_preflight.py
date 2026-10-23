@@ -212,7 +212,8 @@ def parse_descriptor(path: Path) -> dict[str, str]:
         fail("generation descriptor platform binding is invalid")
     policy = result["patch_policy_id"]
     versions = {"termux-fd-remap-v2": "0.160.0", "termux-fd-remap-v3": "0.160.0",
-                "termux-fd-remap-v4": "0.161.0", "termux-fd-remap-v5": "0.163.0"}
+                "termux-fd-remap-v4": "0.161.0", "termux-fd-remap-v5": "0.163.0",
+                "termux-fd-remap-v6": "0.164.0"}
     if policy not in {"termux-fd-remap-v1", *versions} or result["qualification"] != "qualified":
         fail("generation descriptor qualification binding is invalid")
     version = result["upstream_package_version"]
@@ -221,6 +222,7 @@ def parse_descriptor(path: Path) -> dict[str, str]:
     archives = {
         "termux-fd-remap-v4": "3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8",
         "termux-fd-remap-v5": "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb",
+        "termux-fd-remap-v6": "5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5",
     }
     if policy in archives and result["source_artifact_digest"] != archives[policy]:
         fail("generation descriptor policy archive binding is invalid")

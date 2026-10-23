@@ -4240,16 +4240,19 @@ fi
             runtime_patch::POLICY,
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
+            "termux-fd-remap-v6",
             "unknown",
         ] {
             for version in [
                 "0.159.2", "0.160.0", "0.160.1", "0.161.0", "0.161.1", "0.163.0", "0.163.1",
+                "0.164.0", "0.164.1",
             ] {
                 let expected = (id == PATCH_POLICY_ID && ["0.159.2", "0.160.0"].contains(&version))
                     || ([runtime_patch::PREVIOUS_POLICY, runtime_patch::POLICY].contains(&id)
                         && version == "0.160.0")
                     || (id == "termux-fd-remap-v4" && version == "0.161.0")
-                    || (id == "termux-fd-remap-v5" && version == "0.163.0");
+                    || (id == "termux-fd-remap-v5" && version == "0.163.0")
+                    || (id == "termux-fd-remap-v6" && version == "0.164.0");
                 assert_eq!(
                     runtime_patch::supports_version(id, version),
                     expected,
@@ -4261,6 +4264,7 @@ fi
             runtime_patch::POLICY,
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
+            "termux-fd-remap-v6",
         ] {
             let policy = runtime_patch::policy(id).unwrap();
             let archive = policy.archive_sha256.unwrap_or(&digest);
@@ -4276,6 +4280,7 @@ fi
                 runtime_patch::POLICY,
                 "termux-fd-remap-v4",
                 "termux-fd-remap-v5",
+                "termux-fd-remap-v6",
                 "unknown",
             ] {
                 if other != id {

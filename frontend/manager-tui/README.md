@@ -1,7 +1,7 @@
 # TUI
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
-/switch to exact official0.163.0 source83086188ae0614bd882818ff1aa23f3194962012;
+/switch to exact official0.164.0 source6aaac694803004a63c6f393d153c96d22521a6b9;
 upstream retains every existing command and owns conversation UI/title composition.
 Manager owns execution profiles and foreground identity. TUI is a separate
 optional upstream-based frontend, not Manager's private screen. The retained
@@ -10,8 +10,12 @@ source or installed baseline. CURRENT records those independently. Every new pai
 must pass exact native/device gates before publication. Official runtime remains
 the sole execution backend.
 
-`native.patch` contains integration changes to existing upstream files. The
-maintained TUI implementation is ordinary source under `src/`, including
+`native.patch` contains integration changes to existing upstream files. Exact
+backend configuration guards and reviewer routing restore Untrusted automatic
+review only when an absolute Core binding is present. The strict
+`check_backend_boundary.py` rejects all other backend changes. Native command
+classification, review decisions and managed constraints retain upstream behavior.
+The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable
 pristine checkout; it preflights collisions and patch applicability before writing.

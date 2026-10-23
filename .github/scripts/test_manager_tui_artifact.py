@@ -44,7 +44,7 @@ class NativeArtifactTests(unittest.TestCase):
         digest = hashlib.sha256(raw).hexdigest()
         (artifact / "codex").write_bytes(raw)
         (artifact / "codex").chmod(0o755)
-        (artifact / "version.txt").write_text("codex-cli 0.163.0\n")
+        (artifact / "version.txt").write_text("codex-cli " + qualifier.VERSION + "\n")
         (artifact / "help.txt").write_text("owned help\n")
         (artifact / "source.txt").write_text(
             f"upstream_sha={qualifier.UPSTREAM}\nsource_sha={sha}\n"
@@ -72,7 +72,7 @@ class NativeArtifactTests(unittest.TestCase):
         run_file.write_text(json.dumps(run))
         return source, artifact, proof, sha, digest, run, run_file
 
-    def invoke(self, fixture, version="0.163.0", digest=None):
+    def invoke(self, fixture, version=qualifier.VERSION, digest=None):
         source, artifact, proof, sha, expected, _, run_file = fixture
         return subprocess.run(
             [sys.executable, str(TOOL), "--source", str(source), "--source-sha", sha,

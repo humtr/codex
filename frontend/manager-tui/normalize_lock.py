@@ -12,7 +12,7 @@ import tomllib
 def normalize(source: Path) -> dict:
     manifest = tomllib.loads((source / 'Cargo.toml').read_text())
     target = manifest['workspace']['package']['version']
-    if target != '0.163.0':
+    if target not in {'0.163.0', '0.164.0'}:
         raise ValueError('unexpected upstream release version')
     for member in manifest['workspace']['members']:
         paths = list(source.glob(member))

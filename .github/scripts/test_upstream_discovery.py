@@ -10,7 +10,8 @@ ROOT=Path(__file__).resolve().parents[2]
 
 class DiscoveryTests(unittest.TestCase):
     def test_new_official_tuple_clears_optional_frontend_without_changing_core_toolchain(self):
-        before=load(ROOT/'release/upstream.json');original=copy.deepcopy(before);calls=[]
+        before=load(ROOT/'release/upstream.json');before['upstream']['version']='0.163.0'
+        original=copy.deepcopy(before);calls=[]
         def resolve(version):calls.append(version);return 'b'*40,'1.96.0'
         result=proposal(before,('0.164.0','a'*64),resolve)
         self.assertEqual(before,original)

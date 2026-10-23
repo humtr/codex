@@ -35,7 +35,13 @@ Existing clients retain their old executable until normal exit; new clients use9
 Separate authorized work remains in progress: native automatic review for
 untrusted commands with Full Access separate; official0.164 qualification; and
 manual update build request/wait/continue UX. Ordinary entry must not request
-a build. Those unfinished changes are not part of the narrow session hotfix.
+a build. The user clarified that automatic review is a common native-model
+capability; ChatGPT-backed inference is a separate compatibility scope. Android
+Base/no-Manager local-model witnesses now pass allow/deny/reviewer-transport
+failure/Full Access with no prompt exec rules; original native main/reviewer
+contexts were audited without replay. The operating selection stays Full97: the
+user wants to invoke the upstream update themselves. These are private candidates,
+not a claim that0.164 has been installed or fully qualified. Those unfinished changes are not part of the narrow session hotfix.
 
 
 The earlier physical-directory empty-session `/model` correction was committed,

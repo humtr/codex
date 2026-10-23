@@ -4,6 +4,7 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemSandboxKind;
+use codex_protocol::protocol::AskForApproval;
 use codex_utils_approval_presets::ApprovalPreset;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -83,10 +84,26 @@ pub(crate) fn auto_profile_id(termux: bool) -> &'static str {
 
 pub(crate) fn review_description(termux: bool) -> &'static str {
     if termux {
-        "Auto-review approval requests without a sandbox."
+        "Auto-review commands not already trusted; no filesystem sandbox."
     } else {
         "Only ask for actions detected as potentially unsafe"
     }
+}
+
+pub(crate) fn auto_approval_policy(termux: bool) -> AskForApproval {
+    if termux {
+        AskForApproval::UnlessTrusted
+    } else {
+        AskForApproval::OnRequest
+    }
+}
+
+pub(crate) fn auto_review_preset(preset: &ApprovalPreset, termux: bool) -> ApprovalPreset {
+    let mut reviewed = preset.clone();
+    if termux && reviewed.id == "auto" {
+        reviewed.approval = auto_approval_policy(true);
+    }
+    reviewed
 }
 
 fn adapt(mut presets: Vec<ApprovalPreset>, termux: bool) -> Vec<ApprovalPreset> {

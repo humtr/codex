@@ -43,7 +43,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
     else:
         installed = generation.resolve(strict=True)
     fields = parse_descriptor(installed / 'generation.meta')
-    assert fields['upstream_package_version'] in ['0.161.0', '0.163.0']
+    assert fields['upstream_package_version'] in ['0.161.0', '0.163.0', '0.164.0']
     # Explicit base fixtures are private signer inputs, not public release admission.
     # The actual Core verifies the resulting signature/inventory before execution.
     if frontend is None:

@@ -158,6 +158,15 @@ an earlier thread or `codex resume THREAD_ID` for a known thread. `codex exec "T
 Core. Full also offers `/switch` for configured accounts. Ordinary configuration
 does not force a model or reasoning effort.
 
+Use `/permissions` to select **Approve for me** for native automatic review of
+commands not already trusted. This is common Codex behavior for ordinary models;
+it does not require the ChatGPT Provider or MCP. **Ask for approval** uses user
+approval, and **Full Access** is a separate mode without automatic review.
+Termux runs these modes without Linux filesystem/network isolation. Existing
+explicit settings are preserved; after upgrading from the old OnRequest/Auto
+pair, select Approve for me again to use the corrected Untrusted/Auto policy.
+ChatGPT-backed model review compatibility is a separate qualification scope.
+
 ### Terminal with Termux Bridge tools
 
 You can also register Provider's `mcp-stdio` wrapper as a local Codex MCP server.
@@ -373,6 +382,16 @@ codex update
 The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
+
+Manual update also checks the official stable version. If its qualified release
+is missing, it requests the repository's build pipeline once and waits for the
+signed result. During the wait, press `c` to enter the installed version or `q`
+to leave the updater; the build request remains recorded. `codex update --no-wait`
+requests/reuses a build and continues immediately on a terminal. `--wait` waits
+explicitly. A missing-build request needs `gh` and repository access (`gh auth
+login`); installing an already prepared public release does not. Ordinary `codex`
+entry uses the installed version without requesting a build. Builds and signing
+run on the server; installation and signature verification run on the device.
 
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
