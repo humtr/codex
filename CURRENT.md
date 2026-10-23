@@ -8,6 +8,31 @@ original private evidence remains under `~/.cache/codex/acceptance`.
 
 ## Current status and next action
 
+Account-independent repair is being qualified; it is not installed yet. Provider
+source5083007 discovers each incoming native thread across verified execution
+homes, derives its actual workspace and reconciles new native turns after an
+account/workspace change. Read-only status can observe the changed owner before
+admission while old controllers remain fenced. A completed-turn/interrupt race
+now verifies actual settlement after a known rejection without retransmission.
+Frontend source62d48cf accepts a fully read systemError with a final failed turn
+as a settled provider-return boundary. Inline `/model` now uses the installed
+picker catalog and the same Core re-entry path, carrying any explicit speed.
+
+Local full acceptance passes369 Rust tests/Clippy (1 existing opt-in ignored);
+Provider passes169 Rust/68 JS tests and Clippy (28 opt-in cases remain ignored).
+The hosted Provider from39979282055 is SHA256
+`95a6f9e476d87d2a42c5082e32468f6ea4612e8cdde5941a76300130d8e1174c`.
+Exact hosted Android composition and signed-package proofs pass84/113 steps.
+Source39979282111 and Core39979282306 accept5083007. Actual two-account/workspace
+continuation, cold Provider/backend replacement and Stop pass before the retained
+old frontend rejects inline native return. A separate first-prompt fault proves
+the failed turn's complete history remains readable with status systemError.
+Native TUI qualification39979983064 owns the final55-test frontend candidate;
+combined existing/fresh failure-return proof, signing/public consumer/promotion
+and device activation remain pending. Preserve original failed/aborted attempts;
+they are not counted as completed combined acceptance.
+Evidence: `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`.
+
 Read-only incident review at2026-10-23T14:23–14:36Z observes device selection
 Full101/source51f3108/upstream0.164.0, previous Full99. This supersedes the earlier
 Full99 device baseline below; this review did not perform activation. The user

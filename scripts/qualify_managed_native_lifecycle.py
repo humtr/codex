@@ -28,6 +28,7 @@ from qualify_provider_operator import TOKEN
 from qualify_provider_d3 import stop_owned_pid
 from qualify_provider_chat_entry import native_work
 from qualification_diagnostics import native_thread_settled, process_fact
+from qualify_tasks import Ws
 
 
 def probe(args):
@@ -153,8 +154,8 @@ def probe(args):
             drain(.8)
 
         def submit(text):
-            drain(.5)
-            os.write(master, text.encode())
+            drain(1)
+            os.write(master, b'\x1b[200~' + text.encode() + b'\x1b[201~')
             drain(.8)
             os.write(master, b'\r')
 
@@ -385,13 +386,71 @@ def probe(args):
             and row['error'] in ['native_delivery_unknown', 'native_thread_owner_unavailable',
                 'native_socket_unavailable'] for row in read_errors), read_errors
         (root / 'final-native.json').write_text(json.dumps(final, indent=2) + '\n')
+        additional_inputs = additional_submissions = 0
+        if args.account_roundtrip:
+            submit('/quit')
+            process.wait(timeout=15)
+            os.close(master)
+            master = None
+            selected_home = account_homes[1]
+            launch()
+            fresh = wait(lambda: native_rpc(home, 'thread/loaded/list', {})['data'])[0]
+            assert fresh != thread
+            matching = []
+            for socket in server_paths(home):
+                connection = Ws(str(socket), uri_path='/rpc')
+                try:
+                    if fresh in connection.call('thread/loaded/list', {'limit':100})['data']:
+                        matching.append(socket.with_name('pid'))
+                finally:
+                    connection.close()
+            assert len(matching) == 1
+            original_pid = matching[0].read_bytes()
+            start_screen = len(screen)
+            try:
+                matching[0].write_text(str(2**32 - 1))
+                submit('OWNED_FRESH_FIRST_PROMPT_EXPECTED_FAILURE')
+                wait(lambda: 'native_thread_owner_unavailable' in screen[start_screen:])
+            finally:
+                matching[0].write_bytes(original_pid)
+            def fresh_failed_readable():
+                state = public(fresh)
+                (root / 'fresh-failed-native.json').write_text(json.dumps(state, indent=2) + '\n')
+                return (len(state['turns']) == 1 and state['turns'][0]['status'] == 'failed'
+                        and state['status']['type'] == 'systemError')
+            wait(fresh_failed_readable)
+            before_return = json.loads((root / 'bridge-commands.json').read_text())
+            assert not any(row['op'] == 'submit' and row.get('nativeThread') == fresh
+                           for row in before_return)
+            submit('/model gpt-6.1-sol')
+            wait(lambda: public(fresh)['modelProvider'] == 'openai')
+            submit('/model chatgpt-desktop/gpt-6 --reasoning=none')
+            wait(lambda: public(fresh)['modelProvider'] == 'chatgpt_desktop')
+            submit('OWNED_FRESH_DISTINCT_PROMPT_AFTER_NATIVE_RETURN')
+            wait(lambda: settled(fresh, 2))
+            current = [row for row in native_work(root) if row['thread'] == fresh]
+            assert len(current) == 1 and current[0]['execution']['home'] == str(selected_home)
+            connection = Ws(str(matching[0].with_name('s')), uri_path='/rpc')
+            try:
+                old = connection.call('thread/read', {'threadId':thread, 'includeTurns':True})['thread']
+                assert old['turns'] == final['turns']
+            finally:
+                connection.close()
+            (root / 'fresh-final-native.json').write_text(json.dumps(public(fresh), indent=2) + '\n')
+            fresh_submissions = [row for row in json.loads((root / 'bridge-commands.json').read_text())
+                                 if row['op'] == 'submit' and row.get('nativeThread') == fresh]
+            assert len(fresh_submissions) == 1
+            additional_inputs, additional_submissions = 2, len(fresh_submissions)
+            result['fresh_first_failure_return'] = True
+            result['fresh_thread_id'] = fresh
+            steps.append('fresh first-prompt failure retains readable history and permits native/Chat return without replay')
         steps.append('a genuinely new TUI turn works after confirmed Stop')
         result.update(accepted=True, thread_id=thread, actual_Android_TUI=True,
-            native_inputs=expected_turns, kernel_confirmed_backend_exits=owners,
+            native_inputs=expected_turns + additional_inputs, kernel_confirmed_backend_exits=owners,
             kernel_confirmed_provider_exit=provider_exit,
             followup_timings=followups, rss_growth_kib=rss_growth,
             original_turn_preserved=True, controller_rotated=True,
-            synthetic_app_submissions=len(submissions), read_only_transition_errors=read_errors, steps=steps)
+            synthetic_app_submissions=len(submissions) + additional_submissions, read_only_transition_errors=read_errors, steps=steps)
     except Exception as error:
         result['failure'] = {'type': type(error).__name__, 'message': str(error)}
         raise
@@ -417,6 +476,7 @@ def probe(args):
         (root / 'terminal.txt').write_text('\n'.join(screens))
         (root / 'observations.json').write_text(json.dumps(observations, indent=2) + '\n')
         result.update(elapsed_seconds=time.monotonic() - started, status_observations=len(observations),
+            driver_sha256=hashlib.file_digest(Path(__file__).open('rb'), 'sha256').hexdigest(),
             input_sha256={name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
                 for name in ['core', 'frontend', 'service_test']})
         args.report.write_text(json.dumps(result, indent=2) + '\n')
