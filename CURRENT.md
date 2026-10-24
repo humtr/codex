@@ -160,52 +160,79 @@ interactive and login shells report TZ=Asia/Seoul and KST/+0900; originals or
 absence records are retained privately. Running processes keep their environment;
 canonical UTC records remain UTC.
 
-## Remote MCP polling: recurrence remains unresolved
+## Remote MCP polling: connection recovery correction activated
 
 The reported saved Chat6add1a09-b21c-83ec-9c38-ed5ae0cad0ff called
-`native_catalog` at2026-10-25 KST05:50:28 and05:52:32. Its final reports
-`Session terminated`; the saved-source API does not expose the original tool
-error responses. No additional commands reached the local tunnel dispatcher
-during those attempts. This incident precedes native tool execution and differs
-from Provider10's missed recovered-completion defect.
+`native_catalog` at2026-10-25 KST05:50:28 and05:52:32, after its last successful
+poll at05:46:11 and repeated pre-header timeouts from05:46:46. The prompt was
+submitted at05:50:18. No new command reached the local dispatcher during the
+reported tool attempts. Local MCP still returned17 tools. The first physical
+network interruption and the failed historical socket's ALPN/reuse were not
+captured; temporal correlation alone does not prove their precise cause.
 
-Provider12, its local MCP child and the tunnel process remained alive. An
-independent local stdio initialize/list returns17 tools, including project
-selection. The tunnel's last pre-incident successful poll was KST05:46:11;
-from05:46:46 it repeatedly failed to receive response headers within its existing
-35-second deadline. Authenticated tunnel metadata independently returns HTTP200.
-This narrows the observed failure to remote control-plane polling; it does not
-establish whether the initiating fault is in the client, network or server.
+Responsibility/data flow: the external OpenAI tunnel-client owns control-plane
+HTTP connections; Provider still owns MCP/native work. On the actual Android
+runtime's HTTP/2 path, a silent loss of the established TCP connection left
+later polls reusing that connection across request deadlines. Request cancellation
+retired a stream without detecting the stranded physical connection. A real TLS/
+HTTP2 fault test through NewTunnelServiceClient reproduces that recovery defect:
+only the established connection discards traffic, while the same listener remains
+reachable on a fresh connection. Original code fails two request deadlines; the
+corrected transport recovers. This confirms the reachable recovery defect, not
+an unobserved historical packet-loss mechanism or every possible server outage.
 
-The installed tunnel-client0.0.14 readiness and `health
---require-control-plane-poll` remain green on an old successful poll: the latter
-checks timestamp>0, not freshness. Treating those results as current remote
-readiness was insufficient. README now requires advancing poll evidence and an
-actual remote request; the external runtime's behavior is unchanged.
+The maintained dependency source is `~/prj/tunnel-client`, branch
+`fix/http2-poll-liveness`, commitbb78162ebfdf81e9984e0c469f58c8d552f35180,
+based on the previously installed0.0.14 source0f870e5. Its control-plane HTTP/2
+configuration probes an idle connection after half the configured poll wait and
+closes an unanswered PING within the existing deadline guardrail. Defaults are
+15s plus5s. Existing HTTP/2 settings are retained. There is no new retry route,
+model replay, remote tunnel, timeout extension or Provider/Core source change.
+The same regression fails when a disposable Go overlay removes the correction;
+a healthy long-poll test also passes. All affected control-plane, MCP client,
+transport and runtime-health package groups pass. Native Android `/tmp` fixture
+failures remain in the original log; the unchanged Unix-socket tests pass with
+only their test processes using a PRoot binding of TMPDIR to `/tmp`. The TLS/
+HTTP2 regression itself runs directly on Android. Independent-agent/GPT Pro
+review was not performed; the production diff and caller flow were reviewed locally.
 
-After preserving logs and observing zero queued commands with both received
-commands already answered, only the runit tunnel was reconnected. Fresh polls
-succeeded, then timed out again. A new bounded managed work subsequently completed
-one actual Chat→remote MCP→native file read→Chat answer with the original random
-file value, one successful native command, unchanged workspace and both Stops
-confirmed. The same Provider process and19 registered native owners survive.
-The reported user's request was not replayed. This is successful fresh
-traffic, not a permanent recurrence fix or proof that the older client session
-has recovered. No Provider/Core source or signed package changed for this incident.
+The qualified Android image is selected only by this Bridge service's existing
+TUNNEL_CLIENT_BIN configuration, under
+`~/.local/lib/codex/transport/tunnel-client/generations/bb78162ebfdf81e9984e0c469f58c8d552f35180/`.
+This is a local dependency correction, not a new signed Core/Provider/public
+release. The original global executable and the other Tdev tunnel images remain
+unchanged. Sole tunnel ownership, fresh advancing polls, unchanged Provider owner
+and all25 pre-activation registered native owners are observed. The only service
+configuration change is that executable reference. Old failed records are retained.
 
-Original negative QA is retained: the reused TUI observer found no owned metadata
-before its deadline and submitted0 primary prompts; a separate noninteractive
-exec attempt failed with `native_thread_owner_unavailable`. Neither is accepted
-remote proof. The latter entrypoint remains a separate investigation boundary.
-An unregistered runtime PID26224 disappeared across reconnect; its purpose and
-exit cause were not observed, and it was absent from the19-owner preservation
-snapshot. No all-runtime-process-survival claim is made.
+The exact original prompt, `Project: Chatgpt 작성하고 prj/codex 전수조사해.`,
+was exercised through the original szob Codex TUI, Core Full112/source5d2204a6,
+`prj/codex`, ChatGPT gpt-6/xhigh. One baseline request completed30 native commands,
+created/selected one private Chatgpt project and returned its saved final. After
+activation, one further original-prompt request completed21 native commands and
+its final; the existing project was reused, its history policy retained and the
+new saved conversation's exact project ID verified. Both own native/host Stops
+confirm zero jobs. No poll error occurred during the accepted fixed-runtime proof.
+The failed initial post-fix driver submitted0 prompts because model selection was
+not confirmed; it is retained separately and is not accepted transport evidence.
+Manual TUI selection then confirmed the requested model before the sole prompt.
 
-Evidence: `~/.cache/codex/acceptance/mcp-session-incident-20261025/diagnosis.json`,
-original private saved-source/log snapshots, before/after metrics, failed QA
-records and the successful managed work's original native result/Stop. The
-polling root cause and a durable recurrence correction remain open; do not
-republish the unchanged Provider or relabel reconnect as their resolution.
+The original tunnel health flag still means "a poll succeeded once", not current
+freshness. Its documented limitation remains; acceptance checks advancing poll
+metrics and real remote requests. A separate baseline finding is retained: its
+saved final has4460 characters, its Provider public final has2584 raw characters,
+and the native final item has2565 characters and starts at section5. The fixed-transport repeat also has4497 saved characters but only1413 in its
+native final item. Full saved/native text equivalence is not claimed. Investigation
+has identified MCP public-item reuse across virtual rounds; its Provider correction
+and delivery remain in progress. No synthetic model result replaces the original.
+
+Evidence: `~/.cache/codex/acceptance/mcp-root-cause-20261025/`, including
+`final-device-proof.json`, `halfopen-{original-test,fixed-test,mutation}.log`,
+accepted package logs, exact baseline/manual TUI plans, canonical native records,
+original saved finals and Stop results. Earlier negative observers and the
+original incident evidence remain in `mcp-session-incident-20261025/`. Reread
+AGENTS.md before a resumed review/edit; preserve both repositories' current diffs,
+unknown repository target, credentials, original conversations and running jobs.
 
 ## Reasoning-effort incident and redo boundary
 
@@ -378,7 +405,9 @@ claim that newly added code is established architecture.
 Signed Provider12 `chatgpt-5d2204a6c664-s12`, source5d2204a6, is fully publicly
 read back, Android-consumed, activated and stable-promoted; Provider11 is rollback.
 The project/recovery section above owns its proof and remaining cause boundary.
-Core remains Full107; its native runtime/frontend are unchanged by this repair.
+Current readback selects Core Full112/source5d2204a6, previous Full107. The
+transport correction did not change that selection; the exact-user-path section
+above owns its current proof.
 
 Current device readback proves the admitted12 service/stdio images, same logged-in
 app identity/readiness,17 authenticated MCP tools,19 registered native owners and
@@ -479,10 +508,10 @@ prune user state, the unknown target or operating current/rollback generations.
 | Plane | Verified state |
 | --- | --- |
 | Implementation | Provider12 verified project selection and stream-bound recovered submission completion, with portable IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
-| Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
+| Operating Core | Current signed Full112/source5d2204a6, previous Full107, upstream0.164.0; original user TUI and fixed-transport proof use Full112 |
 | Public/selected Provider | Sequence12/source5d2204a6, previous11, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
-| MCP | Local17-tool inventory and fresh remote native read accepted; recurrent control-plane poll timeouts remain unresolved as described above. Additional workspace registration still needs its administrator credential and matching Linux app login |
+| MCP | Local17-tool inventory and the original TUI/project/audit request pass; HTTP/2 stranded-connection recovery corrected in the scoped local tunnel-client buildbb78162. First physical interruption remains unestablished; separate native-final text boundary retained above |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
 | Retained dependencies | Immutable c3642b19a87cdace158f JS/Bun/Python installation, rootfs, optional noVNC, current/rollback payloads and original proofs remain |
 

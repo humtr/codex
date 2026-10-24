@@ -352,7 +352,10 @@ This device's private `~/.local/state/codex/providers/chatgpt/runit/environment`
 holds the executable paths, state and tunnel profile. Service/MCP wrappers read
 that common file; Provider configuration selects the native execution home and
 workspace. Interactive account switches do not retarget the services. The tunnel
-must use an Android-compatible runtime; this device selects native0.0.14. The
+must use an Android-compatible runtime. This device selects a scoped native
+0.0.14 build from `~/prj/tunnel-client`, commit `bb78162`, which adds HTTP/2
+connection health checks for silent connection loss. The existing global image
+and other tunnel services retain their own selections. The
 immutable Provider observer path must be rebound during deliberate package/service
 maintenance after pending work has settled.
 
