@@ -653,6 +653,12 @@ mod reply_tests {
             let listener =
                 tokio::net::UnixListener::bind(root.join("socket-path").read_link().unwrap())
                     .unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                root.join("socket-path").read_link().unwrap(),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
             std::fs::write(root.join("ready"), b"ready").unwrap();
             for connection in 0..2 {
                 let (stream, _) = listener.accept().await.unwrap();
