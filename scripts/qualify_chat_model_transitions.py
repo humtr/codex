@@ -361,7 +361,6 @@ def probe(args):
         assert all(v['id'] == thread for v in [public(thread)])
         queue_proof = None
         if args.queue:
-            (root / 'owned-fixture').write_text('owned queue qualification; no real account\n')
             subprocess.run([str(args.provider), 'config', 'set',
                 'execution.mode', 'operator', 'execution.core', str(prefix / 'bin/codex'),
                 'execution.home', env['CODEX_HOME'], 'execution.workspace', str(root / 'w')],

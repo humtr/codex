@@ -109,6 +109,7 @@ authentication wrapper, closed-client reuse, conversation-ID-only ownership and
 the redundant immediate completion RPC. The transition proof now uses the actual
 supplied Provider executable instead of a synthetic queue service; its warm-resume
 observer checks the actual resumed UUID in the re-entered frontend process.
+The obsolete synthetic fixture marker has no remaining consumer and is removed.
 Retained adapters cross actual Core/app/stdio/native process boundaries. No
 temporary product path or removal condition remains.
 
@@ -146,12 +147,14 @@ delivery remain distinct observations.
 
 Local Provider/Python/Rust gates and direct affected-flow review pass. Hosted
 Source40069962639, Core40070000629 and Provider/Android40069962667 pass foraeaefa7.
-Source fault mutations detect chronological first-wins declarations, missing
+Exact-bound Source40073657638 and Core40073658822 also pass. Source fault
+mutations detect chronological first-wins declarations, missing
 completion observation with zero status polls, stale startup stdio binding,
 closed native cache, conversation-ID hook capture and app acquisition during an
 absent-owner release. Disposable mutations were restored. Native40069297349
-passes build,55 focused tests and saved-catalog mutation; retained upstream/lint
-qualification is still running. Iron Laws, independent-agent and GPT Pro reviews
+passes build,55 focused tests, saved-catalog mutation,94 retained upstream tests
+and lint. `native-admission.json` verifies its source/recipe/artifact and retained
+proof. Iron Laws, independent-agent and GPT Pro reviews
 were not performed: none is installed as a gate, direct execution is requested
 and no Pro facility is provisioned.
 
@@ -194,15 +197,20 @@ holder had zero loaded threads and zero child processes. Its metadata was saved
 before PID-bound graceful shutdown and kernel exit confirmation, then a fresh
 exclusive-lease check preceded activation. `host stop` separately refused
 `host_active_work`; that guard was not bypassed. Inherited package leases remain
-the documented maintenance boundary; no live/unknown native owner was killed.
+the documented maintenance boundary; no active native work or unverified owner
+was stopped.
 
-Core Full106/source72b6ad4/upstream0.164 remains selected pending admission and
-signed delivery of frontendc55a5c9. Full102 remains rollback. Native40069297349 is
-running; its raw artifact already passes Android warm-resume and exact queue/cold
-proof. A raw candidate is not device activation. Next: finish native admission,
-the existing signed Full publication/public consumer path, then bounded Core
-activation without stopping existing user clients/jobs. Installed selection and
-already-running pinned executables must be reported separately.
+Signed Core Full107 `local-relay-hosted-0-164-0-deaf199f7667-s107`, sourcedeaf199,
+upstream0.164, is published, fully publicly read back, disposable-update qualified,
+stable-promoted and activated. Full106 is rollback. Publication40073946157 passes
+the existing exact-source build/Android smoke/signing/readback/consumer/CAS path.
+The separate actual-device public consumer also passes; its installed frontend
+equals the admitted c55a5c9 bytes with only the existing54 Termux substitutions.
+Core remains byte-identical to Full106; the frontend is replaced. Device activation
+preserves15 protected files, all three Provider service PIDs and27 pre-existing
+native processes, with zero observed exits. No user client/job was stopped.
+Existing clients still run their pinned executables; a newly opened frontend
+uses107. Installed selection is not a hot swap of an already-open TUI.
 
 Account/workspace IDs, installation and tunnel choices belong to config/runtime
 discovery. No production account/plugin-ID whitelist was introduced. App identity
@@ -225,19 +233,56 @@ establish a changed boundary's acceptance. Installed Provider9 additionally
 completes one actual logged-in-app first prompt from an isolated execution home,
 returning the exact marker through installed Full106. The empty workspace and
 inert native auth remain unchanged; its own work Stop and backend kernel exit
-are confirmed. This is one real Chat request, not a new-frontend resume proof;
-see `redo-high/live-fresh-provider9/live-first-prompt-result.json`.
+are confirmed. Installed Full107 then passes ordinary cold resume without profile,
+model or catalog flags and in-app warm resume from a different native thread,
+with two distinct real Chat prompts. The same UUID retains all3 canonical turns,
+each recorded Chat effort is none, native return preserves them and the workspace
+stays empty. Managed completed is observed through list before any Provider status
+poll. Own Stop and backend kernel exits are confirmed. Key records are
+`redo-high/live-fresh-provider9/live-first-prompt-result.json`,
+`live-full-resume/{result,saved-read-proof}.json`, `full-consumer-proof.json`
+and `full-device-proof.json`.
+
+Saved-source observation distinguishes explicit Stop from ordinary completion.
+The first proof explicitly stopped its owned work before cold resume. The existing
+`Phase::Stopped` contract starts a successor Chat for a new native input and keeps
+the old source in `previous_chats`; both are positively read back. The two107
+cold/warm finals are in the same current Chat; the first fresh final is in its
+intact predecessor. The initial observer wrongly expected all3 finals in one Chat;
+its mismatch and corrected boundary are retained. No prefix guard was bypassed
+or native history replaced.
+
+The additional actual native-only cold-loss proof passes without intervening work
+Stop or Provider restart. It confirms completed work and an idle settled app lane,
+closes only the owned TUI/idle backend, then plainly resumes the saved Chat and
+submits one distinct next prompt. Work ID, native UUID and saved conversation ID
+all remain identical. Both assistant finals are read from that same Chat; all5
+canonical turns survive, native return preserves them and only the final cleanup
+stops its owned work. All5 real Chat requests completed; no request was replayed.
+`live-uninterrupted-cold-2/result.json` records this boundary. The first attempt
+submitted0 model prompts: its read observer crossed the re-entry socket rename.
+That original failure is retained; only read observation retries the demonstrated
+socket replacement, without broader error swallowing or a longer timeout.
+
+Remaining boundaries: physical live display in a simultaneous second ChatGPT
+client and the original remote `Session terminated` cause are unverified. Local
+stdio replacement, saved Chat persistence and native completion do not establish
+those external client observations. No further source/runtime repair is pending
+for the qualified boundaries above. The existing inherited-package-lease
+maintenance requirement and workspace-scoped Secure MCP prerequisites remain.
 Unknown `providers/chatgpt/target/` is preserved.
 Reusable compiler caches remain below15GiB; manifest-matched inactive fixture
 payloads are archived with restore records, retaining native records/source.
+This completion batch reclaims2,722,209,792 allocated fixture bytes; it does not
+prune user state, the unknown target or operating current/rollback generations.
 
 
 ## Operating baseline
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Provider9 continuity/queue repair activated; cold/warm saved-Chat frontendc55a5c9 admission running |
-| Operating Core | Signed Full106/source72b6ad4, previous Full102, upstream0.164.0; existing clients retain their pinned executables |
+| Implementation | Provider9 continuity/queue repair and cold/warm saved-Chat frontendc55a5c9 qualified, published and activated |
+| Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
 | Public/selected Provider | Sequence9/sourceaeaefa7, previous8, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
 | MCP | Authenticated local16-tool inventory accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
