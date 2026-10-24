@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import urllib.parse
 import termios
 
 from qualify_permission_lifecycle import fixture, rpc, server_paths
@@ -293,7 +294,12 @@ def probe(args):
             choose_other_provider()
             wait(lambda: any(public(value)['modelProvider'] == 'openai' for value in loaded() if value != thread))
             submit('/resume ' + thread)
-            wait(lambda: thread in loaded() and public(thread)['modelProvider'] == 'chatgpt_desktop')
+            def resumed_target():
+                args = Path(f'/proc/{process.pid}/cmdline').read_bytes().split(b'\0')
+                targeted = any(args[index:index + 2] == [b'resume', thread.encode()]
+                               for index in range(len(args) - 1))
+                return targeted and thread in loaded() and public(thread)['modelProvider'] == 'chatgpt_desktop'
+            wait(resumed_target)
             assert public(thread)['turns'] == saved_chat['turns'], 'warm resume changed prior turns'
             submit('OWNED_WARM_CROSS_PROVIDER_RESUME')
             wait(lambda: len(requests) == 3 and public(thread)['status']['type'] == 'idle')
@@ -354,28 +360,34 @@ def probe(args):
         assert final['approvalPolicy'] == 'never' and final['approvalsReviewer'] == 'user'
         assert all(v['id'] == thread for v in [public(thread)])
         queue_proof = None
-        if args.queue_service_test is not None:
-            from qualify_provider_operator import TOKEN
+        if args.queue:
             (root / 'owned-fixture').write_text('owned queue qualification; no real account\n')
-            # The transition profile is a private fixture input, not a Provider
-            # generated output. Preserve it before explicit fixture preparation.
-            (home / '.codex/chatgpt.config.toml').rename(root / 'transition-profile-before-queue.toml')
-            env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
+            subprocess.run([str(args.provider), 'config', 'set',
+                'execution.mode', 'operator', 'execution.core', str(prefix / 'bin/codex'),
+                'execution.home', env['CODEX_HOME'], 'execution.workspace', str(root / 'w')],
+                env=env, cwd=root / 'w', capture_output=True, check=True)
             with (root / 'queue-provider.log').open('wb') as output:
-                queue_service = subprocess.Popen([str(args.queue_service_test), '--ignored', '--exact',
-                    'synthetic_operator_service', '--nocapture'], env=env, cwd=root / 'w',
+                queue_service = subprocess.Popen([str(args.provider), 'serve', '--state',
+                    str(root / 'provider-state')], env=env, cwd=root / 'w',
                     stdout=output, stderr=subprocess.STDOUT)
-            def queue_ready():
+            status = None
+            def ready():
+                nonlocal status
                 assert queue_service.poll() is None, (root / 'queue-provider.log').read_text()
-                return (root / 'provider-ready.json').exists()
-            wait(queue_ready)
-            port = json.loads((root / 'provider-ready.json').read_text())['port']
+                observed = subprocess.run([str(args.provider), 'status', '--state', str(root / 'provider-state')],
+                    env=env, capture_output=True, text=True, timeout=6)
+                status = json.loads(observed.stdout) if observed.returncode == 0 else None
+                return status is not None
+            wait(ready)
+            port = urllib.parse.urlsplit(status['base_url']).port
+            queue_token = subprocess.check_output([str(args.provider), 'token', '--state',
+                str(root / 'provider-state')], env=env, text=True, timeout=6).strip()
 
             def enqueue(arguments):
                 request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
                     data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
                         'params': {'name': 'codex_sessions', 'arguments': arguments}}).encode(),
-                    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN})
+                    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + queue_token})
                 with urllib.request.urlopen(request, timeout=35) as response:
                     row = json.load(response)
                 assert 'error' not in row, row
@@ -479,7 +491,8 @@ def probe(args):
         return report
     finally:
         if queue_service is not None and queue_service.poll() is None:
-            (root / 'stop-provider').touch()
+            subprocess.run([str(args.provider), 'stop', '--state', str(root / 'provider-state')],
+                           env=env, capture_output=True, check=True, timeout=25)
             queue_service.wait(timeout=20)
         if process is not None:
             try:
@@ -525,7 +538,7 @@ if __name__ == '__main__':
     core.add_argument('--build-core',action='store_true',help='Build this checkout Core into XDG cache before qualification')
     for name in ['frontend', 'provider', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument('--queue-service-test', type=Path, help='armed actual Operator fixture for native-model queue proof')
+    parser.add_argument('--queue', action='store_true', help='run the supplied exact Provider executable for warm and unloaded native queue proof')
     parser.add_argument('--without-manager', action='store_true')
     scenario = parser.add_mutually_exclusive_group()
     scenario.add_argument('--empty-roundtrip', action='store_true',

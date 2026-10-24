@@ -72,368 +72,173 @@ Evidence: `~/.cache/codex/acceptance/bridge-incident-20261024/redo-high/` contai
 `effort-keymap-{application,reversion}.json`. The earlier13-file unshipped continuity candidate
 was preserved as `superseded-candidate.patch`/`superseded-source` and reverted to
 HEAD for the requested redo; none of its checks admits it as the final repair.
-The broader continuity repairs below remain open; this investigation does not
-claim their deployment or runtime replacement.
+The continuity repairs and their actual delivery boundaries are recorded below;
+the shortcut investigation does not itself qualify those repairs.
 
-## Open bidirectional-continuity findings
+## Bidirectional continuity: repair and qualification
 
-The installed Full106/Provider8 acceptance below covers its recorded scenarios;
-it does not establish ordinary cold resume while already using Chat, automatic
-Chat-to-native follow-up, or live display in a second ChatGPT client. The user's
-reported failures expose remaining defects. Source repair is in progress;
-installed selection, account login and existing user work remain unchanged.
+Responsibility/data flow: Core owns canonical turns, settings and native execution;
+the frontend restores saved model metadata before backend startup and preserves
+saved settings across in-app resume. Provider owns the effective tool catalog,
+work/controller reconciliation and its positively identified app stream. The
+existing upstream native queue owns deferred user messages. There is no second
+scheduler, transcript or execution route.
 
-Responsibility/data flow: native Core owns canonical turns and execution; the
-frontend must restore the selected model's Provider route and metadata together.
-Provider owns effective tool declarations, work/controller reconciliation and
-the app stream. A saved Chat read proves persistence, not another client's live
-display or acquisition of the same native controller.
+The requested redo replaced the superseded candidate. Current Provider source is
+aeaefa7; frontend source is c55a5c9, whose recipe is unchanged by the later Provider
+fixes. Behavior changes repair resume, declaration updates, completion observation,
+hook ownership, transport recovery and queue admission; these are not described
+as behavior-preserving refactoring.
 
-- **Cold Chat resume loses model metadata.** Original work8437349b / native
-  thread01a16ae9 initially used a catalog-backed server in janmori101; its failed
-  resume used a general server in wrlab. `add_installed_provider` restores only
-  the Provider definition, whereas explicit model entry also supplies
-  `model_catalog_json`. An isolated installed-Core replay of the original two
-  completed turns reproduces this boundary: with the generated Chat catalog,
-  the first47 canonical items exactly match the stored Provider prefix. Without
-  it, the same model ID gets a different first developer instruction
-  (184 versus21,546 characters), invalidating that prefix. This explains the
-  reported `native_context_prefix_changed` without corruption of the saved turns.
-  The native models manager owns its catalog at backend startup: adding a
-  thread-scoped path alone is insufficient. The current source resolves saved
-  Chat metadata in the existing startup/reconnection path before attachment;
-  explicit catalogs and model/effort choices remain authoritative. Sourceedd8151
-  builds and its55 focused native regressions pass. An actual Android isolated
-  same-thread native→Chat→cold Chat resume→native run passes without Manager,
-  using4 local synthetic Responses requests and0 real Chat requests. Both saved
-  history and saved effort survive plain resume without model/catalog overrides.
-  The native mutation correctly fails with Ok(false) versus Ok(true), but run
-  40062934666's observer incorrectly expected plural `1 tests`; that observer was
-  corrected and exact-source full native qualification is running again.
-  The prefix guard remains intact; no replacement Chat hides a failed resume.
-- **Historical/current tool declarations collide.** The native tool scope has15
-  tools; collected `tool_search` descriptions differ across revisions (13,185
-  versus13,856 characters). Installed Provider rejects those differences as
-  `ambiguous_tool_declaration`. The corrected source validates each declaration
-  batch independently, folds chronological incremental changes, and gives the
-  current request's explicit top-level complete catalog precedence. Native input
-  history with AdditionalTools remains incremental, even if the current feature
-  toggle is disabled: prompt.tools is empty and the client adds no rebuilt prefix.
-  A genuinely fresh nonincremental request carries the explicit current catalog.
-  No UUID-version or first-position heuristic remains. Original two-turn replay
-  contains a full catalog followed by a one-tool update; chronology preserves
-  the later revision without rejecting legitimate updates. Seven focused parser tests pass; a
-  disposable source mutation selecting the first history revision fails with
-  the expected old/current-contract mismatch and was restored. Offline parsing
-  of original installed-Core captures succeeds with0 app dispatches: the
-  catalog-backed capture uses its later475-character search declaration; the
-  non-Lite current catalog correctly omits historical search capability. A
-  helper initially assumed that capability existed in both captures; that failed
-  observer is retained and its corrected result is not a product fallback.
-  All4 actual-wire captures parse offline, including fresh nonincremental input;
-  chronological first-wins mutation fails and disposable source is restored.
-  Full local Provider acceptance passes on the final event-observer implementation.
-- **Workspace admission depends on stale phase and observation order.** Managed
-  exchange leaves a successful round marked running. `codex_status` can reconcile
-  an idle native completed turn and idle app lane to completed; installed create
-  checks stored phases without that observation. Candidate source moves that one
-  completion rule into native-event observation, status and workspace admission;
-  an old exchange finisher cannot overwrite completed or stopped. One observer
-  per work is cancelled on replacement/Stop/service close. Actual Android proof
-  explicitly waits for persisted completed before making any status request and
-  passes. A same-thread claim→transfer→accept from settled managed work also
-  passes actual Android MCP→Core execution: one native file write and final
-  reach the attached TUI with0 new managed model submissions. The first driver
-  failed to use start's rotated controller; its original failed observer is
-  retained and corrected to consume that response. A completed idle claim now
-  retains its route-transfer boundary, and managed transfer releases its passive
-  app hooks. Work listing supplies execution home and saved source ID so a
-  follow-up can select the existing work. Recovery routing now leaves saved
-  model/effort untouched; only
-  explicit initial Chat selection supplies Provider defaults. Mode-only starts
-  read the thread's current settings instead of applying those defaults. Actual
-  Android Plan-start metadata and the new canonical turn_context both retain
-  selected high effort against the Provider's none default. The actual saved Chat first requested
-  list, then create in prj/codex, then created a separate temporary work after
-  refusal. It did not continue the existing work. Reconcile the owning native
-  turn/jobs and app lane at admission, retain one writer, and use the existing
-  same-thread transfer/accept contract for current-Chat control. An ordinary
-  saved-Chat reply alone does not transfer control. Automatic same-Chat follow-up
-  still needs verified source/work routing rather than creating another work.
-- **MCP transport did experience disruption.** Tunnel logs show the stdio MCP
-  child exit at2026-10-23T22:45:27Z, a failed restart during a Core activation
-  transaction, and a successful new child at22:45:33Z. The initial exit's cause
-  is not established by those logs. At the later Chat retry, 2026-10-24T01:00:21–
-  01:00:28Z, polling timeouts occur and none of those three tool requests appears
-  in the local dispatcher log. Polling reports recovery at01:01:54Z. The same
-  tunnel process remains alive; current external host/list/status/read requests
-  and healthz/readyz succeed. `Session terminated` is not emitted by our MCP
-  server and does not prove native termination. Its precise remote session cause
-  remains unverified; neither permanent tunnel failure nor guaranteed continuous
-  connectivity follows from these observations. Recovery should reinitialize
-  the observation transport and reconcile the original request/work, never replay
-  an uncertain mutation or require a blind service restart.
-  Candidate stdio keeps one framing process and verifies the current service
-  endpoint/credential for each RPC. Actual CLI integration passes service loss,
-  one explicit error, replacement-service recovery and EOF without desktop/Core
-  launch. A disposable startup-binding-cache mutation makes that regression fail;
-  restored source passes. Native websocket cache also discards a closed transport
-  for the next new request; in-flight mutations retain unknown-delivery errors.
-  An owned real Unix websocket peer proves a lost mutation reply remains unknown,
-  its next read reconnects to the same process and the effect is not replayed.
-  This local proof does not establish remote MCP session recovery.
-- **Projection and client visibility are distinct.** The original saved Chat
-  read enumerates105 source message entries across five user messages; hidden,
-  unsupported and redacted contents retain the reader's explicit limitations. Only
-  its first two user requests correspond to the original completed native turns;
-  later direct Chat inputs and its temporary-work audit do not automatically
-  become turns in that native thread. AppHost projects its owned stream into
-  native output; the bridge has no delivery acknowledgment from another ChatGPT
-  client's visible conversation. Saved original responses are present, so
-  missing persistence is not established. A simultaneous physical second-client
-  live-display reproduction was not performed. Candidate hooks no longer own a
-  settled conversation's ordinary new user/tool stream just because its Chat ID
-  matches. They retain positive lane/request/host-reply ownership and Stop fences.
-  The SDK submission is reserved before invoking it, covering synchronous result
-  continuation as well as asynchronous starts. All56 app-wire contract tests pass;
-  actual app ABI/second-client refresh remains a separate acceptance boundary.
+| Reported boundary | Cause and resulting behavior |
+| --- | --- |
+| `native_context_prefix_changed` | Cold resume restored the Provider definition without its model catalog, changing the developer prefix. The existing startup path now restores saved Chat metadata before the models manager starts. Explicit catalogs/model overrides remain authoritative; prefix validation remains intact. |
+| Warm `/resume` selected the wrong model | Model-picker re-entry's generated CLI flags became sticky overrides for another saved thread. The existing coordinator now distinguishes explicit selection from saved resume; saved settings are restored at Core-owned Chat/native boundaries. Unknown/custom-provider resume keeps upstream behavior. |
+| `ambiguous_tool_declaration` | Historical revisions were treated as one conflicting declaration batch. Each batch is validated independently; chronological incremental updates replace older declarations and an explicit complete current catalog takes precedence. Same-batch conflicts remain errors. UUID/position heuristics were removed. |
+| Completed work blocked the workspace | Completion depended on a later status poll; a late exchange finisher could restore running. One rule observes the actual completed native turn, idle app lane and no owned jobs, with matching owner/turn identity. Its terminal-event observer, status and admission share that rule. Replaced watchers are cancelled; no successful Stop is fabricated. |
+| Ordinary messages in the same Chat were intercepted | Conversation ID alone retained hook ownership after settlement. Hooks now require positive stream/request/lane ownership. Ordinary user/tool streams pass through; owned permission replies, late requests and Stop fences remain protected. SDK pending submission is reserved before invocation, including synchronous continuation. |
+| Managed-to-current follow-up retained old ownership | Settled claim preserves its transfer boundary; transfer detaches only passive owned hooks. Missing app ownership releases idempotently without launching an app. List supplies the existing work's home and source conversation so the caller can reuse it. Ordinary Chat text alone does not steal an active writer. |
+| MCP/service replacement broke observation | One stdio framing process verifies the current authenticated service binding per RPC. A closed native websocket is discarded for the next new request. Uncertain mutations are never replayed. Device stdio invokes the admitted immutable Provider directly; the tunnel no longer restarts merely because Provider PID changes. |
+| Queue messages were test-only | `codex_sessions action=queue` and `work queue` use the existing native queue. Explicit thread/text/stable call ID are required; lost receipts reconcile from upstream queue/canonical history without resend. Explicit execution home supports an unloaded saved thread. ACK proves enqueue, not consumption. |
 
-User queue capability now uses the existing native queue, not a second scheduler.
-`codex_sessions action=queue` / `work queue` preserve model/effort, require explicit
-thread/text/stable call ID, and recover from the upstream queue or canonical
-client-message item without resend. Actual Android native gpt-6.1-sol proof passes
-warm enqueue/consumption, lost-receipt recovery after commit, owner-unavailable
-receipt readback, changed-input rejection, cold/unloaded explicit-account enqueue
-without inference, queued lost-receipt recovery, and consumption after plain
-resume. Six local synthetic Responses requests,0 real Chat requests; same UUID
-and original turns preserved. The first fixture tried to prepare over its own
-non-generated transition profile; the production preservation guard correctly
-refused. The corrected fixture retains that file before explicit preparation.
-The original failed diagnostic is retained. Queue ACK remains distinct from
-receiving-turn proof.
+Added: saved-catalog restoration at the existing startup boundary, the internal
+selection/resume distinction, one native completion observer, current-binding
+stdio recovery and user queue admission. Removed: duplicate declaration schema,
+UUID/position guesses, old inline re-entry construction, startup-cached stdio
+authentication wrapper, closed-client reuse, conversation-ID-only ownership and
+the redundant immediate completion RPC. The transition proof now uses the actual
+supplied Provider executable instead of a synthetic queue service; its warm-resume
+observer checks the actual resumed UUID in the re-entered frontend process.
+Retained adapters cross actual Core/app/stdio/native process boundaries. No
+temporary product path or removal condition remains.
 
-Local Provider, Python and Rust acceptance pass. Final Provider gate exit0 is
-retained in `redo-high/final-provider-check-result.json`; all runtime tests,
-clippy, release build, Bun and Python gates pass. Clippy found an unnecessary
-borrow introduced while moving the completion rule; it was fixed at that call,
-without suppressing the diagnostic. Direct diff/production-flow review removed
-a redundant immediate completion RPC after every managed response: only the
-native terminal observer owns proactive completion, using the app lane committed
-before its Completed event. Final Android proof still passes with no status call.
-Omitting that observer in disposable source makes the first completion assertion
-fail with0 status observations; service close subsequently fences the work as
-reconciliation_required. An initial mutation driver picked a stale Cargo artifact;
-that rejected observer is retained and the corrected driver uses Cargo's emitted
-exact executable path. App-hook ownership and closed-native-cache mutations also
-fail their respective contracts, with disposable source restored. Existing app
-permission/Stop tests were corrected to identify their owned request explicitly;
-ordinary unowned user and tool streams are now covered independently. No tests
-were skipped or acceptance tolerances weakened. Independent-agent/GPT Pro review
-was not performed; this workspace requests direct execution and no Pro review
-facility is provisioned.
+Actual Android proof uses the hosted frontend and exact hosted Provider binary:
 
-Additional native investigation reproduced in-app `/resume` after a model-picker
-re-entry: generated CLI flags made an unrelated saved Chat use the current native
-model. Source0387c7c reuses the existing re-entry coordinator, with an internal
-launch-choice versus saved-resume marker; later in-app resume restores saved
-settings instead of treating generated flags as user CLI intent. It extracts the
-existing source guard/request construction, removes their old inline copy and
-adds no history conversion or summary. Cold and warm routes still use one Core
-launcher/backend binding implementation. Original user CLI model overrides keep
-upstream behavior. Native source build/mutation/full acceptance is running at
-40069163154; older40066060334 was cancelled as a superseded exact-source run.
-Android warm-resume acceptance is pending the new executable. Original failed
-probe remains `redo-high/warm-resume-probe.py` and ct.wbp2i211; no real model was
-called.
+- Same-UUID native→Chat→cold resume→native and in-app warm saved-Chat resume,
+  preserving existing turns, saved effort and prefix metadata, without Manager.
+- Two native execution accounts and a changed workspace; Provider/native owner
+  replacement; Stop; first/existing-turn failure with readable history and native
+  recovery; mode-only Plan retains selected high effort against a none default.
+- Persisted completed before any status poll, then same-thread settled
+  claim→transfer→accept→current native file write/final in the attached TUI, with
+  no new managed submission for the current-Chat follow-up.
+- Warm and unloaded queue consumption, lost committed/queued receipt recovery,
+  owner-unavailable receipt readback and changed-input rejection, without resend.
+- Exact hosted executable performs native command, custom patch and final through
+  the existing MCP→Core path. The first observer incorrectly compared contextual
+  envelopes; its failed turn is preserved. The original effect occurred once;
+  distinct follow-up patch/final completed without replaying that command.
 
-Unsigned source candidates and synthetic integrations are not publication or
-device activation. The runit
-stdio wrapper still invokes Core and the tunnel keeper still restarts on service
-PID change; their documented target is direct admitted immutable stdio execution
-and per-RPC binding recovery. Apply only during bounded device maintenance after
-qualification, preserving user work/config and existing remote registration.
+These native/managed fixtures use inert auth and local synthetic Responses/app
+replies, not real Chat reasoning. The actual logged-in Linux app/SDK construction
+probe additionally passes same-identity/profile checks with zero conversation
+POSTs; injected SDK-start failure is not real Stop proof. Its owned app context
+was closed and services restored. Physical simultaneous display in a second
+ChatGPT client was not observed.
 
-Original native completion is2026-10-23T22:41:30Z (KST next day07:41:30), not a
-new execution at the next resume. The temporary Chat-origin audit finishes around
-22:50Z (KST07:50). The user's "Codex closed" retry is01:00Z (KST10:00). Saved
-message creation timestamps can precede the stream's completion; compare native
-task completion and correlated calls rather than sorting creation times alone.
+The original `Session terminated` source remains unverified. Tunnel logs do prove
+an earlier stdio exit/restart and later polling disruption; they do not prove the
+native task terminated or the tunnel stayed continuously connected. Original
+native completion was22:41:30Z (next-day KST07:41:30); the separate Chat audit
+finished around22:50Z. Saved creation times and later replay display are not new
+native execution timestamps. Persisted Chat history and live second-client UI
+delivery remain distinct observations.
 
-The earlier completion notice uses upstream `codex queue --thread ... --message`
-and verifies a new canonical receiving turn in the bound native supervisor. It
-does not select a Chat model or mirror an idle ChatGPT conversation. That proof
-and native→Chat→native model entry are different workflows; neither establishes
-the complete bidirectional behavior now requested.
+Local Provider/Python/Rust gates and direct affected-flow review pass. Hosted
+Source40069962639, Core40070000629 and Provider/Android40069962667 pass foraeaefa7.
+Source fault mutations detect chronological first-wins declarations, missing
+completion observation with zero status polls, stale startup stdio binding,
+closed native cache, conversation-ID hook capture and app acquisition during an
+absent-owner release. Disposable mutations were restored. Native40069297349
+passes build,55 focused tests and saved-catalog mutation; retained upstream/lint
+qualification is still running. Iron Laws, independent-agent and GPT Pro reviews
+were not performed: none is installed as a gate, direct execution is requested
+and no Pro facility is provisioned.
 
-Evidence: `~/.cache/codex/acceptance/bridge-incident-20261024/` contains
-`correlation-summary.json`, `catalog-prefix-reproduction.json`,
-`installed-parser-reproduction.json`, `tunnel-{timeline,lifecycle}.json`,
-`health-current.json` and private loopback request captures. The first capture
-attempt rejected an incomplete fixture model schema before sending any request;
-its original failure is retained. Corrected catalog/no-catalog captures each
-made one loopback request, deliberately rejected by the receiver. Actual parser
-probes each contained a guaranteed invalid final input. Total real Chat/model
-dispatches for this investigation:0. Existing user conversations and jobs were
-not stopped. Candidate changes replace strict cross-revision tool merging and startup metadata
-loss; they add no account-specific branches. Queue reuses existing mutation
-receipts because its consumer must distinguish a lost ACK from a new enqueue.
-Signed publication/device activation and actual app/live-client qualification
-remain separate unfinished boundaries.
+Failed observers and real guards remain evidence, not accepted successes: the
+CI Unix-socket fixture needed explicit0600 under umask022; product socket checks
+were retained. A mutation driver initially chose a stale Cargo artifact and was
+corrected to the emitted executable. The queue proof no longer prepares over a
+private fixture profile. No skip/xfail or weaker acceptance criteria were added.
+
+Evidence: `~/.cache/codex/acceptance/bridge-incident-20261024/redo-high/`, especially
+`warm-chat-final-android.json`, `exact-queue-cold-android.json`,
+`account-bidirectional-android.json`, `exact-release-native.json`,
+`actual-app-hook-probe3.log`, the `*-mutation.*` records, original failures and
+the final gate logs. Read AGENTS.md again after recovery before editing/reviewing;
+inspect this section, the actual diff and unresolved boundaries, not a summary
+claim that newly added code is established architecture.
 
 ## Current status and next action
 
-The deployed baseline below retains its original scoped evidence. Address the
-open continuity findings above before accepting the requested bidirectional flow.
+Signed Provider9 `chatgpt-aeaefa7bb85d-s9` is publicly staged, fully read back,
+Android-consumed, stable-promoted and activated. Sourceaeaefa7; binary SHA256
+`ccf904f937b73f8f40390c83339baf83308babed2fe01985eb7de0c26fa689a3`.
+Provider8 is retained for rollback. Signing40071609045,12 public assets,84
+composition steps,113 package-lifecycle steps,10 immutable consumer commands and
+3 stable consumer commands pass. Provider promotion uses non-forced exact-parent
+CAS and leaves Base/Full heads unchanged.
 
-Signed Provider8 is published, promoted and installed:
-`chatgpt-a5cd3e20c683-s8`, sourcea5cd3e2, Android SHA256
-`c6851da66fbee5fd3df9ce6a1cf0a1d7a804aadd8aee333443756c8673610e09`.
-Provider7 is the rollback generation. Signed Core Full106/source72b6ad4,
-upstream0.164.0, is published and installed; Full102 is the rollback generation.
-Its native frontend source18ef075 uses the saved thread's model for handoff,
-independent of a missing/different account default. Real populated native→Chat
-response→native return passes on the installed generation. Another account's
-MCP registration needs that workspace's administrator credential and the matching
-Linux app login in the current workspace-scoped setup. Those prerequisites are
-not present; registration absence is expected, not an outstanding wrapper defect.
+Device readback proves the admitted9 service and stdio image, same logged-in app
+identity/readiness,16 authenticated MCP tools, existing6 works and account-local
+config/auth preservation. Shared generated routing is explicitly rebound to9.
+The bounded restart proof keeps the same stdio process through an explicit
+`stale_process_owner` error and a replacement endpoint/bearer;16 tools then return,
+while tunnel and its stdio process stay unchanged. Local readiness and fresh
+remote polling pass. First host observation timed out during startup; a separate
+read-only observation established readiness without repeating activation.
 
-Account-specific identifiers are not compiled into the production Provider,
-Core or Manager source audit. Native admission discovers the uniquely verified
-loaded thread across execution homes and follows its canonical home/workspace;
-`execution.home` and `execution.workspace` are defaults for explicit new work.
-All six existing execution homes use shared generated Provider routing, now8.
+The first activation attempt correctly refused an inherited package lease and
+left selection8 unchanged; services were restored. The exact native catalog
+holder had zero loaded threads and zero child processes. Its metadata was saved
+before PID-bound graceful shutdown and kernel exit confirmation, then a fresh
+exclusive-lease check preceded activation. `host stop` separately refused
+`host_active_work`; that guard was not bypassed. Inherited package leases remain
+the documented maintenance boundary; no live/unknown native owner was killed.
 
-The Linux app account comes from its current authenticated scope. Policy is
-configurable in `~/.config/codex/providers/chatgpt.toml` as
-`history.account_change` (`new_chat` default, `refuse` optional). The redundant
-explicit default was removed after checking Provider7 rollback compatibility;
-the effective behavior stays `new_chat`, and Provider7 validates the current file.
-After a settled round, a genuinely
-new native user input opens a new chat under the selected app account. `refuse`
-retains the original-account requirement. Pending/unknown/old-turn requests and
-results cannot move into another account. Existing settled response fingerprints
-remain compatible with Provider7, so upgrades do not replay completed requests.
+Core Full106/source72b6ad4/upstream0.164 remains selected pending admission and
+signed delivery of frontendc55a5c9. Full102 remains rollback. Native40069297349 is
+running; its raw artifact already passes Android warm-resume and exact queue/cold
+proof. A raw candidate is not device activation. Next: finish native admission,
+the existing signed Full publication/public consumer path, then bounded Core
+activation without stopping existing user clients/jobs. Installed selection and
+already-running pinned executables must be reported separately.
 
-A replaced login scope/client retires only passive owned hooks, then binds the
-current context. Allocation and the actual conversation POST validate identity;
-a login change between those steps cannot dispatch across accounts. Engine and
-app-wire fixtures cover account/user/workspace changes and return, configured
-refusal, active/pending guards, same-renderer scope/client replacement and a
-pre-POST account race with zero network requests. These are simulated login
-identities; no physical login switch to another real ChatGPT account is claimed.
-
-Actual installed Provider8 returns the exact requested marker for one fresh
-native Chat-model prompt from an owned external execution home; workspace remains
-empty, the owned work is stopped and backend kernel exit confirmed. Provider7's
-original real completed turn and all failed/aborted witnesses remain preserved.
-The actual app uses its existing login; native fixtures contain only inert auth,
-never copied user credentials. Authenticated installed MCP initialize/tools-list
-returns16 tools with0 model requests. Provider8's startup observer first timed out
-at12 seconds; a later read-only status proves readiness without repeating install
-or app acquisition. All13 recorded protected native auth/config/Core/tunnel files
-and the three pre-existing work records remain unchanged through activation.
-
-Full102 ordinary cold resume without `--profile` reads the original completed Chat
-turn and returns to native with0 new inference. Its fixture copies public model
-metadata only, because inert native auth cannot fetch a live native catalog.
-A further actual nonempty native→Chat attempt initially submits0 prompts and
-refuses: TUI checkpoint preparation incorrectly reads optional `config.model`
-instead of the verified thread's restored model. Direct Provider encoding of
-the same snapshot succeeds. Source18ef075 removes that dependency; its regression
-covers missing/different defaults and retains the child-stdin EOF requirement.
-
-Native40007659045 passes55 focused and94 retained upstream tests plus lint.
-Source40007647072/Core40008201400 pass; the first Core attempt's public download
-502 is retained, followed by a successful failed-gate rerun. Exact binding72b6ad4
-passes Source40013225767/Core40013228235. The changed Android cold-resume regression
-passes without Manager/default model, preserving history through native→Chat→native,
-with3 synthetic local Responses requests and0 real Chat. Signed publication
-40013805699 passes Android build/smoke, complete public readback, disposable update
-and non-forced stable promotion. Physical102→106 preserves15 protected files and
-all three Provider service PIDs, stopping0 existing native jobs.
-
-Installed Full106/Provider8 now resumes the same original real populated thread
-without `--profile` or a configured model, enters Chat, completes one distinct new
-prompt with the exact requested marker, and returns to native with both completed
-turns preserved and an empty workspace. Its post-return work cleanup command
-correctly refuses `native_workspace_or_route_changed`; do not count that command
-as a successful Stop. A separate0-input reconciliation passes: it re-enters the owned Chat
-route, stops only that qualification work and returns to native with both turns
-unchanged. The first reconciliation observer encountered a transient removed
-socket during re-entry; the corrected observer retries only that read. The
-original failed cleanup/result remains preserved beside the reconciliation proof.
-
-The broader Android cohort passes two native execution accounts, workspace
-changes, cold backend/Provider replacement, Stop, first/existing failure, readable
-history/native return and ordinary cold resume:10 native inputs,8 synthetic app
-submissions,0 real Chat. The additional Full106 populated real re-entry proof covers the missing
-default-model case separately. The account-owner and Android hidepid fixes use
-verified process identity/stat evidence, retain all records and do not signal
-unrelated runtimes. Failed history is an allowed re-entry boundary only with full
-public-history and input/tool/activity guards. Ordinary resume adds only a
-non-selecting installed Provider definition; upstream remains the sole backend.
+Account/workspace IDs, installation and tunnel choices belong to config/runtime
+discovery. No production account/plugin-ID whitelist was introduced. App identity
+comes from the authenticated app scope; native admission follows the uniquely
+verified thread home/workspace. `history.account_change` remains configurable
+(`new_chat` default, `refuse` optional). Settled new input can bind the selected
+account; pending/unknown input/results cannot migrate between accounts. Fixtures
+cover identity/workspace changes; no physical second-account login switch is
+claimed. Another workspace's Secure MCP still requires its administrator
+credential and matching Linux app login, as the user explicitly acknowledged.
+No additional registration, tunnel or login change is part of this maintenance.
 
 For upstream0.164, retain inline model/reasoning/speed/permission arguments,
-saved-thread settings and compressed-history resume, repeated CLI overrides and
-compaction corrections. The wrapper adaptations above resolve discovery, routing
-and handoff assumptions around those upstream behaviors. Official release:
-https://github.com/openai/codex/releases/tag/rust-v0.164.0 . Upstream reviewer
-eligibility remains unchanged; the discarded Untrusted experiment stays removed.
+saved-thread settings/compressed-history resume, repeated CLI overrides and
+compaction corrections. Reviewer eligibility is unchanged; the discarded
+Untrusted experiment stays removed. Original incident and earlier Full106/
+Provider8 real-model evidence remain under
+`~/.cache/codex/acceptance/account-independent-20261023T145152Z/`; they do not
+establish a changed boundary's acceptance. Installed Provider9 additionally
+completes one actual logged-in-app first prompt from an isolated execution home,
+returning the exact marker through installed Full106. The empty workspace and
+inert native auth remain unchanged; its own work Stop and backend kernel exit
+are confirmed. This is one real Chat request, not a new-frontend resume proof;
+see `redo-high/live-fresh-provider9/live-first-prompt-result.json`.
+Unknown `providers/chatgpt/target/` is preserved.
+Reusable compiler caches remain below15GiB; manifest-matched inactive fixture
+payloads are archived with restore records, retaining native records/source.
 
-Provider8 passes177 Rust tests/Clippy (28 existing opt-in tests ignored),71 JS and
-the CI Python gates. Exact Source40005181142, Core40005270102 and independent
-Android Provider40005181160 pass. Actual Android composition84/package83 steps,
-signing40006385857, complete12-asset public readback,10 immutable consumer steps,
-7 default-stable/config-policy/rollback steps and non-forced promotion pass.
-Base/Full heads were preserved by Provider promotion. Full102 publication
-40000802027 and physical101→102 update retain their original protected-state proof.
-Current existing tunnel health/control-plane polling also returns `ok`.
-
-Termux Bridge has no account/plugin-ID whitelist. Connector names remain
-`transport.connector_name`; tunnel IDs/private credential references remain in
-the tunnel-client profile, with remote organization/workspace association config.
-The existing tunnel has one organization and one workspace. The user clarifies
-that the available administrator credential is not for the additional account's
-workspace (`szob`), and using that workspace's Secure MCP connection also requires
-logging into the Linux app as that account in the current setup. The missing
-registration is therefore an expected consequence of absent workspace credentials
-and the unmatched app login, not evidence of hardcoded ownership or a wrapper bug.
-Account-independent code does not grant cross-workspace permissions.
-
-Retain the original additive association attempt's403
-`tunnel_principal_association_unverified`, request
-`req_82da4b5f380f41ea8887ee5c323c0ae2`, and unchanged-association readback as
-observations under the available credential. That response does not establish
-that a reviewed override is the only route with the correct workspace credential
-and matching login. No further provisioning, login change, additional tunnel or
-credential change is requested by this clarification.
-
-Evidence root: `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`.
-Key records: `app-account-provider8-final/{plan,delivery,consumer-proof,stable-consumer-proof,device-mcp-metadata-proof}.json`,
-`app-account-provider8-final/activation-2/device-activation-proof.json`,
-`live-fresh-provider8/live-first-prompt-result.json`,
-`live-plain-resume-return-3/result.json`, `combined-final-acceptance.json`,
-`live-existing-prompt-8/{result,direct-checkpoint-private}.json`,
-`frontend-saved-model-plan.json`, `saved-model-android-2.json`,
-`core-saved-model-{public-plan,device-proof}.json`,
-`live-existing-full106/result.json`, `live-full106-reconcile-2/result.json`,
-`app-account-provider8-final/rollback-config-compatibility-proof.json`,
-`tunnel-complete-pair-proof.json`,
-`final-account-source-audit.json`.
-Original failures are retained and never counted as successful gates.
-
-Completed owned composition/package/consumer payloads were archived using
-`clean_development.py` with distinct restore records. Preserve original native
-records, source, current/rollback public packages and unknown
-`providers/chatgpt/target/`. Reusable local compiler targets total about5GiB.
 
 ## Operating baseline
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Provider8 account/config/context repair and saved-model frontend18ef075 bound in72b6ad4 accepted, published and applied |
+| Implementation | Provider9 continuity/queue repair activated; cold/warm saved-Chat frontendc55a5c9 admission running |
 | Operating Core | Signed Full106/source72b6ad4, previous Full102, upstream0.164.0; existing clients retain their pinned executables |
-| Public/selected Provider | Sequence8/sourcea5cd3e2, previous7, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
+| Public/selected Provider | Sequence9/sourceaeaefa7, previous8, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
 | MCP | Authenticated local16-tool inventory accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
