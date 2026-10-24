@@ -31,7 +31,8 @@ unbounded app IDs and oversized batch IDs; disposable source is restored.
 Independent-agent and GPT Pro reviews were not performed.
 
 Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is fully publicly
-read back, Android-consumed, stable-promoted and activated; Provider9 is rollback.
+read back, Android-consumed, stable-promoted and activated for the ID repair.
+Provider11 below is current, with Provider10 retained for rollback.
 Binary SHA256 is `c742fdd1ba66ba4315d8bb3fe839601b70ad633223785eee6ab7bc2dc1d6a64a`.
 Source40096385599, Provider/Android40096385723 and signing40097313205 pass.
 The12 public assets, installed compositions, signed package lifecycle, exact
@@ -65,63 +66,83 @@ Evidence: `~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`, especially
 package/composition records, targeted-fault logs and the original failed observers.
 Implementation, qualification, signed publication and device activation are complete.
 
-## Post-answer app recovery: open operating blocker
+## Project selection and app recovery: Provider11 delivered
 
-Provider10's ID repair remains qualified, but does not close the newly reported
-completion/recovery failure. Thread01a16ee2-04c0-7a91-afa5-9de91bde8189
-executed12 native calls with64-byte IDs and all Broker results settled. Its final
-public answer is retained both locally and in the authenticated saved Chat.
-The app logged a404 `Resume stream unavailable` recovery start at17:11:00Z,
-then successful polling recovery at17:14:45Z (attempt40). The Provider failed
-to settle that recovered round and timed out at17:24:29Z; the subsequent new
-input failed `lane_reconciliation_required`. Host status still reports that
-owned MCP lane active. Do not reinterpret visible text as completed transport.
+Provider11 `chatgpt-48cad317cce4-s11`, source48cad317, is signed, publicly
+read back, Android-consumed, activated and stable-promoted; Provider10 is rollback.
+Installed Core remains Full107 with its qualified c55a5c9 frontend. Source
+40118316883, Provider/Android40118316904 and signing40119213855 pass. Public
+promotion64bafd5 changes only Provider index/signature/source, without forcing
+history or modifying Base/Full heads.
 
-The pinned app's successful polling recovery calls its higher-level submission
-`onCompletion`; the previous bridge observed only low-level stream completion.
-The source repair observes both with the existing lane epoch and preserves
-failed/interrupted status. The single-tool-result SDK helper also discards that
-callback, so its separate submission branch/gate is removed; user input and tool
-results now share the existing submission implementation. Public text alone still
-cannot settle a turn, and stale/cancelled callbacks remain fenced. First transport
-error and resume metadata now reach content-free Provider logs; no timeout or
-inference retry was added.
+The newly reported thread01a16ee2-04c0-7a91-afa5-9de91bde8189 executed12
+native calls with64-byte IDs and all Broker results settled. Its final public
+answer is retained locally and in the authenticated saved Chat. The app logged
+404 `Resume stream unavailable` at17:11:00Z and successful polling recovery at
+17:14:45Z (attempt40). Provider10 missed that recovered completion, timed out at
+17:24:29Z and rejected the next input with `lane_reconciliation_required`.
 
-The initiating Chat transport loss is not established by retained records. The
-404 belongs to the app's own resume request, which the Provider's new-dispatch
-hook does not intercept. The app log also records a local native app-server
-websocket1006/pong timeout; that separate connection does not prove the cause of
-Chat's initial loss. Do not attribute it to networking, Android, upstream or this
-wrapper without correlated initial-error evidence. The missing recovery observer
-is a verified defect in this repository, regardless of that initiating cause.
+Responsibility/data flow: the existing bridge now observes the app submission's
+higher-level `onCompletion` as well as raw stream completion, using the same lane
+epoch and cancellation fences. Failed/interrupted completion remains failure;
+displayed text alone cannot settle a turn. The SDK single-tool-result helper
+discards completion callbacks, so its separate submission branch/capability gate
+is removed. User input and local tool results share the existing submission
+implementation. First transport-error and resume metadata reaches content-free
+Provider logs; no timeout extension, replacement inference or upstream patch
+was added. Direct affected-flow review and three disposable faults detect missing
+completion, the obsolete helper and a project selection that leaves retain mode.
+Disposable source is restored; independent-agent/GPT Pro review was not performed.
 
-The quoted project failure conflated capabilities: policy was `retain`, with no
-configured destination, and the request never invoked project creation. Explicit
-`projects list|use` CLI and `codex_projects` MCP now share existing account-bound
-create/reuse/readback, then atomically save the project mode/name/exact ID for new
-lanes. Remote failures preserve local policy; local edit conflicts preserve the
-verified remote binding for retry without another creation. Resolution locking
-moves from individual AppHosts into the common resolver, covering both transports
-and explicit selection. Existing conversations retain their destination. The new
-project tool correctly declares its write effect; other tool annotations retain
-their qualified policy. Broad setup UX remains deferred.
+The initiating Chat transport loss remains unestablished. The404 belongs to the
+app's own resume endpoint, which the Provider new-dispatch hook does not intercept.
+A separate local native app-server websocket1006/pong timeout does not prove why
+Chat's first stream was lost. The missed completion is a verified repository
+code defect; the original initiating fault is not attributed without evidence.
 
-Source regressions cover user-input recovery, single-result recovery, failed and
-interrupted completion, stale callbacks, first-error retention, create/select/
-reuse and concurrent configuration edits. Disposable faults for missing completion
-and the obsolete result helper are detected and restored. Local Provider gates (184 Rust,76 Bun plus Python/lint/release) and the explicitly
-armed Android native command/patch/same-thread follow-up/Chat-return fixture pass.
-That fixture uses synthetic app/model replies; it does not prove live Chat
-recovery. Exact hosted package/device admission and delivery remain; Provider10
-is still selected.
-No project, user lane or service has been modified during these source checks.
+The project request previously used `history.mode=retain` and invoked no creation.
+`projects list|use` CLI and the `codex_projects` MCP control now use the common
+account-bound create/reuse/readback resolver, then atomically save project mode,
+name and exact ID. Remote failure preserves local policy; concurrent config edits
+preserve the remote binding for retry without duplicate creation. Creation locking
+moves from individual AppHosts into that resolver. Existing conversations retain
+their destination. Only the new project tool declares a new write effect; other
+qualified tool annotations remain unchanged. Broad setup UX remains deferred.
 
-Original records and qualification logs are retained at
-`~/.cache/codex/acceptance/post-answer-recovery-20261024/`.
-KST was separately enabled through `export TZ=Asia/Seoul` in the user's existing
-~/.bashrc; its original bytes are retained privately there. Fresh interactive
-shell execution positively reports KST/+0900. Already-running processes keep
-their existing environment, and canonical UTC records remain UTC.
+The actual logged-in app created one owned private `Codex` project. Readback and
+a second use of its exact ID pass without inference or another creation, and
+history policy is now project. Four real primary turns on one new native UUID
+pass: Chat performs one native file read, Chat answers a follow-up, native
+gpt-6.1-sol/high continues, then Chat returns. Both saved Chat conversations are
+positively read back in that project. The one tool ID is64 bytes, previous turns
+and workspace bytes survive, and own native/host Stop are confirmed. This was
+normal live inference; missing-terminal recovery is independently exercised by
+source faults with the pinned-app fixture, not claimed as an induced live outage.
+Local184 Rust/76 Bun plus Python/lint/release and the armed actual Android native
+command/patch/same-thread return fixture pass; its app/model replies are synthetic.
+The exact hosted executable, compositions, signed package lifecycle with owned
+TLS,12 public assets and disposable public install/use/rollback/stable update pass.
+
+For activation, the reported failed work's native Stop and zero jobs are confirmed,
+but its legacy app Stop remains unconfirmed. Its saved committed final is freshly
+read back. Normal Provider maintenance shutdown fences MCP and closes its owned
+app; the failed record remains reconciliation_required, never relabeled completed
+or replayed.19 registered native server process identities and16 other protected
+config/auth/launcher inputs survive. The sole intended policy change is Provider
+history selection. The same app identity,17-tool MCP inventory, shared generated
+routing and final ready/idle app state are verified. Physical second-client UI
+was not observed.
+
+Evidence: `~/.cache/codex/acceptance/post-answer-recovery-20261024/`, especially
+`delivery/{final-device-proof,project-selection-proof,live-project-membership,
+live-device-smoke,stable-consumer-proof}.json`, original failed observers and
+mutation logs. Completed inactive fixture payloads are archived through the
+existing cleaner with restore records; current/rollback artifacts and the unknown
+repository target are preserved. Reusable compiler caches remain below15GiB.
+KST is enabled in the user's ~/.bashrc and login ~/.bash_profile. Both fresh
+interactive and login shells report TZ=Asia/Seoul and KST/+0900; originals or
+absence records are retained privately. Running processes keep their environment;
+canonical UTC records remain UTC.
 
 ## Reasoning-effort incident and redo boundary
 
@@ -291,21 +312,18 @@ claim that newly added code is established architecture.
 
 ## Current status and next action
 
-Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is publicly staged,
-fully read back, Android-consumed, stable-promoted and activated. Provider9 is
-rollback. The tool-call interoperability section above owns its current proof
-and retained boundaries. Installed Core remains Full107; no native runtime or
-frontend replacement is needed for this Provider repair.
+Signed Provider11 `chatgpt-48cad317cce4-s11`, source48cad317, is fully publicly
+read back, Android-consumed, activated and stable-promoted; Provider10 is rollback.
+The project/recovery section above owns its proof and remaining cause boundary.
+Core remains Full107; its native runtime/frontend are unchanged by this repair.
 
-Current device readback proves the admitted10 service and stdio images, same
-logged-in app identity/readiness,16 authenticated MCP tools, pre-existing work
-inventory and account-local config/auth preservation. Shared generated routing
-is explicitly rebound to10. Provider9's retained bounded restart proof keeps
-the same stdio process through an explicit
-`stale_process_owner` error and a replacement endpoint/bearer;16 tools then return,
-while tunnel and its stdio process stay unchanged. Local readiness and fresh
-remote polling pass. First host observation timed out during startup; a separate
-read-only observation established readiness without repeating activation.
+Current device readback proves the admitted11 service/stdio images, same logged-in
+app identity/readiness,17 authenticated MCP tools,19 registered native owners and
+account-local config/auth preservation. Shared routing is rebound to11. The new
+Codex project is verified and selected for new lanes, and four real primary turns
+including a consecutive Chat follow-up complete. The reported older failed work
+remains recorded for reconciliation. The following activation/restart observations
+are retained earlier boundaries, not a statement that Provider9 or10 is selected.
 
 The first activation attempt correctly refused an inherited package lease and
 left selection8 unchanged; services were restored. The exact native catalog
@@ -345,7 +363,7 @@ compaction corrections. Reviewer eligibility is unchanged; the discarded
 Untrusted experiment stays removed. Original incident and earlier Full106/
 Provider8 real-model evidence remain under
 `~/.cache/codex/acceptance/account-independent-20261023T145152Z/`; they do not
-establish a changed boundary's acceptance. Installed Provider9 additionally
+establish a changed boundary's acceptance. Retained Provider9 additionally
 completes one actual logged-in-app first prompt from an isolated execution home,
 returning the exact marker through installed Full106. The empty workspace and
 inert native auth remain unchanged; its own work Stop and backend kernel exit
@@ -397,11 +415,11 @@ prune user state, the unknown target or operating current/rollback generations.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Provider10 portable native/Broker call IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
+| Implementation | Provider11 verified project selection and recovered submission completion, with portable IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
 | Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
-| Public/selected Provider | Sequence10/source6e26cee, previous9, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
+| Public/selected Provider | Sequence11/source48cad317, previous10, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
-| MCP | Authenticated local16-tool inventory accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
+| MCP | Authenticated local17-tool inventory, including explicit project selection, accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
 | Retained dependencies | Immutable c3642b19a87cdace158f JS/Bun/Python installation, rootfs, optional noVNC, current/rollback payloads and original proofs remain |
 
