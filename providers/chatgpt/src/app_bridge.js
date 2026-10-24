@@ -4,6 +4,19 @@ async function termuxCodexBridge(command) {
   const slot = Symbol.for('termux.codex.app.bridge.v1');
   const fail = code => { throw Error(code); };
   const failureCode=(lane,fallback)=>['assignment_app_budget_exhausted','assignment_time_budget_exhausted'].includes(lane.admissionCause)?lane.admissionCause:fallback;
+  const completion=lane=>{
+    const epoch=lane.epoch,serial=(lane.streamSerial??0)+1;
+    return status=>{
+      if(lane.epoch!==epoch||lane.stopRequested||(lane.streamSerial??0)>serial)return;
+      // SDK polling recovery can finish without a raw stream terminal. A later
+      // host-reply stream owns its own completion, even within the same epoch.
+      if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;}
+      else if(['failed','interrupted'].includes(status)){
+        lane.error=status==='failed'?'app_completion_failed':'app_completion_interrupted';
+        lane.streamActive=false;
+      }
+    };
+  };
   // The app may address an approval to the invoking assistant message rather
   // than the tool's confirmation message. Admit only targets offered by that
   // observed confirmation, never an arbitrary ancestor or known message.
@@ -499,7 +512,7 @@ async function termuxCodexBridge(command) {
       if(typeof state.api.jLn!=='function')fail('app_approval_ui_required');
       const offered=state.api.jLn(message);
       if(!offered||!hostTargets(message).includes(target)||offered.browserAuth||offered.connectionRequired)fail('app_approval_ui_required');
-      click=()=>state.api.yRt(state.scope,{conversationId:lane.localId,projectId:lane.project??undefined,isTemporaryChat:false,model:offered.model,prompt:'',
+      click=()=>state.api.yRt(state.scope,{onCompletion:completion(lane),conversationId:lane.localId,projectId:lane.project??undefined,isTemporaryChat:false,model:offered.model,prompt:'',
         startupSignal:lane.controller?.signal,isRequestCurrent:()=>{check();return !lane.stopRequested;},
         toolApproval:{action:'allow',targetMessageId:target,recipient:offered.recipient,...(choice?{actionData:choice.action}:{}),
           ...(offered.isApiToolElicitation?{isApiToolElicitation:true,actionData:choice?.action??{type:'allow',target_message_id:target}}:{})}});
@@ -602,16 +615,7 @@ async function termuxCodexBridge(command) {
     lane.resultOnly = results.length > 0 && !context.some(m => m.author.role === 'user');
     const epoch = lane.epoch;
     const options = {conversationId: lane.localId,parentMessageId:lane.selectedParent??undefined,conversationOrigin:null,tppExecutionTarget:null,requestInput:{isEverydayWorkMode:false},projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
-      onCompletion:status=>{
-        if(lane.epoch!==epoch||lane.stopRequested)return;
-        // Saved-history recovery settles at the submission boundary without
-        // completing the original low-level stream. It is not a second request.
-        if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;}
-        else if(['failed','interrupted'].includes(status)){
-          lane.error=status==='failed'?'app_completion_failed':'app_completion_interrupted';
-          lane.streamActive=false;
-        }
-      },
+      onCompletion:completion(lane),
       onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
     lane.pending = true;

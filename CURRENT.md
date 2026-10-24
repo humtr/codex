@@ -94,6 +94,13 @@ was added. Direct affected-flow review and three disposable faults detect missin
 completion, the obsolete helper and a project selection that leaves retain mode.
 Disposable source is restored; independent-agent/GPT Pro review was not performed.
 
+A final same-epoch approval-stream audit reproduced a late original submission
+callback settling the newer host reply. The additional source correction shares
+one completion observer between ordinary input/results and delegated approval,
+and fences it by both epoch and stream serial. The failing original audit and
+its passing regression are retained; this follow-up is awaiting fresh delivery,
+while Provider11 remains the admitted operating package.
+
 The initiating Chat transport loss remains unestablished. The404 belongs to the
 app's own resume endpoint, which the Provider new-dispatch hook does not intercept.
 A separate local native app-server websocket1006/pong timeout does not prove why

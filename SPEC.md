@@ -2889,8 +2889,9 @@ actually reads; a top-level `error` event alone is not sufficient. Retain only
 static content-free failure codes in the private lane record.
 An owned submission's higher-level completion callback also settles successful
 app recovery by saved-history polling, which need not emit the original stream's
-terminal callback. Observe both through the existing lane epoch; stale or locally
-cancelled callbacks cannot settle a newer request. A displayed final alone does
+terminal callback. Observe both through the existing lane epoch and submission stream identity,
+including delegated host-approval submissions; stale or locally cancelled
+callbacks cannot settle a newer stream within the same lane. A displayed final alone does
 not prove completion. Preserve failed/interrupted completion as failure, and
 record content-free first transport-error/resume observations so a later recovery
 does not erase the cause of the original disconnect. Never replay inference to

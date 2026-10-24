@@ -612,6 +612,7 @@ test('rejecting a new dispatch cannot confirm an older unobserved stream stopped
 
 
 test('delegated one-time app action resumes the original MCP lane without revealing a window',async()=>fixture(async({f,bindings})=>{
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'permission',signature:{name:'unused'}});
  await bridge({op:'submit',owner:'owned',lane:'permission',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
@@ -632,6 +633,10 @@ test('delegated one-time app action resumes the original MCP lane without reveal
  expect(f.approvalOptions.prompt).toBe('');expect(f.revealed).toBeUndefined();
  const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'permission'});
  expect(snapshot.dispatches).toBe(2);expect(snapshot.userMessages).toBe(1);expect(snapshot.hostReplyMessages).toBe(1);expect(snapshot.toolMessages).toBe(0);
+ expect(snapshot.terminals).toEqual([]);expect(snapshot.streamActive).toBe(true);
+ f.approvalOptions.onCompletion('completed');
+ const recovered=await bridge({op:'snapshot',owner:'owned',lane:'permission'});
+ expect(recovered.terminals).toEqual(['done']);expect(recovered.streamActive).toBe(false);
  await expect(bridge(command)).rejects.toThrow('app_approval_ambiguous');
  lane.hostReplies.clear();await expect(bridge(command)).rejects.toThrow('app_approval_unconfirmed');
  lane.stopRequested=true;await expect(bridge(command)).rejects.toThrow('app_approval_unavailable');
@@ -792,4 +797,17 @@ test('an in-flight saved GET does not multiply requests or block an idle lane St
  await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_read_pending');
  expect((await bridge({op:'stop',owner:'owned',lane:'idle'})).stopped).toBe(true);
  expect(calls).toBe(1);release({mapping:{}});await first;expect(f.sent).toHaveLength(0);
+}));
+
+test('old submission cannot settle a newer host-reply stream',async()=>fixture(async({f,bindings})=>{
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'late',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'late',round:'one',messages:[{role:'user',text:'Task'}]});await Promise.resolve();
+ const completed=f.submitOptions.onCompletion,lane=globalThis[slot].lanes.get('late');
+ lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
+ f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[{id:'reply',author:{role:'tool'},metadata:{jit_plugin_data:{from_client:{target_message_id:'confirm',type:'allow'}}}}]}});
+ completed('completed');
+ const current=await bridge({op:'snapshot',owner:'owned',lane:'late'});
+ expect(current.streamActive).toBe(true);expect(current.terminals).toEqual([]);
 }));
