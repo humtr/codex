@@ -6,6 +6,53 @@ README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
 `~/.cache/codex/acceptance`.
 
+## Unshipped tool-call interoperability repair
+
+Session01a16cf1-847a-7b30-9868-28c74e5cef1b completed its Chat research,
+then selected gpt-6.1-sol/high at2026-10-24T09:15:34Z. The actual native
+follow-up failed at09:15:53Z with HTTP400: input[7].call_id was68 characters,
+above the64-character limit. All9 retained tool calls and their9 results use
+the old mcp_ plus64-hex identity. Selection succeeded; history admission failed.
+
+Responsibility/data flow: gateway_calls translates app/MCP invocation identity
+into native Call records; upstream preserves those calls and matching results.
+The candidate bounds that native identity to64 bytes, hashing long single-host
+IDs and batch positions while preserving the original host ID for ACK/results.
+MCP's internal logical/retry identity and journal format remain unchanged. An
+initial redundant MCP-ID change was removed after a disposable mutation showed
+the common gateway already owns this responsibility. No alternate executor,
+transcript, provider route, migration flag or temporary product path is added.
+
+The existing Android MCP execution proof now continues its actual command/patch/
+verification history through a native follow-up and back into Chat on the same
+UUID, checks matched call/results at a strict64-byte native endpoint and verifies
+the original effect was not replayed. App/model replies remain synthetic; this
+is actual Android execution and transport proof, not real-model/API acceptance.
+Earlier transition fixtures returned only text, and earlier real-Chat cold/warm
+proofs prohibited tools and ended after native selection. They did not qualify
+the tool-history/native-inference boundary that failed here.
+
+Local full and Provider gates pass, including formatting/lint and the release
+build. The full gate executes369 Rust and141 Python tests; the Provider gate
+executes182 Rust tests plus its Bun/Python checks. The explicitly armed Android
+test also passes, with canonical Chat→gpt-6.1-sol→Chat turns on one UUID, three
+64-byte tool IDs and exactly one original command effect. Disposable mutations
+that restore unbounded single-host IDs and oversized batch IDs fail at the strict
+native request and batch-output boundaries respectively; source is restored.
+Direct production-flow/diff review passes. Independent-agent and GPT Pro reviews
+were not performed. Evidence is retained under
+`~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`; original failed observers
+remain there as well. The fixture now supplies actual settled-state fields and
+implements passive disposal rather than failing after the successful round trip.
+No required assertion was relaxed. This candidate is not published or activated;
+Full107/Provider9 remain the installed baseline. The user explicitly excludes
+retroactive repair: scope is correct ID generation for future tool calls and
+subsequent provider transitions. Existing oversized historical IDs are preserved
+as incident evidence, not a remaining migration task. No upstream change,
+transport proxy or compaction-based recovery is part of this repair. The source
+implementation and its affected-path validation are complete; signed publication
+and device activation remain separate delivery boundaries.
+
 ## Reasoning-effort incident and redo boundary
 
 The original thread's `thread_settings_applied` records establish the actual

@@ -375,7 +375,6 @@ pub fn gateway_calls(
         None if report.is_some() => return Ok((Vec::new(), report)),
         _ => return Err(Error("invalid_gateway_arguments")),
     };
-    let encoded = crate::context::digest(&host_id);
     let mut calls = Vec::new();
     for (index, value) in values.iter().enumerate() {
         let tool = advertised
@@ -397,10 +396,12 @@ pub fn gateway_calls(
             return Err(Error("invalid_tool_search_arguments"));
         }
         calls.push(Call {
-            id: if values.len() == 1 {
+            // Responses accepts at most 64 bytes. The original app identity
+            // remains in host_id for its ACK, even when native needs an alias.
+            id: if values.len() == 1 && host_id.len() <= 64 {
                 host_id.to_owned()
             } else {
-                format!("termux_{encoded}_{index}")
+                crate::context::digest(&(host_id, index))
             },
             host_id: host_id.to_owned(),
             tool,
@@ -495,11 +496,28 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert!(calls.iter().all(|c| c.host_id == "host-1"));
         assert_ne!(calls[0].id, calls[1].id);
+        assert!(calls.iter().all(|c| c.id.len() <= 64));
         assert_eq!(calls[1].output_item().unwrap()["type"], "custom_tool_call");
         assert_eq!(
             gateway_calls("host", r#"{"name":"missing","input":"{}"}"#, &value.tools).unwrap_err(),
             Error("unadvertised_tool")
         );
+    }
+    #[test]
+    fn long_host_ids_keep_ack_identity_and_portable_native_results() {
+        let value = Request::parse(request(), &Config::default(), None).unwrap();
+        let host = "h".repeat(256);
+        let args = r#"{"name":"functions.exec","input":"{}"}"#;
+        let (calls, _) = gateway_calls(&host, args, &value.tools).unwrap();
+        let call = &calls[0];
+        assert_eq!(call.host_id, host);
+        assert!(call.id.len() <= 64);
+        let output = call.output_item().unwrap();
+        assert_eq!(output["call_id"], call.id);
+        let (retry, _) = gateway_calls(&host, args, &value.tools).unwrap();
+        assert_eq!(retry, calls);
+        let (other, _) = gateway_calls(&"i".repeat(256), args, &value.tools).unwrap();
+        assert_ne!(other[0].id, call.id);
     }
     #[test]
     fn unsafe_or_unsupported_requests_never_reach_host() {

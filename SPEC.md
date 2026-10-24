@@ -86,6 +86,13 @@ update authority is maintained.
   transition. Ordinary model selection reuses the same upstream-owned history
   without requesting or waiting for a new source-model summary. Upstream retains
   its own conditional context-limit and compaction-compatibility handling.
+  Newly generated native tool call IDs must fit the Responses 64-byte limit
+  for both single calls and batches. Calls and results retain the same identity
+  across provider changes; app-side host IDs and logical MCP retry IDs remain
+  separately bound to their original invocation. Preserving a thread UUID alone
+  does not qualify interoperability: after Chat tools settle, a native follow-up
+  must submit the retained calls/results successfully, and Chat re-entry must
+  retain that native continuation without replaying an earlier effect.
   History handoff uses the model in the verified native thread snapshot; an
   absent or different default model in account configuration cannot gate it.
   A native systemError whose final recorded turn is failed is a settled boundary

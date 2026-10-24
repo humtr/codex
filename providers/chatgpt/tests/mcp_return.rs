@@ -35,6 +35,10 @@ impl Root {
 }
 impl Drop for Root {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("failed fixture retained at {}", self.0.display());
+            return;
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -304,6 +308,7 @@ struct AppState {
     commands: Vec<Value>,
     lanes: BTreeMap<String, Value>,
     results: Vec<Value>,
+    return_only: bool,
 }
 struct App {
     state: Arc<Mutex<AppState>>,
@@ -318,6 +323,10 @@ impl Bridge for App {
         let native = self.native;
         let hold = self.hold;
         Box::pin(async move {
+            if command["op"] == "dispose" {
+                assert!(state.lock().unwrap().lanes.is_empty());
+                return Ok(json!({"disposed":true}));
+            }
             let marker = command["lane"].as_str().unwrap().to_owned();
             let mut data = state.lock().unwrap();
             data.commands.push(command.clone());
@@ -348,7 +357,14 @@ impl Bridge for App {
                         .next()
                         .unwrap()
                         .to_owned();
-                    data.lanes.insert(marker.clone(),json!({"round":command["round"],"messages":[],"terminals":[],"roundStarts":1,"userMessages":1,"toolMessages":0,"dispatches":1}));
+                    data.lanes.insert(marker.clone(),json!({"round":command["round"],"messages":[],"terminals":[],"roundStarts":1,"userMessages":1,"toolMessages":0,"dispatches":1,"pending":false,"streamActive":false,"approvalPending":false}));
+                    if data.return_only {
+                        assert!(command.to_string().contains("Native continuation verified"));
+                        let lane = data.lanes.get_mut(&marker).unwrap();
+                        lane["messages"] = json!([{"id":"returned-final","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Chat continuation verified"]},"status":"finished_successfully","end_turn":true}]);
+                        lane["terminals"] = json!(["done"]);
+                        return Ok(json!({"started":true}));
+                    }
                     if hold {
                         return Ok(json!({"started":true}));
                     }
@@ -1026,8 +1042,31 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
         .unwrap();
     let stop = CancellationToken::new();
     let shutdown = stop.clone();
+    let native_requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let received = native_requests.clone();
+    let router = service.router().route("/native/responses", axum::routing::post(move |request: axum::extract::Request| {
+        let received = received.clone();
+        async move {
+            use axum::response::IntoResponse;
+            let compressed = request.headers().get("content-encoding").is_some_and(|v| v == "zstd");
+            let bytes = axum::body::to_bytes(request.into_body(), 32 * 1024 * 1024).await.unwrap();
+            let bytes = if compressed { zstd::stream::decode_all(&bytes[..]).unwrap() } else { bytes.to_vec() };
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+            received.lock().unwrap().push(body.clone());
+            // Independently enforce the native server's observed input contract.
+            if body["input"].as_array().unwrap().iter().any(|item| item["call_id"].as_str().is_some_and(|id| id.len() > 64)) {
+                return (axum::http::StatusCode::BAD_REQUEST, "call_id exceeds 64 bytes").into_response();
+            }
+            let item = json!({"id":"native-final","type":"message","role":"assistant","content":[{"type":"output_text","text":"Native continuation verified","annotations":[]}]});
+            let response = json!({"id":"native-response","object":"response","model":body["model"],"status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}});
+            let frames = [json!({"type":"response.created","response":{"id":"native-response","status":"in_progress","output":[]}}), json!({"type":"response.output_item.done","output_index":0,"item":item}), json!({"type":"response.completed","response":response})];
+            let text = frames.iter().map(|event| format!("event: {}\ndata: {}\n\n", event["type"].as_str().unwrap(), event)).collect::<String>();
+            ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], text).into_response()
+        }
+    }));
     let server = tokio::spawn(async move {
-        codex_chatgpt_provider::server::serve(listener, service, shutdown)
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move { shutdown.cancelled().await })
             .await
             .unwrap()
     });
@@ -1042,41 +1081,47 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
         unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) }
     });
     let fds = files.each_ref().map(AsRawFd::as_raw_fd);
-    let mut command = tokio::process::Command::new(runtime);
-    command
-        .env_clear()
-        .env("PATH", prefix.join("bin"))
-        .env("SHELL", prefix.join("bin/bash"))
-        .env("PREFIX", &prefix)
-        .env("HOME", root.0.join("home"))
-        .env("CODEX_HOME", root.0.join("codex"))
-        .env("TMPDIR", root.0.join("tmp"))
-        .env("TERM", "dumb")
-        .current_dir(root.0.join("work"))
-        .args([
-            "exec",
-            "--json",
-            "--skip-git-repo-check",
-            "--profile",
-            "chatgpt",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Perform the owned MCP return qualification",
-        ])
-        .kill_on_drop(true);
-    unsafe {
-        command.pre_exec(move || {
-            for (source, destination) in fds.into_iter().zip(33..=35) {
-                if libc::dup2(source, destination) < 0 {
-                    return Err(std::io::Error::last_os_error());
+    let native_command = || {
+        let mut command = tokio::process::Command::new(&runtime);
+        command
+            .env_clear()
+            .env("PATH", prefix.join("bin"))
+            .env("SHELL", prefix.join("bin/bash"))
+            .env("PREFIX", &prefix)
+            .env("HOME", root.0.join("home"))
+            .env("CODEX_HOME", root.0.join("codex"))
+            .env("TMPDIR", root.0.join("tmp"))
+            .env("TERM", "dumb")
+            .current_dir(root.0.join("work"))
+            .kill_on_drop(true);
+        unsafe {
+            command.pre_exec(move || {
+                for (source, destination) in fds.into_iter().zip(33..=35) {
+                    if libc::dup2(source, destination) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
                 }
-            }
-            Ok(())
-        });
-    }
+                Ok(())
+            });
+        }
+        command
+    };
+    let mut command = native_command();
+    command.args([
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--profile",
+        "chatgpt",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "Perform the owned MCP return qualification",
+    ]);
     let output = tokio::time::timeout(std::time::Duration::from_secs(60), command.output())
         .await
         .unwrap()
         .unwrap();
+    std::fs::write(root.0.join("chat.stdout"), &output.stdout).unwrap();
+    std::fs::write(root.0.join("chat.stderr"), &output.stderr).unwrap();
     assert!(
         output.status.success(),
         "native execution failed: {}\n{}",
@@ -1102,11 +1147,114 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
         assert_eq!(data.results.len(), 3);
         assert!(data.results[2].to_string().contains("verified"));
     }
+    let thread = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["type"] == "thread.started")
+        .unwrap()["thread_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let native = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        native_command()
+            .env("OPENAI_API_KEY", "owned-inert-native-fixture")
+            .args([
+                "exec",
+                "--json",
+                "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-m",
+                "gpt-6.1-sol",
+                "-c",
+                "model_provider=\"openai\"",
+                "-c",
+                &format!("openai_base_url=\"http://{address}/native\""),
+                "resume",
+                &thread,
+                "Continue after the actual Chat tool results",
+            ])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    std::fs::write(root.0.join("native.stdout"), &native.stdout).unwrap();
+    std::fs::write(root.0.join("native.stderr"), &native.stderr).unwrap();
+    std::fs::write(
+        root.0.join("native-request.json"),
+        serde_json::to_vec(&*native_requests.lock().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        native.status.success(),
+        "native return failed: {}\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    assert!(String::from_utf8_lossy(&native.stdout).contains("Native continuation verified"));
+    {
+        let received = native_requests.lock().unwrap();
+        let body = received.last().unwrap();
+        let input = body["input"].as_array().unwrap();
+        let calls = input
+            .iter()
+            .filter(|v| {
+                matches!(
+                    v["type"].as_str(),
+                    Some("function_call" | "custom_tool_call")
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 3);
+        for call in calls {
+            assert!(input.iter().any(|result| matches!(
+                result["type"].as_str(),
+                Some("function_call_output" | "custom_tool_call_output")
+            ) && result["call_id"] == call["call_id"]));
+        }
+    }
+    state.lock().unwrap().return_only = true;
+    let returned = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        native_command()
+            .args([
+                "exec",
+                "--json",
+                "--skip-git-repo-check",
+                "--profile",
+                "chatgpt",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "resume",
+                &thread,
+                "Continue after the native answer without repeating tools",
+            ])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    std::fs::write(root.0.join("chat-return.stdout"), &returned.stdout).unwrap();
+    std::fs::write(root.0.join("chat-return.stderr"), &returned.stderr).unwrap();
+    assert!(
+        returned.status.success(),
+        "Chat re-entry failed: {}\n{}",
+        String::from_utf8_lossy(&returned.stdout),
+        String::from_utf8_lossy(&returned.stderr)
+    );
+    assert!(String::from_utf8_lossy(&returned.stdout).contains("Chat continuation verified"));
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
+        "one-native-effect\n"
+    );
     stop.cancel();
     server.await.unwrap();
     host.shutdown().await;
+    // Retain the actual canonical records and wire observation for admission.
+    let fixture_root = root.0.clone();
+    std::mem::forget(root);
     println!(
         "{}",
-        json!({"accepted":true,"actualNativeExecutor":true,"actualMcpHttpReturns":3,"appFixtureSubmissions":1,"chatSubmissions":0,"nativeEffects":3,"publicNativeTranscript":true,"liveConnectorAdmitted":false})
+        json!({"accepted":true,"fixtureRoot":fixture_root,"actualNativeExecutor":true,"actualMcpHttpReturns":3,"appFixtureSubmissions":2,"chatSubmissions":0,"nativeEffects":3,"sameThreadNativeFollowup":true,"sameThreadChatReturn":true,"publicNativeTranscript":true,"liveConnectorAdmitted":false})
     );
 }
