@@ -32,7 +32,7 @@ Independent-agent and GPT Pro reviews were not performed.
 
 Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is fully publicly
 read back, Android-consumed, stable-promoted and activated for the ID repair.
-Provider11 below is current, with Provider10 retained for rollback.
+Provider12 below is current, with Provider11 retained for rollback.
 Binary SHA256 is `c742fdd1ba66ba4315d8bb3fe839601b70ad633223785eee6ab7bc2dc1d6a64a`.
 Source40096385599, Provider/Android40096385723 and signing40097313205 pass.
 The12 public assets, installed compositions, signed package lifecycle, exact
@@ -66,13 +66,13 @@ Evidence: `~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`, especially
 package/composition records, targeted-fault logs and the original failed observers.
 Implementation, qualification, signed publication and device activation are complete.
 
-## Project selection and app recovery: Provider11 delivered
+## Project selection and app recovery: Provider12 delivered
 
-Provider11 `chatgpt-48cad317cce4-s11`, source48cad317, is signed, publicly
-read back, Android-consumed, activated and stable-promoted; Provider10 is rollback.
+Provider12 `chatgpt-5d2204a6c664-s12`, source5d2204a6, is signed, publicly
+read back, Android-consumed, activated and stable-promoted; Provider11 is rollback.
 Installed Core remains Full107 with its qualified c55a5c9 frontend. Source
-40118316883, Provider/Android40118316904 and signing40119213855 pass. Public
-promotion64bafd5 changes only Provider index/signature/source, without forcing
+40122894013, Provider/Android40122894169 and signing40123806220 pass. Public
+promotion0eadaced changes only Provider index/signature/source, without forcing
 history or modifying Base/Full heads.
 
 The newly reported thread01a16ee2-04c0-7a91-afa5-9de91bde8189 executed12
@@ -90,16 +90,16 @@ discards completion callbacks, so its separate submission branch/capability gate
 is removed. User input and local tool results share the existing submission
 implementation. First transport-error and resume metadata reaches content-free
 Provider logs; no timeout extension, replacement inference or upstream patch
-was added. Direct affected-flow review and three disposable faults detect missing
-completion, the obsolete helper and a project selection that leaves retain mode.
+was added. Direct affected-flow review and four disposable faults detect missing
+completion, the obsolete helper, retain-mode selection and late old completion.
 Disposable source is restored; independent-agent/GPT Pro review was not performed.
 
 A final same-epoch approval-stream audit reproduced a late original submission
 callback settling the newer host reply. The additional source correction shares
 one completion observer between ordinary input/results and delegated approval,
 and fences it by both epoch and stream serial. The failing original audit and
-its passing regression are retained; this follow-up is awaiting fresh delivery,
-while Provider11 remains the admitted operating package.
+its passing regression are retained. Provider12 includes this correction and
+retains the verified project and original creation without another project.
 
 The initiating Chat transport loss remains unestablished. The404 belongs to the
 app's own resume endpoint, which the Provider new-dispatch hook does not intercept.
@@ -116,7 +116,8 @@ moves from individual AppHosts into that resolver. Existing conversations retain
 their destination. Only the new project tool declares a new write effect; other
 qualified tool annotations remain unchanged. Broad setup UX remains deferred.
 
-The actual logged-in app created one owned private `Codex` project. Readback and
+The actual logged-in app created one owned private `Codex` project under
+Provider11; Provider12 reuses that same verified destination. Readback and
 a second use of its exact ID pass without inference or another creation, and
 history policy is now project. Four real primary turns on one new native UUID
 pass: Chat performs one native file read, Chat answers a follow-up, native
@@ -125,24 +126,32 @@ positively read back in that project. The one tool ID is64 bytes, previous turns
 and workspace bytes survive, and own native/host Stop are confirmed. This was
 normal live inference; missing-terminal recovery is independently exercised by
 source faults with the pinned-app fixture, not claimed as an induced live outage.
-Local184 Rust/76 Bun plus Python/lint/release and the armed actual Android native
+Local184 Rust/77 Bun plus Python/lint/release and the armed actual Android native
 command/patch/same-thread return fixture pass; its app/model replies are synthetic.
 The exact hosted executable, compositions, signed package lifecycle with owned
 TLS,12 public assets and disposable public install/use/rollback/stable update pass.
+The first Provider12 live fixture submitted0 primary prompts: model re-entry
+showed the native read-only/other-app ownership guard. Its terminal and native
+records are preserved, with no inference replay or lock bypass. A new fixture
+waited for the frontend's actual ready composer before model input and completed
+the four turns. The original lock holder is unverified; no Core code or timeout
+was changed, and the first failure is not accepted proof.
 
 For activation, the reported failed work's native Stop and zero jobs are confirmed,
 but its legacy app Stop remains unconfirmed. Its saved committed final is freshly
 read back. Normal Provider maintenance shutdown fences MCP and closes its owned
 app; the failed record remains reconciliation_required, never relabeled completed
-or replayed.19 registered native server process identities and16 other protected
-config/auth/launcher inputs survive. The sole intended policy change is Provider
+or replayed.19 registered native server process identities survive. All17 protected
+inputs are unchanged during the final activation; the earlier authorized Provider
+history update is verified separately. The sole intended policy change is Provider
 history selection. The same app identity,17-tool MCP inventory, shared generated
 routing and final ready/idle app state are verified. Physical second-client UI
 was not observed.
 
 Evidence: `~/.cache/codex/acceptance/post-answer-recovery-20261024/`, especially
-`delivery/{final-device-proof,project-selection-proof,live-project-membership,
-live-device-smoke,stable-consumer-proof}.json`, original failed observers and
+`delivery12/{final-device-proof,project-selection-proof,live-project-membership,
+live-device-smoke,stable-consumer-proof}.json`, original project creation in
+`delivery/project-selection-proof.json`, original failed observers and
 mutation logs. Completed inactive fixture payloads are archived through the
 existing cleaner with restore records; current/rollback artifacts and the unknown
 repository target are preserved. Reusable compiler caches remain below15GiB.
@@ -319,18 +328,18 @@ claim that newly added code is established architecture.
 
 ## Current status and next action
 
-Signed Provider11 `chatgpt-48cad317cce4-s11`, source48cad317, is fully publicly
-read back, Android-consumed, activated and stable-promoted; Provider10 is rollback.
+Signed Provider12 `chatgpt-5d2204a6c664-s12`, source5d2204a6, is fully publicly
+read back, Android-consumed, activated and stable-promoted; Provider11 is rollback.
 The project/recovery section above owns its proof and remaining cause boundary.
 Core remains Full107; its native runtime/frontend are unchanged by this repair.
 
-Current device readback proves the admitted11 service/stdio images, same logged-in
+Current device readback proves the admitted12 service/stdio images, same logged-in
 app identity/readiness,17 authenticated MCP tools,19 registered native owners and
-account-local config/auth preservation. Shared routing is rebound to11. The new
+account-local config/auth preservation. Shared routing is rebound to12. The new
 Codex project is verified and selected for new lanes, and four real primary turns
 including a consecutive Chat follow-up complete. The reported older failed work
 remains recorded for reconciliation. The following activation/restart observations
-are retained earlier boundaries, not a statement that Provider9 or10 is selected.
+are retained earlier boundaries, not a statement that an earlier Provider is selected.
 
 The first activation attempt correctly refused an inherited package lease and
 left selection8 unchanged; services were restored. The exact native catalog
@@ -422,9 +431,9 @@ prune user state, the unknown target or operating current/rollback generations.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Provider11 verified project selection and recovered submission completion, with portable IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
+| Implementation | Provider12 verified project selection and stream-bound recovered submission completion, with portable IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
 | Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
-| Public/selected Provider | Sequence11/source48cad317, previous10, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
+| Public/selected Provider | Sequence12/source5d2204a6, previous11, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
 | MCP | Authenticated local17-tool inventory, including explicit project selection, accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
