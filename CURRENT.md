@@ -6,58 +6,64 @@ README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
 `~/.cache/codex/acceptance`.
 
-## Unshipped tool-call interoperability repair
+## Tool-call interoperability: Provider10 delivered
 
-Session01a16cf1-847a-7b30-9868-28c74e5cef1b completed its Chat research,
-then selected gpt-6.1-sol/high at2026-10-24T09:15:34Z. The actual native
-follow-up failed at09:15:53Z with HTTP400: input[7].call_id was68 characters,
-above the64-character limit. All9 retained tool calls and their9 results use
-the old mcp_ plus64-hex identity. Selection succeeded; history admission failed.
+The research session01a16cf1-847a-7b30-9868-28c74e5cef1b selected
+native gpt-6.1-sol/high at2026-10-24T09:15:34Z, but its09:15:53Z follow-up
+failed with HTTP400: a retained68-character call_id exceeded64 characters.
+Selection succeeded; history admission failed.
 
-Responsibility/data flow: gateway_calls translates app/MCP invocation identity
-into native Call records; upstream preserves those calls and matching results.
-The candidate bounds that native identity to64 bytes, hashing long single-host
-IDs and batch positions while preserving the original host ID for ACK/results.
-MCP logical/retry keys and the journal format remain unchanged. Broker dispatch
-IDs also use the unprefixed64-hex digest: Operator correlates those IDs directly
-with native results, while AppHost maps native aliases back to host IDs. The
-first773c937 candidate exposed this missed consumer during exact-binary Android
-qualification: one command executed, but its result failed with mcp_result_invalid
-and the caller timed out. The candidate was not signed, published or activated;
-its original native records and effect are preserved without replay. The earlier
-AppHost-only mutation did not cover Operator and did not justify removing the
-Broker dispatch-ID correction. Both producers are now included. No alternate executor,
-transcript, provider route, migration flag or temporary product path is added.
+Responsibility/data flow: gateway_calls produces portable native Call IDs while
+retaining the app host ID for ACK/results. Broker dispatch IDs also use64-hex
+digests because Operator directly correlates those IDs with native results;
+logical retry keys and the journal format are unchanged. Native and Chat continue
+through the existing upstream transcript/executor, without an upstream patch,
+transport proxy, migration flag or second history store. The user explicitly
+excludes retroactive repair; old oversized historical IDs are left intact.
 
-The existing Android MCP execution proof now continues its actual command/patch/
-verification history through a native follow-up and back into Chat on the same
-UUID, checks matched call/results at a strict64-byte native endpoint and verifies
-the original effect was not replayed. App/model replies remain synthetic; this
-is actual Android execution and transport proof, not real-model/API acceptance.
-Earlier transition fixtures returned only text, and earlier real-Chat cold/warm
-proofs prohibited tools and ended after native selection. They did not qualify
-the tool-history/native-inference boundary that failed here.
+The first773c937 candidate missed the direct Operator consumer: one command
+executed, but its result failed with mcp_result_invalid. It was rejected before
+signing; its effect and failed native turn remain preserved without replay.
+Source6e26cee includes both the Broker and gateway corrections. Local full gates
+(369 Rust/141 Python), Provider gates (182 Rust plus Bun/Python), targeted faults
+and direct diff/producer-consumer review pass. Mutations detect old Broker IDs,
+unbounded app IDs and oversized batch IDs; disposable source is restored.
+Independent-agent and GPT Pro reviews were not performed.
 
-Local full and Provider gates pass, including formatting/lint and the release
-build. The full gate executes369 Rust and141 Python tests; the Provider gate
-executes182 Rust tests plus its Bun/Python checks. The explicitly armed Android
-test also passes, with canonical Chat→gpt-6.1-sol→Chat turns on one UUID, three
-64-byte tool IDs and exactly one original command effect. Disposable mutations
-that restore unbounded single-host IDs and oversized batch IDs fail at the strict
-native request and batch-output boundaries respectively; source is restored.
-Direct production-flow/diff review passes. Independent-agent and GPT Pro reviews
-were not performed. Evidence is retained under
-`~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`; original failed observers
-remain there as well. The fixture now supplies actual settled-state fields and
-implements passive disposal rather than failing after the successful round trip.
-No required assertion was relaxed. This candidate is not published or activated;
-Full107/Provider9 remain the installed baseline. The user explicitly excludes
-retroactive repair: scope is correct ID generation for future tool calls and
-subsequent provider transitions. Existing oversized historical IDs are preserved
-as incident evidence, not a remaining migration task. No upstream change,
-transport proxy or compaction-based recovery is part of this repair. The source
-implementation and its affected-path validation are complete; signed publication
-and device activation remain separate delivery boundaries.
+Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is fully publicly
+read back, Android-consumed, stable-promoted and activated; Provider9 is rollback.
+Binary SHA256 is `c742fdd1ba66ba4315d8bb3fe839601b70ad633223785eee6ab7bc2dc1d6a64a`.
+Source40096385599, Provider/Android40096385723 and signing40097313205 pass.
+The12 public assets, installed compositions, signed package lifecycle, exact
+hosted native execution and public install/use/rollback pass. Non-forced stable
+promotion changes only Provider index/signature/source; installed Full107 and
+its frontend/runtime bytes remain unchanged.
+
+After activation, three real primary turns pass on one new UUID: Chat reads one
+owned file through one native command; gpt-6.1-sol/high answers from its result;
+Chat then quotes that native answer. The tool ID is64 bytes, prior canonical
+turns survive and the workspace is unchanged. Both Chat turns select none effort.
+Own work Stop confirms native and host stop. This actual logged-in-app/native
+inference proof is separate from synthetic Android admission tests.17 protected
+config/auth/launcher inputs, eight pre-existing work identities/phases,18
+registered native server process identities,16 MCP tools and fresh tunnel
+polling are positively read back. Physical second-client display was not observed.
+
+Host-only Stop initially refused an old reconciliation_required record. Its
+thread was unloaded on all18 verified servers, its last native turn failed,
+and it had no driver/pending calls or active app lane. Normal Provider maintenance
+shutdown then released its package lease; that record was not repaired or marked
+completed/stopped. A separate observer overcounted unregistered runtime PID4843,
+which exited without captured command provenance. Its purpose/cause is unknown;
+the incidental all-runtime-PID survival condition is rejected. Original failures
+remain evidence. Read-only verification covers the registered native owners,
+protected inputs, work inventory, signed selection, actual service/stdio images,
+app readiness and tunnel polling; no native server was stopped by the update.
+
+Evidence: `~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`, especially
+`delivery-final/{device-activation-proof,live-device-smoke,consumer-proof}.json`,
+package/composition records, targeted-fault logs and the original failed observers.
+Implementation, qualification, signed publication and device activation are complete.
 
 ## Reasoning-effort incident and redo boundary
 
@@ -227,18 +233,17 @@ claim that newly added code is established architecture.
 
 ## Current status and next action
 
-Signed Provider9 `chatgpt-aeaefa7bb85d-s9` is publicly staged, fully read back,
-Android-consumed, stable-promoted and activated. Sourceaeaefa7; binary SHA256
-`ccf904f937b73f8f40390c83339baf83308babed2fe01985eb7de0c26fa689a3`.
-Provider8 is retained for rollback. Signing40071609045,12 public assets,84
-composition steps,113 package-lifecycle steps,10 immutable consumer commands and
-3 stable consumer commands pass. Provider promotion uses non-forced exact-parent
-CAS and leaves Base/Full heads unchanged.
+Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is publicly staged,
+fully read back, Android-consumed, stable-promoted and activated. Provider9 is
+rollback. The tool-call interoperability section above owns its current proof
+and retained boundaries. Installed Core remains Full107; no native runtime or
+frontend replacement is needed for this Provider repair.
 
-Device readback proves the admitted9 service and stdio image, same logged-in app
-identity/readiness,16 authenticated MCP tools, existing6 works and account-local
-config/auth preservation. Shared generated routing is explicitly rebound to9.
-The bounded restart proof keeps the same stdio process through an explicit
+Current device readback proves the admitted10 service and stdio images, same
+logged-in app identity/readiness,16 authenticated MCP tools, pre-existing work
+inventory and account-local config/auth preservation. Shared generated routing
+is explicitly rebound to10. Provider9's retained bounded restart proof keeps
+the same stdio process through an explicit
 `stale_process_owner` error and a replacement endpoint/bearer;16 tools then return,
 while tunnel and its stdio process stay unchanged. Local readiness and fresh
 remote polling pass. First host observation timed out during startup; a separate
@@ -334,9 +339,9 @@ prune user state, the unknown target or operating current/rollback generations.
 
 | Plane | Verified state |
 | --- | --- |
-| Implementation | Provider9 continuity/queue repair and cold/warm saved-Chat frontendc55a5c9 qualified, published and activated |
+| Implementation | Provider10 portable native/Broker call IDs and retained continuity/queue repair; cold/warm saved-Chat frontendc55a5c9 remains qualified and installed |
 | Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
-| Public/selected Provider | Sequence9/sourceaeaefa7, previous8, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
+| Public/selected Provider | Sequence10/source6e26cee, previous9, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
 | MCP | Authenticated local16-tool inventory accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
