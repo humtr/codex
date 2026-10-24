@@ -49,7 +49,11 @@ async fn stdio_multiplexes_metadata_while_a_native_call_waits_and_detaches_witho
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let (mut input, reader) = tokio::io::duplex(65536);
     let (writer, output) = tokio::io::duplex(65536);
-    let stdio = tokio::spawn(codex_chatgpt_provider::mcp_stdio::run(reader, writer, port));
+    let stdio = tokio::spawn(codex_chatgpt_provider::mcp_stdio::run(
+        reader,
+        writer,
+        move |row| async move { codex_chatgpt_provider::mcp_stdio::forward(port, &row, None).await },
+    ));
     let mut output = BufReader::new(output).lines();
     send(&mut input,json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}})).await;
     let init = receive(&mut output).await;

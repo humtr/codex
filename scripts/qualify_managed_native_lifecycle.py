@@ -191,9 +191,12 @@ def probe(args):
         assert first['execution']['home'] == str(selected_home)
         assert first['workspace'] == str(selected_workspace)
         binding = {'work_id': first['id']}
-        wait(lambda: control('codex_status', binding).get('completed'))
+        # Observe the persisted result directly: a status RPC must not be the
+        # event that completes an otherwise finished work.
+        wait(lambda: record()['phase'] == 'completed')
         (root / 'warm-native.json').write_text(json.dumps(public(thread), indent=2) + '\n')
         steps.append('warm managed TUI turn completed through real Operator/AppHost')
+        steps.append('managed completion persisted without any codex_status request')
 
         # Arm the cold boundary before the observer starts: its first request
         # may be in flight when this controller closes the original backend.
@@ -382,6 +385,27 @@ def probe(args):
             result['workspace_rebound'] = True
             result['failed_request_native_return'] = True
             result['admission_fault'] = 'owned PID restored byte-for-byte; no app submission for the failed input'
+        # The Provider default is none; a mode-only start must retain a
+        # deliberately selected high effort on the actual native thread.
+        native_rpc(home, 'thread/settings/update', {'threadId': thread, 'effort': 'high'})
+        selected_settings = public(thread)
+        assert selected_settings['reasoningEffort'] == 'high'
+        current = record()
+        control('codex_sessions', dict(binding, action='start',
+            controller=current['capability'], call_id='owned-mode-preserves-effort',
+            task='OWNED_MODE_ONLY_SETTINGS_PRESERVATION', mode='plan'))
+        expected_turns += 1
+        wait(lambda: settled(thread, expected_turns))
+        wait(lambda: record()['phase'] == 'completed')
+        settings_after = public(thread)
+        assert settings_after['model'] == selected_settings['model']
+        assert settings_after['reasoningEffort'] == 'high', 'mode-only start reset selected effort'
+        context_rows = [json.loads(line)['payload'] for line in Path(settings_after['path']).read_text().splitlines()
+                        if json.loads(line).get('type') == 'turn_context']
+        assert context_rows[-1]['effort'] == 'high', 'actual new native turn did not execute selected effort'
+        result['mode_only_preserved_settings'] = {'model': settings_after['model'],
+                                                'selected_effort': 'high', 'turn_effort': context_rows[-1]['effort']}
+        steps.append('mode-only Plan start retains selected high effort instead of Provider none default')
         final = public(thread)
         assert len(final['turns']) == expected_turns and len({turn['id'] for turn in final['turns']}) == expected_turns
         for index, turn in enumerate(final['turns']):
@@ -400,7 +424,52 @@ def probe(args):
             and row['error'] in ['native_delivery_unknown', 'native_thread_owner_unavailable',
                 'native_socket_unavailable'] for row in read_errors), read_errors
         (root / 'final-native.json').write_text(json.dumps(final, indent=2) + '\n')
-        additional_inputs = additional_submissions = 0
+        # Continue the settled managed work through the current-Chat controller
+        # contract. This is the real MCP→Core path; only the Chat model is absent.
+        listed = control('codex_sessions', {'action': 'list'})['work']
+        selected = next(row for row in listed if row['work_id'] == binding['work_id'])
+        assert selected['thread_id'] == thread and selected['execution_home'] == str(selected_home)
+        boundary = control('codex_history', binding)
+        claimed = control('codex_sessions', dict(binding, action='claim', call_id='owned-followup-claim',
+            cursor=boundary['cursor'], context_cursor=boundary['context_cursor']))
+        assert record()['phase'] == 'completed', 'claim lost the settled route-transfer boundary'
+        current_binding = dict(binding, controller=claimed['controller'])
+        offered = control('codex_sessions', dict(current_binding, action='transfer', call_id='owned-current-transfer',
+            cursor=boundary['cursor'], context_cursor=boundary['context_cursor'], reasoning='current',
+            text='The owned synthetic app completed the retained native turns; continue development in this same thread.'))
+        current_binding['controller'] = offered['controller']
+        accepted = control('codex_sessions', dict(current_binding, action='transfer_accept',
+            call_id='owned-current-accept', cursor=boundary['cursor'], context_cursor=boundary['context_cursor'],
+            transfer_receipt=offered['offer']['receipt']))
+        assert accepted['accepted'] and accepted['thread_id'] == thread
+        assert any(row['op'] == 'release' for row in json.loads((root / 'bridge-commands.json').read_text()))
+        started_current = control('codex_sessions', dict(current_binding, action='start', call_id='owned-current-start',
+            task='OWNED_CURRENT_CHAT_FOLLOWUP_ON_SAME_NATIVE_THREAD'))
+        current_binding['controller'] = started_current['controller']
+        wait(lambda: record()['phase'] == 'running')
+        attached = control('codex_attach', current_binding)
+        assert control('codex_attach', dict(current_binding, accept=attached['receipt']))['accepted']
+        tools = control('codex_tools', current_binding)['tools']
+        shell = next(key for key in tools if key.rsplit('.', 1)[-1] in ['exec_command', 'shell_command'])
+        command = "printf 'same native work\\n' > owned-current-followup.txt"
+        arguments = {'cmd': command, 'login': False, 'max_output_tokens': 1000} if shell.endswith('exec_command') else {'command': command}
+        control('codex_execute', dict(current_binding, call_id='owned-current-effect', name=shell,
+            input=json.dumps(arguments), report='Run the owned same-thread follow-up.'))
+        assert (selected_workspace / 'owned-current-followup.txt').read_text() == 'same native work\n'
+        control('codex_finish', dict(current_binding, call_id='owned-current-final', text='OWNED_CURRENT_CHAT_CONTINUED_SAME_THREAD'))
+        wait(lambda: settled(thread, expected_turns + 1))
+        direct_final = public(thread)
+        assert direct_final['turns'][:-1] == final['turns']
+        assert any(item.get('text') == 'OWNED_CURRENT_CHAT_CONTINUED_SAME_THREAD' for item in direct_final['turns'][-1]['items'])
+        assert 'OWNED_CURRENT_CHAT_CONTINUED_SAME_THREAD' in screen, 'current-Chat final did not reach attached native TUI'
+        current_submissions = warm_submissions + [row for row in json.loads((root / 'bridge-commands.json').read_text()) if row['op'] == 'submit']
+        assert len(current_submissions) == len(submissions), 'current reasoning created another managed model request'
+        (root / 'direct-followup-native.json').write_text(json.dumps(direct_final, indent=2) + '\n')
+        final = direct_final
+        steps.append('settled managed work → current-Chat claim/transfer/accept → real native write/final on the same thread')
+        result['same_thread_current_followup'] = {'native_effect': True, 'native_final': True, 'attached_TUI_final': True,
+                                                'new_managed_submissions': 0, 'thread_id': thread}
+        additional_inputs, additional_submissions = 1, 0
         if args.account_roundtrip:
             submit('/quit')
             process.wait(timeout=15)
@@ -472,7 +541,8 @@ def probe(args):
             assert public(fresh)['turns'] == saved_turns
             result['ordinary_cold_resume_without_profile'] = True
             steps.append('ordinary cold resume needs no provider profile and returns to native without inference')
-            additional_inputs, additional_submissions = 2, len(fresh_submissions)
+            additional_inputs += 2
+            additional_submissions = len(fresh_submissions)
             result['fresh_first_failure_return'] = True
             result['fresh_thread_id'] = fresh
             steps.append('fresh first-prompt failure retains readable history and permits native/Chat return without replay')

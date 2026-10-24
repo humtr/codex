@@ -1424,7 +1424,13 @@ the optional Provider's candidate work/chats/host facade; G admits its public
 codex dispatch/packaging separately without making Manager mandatory.
 
 One renderer connection/hook owner is shared, with transport declarations per
-lane/work rather than a service-wide mode toggle. F must refactor the current
+lane/work rather than a service-wide mode toggle. Request ownership requires
+its lane metadata/signature, an already sent
+batch, an observed host-permission response or an active owned stream. A saved
+conversation ID alone does not own a new ordinary Chat user request after that
+stream settles. Such input and its ordinary stream pass through unchanged;
+late owned requests remain fenced by Stop and duplicate-delivery rules.
+F must refactor the current
 global app-bridge mode before admitting mixed MCP/local lanes concurrently;
 validate capabilities before inference, pass nonowned Chat requests through
 unchanged and never replace a busy owner's hooks. A capability conflict is an
@@ -1581,6 +1587,12 @@ explicit user-authorized input without taking native control. Direct/managed
 transfer additionally requires reconciled calls/jobs, current history/context
 coverage, old-controller fencing and successor acceptance. Input, read and
 takeover have distinct receipts; sending input alone cannot grant control.
+Work listing exposes the bound execution home and saved source conversation ID
+so a follow-up can select the existing work. A claim at a completed idle boundary
+preserves that completed boundary while rotating its controller. Route transfer
+then uses the existing history/context coverage and destination-accept handshake.
+Transferring a settled managed lane detaches its passive app hooks without
+submitting a Stop to an ordinary Chat stream or creating a replacement Chat.
 
 **Agents and coordination.** The initiating Codex or current Chat reasoning context
 coordinates by default; an extra managed coordinator is an explicit choice with
@@ -1996,6 +2008,10 @@ without a CLI has real native history and no fabricated CLI-origin request. Actu
 execution receipts come from native tools. Completion is idempotent and only
 confirmed after outstanding calls and the native turn settle. HTTP success or a
 saved report alone is not CLI visibility proof.
+For managed reasoning, the Operator reconciles completion from the bound native
+turn, no owned jobs and the settled app lane when native terminal events arrive.
+Status and overlapping-workspace admission use that same rule; completion must
+not depend on a prior status read. Stop and newer native turns fence old observers.
 Qualification CLI observers use the work's exact execution home as well as its
 verified backend socket. Isolated fixture homes explicitly select their generated
 Provider before model submission and preflight the native account requirement;
@@ -2020,6 +2036,17 @@ read-only compatibility projection separate from the paged execution items, with
 its own source cursor in history, attachment acknowledgment, handoff and recovery
 coverage. Return later committed input changes with the original MCP tool result;
 an upstream queued input is not committed merely because its injection RPC returned.
+`codex_sessions action=queue` and `work queue` expose upstream `thread/queue/add`
+for an explicit `thread_id`, `text` and stable `call_id`. They preserve its model
+and effort and use the uniquely verified live owner across execution homes;
+explicit `execution_home` selects a home, including an unloaded saved thread.
+With no live owner, the configured execution home may prepare its existing native
+backend to access saved work. No new thread, Chat conversation or local scheduler
+is created. The enqueue response means queued, not a completed receiving turn.
+Identical retries return the original receipt before looking up a current owner.
+After uncertain delivery, reconcile the stable native client-message identity in
+the upstream queue and canonical user items; an absent observation stays unknown
+and must not trigger retransmission. Changed arguments for the same logical ID fail.
 Never edit the rollout, infer missing content from timestamps, or save a second
 transcript. A native API providing the same complete public context can replace
 this version-specific reader after qualification.
@@ -2204,9 +2231,11 @@ paths/profile in private common configuration; native execution home/workspace
 remain Provider-config authority. Observation may use the admitted immutable
 Provider image to avoid Core activation-lock contention, with explicit rebinding
 during package/service maintenance. A failed observation preserves the current
-transport; only a confirmed Provider PID/start change renews its exact owned local
-tunnel child. MCP stdio stdout remains reserved for protocol messages, separate
-from diagnostics.
+transport. MCP stdio uses that explicitly admitted Provider image directly and
+verifies the current service endpoint/credential per RPC. Provider PID/start
+changes do not restart the tunnel or replay a request. Rebinding the immutable
+stdio executable is a separate bounded maintenance action. MCP stdio stdout
+remains reserved for protocol messages, separate from diagnostics.
 
 Runit may restart an exited service, but it must not replay native/Chat work,
 submit prompts, grant approval, perform updates or change account/model settings.
@@ -2340,8 +2369,12 @@ catalog; native_tool dispatches native tools.
 Exact-call validation and replay protection remain enforced by the Provider.
 Upstream Codex owns tool execution, approvals and canonical history; Termux Core
 only prepares and launches its verified runtime. The same binary's optional
-mcp-stdio command verifies an already running owned Provider and forwards bounded
-multiplexed JSON-RPC for an existing tunnel;
+mcp-stdio command verifies an already running owned Provider for each RPC and
+forwards bounded multiplexed JSON-RPC for an existing tunnel. Each request uses
+the same verified service snapshot for its process, port and credential; later
+requests discover replacement generations without retaining stale endpoints.
+An unavailable service produces a request error while stdio stays open, including
+when the service is absent at bridge startup. No mutation is automatically replayed;
 it never starts an app/service, repeats delivery or executes tools. EOF/request
 cancellation detaches only that observer. A random per-app-turn capability authorizes native_catalog/native_tool;
 each logical call ID binds exact tool/input/report, independently of JSON-RPC IDs.
@@ -2351,7 +2384,15 @@ loss detaches its waiter, not the native action; an exact retry receives the sam
 result. Changed IDs/arguments, stopped turns and unresolved owner changes refuse.
 Return native results to the retained original MCP invocation, never submit them
 as a new Chat user/tool message. A retained app turn cannot silently change model,
-effort or developer policy. Catalog discovery may extend declared native tools;
+effort or developer policy. Effective tool definitions belong to the current
+request: explicit top-level declarations own the complete current set. In
+Responses Lite, input declarations are chronological incremental updates or
+one rebuilt catalog for a nonincremental window. Validate each batch independently
+and apply later definitions by tool key; history is not one simultaneous catalog.
+Each individual catalog must remain internally unambiguous. Discovery results
+can extend that set, while explicit current declarations retain precedence;
+pending calls retain their original tool identity and result binding. Historical
+catalogs cannot re-advertise tools absent from a current catalog.
 new user input waits for a settled boundary. Account/project/stop/transcript rules
 are identical to the local-function path. Host confirmation/authentication must
 surface as blocked state, never be bypassed. Rust wire fixtures alone do not admit
@@ -2590,8 +2631,13 @@ new managed homes, but is not needed for Provider preparation. Native defaults
 and unrelated config/auth remain unchanged. Managed native work renders its
 per-thread routing directly and writes only immutable catalog snapshots in its
 own state; it does not publish or replace the shared or per-home profile. Only
-explicit `prepare` publishes those profile outputs. Generated catalog snapshots are
-immutable; settings edits apply to projections at the next explicit preparation,
+explicit `prepare` publishes those profile outputs. Routing restoration supplies
+no model, provider-selection or reasoning defaults to
+an existing thread: native persisted settings remain authoritative. Explicit
+Chat profile/route selection supplies its configured initial settings. A
+mode-only start reads the bound thread's current model and nullable effort;
+changing between Plan and Default must not reset them to Provider defaults.
+Generated catalog snapshots are immutable; settings edits apply to projections at the next explicit preparation,
 and active backends retain their bound catalog. A model route reload in the
 running Provider does not require regenerating metadata when its public contract
 is unchanged. Native Codex

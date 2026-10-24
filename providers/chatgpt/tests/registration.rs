@@ -2,7 +2,7 @@ use codex_chatgpt_provider::{
     config::Config,
     journal::random_id,
     protocol::Error,
-    registration::{prepare, MARKER, PROVIDER},
+    registration::{native_routing, prepare, MARKER, PROVIDER},
 };
 use std::{
     fs,
@@ -36,6 +36,8 @@ fn one_generated_profile_links_homes_and_retains_immutable_catalogs_and_native_c
     let home = root.0.join("home");
     let binary = std::env::current_exe().unwrap();
     let mut config = Config::default();
+    config.model.default = config.catalog.models[0].id.clone();
+    config.model.reasoning_effort = "xhigh".into();
     fs::write(home.join("config.toml"), "# user native settings\n").unwrap();
     let first = prepare(
         &config,
@@ -53,6 +55,22 @@ fn one_generated_profile_links_homes_and_retains_immutable_catalogs_and_native_c
     assert!(text.starts_with(MARKER));
     let routing: toml::Value = toml::from_str(&text).unwrap();
     assert_eq!(routing["model_provider"].as_str(), Some(PROVIDER));
+    assert_eq!(
+        routing["model"].as_str(),
+        Some(config.model.default.as_str())
+    );
+    assert_eq!(routing["model_reasoning_effort"].as_str(), Some("xhigh"));
+    let restored = native_routing(&config, &state, &binary, "http://127.0.0.1:12345/v1").unwrap();
+    for key in ["model", "model_provider", "model_reasoning_effort"] {
+        assert!(
+            restored.get(key).is_none(),
+            "restoration must retain saved {key}"
+        );
+    }
+    assert_eq!(
+        restored["model_catalog_json"].as_str(),
+        Some(old.to_str().unwrap())
+    );
     assert_eq!(
         routing["model_providers"][PROVIDER]["auth"]["args"][0].as_str(),
         Some("token")
@@ -151,7 +169,6 @@ fn managed_routing_preserves_user_profiles_and_only_publishes_owned_catalogs() {
     .unwrap();
     let first = pool.routing().unwrap();
     assert_eq!(first, pool.routing().unwrap());
-    assert_eq!(first["model_provider"], PROVIDER);
     let routing = &first["model_providers"][PROVIDER];
     assert_eq!(routing["base_url"], "http://127.0.0.1:12345/v1");
     assert_eq!(routing["requires_openai_auth"], false);

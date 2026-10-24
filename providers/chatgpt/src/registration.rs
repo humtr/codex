@@ -113,7 +113,10 @@ pub fn prepare(
     {
         return Err(Error("existing_user_profile_preserved"));
     }
-    let routing = native_routing(config, state, binary, base_url)?;
+    let mut routing = native_routing(config, state, binary, base_url)?;
+    routing["model"] = json!(config.model.default);
+    routing["model_provider"] = json!(PROVIDER);
+    routing["model_reasoning_effort"] = json!(config.model.reasoning_effort);
     let catalog = routing["model_catalog_json"].clone();
     let text = MARKER.to_owned()
         + &toml::to_string_pretty(&routing).map_err(|_| Error("profile_serialization_failed"))?;
@@ -165,6 +168,6 @@ pub fn native_routing(
         publish(&catalog, &bytes, None)?;
     }
     Ok(
-        json!({"model":config.model.default,"model_provider":PROVIDER,"model_reasoning_effort":config.model.reasoning_effort,"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":60000,"refresh_interval_ms":1000}}}}),
+        json!({"model_catalog_json":catalog,"model_providers":{(PROVIDER):{"name":"ChatGPT · Termux Provider","base_url":format!("http://127.0.0.1:{port}/v1"),"wire_api":"responses","requires_openai_auth":false,"supports_websockets":false,"request_max_retries":0,"stream_max_retries":0,"auth":{"command":binary,"args":["token","--state",state],"timeout_ms":60000,"refresh_interval_ms":1000}}}}),
     )
 }

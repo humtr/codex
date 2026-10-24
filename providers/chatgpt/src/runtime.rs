@@ -189,6 +189,10 @@ fn validate_binding(value: &Binding) -> Result<(), Error> {
 }
 
 pub async fn token(root: &Path) -> Result<String, Error> {
+    Ok(verified_binding(root).await?.token)
+}
+
+async fn verified_binding(root: &Path) -> Result<Binding, Error> {
     let selected = binding(root)?;
     let nonce = format!("{}{}", random_id()?, &random_id()?[..16]);
     let received=tokio::time::timeout(Duration::from_secs(3),async {
@@ -211,16 +215,20 @@ pub async fn token(root: &Path) -> Result<String, Error> {
         .verify_slice(&received)
         .map_err(|_| Error("invalid_readiness_proof"))?;
     selected.process.validate()?;
-    Ok(selected.token)
+    Ok(selected)
 }
 
 /// Authentication owns lazy process startup, never inference or request replay.
 /// Keep `token` itself read-only for readiness/status and internal proof.
 pub async fn ensure_token(root: &Path) -> Result<String, Error> {
+    Ok(ensure_binding(root).await?.token)
+}
+
+async fn ensure_binding(root: &Path) -> Result<Binding, Error> {
     if !root.is_absolute() {
         return Err(Error("absolute_state_directory_required"));
     }
-    if let Ok(value) = token(root).await {
+    if let Ok(value) = verified_binding(root).await {
         return Ok(value);
     }
     crate::journal::private_directory(root)?;
@@ -247,7 +255,7 @@ pub async fn ensure_token(root: &Path) -> Result<String, Error> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    if let Ok(value) = token(root).await {
+    if let Ok(value) = verified_binding(root).await {
         return Ok(value);
     }
     {
@@ -306,7 +314,7 @@ pub async fn ensure_token(root: &Path) -> Result<String, Error> {
             .map_err(|_| Error("provider_start_failed"))?,
     ));
     loop {
-        if let Ok(value) = token(root).await {
+        if let Ok(value) = verified_binding(root).await {
             // The service outlives this short-lived native authentication command.
             // No separate long-lived launcher or automatic inference is needed.
             child.0.take();
@@ -370,8 +378,7 @@ impl Drop for StartupChild {
 }
 
 pub async fn status(root: &Path) -> Result<serde_json::Value, Error> {
-    let selected = binding(root)?;
-    token(root).await?;
+    let selected = verified_binding(root).await?;
     Ok(
         json!({"schema":"termux-codex-provider-status-v1","live":true,"base_url":format!("http://127.0.0.1:{}/v1",selected.port),"process":selected.process,"meaning":"authenticated local endpoint; model/task progress is reported separately"}),
     )
@@ -462,8 +469,7 @@ async fn app_control(
     if thread.is_empty() || thread.len() > 256 || !thread.bytes().all(|c| c.is_ascii_graphic()) {
         return Err(Error("invalid_thread_identity"));
     }
-    token(root).await?; // verify an existing owner; never bootstrap for app controls
-    let selected = binding(root)?;
+    let selected = verified_binding(root).await?; // never bootstrap for app controls
     tokio::time::timeout(Duration::from_secs(if operation == "approve_ui" {55} else if approval {40} else {12}),async {
         let mut socket=tokio::net::TcpStream::connect(("127.0.0.1",selected.port)).await.map_err(|_|Error("provider_unavailable"))?;
         socket.write_all(format!("POST /__{operation} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\nAuthorization: Bearer {}\r\nX-Codex-Thread-Id: {thread}\r\n\r\n",selected.token).as_bytes()).await.map_err(|_|Error(unconfirmed))?;
@@ -500,8 +506,7 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
             return Err(Error("viewer_assets_required"));
         }
     }
-    ensure_token(root).await?;
-    let selected = binding(root)?;
+    let selected = ensure_binding(root).await?;
     let capability = selected
         .viewer_capability
         .ok_or(Error("provider_viewer_unavailable"))?;
@@ -514,14 +519,17 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
-    token(root).await?;
-    let selected = binding(root)?;
-    crate::mcp_stdio::run_authenticated(
-        tokio::io::stdin(),
-        tokio::io::stdout(),
-        selected.port,
-        Some(selected.token),
-    )
+    if !root.is_absolute() {
+        return Err(Error("absolute_state_directory_required"));
+    }
+    let root = root.to_path_buf();
+    crate::mcp_stdio::run(tokio::io::stdin(), tokio::io::stdout(), move |row| {
+        let root = root.clone();
+        async move {
+            let selected = verified_binding(&root).await?;
+            crate::mcp_stdio::forward(selected.port, &row, Some(&selected.token)).await
+        }
+    })
     .await
 }
 /// CLI and remote MCP use the same admitted tool call. This only observes an
@@ -531,8 +539,7 @@ pub async fn control(
     tool: &str,
     args: serde_json::Value,
 ) -> Result<serde_json::Value, Error> {
-    token(root).await?;
-    let selected = binding(root)?;
+    let selected = verified_binding(root).await?;
     let row = json!({"jsonrpc":"2.0","id":random_id()?,"method":"tools/call","params":{"name":tool,"arguments":args}});
     let response = tokio::time::timeout(
         Duration::from_secs(610),

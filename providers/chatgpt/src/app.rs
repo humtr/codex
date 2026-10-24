@@ -578,7 +578,7 @@ impl AppHost {
         self.connector = connector;
         self
     }
-    pub async fn stop(&self, thread: &str) -> Result<bool, Error> {
+    async fn existing_lane(&self, thread: &str) -> Result<Option<Arc<Mutex<Lane>>>, Error> {
         let key = context::digest(&thread);
         let mutex = {
             let mut lanes = self.lanes.lock().await;
@@ -595,6 +595,35 @@ impl AppHost {
                 None
             }
         };
+        Ok(mutex)
+    }
+    pub async fn detach_settled(&self, thread: &str) -> Result<(), Error> {
+        let key = context::digest(&thread);
+        let mutex = self
+            .existing_lane(thread)
+            .await?
+            .ok_or(Error("native_lane_not_found"))?;
+        let mut lane = mutex.lock().await;
+        if lane.phase != Phase::Idle
+            || !lane.pending.is_empty()
+            || !matches!(lane.cached.last(), Some(Event::Completed { .. }))
+        {
+            return Err(Error("app_lane_busy"));
+        }
+        let released = self
+            .bridge
+            .operation(json!({"op":"release","lane":lane.marker}))
+            .await?;
+        if released["released"] != true {
+            return Err(Error("app_lane_release_unconfirmed"));
+        }
+        lane.phase = Phase::Stopped;
+        self.journal.write(&key, &*lane)?;
+        Ok(())
+    }
+    pub async fn stop(&self, thread: &str) -> Result<bool, Error> {
+        let key = context::digest(&thread);
+        let mutex = self.existing_lane(thread).await?;
         let Some(mutex) = mutex else {
             return Ok(false);
         };

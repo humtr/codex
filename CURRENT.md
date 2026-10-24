@@ -1,12 +1,289 @@
 # Operating state and product completion
 
-Reviewed 2026-10-23 UTC. `rewrite/rust-core` owns implementation; `main` pins
+Reviewed 2026-10-24 UTC. `rewrite/rust-core` owns implementation; `main` pins
 accepted exact sources for signed publication. SPEC owns product contracts,
 README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
 `~/.cache/codex/acceptance`.
 
+## Reasoning-effort incident and redo boundary
+
+The original thread's `thread_settings_applied` records establish the actual
+selection change on2026-10-24: high→medium at02:30:32.045Z, then low at
+02:30:32.055Z. The user restored high at02:41:02.946Z. These are KST11:30:32
+and11:41:02. Current configuration and the earlier high `turn_context` did not
+disprove that change; the earlier denial used the wrong evidence. The preserved
+17 sampling-configuration log records in the low-selection interval still report
+High for the already-running turn. They establish that recorded request scope,
+not the absence of a TUI selection change or unrecorded requests' settings.
+
+Upstream0.164.0 binds both Shift+Down and Alt+comma to immediate effort reduction,
+accepts key repeats, and emits the user's exact lowest-level warning from that
+shortcut handler. It updates TUI state, then sends `thread/settings/update`;
+Core persists each resulting snapshot. Two such submissions precede the two
+recorded reductions. This explains a reachable accidental navigation/selection
+path without a model change, config rewrite or Provider round. Actual installed
+Android TUI reproduction yields high→medium→low and the identical warning.
+The precise original key is not recoverable: retained TUI logs start after that
+event and there is no original input recording. Do not attribute that key to the
+user, the assistant or a terminal defect as an established fact. Other producers
+checked include accepted model migration, the usage model-switch prompt and
+explicit model selection; none is established as this event's source.
+
+The user identified accidental shortcut input as likely and explicitly cancelled
+keymap prevention. The temporary opt-out in all6 existing execution paths
+(4 distinct config files) was removed; each file again exactly matches its
+pre-change bytes. README prevention guidance was also removed. No model/effort
+was forced, no user login or credential was changed, and no running user job or
+TUI was terminated. The shortcuts retain their original behavior.
+
+Actual Android Core/installed Full106 TUI, isolated signed fixture, inert auth and
+loopback Responses passed the following producer-to-consumer checks. Each case's
+own canonical thread and emitted follow-up request were checked independently:
+
+| Input/configuration | Canonical turn efforts | Result |
+|---|---|---|
+| Default Shift+Down, three presses | high, low | Two reductions and exact lowest-level warning reproduced |
+| Disabled shortcuts, Shift+Down | high, high | Navigation does not reduce effort |
+| Disabled shortcuts, Alt+comma | high, high | Alternate reduction binding disabled |
+| Explicit F6 remap | high, low | User-configured shortcuts still work |
+| Disabled shortcuts, explicit `/model --reasoning=medium` | high, medium | Manual model settings remain available |
+
+The successful fixture made15 local synthetic Responses requests across5 primary
+threads,0 real-model dispatches. Original failed fixtures remain preserved: one
+exceeded the Unix-socket path budget; one omitted the config-level endpoint and
+received401 from the official endpoint with an inert fixture key; two subsequent
+observers wrongly assumed a single request/thread despite native auxiliary work.
+The corrected observer uses each primary thread's canonical completion and
+effort, alongside the emitted request. No user auth was copied. These failed
+attempts are not accepted proof and are not hidden by a longer timeout or weaker
+product assertion.
+
+Retained change: an AGENTS rule distinguishing settings history from current
+config and request evidence, addressing the incorrect earlier diagnosis.
+There is no remaining keymap/configuration behavior change or temporary product
+code. The isolated keymap controls above are reproducibility evidence, not an
+active prevention policy. Local docs gate and final diff review passed; Iron
+Laws, independent-agent and GPT Pro review were not performed.
+
+Evidence: `~/.cache/codex/acceptance/bridge-incident-20261024/redo-high/` contains
+`effort-settings-timeline.json`, `sampling-effort-summary.json`,
+`effort-shortcut-android.json`, the diagnostic driver and original logs, and
+`effort-keymap-{application,reversion}.json`. The earlier13-file unshipped continuity candidate
+was preserved as `superseded-candidate.patch`/`superseded-source` and reverted to
+HEAD for the requested redo; none of its checks admits it as the final repair.
+The broader continuity repairs below remain open; this investigation does not
+claim their deployment or runtime replacement.
+
+## Open bidirectional-continuity findings
+
+The installed Full106/Provider8 acceptance below covers its recorded scenarios;
+it does not establish ordinary cold resume while already using Chat, automatic
+Chat-to-native follow-up, or live display in a second ChatGPT client. The user's
+reported failures expose remaining defects. Source repair is in progress;
+installed selection, account login and existing user work remain unchanged.
+
+Responsibility/data flow: native Core owns canonical turns and execution; the
+frontend must restore the selected model's Provider route and metadata together.
+Provider owns effective tool declarations, work/controller reconciliation and
+the app stream. A saved Chat read proves persistence, not another client's live
+display or acquisition of the same native controller.
+
+- **Cold Chat resume loses model metadata.** Original work8437349b / native
+  thread01a16ae9 initially used a catalog-backed server in janmori101; its failed
+  resume used a general server in wrlab. `add_installed_provider` restores only
+  the Provider definition, whereas explicit model entry also supplies
+  `model_catalog_json`. An isolated installed-Core replay of the original two
+  completed turns reproduces this boundary: with the generated Chat catalog,
+  the first47 canonical items exactly match the stored Provider prefix. Without
+  it, the same model ID gets a different first developer instruction
+  (184 versus21,546 characters), invalidating that prefix. This explains the
+  reported `native_context_prefix_changed` without corruption of the saved turns.
+  The native models manager owns its catalog at backend startup: adding a
+  thread-scoped path alone is insufficient. The current source resolves saved
+  Chat metadata in the existing startup/reconnection path before attachment;
+  explicit catalogs and model/effort choices remain authoritative. Sourceedd8151
+  builds and its55 focused native regressions pass. An actual Android isolated
+  same-thread native→Chat→cold Chat resume→native run passes without Manager,
+  using4 local synthetic Responses requests and0 real Chat requests. Both saved
+  history and saved effort survive plain resume without model/catalog overrides.
+  The native mutation correctly fails with Ok(false) versus Ok(true), but run
+  40062934666's observer incorrectly expected plural `1 tests`; that observer was
+  corrected and exact-source full native qualification is running again.
+  The prefix guard remains intact; no replacement Chat hides a failed resume.
+- **Historical/current tool declarations collide.** The native tool scope has15
+  tools; collected `tool_search` descriptions differ across revisions (13,185
+  versus13,856 characters). Installed Provider rejects those differences as
+  `ambiguous_tool_declaration`. The corrected source validates each declaration
+  batch independently, folds chronological incremental changes, and gives the
+  current request's explicit top-level complete catalog precedence. Native input
+  history with AdditionalTools remains incremental, even if the current feature
+  toggle is disabled: prompt.tools is empty and the client adds no rebuilt prefix.
+  A genuinely fresh nonincremental request carries the explicit current catalog.
+  No UUID-version or first-position heuristic remains. Original two-turn replay
+  contains a full catalog followed by a one-tool update; chronology preserves
+  the later revision without rejecting legitimate updates. Seven focused parser tests pass; a
+  disposable source mutation selecting the first history revision fails with
+  the expected old/current-contract mismatch and was restored. Offline parsing
+  of original installed-Core captures succeeds with0 app dispatches: the
+  catalog-backed capture uses its later475-character search declaration; the
+  non-Lite current catalog correctly omits historical search capability. A
+  helper initially assumed that capability existed in both captures; that failed
+  observer is retained and its corrected result is not a product fallback.
+  All4 actual-wire captures parse offline, including fresh nonincremental input;
+  chronological first-wins mutation fails and disposable source is restored.
+  Full local Provider acceptance passes on the final event-observer implementation.
+- **Workspace admission depends on stale phase and observation order.** Managed
+  exchange leaves a successful round marked running. `codex_status` can reconcile
+  an idle native completed turn and idle app lane to completed; installed create
+  checks stored phases without that observation. Candidate source moves that one
+  completion rule into native-event observation, status and workspace admission;
+  an old exchange finisher cannot overwrite completed or stopped. One observer
+  per work is cancelled on replacement/Stop/service close. Actual Android proof
+  explicitly waits for persisted completed before making any status request and
+  passes. A same-thread claim→transfer→accept from settled managed work also
+  passes actual Android MCP→Core execution: one native file write and final
+  reach the attached TUI with0 new managed model submissions. The first driver
+  failed to use start's rotated controller; its original failed observer is
+  retained and corrected to consume that response. A completed idle claim now
+  retains its route-transfer boundary, and managed transfer releases its passive
+  app hooks. Work listing supplies execution home and saved source ID so a
+  follow-up can select the existing work. Recovery routing now leaves saved
+  model/effort untouched; only
+  explicit initial Chat selection supplies Provider defaults. Mode-only starts
+  read the thread's current settings instead of applying those defaults. Actual
+  Android Plan-start metadata and the new canonical turn_context both retain
+  selected high effort against the Provider's none default. The actual saved Chat first requested
+  list, then create in prj/codex, then created a separate temporary work after
+  refusal. It did not continue the existing work. Reconcile the owning native
+  turn/jobs and app lane at admission, retain one writer, and use the existing
+  same-thread transfer/accept contract for current-Chat control. An ordinary
+  saved-Chat reply alone does not transfer control. Automatic same-Chat follow-up
+  still needs verified source/work routing rather than creating another work.
+- **MCP transport did experience disruption.** Tunnel logs show the stdio MCP
+  child exit at2026-10-23T22:45:27Z, a failed restart during a Core activation
+  transaction, and a successful new child at22:45:33Z. The initial exit's cause
+  is not established by those logs. At the later Chat retry, 2026-10-24T01:00:21–
+  01:00:28Z, polling timeouts occur and none of those three tool requests appears
+  in the local dispatcher log. Polling reports recovery at01:01:54Z. The same
+  tunnel process remains alive; current external host/list/status/read requests
+  and healthz/readyz succeed. `Session terminated` is not emitted by our MCP
+  server and does not prove native termination. Its precise remote session cause
+  remains unverified; neither permanent tunnel failure nor guaranteed continuous
+  connectivity follows from these observations. Recovery should reinitialize
+  the observation transport and reconcile the original request/work, never replay
+  an uncertain mutation or require a blind service restart.
+  Candidate stdio keeps one framing process and verifies the current service
+  endpoint/credential for each RPC. Actual CLI integration passes service loss,
+  one explicit error, replacement-service recovery and EOF without desktop/Core
+  launch. A disposable startup-binding-cache mutation makes that regression fail;
+  restored source passes. Native websocket cache also discards a closed transport
+  for the next new request; in-flight mutations retain unknown-delivery errors.
+  An owned real Unix websocket peer proves a lost mutation reply remains unknown,
+  its next read reconnects to the same process and the effect is not replayed.
+  This local proof does not establish remote MCP session recovery.
+- **Projection and client visibility are distinct.** The original saved Chat
+  read enumerates105 source message entries across five user messages; hidden,
+  unsupported and redacted contents retain the reader's explicit limitations. Only
+  its first two user requests correspond to the original completed native turns;
+  later direct Chat inputs and its temporary-work audit do not automatically
+  become turns in that native thread. AppHost projects its owned stream into
+  native output; the bridge has no delivery acknowledgment from another ChatGPT
+  client's visible conversation. Saved original responses are present, so
+  missing persistence is not established. A simultaneous physical second-client
+  live-display reproduction was not performed. Candidate hooks no longer own a
+  settled conversation's ordinary new user/tool stream just because its Chat ID
+  matches. They retain positive lane/request/host-reply ownership and Stop fences.
+  The SDK submission is reserved before invoking it, covering synchronous result
+  continuation as well as asynchronous starts. All56 app-wire contract tests pass;
+  actual app ABI/second-client refresh remains a separate acceptance boundary.
+
+User queue capability now uses the existing native queue, not a second scheduler.
+`codex_sessions action=queue` / `work queue` preserve model/effort, require explicit
+thread/text/stable call ID, and recover from the upstream queue or canonical
+client-message item without resend. Actual Android native gpt-6.1-sol proof passes
+warm enqueue/consumption, lost-receipt recovery after commit, owner-unavailable
+receipt readback, changed-input rejection, cold/unloaded explicit-account enqueue
+without inference, queued lost-receipt recovery, and consumption after plain
+resume. Six local synthetic Responses requests,0 real Chat requests; same UUID
+and original turns preserved. The first fixture tried to prepare over its own
+non-generated transition profile; the production preservation guard correctly
+refused. The corrected fixture retains that file before explicit preparation.
+The original failed diagnostic is retained. Queue ACK remains distinct from
+receiving-turn proof.
+
+Local Provider, Python and Rust acceptance pass. Final Provider gate exit0 is
+retained in `redo-high/final-provider-check-result.json`; all runtime tests,
+clippy, release build, Bun and Python gates pass. Clippy found an unnecessary
+borrow introduced while moving the completion rule; it was fixed at that call,
+without suppressing the diagnostic. Direct diff/production-flow review removed
+a redundant immediate completion RPC after every managed response: only the
+native terminal observer owns proactive completion, using the app lane committed
+before its Completed event. Final Android proof still passes with no status call.
+Omitting that observer in disposable source makes the first completion assertion
+fail with0 status observations; service close subsequently fences the work as
+reconciliation_required. An initial mutation driver picked a stale Cargo artifact;
+that rejected observer is retained and the corrected driver uses Cargo's emitted
+exact executable path. App-hook ownership and closed-native-cache mutations also
+fail their respective contracts, with disposable source restored. Existing app
+permission/Stop tests were corrected to identify their owned request explicitly;
+ordinary unowned user and tool streams are now covered independently. No tests
+were skipped or acceptance tolerances weakened. Independent-agent/GPT Pro review
+was not performed; this workspace requests direct execution and no Pro review
+facility is provisioned.
+
+Additional native investigation reproduced in-app `/resume` after a model-picker
+re-entry: generated CLI flags made an unrelated saved Chat use the current native
+model. Source0387c7c reuses the existing re-entry coordinator, with an internal
+launch-choice versus saved-resume marker; later in-app resume restores saved
+settings instead of treating generated flags as user CLI intent. It extracts the
+existing source guard/request construction, removes their old inline copy and
+adds no history conversion or summary. Cold and warm routes still use one Core
+launcher/backend binding implementation. Original user CLI model overrides keep
+upstream behavior. Native source build/mutation/full acceptance is running at
+40069163154; older40066060334 was cancelled as a superseded exact-source run.
+Android warm-resume acceptance is pending the new executable. Original failed
+probe remains `redo-high/warm-resume-probe.py` and ct.wbp2i211; no real model was
+called.
+
+Unsigned source candidates and synthetic integrations are not publication or
+device activation. The runit
+stdio wrapper still invokes Core and the tunnel keeper still restarts on service
+PID change; their documented target is direct admitted immutable stdio execution
+and per-RPC binding recovery. Apply only during bounded device maintenance after
+qualification, preserving user work/config and existing remote registration.
+
+Original native completion is2026-10-23T22:41:30Z (KST next day07:41:30), not a
+new execution at the next resume. The temporary Chat-origin audit finishes around
+22:50Z (KST07:50). The user's "Codex closed" retry is01:00Z (KST10:00). Saved
+message creation timestamps can precede the stream's completion; compare native
+task completion and correlated calls rather than sorting creation times alone.
+
+The earlier completion notice uses upstream `codex queue --thread ... --message`
+and verifies a new canonical receiving turn in the bound native supervisor. It
+does not select a Chat model or mirror an idle ChatGPT conversation. That proof
+and native→Chat→native model entry are different workflows; neither establishes
+the complete bidirectional behavior now requested.
+
+Evidence: `~/.cache/codex/acceptance/bridge-incident-20261024/` contains
+`correlation-summary.json`, `catalog-prefix-reproduction.json`,
+`installed-parser-reproduction.json`, `tunnel-{timeline,lifecycle}.json`,
+`health-current.json` and private loopback request captures. The first capture
+attempt rejected an incomplete fixture model schema before sending any request;
+its original failure is retained. Corrected catalog/no-catalog captures each
+made one loopback request, deliberately rejected by the receiver. Actual parser
+probes each contained a guaranteed invalid final input. Total real Chat/model
+dispatches for this investigation:0. Existing user conversations and jobs were
+not stopped. Candidate changes replace strict cross-revision tool merging and startup metadata
+loss; they add no account-specific branches. Queue reuses existing mutation
+receipts because its consumer must distinguish a lost ACK from a new enqueue.
+Signed publication/device activation and actual app/live-client qualification
+remain separate unfinished boundaries.
+
 ## Current status and next action
+
+The deployed baseline below retains its original scoped evidence. Address the
+open continuity findings above before accepting the requested bidirectional flow.
 
 Signed Provider8 is published, promoted and installed:
 `chatgpt-a5cd3e20c683-s8`, sourcea5cd3e2, Android SHA256

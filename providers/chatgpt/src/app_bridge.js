@@ -65,10 +65,18 @@ async function termuxCodexBridge(command) {
       if(state.wire.streamPost===state.hooks.streamPost)state.wire.streamPost=state.saved.streamPost;
     }
     state = {owner: command.owner, revision:command.bridgeRevision, mode, scope, api, shared, client, wire, lanes: new Map(), workBudgets:new Map(), saved: {}, hooks: {}};
-    const owner = request => [...state.lanes.values()].find(l =>
-      request?.conversation_id != null && [l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id) ||
-      request?.local_function_signatures?.some(f => f.name === l.signature.name) ||
-      request?.messages?.some(m => m.metadata?.termux_codex_lane === l.marker));
+    const owner = request => [...state.lanes.values()].find(l => {
+      const messages=request?.messages??[],ids=messages.map(m=>m.id).join(',');
+      if(request?.local_function_signatures?.some(f=>f.name===l.signature.name)
+        || messages.some(m=>m.metadata?.termux_codex_lane===l.marker||m.author?.name===l.signature.name)
+        || ids&&l.sent.has(ids))return true;
+      if(request?.conversation_id==null||![l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id))return false;
+      return l.pending||l.streamActive||l.approvalPending||messages.some(m=>{
+        const meta=m.metadata,p=meta?.jit_plugin_data??meta?.elicitation_metadata?.plugin_data;
+        const target=p?.from_client?.target_message_id??meta?.codex_mcp_elicitation_response?.target_message_id;
+        return m.author?.role==='tool'&&[...l.messages.values()].some(prompt=>hostTargets(prompt).includes(target));
+      });
+    });
     for (const name of ['prepareCompletionStream','startCompletionStream']) {
       state.saved[name] = client[name];
       state.hooks[name] = function(...args) {
@@ -122,6 +130,7 @@ async function termuxCodexBridge(command) {
       const ids = request.messages?.map(m => m.id).join(',');
       const roles = request.messages?.map(m => m.author?.role) || [];
       const rejectDispatch=code=>{lane.rejectedBeforeDispatch=true;lane.admissionCause=code;if(!lane.priorStreamUnsettled)lane.streamActive=false;fail(code);};
+      if(lane.stopRequested)rejectDispatch('app_dispatch_stopped');
       const auth=appScope()?.get(state.shared.xNt);
       if(!auth||auth.authLoading||auth.accountLoading||auth.authMethod!=='chatgpt'||auth.accountId!==auth.authenticatedAccountId||auth.userId!==auth.authenticatedUserId||auth.accountId!==lane.accountIdentity.account||auth.userId!==lane.accountIdentity.user||auth.accountStructure!==lane.accountIdentity.structure)rejectDispatch('app_account_changed');
       const bootstrap=lane.nonUserBootstrap===true && (lane.signature.name==='operator_no_local_tools'||/^operator_local_[0-9a-f]{48}$/.test(lane.signature.name)) && !lane.priorStreamUnsettled && roles.length>0 && roles.every(role=>role==='system');
@@ -575,6 +584,8 @@ async function termuxCodexBridge(command) {
     const options = {conversationId: lane.localId,parentMessageId:lane.selectedParent??undefined,conversationOrigin:null,tppExecutionTarget:null,requestInput:{isEverydayWorkMode:false},projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
       onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
+    lane.pending = true;
+    try {
     if (results.length === 1 && !context.length && !instructions.length) {
       pending = state.api.bRt(state.scope,{...options,callId: results[0].id,toolName: lane.signature.name,result: results[0].result});
     } else {
@@ -586,7 +597,9 @@ async function termuxCodexBridge(command) {
         ...(results.length ? {daybreakContinuationMessageId:results[0].id} : {}),
         userCompletionMessages:{message:imported.at(-1),extraDeveloperInstructionMessages:instructions.map(text => message({role:'developer',text,hidden:true}))}});
     }
-    lane.pending = true;
+    } catch(error) {
+      lane.pending=false;lane.error=failureCode(lane,'app_submit_failed');throw error;
+    }
     const epoch = lane.epoch;
     Promise.resolve(pending).then(value => {
       if (epoch !== lane.epoch) return;

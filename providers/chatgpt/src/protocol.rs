@@ -187,19 +187,30 @@ impl Request {
             }
         }
         let mut results = BTreeSet::new();
+        // Native incremental declarations are chronological. In nonincremental
+        // Lite requests the client rebuilds one catalog, rather than prepending
+        // it to historical declarations. Explicit top-level tools are current.
+        let has_current_catalog = body.get("tools").is_some_and(|v| !v.is_null());
+        let mut input_tools = BTreeMap::new();
         for item in &input {
             let kind = item
                 .get("type")
                 .and_then(Value::as_str)
                 .unwrap_or("message");
             match kind {
-                "additional_tools" => tools(
-                    item["tools"]
-                        .as_array()
-                        .ok_or(Error("invalid_tool_declaration"))?,
-                    None,
-                    &mut declarations,
-                )?,
+                "additional_tools" => {
+                    let mut catalog = BTreeMap::new();
+                    tools(
+                        item["tools"]
+                            .as_array()
+                            .ok_or(Error("invalid_tool_declaration"))?,
+                        None,
+                        &mut catalog,
+                    )?;
+                    if !has_current_catalog {
+                        input_tools.extend(catalog);
+                    }
+                }
                 "message" => {
                     if !matches!(
                         item["role"].as_str(),
@@ -230,11 +241,13 @@ impl Request {
                     }
                     if kind == "tool_search_output" {
                         if let Some(values) = item.get("tools") {
+                            let mut catalog = BTreeMap::new();
                             tools(
                                 values.as_array().ok_or(Error("invalid_tool_declaration"))?,
                                 None,
-                                &mut declarations,
+                                &mut catalog,
                             )?;
+                            input_tools.extend(catalog);
                         }
                     }
                 }
@@ -242,6 +255,12 @@ impl Request {
                 | "compaction_trigger" => (),
                 _ => return Err(Error("unsupported_input_item")),
             }
+        }
+        for (key, tool) in input_tools {
+            declarations.entry(key).or_insert(tool);
+        }
+        if declarations.len() > 4096 {
+            return Err(Error("too_many_tools"));
         }
         // Reject unreadable checkpoints and unsupported input before allocating
         // any app lane; this is admission, not an implicit context conversion.
@@ -516,6 +535,7 @@ mod tests {
     #[test]
     fn native_additional_tools_and_reviewer_output_format_are_retained() {
         let mut body = request();
+        body.as_object_mut().unwrap().remove("tools");
         body["text"] = json!({"format":{"type":"json_schema","name":"review","schema":{"type":"object","properties":{"outcome":{"type":"string"}}}}});
         body["input"] = json!([{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"mcp__owned","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}]},{"role":"user","content":"Review the owned command"}]);
         body["client_metadata"] = json!({"x-codex-turn-metadata":json!({"thread_id":"guardian-thread","parent_thread_id":"parent","agent_name":"guardian"}).to_string()});
@@ -539,5 +559,54 @@ mod tests {
                 .unwrap()
                 .guardian
         );
+    }
+
+    #[test]
+    fn catalog_revisions_follow_native_source_authority() {
+        let old = json!({"type":"tool_search","description":"old search contract"});
+        let current = json!({"type":"tool_search","description":"current search contract"});
+        let retired = json!({"type":"function","name":"retired","parameters":{"type":"object"}});
+        let history = json!({"type":"additional_tools","id":"at_00000000-0000-7000-8000-000000000001","tools":[old,retired]});
+        let update = json!({"type":"additional_tools","id":"at_00000000-0000-7000-8000-000000000002","tools":[current]});
+        let prefix = json!({"type":"additional_tools","id":"at_00000000-0000-5000-8000-000000000003","tools":[current]});
+        for (top, input, keeps_retired) in [
+            (None, json!([prefix]), false),
+            (None, json!([history, update]), true),
+            (Some(json!([current])), json!([history]), false),
+        ] {
+            let mut body = request();
+            body.as_object_mut().unwrap().remove("tools");
+            if let Some(top) = top {
+                body["tools"] = top;
+            }
+            body["input"] = input;
+            let parsed = Request::parse(body, &Config::default(), None).unwrap();
+            assert_eq!(
+                parsed.tools["tool_search"].declaration["description"],
+                "current search contract"
+            );
+            assert_eq!(parsed.tools.contains_key("retired"), keeps_retired);
+        }
+    }
+
+    #[test]
+    fn conflicts_within_one_catalog_remain_errors() {
+        let conflicting = json!([
+            {"type":"tool_search","description":"one"},
+            {"type":"tool_search","description":"two"}
+        ]);
+        for top_level in [true, false] {
+            let mut body = request();
+            body.as_object_mut().unwrap().remove("tools");
+            if top_level {
+                body["tools"] = conflicting.clone();
+            } else {
+                body["input"] = json!([{"type":"additional_tools","tools":conflicting}]);
+            }
+            assert_eq!(
+                Request::parse(body, &Config::default(), None).unwrap_err(),
+                Error("ambiguous_tool_declaration")
+            );
+        }
     }
 }

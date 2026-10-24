@@ -21,16 +21,18 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.request
 import termios
 
 from qualify_permission_lifecycle import fixture, rpc, server_paths
 from qualify_provider_chat_entry import check_native_socket_budget
+from qualify_provider_d3 import stop_owned_pid
 from clean_development import fixture_cleanup
 
 
 def probe(args):
     root = Path(tempfile.mkdtemp(prefix='ct.', dir=os.environ['TMPDIR']))
-    process = master = server = None
+    process = master = server = queue_service = None
     accepted = False
     requests, failures = [], []
     screen = ''
@@ -150,6 +152,8 @@ def probe(args):
 
         def drain(seconds=.15):
             nonlocal screen
+            if master is None:
+                return
             until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if select.select([master], [], [], .03)[0]:
@@ -281,16 +285,67 @@ def probe(args):
         submit('Continue the owned Chat fixture')
         wait(lambda: len(requests) == 2 and public(thread)['status']['type'] == 'idle')
         print('Chat terminal turn settled', flush=True)
+        cold_stops = []
+        if args.warm_chat_resume:
+            saved_chat = public(thread)
+            submit('/new')
+            wait(lambda: any(value != thread for value in loaded()))
+            choose_other_provider()
+            wait(lambda: any(public(value)['modelProvider'] == 'openai' for value in loaded() if value != thread))
+            submit('/resume ' + thread)
+            wait(lambda: thread in loaded() and public(thread)['modelProvider'] == 'chatgpt_desktop')
+            assert public(thread)['turns'] == saved_chat['turns'], 'warm resume changed prior turns'
+            submit('OWNED_WARM_CROSS_PROVIDER_RESUME')
+            wait(lambda: len(requests) == 3 and public(thread)['status']['type'] == 'idle')
+            assert 'tools' not in requests[-1], 'warm saved Chat got native fallback metadata'
+            assert public(thread)['reasoningEffort'] == saved_chat['reasoningEffort']
+            print('Warm cross-provider saved-Chat resume and follow-up settled', flush=True)
+        if args.cold_chat_resume:
+            saved_turns = public(thread)['turns']
+            runtime = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+            for socket in server_paths(home):
+                cold_stops.append(stop_owned_pid(int(socket.with_name('pid').read_text()), runtime))
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass  # The owned frontend can exit after its backend closes.
+            process.wait(timeout=8)
+            os.close(master)
+            master = None
+            # Leave the account's ordinary native defaults and generated Provider
+            # reference, but remove the explicit fixture catalog. The selected
+            # saved Chat must supply its metadata before backend attachment.
+            execution_config = Path(env['CODEX_HOME']) / 'config.toml'
+            execution_config.write_text('\n'.join(line for line in execution_config.read_text().splitlines()
+                                                 if not line.startswith('model_catalog_json')) + '\n')
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
+            process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', 'resume', thread],
+                env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave,
+                start_new_session=True)
+            os.close(slave)
+            wait(lambda: thread in loaded() and public(thread)['status']['type'] == 'idle')
+            assert public(thread)['model'] == 'chatgpt-desktop/gpt-6'
+            assert public(thread)['modelProvider'] == 'chatgpt_desktop'
+            assert public(thread)['reasoningEffort'] == 'none', 'account default replaced the saved effort'
+            assert public(thread)['turns'] == saved_turns, 'cold resume changed canonical history'
+            assert len(requests) == 2, 'catalog restoration must not infer'
+            submit('Continue the owned cold Chat fixture after resume')
+            wait(lambda: len(requests) == 3 and public(thread)['status']['type'] == 'idle')
+            assert 'tools' not in requests[-1], 'saved Chat got non-Lite fallback model metadata'
+            assert 'Continue the owned Chat fixture' in json.dumps(requests[-1]['input'])
+            print('Cold saved-Chat resume and follow-up settled', flush=True)
         # The provider's own model appears first; the opposite provider is the
         # appended final row in this deliberately two-model fixture.
         before_return = public(thread)['turns']
+        before_return_requests = len(requests)
         choose_other_provider()
         wait(lambda: public(thread)['modelProvider'] == 'openai')
         print('Terminal returned to native route', flush=True)
-        assert len(requests) == 2, 'ordinary Chat to native selection must not request a source summary'
+        assert len(requests) == before_return_requests, 'ordinary Chat to native selection must not request a source summary'
         assert public(thread)['turns'] == before_return, 'model selection must preserve the existing public turns'
         submit('Continue the owned native fixture')
-        wait(lambda: len(requests) == 3 and public(thread)['status']['type'] == 'idle')
+        wait(lambda: len(requests) == before_return_requests + 1 and public(thread)['status']['type'] == 'idle')
         assert 'OWNED_PUBLIC_WORK_STATE_7K2Q' in json.dumps(requests[-1]['input'])
         assert 'Continue the owned Chat fixture' in json.dumps(requests[-1]['input']), 'native request lost the preceding Chat task'
         assert not any('ocx1:' in json.dumps(v) for v in requests[-1]['input'])
@@ -298,6 +353,114 @@ def probe(args):
         assert final['sandbox']['type'] == 'dangerFullAccess'
         assert final['approvalPolicy'] == 'never' and final['approvalsReviewer'] == 'user'
         assert all(v['id'] == thread for v in [public(thread)])
+        queue_proof = None
+        if args.queue_service_test is not None:
+            from qualify_provider_operator import TOKEN
+            (root / 'owned-fixture').write_text('owned queue qualification; no real account\n')
+            # The transition profile is a private fixture input, not a Provider
+            # generated output. Preserve it before explicit fixture preparation.
+            (home / '.codex/chatgpt.config.toml').rename(root / 'transition-profile-before-queue.toml')
+            env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
+            with (root / 'queue-provider.log').open('wb') as output:
+                queue_service = subprocess.Popen([str(args.queue_service_test), '--ignored', '--exact',
+                    'synthetic_operator_service', '--nocapture'], env=env, cwd=root / 'w',
+                    stdout=output, stderr=subprocess.STDOUT)
+            def queue_ready():
+                assert queue_service.poll() is None, (root / 'queue-provider.log').read_text()
+                return (root / 'provider-ready.json').exists()
+            wait(queue_ready)
+            port = json.loads((root / 'provider-ready.json').read_text())['port']
+
+            def enqueue(arguments):
+                request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
+                    data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                        'params': {'name': 'codex_sessions', 'arguments': arguments}}).encode(),
+                    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN})
+                with urllib.request.urlopen(request, timeout=35) as response:
+                    row = json.load(response)
+                assert 'error' not in row, row
+                return json.loads(row['result']['content'][0]['text'])
+
+            queue_args = {'action': 'queue', 'thread_id': thread,
+                          'text': 'OWNED_NATIVE_QUEUE_CONSUMPTION', 'call_id': 'owned-native-queue'}
+            original = public(thread)
+            receipt = enqueue(queue_args)
+            assert receipt['accepted'] and receipt['delivery'] == 'queued', receipt
+            count = len(original['turns'])
+            wait(lambda: len(public(thread)['turns']) == count + 1 and public(thread)['status']['type'] == 'idle')
+            received = public(thread)
+            assert received['model'] == original['model'] == 'gpt-6.1-sol'
+            assert received['modelProvider'] == 'openai' and received['reasoningEffort'] == original['reasoningEffort']
+            assert received['turns'][:-1] == original['turns']
+            item = next(item for item in received['turns'][-1]['items'] if item['type'] == 'userMessage')
+            assert item['clientId'] == receipt['queued_submission']['clientUserMessageId']
+            assert 'OWNED_NATIVE_QUEUE_CONSUMPTION' in json.dumps(item)
+            assert enqueue(queue_args) == receipt
+            assert enqueue(dict(queue_args, text='changed'))['error'] == 'operator_call_changed'
+
+            # Inject loss of only the enqueue receipt into this disposable
+            # journal. Core has already committed the receiving turn.
+            key = hashlib.sha256(json.dumps(['native-queue-v1', thread, queue_args['call_id']],
+                                           separators=(',', ':')).encode()).hexdigest()
+            record_path = root / 'provider-state' / (key + '.json')
+            retained_receipt = record_path.read_bytes()
+            (root / 'queue-receipt-before-fault.json').write_bytes(retained_receipt)
+            record = json.loads(retained_receipt)
+            del record['payload']['result']
+            record_path.write_text(json.dumps(record))
+            recovered = enqueue(queue_args)
+            assert recovered['delivery'] == 'committed' and recovered['native_turn'] == received['turns'][-1]['id']
+            assert public(thread)['turns'] == received['turns'], 'unknown receipt recovery retransmitted input'
+            assert len(requests) == before_return_requests + 2
+            # A retained receipt remains readable even when the exact fixture
+            # owner temporarily cannot be discovered. Restore its PID verbatim.
+            pid_paths = [socket.with_name('pid') for socket in server_paths(home)]
+            saved_pids = [(path, path.read_bytes()) for path in pid_paths]
+            try:
+                for path, _ in saved_pids:
+                    path.write_text(str(2**32 - 1))
+                assert enqueue(queue_args) == recovered
+            finally:
+                for path, data in saved_pids:
+                    path.write_bytes(data)
+            submit('/quit')
+            process.wait(timeout=10)
+            os.close(master)
+            master = None
+            runtime = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+            for path in server_paths(home):
+                cold_stops.append(stop_owned_pid(int(path.with_name('pid').read_text()), runtime))
+            cold_args = dict(queue_args, text='OWNED_UNLOADED_NATIVE_QUEUE', call_id='owned-unloaded-queue',
+                             execution_home=env['CODEX_HOME'])
+            cold_receipt = enqueue(cold_args)
+            assert cold_receipt.get('delivery') == 'queued', cold_receipt
+            assert len(requests) == before_return_requests + 2, 'unloaded enqueue inferred'
+            cold_key = hashlib.sha256(json.dumps(['native-queue-v1', thread, cold_args['call_id']],
+                                                separators=(',', ':')).encode()).hexdigest()
+            cold_path = root / 'provider-state' / (cold_key + '.json')
+            cold_record = json.loads(cold_path.read_text())
+            (root / 'cold-queue-receipt-before-fault.json').write_text(json.dumps(cold_record))
+            del cold_record['payload']['result']
+            cold_path.write_text(json.dumps(cold_record))
+            assert enqueue(cold_args) == cold_receipt, 'unknown queued delivery did not recover the original item'
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
+            process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', 'resume', thread],
+                env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+            os.close(slave)
+            wait(lambda: thread in loaded() and len(public(thread)['turns']) == count + 2
+                 and public(thread)['status']['type'] == 'idle')
+            resumed = public(thread)
+            assert resumed['turns'][:-1] == received['turns']
+            assert resumed['model'] == original['model'] and resumed['reasoningEffort'] == original['reasoningEffort']
+            assert any(item.get('clientId') == cold_receipt['queued_submission']['clientUserMessageId']
+                       for item in resumed['turns'][-1]['items'])
+            queue_proof = {'nativeModel': received['model'], 'sameEffort': True,
+                           'canonicalReceivingTurn': received['turns'][-1]['id'],
+                           'clientIdentityMatched': True, 'unknownReceiptRecoveredWithoutResend': True,
+                           'receiptReadWithoutOwner': True, 'changedInputRejected': True,
+                           'unloadedEnqueueWithoutInference': True, 'unknownQueuedReceiptRecovered': True,
+                           'unloadedReceivingTurn': resumed['turns'][-1]['id']}
         accepted = True
         report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
                 'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
@@ -305,12 +468,19 @@ def probe(args):
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,
                 'managerAbsent': args.without_manager,
+                'coldChatResume': args.cold_chat_resume,
+                'warmChatResume': args.warm_chat_resume,
+                'queueProof': queue_proof,
+                'coldNativeStops': cold_stops,
                 'readOnlyReentryTransients': reentry_observations,
                 'coreBuiltFromCurrentSource': args.build_core,
                 'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'),
                     'sha256').hexdigest() for name in ['core', 'frontend', 'provider']}}
         return report
     finally:
+        if queue_service is not None and queue_service.poll() is None:
+            (root / 'stop-provider').touch()
+            queue_service.wait(timeout=20)
         if process is not None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -355,9 +525,15 @@ if __name__ == '__main__':
     core.add_argument('--build-core',action='store_true',help='Build this checkout Core into XDG cache before qualification')
     for name in ['frontend', 'provider', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--queue-service-test', type=Path, help='armed actual Operator fixture for native-model queue proof')
     parser.add_argument('--without-manager', action='store_true')
-    parser.add_argument('--empty-roundtrip', action='store_true',
+    scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument('--empty-roundtrip', action='store_true',
                         help='switch a genuinely fresh thread native to Chat and back without any model turn')
+    scenario.add_argument('--warm-chat-resume', action='store_true',
+                        help='open a new native thread in the same TUI, then resume saved Chat without sticky internal overrides')
+    scenario.add_argument('--cold-chat-resume', action='store_true',
+                        help='stop owned fixture backends and resume saved Chat without explicit catalog or profile')
     parser.add_argument('--shared-sessions', action='store_true',
                         help='use the shared sessions directory symlink of real Manager accounts')
     args = parser.parse_args()

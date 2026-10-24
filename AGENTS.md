@@ -146,6 +146,11 @@ The repository owns this development plane; it needs no external workflow skill.
   delivery, device activation and physical UI observation. Do not infer process
   exit, no transmission or device readiness from a request, mock reply or journal
   field alone; use the observation at the boundary that owns that fact.
+- Diagnose model/effort changes from the settings-event timeline and correlated
+  per-request evidence. Current configuration and a turn's initial context cannot
+  disprove a later settings change; selected TUI settings and an already-running
+  request may differ. State missing input provenance instead of attributing it
+  to the user or claiming an unobserved cause.
 - Select scripts/check.sh docs, python, rust, provider or full from the changed behavior.
   Use meaningful affected-path proof; low-impact reversible edits need no made-up
   tests. Runtime/state/security/installer changes and release candidates need

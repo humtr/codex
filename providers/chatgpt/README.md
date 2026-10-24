@@ -162,6 +162,16 @@ picker in a conversation. The local loopback URL is not a public connector URL.
 Account/workspace availability still applies; see the
 [official OpenAI connection instructions](https://developers.openai.com/api/docs/guides/custom-mcp-server).
 
+To enqueue a message for an existing Codex thread, use
+`codex provider chatgpt work queue --thread-id UUID --text 'message' --call-id UNIQUE_ID`
+or `codex_sessions` with `action: "queue"` and those fields in snake_case.
+The receiving thread keeps its selected model and effort, so this also works
+when it uses a Codex model. The queue acknowledgment confirms enqueueing;
+inspect native history for consumption and the resulting turn. Reuse the same
+call ID and arguments after a lost response. An uncertain enqueue is reconciled
+against upstream queue/history and is never blindly sent again. Use
+`--execution-home PATH` when selecting an explicit account or an unloaded thread.
+
 Remote tunnel provisioning/credentials and connection registration currently
 remain manual. Existing `tunnel-client runtimes connect/status` can supervise a
 configured local MCP command, but Provider does not supply a universal remote
@@ -664,7 +674,7 @@ No new tunnel implementation or remote tunnel is introduced.
 | Registered service | Local configuration |
 | --- | --- |
 | `codex-chatgpt-provider` | Runs `codex provider chatgpt serve` in the foreground with the existing state and explicit service environment |
-| `codex-chatgpt-tunnel` | Runs the existing `tunnel-profile/chatgpt-provider.yaml` through `tunnel-client run`; its keeper waits for authenticated Provider readiness and renews stdio on Provider PID/start changes |
+| `codex-chatgpt-tunnel` | Runs the existing tunnel profile through `tunnel-client run`; startup waits for authenticated Provider readiness |
 | `codex-chatgpt-host` | Every15s observes host status and invokes `host ensure` only for confirmed absence; preserves present/unready/unknown owners |
 
 Service helpers and private rotated logs live under
@@ -676,7 +686,7 @@ not retarget them. No credential value is stored in a run script. The tunnel
 profile retains its existing credential file reference. Shared private
 `runit/environment` supplies `CODEX_SERVICE_HOME`, `CODEX_SERVICE_PREFIX`,
 `CODEX_SERVICE_CORE`, `CODEX_PROVIDER_STATE`, `CODEX_PROVIDER_BIN`,
-`TUNNEL_CLIENT_BIN`, `TUNNEL_PROFILE_DIR` and `TUNNEL_PROFILE_NAME`. The observer
+`TUNNEL_CLIENT_BIN`, `TUNNEL_PROFILE_DIR` and `TUNNEL_PROFILE_NAME`. The observer and stdio wrapper
 uses an explicitly selected admitted immutable Provider image, avoiding repeated
 Core activation-lock contention; rebind it during deliberate package/service
 maintenance. Provider's `execution.home` and `execution.workspace` select native
@@ -688,9 +698,11 @@ executable paths. Do not infer compatibility from the filename or modify a syste
 resolver to accommodate a Linux binary. The MCP wrapper keeps stderr separate
 from its JSON-RPC stdout; runit service logs may merge their own stderr.
 
-Provider restart rotates its local bearer. The tunnel keeper detects the changed
-Provider owner and ends only its own exact child runtime before runit restarts
-that transport. It does not reconnect by creating a remote tunnel, retry a model
+Provider restart rotates its local bearer. The stdio process verifies the current
+service endpoint and bearer per RPC; loss returns an explicit error and a later
+request can use the replacement service. The tunnel remains running across a
+Provider PID change. Rebinding its admitted immutable stdio image requires one
+deliberate transport restart. It does not create a remote tunnel, retry a model
 request or replay native effects. Service Stop and native task Stop remain
 different operations. Inspect original work before any maintenance/recovery.
 

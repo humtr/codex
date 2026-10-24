@@ -2,7 +2,7 @@
 //! broker. No app startup, model call, native execution or delivery retry here.
 use crate::protocol::Error;
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, future::Future, sync::Arc, time::Duration};
 use tokio::{
     io::{
         AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
@@ -61,11 +61,8 @@ async fn line(
         }
     }
 }
-pub(crate) async fn forward(
-    port: u16,
-    row: &Value,
-    token: Option<&str>,
-) -> Result<Option<Value>, Error> {
+/// Forward exactly one HTTP RPC; the caller owns endpoint authentication.
+pub async fn forward(port: u16, row: &Value, token: Option<&str>) -> Result<Option<Value>, Error> {
     let body = row.to_string();
     let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
@@ -111,22 +108,19 @@ async fn send(output: &Arc<Mutex<impl AsyncWrite + Unpin>>, row: Value) -> Resul
 fn failure(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub async fn run(
+pub async fn run<F, Fut>(
     input: impl AsyncRead + Unpin,
     output: impl AsyncWrite + Unpin + Send + 'static,
-    port: u16,
-) -> Result<(), Error> {
-    run_authenticated(input, output, port, None).await
-}
-pub async fn run_authenticated(
-    input: impl AsyncRead + Unpin,
-    output: impl AsyncWrite + Unpin + Send + 'static,
-    port: u16,
-    token: Option<String>,
-) -> Result<(), Error> {
+    dispatch: F,
+) -> Result<(), Error>
+where
+    F: Fn(Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Option<Value>, Error>> + Send + 'static,
+{
     let mut input = BufReader::new(input);
     let mut framing = Framing::default();
     let output = Arc::new(Mutex::new(output));
+    let dispatch = Arc::new(dispatch);
     let mut active = BTreeMap::<String, CancellationToken>::new();
     let mut tasks = JoinSet::new();
     loop {
@@ -191,14 +185,15 @@ pub async fn run_authenticated(
         let cancel = CancellationToken::new();
         active.insert(key.clone(), cancel.clone());
         let output = output.clone();
-        let token = token.clone();
+        let dispatch = dispatch.clone();
         tasks.spawn(async move {
+            let id = row["id"].clone();
             let result=tokio::select!{
                 _=cancel.cancelled()=>Ok(()),
-                reply=tokio::time::timeout(Duration::from_secs(610),forward(port,&row,token.as_deref()))=>match reply {
+                reply=tokio::time::timeout(Duration::from_secs(610),dispatch(row))=>match reply {
                     Ok(Ok(Some(value)))=>send(&output,value).await,
                     Ok(Ok(None))=>Ok(()),
-                    other=>{let error=match other{Ok(Err(error))=>error, _=>Error("mcp_observer_timeout")};send(&output,failure(row["id"].clone(),-32000,error.0)).await},
+                    other=>{let error=match other{Ok(Err(error))=>error, _=>Error("mcp_observer_timeout")};send(&output,failure(id,-32000,error.0)).await},
                 },
             };(key,result)
         });

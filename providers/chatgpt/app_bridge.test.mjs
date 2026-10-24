@@ -98,8 +98,8 @@ test('server-terminal proof clears stale active state and fences late owned star
  f.cancelCallback=()=>{lane.streamActive=true;};
  const result=await bridge({op:'stop',owner:'owned',lane:'stale-active'});
  expect(result.stopped).toBe(true);expect(result.streamActive).toBe(false);expect(posts).toBe(1);
- expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',messages:[]})).toThrow('app_dispatch_stopped');
- expect(()=>f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[]}})).toThrow('app_dispatch_stopped');
+ expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',messages:[{metadata:{termux_codex_lane:'stale-active'}}]})).toThrow('app_dispatch_stopped');
+ expect(()=>f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[{metadata:{termux_codex_lane:'stale-active'}}]}})).toThrow('app_dispatch_stopped');
  expect(lane.streamActive).toBe(false);
  expect((await bridge({op:'stop',owner:'owned',lane:'stale-active'})).stopped).toBe(true);expect(posts).toBe(1);
 }));
@@ -181,6 +181,28 @@ test('owned app hooks preserve unowned requests, actual feature gates and public
  expect(await bridge({op:'init',owner:'new-owned',bindings})).toEqual({ready:true});
 }));
 
+test('settled saved Chat accepts ordinary user input without the native lane owning it',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'managed',signature:{name:'native-owned'}});
+ await bridge({op:'submit',owner:'owned',lane:'managed',round:'one',messages:[{role:'user',text:'Native task'}]});
+ await Promise.resolve();
+ const before=await bridge({op:'snapshot',owner:'owned',lane:'managed'});
+ const request={conversation_id:'server-owned',messages:[{id:'ordinary-user',author:{role:'user'},content:{parts:['Continue here']}}],local_function_signatures:[{name:'ordinary-local'}]};
+ expect(f.client.prepareCompletionStream(request)).toBe(request);
+ f.client.startCompletionStream({request});
+ expect(f.sent.at(-1)).toEqual(request);
+ const after=await bridge({op:'snapshot',owner:'owned',lane:'managed'});
+ expect(after.dispatches).toBe(before.dispatches);
+ expect(after.roundStarts).toBe(before.roundStarts);
+ // Its subsequent ordinary tool reply also belongs to that app stream.
+ const reply={conversation_id:'server-owned',messages:[{id:'ordinary-tool',author:{role:'tool'},content:{parts:['result']}}]};
+ f.client.startCompletionStream({request:reply});
+ expect(f.sent.at(-1)).toEqual(reply);
+ await bridge({op:'stop',owner:'owned',lane:'managed'});
+ const next={...request,messages:[{...request.messages[0],id:'after-stop'}]};
+ expect(f.client.prepareCompletionStream(next)).toBe(next);
+}));
+
 test('project operations preserve app credentials and verify membership before inference',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  const identity={account:'account',structure:'personal',user:'user'};
@@ -207,6 +229,7 @@ test('only an observed host permission reply continues MCP without a new user ob
  await bridge({op:'submit',owner:'owned',lane:'host-action',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
  await Promise.resolve();
  const state=globalThis[slot],lane=state.lanes.get('host-action');
+ lane.approvalPending=true;
  const response={id:'host-reply',author:{role:'tool'},content:{parts:['PRIVATE_USER_TEXT']},metadata:{jit_plugin_data:{from_client:{target_message_id:'host-confirm',type:'allow',private:'PRIVATE_ARGUMENT'}}}};
  f.nodes={response:{message:response}};
  expect((await bridge({op:'snapshot',owner:'owned',lane:'host-action'})).hostResponses).toEqual([]);
@@ -225,7 +248,7 @@ test('only an observed host permission reply continues MCP without a new user ob
  f.options.at(-1).onComplete({reason:'done'});expect(lane.streamActive).toBe(false);
  expect(()=>send(response)).toThrow('app_dispatch_replayed');
  expect(()=>send({...response,id:'duplicate-target'})).toThrow('app_dispatch_replayed');
- expect(()=>send({id:'native-result',author:{role:'tool'},metadata:{},content:{text:'native result'}})).toThrow('app_dispatch_replayed');
+ expect(()=>send({id:'native-result',author:{role:'tool'},metadata:{termux_codex_lane:'host-action'},content:{text:'native result'}})).toThrow('app_dispatch_replayed');
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_USER_TEXT');
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_ARGUMENT');
  lane.messages.set('stopped-confirm',{id:'stopped-confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
@@ -240,6 +263,7 @@ test('MCP approval follows the server-offered invoking-message target, without a
  await bridge({op:'submit',owner:'owned',lane:'invocation',round:'round',model:'host',messages:[{role:'user',text:'Task'}]});
  await Promise.resolve();
  const lane=globalThis[slot].lanes.get('invocation');
+ lane.approvalPending=true;
  lane.messages.set('invoking',{id:'invoking',author:{role:'assistant'},content:{content_type:'code'}});
  lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{parent_id:'invoking',jit_plugin_data:{from_server:{type:'confirm_action',body:{actions:[{allow_once:{target_message_id:'invoking'}}]}}}}});
  const reply={id:'reply',author:{role:'tool'},metadata:{jit_plugin_data:{from_client:{type:'allow',target_message_id:'invoking'}}}};
@@ -642,7 +666,7 @@ test('an asynchronous app stream startup failure settles only its owned stream',
  await bridge({op:'open',owner:'owned',lane:'failure',signature:{name:'unused'}});
  const lane=globalThis[slot].lanes.get('failure');
  f.rejectStart=true;
- await expect(f.client.startCompletionStream({request:{conversation_id:lane.localId,messages:[]}})).rejects.toThrow('fixture async failure');
+ await expect(f.client.startCompletionStream({request:{conversation_id:lane.localId,messages:[{metadata:{termux_codex_lane:'failure'}}]}})).rejects.toThrow('fixture async failure');
  const observed=await bridge({op:'snapshot',owner:'owned',lane:'failure'});
  expect(lane.streamActive).toBe(false);expect(observed.error).toBe('app_stream_failed');expect(observed.dispatches).toBe(0);
  expect((await bridge({op:'stop',owner:'owned',lane:'failure'})).stopped).toBe(false);

@@ -193,9 +193,9 @@ fn control_command(args: &[String]) -> Result<(), String> {
             "stop" => "codex_stop",
             "answer" => "codex_answer",
             "attach" => "codex_attach",
-            "list" | "create" | "resume" | "fork" | "start" | "claim" | "compact" | "takeover"
-            | "events" | "wait" | "chat-input" | "chat-result" | "transfer" | "transfer-accept"
-            | "evaluate" | "stop-tree" => {
+            "list" | "create" | "resume" | "fork" | "start" | "queue" | "claim" | "compact"
+            | "takeover" | "events" | "wait" | "chat-input" | "chat-result" | "transfer"
+            | "transfer-accept" | "evaluate" | "stop-tree" => {
                 values.insert("action".into(), serde_json::json!(action.replace('-', "_")));
                 "codex_sessions"
             }

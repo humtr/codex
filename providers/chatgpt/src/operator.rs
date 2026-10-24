@@ -193,6 +193,7 @@ struct Work {
     native_admission: Arc<Mutex<()>>,
     stops_in_progress: usize,
     managed_cancel: Option<CancellationToken>,
+    completion_observer: Option<CancellationToken>,
 }
 enum Command {
     Text {
@@ -422,6 +423,7 @@ impl Operator {
                     native_admission: Arc::new(Mutex::new(())),
                     stops_in_progress: 0,
                     managed_cancel: None,
+                    completion_observer: None,
                 },
             );
         }
@@ -713,6 +715,7 @@ impl Operator {
                 native_admission: Arc::new(Mutex::new(())),
                 stops_in_progress: 0,
                 managed_cancel: None,
+                completion_observer: None,
             },
         );
         index.ids.push(record.id.clone());
@@ -1275,6 +1278,9 @@ impl Operator {
             }
             "codex_handoff" => Some(json!([name, args["work_id"], args["call_id"]])),
             "codex_stop" => Some(json!([name, args["work_id"]])),
+            "codex_sessions" if args["action"] == "queue" => {
+                Some(json!(["native-queue", args["thread_id"], args["call_id"]]))
+            }
             "codex_sessions" if args["action"] == "chat_input" => Some(json!([
                 "chat-input",
                 args["conversation_id"],
@@ -1713,6 +1719,93 @@ impl Operator {
             "native_context":work.record.phase,"return_bound":record.origin=="codex"}),
         )
     }
+    async fn queue_input(&self, args: Value) -> Result<Value, Error> {
+        let thread = text(&args, "thread_id", 256)?;
+        let call = text(&args, "call_id", 160)?;
+        let message = text(&args, "text", 256 * 1024)?;
+        let key = digest(&("native-queue-v1", thread, call));
+        let fingerprint = digest(&args);
+        let previous = self.journal.read::<Value>(&key)?;
+        if let Some(previous) = &previous {
+            if previous["fingerprint"] != fingerprint {
+                return Err(Error("operator_call_changed"));
+            }
+            if let Some(result) = previous.get("result") {
+                return Ok(result.clone());
+            }
+        }
+        // Only observation transport is recoverable. An outstanding enqueue
+        // intent never authorizes another add, even when its queue item is absent.
+        let native = if let Some(home) = args.get("execution_home") {
+            let home = text_value_path(home, "native_workspace_identity_invalid")?;
+            let pool = self.scoped_pool(&home, &self.pool.workspace).await?;
+            match pool.for_thread(thread).await {
+                Ok(native) => native,
+                Err(Error("native_thread_owner_unavailable")) => pool.prepare().await?,
+                Err(error) => return Err(error),
+            }
+        } else {
+            match self.pool.discover_thread(thread).await {
+                Ok(native) => native,
+                Err(Error("native_thread_owner_unavailable")) => self.pool.prepare().await?,
+                Err(error) => return Err(error),
+            }
+        };
+        let client_id = format!("termux-queue-{key}");
+        if previous.is_some() {
+            let mut cursor = Value::Null;
+            loop {
+                let page = native
+                    .call(
+                        "thread/queue/list",
+                        json!({"threadId":thread,"cursor":cursor,"limit":100}),
+                    )
+                    .await?;
+                let rows = page["data"]
+                    .as_array()
+                    .ok_or(Error("native_reply_invalid"))?;
+                if let Some(item) = rows
+                    .iter()
+                    .find(|item| item["clientUserMessageId"] == client_id)
+                {
+                    let result = json!({"thread_id":thread,"accepted":true,"delivery":"queued","queued_submission":item});
+                    operation::settle(&self.journal, &key, &fingerprint, &result)?;
+                    return Ok(result);
+                }
+                if page["nextCursor"].is_null() {
+                    break;
+                }
+                if page["nextCursor"] == cursor {
+                    return Err(Error("native_reply_invalid"));
+                }
+                cursor = page["nextCursor"].clone();
+            }
+            for row in Self::history(&native, thread).await? {
+                if row["item"]["type"] == "userMessage" && row["item"]["clientId"] == client_id {
+                    let result = json!({"thread_id":thread,"accepted":true,"delivery":"committed","native_turn":row["turn_id"]});
+                    operation::settle(&self.journal, &key, &fingerprint, &result)?;
+                    return Ok(result);
+                }
+            }
+            return Err(Error("native_queue_delivery_unknown"));
+        }
+        // Establish the saved target exists before recording any mutation intent.
+        native
+            .call(
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":false}),
+            )
+            .await?;
+        operation::intent(&self.journal, &key, &fingerprint)?;
+        let response = native.call("thread/queue/add", json!({"threadId":thread,"input":[{"type":"text","text":message}],"clientUserMessageId":client_id})).await?;
+        let item = &response["queuedSubmission"];
+        if item["clientUserMessageId"] != client_id || item["id"].as_str().is_none() {
+            return Err(Error("native_reply_invalid"));
+        }
+        let result = json!({"thread_id":thread,"accepted":true,"delivery":"queued","queued_submission":item});
+        operation::settle(&self.journal, &key, &fingerprint, &result)?;
+        Ok(result)
+    }
     async fn sessions(&self, args: Value) -> Result<Value, Error> {
         let receipt = if matches!(
             args["action"].as_str(),
@@ -1808,6 +1901,7 @@ impl Operator {
             None
         };
         match args["action"].as_str() {
+            Some("queue") => self.queue_input(args).await,
             Some("transfer" | "transfer_accept") => self.transfer(args, receipt).await,
             Some("chat_input" | "chat_result") => {
                 let input = crate::chat_input::Inputs {
@@ -1958,9 +2052,19 @@ impl Operator {
             }
             Some("list") => {
                 let works = self.works.lock().await;
-                Ok(
-                    json!({"work":works.values().map(|v|json!({"work_id":v.record.id,"thread_id":v.record.thread,"origin":v.record.origin,"phase":v.record.phase,"selection":v.record.selection,"workspace":v.record.workspace})).collect::<Vec<_>>()}),
-                )
+                let mut rows = Vec::new();
+                for work in works.values() {
+                    let conversation =
+                        match crate::app::inspect_lane(&self.journal.root, &work.record.thread) {
+                            Ok(lane) => lane["conversation_id"].clone(),
+                            Err(Error("native_lane_not_found")) => Value::Null,
+                            Err(error) => return Err(error),
+                        };
+                    rows.push(json!({"work_id":work.record.id,"thread_id":work.record.thread,"origin":work.record.origin,
+                        "phase":work.record.phase,"selection":work.record.selection,"workspace":work.record.workspace,
+                        "execution_home":work.record.execution.home,"source_conversation_id":conversation}));
+                }
+                Ok(json!({"work":rows}))
             }
             Some("events") => {
                 let status = self.status(args.clone()).await?;
@@ -2138,6 +2242,30 @@ impl Operator {
                     .transpose()?
                     .unwrap_or_else(|| self.pool.workspace.clone());
                 let pool = self.scoped_pool(&home, &workspace).await?;
+                if args.get("workspace").is_some() {
+                    let candidates = self
+                        .works
+                        .lock()
+                        .await
+                        .values()
+                        .filter(|work| {
+                            work.record.phase == "running"
+                                && work
+                                    .record
+                                    .selection
+                                    .as_ref()
+                                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                                && work.record.workspace.as_ref().is_some_and(|other| {
+                                    workspace.starts_with(other) || other.starts_with(&workspace)
+                                })
+                        })
+                        .map(|work| work.record.id.clone())
+                        .collect::<Vec<_>>();
+                    for id in candidates {
+                        let (record, native) = self.binding(&json!({"work_id":id}), false).await?;
+                        self.observe_native(record, &native).await?;
+                    }
+                }
                 if args.get("workspace").is_some()
                     && self.works.lock().await.values().any(|work| {
                         let other = work
@@ -2161,7 +2289,9 @@ impl Operator {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
                 let native = pool.prepare().await?;
-                let mut params = json!({"cwd":pool.workspace,"config":pool.routing()?,"model":self.config.model.default,"modelProvider":"chatgpt_desktop"});
+                let mut config = pool.routing()?;
+                config["model_reasoning_effort"] = json!(self.config.model.reasoning_effort);
+                let mut params = json!({"cwd":pool.workspace,"config":config,"model":self.config.model.default,"modelProvider":crate::registration::PROVIDER});
                 if action != "create" {
                     params["threadId"] = json!(text(&args, "thread_id", 256)?);
                 }
@@ -2201,6 +2331,22 @@ impl Operator {
                     return Err(Error("operator_arguments_invalid"));
                 }
                 self.wait_assignment(&record).await?;
+                let collaboration_mode = if let Some(mode) = args.get("mode") {
+                    let state = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":record.thread,"includeTurns":false}),
+                        )
+                        .await?;
+                    let model = state["thread"]["model"]
+                        .as_str()
+                        .ok_or(Error("native_model_settings_unavailable"))?;
+                    Some(
+                        json!({"mode":mode,"settings":{"model":model,"reasoning_effort":state["thread"]["reasoningEffort"],"developer_instructions":null}}),
+                    )
+                } else {
+                    None
+                };
                 {
                     let mut works = self.works.lock().await;
                     if let Some(assignment) = &record.assignment {
@@ -2266,11 +2412,8 @@ impl Operator {
                 };
                 let mut params =
                     json!({"threadId":record.thread,"input":[{"type":"text","text":task}]});
-                if let Some(mode) = args.get("mode") {
-                    if !matches!(mode.as_str(), Some("default" | "plan")) {
-                        return Err(Error("operator_arguments_invalid"));
-                    }
-                    params["collaborationMode"] = json!({"mode":mode,"settings":{"model":self.config.model.default,"reasoning_effort":self.config.model.reasoning_effort,"developer_instructions":null}});
+                if let Some(mode) = collaboration_mode {
+                    params["collaborationMode"] = mode;
                 }
                 let response = native.call("turn/start", params).await?;
                 let mut works = self.works.lock().await;
@@ -2491,7 +2634,13 @@ impl Operator {
                 work.record.execution = native.owner.clone();
                 work.record.origin = "chatgpt".into();
                 work.record.token = self.broker.register(&record.id, BTreeMap::new()).await?;
-                work.record.phase = "waiting_native".into();
+                work.record.phase =
+                    if record.phase == "completed" && state["thread"]["status"]["type"] == "idle" {
+                        "completed"
+                    } else {
+                        "waiting_native"
+                    }
+                    .into();
                 work.record.accepted = false;
                 self.persist(&work.record)?;
                 Ok(
@@ -2513,10 +2662,54 @@ impl Operator {
         }
         Err(Error("native_observation_superseded"))
     }
-    async fn observe_status(&self, args: &Value) -> Result<Value, Error> {
-        let mut observed = false;
-        let mut host_observation = Value::Null;
-        let (mut record, native) = self.binding(args, false).await?;
+    fn watch_completion(&self, record: Record, native: Arc<Native>, cancel: CancellationToken) {
+        let mut events = native.events.subscribe();
+        let this = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let event = tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    event = events.recv() => event,
+                };
+                match event {
+                    Ok(event) if event["method"] == "operator/nativeDisconnected" => return,
+                    Ok(event) => {
+                        let terminal = event["method"] == "turn/completed"
+                            || event["method"] == "thread/status/changed"
+                                && event["params"]["status"]["type"] == "idle";
+                        if !terminal || event["params"]["threadId"] != record.thread {
+                            continue;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+                let current = {
+                    let works = this.works.lock().await;
+                    let Some(work) = works.get(&record.thread) else {
+                        return;
+                    };
+                    if !same_native_round(&record, &work.record) || work.record.phase != "running" {
+                        return;
+                    }
+                    work.record.clone()
+                };
+                match this.observe_native(current, &native).await {
+                    Ok((record, _, _)) if record.phase != "running" => return,
+                    Ok(_) => (),
+                    Err(error) => {
+                        eprintln!("managed_completion_observation_failed: {}", error.0);
+                        return;
+                    }
+                }
+            }
+        });
+    }
+    async fn observe_native(
+        &self,
+        mut record: Record,
+        native: &Native,
+    ) -> Result<(Record, Value, Option<Value>), Error> {
         let managed = record
             .selection
             .as_ref()
@@ -2528,7 +2721,11 @@ impl Operator {
             )
             .await?;
         let managed_lane = if managed {
-            crate::app::inspect_lane(&self.journal.root, &record.thread).ok()
+            match crate::app::inspect_lane(&self.journal.root, &record.thread) {
+                Ok(lane) => Some(lane),
+                Err(Error("native_lane_not_found")) => None,
+                Err(error) => return Err(error),
+            }
         } else {
             None
         };
@@ -2556,7 +2753,7 @@ impl Operator {
                         && turn["id"].as_str() == record.native_turn.as_deref()
                         && turn["status"] == "completed"
                 })
-                && self.owned_jobs(&native, &record).await?.is_empty()
+                && self.owned_jobs(native, &record).await?.is_empty()
             {
                 let mut works = self.works.lock().await;
                 let work = works.get_mut(&record.thread).unwrap();
@@ -2570,6 +2767,13 @@ impl Operator {
                 }
             }
         }
+        Ok((record, state, managed_lane))
+    }
+    async fn observe_status(&self, args: &Value) -> Result<Value, Error> {
+        let mut observed = false;
+        let mut host_observation = Value::Null;
+        let (record, native) = self.binding(args, false).await?;
+        let (mut record, state, managed_lane) = self.observe_native(record, &native).await?;
         if let Some(lane) = &record.driver {
             let snapshot = tokio::time::timeout(
                 Duration::from_secs(3),
@@ -2741,9 +2945,7 @@ impl Operator {
             } else {
                 &self.managed_local
             };
-            if !host.stop(&record.thread).await? {
-                return Err(Error("app_stop_unconfirmed"));
-            }
+            host.detach_settled(&record.thread).await?;
         }
         if record.driver.is_some() {
             self.stop_driver(&record).await?;
@@ -2782,6 +2984,9 @@ impl Operator {
                 return Err(Error("native_observation_superseded"));
             }
             work.record.accepted = false;
+            if let Some(observer) = work.completion_observer.take() {
+                observer.cancel();
+            }
             if let Some(cancel) = &work.managed_cancel {
                 cancel.cancel();
             }
@@ -3698,6 +3903,9 @@ impl Operator {
     pub async fn close(&self) {
         let mut works = self.works.lock().await;
         for work in works.values_mut() {
+            if let Some(observer) = work.completion_observer.take() {
+                observer.cancel();
+            }
             work.record.accepted = false;
             work.record.phase = recovered_phase(&work.record.phase).to_owned();
             let _ = self.persist(&work.record);
@@ -3886,6 +4094,7 @@ impl Host for Operator {
             }
             if let Some(path) = path {
                 let thread = request.thread.clone();
+                let completion_cancel = CancellationToken::new();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
@@ -3895,8 +4104,16 @@ impl Host for Operator {
                     work.managed_cancel = Some(cancel.clone());
                     work.record.native_turn = request.turn.clone();
                     work.record.phase = "running".into();
+                    if let Some(previous) =
+                        work.completion_observer.replace(completion_cancel.clone())
+                    {
+                        previous.cancel();
+                    }
                     this.persist(&work.record)?;
                     *record = work.record.clone();
+                }
+                if let Some(record) = &record {
+                    this.watch_completion(record.clone(), native.clone(), completion_cancel);
                 }
                 let deadline = record
                     .as_ref()
@@ -3948,9 +4165,7 @@ impl Host for Operator {
                     let work = works.get_mut(&thread).unwrap();
                     if same_native_round(record, &work.record) {
                         work.managed_cancel = None;
-                        if work.stops_in_progress == 0
-                            && !matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
-                        {
+                        if work.stops_in_progress == 0 && work.record.phase == "running" {
                             work.record.phase = if result.is_ok() {
                                 "running"
                             } else {
@@ -4158,14 +4373,14 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
         }
         "action" => {
-            json!({"type":"string","enum":["list","create","resume","fork","start","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
+            json!({"type":"string","enum":["list","create","resume","fork","start","queue","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
         }
         _ => json!({"type":"string"}),
     };
     let controls = [
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action", false),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action", true),
-        ("codex_sessions", "List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app/native caps and a longer elapsed cap; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
+        ("codex_sessions", "List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. For follow-up to existing work, use its listed source_conversation_id/thread_id and read history. Claim the completed work with the current history/context cursors to obtain its controller; transfer to current reasoning and accept the offer before start when this Chat should own reasoning. Do not create a second work for that follow-up. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app/native caps and a longer elapsed cap; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. queue enqueues text on an explicit thread_id with stable call_id without changing its model or effort; the ACK is not proof of consumption. Supply execution_home for an explicit account. Identical retries return the original receipt; uncertain enqueue reconciles queue/history without retransmission. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller", false),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id", true),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller", true),
@@ -4493,6 +4708,7 @@ mod local_tests {
             native_admission: Arc::new(Mutex::new(())),
             stops_in_progress: 0,
             managed_cancel: None,
+            completion_observer: None,
         };
         assert!(admit_managed_round(&work, &record, Some("next")).is_ok());
         work.stops_in_progress = 1;

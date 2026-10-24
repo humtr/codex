@@ -407,6 +407,7 @@ impl Native {
                     }
                 }
             }
+            output.close();
             for (_, (_, reply)) in std::mem::take(&mut *replies.lock().await) {
                 let _ = reply.send(Err(Error("native_delivery_unknown")));
             }
@@ -514,7 +515,9 @@ impl Pool {
                 // socket. Work recovery remains explicitly fenced by Operator.
             } else {
                 client.owner.validate(&self.installation)?;
-                return Ok(client.clone());
+                if !client.write.is_closed() {
+                    return Ok(client.clone());
+                }
             }
         }
         let client = Native::connect(owner.clone(), self.installation.clone()).await?;
@@ -640,6 +643,163 @@ impl Pool {
 #[cfg(test)]
 mod reply_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "subprocess peer for the owned transport regression"]
+    fn transport_peer() {
+        let root = PathBuf::from(std::env::var_os("CODEX_NATIVE_TRANSPORT_FIXTURE").unwrap());
+        assert!(root.join("owned").is_file());
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let listener =
+                tokio::net::UnixListener::bind(root.join("socket-path").read_link().unwrap())
+                    .unwrap();
+            std::fs::write(root.join("ready"), b"ready").unwrap();
+            for connection in 0..2 {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                while let Some(Ok(message)) = socket.next().await {
+                    if !message.is_text() {
+                        continue;
+                    }
+                    let row: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                    let Some(id) = row.get("id") else {
+                        continue;
+                    };
+                    if row["method"] == "turn/start" {
+                        assert_eq!(connection, 0);
+                        // The effect commits before its response is lost.
+                        std::fs::write(root.join("effect"), b"once").unwrap();
+                        socket.close(None).await.unwrap();
+                        break;
+                    }
+                    let result = if row["method"] == "initialize" {
+                        json!({})
+                    } else {
+                        assert_eq!(row["method"], "thread/read");
+                        json!({"thread":{"id":"original-thread"}})
+                    };
+                    socket
+                        .send(json!({"id":id,"result":result}).to_string().into())
+                        .await
+                        .unwrap();
+                    if row["method"] == "thread/read" {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn closed_transport_recovers_the_next_observation_without_replaying_a_mutation() {
+        struct Fixture {
+            root: PathBuf,
+            child: Option<std::process::Child>,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if let Some(child) = &mut self.child {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        let root =
+            std::env::temp_dir().join(format!("nt.{}", &crate::journal::random_id().unwrap()[..8]));
+        crate::journal::private_directory(&root).unwrap();
+        let mut fixture = Fixture {
+            root: root.clone(),
+            child: None,
+        };
+        std::fs::write(root.join("owned"), b"owned native transport fixture").unwrap();
+        let installation = root.join("i");
+        let home = root.join("h");
+        let program = installation.join(".local/lib/codex/core/generations/f/runtime");
+        crate::journal::private_directory(program.parent().unwrap()).unwrap();
+        std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+        let name = codex_runtime_binding::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            b"",
+            None,
+        );
+        let directory = installation
+            .join(".local/share/codex/core/servers")
+            .join(name);
+        crate::journal::private_directory(&directory.join("config")).unwrap();
+        std::os::unix::fs::symlink(directory.join("s"), root.join("socket-path")).unwrap();
+        fixture.child = Some(
+            std::process::Command::new(&program)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "operator_native::reply_tests::transport_peer",
+                ])
+                .env("CODEX_NATIVE_TRANSPORT_FIXTURE", &root)
+                .spawn()
+                .unwrap(),
+        );
+        let pid = fixture.child.as_ref().unwrap().id();
+        for (name, bytes) in [
+            (
+                "owner",
+                codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+            ),
+            ("config/config.toml", vec![]),
+            ("pid", pid.to_string().into_bytes()),
+        ] {
+            let mut file = File::options()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(directory.join(name))
+                .unwrap();
+            use std::io::Write;
+            file.write_all(&bytes).unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !root.join("ready").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let owner = Owner::load(&directory, &home, &installation).unwrap();
+        let pool = Pool {
+            config: Config::default(),
+            state: root.join("state"),
+            installation,
+            home,
+            workspace: root.clone(),
+            base_url: "http://127.0.0.1:9".into(),
+            binary: program,
+            clients: Mutex::new(BTreeMap::new()),
+        };
+        let native = pool.client(owner.clone()).await.unwrap();
+        let mut events = native.events.subscribe();
+        assert_eq!(
+            native
+                .call("turn/start", json!({"threadId":"original-thread"}))
+                .await,
+            Err(Error("native_delivery_unknown"))
+        );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while events.recv().await.unwrap()["method"] != "operator/nativeDisconnected" {}
+        })
+        .await
+        .unwrap();
+        let next = pool.client(owner).await.unwrap();
+        assert_eq!(
+            next.call("thread/read", json!({"threadId":"original-thread"}))
+                .await
+                .unwrap(),
+            json!({"thread":{"id":"original-thread"}})
+        );
+        assert_eq!(std::fs::read(root.join("effect")).unwrap(), b"once");
+        assert!(fixture.child.as_mut().unwrap().wait().unwrap().success());
+    }
 
     #[test]
     fn request_discovery_accepts_other_homes_without_relaxing_binding_integrity() {
