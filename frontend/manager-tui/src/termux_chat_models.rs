@@ -1,10 +1,9 @@
 //! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 use crate::legacy_core::config::Config;
 use codex_config::ConfigLayerSource;
-use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::ModelsResponse as Catalog;
 use codex_protocol::openai_models::ReasoningEffort;
-use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
@@ -174,11 +173,6 @@ pub(crate) fn reentry_route(
     })
 }
 
-#[derive(Deserialize)]
-struct Catalog {
-    models: Vec<ModelInfo>,
-}
-
 pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
     let local = config.codex_home.join("chatgpt.config.toml");
     let shared = std::env::var_os("HOME").map(|home| {
@@ -293,7 +287,7 @@ fn checked_routing(value: toml::Value) -> Option<toml::Value> {
     Some(value)
 }
 
-fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
+fn installed_catalog(config: &Config) -> Option<Catalog> {
     let value = installed_routing(config)?;
     let path = Path::new(value.get("model_catalog_json")?.as_str()?);
     if !path.is_absolute() {
@@ -306,7 +300,30 @@ fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
             return None;
         }
     };
-    let models: Vec<ModelPreset> = catalog
+    Some(catalog)
+}
+
+/// Resolve launch-scoped metadata without changing selected model/effort defaults.
+pub(crate) fn restore_catalog(
+    config: &mut Config,
+    model: Option<&str>,
+) -> Result<bool, &'static str> {
+    let Some(model) = model.filter(|model| model.starts_with("chatgpt-desktop/")) else {
+        return Ok(false);
+    };
+    if config.model_catalog.is_some() {
+        return Ok(false);
+    }
+    let catalog = installed_catalog(config).ok_or("installed_chat_catalog_unavailable")?;
+    if !valid_chat_id(model) || !catalog.models.iter().any(|entry| entry.slug == model) {
+        return Err("saved_chat_model_unavailable");
+    }
+    config.model_catalog = Some(catalog);
+    Ok(true)
+}
+
+fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
+    let models: Vec<ModelPreset> = installed_catalog(config)?
         .models
         .into_iter()
         .map(Into::into)
@@ -408,6 +425,8 @@ mod tests {
         let config = crate::legacy_core::config::ConfigBuilder::default()
             .codex_home(home.path().to_path_buf())
             .cli_overrides(vec![
+                ("model".into(), "gpt-6.1-sol".into()),
+                ("model_reasoning_effort".into(), "high".into()),
                 ("sandbox_mode".into(), "danger-full-access".into()),
                 ("approval_policy".into(), "on-request".into()),
                 ("approvals_reviewer".into(), "auto_review".into()),
@@ -419,6 +438,30 @@ mod tests {
         assert!(
             installed_routing(&config).is_some(),
             "marked routing must decode"
+        );
+        let mut cold = config.clone();
+        assert_eq!(restore_catalog(&mut cold, Some("gpt-6.1-sol")), Ok(false));
+        assert!(cold.model_catalog.is_none());
+        assert_eq!(
+            restore_catalog(&mut cold, Some("chatgpt-desktop/gpt-6")),
+            Ok(true)
+        );
+        assert_eq!(cold.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(cold.model_reasoning_effort, Some(ReasoningEffort::High));
+        let mut explicit_catalog = cold.clone();
+        explicit_catalog
+            .model_catalog
+            .as_mut()
+            .unwrap()
+            .models
+            .retain(|m| m.slug == "chatgpt-desktop/gpt-6-pro");
+        assert_eq!(
+            restore_catalog(&mut explicit_catalog, Some("chatgpt-desktop/gpt-6")),
+            Ok(false)
+        );
+        assert_eq!(
+            explicit_catalog.model_catalog.unwrap().models[0].slug,
+            "chatgpt-desktop/gpt-6-pro"
         );
         // An ordinary resume can resolve its saved provider; a fresh native
         // thread retains its original defaults and explicit routes still win.
@@ -474,6 +517,15 @@ mod tests {
             "chatgpt-desktop/configured-model",
             &ReasoningEffort::None
         ));
+        custom["models"].as_array_mut().unwrap().last_mut().unwrap()["visibility"] =
+            serde_json::json!("hide");
+        std::fs::write(&catalog, serde_json::to_vec(&custom).unwrap()).unwrap();
+        let mut hidden_resume = config.clone();
+        assert_eq!(
+            restore_catalog(&mut hidden_resume, Some("chatgpt-desktop/configured-model")),
+            Ok(true),
+            "a saved model remains resumable when it is absent from the picker"
+        );
 
         let route = reentry_route(
             &config,

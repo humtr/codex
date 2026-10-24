@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 093a6af..d947d8a 100644
+index 093a6af..8c0de15 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -10,7 +10,7 @@ index 093a6af..d947d8a 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -218,6 +217,8 @@ mod backend_banner_fallback;
+@@ -218,9 +217,11 @@ mod backend_banner_fallback;
  mod backend_events;
  mod backend_sessions;
  mod background_requests;
@@ -18,7 +18,11 @@ index 093a6af..d947d8a 100644
 +pub(crate) mod chat_model_reentry;
  mod composer_hints;
  mod config_panel;
- mod config_persistence;
+-mod config_persistence;
++pub(crate) mod config_persistence;
+ mod connector_mentions;
+ mod daemon_menu;
+ mod daybreak;
 @@ -239,7 +240,11 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
@@ -1005,7 +1009,7 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 147ff23..95b80be 100644
+index 147ff23..cb11c46 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -139,7 +139,11 @@ mod experimental_features;
@@ -1073,19 +1077,157 @@ index 147ff23..95b80be 100644
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::profile_manager::ProfileReentry::from_error(err)
-         {
++        {
 +            return Err(reentry.exec());
 +        }
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::chat_model_reentry::ChatModelReentry::from_error(err)
-+        {
+         {
 +            return Err(reentry.exec());
 +        }
 +        match result {
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
+@@ -1837,50 +1863,95 @@ async fn run_ratatui_app(
+     let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
+     // A startup picker may consume its connection, but its selection keeps that backend.
+     app_server_target.preserve_selected_backend(&session_selection);
+-    let mut app_server = match app_server {
+-        Some(app_server) => app_server,
+-        None => match startup_draft
+-            .run_until(
+-                &mut tui,
+-                start_app_server(
+-                    &mut app_server_target,
+-                    arg0_paths.clone(),
+-                    config.clone(),
+-                    cli_kv_overrides.clone(),
+-                    loader_overrides.clone(),
+-                    strict_config,
+-                    cloud_config_bundle.clone(),
+-                    feedback.clone(),
+-                    log_db.clone(),
+-                    &mut state_db,
+-                    environment_manager.clone(),
+-                    embedded_network_policy.clone(),
+-                ),
+-            )
+-            .await
+-        {
+-            Ok(Ok(app_server)) => {
+-                // A picker can replace the server; account reads belong to their original session.
+-                startup_account = None;
+-                AppServerSession::new(
+-                    backend_id,
+-                    app_server,
+-                    app_server_target.thread_params_mode(),
++    let mut app_server = loop {
++        let mut session = match app_server.take() {
++            Some(app_server) => app_server,
++            None => match startup_draft
++                .run_until(
++                    &mut tui,
++                    start_app_server(
++                        &mut app_server_target,
++                        arg0_paths.clone(),
++                        config.clone(),
++                        cli_kv_overrides.clone(),
++                        loader_overrides.clone(),
++                        strict_config,
++                        cloud_config_bundle.clone(),
++                        feedback.clone(),
++                        log_db.clone(),
++                        &mut state_db,
++                        environment_manager.clone(),
++                        embedded_network_policy.clone(),
++                    ),
+                 )
+-                .with_local_codex_home(&config.codex_home)
+-                .with_remote_cwd_override(remote_cwd_override.clone())
+-            }
+-            Ok(Err(err)) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err);
+-            }
+-            Err(err) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err.into());
++                .await
++            {
++                Ok(Ok(app_server)) => {
++                    // A picker can replace the server; account reads belong to their original session.
++                    startup_account = None;
++                    AppServerSession::new(
++                        backend_id,
++                        app_server,
++                        app_server_target.thread_params_mode(),
++                    )
++                    .with_local_codex_home(&config.codex_home)
++                    .with_remote_cwd_override(remote_cwd_override.clone())
++                }
++                Ok(Err(err)) => {
++                    terminal_restore_guard.restore_silently();
++                    session_log::log_session_end();
++                    return Err(err);
++                }
++                Err(err) => {
++                    terminal_restore_guard.restore_silently();
++                    session_log::log_session_end();
++                    return Err(err.into());
++                }
++            },
++        };
++        #[cfg(unix)]
++        if crate::profile_transport::core_owned(
++            &app_server_target,
++            crate::termux_permissions::enabled(),
++        ) && config.model_catalog.is_none()
++            && let resume_picker::SessionSelection::Resume(target)
++            | resume_picker::SessionSelection::Fork(target) = &session_selection
++        {
++            let restored = startup_draft
++                .run_until(&mut tui, async {
++                    let saved = session.thread_read(target.thread_id, false).await?;
++                    let selected = match app::config_persistence::resume_model_settings_for_overrides(
++                        &config, &overrides,
++                    ) {
++                        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig =>
++                            config.model.as_deref(),
++                        crate::app_server_session::ResumeModelSettings::RestoreFromThread
++                            | crate::app_server_session::ResumeModelSettings::PreserveExistingThread =>
++                            saved.model.as_deref(),
++                    };
++                    let selected = selected.map(str::to_owned);
++                    crate::termux_chat_models::restore_catalog(&mut config, selected.as_deref())
++                        .map_err(color_eyre::eyre::Report::msg)
++                })
++                .await
++                .map_err(color_eyre::eyre::Report::from)
++                .and_then(|result| result);
++            match restored {
++                Ok(true) => {
++                    // Resolve metadata before attachment. Closing a remote observer
++                    // leaves Core's daemon and other native tasks running.
++                    startup_account = None;
++                    shutdown_app_server_if_present(Some(session)).await;
++                    continue;
++                }
++                Ok(false) => {}
++                Err(error) => {
++                    shutdown_startup_session(Some(session), &mut terminal_restore_guard).await;
++                    return Err(error);
++                }
+             }
+-        },
++        }
++        break session;
+     };
+
+     if let resume_picker::SessionSelection::Resume(target)
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
 index effb98e..0eb41c3 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
@@ -1204,3 +1346,16 @@ diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/cha
              model.model == model_name && (args.model.is_none() || model.show_in_picker)
          })
      else {
+diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
+index ef5b912..c24e8bf 100644
+--- a/codex-rs/tui/src/app/config_persistence.rs
++++ b/codex-rs/tui/src/app/config_persistence.rs
+@@ -28,7 +28,7 @@ async fn build_config_on_runtime_worker(
+     }
+ }
+
+-pub(super) fn resume_model_settings_for_overrides(
++pub(crate) fn resume_model_settings_for_overrides(
+     config: &Config,
+     harness_overrides: &ConfigOverrides,
+ ) -> crate::app_server_session::ResumeModelSettings {

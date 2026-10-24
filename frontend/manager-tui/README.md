@@ -51,8 +51,15 @@ preview assets remain protected until their clients exit.
 The frontend passes its upstream-resolved model catalog to Core's existing
 backend coordinator before local startup. Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
-Manager discovers both native and catalog-bound writers. The current52-test native
-gate includes catalog handoff, socket-output rejection and Core daemon ownership
+For an initial resume/fork without an explicit catalog, startup first reads the
+selected native model and resolves installed Chat metadata before attachment.
+It reuses that same coordinator to connect the catalog-backed server; closing
+the initial discovery observer does not stop Core's daemon or other native jobs.
+The optional `mutation_check` native-workflow input verifies the saved-catalog
+regression with a fault in disposable source, retaining the expected failure log
+and restoring the original bytes before subsequent checks.
+Manager discovers both native and catalog-bound writers. The focused native gate
+includes catalog handoff, socket-output rejection and Core daemon ownership
 alongside profile, permission, window and upstream command regressions. Separate
 upstream-feature gates exercise0.162's managed worktrees, shared pinning, copy/
 scroll/links, startup defaults, provider capabilities, CodeMode settlement/search,

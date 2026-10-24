@@ -1,6 +1,11 @@
 name: Manager TUI native qualification
 on:
   workflow_dispatch:
+    inputs:
+      mutation_check:
+        description: Verify the saved-Chat catalog regression with a disposable source fault
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -221,6 +226,38 @@ jobs:
           cd upstream
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Verify saved catalog regression detects the source fault
+        if: inputs.mutation_check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/tui/src/termux_chat_models.rs
+          original="$RUNNER_TEMP/profile-tui-catalog-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('codex-rs/tui/src/termux_chat_models.rs')
+          text = path.read_text()
+          guard = 'if config.model_catalog.is_some() {'
+          assert text.count(guard) == 1
+          path.write_text(text.replace(guard, 'if config.model_catalog.is_none() {'))
+          PYTHON
+          status=0
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models_installed_catalog_decodes_in_real_config)' > "$RUNNER_TEMP/profile-tui-mutation.log" 2>&1 || status=$?
+          test "$status" -ne 0
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          text = Path(os.environ['RUNNER_TEMP'], 'profile-tui-mutation.log').read_text()
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*1 tests run:.*1 failed', text), text[-4000:]
+          assert 'left: Ok(false)' in text and 'right: Ok(true)' in text, text[-4000:]
+          PYTHON
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
       - name: Qualify retained upstream 0.162 features
         shell: bash
         run: |
@@ -308,6 +345,7 @@ jobs:
           name: manager-tui-native-proof
           path: |
             ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-mutation.log
             ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-linted.patch

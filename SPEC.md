@@ -108,6 +108,13 @@ update authority is maintained.
   Provider definition as a thread-scoped reference so a saved Chat conversation
   opens without requiring `--profile chatgpt`. This does not select a provider,
   model or catalog for new native work, or replace an explicit user definition.
+  Before resuming or initially forking saved Chat work, startup resolves the
+  selected model from native metadata and connects with the installed Provider
+  catalog. A catalog supplied explicitly by the user remains authoritative.
+  Catalog restoration preserves the thread's selected model/effort and the
+  original startup input; it does not create a replacement conversation, clear
+  context guards or stop another native job. The native models manager owns its
+  catalog at backend startup; a thread-scoped path alone is not restoration.
   `--profile chatgpt` remains an upstream config fallback,
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
   proof; deferred families and unexecuted Pro choices are labelled accordingly.
