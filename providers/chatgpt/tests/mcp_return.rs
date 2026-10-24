@@ -117,6 +117,10 @@ async fn detached_peer_and_rpc_id_changes_reconcile_one_durable_logical_call() {
     let _ = abandoned.await;
     assert_eq!(calls.len(), 1);
     let id = calls[0]["id"].as_str().unwrap();
+    assert!(
+        id.len() <= 64,
+        "broker dispatch IDs also correlate native Operator results"
+    );
     assert!(broker.offer(&token).await.unwrap().is_empty());
     let mut changed = args.clone();
     changed.input = "{\"changed\":true}".into();

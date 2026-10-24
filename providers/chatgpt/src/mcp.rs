@@ -190,7 +190,7 @@ impl Broker {
         if turn.calls.len() >= 4096 {
             return Err(Error("mcp_turn_call_limit"));
         }
-        let id = format!("mcp_{}", digest(&(token, &args.call_id)));
+        let id = digest(&(token, &args.call_id));
         gateway_calls(
             &id,
             &json!({"name":args.name,"input":args.input,"report":args.report}).to_string(),

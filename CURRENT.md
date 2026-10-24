@@ -18,9 +18,15 @@ Responsibility/data flow: gateway_calls translates app/MCP invocation identity
 into native Call records; upstream preserves those calls and matching results.
 The candidate bounds that native identity to64 bytes, hashing long single-host
 IDs and batch positions while preserving the original host ID for ACK/results.
-MCP's internal logical/retry identity and journal format remain unchanged. An
-initial redundant MCP-ID change was removed after a disposable mutation showed
-the common gateway already owns this responsibility. No alternate executor,
+MCP logical/retry keys and the journal format remain unchanged. Broker dispatch
+IDs also use the unprefixed64-hex digest: Operator correlates those IDs directly
+with native results, while AppHost maps native aliases back to host IDs. The
+first773c937 candidate exposed this missed consumer during exact-binary Android
+qualification: one command executed, but its result failed with mcp_result_invalid
+and the caller timed out. The candidate was not signed, published or activated;
+its original native records and effect are preserved without replay. The earlier
+AppHost-only mutation did not cover Operator and did not justify removing the
+Broker dispatch-ID correction. Both producers are now included. No alternate executor,
 transcript, provider route, migration flag or temporary product path is added.
 
 The existing Android MCP execution proof now continues its actual command/patch/
