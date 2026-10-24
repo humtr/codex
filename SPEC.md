@@ -109,8 +109,13 @@ update authority is maintained.
   opens without requiring `--profile chatgpt`. This does not select a provider,
   model or catalog for new native work, or replace an explicit user definition.
   Before resuming or initially forking saved Chat work, startup resolves the
-  selected model from native metadata and connects with the installed Provider
-  catalog. A catalog supplied explicitly by the user remains authoritative.
+  selected saved model's catalog before binding its backend. Internal model-picker
+  re-entry settings select that one launch; they must not become persistent CLI
+  overrides for later in-app `/resume` targets. A later cross-provider resume
+  uses the existing re-entry coordinator with the target's saved settings and
+  routing, preserving its history without another checkpoint or inference.
+  User-supplied CLI model overrides keep upstream semantics. A catalog supplied
+  explicitly by the user remains authoritative.
   Catalog restoration preserves the thread's selected model/effort and the
   original startup input; it does not create a replacement conversation, clear
   context guards or stop another native job. The native models manager owns its

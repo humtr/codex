@@ -169,6 +169,7 @@ pub(crate) struct ChatModelReentry {
     cwd: PathBuf,
     home: PathBuf,
     return_profile: Option<String>,
+    restore_saved: bool,
 }
 impl ChatModelReentry {
     pub(super) fn set_service_tier(&mut self, tier: Option<String>) {
@@ -190,7 +191,15 @@ impl ChatModelReentry {
         command
             .args(&self.args)
             .current_dir(&self.cwd)
-            .env("CODEX_HOME", &self.home);
+            .env("CODEX_HOME", &self.home)
+            .env(
+                termux_chat_models::REENTRY_MODE,
+                if self.restore_saved {
+                    "resume"
+                } else {
+                    "select"
+                },
+            );
         if let Some(profile) = &self.return_profile {
             command.env("CODEX_CHAT_RETURN_PROFILE", profile);
         } else {
@@ -367,6 +376,94 @@ fn settled_for_provider_switch(snapshot: &Value) -> bool {
     }
 }
 
+fn reentry_source(app: &App) -> Option<ThreadId> {
+    app.chat_widget.thread_id().filter(|thread| {
+        matches!(
+            app.app_server_target,
+            crate::AppServerTarget::LocalDaemon { .. }
+        ) && app.chat_widget.composer_is_empty()
+            && app.dynamic_tool_tasks.is_empty()
+            && app.chat_widget.can_change_working_directory(*thread)
+    })
+}
+fn reentry_request(
+    config: &crate::legacy_core::config::Config,
+    thread: ThreadId,
+    model: &str,
+    effort: &ReasoningEffort,
+    restore_saved: bool,
+) -> Option<ChatModelReentry> {
+    let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_CORE").unwrap_or_default());
+    if !std::fs::symlink_metadata(&core).is_ok_and(|m| {
+        core.is_absolute()
+            && m.is_file()
+            && m.uid() == unsafe { libc::geteuid() }
+            && m.mode() & 0o022 == 0
+            && m.mode() & 0o111 != 0
+    }) {
+        return None;
+    }
+    let route = termux_chat_models::reentry_route(
+        config,
+        model,
+        effort,
+        std::env::var("CODEX_CHAT_RETURN_PROFILE").ok(),
+    )?;
+    let mut args = route.args;
+    args.extend([
+        "resume".into(),
+        thread.to_string(),
+        "--model".into(),
+        model.to_owned(),
+    ]);
+    Some(ChatModelReentry {
+        core,
+        args,
+        cwd: config.cwd.to_path_buf(),
+        home: config.codex_home.to_path_buf(),
+        return_profile: route.return_profile,
+        restore_saved,
+    })
+}
+pub(super) async fn resume_saved(
+    app: &mut App,
+    server: &mut AppServerSession,
+    target: ThreadId,
+    config: &crate::legacy_core::config::Config,
+) -> color_eyre::Result<Option<ChatModelReentry>> {
+    let saved = server.thread_read(target, false).await?;
+    let model = saved
+        .model
+        .as_deref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Saved model settings are unavailable."))?;
+    if !termux_chat_models::needs_reentry(&app.chat_widget.config_ref().model_provider_id, model) {
+        return Ok(None);
+    }
+    let source = reentry_source(app).ok_or_else(|| {
+        color_eyre::eyre::eyre!(
+            "Finish current work and pending input before resuming another provider."
+        )
+    })?;
+    if !super::profile_manager::ensure_resumable(server, source).await {
+        color_eyre::eyre::bail!("Current conversation could not be saved before resuming.");
+    }
+    let snapshot = public_snapshot(server, app.chat_widget.config_ref(), source)
+        .await
+        .ok_or_else(|| color_eyre::eyre::eyre!("Current conversation state is unavailable."))?;
+    if !settled_for_provider_switch(&snapshot) {
+        color_eyre::eyre::bail!("Finish current work before resuming another provider.");
+    }
+    reentry_request(
+        config,
+        target,
+        model,
+        &saved.reasoning_effort.unwrap_or(ReasoningEffort::None),
+        true,
+    )
+    .map(Some)
+    .ok_or_else(|| color_eyre::eyre::eyre!("Saved model routing is unavailable."))
+}
+
 async fn plan(
     app: &mut App,
     server: &mut AppServerSession,
@@ -374,14 +471,7 @@ async fn plan(
     effort: Option<ReasoningEffort>,
     request_summary: bool,
 ) -> Option<ChatModelReentry> {
-    let thread = app.chat_widget.thread_id().filter(|thread| {
-        matches!(
-            app.app_server_target,
-            crate::AppServerTarget::LocalDaemon { .. }
-        ) && app.chat_widget.composer_is_empty()
-            && app.dynamic_tool_tasks.is_empty()
-            && app.chat_widget.can_change_working_directory(*thread)
-    });
+    let thread = reentry_source(app);
     let Some(thread) = thread else {
         app.chat_widget.add_error_message("Provider switching requires an idle primary conversation without pending input or tool calls.".into());
         return None;
@@ -401,36 +491,7 @@ async fn plan(
             .add_error_message("Selected model/provider is unavailable.".into());
         return None;
     }
-    let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_CORE").unwrap_or_default());
-    if !std::fs::symlink_metadata(&core).is_ok_and(|m| {
-        core.is_absolute()
-            && m.is_file()
-            && m.uid() == unsafe { libc::geteuid() }
-            && m.mode() & 0o022 == 0
-            && m.mode() & 0o111 != 0
-    }) {
-        return None;
-    }
-    let route = termux_chat_models::reentry_route(
-        config,
-        &model,
-        &effort,
-        std::env::var("CODEX_CHAT_RETURN_PROFILE").ok(),
-    )?;
-    let mut args = route.args;
-    args.extend([
-        "resume".into(),
-        thread.to_string(),
-        "--model".into(),
-        model.clone(),
-    ]);
-    let request = ChatModelReentry {
-        core,
-        args,
-        cwd: config.cwd.to_path_buf(),
-        home: config.codex_home.to_path_buf(),
-        return_profile: route.return_profile,
-    };
+    let request = reentry_request(config, thread, &model, &effort, false)?;
     if !matches!(
         tokio::time::timeout(
             Duration::from_secs(3),
@@ -874,8 +935,14 @@ args=["token","--state","/owned/state"]
             cwd: PathBuf::from("/owned/work"),
             home: PathBuf::from("/owned/account"),
             return_profile: Some("api".into()),
+            restore_saved: false,
         };
         let cmd = request.command();
+        assert!(
+            cmd.get_envs()
+                .any(|(key, value)| key == termux_chat_models::REENTRY_MODE
+                    && value == Some(std::ffi::OsStr::new("select")))
+        );
         assert_eq!(
             cmd.get_current_dir(),
             Some(std::path::Path::new("/owned/work"))

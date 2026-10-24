@@ -1347,10 +1347,10 @@ diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/cha
          })
      else {
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
-index ef5b912..c24e8bf 100644
+index ef5b912..6d917e9 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
 +++ b/codex-rs/tui/src/app/config_persistence.rs
-@@ -28,7 +28,7 @@ async fn build_config_on_runtime_worker(
+@@ -28,10 +28,16 @@ async fn build_config_on_runtime_worker(
      }
  }
 
@@ -1359,3 +1359,60 @@ index ef5b912..c24e8bf 100644
      config: &Config,
      harness_overrides: &ConfigOverrides,
  ) -> crate::app_server_session::ResumeModelSettings {
++    #[cfg(unix)]
++    if crate::termux_permissions::enabled()
++        && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume")
++    {
++        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
++    }
+     let has_layer_override = config.config_layer_stack.layers_high_to_low().any(|layer| {
+         matches!(
+             &layer.name,
+@@ -1134,6 +1140,15 @@ impl App {
+     }
+
+     pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled()
++            && matches!(
++                std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref(),
++                Ok("select" | "resume")
++            )
++        {
++            return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
++        }
+         resume_model_settings_for_overrides(&self.config, &self.harness_overrides)
+     }
+
+diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
+index 811d971..b8dcd14 100644
+--- a/codex-rs/tui/src/app/session_lifecycle.rs
++++ b/codex-rs/tui/src/app/session_lifecycle.rs
+@@ -1375,6 +1375,27 @@ impl App {
+             self.add_session_picker_error(format!("{error:#}"));
+             return Ok(AppRunControl::Continue);
+         }
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled()
++            && self.resume_model_settings()
++                == crate::app_server_session::ResumeModelSettings::RestoreFromThread
++        {
++            match super::chat_model_reentry::resume_saved(
++                self,
++                app_server,
++                target_session.thread_id,
++                &resume_config,
++            )
++            .await
++            {
++                Ok(Some(request)) => return Err(std::io::Error::other(request).into()),
++                Ok(None) => (),
++                Err(error) => {
++                    self.add_session_picker_error(error.to_string());
++                    return Ok(AppRunControl::Continue);
++                }
++            }
++        }
+         let permission_overrides = self.resume_permission_overrides(&resume_config);
+
+         if let Some(history_mode) = target_session.history_mode {

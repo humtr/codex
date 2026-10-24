@@ -12,6 +12,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 pub(crate) const PROVIDER: &str = "chatgpt_desktop";
+pub(crate) const REENTRY_MODE: &str = "CODEX_CHAT_MODEL_REENTRY";
 const BEGIN: &str = "# codex-chatgpt-provider generated v1\n";
 
 pub(crate) fn private_bytes(path: &Path, limit: u64) -> Option<Vec<u8>> {
