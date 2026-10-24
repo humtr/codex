@@ -133,6 +133,43 @@ impl Snapshot {
         let _lock = lock(&self.path)?;
         self.commit_locked(bytes)
     }
+    pub fn commit_edits(
+        &self,
+        values: &[(String, String)],
+        unset: &[String],
+    ) -> Result<bool, ConfigError> {
+        let _lock = lock(&self.path)?;
+        if read(&self.path)? != self.original {
+            return Err(ConfigError::Io(
+                "configuration changed; reload before saving",
+            ));
+        }
+        match self.edited_bytes(values, unset)? {
+            Some(bytes) => self.commit_locked(&bytes),
+            None => Ok(false),
+        }
+    }
+    fn edited_bytes(
+        &self,
+        values: &[(String, String)],
+        unset: &[String],
+    ) -> Result<Option<Vec<u8>>, ConfigError> {
+        let mut doc = document(self.original.as_deref())?;
+        let before = doc.clone();
+        for (field, value) in values {
+            set(&mut doc, field, Some(value))?;
+        }
+        for field in unset {
+            set(&mut doc, field, None)?;
+        }
+        if doc == before {
+            return Ok(None);
+        }
+        let text = toml::to_string_pretty(&doc)
+            .map_err(|_| ConfigError::Invalid("configuration serialization failed"))?;
+        Config::parse(text.as_bytes())?;
+        Ok(Some(text.into_bytes()))
+    }
     fn commit_locked(&self, bytes: &[u8]) -> Result<bool, ConfigError> {
         if read(&self.path)? != self.original {
             return Err(ConfigError::Io(
@@ -267,21 +304,10 @@ pub fn update(
 ) -> Result<bool, ConfigError> {
     let _lock = lock(path)?;
     let snapshot = Snapshot::open(path)?;
-    let mut doc = document(snapshot.original.as_deref())?;
-    let before = doc.clone();
-    for (field, value) in values {
-        set(&mut doc, field, Some(value))?;
+    match snapshot.edited_bytes(values, unset)? {
+        Some(bytes) => snapshot.commit_locked(&bytes),
+        None => Ok(false),
     }
-    for field in unset {
-        set(&mut doc, field, None)?;
-    }
-    if doc == before {
-        return Ok(false);
-    }
-    let text = toml::to_string_pretty(&doc)
-        .map_err(|_| ConfigError::Invalid("configuration serialization failed"))?;
-    Config::parse(text.as_bytes())?;
-    snapshot.commit_locked(text.as_bytes())
 }
 fn set(doc: &mut toml::Table, field: &str, value: Option<&str>) -> Result<(), ConfigError> {
     if !FIELDS.contains(&field) || field == "catalog" {

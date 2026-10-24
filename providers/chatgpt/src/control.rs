@@ -33,7 +33,7 @@ pub(crate) fn public_work_ids(journal: &Journal) -> Result<Vec<String>, Error> {
 pub(crate) fn tools() -> Vec<Value> {
     crate::operator::tools().into_iter().filter_map(|mut tool|{
         match tool["name"].as_str()? {
-            "codex_host"|"codex_chats"=>Some(tool),
+            "codex_host"|"codex_chats"|"codex_projects"=>Some(tool),
             "codex_sessions"=>{
                 tool["description"]=json!("Explicit saved Chat input and original result retrieval. chat_input requires conversation_id, complete source_cursor, task, stable call_id and finite budget; chat_result observes input_id without resending. Native work requires a separately configured execution binding.");
                 tool["inputSchema"]["properties"]["action"]=json!({"type":"string","enum":["chat_input","chat_result"]});Some(tool)
@@ -46,6 +46,11 @@ impl Controls {
     pub async fn call(&self, name: &str, args: Value, secrets: &[String]) -> Result<Value, Error> {
         crate::operator::validate_arguments(&tools(), name, &args)?;
         match name {
+            "codex_projects" => {
+                let path =
+                    crate::store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
+                crate::project::control(self.bridge.as_ref(), &self.journal, &path, &args).await
+            }
             "codex_chats" => {
                 crate::chats::Chats::new(self.bridge.clone())
                     .with_public_ids(public_work_ids(&self.journal)?)

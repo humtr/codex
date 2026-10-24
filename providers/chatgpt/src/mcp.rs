@@ -468,9 +468,12 @@ async fn http(State(broker): State<Arc<Broker>>, request: Request) -> Response {
             let token = args["turn_token"]
                 .as_str()
                 .filter(|v| v.len() == 48 && v.bytes().all(|b| b.is_ascii_hexdigit()));
-            let source_name = row["params"]["name"]
-                .as_str()
-                .filter(|name| matches!(*name, "codex_chats" | "codex_host" | "codex_sessions"));
+            let source_name = row["params"]["name"].as_str().filter(|name| {
+                matches!(
+                    *name,
+                    "codex_chats" | "codex_host" | "codex_projects" | "codex_sessions"
+                )
+            });
             let value = if let (Some(controls), Some(name)) = (&broker.controls, source_name) {
                 let secrets = broker
                     .turns

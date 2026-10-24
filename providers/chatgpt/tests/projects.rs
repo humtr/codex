@@ -15,6 +15,8 @@ struct State {
     lose_reply: bool,
     rejected: bool,
     commands: Vec<Value>,
+    identity_reads: usize,
+    concurrent_config: Option<PathBuf>,
 }
 #[derive(Default)]
 struct App(Mutex<State>);
@@ -23,6 +25,19 @@ impl Bridge for App {
         let mut state = self.0.lock().unwrap();
         state.commands.push(command.clone());
         let result = match command["op"].as_str().unwrap() {
+            "identity" => {
+                state.identity_reads += 1;
+                if state.identity_reads == 2 {
+                    if let Some(path) = &state.concurrent_config {
+                        std::fs::write(
+                            path,
+                            b"[history]\nmode='retain'\n[context]\nwindow_tokens=900000\n",
+                        )
+                        .unwrap();
+                    }
+                }
+                Ok(json!({"account":"account","user":"user","structure":"personal"}))
+            }
             "project_list" => Ok(json!(state.projects)),
             "project_read" => state
                 .projects
@@ -192,4 +207,95 @@ async fn ambiguous_names_explicit_id_incompatible_and_no_create_are_distinct() {
         Error("project_destination_incompatible")
     );
     assert_eq!(app.0.lock().unwrap().creates, 0);
+}
+
+#[tokio::test]
+async fn explicit_project_use_creates_reads_back_and_selects_without_inference() {
+    use codex_chatgpt_provider::{project, store};
+    let (root, journal, _, _) = setup();
+    let path = root.0.join("config/chatgpt.toml");
+    store::update(&path, &[("history.mode".into(), "retain".into())], &[]).unwrap();
+    let app = App::default();
+    let listed = project::control(&app, &journal, &path, &json!({"action":"list"}))
+        .await
+        .unwrap();
+    assert_eq!(listed["projects"], json!([]));
+    assert_eq!(
+        store::Snapshot::open(&path)
+            .unwrap()
+            .config()
+            .unwrap()
+            .history
+            .mode,
+        HistoryMode::Retain
+    );
+    let args = json!({"action":"use","name":"Codex"});
+    let selected = project::control(&app, &journal, &path, &args)
+        .await
+        .unwrap();
+    assert_eq!(selected["configuration_saved"], true);
+    assert_eq!(selected["project"]["id"], "g-p-created");
+    assert_eq!(selected["inference_submitted"], false);
+    let saved = store::Snapshot::open(&path).unwrap().config().unwrap();
+    assert_eq!(saved.history.mode, HistoryMode::Project);
+    assert_eq!(saved.history.project_name.as_deref(), Some("Codex"));
+    assert_eq!(saved.history.project_id.as_deref(), Some("g-p-created"));
+    let repeated = project::control(&app, &journal, &path, &args)
+        .await
+        .unwrap();
+    assert_eq!(repeated["configuration_changed"], false);
+    let state = app.0.lock().unwrap();
+    assert_eq!(state.creates, 1);
+    assert!(state.commands.iter().all(|c| matches!(
+        c["op"].as_str(),
+        Some("identity" | "project_list" | "project_read" | "project_create")
+    )));
+}
+
+#[tokio::test]
+async fn project_selection_preserves_configuration_on_remote_failure_and_concurrent_edit() {
+    use codex_chatgpt_provider::{project, store};
+    for conflict in [false, true] {
+        let (root, journal, _, _) = setup();
+        let path = root.0.join("config/chatgpt.toml");
+        store::update(&path, &[("history.mode".into(), "retain".into())], &[]).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let app = App::default();
+        {
+            let mut state = app.0.lock().unwrap();
+            state.rejected = !conflict;
+            state.concurrent_config = conflict.then_some(path.clone());
+        }
+        let args = json!({"action":"use","name":"Codex"});
+        let error = project::control(&app, &journal, &path, &args)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            Error(if conflict {
+                "project_configuration_save_unconfirmed"
+            } else {
+                "project_creation_rejected"
+            })
+        );
+        let saved = store::Snapshot::open(&path).unwrap().config().unwrap();
+        assert_eq!(saved.history.mode, HistoryMode::Retain);
+        if conflict {
+            assert_eq!(saved.context.window_tokens, 900000);
+            app.0.lock().unwrap().concurrent_config = None;
+            assert!(
+                project::control(&app, &journal, &path, &args)
+                    .await
+                    .unwrap()["configuration_saved"]
+                    == true
+            );
+            assert_eq!(
+                app.0.lock().unwrap().creates,
+                1,
+                "configuration retry reuses the verified remote project"
+            );
+        } else {
+            assert_eq!(std::fs::read(path).unwrap(), before);
+        }
+    }
 }

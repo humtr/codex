@@ -65,6 +65,64 @@ Evidence: `~/.cache/codex/acceptance/call-id-compat-kdt41vdr/`, especially
 package/composition records, targeted-fault logs and the original failed observers.
 Implementation, qualification, signed publication and device activation are complete.
 
+## Post-answer app recovery: open operating blocker
+
+Provider10's ID repair remains qualified, but does not close the newly reported
+completion/recovery failure. Thread01a16ee2-04c0-7a91-afa5-9de91bde8189
+executed12 native calls with64-byte IDs and all Broker results settled. Its final
+public answer is retained both locally and in the authenticated saved Chat.
+The app logged a404 `Resume stream unavailable` recovery start at17:11:00Z,
+then successful polling recovery at17:14:45Z (attempt40). The Provider failed
+to settle that recovered round and timed out at17:24:29Z; the subsequent new
+input failed `lane_reconciliation_required`. Host status still reports that
+owned MCP lane active. Do not reinterpret visible text as completed transport.
+
+The pinned app's successful polling recovery calls its higher-level submission
+`onCompletion`; the previous bridge observed only low-level stream completion.
+The source repair observes both with the existing lane epoch and preserves
+failed/interrupted status. The single-tool-result SDK helper also discards that
+callback, so its separate submission branch/gate is removed; user input and tool
+results now share the existing submission implementation. Public text alone still
+cannot settle a turn, and stale/cancelled callbacks remain fenced. First transport
+error and resume metadata now reach content-free Provider logs; no timeout or
+inference retry was added.
+
+The initiating Chat transport loss is not established by retained records. The
+404 belongs to the app's own resume request, which the Provider's new-dispatch
+hook does not intercept. The app log also records a local native app-server
+websocket1006/pong timeout; that separate connection does not prove the cause of
+Chat's initial loss. Do not attribute it to networking, Android, upstream or this
+wrapper without correlated initial-error evidence. The missing recovery observer
+is a verified defect in this repository, regardless of that initiating cause.
+
+The quoted project failure conflated capabilities: policy was `retain`, with no
+configured destination, and the request never invoked project creation. Explicit
+`projects list|use` CLI and `codex_projects` MCP now share existing account-bound
+create/reuse/readback, then atomically save the project mode/name/exact ID for new
+lanes. Remote failures preserve local policy; local edit conflicts preserve the
+verified remote binding for retry without another creation. Resolution locking
+moves from individual AppHosts into the common resolver, covering both transports
+and explicit selection. Existing conversations retain their destination. The new
+project tool correctly declares its write effect; other tool annotations retain
+their qualified policy. Broad setup UX remains deferred.
+
+Source regressions cover user-input recovery, single-result recovery, failed and
+interrupted completion, stale callbacks, first-error retention, create/select/
+reuse and concurrent configuration edits. Disposable faults for missing completion
+and the obsolete result helper are detected and restored. Local Provider gates (184 Rust,76 Bun plus Python/lint/release) and the explicitly
+armed Android native command/patch/same-thread follow-up/Chat-return fixture pass.
+That fixture uses synthetic app/model replies; it does not prove live Chat
+recovery. Exact hosted package/device admission and delivery remain; Provider10
+is still selected.
+No project, user lane or service has been modified during these source checks.
+
+Original records and qualification logs are retained at
+`~/.cache/codex/acceptance/post-answer-recovery-20261024/`.
+KST was separately enabled through `export TZ=Asia/Seoul` in the user's existing
+~/.bashrc; its original bytes are retained privately there. Fresh interactive
+shell execution positively reports KST/+0900. Already-running processes keep
+their existing environment, and canonical UTC records remain UTC.
+
 ## Reasoning-effort incident and redo boundary
 
 The original thread's `thread_settings_applied` records establish the actual

@@ -226,16 +226,22 @@ needs the remote connection described above and an explicit project below.
 
 ### Managed Chat project
 
-For new managed work, choose the destination explicitly:
+Create or reuse the requested owned private project and select it for new work:
 
 ```sh
-codex provider chatgpt config set \
-  history.mode project history.project_name "Codex"
+codex provider chatgpt projects list
+codex provider chatgpt projects use --name "Codex"
 ```
 
-`Codex` is an example project name. Set `history.project_id` to disambiguate an
-existing owned private project. `history.create_if_missing` controls creation
-(default true); configuring it does not itself submit a task or create a project.
+`use` verifies the project through the authenticated app, creates it when absent,
+then saves `history.mode=project`, its name and exact ID in the existing Provider
+configuration. It submits no model request. Supply `--project-id ID` to choose
+among duplicate names. The `codex_projects` MCP tool exposes the same operation
+when an assistant receives an explicit project creation/use request.
+An uncertain creation or conflicting local configuration edit preserves the
+remote binding for reconciliation; retry the same selection without creating a
+duplicate. Direct `config set` remains available for policy-only changes and
+does not itself create a remote project.
 Do not change an active work's destination underneath it. General delegation
 selects `reasoning=managed`; the actual managed task requires app readiness and
 its own work/receipt/budget controls. See the
@@ -563,7 +569,7 @@ these commands through `codex provider chatgpt ...`. Its settings and catalog ha
 one authority:
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, default
 `~/.config/codex/providers/chatgpt.toml`.
-User-facing ChatGPT project setup/management is deferred; existing project
+Broader ChatGPT setup/management UX is deferred; explicit project selection and
 configuration/operations will remain its authority. Scope and priority are in
 [CURRENT.md](../../CURRENT.md#chatgpt-projects-and-history).
 

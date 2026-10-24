@@ -2887,6 +2887,14 @@ never duplicate prose or rewrite already closed output. Emit terminal Provider
 failures as `response.failed` with a structured response error that native Codex
 actually reads; a top-level `error` event alone is not sufficient. Retain only
 static content-free failure codes in the private lane record.
+An owned submission's higher-level completion callback also settles successful
+app recovery by saved-history polling, which need not emit the original stream's
+terminal callback. Observe both through the existing lane epoch; stale or locally
+cancelled callbacks cannot settle a newer request. A displayed final alone does
+not prove completion. Preserve failed/interrupted completion as failure, and
+record content-free first transport-error/resume observations so a later recovery
+does not erase the cause of the original disconnect. Never replay inference to
+obtain a missing terminal or extend a timeout to hide incomplete observation.
 
 The provider should accept a ChatGPT project destination, resolve it in the
 currently authenticated Chat account/workspace and create it when absent, as
@@ -2898,14 +2906,22 @@ new provider-owned conversations. Existing conversations are not moved/deleted
 implicitly. A project/retention change applies to new lanes at a safe boundary;
 model/effort changes should reuse an existing owned conversation when supported.
 
-Deferred setup/management UX must let the user discover and select a ChatGPT
-project, explicitly create one when needed, inspect/change the configured
+`codex provider chatgpt projects list` and `projects use --name NAME` expose
+authenticated project discovery and create-or-reuse without inference. The same
+`codex_projects` MCP control lets an explicit request to create/use a project
+complete both operations: verify its exact owned destination, then atomically
+save history.mode=project, project_name and project_id. A failed remote operation
+must not report a configured destination; a conflicting local edit must preserve
+the verified remote binding for reconciliation, without another creation.
+Existing lanes retain their destination. Creation across app entrypoints shares
+one resolution lock; uncertainty never authorizes another create.
+Remaining setup/management UX must let the user inspect/change the configured
 destination and verify conversation membership. Reuse the existing history
 configuration and authenticated project operations as the single authority;
 do not require optional Manager/TUI or add a second settings store. New Chat
 contexts for the same Codex work must retain the chosen destination. Preserve
 existing conversations and project context/access settings. This is a future
-feature requirement, not part of the current operator trial or operating activation;
+feature requirement beyond the explicit project controls above;
 CURRENT.md owns its priority and remaining qualification.
 
 Host account/workspace identity plus exact project ID binds remote placement.

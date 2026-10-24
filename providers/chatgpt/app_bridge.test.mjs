@@ -141,7 +141,7 @@ async function fixture(run){
   if(globalThis.appBridgeFixture.holdSubmission)await new Promise(resolve=>{globalThis.appBridgeFixture.releaseSubmission=resolve;});
   return true;
  }
- export function bRt(scope,options){return yRt(scope,{...options,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:options.callId,result:options.result})}}}});}
+ export function bRt(scope,{callId,conversationId,isTemporaryChat,model,onServerThreadIdChange,result,thinkingEffort,toolName}){return yRt(scope,{conversationId,isTemporaryChat,model,onServerThreadIdChange,thinkingEffort,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:callId,result,tool:toolName})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
  const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
@@ -359,6 +359,53 @@ test('a terminal does not settle a submission whose app acceptance is still pend
  expect(f.sent).toHaveLength(2);expect(f.created).toBe(1);
 }));
 
+
+for(const status of ['completed','failed','interrupted'])test('submission recovery observes '+status+' without replaying a stream',async()=>fixture(async({f,bindings})=>{
+ f.client.startCompletionStream=options=>{
+  f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;
+ };
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'recovered',signature:{name:'unused'}});
+ const submit=round=>bridge({op:'submit',owner:'owned',lane:'recovered',round,messages:[{role:'user',text:'Task'}]});
+ await submit('first');await Promise.resolve();
+ const raw=f.options[0],completed=f.submitOptions.onCompletion;
+ raw.onStreamErrorObserved({errorKind:'network',error:'PRIVATE ERROR',diagnostics:{request_url:'SECRET_URL'}});
+ raw.onResume({type:'error',attemptCount:1,error:{responseStatus:404,error:'PRIVATE ERROR'},isNetworkError:false});
+ let snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
+ expect(snapshot.terminals).toEqual([]);expect(snapshot.streamActive).toBe(true);
+ expect(snapshot.transportObservation).toEqual({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1}});
+ // The app hydrates the saved final and invokes its high-level completion,
+ // without invoking raw.onComplete. Public text alone cannot settle the lane.
+ f.nodes={final:{message:{id:'final',author:{role:'assistant'},recipient:'all',channel:'final',content:{content_type:'text',parts:['Recovered answer']},status:'finished_successfully',end_turn:true}}};
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'recovered'})).terminals).toEqual([]);
+ completed(status);
+ snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
+ expect(snapshot.streamActive).toBe(false);
+ expect(snapshot.terminals).toEqual(status==='completed'?['done']:[]);
+ expect(snapshot.error).toBe(status==='completed'?null:status==='failed'?'app_completion_failed':'app_completion_interrupted');
+ expect(f.sent).toHaveLength(1);
+ await submit('second');await Promise.resolve();
+ completed('completed');raw.onResume({type:'error',attemptCount:9,error:{responseStatus:503}});
+ const next=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
+ expect(next.round).toBe('second');expect(next.terminals).toEqual([]);expect(next.streamActive).toBe(true);expect(next.transportObservation).toBe(null);
+ f.submitOptions.onCompletion('completed');
+ await bridge({op:'release',owner:'owned',lane:'recovered'});
+}));
+
+test('single local tool result retains submission completion after SDK recovery',async()=>fixture(async({f,bindings})=>{
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ await bridge({op:'init',owner:'owned',returnPath:'local_function',bindings});
+ await bridge({op:'open',owner:'owned',lane:'result-recovery',signature:{name:'native_gateway'}});
+ await bridge({op:'submit',owner:'owned',lane:'result-recovery',round:'one',results:[{id:'original-call',result:{output:'real result'}}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(1);expect(f.sent[0].messages).toHaveLength(1);
+ expect(f.sent[0].messages[0].author.role).toBe('tool');
+ expect(JSON.parse(f.sent[0].messages[0].content.text)).toEqual({call_id:'original-call',result:{output:'real result'},tool:'native_gateway'});
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'result-recovery'})).terminals).toEqual([]);
+ f.submitOptions.onCompletion('completed');
+ const done=await bridge({op:'snapshot',owner:'owned',lane:'result-recovery'});
+ expect(done.terminals).toEqual(['done']);expect(done.streamActive).toBe(false);expect(f.sent).toHaveLength(1);
+ await bridge({op:'release',owner:'owned',lane:'result-recovery'});
+}));
 
 test('initial auth loading installs no hooks and identity refresh is read-only',async()=>fixture(async({f,bindings,original})=>{
  f.authLoading=true;expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:false});

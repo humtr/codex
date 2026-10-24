@@ -1386,6 +1386,11 @@ impl Operator {
                 }
                 crate::control::host(self.bridge.as_ref(), &args).await
             }
+            "codex_projects" => {
+                let path =
+                    crate::store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
+                crate::project::control(self.bridge.as_ref(), &self.journal, &path, &args).await
+            }
             "codex_chats" => {
                 let secrets = {
                     let works = self.works.lock().await;
@@ -4378,6 +4383,7 @@ pub(crate) fn tools() -> Vec<Value> {
         _ => json!({"type":"string"}),
     };
     let controls = [
+        ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action", false),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action", false),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action", true),
         ("codex_sessions", "List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. For follow-up to existing work, use its listed source_conversation_id/thread_id and read history. Claim the completed work with the current history/context cursors to obtain its controller; transfer to current reasoning and accept the offer before start when this Chat should own reasoning. Do not create a second work for that follow-up. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app/native caps and a longer elapsed cap; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. queue enqueues text on an explicit thread_id with stable call_id without changing its model or effort; the ACK is not proof of consumption. Supply execution_home for an explicit account. Identical retries return the original receipt; uncertain enqueue reconciles queue/history without retransmission. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
@@ -4402,9 +4408,10 @@ pub(crate) fn tools() -> Vec<Value> {
             properties.insert("after".into(),json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false}));
         }
         if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop"]})); }
+        if name=="codex_projects" { properties.insert("action".into(),json!({"type":"string","enum":["list","use"]})); }
         json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,
             "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false},
-            "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":crate::mcp::idempotent_hint(name),"openWorldHint":false}})
+            "annotations":{"readOnlyHint":name!="codex_projects","destructiveHint":false,"idempotentHint":crate::mcp::idempotent_hint(name),"openWorldHint":false}})
     }).collect()
 }
 
@@ -4829,7 +4836,7 @@ mod local_tests {
             "codex_attach",
         ];
         let controls = tools();
-        assert_eq!(controls.len(), 16);
+        assert_eq!(controls.len(), 17);
         assert_eq!(
             controls
                 .iter()
@@ -4841,7 +4848,7 @@ mod local_tests {
             let name = tool["name"].as_str().unwrap();
             assert_eq!(
                 tool["annotations"],
-                json!({"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false,"idempotentHint":selected.contains(&name)})
+                json!({"readOnlyHint":name!="codex_projects","destructiveHint":false,"openWorldHint":false,"idempotentHint":selected.contains(&name)})
             );
         }
         assert!(!crate::mcp::idempotent_hint("unknown_tool"));

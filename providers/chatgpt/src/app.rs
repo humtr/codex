@@ -561,7 +561,6 @@ pub struct AppHost {
     bridge: Arc<dyn Bridge>,
     journal: Arc<Journal>,
     lanes: Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>,
-    project_lock: Arc<Mutex<()>>,
     connector: String,
 }
 impl AppHost {
@@ -570,7 +569,6 @@ impl AppHost {
             bridge,
             journal,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
-            project_lock: Arc::new(Mutex::new(())),
             connector: crate::config::TransportConfig::default().connector_name,
         }
     }
@@ -831,7 +829,6 @@ impl Host for AppHost {
         let bridge = self.bridge.clone();
         let journal = self.journal.clone();
         let lanes = self.lanes.clone();
-        let project_lock = self.project_lock.clone();
         Box::pin(async move {
             let key = context::digest(&request.thread);
             let mutex = {
@@ -855,7 +852,6 @@ impl Host for AppHost {
                 LaneServices {
                     bridge: bridge.as_ref(),
                     journal: &journal,
-                    project_lock: &project_lock,
                 },
                 &key,
                 &mut lane,
@@ -961,7 +957,6 @@ fn native_output(events: &[Event]) -> Result<Vec<Value>, Error> {
 struct LaneServices<'a> {
     bridge: &'a dyn Bridge,
     journal: &'a Journal,
-    project_lock: &'a Mutex<()>,
 }
 async fn exchange(
     services: LaneServices<'_>,
@@ -971,11 +966,7 @@ async fn exchange(
     events: &mpsc::Sender<Event>,
     cancel: &CancellationToken,
 ) -> Result<(), Error> {
-    let LaneServices {
-        bridge,
-        journal,
-        project_lock,
-    } = services;
+    let LaneServices { bridge, journal } = services;
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }
@@ -1098,7 +1089,6 @@ async fn exchange(
         return Err(Error("previous_round_unsettled"));
     }
     if lane.phase == Phase::New {
-        let _guard = project_lock.lock().await;
         lane.project = if request.guardian {
             None
         } else {
@@ -1229,6 +1219,7 @@ async fn exchange(
     }
     let mut until = tokio::time::Instant::now() + Duration::from_secs(600);
     let mut read_failures = 0;
+    let mut transport_observation = Value::Null;
     loop {
         let poll_started = tokio::time::Instant::now();
         if cancel.is_cancelled() {
@@ -1265,6 +1256,16 @@ async fn exchange(
             lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
             return Err(Error("app_round_identity_unconfirmed"));
+        }
+        if !state["transportObservation"].is_null()
+            && state["transportObservation"] != transport_observation
+        {
+            transport_observation = state["transportObservation"].clone();
+            eprintln!(
+                "app_transport_observation: {}",
+                json!({"native_thread":lane.native_thread,
+                "round":lane.round,"observation":transport_observation})
+            );
         }
         observe_counts(journal, key, lane, &state)?;
         if let Some(
@@ -1306,6 +1307,8 @@ async fn exchange(
                 Some("mcp_host_confirmation_required") => "mcp_host_confirmation_required",
                 Some("assignment_app_budget_exhausted") => "assignment_app_budget_exhausted",
                 Some("assignment_time_budget_exhausted") => "assignment_time_budget_exhausted",
+                Some("app_completion_failed") => "app_completion_failed",
+                Some("app_completion_interrupted") => "app_completion_interrupted",
                 _ => "app_round_failed",
             }));
         }

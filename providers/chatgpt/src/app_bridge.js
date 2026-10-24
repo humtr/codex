@@ -52,7 +52,7 @@ async function termuxCodexBridge(command) {
     if(state&&state.scope===scope&&state.client===client&&state.wire===wire)return {ready:true};
     if (!['aCn','yRt','eHt'].every(k => typeof api[k] === 'function') || !api.JRn?.kind) fail('app_local_functions_unavailable');
     if (mode==='local_function') {
-      if (typeof api.gRt!=='function'||typeof api.bRt!=='function') fail('app_local_functions_unavailable');
+      if (typeof api.gRt!=='function') fail('app_local_functions_unavailable');
       api.gRt();
       if (!scope.get(shared.HAt)) fail('app_local_functions_unavailable');
     }
@@ -102,6 +102,23 @@ async function termuxCodexBridge(command) {
         const options = {...args[0],request: owned}, epoch = lane.epoch;
         const serial=lane.streamSerial=(lane.streamSerial??0)+1;
         lane.streamActive = true;
+        const observeError=(stage,error,network)=>{
+          if(lane.epoch!==epoch||lane.streamSerial!==serial)return;
+          const value={stage,http_status:Number.isInteger(error?.responseStatus)?error.responseStatus:null,
+            network:typeof network==='boolean'?network:error?.errorKind==='network'?true:null};
+          lane.transportObservation??={};
+          lane.transportObservation.first_error??=value;
+        };
+        const previousObserved=options.onStreamErrorObserved,previousResume=options.onResume;
+        options.onStreamErrorObserved=value=>{observeError('stream',value);return previousObserved?.(value);};
+        options.onResume=value=>{
+          if(lane.epoch===epoch&&lane.streamSerial===serial&&['attempted','started','succeeded','error','response'].includes(value?.type)){
+            lane.transportObservation??={};
+            lane.transportObservation.resume={stage:value.type,attempt:Number.isSafeInteger(value.attemptCount)?value.attemptCount:null};
+            if(value.type==='error')observeError('resume',value.error,value.isNetworkError);
+          }
+          return previousResume?.(value);
+        };
         for (const event of ['onDecodedEvent','onUpdate']) {
           const previous = options[event];
           options[event] = update => {
@@ -387,6 +404,7 @@ async function termuxCodexBridge(command) {
     return {round:lane.round,messages,budget:lane.budget??null,hostResponses:[...hostResponses],approvalResponses:[...lane.messages.values()].filter(m=>hostTargets(m).some(t=>lane.hostReplies.has(t))).map(m=>m.id),accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
       dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
       pending:lane.pending===true,streamActive:lane.streamActive===true,
+      transportObservation:lane.transportObservation??null,
       savedReadBackoff:retryStatus(),
       rejectedBeforeDispatch:lane.rejectedBeforeDispatch===true,approvalPending:lane.approvalPending===true,approvalUi:lane.approvalUi??null,
       localStreamStopped: lane.pending !== true && lane.streamActive !== true,
@@ -575,21 +593,29 @@ async function termuxCodexBridge(command) {
     lane.priorStreamUnsettled=lane.streamActive===true;
     lane.nonUserBootstrap=command.bootstrap===true;lane.rejectedBeforeDispatch=false;lane.admissionCause=null;
     lane.serverStopPromise=null;lane.serverStopConfirmed=false;lane.completedBeforeCancellation=false;lane.localCancellationStarted=false;lane.serverStopState='not_observed';
-    lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundHostReplies=0; lane.hostReplies.clear(); lane.roundPrepared = false;
+    lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.transportObservation = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundHostReplies=0; lane.hostReplies.clear(); lane.roundPrepared = false;
     lane.older = new Set(Object.values(state.scope.get(state.api.JRn,lane.localId) || {}).map(n => n.message?.id).filter(Boolean));
     lane.controller = new AbortController();
     const message = ({role,text,hidden}) => ({id: role==='user'&&command.messageId?command.messageId:crypto.randomUUID(),author: {role: role === 'developer' ? 'system' : role},content: {content_type: 'text',parts: [text]},metadata: {is_visually_hidden_from_conversation: hidden || role === 'developer',termux_codex_lane:command.lane},recipient: 'all',status: 'finished_successfully',end_turn: role === 'assistant' ? true : null});
     const results = command.results || [], context = (command.messages || []).map(message);
     const instructions = command.instructions || [];
     lane.resultOnly = results.length > 0 && !context.some(m => m.author.role === 'user');
+    const epoch = lane.epoch;
     const options = {conversationId: lane.localId,parentMessageId:lane.selectedParent??undefined,conversationOrigin:null,tppExecutionTarget:null,requestInput:{isEverydayWorkMode:false},projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
+      onCompletion:status=>{
+        if(lane.epoch!==epoch||lane.stopRequested)return;
+        // Saved-history recovery settles at the submission boundary without
+        // completing the original low-level stream. It is not a second request.
+        if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;}
+        else if(['failed','interrupted'].includes(status)){
+          lane.error=status==='failed'?'app_completion_failed':'app_completion_interrupted';
+          lane.streamActive=false;
+        }
+      },
       onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
     lane.pending = true;
     try {
-    if (results.length === 1 && !context.length && !instructions.length) {
-      pending = state.api.bRt(state.scope,{...options,callId: results[0].id,toolName: lane.signature.name,result: results[0].result});
-    } else {
       const imported = results.map(r => ({id: crypto.randomUUID(),author: {role:'tool',metadata:{},name:lane.signature.name},channel:'commentary',content:{content_type:'code',text:JSON.stringify({call_id:r.id,result:r.result,tool:lane.signature.name})},metadata:{is_visually_hidden_from_conversation:true},recipient:'all',status:'finished_successfully',end_turn:null,weight:1,create_time:null,update_time:null}));
       imported.push(...context);
       if (!imported.length) fail('app_messages_required');
@@ -597,11 +623,9 @@ async function termuxCodexBridge(command) {
       pending = state.api.yRt(state.scope,{...options,prompt:'',prependMessages:imported.slice(0,-1),
         ...(results.length ? {daybreakContinuationMessageId:results[0].id} : {}),
         userCompletionMessages:{message:imported.at(-1),extraDeveloperInstructionMessages:instructions.map(text => message({role:'developer',text,hidden:true}))}});
-    }
     } catch(error) {
       lane.pending=false;lane.error=failureCode(lane,'app_submit_failed');throw error;
     }
-    const epoch = lane.epoch;
     Promise.resolve(pending).then(value => {
       if (epoch !== lane.epoch) return;
       lane.accepted = !!value; lane.pending = false;

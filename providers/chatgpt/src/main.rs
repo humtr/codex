@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -42,7 +42,7 @@ fn run() -> Result<(), String> {
     }
     if matches!(
         args.first().map(String::as_str),
-        Some("work" | "chats" | "host")
+        Some("work" | "chats" | "projects" | "host")
     ) {
         return control_command(&args);
     }
@@ -182,6 +182,10 @@ fn control_command(args: &[String]) -> Result<(), String> {
         "chats" => {
             values.insert("action".into(), serde_json::json!(action));
             "codex_chats"
+        }
+        "projects" => {
+            values.insert("action".into(), serde_json::json!(action));
+            "codex_projects"
         }
         "host" => {
             values.insert("action".into(), serde_json::json!(action));
