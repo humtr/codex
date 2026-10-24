@@ -252,7 +252,7 @@ jobs:
           from pathlib import Path
           text = Path(os.environ['RUNNER_TEMP'], 'profile-tui-mutation.log').read_text()
           text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
-          assert re.search(r'Summary\s*\[[^\]]+\]\s*1 tests run:.*1 failed', text), text[-4000:]
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*1 tests? run:.*1 failed', text), text[-4000:]
           assert 'left: Ok(false)' in text and 'right: Ok(true)' in text, text[-4000:]
           PYTHON
           cp "$original" "$source"
