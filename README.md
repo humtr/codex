@@ -339,6 +339,11 @@ codex provider chatgpt host status
 
 `sv status` proves a process is supervised, not app login or remote tunnel health.
 Use the existing tunnel profile's local health/readiness endpoint as well.
+In tunnel-client0.0.14, even `health --require-control-plane-poll` only checks
+that a poll succeeded once. It can still report ready while later polls time
+out. Inspect `commands_poll_last_successful_timestamp_seconds` in that daemon's
+`/metrics` and confirm it advances, then verify an actual remote MCP request.
+An old success or one successful poll after a restart does not prove recovery.
 The previous tmux-managed runtime is retired; this device uses runit, not
 `tunnel-client runtimes connect/stop`, for local lifetime management. Remote
 tunnel registration is unchanged.

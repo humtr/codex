@@ -160,6 +160,53 @@ interactive and login shells report TZ=Asia/Seoul and KST/+0900; originals or
 absence records are retained privately. Running processes keep their environment;
 canonical UTC records remain UTC.
 
+## Remote MCP polling: recurrence remains unresolved
+
+The reported saved Chat6add1a09-b21c-83ec-9c38-ed5ae0cad0ff called
+`native_catalog` at2026-10-25 KST05:50:28 and05:52:32. Its final reports
+`Session terminated`; the saved-source API does not expose the original tool
+error responses. No additional commands reached the local tunnel dispatcher
+during those attempts. This incident precedes native tool execution and differs
+from Provider10's missed recovered-completion defect.
+
+Provider12, its local MCP child and the tunnel process remained alive. An
+independent local stdio initialize/list returns17 tools, including project
+selection. The tunnel's last pre-incident successful poll was KST05:46:11;
+from05:46:46 it repeatedly failed to receive response headers within its existing
+35-second deadline. Authenticated tunnel metadata independently returns HTTP200.
+This narrows the observed failure to remote control-plane polling; it does not
+establish whether the initiating fault is in the client, network or server.
+
+The installed tunnel-client0.0.14 readiness and `health
+--require-control-plane-poll` remain green on an old successful poll: the latter
+checks timestamp>0, not freshness. Treating those results as current remote
+readiness was insufficient. README now requires advancing poll evidence and an
+actual remote request; the external runtime's behavior is unchanged.
+
+After preserving logs and observing zero queued commands with both received
+commands already answered, only the runit tunnel was reconnected. Fresh polls
+succeeded, then timed out again. A new bounded managed work subsequently completed
+one actual Chat→remote MCP→native file read→Chat answer with the original random
+file value, one successful native command, unchanged workspace and both Stops
+confirmed. The same Provider process and19 registered native owners survive.
+The reported user's request was not replayed. This is successful fresh
+traffic, not a permanent recurrence fix or proof that the older client session
+has recovered. No Provider/Core source or signed package changed for this incident.
+
+Original negative QA is retained: the reused TUI observer found no owned metadata
+before its deadline and submitted0 primary prompts; a separate noninteractive
+exec attempt failed with `native_thread_owner_unavailable`. Neither is accepted
+remote proof. The latter entrypoint remains a separate investigation boundary.
+An unregistered runtime PID26224 disappeared across reconnect; its purpose and
+exit cause were not observed, and it was absent from the19-owner preservation
+snapshot. No all-runtime-process-survival claim is made.
+
+Evidence: `~/.cache/codex/acceptance/mcp-session-incident-20261025/diagnosis.json`,
+original private saved-source/log snapshots, before/after metrics, failed QA
+records and the successful managed work's original native result/Stop. The
+polling root cause and a durable recurrence correction remain open; do not
+republish the unchanged Provider or relabel reconnect as their resolution.
+
 ## Reasoning-effort incident and redo boundary
 
 The original thread's `thread_settings_applied` records establish the actual
@@ -435,7 +482,7 @@ prune user state, the unknown target or operating current/rollback generations.
 | Operating Core | Signed Full107/sourcedeaf199, previous Full106, upstream0.164.0; existing clients retain their pinned executables |
 | Public/selected Provider | Sequence12/source5d2204a6, previous11, signed/read back/Android-consumed/promoted/activated; native defaults/auth retained |
 | Host/profile | App26.1007.21434 under the Rust-owned private-pipe host; authenticated readiness and actual fresh inference accepted, original login/history retained |
-| MCP | Authenticated local17-tool inventory, including explicit project selection, accepted; additional workspace registration awaits its administrator credential and matching Linux app login, an acknowledged setup prerequisite |
+| MCP | Local17-tool inventory and fresh remote native read accepted; recurrent control-plane poll timeouts remain unresolved as described above. Additional workspace registration still needs its administrator credential and matching Linux app login |
 | Retired source | Experiment refs/history, unique user changes, original snapshots, licenses and restore records remain preserved |
 | Retained dependencies | Immutable c3642b19a87cdace158f JS/Bun/Python installation, rootfs, optional noVNC, current/rollback payloads and original proofs remain |
 
