@@ -432,6 +432,14 @@ pub(super) async fn resume_saved(
     config: &crate::legacy_core::config::Config,
 ) -> color_eyre::Result<Option<ChatModelReentry>> {
     let saved = server.thread_read(target, false).await?;
+    if saved.model_provider == app.chat_widget.config_ref().model_provider_id
+        || !matches!(
+            saved.model_provider.as_str(),
+            "openai" | termux_chat_models::PROVIDER
+        )
+    {
+        return Ok(None);
+    }
     let model = saved
         .model
         .as_deref()
