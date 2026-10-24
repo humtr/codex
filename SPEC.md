@@ -1593,6 +1593,9 @@ preserves that completed boundary while rotating its controller. Route transfer
 then uses the existing history/context coverage and destination-accept handshake.
 Transferring a settled managed lane detaches its passive app hooks without
 submitting a Stop to an ordinary Chat stream or creating a replacement Chat.
+Releasing an absent owned host/bridge is an idempotent no-op and must not acquire
+an app after a service restart. This proves release of ownership only; missing
+host observations still cannot establish stream or native-process termination.
 
 **Agents and coordination.** The initiating Codex or current Chat reasoning context
 coordinates by default; an extra managed coordinator is an explicit choice with

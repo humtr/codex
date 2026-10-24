@@ -167,6 +167,7 @@ async function termuxCodexBridge(command) {
     globalThis[slot] = state;
     return {ready: true};
   }
+  if (!state && command.op === 'release') return {released:true};
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
   if(!observation&&command.bridgeRevision!=null&&state.revision!==command.bridgeRevision)fail('app_bridge_revision_conflict');
   const identity = (scope=state.scope) => {

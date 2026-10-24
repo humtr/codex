@@ -97,9 +97,12 @@ impl crate::app::Bridge for LazyRemote {
             let remote = {
                 let mut host = host.lock().await;
                 if host.is_none() {
+                    if command["op"] == "release" {
+                        return Ok(json!({"released":true}));
+                    }
                     if matches!(
                         command["op"].as_str(),
-                        Some("stop" | "snapshot" | "release" | "dispose")
+                        Some("stop" | "snapshot" | "dispose")
                     ) {
                         return Err(Error("owned_app_round_unavailable"));
                     }
@@ -785,7 +788,14 @@ mod tests {
             remote.operation(json!({"op":"host_status"})).await.unwrap()["host_started"],
             false
         );
-        for op in ["snapshot", "stop", "release", "dispose"] {
+        assert_eq!(
+            remote
+                .operation(json!({"op":"release","lane":"unavailable-owned-lane"}))
+                .await
+                .unwrap(),
+            json!({"released":true})
+        );
+        for op in ["snapshot", "stop", "dispose"] {
             assert_eq!(
                 remote
                     .operation(json!({"op":op,"lane":"unavailable-owned-lane"}))

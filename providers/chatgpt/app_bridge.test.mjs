@@ -52,6 +52,7 @@ test('saved-input capability uses the installed predicate and status atom',async
  expect(f.hydrated).toBeUndefined();expect(f.sent).toHaveLength(0);
 }));
 test('stopping an owned empty lane confirms zero dispatch without submitting a model',async()=>fixture(async({f,bindings})=>{
+ expect(await bridge({op:'release',owner:'owned',lane:'absent'})).toEqual({released:true});
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'empty',signature:{name:'unused'}});
  const result=await bridge({op:'stop',owner:'owned',lane:'empty'});
