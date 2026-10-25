@@ -19,6 +19,7 @@ SUITES = {
         "scroll": "mouse_scroll_speed",
         "links": "terminal_hyperlinks",
         "defaults": "fresh_startup_uses_server_defaults_with_explicit_and_managed_precedence",
+        "timezone": "absolute_time_uses_child_timezone",
     }),
     "engine": ("codex-core", "--test=all", {
         "provider-capabilities": "custom_provider_capabilities_constrain_web_access_and_enable_compaction",

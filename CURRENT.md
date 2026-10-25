@@ -8,16 +8,17 @@ incident/release narratives remain in Git; original private evidence remains in
 
 ## Ordered implementation priorities
 
-The user set this order on2026-10-25. These are the next implementation batches;
-older deferred setup, packaging and architecture work does not precede them.
+The user amended this order on2026-10-25: implement the separate TZ source change
+first, then combine its native build/qualification with the entrance-continuity
+repair. Older deferred setup, packaging and architecture work does not precede them.
 
 | Order | Required outcome | Status |
 | --- | --- | --- |
-| 1 — next | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Highest priority: incident investigated; implementation and actual two-entrance qualification pending |
-| 2 — next after1 | Resolve user-visible timezone errors; validate and implement Core-owned Android timezone compatibility, with a separate narrow upstream-TUI correction where display explicitly uses UTC | Resolution is decided. Method validation, implementation and delivery remain required; this is not optional research about whether to fix TZ |
+| 1 — source first | Core supplies Android TZif to the runtime and TUI; absolute session-picker dates use that same local timezone | Source implemented; focused Core/Android child checks passed. Full native frontend build, acceptance and delivery are deferred to the combined batch |
+| 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Highest remaining runtime priority: incident investigated; implementation and actual two-entrance qualification pending |
 | 3 — next after2 | Retain common ChatGPT connection/work logic and branch by local/MCP transport, separating transport initialization, checks, configuration and lifecycle | Agreed implementation target; defer the refactor until1 and2 are complete |
 
-### Priority1: bound ChatGPT follow-ups and Codex re-entry
+### Bound ChatGPT follow-ups and Codex re-entry — next runtime repair
 
 Reported native thread `01a170ac-abaa-7e42-8346-742c32ebfaea` is linked to saved
 Chat `6add5bed-5598-83e8-8e39-a6dd4123e9a1`. Four Codex-origin GPT-6/xhigh
@@ -86,12 +87,11 @@ primary inference for importing an existing answer, and preserved model/effort,
 project/account/controller identity. Earlier Codex-only follow-up or explicit
 saved-chat-input proofs do not close this automatic reverse-entry boundary.
 
-### Priority2: timezone resolution — committed work
+### Timezone source batch — implemented, combined native qualification pending
 
-The same conversation's TZ proposal is accepted as the preferred approach to
-validate and implement: Core supplies Android timezone data to the musl runtime;
-existing Local-based TUI formatting consumes it. Its recorded actual TUI probes
-show `TZ=Asia/Seoul` retaining UTC in the musl runtime, while `KST-9` and extracted
+The same conversation's TZ proposal is implemented in source: Core supplies
+Android timezone data to the musl runtime; existing Local-based TUI formatting
+consumes it. Recorded actual TUI probes show `TZ=Asia/Seoul` retaining UTC in the musl runtime, while `KST-9` and extracted
 Android TZif paths work. Seoul and New York TZif probes from the Android2026c
 APEX database produced the expected distinct reset dates/times without a TUI
 rewrite. Android-native chrono success alone does not qualify the musl runtime.
@@ -110,9 +110,39 @@ Explicit UTC user-facing displays such as resume_picker absolute dates need a
 separate small upstream-TUI patch under native.patch; internal UTC records remain
 unchanged. Required proof includes unset/IANA/POSIX/path TZ, Seoul, a DST region
 across transitions and date boundaries, timezone-data updates, failure cases and
-actual installed musl `/status`/resume display. Implementation/delivery are pending.
+actual installed musl `/status`/resume display. Full acceptance/delivery are pending.
 
-### Priority3: common Provider with transport-specific responsibility
+`crates/core/src/timezone.rs` now owns Android property/source discovery, IANA
+selection, bounded index/TZif validation and private atomic cache publication.
+The common `apply_child_env_plan_and_fence` consumer applies it for qualified
+bare, optional-TUI and newly launched shared-server children. Explicit empty,
+POSIX and path settings are preserved; failures report their cause and leave TZ
+unchanged. The optional frontend's `native.patch` converts resume-picker absolute
+timestamps with chrono Local, consuming the same TZif without another parser.
+Stored UTC and relative-duration calculation are unchanged. No existing process
+was restarted, no shell/profile changed, and no runtime was installed or released.
+
+Focused Core checks executed5 tests successfully on Android, including actual
+child environment delivery for Seoul/New York, POSIX/empty TZ, unset TZ using
+the system property, and cause-specific nonblocking failure for an unknown zone.
+A disposable-source mutation removing common-launch normalization fails that child-delivery regression; the live source is intact.
+The original mutation output is in
+`~/.cache/codex/acceptance/timezone-source-20261025/missing-launch-normalization-mutation.log`.
+Core clippy passed with warnings denied, frontend Python checks passed11 tests,
+and formatting/docs checks passed. Local Core checks used Rust1.99.1 with
+`CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`, `CARGO_INCREMENTAL=0`
+and the reusable `~/.cache/codex/check-target` (about3GiB). Exact release-toolchain
+and full acceptance remain deferred. Temporary source copies were removed after
+preserving the mutation log. The pre-existing untracked Provider target is untouched.
+The complete native patch assembled from pristine pinned inputs and the changed
+resume-picker source was formatted. Its new real-formatter regression covers a
+TZif date rollover and New York DST rollback in isolated processes, and is
+required by the native feature gate; that test and its mutation have not executed
+yet. The expanded-details test now derives local timestamps while retaining its
+metadata checks. Full workspace/provider gates, musl frontend build, installed
+`/status`/resume display, signing and delivery remain for the combined batch.
+
+### Later: common Provider with transport-specific responsibility
 
 Retain one common app connection, identity/project/conversation implementation
 and native work lifecycle authority. Branch by local-function/MCP transport;
@@ -123,13 +153,15 @@ build/version/update/rollback independent and install it with selected MCP setup
 Module boundaries, process separation and package boundaries are separate design
 decisions; do not duplicate the common engine merely to produce two executables.
 The proposed Core-required/optional-layer/all-selected-Full composition remains
-related future work. Do not make this refactor a prerequisite for Priority1.
+related future work. Do not make this refactor a prerequisite for the
+entrance-continuity repair.
 
 Private investigation evidence is in
 `~/.cache/codex/acceptance/cross-entry-followup-20261025/`: original native snapshot,
 fully paginated saved Chat, correlated journals/settings, incident-summary and
-duplicate-presentation-analysis. This documentation/investigation makes no runtime,
-history, account, live hook or service changes and does not qualify a repair.
+duplicate-presentation-analysis. The entrance-continuity investigation makes no
+history, account, live hook or service changes and does not qualify that repair.
+The TZ source batch above remains separate from installed runtime activation.
 
 ## Tool-call interoperability: Provider10 delivered
 

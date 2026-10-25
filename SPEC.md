@@ -5426,11 +5426,21 @@ environment. Respect explicit working POSIX/path TZ settings and resolve selecte
 IANA names, including the Android system timezone when TZ is unset, using the
 active Android timezone data. The preferred method to qualify is a verified
 zone-specific TZif supplied as `TZ=:/absolute/private-cache/zone.tzif` to the
-existing runtime, with safe private cache publication and refresh when its
-authoritative data changes. This is a
-committed implementation target, not a claim that current launch normalization
-or general DST/failure handling has passed acceptance. CURRENT owns its ordered
-method-validation and implementation work.
+existing runtime. Core's common child environment boundary supplies the same
+selection to bare runtime, optional frontend and new shared-server launches.
+The frontend uses that TZif through chrono's Local conversion, including absolute
+resume-picker dates; it does not maintain another timezone database or parser.
+Existing processes retain their launch environment until their ordinary restart.
+
+Discover Android's active APEX tzdata first, then legacy updated tzdata and the
+system image when preceding locations are absent. A present but unreadable or
+invalid source is diagnosed rather than silently replaced by older data. Validate
+the selected zone's index bounds and TZif structure before publishing it in a
+private cache. Compare actual selected-zone bytes on each launch and atomically
+replace changed data; no version-only cache hit may conceal a data update.
+Explicit empty, POSIX-rule and file-path TZ settings remain under user control.
+CURRENT records implementation and qualification separately; source changes do
+not by themselves establish installed musl behavior.
 
 Keep the upstream Local-based formatters and stored/server UTC timestamps. User
 displays that explicitly format UTC require a separate narrow upstream-TUI fix;

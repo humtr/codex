@@ -24,6 +24,8 @@ mod shared_layout;
 mod shared_server;
 #[cfg(unix)]
 mod system_config;
+#[cfg(unix)]
+mod timezone;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
@@ -458,6 +460,7 @@ fn apply_child_env_plan_and_fence(
         for name in &plan.removals {
             cmd.env_remove(name);
         }
+        timezone::configure(cmd);
     }
     cmd.env_remove("CODEX_MANAGED_BY_NPM")
         .env_remove("CODEX_MANAGED_BY_BUN")

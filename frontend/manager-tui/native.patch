@@ -1418,3 +1418,133 @@ index 811d971..909b502 100644
          let permission_overrides = self.resume_permission_overrides(&resume_config);
 
          if let Some(history_mode) = target_session.history_mode {
+
+diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+--- a/codex-rs/tui/src/resume_picker.rs
++++ b/codex-rs/tui/src/resume_picker.rs
+@@ -3561,11 +3561,12 @@
+ }
+
+ fn format_timestamp(ts: DateTime<Utc>, clock_format: ClockFormat) -> String {
+-    ts.format(match clock_format {
+-        ClockFormat::TwelveHour => "%Y-%m-%d %-I:%M:%S %p",
+-        ClockFormat::TwentyFourHour => "%Y-%m-%d %H:%M:%S",
+-    })
+-    .to_string()
++    ts.with_timezone(&chrono::Local)
++        .format(match clock_format {
++            ClockFormat::TwelveHour => "%Y-%m-%d %-I:%M:%S %p",
++            ClockFormat::TwentyFourHour => "%Y-%m-%d %H:%M:%S",
++        })
++        .to_string()
+ }
+
+ fn render_empty_state_line(state: &PickerState) -> Line<'static> {
+@@ -4146,6 +4147,84 @@
+         assert!(row.matches_query(&thread_id.to_string()[..8]));
+     }
+
++    #[cfg(unix)]
++    #[test]
++    fn absolute_time_uses_child_timezone() {
++        const CHILD_ZONE: &str = "CODEX_TEST_PICKER_TIMEZONE";
++        if let Ok(zone) = std::env::var(CHILD_ZONE) {
++            let timestamp = |value: &str| {
++                DateTime::parse_from_rfc3339(value)
++                    .expect("valid timestamp")
++                    .with_timezone(&Utc)
++            };
++            match zone.as_str() {
++                "seoul" => {
++                    let ts = timestamp("2026-10-31T23:30:00Z");
++                    assert_eq!(
++                        format_timestamp(ts, ClockFormat::TwentyFourHour),
++                        "2026-11-01 08:30:00"
++                    );
++                    assert_eq!(
++                        format_timestamp(ts, ClockFormat::TwelveHour),
++                        "2026-11-01 8:30:00 AM"
++                    );
++                }
++                "new-york" => {
++                    assert_eq!(
++                        format_timestamp(
++                            timestamp("2026-11-01T05:59:00Z"),
++                            ClockFormat::TwentyFourHour
++                        ),
++                        "2026-11-01 01:59:00"
++                    );
++                    assert_eq!(
++                        format_timestamp(
++                            timestamp("2026-11-01T06:00:00Z"),
++                            ClockFormat::TwentyFourHour
++                        ),
++                        "2026-11-01 01:00:00"
++                    );
++                }
++                other => panic!("unexpected child timezone: {other}"),
++            }
++            return;
++        }
++        // Exercise the actual formatter in fresh processes: chrono/libc cache TZ.
++        // A fixed TZif proves file consumption; New York checks the DST rollback.
++        let directory = tempdir().expect("timezone fixture directory");
++        let path = directory.path().join("seoul.tzif");
++        let mut tzif = vec![0u8; 44];
++        tzif[..4].copy_from_slice(b"TZif");
++        tzif[36..40].copy_from_slice(&1u32.to_be_bytes());
++        tzif[40..44].copy_from_slice(&4u32.to_be_bytes());
++        tzif.extend((9i32 * 3600).to_be_bytes());
++        tzif.extend([0, 0]);
++        tzif.extend(b"KST\0");
++        std::fs::write(&path, tzif).expect("write TZif");
++        for (zone, tz) in [
++            ("seoul", format!(":{}", path.display())),
++            ("new-york", String::from("EST5EDT,M3.2.0,M11.1.0")),
++        ] {
++            let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
++                .args([
++                    "--exact",
++                    "resume_picker::tests::absolute_time_uses_child_timezone",
++                    "--nocapture",
++                ])
++                .env(CHILD_ZONE, zone)
++                .env("TZ", tz)
++                .output()
++                .expect("run formatter child");
++            assert!(
++                output.status.success()
++                    && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
++                "{}\n{}",
++                String::from_utf8_lossy(&output.stdout),
++                String::from_utf8_lossy(&output.stderr)
++            );
++        }
++    }
++
+     #[test]
+     fn relative_time_formats_zero_seconds_as_now() {
+         let reference = DateTime::parse_from_rfc3339("2026-05-02T12:00:00Z")
+@@ -4214,8 +4293,20 @@
+         assert!(rendered.contains(
+             "Session:    feat(tui): add raw scrollback mode (019dabc1-0ef5-7431-b81c-03037f51f62c)"
+         ));
+-        assert!(rendered.contains("Created:    17 minutes ago · 2026-05-02 14:31:08"));
+-        assert!(rendered.contains("Updated:    now · 2026-05-02 14:48:19"));
++        assert!(rendered.contains(&format!(
++            "Created:    17 minutes ago · {}",
++            format_timestamp(
++                row.created_at.expect("created timestamp"),
++                state.clock_format
++            )
++        )));
++        assert!(rendered.contains(&format!(
++            "Updated:    now · {}",
++            format_timestamp(
++                row.updated_at.expect("updated timestamp"),
++                state.clock_format
++            )
++        )));
+         assert!(rendered.contains(&format!("Directory:  {expected_directory}")));
+         assert!(rendered.contains("Branch:      codex/raw-scrollback-mode"));
+         assert!(rendered.contains("Conversation:"));
