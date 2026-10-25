@@ -1,6 +1,6 @@
 # Operating state and product completion
 
-Reviewed 2026-10-24 UTC. `rewrite/rust-core` owns implementation; `main` pins
+Reviewed 2026-10-25 UTC. `rewrite/rust-core` owns implementation; `main` pins
 accepted exact sources for signed publication. SPEC owns product contracts,
 README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
@@ -32,7 +32,7 @@ Independent-agent and GPT Pro reviews were not performed.
 
 Signed Provider10 `chatgpt-6e26cee6d342-s10`, source6e26cee, is fully publicly
 read back, Android-consumed, stable-promoted and activated for the ID repair.
-Provider12 below is current, with Provider11 retained for rollback.
+Provider13 below is current, with Provider12 retained for rollback.
 Binary SHA256 is `c742fdd1ba66ba4315d8bb3fe839601b70ad633223785eee6ab7bc2dc1d6a64a`.
 Source40096385599, Provider/Android40096385723 and signing40097313205 pass.
 The12 public assets, installed compositions, signed package lifecycle, exact
@@ -69,8 +69,9 @@ Implementation, qualification, signed publication and device activation are comp
 ## Project selection and app recovery: Provider12 delivered
 
 Provider12 `chatgpt-5d2204a6c664-s12`, source5d2204a6, is signed, publicly
-read back, Android-consumed, activated and stable-promoted; Provider11 is rollback.
-Installed Core remains Full107 with its qualified c55a5c9 frontend. Source
+read back, Android-consumed, activated and stable-promoted. It is now Provider13's
+rollback. At that delivery Core was Full107 with the qualified c55a5c9 frontend;
+the current device is Full112. Source
 40122894013, Provider/Android40122894169 and signing40123806220 pass. Public
 promotion0eadaced changes only Provider index/signature/source, without forcing
 history or modifying Base/Full heads.
@@ -230,14 +231,75 @@ share the committed-final predicate; source IDs still own prefix validation and
 result routing. No extra model submission or tool replay is introduced. The new
 retained-MCP regression covers growing and phase-only finals through real HTTP
 tool returns; both the original ID collision and a disposable suffix-only
-mutation fail its assertions. Full qualification, signed delivery and a fresh
-original-prompt native/saved-text comparison remain pending. No synthetic model
-result replaces either original record.
+mutation fail its assertions. No synthetic model result replaces either original
+record; historical finals remain unchanged.
+
+Provider13 `chatgpt-bc355945a420-s13`, sourcebc355945, is now signed, publicly
+read back, Android-consumed, activated and stable-promoted. Provider12 is rollback;
+Core Full112 and its frontend remain unchanged. Source40145473855,
+Provider/Android40145473830 and signing40146073560 pass. Local Provider acceptance
+passes185 Rust/77 Bun plus Python checks. The explicit Android retained-MCP
+fixture passes3 real native effects and same-thread native/Chat return. Exact
+hosted execution, installed compositions, signed package lifecycle,12 public assets,
+disposable public install/use/rollback and stable update pass. Non-forced main
+288cd109 changes only Provider index/signature/source; Base/Full heads are intact.
+
+The fresh original-prompt TUI trial uses the same szob home, workspace, Full112,
+ChatGPT GPT-6/xhigh and one primary prompt. Thread01a1706e-fe2a-7821-ad4b-c900ddad7a0a
+completes40 native commands, one app dispatch and one final. All237 saved messages
+are paginated with the original cursor. The entire visible saved final4575 chars
+matches the native4304 chars exactly after the existing production presentation
+projection; this includes section1 through the conclusion.
+Hidden/private content is not claimed readable. The existing Chatgpt project and
+exact project ID are reused with history.mode=project. Own native/host Stop both
+confirm zero jobs, and the own TUI's exit0 is observed. Actual Android/PTY execution
+is proven; a physical second-client display was not observed.
+
+Activation preserves17 protected inputs, the other2 registered native owners,
+work identities, login and the scoped HTTP2 tunnel selection. A verified empty
+Provider-owned catalog had inherited the previous Provider's package lease. Its
+kernel identity,0 loaded threads and0 child jobs were rechecked before retiring
+that one idle owner; no saved conversation was removed. Preventing that lease
+inheritance is separate maintenance debt, not an established cause of this MCP
+outage. Failed observer/setup records remain: a runtime was supplied instead of
+the raw TUI fixture input (0 native steps), a consumer-package backup temporarily
+moved its proof paths, and the first Chat observer assumed a single50-message page.
+Corrected inputs/paths/pagination preserve the original results and acceptance.
+Owned fixture payloads are archived with restore records; unknown repository
+`providers/chatgpt/target/` is untouched and reusable compiler caches remain below15GiB.
+
+The reproduced audit independently completed Core/workspace tests and Clippy.
+Doctor also reported77 unindexed rollout files,73 stale DB paths and1 duplicate
+thread ID, plus an unknown terminal-title item. These are preserved findings;
+no data loss, outage causality or repair is inferred. Original history/DB/config
+remain intact. The audit's PATH-level Bun absence does not invalidate the release
+gate: its qualified native Bun executable ran all77 checks. Independent patch
+review by another agent or GPT Pro was not performed.
+
+Upstream dependency review on2026-10-25: latest0.0.18 was published
+2026-10-24 05:25:58 KST; selected0.0.14 was released roughly7 weeks earlier,
+4 releases/162 commits behind. Both implementations advertise wire2026-08-25;
+legacy operation remains supported, and this actual MCP route passes. The exact
+silent-HTTP2 fault also fails official0.0.18/Go1.27.3, while the same health-ping
+patch makes both loss recovery and healthy waiting pass. This distinguishes the
+confirmed recovery defect from an unproven protocol mismatch. Latest-source trial
+changes are restored;0.0.18 has not been activated. Startup/readiness/routing
+improvements still justify refreshing the maintained baseline after qualification.
+
+Recommendation, not implemented installer behavior: track/build/version/rollback
+tunnel-client as an independent dependency; install its tested Termux artifact
+alongside optional MCP setup. Core and local_function must not require this tunnel.
+Use tested pins rather than an unqualified latest image at launch. Current service
+configuration remains the explicit opt-in described by SPEC. Upstream sources:
+https://github.com/openai/tunnel-client/releases and tagged docs/protocol.md.
 
 Evidence: `~/.cache/codex/acceptance/mcp-root-cause-20261025/`, including
 `final-device-proof.json`, `halfopen-{original-test,fixed-test,mutation}.log`,
 accepted package logs, exact baseline/manual TUI plans, canonical native records,
-original saved finals and Stop results. Earlier negative observers and the
+original saved finals and Stop results. `delivery13/` adds exact-text-equivalence,
+public/stable consumer, activation and final-device proof, with original canonical
+records. `tunnel-version-assessment.json` and `upstream18-{halfopen*,compatibility-proof.json}`
+preserve the latest-source comparison and its red/green test. Earlier negative observers and the
 original incident evidence remain in `mcp-session-incident-20261025/`. Reread
 AGENTS.md before a resumed review/edit; preserve both repositories' current diffs,
 unknown repository target, credentials, original conversations and running jobs.

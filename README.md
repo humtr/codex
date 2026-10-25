@@ -309,7 +309,7 @@ This device explicitly registers these services beside tdev in
 | Service | Responsibility |
 | --- | --- |
 | `codex-chatgpt-provider` | Foreground Provider `serve`, restarted by runit if the process exits |
-| `codex-chatgpt-tunnel` | Existing OpenAI `tunnel-client` runtime/profile, with the same remote tunnel and credential references; renew local transport after Provider owner changes |
+| `codex-chatgpt-tunnel` | Existing OpenAI `tunnel-client` runtime/profile and remote credential references; lifecycle is independent of Provider PID changes |
 | `codex-chatgpt-host` | Observe Provider and acquire its provisioned Linux app/Xvnc when the owned host is confirmed absent; no model request |
 
 Xvnc, the app, private pipes and optional viewer remain Provider-owned. There is
