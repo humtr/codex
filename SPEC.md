@@ -1270,6 +1270,28 @@ Reuse existing grants within their scope; local approvals/reviewer policy remain
 upstream-owned. These are target integration requirements, not claims of an
 already activated user interface or of every cross-entrance transition passing.
 
+For an already-bound managed Chat, genuine user follow-ups entered directly in
+that Chat must continue the same work and become visible in its existing native
+history and live Codex TUI, including after the preceding Codex request settled.
+The next Codex-origin request must use that committed context without resending
+the existing Chat answer for inference. Preserve original roles, source-message
+identity, ordering, public progress and complete final text; do not import private
+reasoning. Required controller admission/receipts are internal protocol operations,
+not a requirement for the user to create/resume/claim another work on each switch.
+Keep a single native writer, serialize concurrent input and reconcile uncertain
+delivery from actual source/native receipts without replaying tools or prompts.
+Unrelated Chats retain ordinary passthrough behavior. History-only append is not
+proof of live TUI delivery; qualify the native event consumer and subsequent model
+request together. Legitimate model changes must preserve admitted history, while
+unexplained prefix changes remain a distinct error rather than a network diagnosis.
+
+Repeated progress and completion of the same source message should form one
+coherent visible answer. Preserve the full canonical final and distinct useful
+reports; reconcile source identity across native tool rounds instead of deleting
+messages based only on text similarity or omitting the final body's earlier text.
+This bound-Chat continuation/presentation requirement remains an implementation
+target; CURRENT owns its priority and the observed failing boundary.
+
 Shared conversation discovery, selection and reading are F integration requirements,
 independent of task submission and execution control. Both Codex and ChatGPT
 entrances must use the same bridge retrieval capability to read an explicitly
@@ -5396,6 +5418,25 @@ version's exact termux-fd-remap policy and retained-generation policies remain
 bound to their qualified artifacts. Any additional binary rewrite requires a
 separate normative amendment that names its exact bounded substitutions and
 qualification evidence.
+
+### Committed timezone compatibility target
+
+Resolve the musl runtime's user-visible timezone mismatch through Core's launch
+environment. Respect explicit working POSIX/path TZ settings and resolve selected
+IANA names, including the Android system timezone when TZ is unset, using the
+active Android timezone data. The preferred method to qualify is a verified
+zone-specific TZif supplied as `TZ=:/absolute/private-cache/zone.tzif` to the
+existing runtime, with safe private cache publication and refresh when its
+authoritative data changes. This is a
+committed implementation target, not a claim that current launch normalization
+or general DST/failure handling has passed acceptance. CURRENT owns its ordered
+method-validation and implementation work.
+
+Keep the upstream Local-based formatters and stored/server UTC timestamps. User
+displays that explicitly format UTC require a separate narrow upstream-TUI fix;
+do not add an unconditional offset or force Korean time on other users. Bare
+Core must support the result without Manager or shell edits, and timezone
+discovery/data failures must be diagnosable without preventing ordinary launch.
 
 ### Browser and external URL intents
 

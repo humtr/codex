@@ -6,6 +6,131 @@ README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
 `~/.cache/codex/acceptance`.
 
+## Ordered implementation priorities
+
+The user set this order on2026-10-25. These are the next implementation batches;
+older deferred setup, packaging and architecture work does not precede them.
+
+| Order | Required outcome | Status |
+| --- | --- | --- |
+| 1 — next | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Highest priority: incident investigated; implementation and actual two-entrance qualification pending |
+| 2 — next after1 | Resolve user-visible timezone errors; validate and implement Core-owned Android timezone compatibility, with a separate narrow upstream-TUI correction where display explicitly uses UTC | Resolution is decided. Method validation, implementation and delivery remain required; this is not optional research about whether to fix TZ |
+| 3 — next after2 | Retain common ChatGPT connection/work logic and branch by local/MCP transport, separating transport initialization, checks, configuration and lifecycle | Agreed implementation target; defer the refactor until1 and2 are complete |
+
+### Priority1: bound ChatGPT follow-ups and Codex re-entry
+
+Reported native thread `01a170ac-abaa-7e42-8346-742c32ebfaea` is linked to saved
+Chat `6add5bed-5598-83e8-8e39-a6dd4123e9a1`. Four Codex-origin GPT-6/xhigh
+requests completed. Four subsequent user inputs made directly in that Chat and
+their answers are present in its294-message saved branch but absent from the
+native public conversation. Reading the full saved branch is not proof of native
+delivery. The Chat's attempts to resume/create/claim work did not establish the
+requested automatic return; invalid arguments/writer guards must not be bypassed.
+
+The last Codex turn failed at2026-10-25 11:23:37 KST with
+`native_context_prefix_changed`, not a demonstrated network disconnect. AppHost
+rejects this at ordered native-prefix admission before a new app submission;
+the retained lane has4 app dispatches and that exact last_error. Settings events
+show GPT-6/xhigh→GPT-6-Pro/none at11:11:25 KST, after the four successful turns.
+The failed turn contains new model-switch/collaboration developer messages.
+The full failing outgoing Responses input was not captured, so the first changed
+prefix item and causal contribution of model/owner change are not established.
+Test direct-Chat input and model change independently; do not attribute the guard
+failure to the user or infer it was caused solely by entering a Chat prompt.
+
+Code boundary: app_bridge.js deliberately passes unowned, settled ordinary Chat
+streams through. AppHost exchanges observe their own native requests, not an idle
+subscription to all later inputs in the bound Chat. Existing saved-chat input,
+queue and takeover controls are distinct explicit operations. Add continuation
+for the already-bound conversation while preserving unrelated ordinary Chats.
+
+Implementation direction: keep one verified native thread/work/conversation and
+controller binding across entrances. Observe actual bound-Chat input/public output,
+refresh per-turn native tool authority, and reconcile it through the native owner
+without another primary model call, new work or replay of completed tools. Use
+Core-owned history APIs rather than editing session DB/rollout files. Existing
+`thread/inject_items` is a candidate for history-only append, not a complete UI
+solution: upstream currently publishes raw-item notifications which the TUI
+ignores. Qualify native persistence, live item/turn projection and subsequent
+request context together; add the minimal frontend/event integration required.
+Use stable source-message identity and acknowledged cursors for deduplication and
+lost-receipt reconciliation. Update app/native context cursors only for verified
+commits so imported source turns are not echoed back to Chat. Preserve prefix,
+writer, controller and uncertain-delivery guards; legitimate model/context changes
+need explicit admission, not blind prefix resets. Serialize concurrent inputs
+through the existing native ownership/queue boundary. Bound-entry transitions
+should perform required protocol admission internally rather than making the user
+manually create/resume/claim work for each follow-up.
+
+Duplicate presentation is confirmed in the same record. The first native final's
+3799 characters are all already present in ordered preceding public commentary;
+the last final repeats3995 of3999 characters. Its native final ID matches the
+McpBridge full-final projection of that same saved physical app message. Four
+successful native turns correspond to4 app dispatches: the observed duplication
+is not evidence of another model submission. Provider13 intentionally preserves
+the entire final after prior MCP fragments; keep that correction and all original
+history. Prefer grouping/updating/collapsing the progress of the same source
+message when its complete final arrives. Distinct useful reports remain distinct;
+text similarity alone must not delete messages. Validate source identity across
+virtual rounds, reconnect, replay and reload before choosing the exact display
+mechanism. Do not fix repetition by dropping the final body, showing only its
+suffix, or changing canonical history to a lossy summary.
+
+Acceptance must exercise the user's actual existing-TUI/opened-Chat path:
+Codex→Chat→Codex, direct input in that bound Chat→same live Codex TUI/history→a
+successful Codex follow-up, repeated alternation with/without tools, unchanged
+model and separately GPT-6→Pro, restart/resume, concurrent input, Stop, duplicate
+delivery and complete final text. Verify actual canonical records and TUI display,
+source-message correspondence, one execution per logical tool, no additional
+primary inference for importing an existing answer, and preserved model/effort,
+project/account/controller identity. Earlier Codex-only follow-up or explicit
+saved-chat-input proofs do not close this automatic reverse-entry boundary.
+
+### Priority2: timezone resolution — committed work
+
+The same conversation's TZ proposal is accepted as the preferred approach to
+validate and implement: Core supplies Android timezone data to the musl runtime;
+existing Local-based TUI formatting consumes it. Its recorded actual TUI probes
+show `TZ=Asia/Seoul` retaining UTC in the musl runtime, while `KST-9` and extracted
+Android TZif paths work. Seoul and New York TZif probes from the Android2026c
+APEX database produced the expected distinct reset dates/times without a TUI
+rewrite. Android-native chrono success alone does not qualify the musl runtime.
+
+Respect explicit working POSIX/path TZ settings; resolve IANA names, or Android's
+system timezone when unset, through verified Android tzdata and pass the selected
+TZif to child runtime launches. Prefer the active Android timezone data over an
+older system copy; validate available source discovery rather than hardcoding
+this device's path. Cover the existing Core environment plan and relevant bare,
+Manager/TUI and shared-server child paths. Validate names, offsets/bounds, TZif
+format, private cache publication, data-update invalidation and unavailable or
+invalid inputs. Diagnose failures without blocking ordinary Core launch. Do not
+force KST or a fixed offset on all users, add +9 to server timestamps, rewrite
+stored UTC, or require shell configuration/Manager for correct bare execution.
+Explicit UTC user-facing displays such as resume_picker absolute dates need a
+separate small upstream-TUI patch under native.patch; internal UTC records remain
+unchanged. Required proof includes unset/IANA/POSIX/path TZ, Seoul, a DST region
+across transitions and date boundaries, timezone-data updates, failure cases and
+actual installed musl `/status`/resume display. Implementation/delivery are pending.
+
+### Priority3: common Provider with transport-specific responsibility
+
+Retain one common app connection, identity/project/conversation implementation
+and native work lifecycle authority. Branch by local-function/MCP transport;
+separate transport admission, initialization, result handling and shutdown so
+optional use does not require the other external transport. Preserve ordinary
+Chat passthrough and native execution/approval/history ownership. Keep tunnel
+build/version/update/rollback independent and install it with selected MCP setup.
+Module boundaries, process separation and package boundaries are separate design
+decisions; do not duplicate the common engine merely to produce two executables.
+The proposed Core-required/optional-layer/all-selected-Full composition remains
+related future work. Do not make this refactor a prerequisite for Priority1.
+
+Private investigation evidence is in
+`~/.cache/codex/acceptance/cross-entry-followup-20261025/`: original native snapshot,
+fully paginated saved Chat, correlated journals/settings, incident-summary and
+duplicate-presentation-analysis. This documentation/investigation makes no runtime,
+history, account, live hook or service changes and does not qualify a repair.
+
 ## Tool-call interoperability: Provider10 delivered
 
 The research session01a16cf1-847a-7b30-9868-28c74e5cef1b selected
@@ -159,7 +284,9 @@ repository target are preserved. Reusable compiler caches remain below15GiB.
 KST is enabled in the user's ~/.bashrc and login ~/.bash_profile. Both fresh
 interactive and login shells report TZ=Asia/Seoul and KST/+0900; originals or
 absence records are retained privately. Running processes keep their environment;
-canonical UTC records remain UTC.
+canonical UTC records remain UTC. This proves the shell setting, not the musl
+runtime's interpretation of that IANA name. The later reported TUI failure and
+committed timezone implementation are covered by Priority2 above.
 
 ## Remote MCP polling: connection recovery correction activated
 
@@ -472,20 +599,22 @@ claim that newly added code is established architecture.
 
 ## Current status and next action
 
-Signed Provider12 `chatgpt-5d2204a6c664-s12`, source5d2204a6, is fully publicly
-read back, Android-consumed, activated and stable-promoted; Provider11 is rollback.
-The project/recovery section above owns its proof and remaining cause boundary.
-Current readback selects Core Full112/source5d2204a6, previous Full107. The
-transport correction did not change that selection; the exact-user-path section
-above owns its current proof.
+Current inventory selects signed Provider13 `chatgpt-bc355945a420-s13`, source
+bc355945, with Provider12 for rollback. Its exact-user-path/public/stable delivery
+proof is above. The new ordered priorities at the top own the next work; completed
+Codex-origin trials do not close the reported direct-Chat continuation failure.
+Current activation-state readback selects Core Full113/sourcebc355945, previous
+Full112. This selection readback is separate from the earlier Full112 execution
+proof; it does not retroactively qualify another generation or change a running
+client's pinned runtime. This investigation performs no activation.
 
-Current device readback proves the admitted12 service/stdio images, same logged-in
-app identity/readiness,17 authenticated MCP tools,19 registered native owners and
-account-local config/auth preservation. Shared routing is rebound to12. The new
-Codex project is verified and selected for new lanes, and four real primary turns
-including a consecutive Chat follow-up complete. The reported older failed work
-remains recorded for reconciliation. The following activation/restart observations
-are retained earlier boundaries, not a statement that an earlier Provider is selected.
+Provider12's earlier batch proved its service/stdio images, app identity/readiness,
+17 MCP tools,19 registered native owners and account-local config/auth preservation.
+Its routing/project/four-primary-turn proof is retained at that scope. It is not
+proof that arbitrary direct Chat input automatically returns to a live Codex TUI.
+Reported failed works remain recorded for reconciliation.
+
+### Earlier activation boundaries
 
 The first activation attempt correctly refused an inherited package lease and
 left selection8 unchanged; services were restored. The exact native catalog
