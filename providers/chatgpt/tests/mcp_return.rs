@@ -313,6 +313,7 @@ struct AppState {
     lanes: BTreeMap<String, Value>,
     results: Vec<Value>,
     return_only: bool,
+    continued_final: Option<bool>,
 }
 struct App {
     state: Arc<Mutex<AppState>>,
@@ -372,6 +373,10 @@ impl Bridge for App {
                     if hold {
                         return Ok(json!({"started":true}));
                     }
+                    let continued_final = data.continued_final;
+                    if continued_final.is_some() {
+                        data.lanes.get_mut(&marker).unwrap()["messages"] = json!([{"id":"shared-public","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Overview."]},"status":"finished_partial_completion","end_turn":false}]);
+                    }
                     let app = state.clone();
                     tokio::spawn(async move {
                         let catalog = rpc(
@@ -423,7 +428,12 @@ impl Bridge for App {
                         };
                         let first = effect(address, &token, "first", exec, &input).await;
                         app.lock().unwrap().results.push(first);
-                        app.lock().unwrap().lanes.get_mut(&marker).unwrap()["messages"] = json!([{"id":"report-1","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["First action completed"]},"status":"finished_successfully","end_turn":false}]);
+                        app.lock().unwrap().lanes.get_mut(&marker).unwrap()["messages"] =
+                            if continued_final.is_some() {
+                                json!([{"id":"shared-public","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Overview.\nProject created."]},"status":"finished_partial_completion","end_turn":false}])
+                            } else {
+                                json!([{"id":"report-1","author":{"role":"assistant"},"recipient":"all","channel":"commentary","content":{"content_type":"text","parts":["First action completed"]},"status":"finished_successfully","end_turn":false}])
+                            };
                         let second = effect(
                             address,
                             &token,
@@ -439,7 +449,17 @@ impl Bridge for App {
                         }
                         let mut data = app.lock().unwrap();
                         let lane = data.lanes.get_mut(&marker).unwrap();
-                        lane["messages"].as_array_mut().unwrap().push(json!({"id":"final-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Implemented and tested"]},"status":"finished_successfully","end_turn":true}));
+                        if let Some(append) = continued_final {
+                            lane["messages"][0]["content"]["parts"] = json!([if append {
+                                "Overview.\nProject created.\nChecks passed."
+                            } else {
+                                "Overview.\nProject created."
+                            }]);
+                            lane["messages"][0]["status"] = json!("finished_successfully");
+                            lane["messages"][0]["end_turn"] = json!(true);
+                        } else {
+                            lane["messages"].as_array_mut().unwrap().push(json!({"id":"final-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Implemented and tested"]},"status":"finished_successfully","end_turn":true}));
+                        }
                         lane["terminals"] = json!(["done"]);
                     });
                     Ok(json!({"started":true}))
@@ -482,6 +502,84 @@ fn native_output(events: &[Event]) -> Vec<Value> {
         .as_array()
         .unwrap()
         .clone()
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn a_public_message_spanning_mcp_returns_preserves_history_and_its_complete_final() {
+    for append in [true, false] {
+        let root = Root::new();
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let broker = Broker::new(journal.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = broker.clone().router();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let state = Arc::new(Mutex::new(AppState {
+            continued_final: Some(append),
+            ..AppState::default()
+        }));
+        let bridge = Arc::new(
+            McpBridge::new(
+                Arc::new(App {
+                    state: state.clone(),
+                    address,
+                    native: false,
+                    hold: false,
+                }),
+                broker,
+                journal.clone(),
+                "My Owned Connector".into(),
+            )
+            .unwrap(),
+        );
+        let host = AppHost::new(bridge, journal);
+        let mut body = request();
+        let mut history = Vec::new();
+        for _ in 0..3 {
+            let (result, events) = run(&host, body.clone()).await;
+            result.unwrap();
+            let output = native_output(&events);
+            history.extend(output.clone());
+            body["input"].as_array_mut().unwrap().extend(output);
+            for event in events {
+                if let Event::Tool(call) = event {
+                    body["input"].as_array_mut().unwrap().push(json!({"type":if call.tool.name=="exec" {"function_call_output"} else {"custom_tool_call_output"},"call_id":call.id,"output":"original native result"}));
+                }
+            }
+        }
+        let messages = history
+            .iter()
+            .filter(|v| v["type"] == "message")
+            .collect::<Vec<_>>();
+        let ids = messages
+            .iter()
+            .map(|v| v["id"].as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            ids.len(),
+            messages.len(),
+            "a later MCP round must not replace a canonical public item"
+        );
+        let finals = messages
+            .iter()
+            .filter(|v| v["phase"] == "final_answer")
+            .collect::<Vec<_>>();
+        assert_eq!(finals.len(), 1);
+        assert_eq!(
+            finals[0]["content"][0]["text"],
+            if append {
+                "Overview.\nProject created.\nChecks passed."
+            } else {
+                "Overview.\nProject created."
+            }
+        );
+        let app = state.lock().unwrap();
+        assert_eq!(
+            app.commands.iter().filter(|v| v["op"] == "submit").count(),
+            1
+        );
+        assert_eq!(app.results.len(), 2);
+        server.abort();
+    }
 }
 #[tokio::test]
 async fn actual_host_confirmation_stream_end_keeps_catalog_capability_until_real_completion() {

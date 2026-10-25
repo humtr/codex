@@ -1,7 +1,7 @@
 //! Adapt retained MCP calls to the same lane protocol used by local functions.
 //! No native execution, alternate transcript or repeated Chat submissions.
 use crate::{
-    app::{valid_dispatches, Bridge},
+    app::{committed_final, valid_dispatches, Bridge},
     context::digest,
     journal::{random_id, Journal},
     mcp::Broker,
@@ -447,11 +447,22 @@ impl Bridge for McpBridge {
                     return Err(Error("public_message_changed"));
                 }
                 observed.insert(id.into(), text.clone());
-                if text.len() == old.len() && !old.is_empty() {
+                let complete_final = !pending && committed_final(item);
+                let full_final = complete_final && !old.is_empty();
+                if text.len() == old.len() && !old.is_empty() && !full_final {
                     continue;
                 }
                 let mut item = item.clone();
-                item["content"]["parts"] = json!([&text[old.len()..]]);
+                // One app message can cross several native Responses rounds.
+                // Reusing its source ID would replace earlier canonical text.
+                // Commit the complete final under a separate item if its prefix
+                // was already emitted before a native tool result returned.
+                item["id"] = json!(digest(&("mcp-public-item-v1", &lane.round, id, full_final)));
+                item["content"]["parts"] = json!([if full_final {
+                    &text[..]
+                } else {
+                    &text[old.len()..]
+                }]);
                 if pending {
                     item["end_turn"] = json!(false);
                     item["status"] = json!("finished_partial_completion");

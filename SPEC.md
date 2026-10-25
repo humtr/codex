@@ -2730,6 +2730,14 @@ closed message publishes its full final text as a distinct final item; it cannot
 rewrite earlier native history or lose the final answer. This is local projection,
 with no new model request, tool replay or change to tool annotations.
 
+Retained MCP returns can divide one physical app message across several native
+Responses rounds. Give each round's public fragment its own stable native item
+identity so later fragments cannot replace earlier canonical items. When a
+message that began in an earlier round commits as the final answer, publish its
+complete body as a distinct final item, including a phase-only completion with
+no new text. Preserve the app source ID for prefix validation and result routing;
+never submit another model request to assemble the final body.
+
 The private relay descriptor remains an explicit qualification connection option,
 not a fallback or required Bun/Python production dependency.
 An explicit owned bridge disposal may restore only its own installed hooks after

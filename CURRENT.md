@@ -222,9 +222,17 @@ freshness. Its documented limitation remains; acceptance checks advancing poll
 metrics and real remote requests. A separate baseline finding is retained: its
 saved final has4460 characters, its Provider public final has2584 raw characters,
 and the native final item has2565 characters and starts at section5. The fixed-transport repeat also has4497 saved characters but only1413 in its
-native final item. Full saved/native text equivalence is not claimed. Investigation
-has identified MCP public-item reuse across virtual rounds; its Provider correction
-and delivery remain in progress. No synthetic model result replaces the original.
+native final item. Full saved/native text equivalence is not claimed for either original run.
+The Provider correction now gives each virtual round stable distinct public-item
+IDs and publishes the complete committed final when its prefix was emitted in an
+earlier round, including a completion with no added text. AppHost and McpBridge
+share the committed-final predicate; source IDs still own prefix validation and
+result routing. No extra model submission or tool replay is introduced. The new
+retained-MCP regression covers growing and phase-only finals through real HTTP
+tool returns; both the original ID collision and a disposable suffix-only
+mutation fail its assertions. Full qualification, signed delivery and a fresh
+original-prompt native/saved-text comparison remain pending. No synthetic model
+result replaces either original record.
 
 Evidence: `~/.cache/codex/acceptance/mcp-root-cause-20261025/`, including
 `final-device-proof.json`, `halfopen-{original-test,fixed-test,mutation}.log`,

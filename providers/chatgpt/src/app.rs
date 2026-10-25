@@ -254,6 +254,11 @@ impl Bridge for Remote {
         })
     }
 }
+pub(crate) fn committed_final(message: &Value) -> bool {
+    message["channel"] != "commentary"
+        && message["end_turn"] == true
+        && message["status"] == "finished_successfully"
+}
 pub(crate) fn valid_dispatches(snapshot: &Value) -> bool {
     let replies = match snapshot.get("roundHostReplies") {
         None => 0,
@@ -1342,10 +1347,7 @@ async fn exchange(
             // The app also labels interim reports `final`, sometimes ending
             // them with end_turn=true/finished_partial_completion before a tool.
             // Only a successfully committed end-of-turn is a native final answer.
-            let phase = if message["channel"] != "commentary"
-                && message["end_turn"] == true
-                && message["status"] == "finished_successfully"
-            {
+            let phase = if committed_final(message) {
                 "final_answer"
             } else {
                 "commentary"
@@ -1376,10 +1378,7 @@ async fn exchange(
                 let event = public_delta(lane, id, phase, rendered[offset..].into(), &rendered);
                 publish(lane, events, event).await?;
             }
-            if phase == "final_answer"
-                && message["end_turn"] == true
-                && message["status"] == "finished_successfully"
-            {
+            if phase == "final_answer" {
                 final_seen = true;
             }
         }
