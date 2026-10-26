@@ -1,2 +1,0 @@
-# Preserve exact qualified unified-diff bytes, including blank context lines.
-providers/chatgpt/desktop-bridge-615.patch whitespace=-blank-at-eol

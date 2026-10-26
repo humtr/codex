@@ -1285,6 +1285,38 @@ proof of live TUI delivery; qualify the native event consumer and subsequent mod
 request together. Legitimate model changes must preserve admitted history, while
 unexplained prefix changes remain a distinct error rather than a network diagnosis.
 
+Prepare and persist an admitted saved-source round before observing its result.
+Saved-read backoff preserves that same round, input and native queue consumption;
+it must not fall back to a preceding round or trigger another primary submission.
+Publish the new native-tool discovery capability only after revalidating the
+selected source input/branch. Stop fences both an unpublished discovery link and
+the prepared execution lease. Retry timing comes from the existing saved-read
+policy; preserve retrieval causes rather than relabeling429 as round identity loss.
+Exhausted observation attempts surface the originating static transport code;
+retain uncertain state and partial public output without replaying a submission.
+
+Before admitting a new native prompt, a capable native client synchronizes its
+existing bound saved Chat through `codex_sessions synchronize`. This one-shot
+operation reports ready or waiting, with the actual pending/read-backoff cause
+and retry timing. It queues only an already authorized saved input, never the
+new native draft, creates no Chat and starts no primary inference itself. The
+client retains its full draft/attachments in its existing input-preparation
+lifecycle until the external turn is natively committed. Cancel/error restores
+that draft; model/effort and ordinary native steering remain native decisions.
+Unsupported pinned Provider protocols retain explicit legacy behavior rather
+than treating arbitrary transport/permission errors as successful synchronization.
+
+A Provider owner-generation change is distinct from an app-account change. At a
+settled native boundary, reattach the same saved Chat only after verifying the
+recorded native turn completed, its scoped writer/jobs are settled, and the app
+account, project and saved source anchor still match. Reuse the installed app's
+saved-Chat adoption/hydration; do not reset the canonical prefix, create another
+Chat, reimport old native input or submit another inference for this recovery.
+Pending/unknown native work remains fenced. Restore discovery only for the exact
+bound source and fresh admitted turn; previous execution capabilities remain
+retired, and explicit Stop must still terminate discovery. An uncertain or changed
+branch/account/project reports its specific cause and retains the new draft.
+
 Repeated progress and completion of the same source message should form one
 coherent visible answer. Preserve the full canonical final and distinct useful
 reports; reconcile source identity across native tool rounds instead of deleting
@@ -1656,10 +1688,12 @@ confirmed completed/stopped phases across shutdown, restart and owner discovery
 while fencing/rotating old controllers. Other unsettled phases require explicit
 reconciliation; a past native turn alone is not a running top-level assignment.
 
-A settled current-reasoning work may receive an explicit elapsed-budget extension
+A settled current-reasoning work may receive an explicit elapsed/native-call budget extension
 through `codex_sessions claim` with a stable call_id and exact history/context
-cursors. Supply the existing concurrency/app-start/native-call caps and a finite
-elapsed cap measured from the original assignment start. Preserve that start,
+cursors. Supply unchanged concurrency/app-start caps, a native-call cap no smaller
+than its previous cap, and a finite elapsed cap no smaller than its previous cap,
+measured from the original assignment start. An extension increases the total
+allowance; it never resets used calls or starts a new budget period. Preserve that start,
 all admitted-call counters, role, dependencies and native/work identity; never
 reset consumed resources implicitly on follow-up or recovery. Child extension
 also requires the current parent controller and stays within its budget. Refuse
@@ -1671,6 +1705,13 @@ reports notLoaded; this starts no inference. Preserve the exact workspace and
 routing, recheck scope/history/context after reload and record mutation intent
 before sending it. A lost reload reply requires reconciliation, not replay.
 Passive status/history do not load a thread merely to report readiness.
+
+Registered web MCP actions must agree with the actual producer's `tools/list`
+input schemas, including action enums and cursor arguments. Connector refresh
+qualification compares those schemas, invalidates the app cache and exercises
+an actual read through that connector. Matching tool names alone is insufficient;
+a mismatch prevents readiness/model admission and reports the schema cause.
+Queue registration acknowledgment remains distinct from native consumption.
 
 **Management.** Extend the optional Provider binary's existing status/view/reveal/
 stop/serve mechanisms with one host lifecycle facade (ensure/status/open/stop),
@@ -2604,8 +2645,13 @@ all bindings to match the downloaded package. Base/Full heads remain independent
 Only the invocation-owned private acquisition is removed on exit; an
 interrupted acquisition remains unselected for later owned-artifact cleanup.
 
-The versioned payload contains the Android/AArch64 executable, dependency lock,
-NOTICE/four licenses and an opaque source-input inventory. Its ordered manifest
+New Provider payloads contain the Android/AArch64 executable, dependency lock,
+NOTICE, two retained third-party licenses and an opaque source-input inventory.
+New packages use a six-file signed inventory; Core continues to authenticate
+immutable eight-file packages from earlier releases for existing selection and
+rollback. New six-file packages require this updated Core verifier; existing
+Core versions that accept only eight files must be upgraded first. Neither
+signed layout permits undeclared assets. The ordered manifest
 binds provider identity, generation, monotonically increasing release sequence,
 base source commit, source-input digest, target/API/dependency contract and exact
 file names/hashes/sizes/modes. Detached Ed25519 authentication uses Core's admitted
@@ -2827,16 +2873,79 @@ host history increases the model's real context capacity. Deterministic regressi
 must cover repeated checkpoints, unchanged prefixes, compaction failure, restart
 and model/effort changes before budgeted live qualification. Report message
 submissions separately from tool returns and model starts.
+For the selected duplicate-presentation behavior, retain chronological progress
+and tool events during execution. Once the complete public final is committed,
+the TUI folds only earlier progress from that exact physical source message;
+each folded entry stays at its original position and can reveal its full text.
+Keep the final body complete and distinct reports/tools in place. Provider-owned
+presentation metadata correlates native public item IDs with physical source
+identity without altering Responses text, native IDs, model-visible context or
+canonical records. Missing/unavailable correlation must preserve the full visible
+content. Model prompts, effort, generation and execution are unchanged. Replayed
+and paginated native history must retain message identity for the same display
+behavior; copying/exporting must preserve full source content. Terminal redraws
+must preserve unrelated terminal output and reading position.
+
+An ordinary web/Android follow-up in an already bound saved Chat is a new input
+to the same native work. Read the exact public source branch after its last
+confirmed native-delivered final; do not interpret drafts or arbitrary chats.
+Native queue admission uses stable source-message identity, and a canonical
+clientUserMessageId/turn match admits observation of that existing Chat response.
+Do not submit that prompt to Chat again. A completed saved answer and an active
+retained MCP response use the same native history/approval owner. Old tool
+capabilities cannot execute new effects; refresh discovery only after the new
+native turn has admitted its current tool catalog. Preserve original receipts on
+old logical calls. A completed bound Chat may retain a discovery request while
+its next source input awaits native admission; this grants no execution authority.
+Admission or Stop/owner loss wakes that observer, within the existing retained MCP
+observation bound. Unknown enqueue delivery is reconciled, never retransmitted.
+Branch changes, account/owner loss and unsettled effects remain explicit failures.
+Remote observation must honor source read-backoff without retransmitting model
+requests. Serialize separate native/external inputs through native admission;
+never substitute a queued ACK for a consumed native turn or live TUI delivery.
+
 Recognize compaction from upstream request metadata and its explicit trailing
 `compaction_trigger`, rather than guessing from user prose. Text-summary requests
 return ordinary summary text; remote V2 returns one Provider-issued `compaction`
-item containing an `ocx1:` public-summary envelope. This envelope is readable
-Provider context, not encrypted OpenAI reasoning or a way to decode foreign opaque
-checkpoints. Never execute tools in a compaction round. A transient summary prompt
-and reply do not become the accepted native prefix. Keep the pre-summary canonical
-history until upstream replaces it with the exact offered checkpoint. Retire that
-settled remote lane once after replacement, preserving its chat and pending-call
-integrity; an unchanged old prefix containing identical summary text is not an ACK.
+item containing a JSON public continuation record with format
+`codex-chatgpt-public-continuation`, version1 and a nonempty summary. Field order
+and JSON whitespace do not carry meaning; unknown/duplicate fields and unsupported
+versions are rejected. A JSON object with only version/summary is not our record. It is public data, not encrypted reasoning or proof of
+issuer identity; foreign opaque checkpoints remain unreadable. The Provider
+journal binds its own offered record to the native pre-compaction prefix and
+recognizes replacement only after the canonical native prefix changes. The
+original native items and signed installation history are never rewritten.
+Never execute tools during compaction. A transient summary prompt and reply
+do not become the accepted native prefix. On accepted replacement, acknowledge the new native import prefix without
+reimporting the already-resident summary or replaying completed tool events.
+Reassert ordinary native policy and tools on continuation, preserving the owned
+remote Chat and its pending tool/approval state. Chat replacement is a separate decision based on verified
+remote availability, capacity or explicit user choice; native compaction alone
+never releases a Chat. Reimported summary is contextual data and cannot erase
+the Chat model's already retained history or increase its measured capacity.
+Old `ocx1:` records are not decoded by the new ordinary path: recover public
+context from canonical native records or report the unavailable context instead
+of silently dropping it.
+
+A user-authored control-looking tag, public summary, or ordinary handoff wrapper
+never elevates the user's role, selects model/effort, or authorizes journal
+replacement. Codex strips internal source metadata for third-party providers;
+that metadata cannot identify an issued handoff on the actual wire. The local
+checkpoint producer uses the existing private Provider journal owner to MAC the
+complete public handoff and its native message ID with a separate HMAC-SHA256
+domain. Native routing and public-history projection verify that issuance, plus
+the same-thread or declared lineage checks. A pasted copy with another message
+ID, edited history/route, another owner or self-supplied digest is ordinary data.
+The owner secret is never emitted in the message or user configuration.
+
+The CLI may create only the existing private owner marker before the first
+handoff; issuance also works while the service holds its journal writer lease.
+The TUI passes the exact state from the installed native auth definition through
+`checkpoint --state`; runtime HTTP admission uses that same journal owner. A
+verified handoff can correlate the selected old-model compactor route, but grants
+no tools, permissions or controller lease. Native ownership, approvals and pending
+calls still own execution. Never infer a running request's selected model solely
+from current thread model/effort, which may reflect a later settings change.
 
 Cross-provider entry may use a readable public-history handoff at an idle primary
 thread. TUI reads the complete upstream public transcript and asks the installed
@@ -2848,6 +2957,10 @@ external-context wrapper and remains readable by the previous provider if entry
 fails. Exclude reasoning and internal metadata; reject unsupported public items,
 incomplete pagination, active work and mismatched thread identity. Imported tool
 events are quoted historical observations, never calls to execute again.
+The TUI's bounded display history is not a handoff snapshot. Paginated native
+threads must be read through all ascending turn pages with Full item detail;
+repeated cursors or duplicate turns fail the read. The Provider rejects explicit
+Summary/NotLoaded item views rather than signing a truncated public history.
 
 For native CLI entry in either model-adapter or operator execution mode, resuming
 the same scoped thread may replace its native backend. A genuinely new,
@@ -2872,6 +2985,25 @@ pending-completion guard; unknown or unreadable tokens remain rejected. A native
 owner replacement must not fail solely because the obsolete token is no longer
 in the restarted Broker's live map. Durable retirement errors still propagate.
 
+The bounded retained-turn payload cache is not the authority for saved-source
+MCP discovery. Cache eviction must preserve an admitted source's discovery chain
+and permit its settled predecessor to link to a newly admitted turn. Keep that
+current-owner discovery admission separate from payload retention; read only
+retired saved-source records from the private journal when a link is absent from
+the cache. Fresh execution authority must still come from this Broker's live
+turn. A restart admits no source until verified saved-Chat reattachment; Stop
+revokes all of that lane's admitted discovery, including evicted links, and a
+subsequent new primary must not restore an earlier stopped chain. Reattachment
+validates the whole recorded chain while retaining bounded payload memory.
+
+Settling a saved external answer must reuse the app's raw snapshot from its
+successful public-source read when the same owner/account, lane/round, final ID
+and complete final text still match. Hydrating the SDK must not require another
+GET of that already validated answer. Retain at most one transient raw snapshot
+per observing lane and release it on settlement, Stop or a new round. A missing
+or mismatched snapshot requires a fresh account-paced read and exact final
+validation; it cannot acknowledge changed text or cross an ownership boundary.
+
 Only an explicit, validated handoff in the same thread or inherited through
 upstream-declared fork/parent lineage can supply the readable replacement for
 preceding foreign opaque input. Lineage metadata correlates quoted history; it
@@ -2880,7 +3012,16 @@ native ID and Provider lane, including after cold resume and nested forks.
 Unrelated threads without lineage still refuse a mismatched handoff.
 Preserve current system/developer
 policy and contextual user settings; retain all later input. Never claim to decode
-the old opaque state. The Provider's opaque compaction format is not compatible
+the old opaque state. Text compaction returns one complete Provider-owned summary frame, with the
+unchanged public model summary followed by a versioned identifier for its issued
+round. Buffer only compaction control output until that frame is complete;
+ordinary public answer/tool streaming retains its original flow. The native Core
+owns its additional summary preamble. Provider acknowledgment compares the exact
+issued frame at a message boundary in committed replacement history and requires
+the previous canonical prefix to have changed. It does not bundle, reproduce or
+match an upstream natural-language summary template. An old/different round or
+an edited/truncated summary cannot acknowledge the current text checkpoint.
+The Provider's opaque compaction format is not compatible
 with upstream OpenAI compaction: do not advertise a fabricated common compaction
 hash. Hash absence does not disable token/window compaction. Ordinary reverse
 entry resumes the same upstream-owned history without an additional source-summary

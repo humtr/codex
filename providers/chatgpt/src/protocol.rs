@@ -51,6 +51,8 @@ pub struct Request {
     pub guardian: bool,
     pub compaction: Option<crate::context::Compaction>,
     pub history: crate::config::HistoryConfig,
+    #[serde(skip)]
+    pub handoff: Option<crate::handoff::Verified>,
 }
 
 fn id(value: &str) -> bool {
@@ -111,6 +113,14 @@ impl Request {
         value: Value,
         config: &Config,
         header_thread: Option<&str>,
+    ) -> Result<Self, Error> {
+        Self::parse_with_issuer(value, config, header_thread, None)
+    }
+    pub fn parse_with_issuer(
+        value: Value,
+        config: &Config,
+        header_thread: Option<&str>,
+        issuer: Option<&crate::handoff::Issuer>,
     ) -> Result<Self, Error> {
         let body = value
             .as_object()
@@ -282,22 +292,28 @@ impl Request {
             || field("subagent_kind").as_deref() == Some("guardian");
         let parent = field("parent_thread_id").or_else(|| field("forked_from_thread_id"));
         let compaction = crate::context::Compaction::detect(&input, &metadata)?;
-        if let Some((_, handoff)) = crate::handoff::latest(&input)? {
+        let handoff = issuer
+            .map(|issuer| issuer.latest(&input))
+            .transpose()?
+            .flatten();
+        if let Some(verified) = &handoff {
+            let handoff = &verified.history;
             if handoff.thread != thread && parent.as_ref().is_none_or(|id| id == &thread) {
                 return Err(Error("handoff_thread_mismatch"));
             }
-            // Native model-downshift compaction can retain the old model ID.
-            // Only this explicit control request may use its selected handoff route.
+            // The local Provider issued this exact native message and route.
+            // Its MAC survives Codex stripping internal source metadata. It is
+            // source authentication, never a native execution capability.
             if compaction.is_some() && model == handoff.from_model {
-                model = handoff.model;
-                effort = handoff.effort;
+                model = handoff.model.clone();
+                effort = handoff.effort.clone();
             }
         }
         let route = config
             .catalog
             .route(&model, &effort)
             .ok_or(Error("unsupported_desktop_route"))?;
-        crate::context::messages(&input)?;
+        crate::context::messages(&crate::handoff::readable(&input, handoff.as_ref())?)?;
         Ok(Self {
             model,
             effort,
@@ -313,6 +329,7 @@ impl Request {
             guardian,
             compaction,
             history: config.history.clone(),
+            handoff,
         })
     }
 

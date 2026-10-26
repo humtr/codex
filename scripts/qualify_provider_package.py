@@ -145,6 +145,18 @@ def qualify(args):
             public('absent Provider dispatch', 'chatgpt', 'models', expected=1)
             if args.remote:
                 remote_requests = []
+                declared = [line.split('\t')[1] for line in (one / 'payload.manifest').read_text().splitlines()
+                            if line.startswith('file\t')]
+                flat_assets = ['payload.manifest', 'payload.sig', *[name.replace('/', '--') for name in declared]]
+                stable_paths = ['/humtr/codex/main/provider-index-v1', '/humtr/codex/main/provider-index-v1.sig']
+
+                def complete_download(base, through_index=False):
+                    prefix = stable_paths if through_index else []
+                    expected = prefix + [base + name for name in flat_assets]
+                    # Authentication precedes payload. Remaining assets may be
+                    # fetched in any order, but every signed asset is read once.
+                    assert remote_requests[:len(prefix) + 2] == expected[:len(prefix) + 2]
+                    assert len(remote_requests) == len(expected) and set(remote_requests) == set(expected), remote_requests
                 cert = case_root / 'remote-cert.pem'
                 remote_key = case_root / 'remote-key.pem'
                 run('create owned localhost TLS certificate', ['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -221,25 +233,25 @@ def qualify(args):
                             assert remote_requests == ['/bad-signature/payload.manifest', '/bad-signature/payload.sig']
                     remote_requests.clear()
                     public('real TLS remote installation', 'install', 'chatgpt', '--remote', url + 'one/')
-                    assert len(remote_requests) == 10 and len(set(remote_requests)) == 10
+                    complete_download('/one/')
                     remote_requests.clear()
                     public('real TLS remote exact reinstall', 'install', 'chatgpt', '--remote', url + 'one/')
-                    assert len(remote_requests) == 10
+                    complete_download('/one/')
                     remote_requests.clear()
                     public('stable index authenticated update over real TLS', 'update', 'chatgpt')
-                    assert len(remote_requests) == 12 and remote_requests[:2] == ['/humtr/codex/main/provider-index-v1', '/humtr/codex/main/provider-index-v1.sig']
+                    complete_download('/humtr/codex/releases/download/chatgpt-g-test-1/', through_index=True)
                     remote_requests.clear()
                     public('stable index default install over real TLS', 'install', 'chatgpt')
-                    assert len(remote_requests) == 12
+                    complete_download('/humtr/codex/releases/download/chatgpt-g-test-1/', through_index=True)
                     saved_signature = stable['signature']
                     stable['signature'] = b'x' * 64
                     before = (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes()
                     remote_requests.clear()
                     public('reject unverified stable index before payload', 'update', 'chatgpt', expected=1)
-                    assert len(remote_requests) == 2
+                    assert remote_requests == stable_paths
                     assert (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes() == before
                     stable['signature'] = saved_signature
-                    case['remote'] = dict(real_TLS=True, requests_per_complete_install=10, signature_before_payload=True,
+                    case['remote'] = dict(real_TLS=True, requests_per_complete_install=len(flat_assets), signature_before_payload=True,
                                           no_implicit_retry=True, local_certificate_only=True)
                 finally:
                     case['remote_requests'] = list(remote_requests)
@@ -298,7 +310,7 @@ def qualify(args):
                 ('extended inventory', lambda p: (p / 'extra').write_bytes(b'not admitted')),
                 ('wrong executable mode', lambda p: (p / 'codex-chatgpt-provider').chmod(0o777)),
                 ('truncated signature', lambda p: (p / 'payload.sig').write_bytes(b'x')),
-                ('license symlink', lambda p: ((p / 'licenses/bridge-LICENSE').unlink(), (p / 'licenses/bridge-LICENSE').symlink_to(p / 'NOTICE.md'))),
+                ('license symlink', lambda p: ((p / 'licenses/proot-LICENSE').unlink(), (p / 'licenses/proot-LICENSE').symlink_to(p / 'NOTICE.md'))),
                 ('changed manifest', lambda p: (p / 'payload.manifest').write_text((p / 'payload.manifest').read_text().replace('release_sequence\t2', 'release_sequence\t3'))),
             )
             for label, mutate in negatives:

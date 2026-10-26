@@ -113,7 +113,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
     for path in [home / '.codex', home / '.local/share/codex/core/config', prefix / 'bin', prefix / 'etc/tls', root / 't', root / 'w']:
         path.mkdir(parents=True, mode=0o700)
     shutil.copytree(generation, home / '.local/lib/codex/core/generations' / generation.name)
-    shutil.copy2(core, prefix / 'bin/codex')
+    shutil.copy2(generation / 'core', prefix / 'bin/codex')
     (home / '.local/share/codex/core/activation-state').write_text(fixture_activation_state(generation.name, public))
     host_prefix = Path(os.environ['PREFIX'])
     shutil.copy2(host_prefix / 'etc/resolv.conf', prefix / 'etc/resolv.conf')

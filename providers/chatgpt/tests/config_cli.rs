@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
-fn checkpoint_encodes_public_history_without_credentials_or_starting_a_host() {
+fn checkpoint_issues_public_history_with_only_its_private_owner_and_no_host() {
     use std::io::Write;
     use std::process::Stdio;
     let root = Fixture::new();
@@ -46,10 +46,23 @@ fn checkpoint_encodes_public_history_without_credentials_or_starting_a_host() {
     let item: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(item["role"], "user");
     assert!(!String::from_utf8_lossy(&output.stdout).contains("PRIVATE_REASONING"));
-    assert!(
-        std::fs::read_dir(&root.0).unwrap().next().is_none(),
-        "checkpoint must not allocate login/host state or write a second history authority"
+    let state = root.0.join(".local/state/codex/providers/chatgpt");
+    let owner = codex_chatgpt_provider::journal::Journal::read_owner(&state).unwrap();
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(&owner));
+    let issuer = codex_chatgpt_provider::handoff::Issuer::new(owner.clone());
+    assert!(issuer
+        .latest(std::slice::from_ref(&item))
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        fs::read_dir(&state).unwrap().count(),
+        1,
+        "only the existing owner marker may be allocated"
     );
+    let journal = codex_chatgpt_provider::journal::Journal::open(&state).unwrap();
+    assert_eq!(journal.owner, owner);
+    let issuer = codex_chatgpt_provider::handoff::Issuer::from_state(&state).unwrap();
+    assert!(issuer.latest(&[item]).unwrap().is_some());
 }
 struct Fixture(PathBuf);
 impl Fixture {

@@ -15,9 +15,13 @@ import subprocess
 import tempfile
 import time
 
-FILES = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider', 'licenses/bridge-LICENSE',
-         'licenses/novnc-LICENSE.txt', 'licenses/proot-LICENSE',
-         'licenses/upstream-codex-LICENSE', 'source-inputs.json')
+FILES = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider',
+         'licenses/novnc-LICENSE.txt', 'licenses/proot-LICENSE', 'source-inputs.json')
+# Signed older generations must remain verifiable and exportable for rollback.
+LEGACY_FILES = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider',
+                'licenses/bridge-LICENSE', 'licenses/novnc-LICENSE.txt',
+                'licenses/proot-LICENSE', 'licenses/upstream-codex-LICENSE',
+                'source-inputs.json')
 CONTROL = ('payload.manifest', 'payload.sig')
 DEPENDENCIES = 'native-core;managed=proot+xvnc+explicit-rootfs;viewer=optional-assets'
 
@@ -49,7 +53,7 @@ def parse(data):
     rows = data.decode('utf-8').splitlines()
     keys = ('provider', 'generation_id', 'release_sequence', 'source', 'source_inputs_sha256',
             'target', 'core_api', 'dependencies', 'file_count')
-    if len(rows) != 18 or rows[0] != 'codex-provider-payload-v1':
+    if len(rows) < 10 or rows[0] != 'codex-provider-payload-v1':
         raise ValueError('invalid Provider manifest shape')
     fields = {}
     for key, row in zip(keys, rows[1:10], strict=True):
@@ -61,11 +65,15 @@ def parse(data):
             or len(fields['generation_id']) > 120 or not re.fullmatch('[0-9a-f]{40}', fields['source'])
             or not re.fullmatch('[0-9a-f]{64}', fields['source_inputs_sha256'])
             or fields['target'] != 'aarch64-linux-android' or fields['core_api'] != 'provider-payload-v1'
-            or fields['dependencies'] != DEPENDENCIES or fields['file_count'] != '8'):
+            or fields['dependencies'] != DEPENDENCIES):
         raise ValueError('unsupported Provider contract/provenance')
+    declared = FILES if fields['file_count'] == str(len(FILES)) else (
+        LEGACY_FILES if fields['file_count'] == str(len(LEGACY_FILES)) else None)
+    if declared is None or len(rows) != 10 + len(declared):
+        raise ValueError('unsupported Provider file inventory')
     decimal(fields['release_sequence'])
     entries = {}
-    for name, row in zip(FILES, rows[10:], strict=True):
+    for name, row in zip(declared, rows[10:], strict=True):
         parts = row.split('\t')
         mode = '0755' if name == 'codex-chatgpt-provider' else '0644'
         if (len(parts) != 5 or parts[:2] != ['file', name] or not re.fullmatch('[0-9a-f]{64}', parts[2])
@@ -93,13 +101,13 @@ def signature(package, public_key, openssl):
 def verify(package, public_key, openssl):
     if package.is_symlink() or not package.is_dir():
         raise ValueError('real Provider package directory required')
-    expected = {*FILES, *CONTROL, 'licenses'}
+    manifest = read(package / 'payload.manifest', 8192)
+    fields, entries = parse(manifest)
+    expected = {*entries, *CONTROL, 'licenses'}
     if {str(p.relative_to(package)) for p in package.rglob('*')} != expected:
         raise ValueError('Provider inventory incomplete or extended')
     if (package / 'licenses').is_symlink() or not (package / 'licenses').is_dir():
         raise ValueError('real Provider licenses directory required')
-    manifest = read(package / 'payload.manifest', 8192)
-    fields, entries = parse(manifest)
     signature(package, public_key, openssl)
     for name, entry in entries.items():
         path = package / name
@@ -114,19 +122,22 @@ def verify(package, public_key, openssl):
 
 def export(package, output, public_key, openssl):
     fields = verify(package, public_key, openssl)
+    _, entries = parse(read(package / 'payload.manifest', 8192))
     output.mkdir(mode=0o700)
-    for name in (*FILES, *CONTROL):
+    for name in (*entries, *CONTROL):
         shutil.copy2(package / name, output / name.replace('/', '--'))
     return fields
 
 
 def restore(assets, output, public_key, openssl):
-    if assets.is_symlink() or {p.name for p in assets.iterdir()} != {name.replace('/', '--') for name in (*FILES, *CONTROL)}:
+    if assets.is_symlink():
         raise ValueError('flat Provider asset inventory mismatch')
     fields, entries = parse(read(assets / 'payload.manifest', 8192))
+    if {p.name for p in assets.iterdir()} != {name.replace('/', '--') for name in (*entries, *CONTROL)}:
+        raise ValueError('flat Provider asset inventory mismatch')
     output.mkdir(mode=0o700)
     (output / 'licenses').mkdir(mode=0o700)
-    for name in (*FILES, *CONTROL):
+    for name in (*entries, *CONTROL):
         bound = entries[name]['size'] if name in entries else (8192 if name == 'payload.manifest' else 64)
         data = read(assets / name.replace('/', '--'), bound)
         target = output / name
@@ -207,7 +218,7 @@ def readback(url, output, public_key, openssl, curl):
         temporary = Path(temporary)
         assets = temporary / 'assets'
         assets.mkdir()
-        for name in (*FILES, *CONTROL):
+        for name in (*entries, *CONTROL):
             shutil.copy2(output / name.replace('/', '--'), assets / name.replace('/', '--'))
         package = temporary / 'package'
         restore(assets, package, public_key, openssl)

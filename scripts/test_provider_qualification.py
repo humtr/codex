@@ -25,10 +25,10 @@ class QualificationInputs(unittest.TestCase):
     def test_source_inventory_includes_embedded_non_code_assets(self):
         with tempfile.TemporaryDirectory(prefix="fs.",dir=os.environ["TMPDIR"]) as temporary:
             root=Path(temporary);p=root / "providers/chatgpt";p.mkdir(parents=True)
-            for name in ("native-summary-prefix.txt","mobile_controls.css","mobile_toolbar.html","termux_viewer.ts"):
+            for name in ("native-model.json","mobile_controls.css","mobile_toolbar.html","termux_viewer.ts"):
                 (p / name).write_text("owned source")
             (p / "target").mkdir();(p / "target/generated").write_text("excluded")
-            self.assertEqual(q.source_files(root),{"providers/chatgpt/"+name for name in ("native-summary-prefix.txt","mobile_controls.css","mobile_toolbar.html","termux_viewer.ts")})
+            self.assertEqual(q.source_files(root),{"providers/chatgpt/"+name for name in ("native-model.json","mobile_controls.css","mobile_toolbar.html","termux_viewer.ts")})
     def test_model_exclusions_follow_resolved_route_and_pro_flag(self):
         import tomllib
         defaults=tomllib.loads((q.SOURCE / "providers/chatgpt/default-models.toml").read_text())

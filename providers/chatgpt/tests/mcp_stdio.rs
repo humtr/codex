@@ -42,7 +42,10 @@ async fn stdio_multiplexes_metadata_while_a_native_call_waits_and_detaches_witho
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal);
     let request=Request::parse(json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Owned"}],"tools":[{"type":"function","name":"exec","parameters":{"type":"object"}}]}),&Config::default(),Some("owned")).unwrap();
-    let token = broker.register("owned", request.tools).await.unwrap();
+    let token = broker
+        .register("owned", request.tools, false)
+        .await
+        .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let router = broker.clone().router();

@@ -143,7 +143,7 @@ impl Drop for Root {
     }
 }
 fn body() -> Value {
-    json!({"model":"chatgpt-desktop/gpt-6","stream":true,"client_metadata":{"x-codex-turn-metadata":json!({"thread_id":"native-fixture","turn_id":"turn-1"}).to_string()},"input":[{"role":"user","content":"Improve the copied project"},{"role":"user","content":"<environment_context>owned workspace</environment_context>"}],"tools":[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec","parameters":{"type":"object"}},{"type":"custom","name":"patch","format":{"type":"text"}}]}]})
+    json!({"model":"chatgpt-desktop/gpt-6","stream":true,"client_metadata":{"x-codex-turn-metadata":json!({"thread_id":"native-fixture","turn_id":"turn-1"}).to_string()},"input":[{"role":"user","content":"Improve the copied project"},{"role":"user","content":"<environment_context>owned workspace</environment_context>","internal_chat_message_metadata_passthrough":{"content_item_kinds":["environments.environment_context"]}}],"tools":[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec","parameters":{"type":"object"}},{"type":"custom","name":"patch","format":{"type":"text"}}]}]})
 }
 async fn execute(host: &AppHost, body: Value) -> Vec<Event> {
     let request = Request::parse(body, &Config::default(), None).unwrap();
@@ -177,7 +177,7 @@ async fn settled_history(host: &AppHost) -> Value {
 }
 
 #[tokio::test]
-async fn v2_checkpoint_waits_for_native_history_replacement_then_retires_once() {
+async fn v2_checkpoint_commits_native_cursor_without_replacing_resident_chat() {
     let root = Root::new();
     let app = Arc::new(App::default());
     let journal = Arc::new(Journal::open(&root.0).unwrap());
@@ -195,10 +195,12 @@ async fn v2_checkpoint_waits_for_native_history_replacement_then_retires_once() 
     let result = output(&checkpoint);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0]["type"], "compaction");
-    assert!(result[0]["encrypted_content"]
+    let record: Value =
+        serde_json::from_str(result[0]["encrypted_content"].as_str().unwrap()).unwrap();
+    assert_eq!(record["version"], 1);
+    assert!(record["summary"]
         .as_str()
-        .unwrap()
-        .starts_with("ocx1:"));
+        .is_some_and(|v| !v.trim().is_empty()));
     assert_eq!(
         output(&execute(&host, compact).await),
         result,
@@ -238,16 +240,30 @@ async fn v2_checkpoint_waits_for_native_history_replacement_then_retires_once() 
     let s = app.state.lock().unwrap();
     assert_eq!(
         s.commands.iter().filter(|v| v["op"] == "release").count(),
-        1
+        0,
+        "native compaction does not imply remote Chat replacement"
     );
-    assert_eq!(s.commands.iter().filter(|v| v["op"] == "open").count(), 2);
+    assert_eq!(s.commands.iter().filter(|v| v["op"] == "open").count(), 1);
     let submissions = s
         .commands
         .iter()
         .filter(|v| v["op"] == "submit")
         .collect::<Vec<_>>();
-    assert_eq!(submissions[4]["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(submissions[4]["messages"][0]["text"], "Continue again");
+    assert_eq!(
+        submissions[3]["messages"],
+        json!([{"role":"user","text":"Continue the accepted work","hidden":false}])
+    );
+    assert!(submissions[3]["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v.as_str().is_some_and(
+            |text| text.contains("summarization-only/no-tools restriction no longer applies")
+        )));
+    assert_eq!(
+        submissions[4]["messages"],
+        json!([{"role":"user","text":"Continue again","hidden":false}])
+    );
 }
 
 #[tokio::test]
@@ -346,7 +362,7 @@ async fn tool_batch_returns_once_to_original_host_call_without_setup_or_assistan
         .collect::<Vec<_>>();
     assert_eq!(submissions.len(), 2);
     assert_eq!(submissions[0]["messages"][0]["hidden"], false);
-    assert_eq!(submissions[0]["messages"][1]["role"], "developer");
+    assert_eq!(submissions[0]["messages"][1]["role"], "user");
     assert_eq!(submissions[0]["messages"][1]["hidden"], true);
     assert!(submissions[1]["messages"].as_array().unwrap().is_empty());
     assert!(submissions[1]["instructions"]
@@ -775,7 +791,7 @@ async fn lost_observer_reloads_partial_transcript_then_reconciles_without_a_seco
     app.state.lock().unwrap().progress_then_loss = true;
     let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
     let (error, partial) = failure(&host, body(), CancellationToken::new()).await;
-    assert_eq!(error, Error("app_observation_lost"));
+    assert_eq!(error, Error("cdp_observer_disconnected"));
     assert_eq!(partial.len(), 1);
     drop(host);
     let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));

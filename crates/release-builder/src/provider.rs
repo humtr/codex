@@ -7,7 +7,18 @@ pub const PROBE: &[u8] =
     b"codex-provider-artifact-v1\nprovider=chatgpt\ncontrol=provider-payload-v1\n";
 pub const DEPENDENCIES: &str =
     "native-core;managed=proot+xvnc+explicit-rootfs;viewer=optional-assets";
-pub const FILES: [&str; 8] = [
+pub const FILES: [&str; 6] = [
+    "Cargo.lock",
+    "NOTICE.md",
+    "codex-chatgpt-provider",
+    "licenses/novnc-LICENSE.txt",
+    "licenses/proot-LICENSE",
+    "source-inputs.json",
+];
+
+// Retain previously signed eight-file generations for verification and rollback.
+// New packages use only FILES, without the retired adapter or summary template.
+const LEGACY_FILES: [&str; 8] = [
     "Cargo.lock",
     "NOTICE.md",
     "codex-chatgpt-provider",
@@ -151,12 +162,16 @@ impl Manifest {
         if field(&mut lines, "target")? != "aarch64-linux-android"
             || field(&mut lines, "core_api")? != API
             || field(&mut lines, "dependencies")? != DEPENDENCIES
-            || field(&mut lines, "file_count")? != "8"
         {
             return Err("unsupported Provider contract");
         }
+        let count = field(&mut lines, "file_count")?;
+        let ordered_files = [FILES.as_slice(), LEGACY_FILES.as_slice()]
+            .into_iter()
+            .find(|layout| count == layout.len().to_string())
+            .ok_or("unsupported Provider contract")?;
         let mut files = Vec::new();
-        for expected in FILES {
+        for &expected in ordered_files {
             let row: Vec<_> = lines
                 .next()
                 .ok_or("missing Provider file")?
@@ -204,7 +219,7 @@ impl Manifest {
     }
 
     pub fn render(&self) -> Result<Vec<u8>, &'static str> {
-        let mut text=format!("{FORMAT}\nprovider\tchatgpt\ngeneration_id\t{}\nrelease_sequence\t{}\nsource\t{}\nsource_inputs_sha256\t{}\ntarget\taarch64-linux-android\ncore_api\t{API}\ndependencies\t{DEPENDENCIES}\nfile_count\t8\n",self.generation,self.sequence,self.source,self.source_inputs);
+        let mut text=format!("{FORMAT}\nprovider\tchatgpt\ngeneration_id\t{}\nrelease_sequence\t{}\nsource\t{}\nsource_inputs_sha256\t{}\ntarget\taarch64-linux-android\ncore_api\t{API}\ndependencies\t{DEPENDENCIES}\nfile_count\t{}\n",self.generation,self.sequence,self.source,self.source_inputs,self.files.len());
         for file in &self.files {
             text.push_str(&format!(
                 "file\t{}\t{}\t{}\t{:04o}\n",
@@ -217,7 +232,7 @@ impl Manifest {
     }
 }
 
-pub fn exact_layout(root: &Path) -> Result<(), &'static str> {
+pub fn exact_layout(root: &Path, manifest: &Manifest) -> Result<(), &'static str> {
     if root.symlink_metadata().is_err() || root.is_symlink() || !root.is_dir() {
         return Err("Provider package directory required");
     }
@@ -253,13 +268,16 @@ pub fn exact_layout(root: &Path) -> Result<(), &'static str> {
             return Err("nonregular Provider entry");
         }
     }
-    let expected = FILES
-        .into_iter()
-        .chain(["payload.manifest", "payload.sig"])
-        .map(String::from)
+    // The signed manifest is the inventory authority. An otherwise valid
+    // eight-file directory must not extend a signed six-file package.
+    let expected: BTreeSet<String> = manifest
+        .files
+        .iter()
+        .map(|entry| entry.name.clone())
+        .chain(["payload.manifest".into(), "payload.sig".into()])
         .collect();
     if names != expected {
-        return Err("Provider inventory incomplete or extended");
+        return Err("Provider inventory differs from signed manifest");
     }
     Ok(())
 }
@@ -397,7 +415,7 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
             &staging.join("payload.manifest"),
             &staging.join("payload.sig"),
         )?;
-        exact_layout(&staging).map_err(BuilderError::Invalid)?;
+        exact_layout(&staging, &manifest).map_err(BuilderError::Invalid)?;
         File::open(&staging)
             .and_then(|f| f.sync_all())
             .map_err(|e| io_error("sync Provider package", e))?;
@@ -475,6 +493,35 @@ mod tests {
         let valid = manifest();
         let bytes = valid.render().unwrap();
         assert_eq!(Manifest::parse(&bytes).unwrap(), valid);
+        let mut legacy = valid.clone();
+        legacy.files.insert(
+            3,
+            Entry {
+                name: "licenses/bridge-LICENSE".into(),
+                digest: "b".repeat(64),
+                bytes: 64,
+                mode: 0o644,
+            },
+        );
+        legacy.files.insert(
+            6,
+            Entry {
+                name: "licenses/upstream-codex-LICENSE".into(),
+                digest: "b".repeat(64),
+                bytes: 64,
+                mode: 0o644,
+            },
+        );
+        let old_bytes = legacy.render().unwrap();
+        assert_eq!(Manifest::parse(&old_bytes).unwrap(), legacy);
+        let mut mismatched = old_bytes.clone();
+        let marker = b"file_count\t8\n";
+        let offset = mismatched
+            .windows(marker.len())
+            .position(|p| p == marker)
+            .unwrap();
+        mismatched[offset + marker.len() - 2] = b'6';
+        assert!(Manifest::parse(&mismatched).is_err());
         let text = String::from_utf8(bytes).unwrap();
         for bad in [
             text.replace("\n", "\r\n"),
@@ -511,17 +558,53 @@ mod tests {
         ));
         create_private_dir(&root).unwrap();
         create_private_dir(&root.join("licenses")).unwrap();
+        let manifest = manifest();
         for name in FILES.into_iter().chain(["payload.manifest", "payload.sig"]) {
             std::fs::write(root.join(name), b"x").unwrap();
         }
-        exact_layout(&root).unwrap();
+        exact_layout(&root, &manifest).unwrap();
         std::fs::write(root.join("extra"), b"x").unwrap();
-        assert!(exact_layout(&root).is_err());
+        assert!(exact_layout(&root, &manifest).is_err());
         std::fs::remove_file(root.join("extra")).unwrap();
         std::fs::remove_file(root.join("NOTICE.md")).unwrap();
-        assert!(exact_layout(&root).is_err());
+        assert!(exact_layout(&root, &manifest).is_err());
         symlink(root.join("Cargo.lock"), root.join("NOTICE.md")).unwrap();
-        assert!(exact_layout(&root).is_err());
+        assert!(exact_layout(&root, &manifest).is_err());
+        std::fs::remove_file(root.join("NOTICE.md")).unwrap();
+        std::fs::write(root.join("NOTICE.md"), b"x").unwrap();
+        std::fs::write(root.join("licenses/bridge-LICENSE"), b"x").unwrap();
+        assert!(
+            exact_layout(&root, &manifest).is_err(),
+            "an undeclared legacy license cannot extend a signed current manifest"
+        );
+        let mut legacy = manifest.clone();
+        legacy.files.insert(
+            3,
+            Entry {
+                name: "licenses/bridge-LICENSE".into(),
+                digest: "b".repeat(64),
+                bytes: 64,
+                mode: 0o644,
+            },
+        );
+        std::fs::write(root.join("licenses/upstream-codex-LICENSE"), b"x").unwrap();
+        legacy.files.insert(
+            6,
+            Entry {
+                name: "licenses/upstream-codex-LICENSE".into(),
+                digest: "a".repeat(64),
+                bytes: 1,
+                mode: 0o644,
+            },
+        );
+        exact_layout(&root, &legacy).unwrap();
+        std::fs::remove_file(root.join("licenses/bridge-LICENSE")).unwrap();
+        assert!(
+            exact_layout(&root, &legacy).is_err(),
+            "a signed eight-file manifest requires all eight files"
+        );
+        std::fs::remove_file(root.join("licenses/upstream-codex-LICENSE")).unwrap();
+        exact_layout(&root, &manifest).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

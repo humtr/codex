@@ -24,10 +24,13 @@ class GDriver(unittest.TestCase):
 
     def test_connector_readiness_requires_actual_remote_tools_and_read_call(self):
         info={'expected_tools':['codex_sessions','native_tool']}
-        proof={'refresh':True,'cache_refresh':True,'live_mcp_probe':{'accepted':True,'model_requests':0,'native_effects':0,'samples':[{'read_call':True,'names':['native_tool','codex_sessions']}]}}
+        proof={'refresh':True,'cache_refresh':True,'live_mcp_probe':{'accepted':True,'model_requests':0,'native_effects':0,'samples':[{'read_call':True,'schema_agreement':True,'names':['native_tool','codex_sessions']}]}}
         g.require_connector_ready(info,proof)
         for change in [dict(refresh=False),dict(cache_refresh=False),dict(live_mcp_probe={'accepted':False})]:
             with self.assertRaises(AssertionError):g.require_connector_ready(info,dict(proof,**change))
+        proof['live_mcp_probe']['samples'][0]['schema_agreement']=False
+        with self.assertRaises(AssertionError):g.require_connector_ready(info,proof)
+        proof['live_mcp_probe']['samples'][0]['schema_agreement']=True
         proof['live_mcp_probe']['samples'][0]['read_call']=False
         with self.assertRaises(AssertionError):g.require_connector_ready(info,proof)
 

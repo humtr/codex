@@ -60,7 +60,7 @@ def require_connector_ready(info, proof):
     expected=set(info['expected_tools'])
     assert proof.get('refresh') and proof.get('cache_refresh') and probe.get('accepted'),'backend MCP readiness missing'
     assert probe.get('model_requests')==0 and probe.get('native_effects')==0
-    assert any(sample.get('read_call') and set(sample.get('names',[]))==expected
+    assert any(sample.get('read_call') and sample.get('schema_agreement') is True and set(sample.get('names',[]))==expected
                for sample in probe.get('samples',[])),'actual backend MCP catalog/read probe missing'
 
 

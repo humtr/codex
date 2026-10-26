@@ -95,29 +95,13 @@ async fn encode_checkpoint(
     model: &str,
     effort: &ReasoningEffort,
 ) -> Option<codex_protocol::models::ResponseItem> {
-    let routing = termux_chat_models::installed_routing(config)?;
-    let binary = std::path::PathBuf::from(
-        routing
-            .get("model_providers")?
-            .get(termux_chat_models::PROVIDER)?
-            .get("auth")?
-            .get("command")?
-            .as_str()?,
-    );
-    let metadata = std::fs::symlink_metadata(&binary).ok()?;
-    if !metadata.is_file()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o022 != 0
-        || metadata.mode() & 0o111 == 0
-    {
-        return None;
-    }
+    let provider = termux_chat_models::installed_command(config)?;
     let bytes = serde_json::to_vec(snapshot).ok()?;
     const LIMIT: u64 = 32 * 1024 * 1024;
     if bytes.len() as u64 > LIMIT {
         return None;
     }
-    let mut child = tokio::process::Command::new(binary)
+    let mut child = tokio::process::Command::new(provider.binary)
         .args([
             "checkpoint",
             "--thread",
@@ -128,6 +112,8 @@ async fn encode_checkpoint(
             model,
             "--effort",
             effort.as_str(),
+            "--state",
+            provider.state.to_str()?,
         ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -351,7 +337,7 @@ async fn public_snapshot(
     config: &crate::legacy_core::config::Config,
     thread: ThreadId,
 ) -> Option<Value> {
-    match server.thread_read(thread, true).await {
+    match server.thread_read_complete_public_history(thread).await {
         Ok(snapshot) => serde_json::to_value(snapshot).ok(),
         Err(error) if blank_history_read_error(&error, thread) => {
             let snapshot =
@@ -564,13 +550,15 @@ async fn plan(
             app.chat_widget.add_error_message("Model provider unchanged: the installed Provider could not prepare readable public context.".into());
             return None;
         };
-        let confirmed =
-            match tokio::time::timeout(Duration::from_secs(10), server.thread_read(thread, true))
-                .await
-            {
-                Ok(Ok(snapshot)) => serde_json::to_value(snapshot).ok()?,
-                _ => return None,
-            };
+        let confirmed = match tokio::time::timeout(
+            Duration::from_secs(10),
+            server.thread_read_complete_public_history(thread),
+        )
+        .await
+        {
+            Ok(Ok(snapshot)) => serde_json::to_value(snapshot).ok()?,
+            _ => return None,
+        };
         if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
             app.chat_widget.add_error_message(
                 "Model provider unchanged: the conversation changed during context preparation."
@@ -815,6 +803,8 @@ mod tests {
                 r#"#!/bin/sh
 [ "$1" = checkpoint ] || exit 1
 [ "$5" = saved-native-model ] || exit 1
+[ "${{10}}" = --state ] || exit 1
+[ "${{11}}" = /owned/state ] || exit 1
 cat >/dev/null
 printf '%s\n' '{response}'
 "#

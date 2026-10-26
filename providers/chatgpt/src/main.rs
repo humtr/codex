@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -33,6 +33,7 @@ fn run() -> Result<(), String> {
                 | "token"
                 | "prepare"
                 | "mcp-stdio"
+                | "presentation"
         )
     ) {
         return runtime_command(&args);
@@ -197,9 +198,9 @@ fn control_command(args: &[String]) -> Result<(), String> {
             "stop" => "codex_stop",
             "answer" => "codex_answer",
             "attach" => "codex_attach",
-            "list" | "create" | "resume" | "fork" | "start" | "queue" | "claim" | "compact"
-            | "takeover" | "events" | "wait" | "chat-input" | "chat-result" | "transfer"
-            | "transfer-accept" | "evaluate" | "stop-tree" => {
+            "list" | "create" | "resume" | "fork" | "start" | "queue" | "synchronize" | "claim"
+            | "compact" | "takeover" | "events" | "wait" | "chat-input" | "chat-result"
+            | "transfer" | "transfer-accept" | "evaluate" | "stop-tree" => {
                 values.insert("action".into(), serde_json::json!(action.replace('-', "_")));
                 "codex_sessions"
             }
@@ -214,7 +215,7 @@ fn control_command(args: &[String]) -> Result<(), String> {
                     && values.get("action").is_none_or(|value| {
                         !matches!(
                             value.as_str(),
-                            Some("events" | "wait" | "chat_input" | "chat_result")
+                            Some("events" | "wait" | "synchronize" | "chat_input" | "chat_result")
                         )
                     })
                 {
@@ -276,17 +277,23 @@ fn omit_capabilities(value: &mut serde_json::Value) {
 fn checkpoint(args: &[String], path: &std::path::Path) -> Result<(), String> {
     use codex_chatgpt_provider::{config::MAX_DECODED_BYTES, handoff::Handoff};
     let mut options = std::collections::BTreeMap::new();
-    if args.len() != 8 {
+    if !matches!(args.len(), 8 | 10) {
         return Err(USAGE.into());
     }
     for pair in args.as_chunks::<2>().0 {
         if !matches!(
             pair[0].as_str(),
-            "--thread" | "--from-model" | "--model" | "--effort"
+            "--thread" | "--from-model" | "--model" | "--effort" | "--state"
         ) || options.insert(pair[0].as_str(), pair[1].as_str()).is_some()
         {
             return Err("invalid checkpoint options".into());
         }
+    }
+    if ["--thread", "--from-model", "--model", "--effort"]
+        .iter()
+        .any(|key| !options.contains_key(key))
+    {
+        return Err("invalid checkpoint options".into());
     }
     let config = store::Snapshot::open(path)
         .and_then(|v| v.config())
@@ -310,6 +317,15 @@ fn checkpoint(args: &[String], path: &std::path::Path) -> Result<(), String> {
         &config,
     )
     .map_err(|e| e.to_string())?;
+    let state = options
+        .get("--state")
+        .map(std::path::PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(codex_chatgpt_provider::runtime::state_path)
+        .map_err(|e| e.to_string())?;
+    let value = codex_chatgpt_provider::handoff::Issuer::from_state(&state)
+        .and_then(|issuer| issuer.issue(value))
+        .map_err(|e| e.to_string())?;
     text(&value.to_string())
 }
 fn runtime_command(args: &[String]) -> Result<(), String> {
@@ -330,10 +346,12 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
     if fields.contains_key("--thread")
         && !matches!(
             args[0].as_str(),
-            "status" | "approve" | "approve-ui" | "reveal"
+            "status" | "approve" | "approve-ui" | "reveal" | "presentation"
         )
     {
-        return Err("--thread is only supported by status, approve and reveal".into());
+        return Err(
+            "--thread is only supported by status, approve, reveal and presentation".into(),
+        );
     }
     let root = fields
         .get("--state")
@@ -346,6 +364,16 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
     }
     let executor = tokio::runtime::Runtime::new().map_err(|_| "async runtime is unavailable")?;
     match args[0].as_str() {
+        "presentation"
+            if fields
+                .keys()
+                .all(|key| matches!(*key, "--state" | "--thread")) =>
+        {
+            let thread = fields.get("--thread").ok_or("--thread is required")?;
+            let value = codex_chatgpt_provider::app::presentation_groups(&root, thread)
+                .map_err(|e| e.to_string())?;
+            text(&value.to_string())
+        }
         "mcp-stdio" if fields.keys().all(|key| *key == "--state") => executor
             .block_on(runtime::mcp_stdio(&root))
             .map_err(|e| e.to_string()),

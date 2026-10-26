@@ -224,6 +224,45 @@ async function termuxCodexBridge(command) {
     const p=readPolicy();
     return {cooling_down:p.notBefore>Date.now(),retry_after_seconds:Math.max(0,Math.ceil((p.notBefore-Date.now())/1000)),last_failure:p.lastFailure};
   };
+  const readSavedChat=async(path,parameters,before)=>{
+    if(typeof state.wire.safeGet!=='function')fail('app_chat_operations_unavailable');
+    const policy=readPolicy();
+    if(policy.notBefore>Date.now())fail(policy.lastFailure.code);
+    if(policy.inFlight)fail('app_chat_read_pending');
+    const options={retry:'never',additionalHeaders:{'ChatGPT-Account-ID':before.account},assertRequestCurrent:()=>{if(JSON.stringify(identity())!==JSON.stringify(before))fail('app_account_changed');}};
+    let result;
+    policy.inFlight=true;
+    try {
+      result=await state.wire.safeGet(path,{...options,parameters});
+      options.assertRequestCurrent();
+    } catch(error) {
+      options.assertRequestCurrent();
+      if(error?.message==='app_chat_response_invalid')throw error;
+      if(error?.responseStatus===401)fail('app_chat_auth_expired');
+      if(error?.responseStatus===403)fail('app_chat_forbidden');
+      if(error?.responseStatus===404)fail('app_chat_not_found');
+      const status=Number.isInteger(error?.responseStatus)?error.responseStatus:null;
+      const code=status===429?'app_chat_rate_limited':status!==null&&status>=500&&status<=599?'app_chat_temporarily_unavailable':'app_chat_request_failed';
+      const now=Date.now();policy.failures=policy.lastFailure?.code===code?policy.failures+1:1;
+      const headers=error?.responseHeaders??error?.headers;
+      const header=typeof headers?.get==='function'?headers.get('retry-after'):headers?.['retry-after'];
+      const parsed=header==null?0:Number(header),retry=Number.isFinite(parsed)?Math.max(0,parsed):Math.max(0,(Date.parse(header)-now)/1000);
+      const base=status===429?60:status==null?2:5,cap=status===429?300:60;
+      const seconds=Math.max(Math.min(cap,base*2**Math.min(10,policy.failures-1)),Number.isFinite(retry)?retry:0);
+      policy.notBefore=now+Math.ceil(seconds*1000);
+      policy.lastFailure={code,http_status:status,observed_at_unix_ms:now};
+      const writer=globalThis[slot];
+      if(writer?.owner===command.owner)writer.lastReadFailure=policy.lastFailure;
+      fail(code);
+    } finally {
+      policy.inFlight=false;
+    }
+    if(path==='/conversations') {
+      if(!Array.isArray(result?.items)||!Number.isSafeInteger(result.total))fail('app_chat_response_invalid');
+    } else if(!result||typeof result!=='object'||result.mapping!=null&&(typeof result.mapping!=='object'||Array.isArray(result.mapping)||Object.values(result.mapping).some(n=>!n||typeof n!=='object')))fail('app_chat_response_invalid');
+    policy.failures=0;policy.notBefore=0;
+    return result;
+  };
   if (['project_list','project_read','project_create'].includes(command.op)) {
     const check = () => { const current=identity();if (['account','user','structure'].some(k=>current[k]!==command.identity?.[k])) fail('app_account_changed'); };
     const api=state.wire;
@@ -286,53 +325,49 @@ async function termuxCodexBridge(command) {
       active_lanes:[...state.lanes.values()].filter(l=>l.pending||l.streamActive||l.approvalPending).map(l=>({lane:l.marker,transport:l.mode})),
       inference_submitted:false};
   }
-  if(['chat_list','chat_read','chat_page'].includes(command.op)) {
+  if(['chat_list','chat_read','chat_page','follow_settle'].includes(command.op)) {
     const before=identity();
+    const followed=command.op==='follow_settle'?state.lanes.get(command.lane):null;
+    if(command.op==='follow_settle') {
+      if(!followed||followed.mode!=='mcp'||followed.serverId!==command.conversation_id||followed.round!==command.round)fail('app_lane_declaration_changed');
+      const selected=appScope();if(!selected)fail('app_scope_unavailable');
+      const current=identity(selected);
+      if(['account','user','structure'].some(key=>before[key]!==followed.accountIdentity[key]||current[key]!==followed.accountIdentity[key]))fail('app_account_changed');
+      if(selected!==state.scope)fail('app_hooks_changed');
+      if(!followed.externalResponse) {
+        if(followed.settledSource===command.branch)return {settled:true,reused:true};
+        fail('app_lane_declaration_changed');
+      }
+    }
     if(command.identity&&['account','user','structure'].some(key=>command.identity[key]!==before[key]))fail('app_account_changed');
     if(typeof state.wire.safeGet!=='function')fail('app_chat_operations_unavailable');
-    const policy=readPolicy();
-    if(policy.notBefore>Date.now())fail(policy.lastFailure.code);
-    if(policy.inFlight)fail('app_chat_read_pending');
-    const options={retry:'never',additionalHeaders:{'ChatGPT-Account-ID':before.account},assertRequestCurrent:()=>{if(JSON.stringify(identity())!==JSON.stringify(before))fail('app_account_changed');}};
-    let result;
-    policy.inFlight=true;
-    try {
-      if(command.op==='chat_list') {
-        result=await state.wire.safeGet('/conversations',{...options,parameters:{query:{offset:command.offset??0,limit:command.limit??50,order:'updated',is_archived:false,hide_snorlax:false}}});
-        options.assertRequestCurrent();
-        if(!Array.isArray(result?.items)||!Number.isSafeInteger(result.total))fail('app_chat_response_invalid');
-        policy.failures=0;policy.notBefore=0;
-        return {items:result.items.map(c=>({id:c.id,title:c.title??null,project_id:c.gizmo_id??null,updated_at:c.update_time??null})),total:result.total};
-      }
-      if(typeof command.conversation_id!=='string'||!command.conversation_id||command.conversation_id.length>256)fail('app_chat_response_invalid');
-      result=command.op==='chat_page'
-        ?await state.wire.safeGet('/conversations/{conversation_id}/messages',{...options,parameters:{path:{conversation_id:command.conversation_id},query:{before:command.before,num_turns:100,include_has_versions:true}}})
-        :await state.wire.safeGet('/conversation/{conversation_id}',{...options,parameters:{path:{conversation_id:command.conversation_id}}});
-      options.assertRequestCurrent();
-    } catch(error) {
-      options.assertRequestCurrent();
-      if(error?.message==='app_chat_response_invalid')throw error;
-      if(error?.responseStatus===401)fail('app_chat_auth_expired');
-      if(error?.responseStatus===403)fail('app_chat_forbidden');
-      if(error?.responseStatus===404)fail('app_chat_not_found');
-      const status=Number.isInteger(error?.responseStatus)?error.responseStatus:null;
-      const code=status===429?'app_chat_rate_limited':status!==null&&status>=500&&status<=599?'app_chat_temporarily_unavailable':'app_chat_request_failed';
-      const now=Date.now();policy.failures=policy.lastFailure?.code===code?policy.failures+1:1;
-      const headers=error?.responseHeaders??error?.headers;
-      const header=typeof headers?.get==='function'?headers.get('retry-after'):headers?.['retry-after'];
-      const parsed=header==null?0:Number(header),retry=Number.isFinite(parsed)?Math.max(0,parsed):Math.max(0,(Date.parse(header)-now)/1000);
-      const base=status===429?60:status==null?2:5,cap=status===429?300:60;
-      const seconds=Math.max(Math.min(cap,base*2**Math.min(10,policy.failures-1)),Number.isFinite(retry)?retry:0);
-      policy.notBefore=now+Math.ceil(seconds*1000);
-      policy.lastFailure={code,http_status:status,observed_at_unix_ms:now};
-      const writer=globalThis[slot];
-      if(writer?.owner===command.owner)writer.lastReadFailure=policy.lastFailure;
-      fail(code);
-    } finally {
-      policy.inFlight=false;
+    if(command.op==='chat_list') {
+      const result=await readSavedChat('/conversations',{query:{offset:command.offset??0,limit:command.limit??50,order:'updated',is_archived:false,hide_snorlax:false}},before);
+      return {items:result.items.map(c=>({id:c.id,title:c.title??null,project_id:c.gizmo_id??null,updated_at:c.update_time??null})),total:result.total};
     }
-    if(!result||typeof result!=='object'||result.mapping!=null&&(typeof result.mapping!=='object'||Array.isArray(result.mapping)||Object.values(result.mapping).some(n=>!n||typeof n!=='object')))fail('app_chat_response_invalid');
-    policy.failures=0;policy.notBefore=0;
+    if(typeof command.conversation_id!=='string'||!command.conversation_id||command.conversation_id.length>256)fail('app_chat_response_invalid');
+    if(followed&&typeof command.text!=='string')fail('app_chat_response_invalid');
+    const settlementMatches=result=>{
+      const message=result?.mapping?.[command.branch]?.message,parts=message?.content?.parts;
+      return message?.id===command.branch&&message.author?.role==='assistant'&&message.status==='finished_successfully'&&message.end_turn===true&&
+        ['final',null,undefined].includes(message.channel)&&message.content?.content_type==='text'&&Array.isArray(parts)&&parts.every(part=>typeof part==='string')&&parts.join('')===command.text;
+    };
+    const result=followed&&settlementMatches(followed.savedSource)?followed.savedSource:command.op==='chat_page'
+      ?await readSavedChat('/conversations/{conversation_id}/messages',{path:{conversation_id:command.conversation_id},query:{before:command.before,num_turns:100,include_has_versions:true}},before)
+      :await readSavedChat('/conversation/{conversation_id}',{path:{conversation_id:command.conversation_id}},before);
+    if(command.op==='chat_read')for(const lane of state.lanes.values()) {
+      if(lane.externalResponse&&lane.serverId===command.conversation_id&&['account','user','structure'].every(key=>before[key]===lane.accountIdentity[key]))lane.savedSource=result;
+    }
+    if(followed) {
+      if((result.gizmo_id??null)!==followed.project)fail('project_membership_unconfirmed');
+      if(!settlementMatches(result))fail('app_chat_response_changed');
+      if(typeof state.api.uCn!=='function')fail('app_chat_input_unavailable');
+      state.api.uCn(state.scope,result,{mergeActiveBranch:true,preserveAsyncStatus:true});
+      followed.localId=command.conversation_id;followed.selectedParent=command.branch;
+      followed.terminals=['done'];followed.externalResponse=false;followed.settledSource=command.branch;
+      followed.savedSource=null;
+      return {settled:true};
+    }
     const publicMessage=m=>{
       if(!m)return null;
       const hidden=['system','developer'].includes(m.author?.role)||m.channel==='analysis'||m.metadata?.is_visually_hidden_from_conversation===true||['thoughts','reasoning_recap','model_editable_context'].includes(m.content?.content_type);
@@ -356,19 +391,29 @@ async function termuxCodexBridge(command) {
     let adopted;
     if(command.op==='chat_adopt') {
       const before=identity(),id=command.conversation_id;
+      const bound=command.bound_source_anchor!=null;
       if(typeof id!=='string'||!id||id.length>256||!['uCn','pzn'].every(key=>typeof state.api[key]==='function')||!state.api.ozn)fail('app_chat_input_unavailable');
+      if(bound&&(typeof command.bound_source_anchor!=='string'||command.bound_source_anchor!==command.branch))fail('app_chat_input_unavailable');
       if(['account','user','structure'].some(key=>command.identity?.[key]!==before[key]))fail('app_account_changed');
       if([...state.lanes.values()].some(l=>[l.localId,l.serverId,l.uiLocalId].includes(id)))fail('app_chat_owned_work');
-      if(state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
-      const raw=await state.wire.safeGet('/conversation/{conversation_id}',{retry:'never',additionalHeaders:{'ChatGPT-Account-ID':before.account},parameters:{path:{conversation_id:id}}});
+      if(!bound&&state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
+      const raw=await readSavedChat('/conversation/{conversation_id}',{path:{conversation_id:id}},before);
       if(['account','user','structure'].some(key=>identity()[key]!==before[key]))fail('app_account_changed');
       if(!raw?.mapping?.[command.branch]||raw.conversation_origin==='tpp'||raw.conversation_origin==='flora')fail('app_chat_input_unavailable');
       const current=raw.mapping[raw.current_node]?.message;
-      if(current?.status==='in_progress'||current?.status==='inProgress'||state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
+      if(bound) {
+        const anchor=raw.mapping[command.branch].message;
+        if(anchor?.author?.role!=='assistant'||anchor.status!=='finished_successfully'||anchor.end_turn!==true||!['final',null,undefined].includes(anchor.channel))fail('app_chat_response_invalid');
+        let node=raw.current_node;const seen=new Set();
+        while(node!==command.branch) {
+          if(typeof node!=='string'||seen.has(node)||!raw.mapping[node])fail('bound_chat_branch_changed');
+          seen.add(node);node=raw.mapping[node].parent;
+        }
+      } else if(current?.status==='in_progress'||current?.status==='inProgress'||state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
       if([...state.lanes.values()].some(l=>[l.localId,l.serverId,l.uiLocalId].includes(id)))fail('app_chat_owned_work');
       if((command.project??null)!==(raw.gizmo_id??null))fail('project_membership_unconfirmed');
       state.api.uCn(state.scope,raw,{mergeActiveBranch:true,preserveAsyncStatus:true});
-      if(state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
+      if(!bound&&state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
       adopted={id,parent:command.branch,project:raw.gizmo_id??null};
     }
     if(mode==='local_function') {
@@ -376,11 +421,17 @@ async function termuxCodexBridge(command) {
       state.api.gRt();
       if(!state.scope.get(state.shared.HAt))fail('app_local_functions_unavailable');
     }
+    const counters=command.bound_source_anchor!=null?command.source_counters:null;
+    if(counters&&(Object.keys(counters).sort().join(',')!=='dispatches,hostReplyMessages,toolMessages,userMessages'||Object.values(counters).some(v=>!Number.isSafeInteger(v)||v<0)))fail('app_chat_response_invalid');
+    if(command.bound_source_anchor!=null&&!counters)fail('app_chat_response_invalid');
     let budget;
     if(command.limits!=null) {
       const {maxDispatches,deadlineUnixMs}=command.limits;
       if(typeof command.nativeThread!=='string'||!Number.isSafeInteger(maxDispatches)||maxDispatches<1||deadlineUnixMs!=null&&(!Number.isSafeInteger(deadlineUnixMs)||deadlineUnixMs<1))fail('assignment_budget_invalid');
       budget=state.workBudgets.get(command.nativeThread);
+      // A missing shared assignment ledger cannot be reconstructed from one
+      // lane's counters; preserve the original cap rather than resetting usage.
+      if(counters&&!budget)fail('assignment_app_ledger_unavailable');
       if(budget&&(budget.maxDispatches!==maxDispatches||budget.deadlineUnixMs!==deadlineUnixMs))fail('assignment_budget_changed');
       if(!budget){budget={maxDispatches,deadlineUnixMs,reserved:0};state.workBudgets.set(command.nativeThread,budget);}
     }
@@ -393,7 +444,7 @@ async function termuxCodexBridge(command) {
     if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
     state.wire.streamPost = state.hooks.streamPost;
     const localId = adopted?.id??state.api.aCn(state.scope);
-    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,mode,budget,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,userMessages: 0,toolMessages: 0,hostReplyMessages:0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
+    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,mode,budget,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,previousDispatches:counters?.dispatches??0,userMessages:counters?.userMessages??0,toolMessages:counters?.toolMessages??0,hostReplyMessages:counters?.hostReplyMessages??0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
     return {localId};
   }
   const lane = state.lanes.get(command.lane);
@@ -415,7 +466,7 @@ async function termuxCodexBridge(command) {
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
        m.content?.content_type==='text' && [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,budget:lane.budget??null,hostResponses:[...hostResponses],approvalResponses:[...lane.messages.values()].filter(m=>hostTargets(m).some(t=>lane.hostReplies.has(t))).map(m=>m.id),accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
-      dispatches: lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
+      dispatches: (lane.previousDispatches??0)+lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
       pending:lane.pending===true,streamActive:lane.streamActive===true,
       transportObservation:lane.transportObservation??null,
       savedReadBackoff:retryStatus(),
@@ -425,6 +476,20 @@ async function termuxCodexBridge(command) {
       stopped: lane.stopRequested === true && lane.pending !== true && lane.approvalPending !== true && lane.streamActive !== true && (lane.starts.size===0&&!lane.round&&lane.error==null || lane.rejectedBeforeDispatch===true&&!lane.priorStreamUnsettled || lane.completedBeforeCancellation===true || lane.serverStopConfirmed===true)};
   };
   if (command.op === 'snapshot') return snapshot();
+  if (command.op === 'follow') {
+    if(lane.mode!=='mcp'||lane.serverId!==command.conversation_id)fail('app_lane_declaration_changed');
+    if(lane.round===command.round)return {observing:true,reused:true};
+    if(lane.pending||lane.approvalPending||lane.streamActive)fail('app_lane_busy');
+    if(['account','user','structure'].some(k=>identity()[k]!==lane.accountIdentity[k]))fail('app_account_changed');
+    // The public saved source was admitted by Rust. Observe that existing
+    // response without calling yRt/startCompletionStream or changing its model.
+    lane.round=command.round;lane.epoch++;lane.messages.clear();lane.terminals=[];lane.savedSource=null;
+    lane.error=null;lane.accepted=true;lane.roundStarts=0;lane.roundHostReplies=0;
+    lane.stopRequested=false;lane.serverStopPromise=null;lane.serverStopConfirmed=false;
+    lane.completedBeforeCancellation=false;lane.localCancellationStarted=false;
+    lane.serverStopState='not_observed';lane.externalResponse=true;lane.settledSource=null;
+    return {observing:true};
+  }
   if(['approve','approve_ui','approval_prepare'].includes(command.op)) {
     const check=()=>{const current=identity();if(['account','user','structure'].some(k=>current[k]!==command.identity?.[k]))fail('app_account_changed');if(lane.stopRequested)fail('app_approval_unavailable');};
     check();
@@ -546,6 +611,7 @@ async function termuxCodexBridge(command) {
     return {verified:true};
   }
   if (command.op === 'stop') {
+    lane.savedSource=null;
     lane.stopRequested = true;
     const who=identity(),sameAccount=()=>['account','user','structure'].every(k=>identity()[k]===who[k]&&(!lane.accountIdentity||lane.accountIdentity[k]===who[k]));
     if(!sameAccount())fail('app_account_changed');
@@ -554,7 +620,7 @@ async function termuxCodexBridge(command) {
     // Low-level eHt/JU only cancels the client transport. It does not call the
     // installed client's stopCompletion -> /stop_conversation operation.
     try {
-      if(lane.starts.size>0&&!lane.completedBeforeCancellation&&!lane.serverStopConfirmed){
+      if((lane.starts.size>0||lane.externalResponse)&&!lane.completedBeforeCancellation&&!lane.serverStopConfirmed){
         if(typeof lane.serverId!=='string')lane.serverStopState='server_identity_unavailable';
         else if(typeof state.client.stopCompletion!=='function')lane.serverStopState='server_stop_unavailable';
         else {
@@ -603,6 +669,8 @@ async function termuxCodexBridge(command) {
     if(!selected||['account','user','structure'].some(k=>identity(selected)[k]!==lane.accountIdentity[k]))fail('app_account_changed');
     if (lane.pending||lane.approvalPending||lane.streamActive) fail('app_lane_busy');
     lane.round = command.round;
+    lane.externalResponse=false;
+    lane.savedSource=null;
     lane.priorStreamUnsettled=lane.streamActive===true;
     lane.nonUserBootstrap=command.bootstrap===true;lane.rejectedBeforeDispatch=false;lane.admissionCause=null;
     lane.serverStopPromise=null;lane.serverStopConfirmed=false;lane.completedBeforeCancellation=false;lane.localCancellationStarted=false;lane.serverStopState='not_observed';

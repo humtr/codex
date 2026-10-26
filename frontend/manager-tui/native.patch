@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 093a6af..8c0de15 100644
+index 093a6af..298ef97 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -23,19 +23,21 @@ index 093a6af..8c0de15 100644
  mod connector_mentions;
  mod daemon_menu;
  mod daybreak;
-@@ -239,7 +240,11 @@ mod managed_worktree_creation;
+@@ -239,7 +240,13 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
 +#[cfg(unix)]
 +pub(crate) mod profile_manager;
++#[cfg(unix)]
++pub(crate) mod provider_presentation;
  mod quick_dials;
 +#[cfg(unix)]
 +pub(crate) mod quota_switch;
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -440,7 +445,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -440,7 +447,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -44,7 +46,7 @@ index 093a6af..8c0de15 100644
          ),
      }
  }
-@@ -535,6 +540,10 @@ struct InitialHistoryReplayBuffer {
+@@ -535,6 +542,12 @@ struct InitialHistoryReplayBuffer {
  }
 
  pub(crate) struct App {
@@ -52,10 +54,12 @@ index 093a6af..8c0de15 100644
 +    quota_switch: quota_switch::State,
 +    #[cfg(unix)]
 +    chat_model_switch: chat_model_reentry::State,
++    #[cfg(unix)]
++    provider_presentation: provider_presentation::State,
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1229,6 +1238,10 @@ impl App {
+@@ -1229,6 +1242,10 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -91,6 +95,44 @@ index cd8f167..dc725da 100644
                  // The request result distinguishes a refused start from a lost reply.
                  if self.pending_startup_thread_start
                      && !matches!(self.app_server_target, crate::AppServerTarget::Embedded)
+diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
+index ef5b912..6d917e9 100644
+--- a/codex-rs/tui/src/app/config_persistence.rs
++++ b/codex-rs/tui/src/app/config_persistence.rs
+@@ -28,10 +28,16 @@ async fn build_config_on_runtime_worker(
+     }
+ }
+
+-pub(super) fn resume_model_settings_for_overrides(
++pub(crate) fn resume_model_settings_for_overrides(
+     config: &Config,
+     harness_overrides: &ConfigOverrides,
+ ) -> crate::app_server_session::ResumeModelSettings {
++    #[cfg(unix)]
++    if crate::termux_permissions::enabled()
++        && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume")
++    {
++        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
++    }
+     let has_layer_override = config.config_layer_stack.layers_high_to_low().any(|layer| {
+         matches!(
+             &layer.name,
+@@ -1134,6 +1140,15 @@ impl App {
+     }
+
+     pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled()
++            && matches!(
++                std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref(),
++                Ok("select" | "resume")
++            )
++        {
++            return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
++        }
+         resume_model_settings_for_overrides(&self.config, &self.harness_overrides)
+     }
+
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
 index ada9e88..a5a1e67 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
@@ -143,9 +185,10 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index 6687d05..6f91625 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -143,6 +143,19 @@
+@@ -143,6 +143,19 @@ impl App {
              return Ok(AppRunControl::Continue);
          }
 
@@ -165,11 +208,10 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -489,6 +502,40 @@
-             }
+@@ -490,6 +503,40 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
-+            }
+             }
 +            #[cfg(unix)]
 +            AppEvent::OpenProfilePicker => {
 +                profile_manager::open(self).await;
@@ -203,10 +245,56 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
 +                if let Some(request) = profile_manager::prepare(self, app_server, profile).await {
 +                    return Err(std::io::Error::other(request).into());
 +                }
-             }
++            }
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
-@@ -2116,6 +2163,18 @@
+                     || !app_server.uses_remote_workspace()
+@@ -928,9 +975,12 @@ impl App {
+                     self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
+                 }
+                 self.finish_initial_history_replay_buffer(tui);
++                #[cfg(unix)]
++                provider_presentation::refresh(self);
+             }
+             AppEvent::ConsolidateAgentMessage {
+                 source,
++                source_item_id,
+                 copy_source,
+                 cwd,
+                 inline_visualization_context,
+@@ -939,13 +989,19 @@ impl App {
+             } => {
+                 self.handle_consolidate_agent_message(
+                     tui,
+-                    history_cell::AgentMarkdownCell::new_with_inline_visualizations(source, &cwd, inline_visualization_context).with_copy_source(copy_source),
++                    history_cell::AgentMarkdownCell::new_with_inline_visualizations(source, &cwd, inline_visualization_context).with_copy_source(copy_source).with_source_item_id(source_item_id),
+                     scrollback_reflow,
+                     deferred_history_cell,
+                 )?;
++                #[cfg(unix)]
++                provider_presentation::apply(self, tui);
+                 self.chat_widget.note_stream_consolidation_completed();
+                 self.insert_pending_usage_output_after_stream_shutdown(tui);
+             }
++            #[cfg(unix)]
++            AppEvent::ProviderPresentationReady { thread, epoch, result } => {
++                provider_presentation::ready(self, tui, thread, epoch, result);
++            }
+             AppEvent::ConsolidateProposedPlan(source) => {
+                 let end = self.transcript_cells.len();
+                 let start = trailing_run_start::<history_cell::ProposedPlanStreamCell>(
+@@ -1074,8 +1130,8 @@ impl App {
+             AppEvent::FatalExitRequest(message) => {
+                 return Ok(AppRunControl::Exit(ExitReason::Fatal(message)));
+             }
+-            AppEvent::ImagesPrepared(id) => {
+-                self.chat_widget.on_images_prepared(id);
++            AppEvent::InputPrepared(id) => {
++                self.chat_widget.on_input_prepared(id);
+             }
+             AppEvent::CodexOp(mut op) => {
+                 if let AppCommand::OverrideTurnContext {
+@@ -2116,6 +2172,18 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -225,7 +313,7 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
-@@ -2600,6 +2659,19 @@
+@@ -2600,6 +2668,19 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {
@@ -245,11 +333,58 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
                  self.app_event_tx.send(AppEvent::FollowTranscript);
                  self.select_session_model(app_server, model, effort, service_tier).await;
              }
+diff --git a/codex-rs/tui/src/app/history_pagination.rs b/codex-rs/tui/src/app/history_pagination.rs
+index bd04368..5d067f4 100644
+--- a/codex-rs/tui/src/app/history_pagination.rs
++++ b/codex-rs/tui/src/app/history_pagination.rs
+@@ -114,6 +114,8 @@ impl App {
+             visibility,
+         );
+         let inserted = self.prepend_older_transcript_cells(cells);
++        #[cfg(unix)]
++        super::provider_presentation::apply(self, tui);
+         self.transcript_view
+             .history_loaded(&self.transcript_cells, inserted.clone());
+         if !inserted.is_empty() {
+diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
+index 811d971..909b502 100644
+--- a/codex-rs/tui/src/app/session_lifecycle.rs
++++ b/codex-rs/tui/src/app/session_lifecycle.rs
+@@ -1375,6 +1375,29 @@ impl App {
+             self.add_session_picker_error(format!("{error:#}"));
+             return Ok(AppRunControl::Continue);
+         }
++        #[cfg(unix)]
++        if crate::profile_transport::core_owned(
++            &self.app_server_target,
++            crate::termux_permissions::enabled(),
++        ) && self.resume_model_settings()
++            == crate::app_server_session::ResumeModelSettings::RestoreFromThread
++        {
++            match super::chat_model_reentry::resume_saved(
++                self,
++                app_server,
++                target_session.thread_id,
++                &resume_config,
++            )
++            .await
++            {
++                Ok(Some(request)) => return Err(std::io::Error::other(request).into()),
++                Ok(None) => (),
++                Err(error) => {
++                    self.add_session_picker_error(error.to_string());
++                    return Ok(AppRunControl::Continue);
++                }
++            }
++        }
+         let permission_overrides = self.resume_permission_overrides(&resume_config);
+
+         if let Some(history_mode) = target_session.history_mode {
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index 85e4dc1..19badd6 100644
+index 85e4dc1..d846d9f 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -889,6 +889,10 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -889,6 +889,12 @@ See the Codex keymap documentation for supported actions and examples."
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
@@ -257,14 +392,16 @@ index 85e4dc1..19badd6 100644
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
 +            chat_model_switch: Default::default(),
++            #[cfg(unix)]
++            provider_presentation: Default::default(),
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index a0efb33..d76f88e 100644
+index a0efb33..30ba43e 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
-@@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
+@@ -21,6 +21,12 @@ pub(crate) async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
 
      Box::new(App {
@@ -272,11 +409,13 @@ index a0efb33..d76f88e 100644
 +        quota_switch: Default::default(),
 +        #[cfg(unix)]
 +        chat_model_switch: Default::default(),
++        #[cfg(unix)]
++        provider_presentation: Default::default(),
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index ae45328..c264afb 100644
+index ae45328..77766fa 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -93,7 +93,7 @@ mod recap_generation;
@@ -288,7 +427,7 @@ index ae45328..c264afb 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -6393,6 +6393,10 @@ async fn make_test_app() -> Box<App> {
+@@ -6393,6 +6393,12 @@ async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
 
      Box::new(App {
@@ -296,10 +435,12 @@ index ae45328..c264afb 100644
 +        quota_switch: Default::default(),
 +        #[cfg(unix)]
 +        chat_model_switch: Default::default(),
++        #[cfg(unix)]
++        provider_presentation: Default::default(),
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6519,6 +6523,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6519,6 +6525,12 @@ pub(super) async fn make_test_app_with_channels() -> (
 
      (
          Box::new(App {
@@ -307,10 +448,12 @@ index ae45328..c264afb 100644
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
 +            chat_model_switch: Default::default(),
++            #[cfg(unix)]
++            provider_presentation: Default::default(),
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7510,7 +7518,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+@@ -7510,7 +7522,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
 
@@ -319,7 +462,7 @@ index ae45328..c264afb 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7520,7 +7528,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7520,7 +7532,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
 
@@ -365,11 +508,23 @@ index 787c7e0..6d026c2 100644
      requests
          .lock()
          .expect("request recorder lock")
+diff --git a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
+index d3d07ed..071ecd2 100644
+--- a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
++++ b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
+@@ -273,6 +273,7 @@ async fn inactive_thread_user_verification_preserves_foreground_stream() -> Resu
+                 inline_visualization_context,
+                 scrollback_reflow,
+                 deferred_history_cell,
++                ..
+             } => {
+                 completed_messages.push(source.clone());
+                 app.handle_consolidate_agent_message(
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index 07a9869..8f5e429 100644
+index 07a9869..fb1dd8f 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
-@@ -1921,6 +1921,10 @@ impl App {
+@@ -1921,6 +1921,17 @@ impl App {
              ThreadBufferedEvent::Notification(notification) => {
                  self.cache_collab_receiver_threads_for_notification(notification.as_ref());
                  let tip_ready = self.turn_tips.observe(&notification, Instant::now());
@@ -377,10 +532,17 @@ index 07a9869..8f5e429 100644
 +                super::quota_switch::observe(self, notification.as_ref());
 +                #[cfg(unix)]
 +                super::chat_model_reentry::observe(self, notification.as_ref());
++                #[cfg(unix)]
++                if matches!(
++                    notification.as_ref(),
++                    codex_app_server_protocol::ServerNotification::TurnCompleted(_)
++                ) {
++                    super::provider_presentation::refresh(self);
++                }
                  self.chat_widget
                      .handle_server_notification(*notification, /*replay_kind*/ None);
                  // History cells queued by completion must be applied before anchoring its tip.
-@@ -1929,6 +1933,8 @@ impl App {
+@@ -1929,6 +1940,8 @@ impl App {
                  }
              }
              ThreadBufferedEvent::Request(request) => {
@@ -407,10 +569,23 @@ index 4f41521..bc736d6 100644
          .turn_start(
              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index e2b86c9..07394a6 100644
+index e2b86c9..cb70129 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -638,6 +638,43 @@ pub(crate) enum AppEvent {
+@@ -295,6 +295,12 @@ pub(crate) struct AgentPickerThreadRefresh {
+ #[allow(clippy::large_enum_variant)]
+ #[derive(Debug, IntoStaticStr)]
+ pub(crate) enum AppEvent {
++    #[cfg(unix)]
++    ProviderPresentationReady {
++        thread: ThreadId,
++        epoch: u64,
++        result: Result<Vec<crate::app::provider_presentation::Group>, String>,
++    },
+     AccountEmailLoaded {
+         request_id: uuid::Uuid,
+         email: Option<String>,
+@@ -638,6 +644,43 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
@@ -454,7 +629,24 @@ index e2b86c9..07394a6 100644
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
-@@ -1230,6 +1267,16 @@ pub(crate) enum AppEvent {
+@@ -692,7 +735,7 @@ pub(crate) enum AppEvent {
+     CodexOp(AppCommand),
+
+     /// A blocking image-preparation worker has finished; payload stays with its widget.
+-    ImagesPrepared(Uuid),
++    InputPrepared(Uuid),
+
+     /// Approve one retry of a recent auto-review denial selected in the TUI.
+     ApproveRecentAutoReviewDenial {
+@@ -1202,6 +1245,7 @@ pub(crate) enum AppEvent {
+     /// transcript without first writing its provisional render to scrollback.
+     ConsolidateAgentMessage {
+         source: String,
++        source_item_id: Option<String>,
+         copy_source: Option<String>,
+         cwd: PathBuf,
+         inline_visualization_context: Option<InlineVisualizationContext>,
+@@ -1230,6 +1274,16 @@ pub(crate) enum AppEvent {
 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
@@ -472,9 +664,10 @@ index e2b86c9..07394a6 100644
      /// Apply an explicit Astra selection and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
+index a9476b1..7b53439 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -896,6 +896,11 @@
+@@ -896,6 +896,11 @@ impl AppServerSession {
          remote_cwd_override: Option<&std::path::Path>,
          selected_profile: Option<&PermissionProfileSelection>,
      ) -> Result<AppServerStartedThread> {
@@ -486,7 +679,7 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1062,6 +1067,11 @@
+@@ -1062,6 +1067,11 @@ impl AppServerSession {
          permission_mode: ForkPermissionMode,
          config_source: ForkConfigSource,
      ) -> Result<AppServerStartedThread> {
@@ -498,10 +691,65 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1968,29 +1978,55 @@
+@@ -1324,6 +1334,53 @@ impl AppServerSession {
+         Ok(response.thread)
+     }
+
++    /// Read canonical public history for provider entry, independently of display limits.
++    pub(crate) async fn thread_read_complete_public_history(
++        &mut self,
++        thread_id: ThreadId,
++    ) -> Result<Thread> {
++        let mut thread = self.thread_read(thread_id, /*include_turns*/ false).await?;
++        if thread.history_mode == codex_app_server_protocol::ThreadHistoryMode::Legacy {
++            return self.thread_read(thread_id, /*include_turns*/ true).await;
++        }
++        let mut cursor = None;
++        let mut cursors = std::collections::HashSet::new();
++        let mut turn_ids = std::collections::HashSet::new();
++        thread.turns.clear();
++        loop {
++            let request_id = self.next_request_id();
++            let page: codex_app_server_protocol::ThreadTurnsListResponse = self
++                .client
++                .request_typed(ClientRequest::ThreadTurnsList {
++                    request_id,
++                    params: codex_app_server_protocol::ThreadTurnsListParams {
++                        thread_id: thread_id.to_string(),
++                        cursor,
++                        limit: Some(history::HISTORY_ITEM_PAGE_LIMIT),
++                        sort_direction: Some(codex_app_server_protocol::SortDirection::Asc),
++                        items_view: Some(codex_app_server_protocol::TurnItemsView::Full),
++                    },
++                })
++                .await
++                .wrap_err("failed to read complete public history for provider entry")?;
++            for turn in page.data {
++                color_eyre::eyre::ensure!(
++                    turn.items_view == codex_app_server_protocol::TurnItemsView::Full
++                        && turn_ids.insert(turn.id.clone()),
++                    "incomplete or changed public history for provider entry"
++                );
++                thread.turns.push(turn);
++            }
++            let Some(next) = page.next_cursor else { break };
++            color_eyre::eyre::ensure!(
++                cursors.insert(next.clone()),
++                "repeated public history cursor for provider entry"
++            );
++            cursor = Some(next);
++        }
++        Ok(thread)
++    }
++
+     pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
+         let request_id = self.next_request_id();
+         let _: ThreadArchiveResponse = self
+@@ -1967,30 +2024,56 @@ fn approvals_reviewer_override_from_config(
+ fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
- ) -> Option<HashMap<String, serde_json::Value>> {
++) -> Option<HashMap<String, serde_json::Value>> {
 +    // A qualified Termux local frontend uses the official app-server, including
 +    // when invocation/profile settings differ from that daemon's defaults.
 +    // Keep those settings thread-scoped through the existing public API.
@@ -514,7 +762,7 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
 +    config: &Config,
 +    thread_params_mode: ThreadParamsMode,
 +    local_launch: bool,
-+) -> Option<HashMap<String, serde_json::Value>> {
+ ) -> Option<HashMap<String, serde_json::Value>> {
      let mut session_config = toml::Value::Table(toml::Table::new());
      for layer in config.config_layer_stack.layers_low_to_high() {
 -        if matches!(&layer.name, ConfigLayerSource::SessionFlags) {
@@ -530,10 +778,10 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
 +        {
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
-+    }
+     }
 +    if local_launch {
 +        crate::termux_chat_models::add_installed_provider(config, &mut session_config);
-     }
++    }
      let mut overrides: HashMap<_, _> = session_config
          .as_table()
          .into_iter()
@@ -567,7 +815,7 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2268,6 +2304,11 @@
+@@ -2268,6 +2351,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -579,12 +827,10 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3610,6 +3651,45 @@
-         assert_eq!(start.config, Some(expected_config.clone()));
-         assert_eq!(resume.config, Some(expected_config.clone()));
+@@ -3612,6 +3700,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
-+    }
-+
+     }
+
 +    #[tokio::test]
 +    async fn termux_chat_models_local_thread_keeps_profile_and_session_settings() -> Result<()> {
 +        let home = tempfile::tempdir()?;
@@ -622,9 +868,41 @@ diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_serve
 +        assert!(!ordinary.contains_key("developer_instructions"));
 +        assert_eq!(std::fs::read_to_string(path)?, contents);
 +        Ok(())
-     }
-
++    }
++
      #[tokio::test]
+     async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
+         let home = tempfile::tempdir()?;
+@@ -3996,6 +4123,29 @@ mod tests {
+         assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
+         assert!(app_server.has_older_history(source_thread_id));
+
++        let complete = app_server
++            .thread_read_complete_public_history(source_thread_id)
++            .await?;
++        let restored: Vec<_> = complete
++            .turns
++            .iter()
++            .flat_map(|turn| &turn.items)
++            .filter(|item| item.id().starts_with("long-history-user-"))
++            .map(|item| item.id().to_owned())
++            .collect();
++        assert_eq!(
++            restored,
++            (0..256)
++                .map(|index| format!("long-history-user-{index}"))
++                .collect::<Vec<_>>()
++        );
++        assert!(
++            complete
++                .turns
++                .iter()
++                .all(|turn| turn.items_view == codex_app_server_protocol::TurnItemsView::Full)
++        );
++
+         let mut side_config = config;
+         side_config.ephemeral = true;
+         let next_request_id = app_server.next_request_id;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
 index cfe0499..41087ef 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
@@ -672,9 +950,19 @@ index 4c455ed..b842f88 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 4b9d285..3629702 100644
+index 4b9d285..603146a 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
+@@ -283,8 +283,8 @@ use self::ide_context::IdeContextState;
+ mod input_queue;
+ mod reconnect;
+ use self::input_queue::InputQueueState;
+-mod image_submission;
+ mod input_flow;
++mod input_preparation;
+ mod input_restore;
+ mod input_submission;
+ mod interrupts;
 @@ -446,6 +446,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
@@ -699,6 +987,415 @@ index 4b9d285..3629702 100644
  const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
+@@ -560,7 +559,7 @@ pub(crate) struct ChatWidget {
+     pub(crate) remote_connection: Option<RemoteConnectionStatus>,
+     /// Remote app servers cannot read image paths on the TUI host.
+     pub(crate) snapshot_local_images: bool,
+-    pending_image_submission: Option<image_submission::PendingImageSubmission>,
++    pending_input_submission: Option<input_preparation::PendingInputSubmission>,
+     pub(crate) local_worktree_operations: bool,
+     pub(crate) windows_sandbox_local_server: bool,
+     pub(crate) windows_sandbox_config: crate::windows_sandbox::WindowsSandboxConfig,
+@@ -1827,7 +1826,7 @@ impl ChatWidget {
+     }
+
+     pub(crate) fn show_external_writer_thread(&mut self) {
+-        self.cancel_image_submission();
++        self.cancel_input_submission();
+         self.blocks_direct_input = true;
+         self.external_writer_view = true;
+         self.pause_unavailable_thread();
+diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
+index 8d4bbbd..41a312d 100644
+--- a/codex-rs/tui/src/chatwidget/constructor.rs
++++ b/codex-rs/tui/src/chatwidget/constructor.rs
+@@ -141,7 +141,7 @@ impl ChatWidget {
+             status_account_display,
+             remote_connection: None,
+             snapshot_local_images: false,
+-            pending_image_submission: None,
++            pending_input_submission: None,
+             local_worktree_operations: true,
+             windows_sandbox_local_server: false,
+             windows_sandbox_config: Default::default(),
+diff --git a/codex-rs/tui/src/chatwidget/input_flow.rs b/codex-rs/tui/src/chatwidget/input_flow.rs
+index ce5da8c..1fb2cd6 100644
+--- a/codex-rs/tui/src/chatwidget/input_flow.rs
++++ b/codex-rs/tui/src/chatwidget/input_flow.rs
+@@ -13,7 +13,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
+
+ impl ChatWidget {
+     pub(crate) fn set_parent_owned_thread(&mut self) {
+-        self.cancel_image_submission();
++        self.cancel_input_submission();
+         self.blocks_direct_input = true;
+         self.bottom_pane.set_parent_owned_thread();
+     }
+@@ -343,7 +343,7 @@ impl ChatWidget {
+     }
+
+     pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
+-        self.pending_image_submission.is_some()
++        self.pending_input_submission.is_some()
+             || self.input_queue.user_turn_pending_start
+             || self.turn_lifecycle.agent_turn_running
+             || self.review.is_review_mode
+@@ -366,10 +366,10 @@ impl ChatWidget {
+             questions.has_queued_messages = has_queued;
+         }
+         let mut preview = self.input_queue.preview();
+-        if let Some(pending) = &self.pending_image_submission {
++        if let Some(pending) = &self.pending_input_submission {
+             preview.queued_messages.insert(
+                 /*index*/ 0,
+-                format!("Preparing images: {}", pending.message.text),
++                format!("{}: {}", pending.label, pending.message.text),
+             );
+         }
+         self.bottom_pane.set_pending_input_preview(
+diff --git a/codex-rs/tui/src/chatwidget/image_submission.rs b/codex-rs/tui/src/chatwidget/input_preparation.rs
+similarity index 60%
+rename from codex-rs/tui/src/chatwidget/image_submission.rs
+rename to codex-rs/tui/src/chatwidget/input_preparation.rs
+index 832104c..3675286 100644
+--- a/codex-rs/tui/src/chatwidget/image_submission.rs
++++ b/codex-rs/tui/src/chatwidget/input_preparation.rs
+@@ -1,4 +1,4 @@
+-//! Prepare remote image attachments off the event loop, retaining the draft until completion.
++//! Synchronize bound Chat and prepare attachments before admitting native input.
+ //! Cancellation restores the draft; worker notifications from a retired submission are ignored.
+ //! Preparation is serialized so canceled decodes cannot pile up across retries or thread switches.
+
+@@ -11,67 +11,132 @@ use tokio::sync::oneshot;
+
+ static IMAGE_PREPARATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+-pub(super) struct PendingImageSubmission {
++pub(super) struct PendingInputSubmission {
+     id: uuid::Uuid,
+     pub(super) message: UserMessage,
+     history_record: UserMessageHistoryRecord,
+     source: UserMessageSource,
++    thread: Option<ThreadId>,
++    pub(super) chat_provider: bool,
++    pub(super) label: &'static str,
+     result: oneshot::Receiver<Result<Vec<UserInput>, String>>,
+ }
+
+ impl ChatWidget {
+-    pub(super) fn prepare_image_submission(
++    pub(super) fn needs_chat_synchronization(&self) -> bool {
++        #[cfg(unix)]
++        {
++            self.config.model_provider_id == crate::termux_chat_models::PROVIDER
++        }
++        #[cfg(not(unix))]
++        {
++            false
++        }
++    }
++    pub(super) fn prepare_input_submission(
+         &mut self,
+         message: UserMessage,
+         history_record: UserMessageHistoryRecord,
+         source: UserMessageSource,
+     ) {
+         let id = uuid::Uuid::new_v4();
++        let thread = self.thread_id();
++        let chat_provider = self.needs_chat_synchronization();
++        #[cfg(unix)]
++        let provider =
++            chat_provider.then(|| crate::termux_chat_models::installed_command(&self.config));
++        let snapshot_images = self.snapshot_local_images;
+         let images = message.local_images.clone();
+         let remote_bytes = message.remote_image_urls.iter().map(String::len).sum();
+         let (mut tx, result) = oneshot::channel();
+         let events = self.app_event_tx.clone();
+         tokio::spawn(async move {
+-            let permit = tokio::select! {
++            let prepare = async {
++                let prepared = if images.is_empty() {
++                    Vec::new()
++                } else {
++                    let permit = IMAGE_PREPARATION.lock().await;
++                    tokio::task::spawn_blocking(move || {
++                        let _permit = permit;
++                        if snapshot_images {
++                            prepare_images(images, remote_bytes)
++                        } else {
++                            Ok(images
++                                .into_iter()
++                                .map(|image| UserInput::LocalImage {
++                                    path: image.path,
++                                    detail: None,
++                                })
++                                .collect())
++                        }
++                    })
++                    .await
++                    .unwrap_or_else(|error| Err(format!("Failed to prepare images: {error}")))?
++                };
++                #[cfg(unix)]
++                if let Some(provider) = provider {
++                    match (provider, thread) {
++                        (Some(provider), Some(thread)) => {
++                            crate::termux_chat_models::synchronize_input(provider, thread).await?
++                        }
++                        _ => {
++                            return Err(
++                                "ChatGPT input synchronization is unavailable; draft retained"
++                                    .into(),
++                            );
++                        }
++                    }
++                }
++                Ok(prepared)
++            };
++            let prepared = tokio::select! {
+                 biased;
+                 _ = tx.closed() => return,
+-                permit = IMAGE_PREPARATION.lock() => permit,
++                result = prepare => result,
+             };
+-            let prepared = tokio::task::spawn_blocking(move || {
+-                let _permit = permit;
+-                prepare_images(images, remote_bytes)
+-            })
+-            .await
+-            .unwrap_or_else(|error| Err(format!("Failed to prepare images: {error}")));
+             if tx.send(prepared).is_ok() {
+-                events.send(AppEvent::ImagesPrepared(id));
++                events.send(AppEvent::InputPrepared(id));
+             }
+         });
+-        self.pending_image_submission = Some(PendingImageSubmission {
++        self.pending_input_submission = Some(PendingInputSubmission {
+             id,
+             message,
+             history_record,
+             source,
++            thread,
++            chat_provider,
++            label: if chat_provider {
++                "Synchronizing ChatGPT"
++            } else {
++                "Preparing images"
++            },
+             result,
+         });
+         self.refresh_pending_input_preview();
+         self.request_redraw();
+     }
+
+-    pub(crate) fn on_images_prepared(&mut self, id: uuid::Uuid) {
++    pub(crate) fn on_input_prepared(&mut self, id: uuid::Uuid) {
+         let Some(mut pending) = self
+-            .pending_image_submission
++            .pending_input_submission
+             .take_if(|pending| pending.id == id)
+         else {
+             return;
+         };
+-        match pending
++        let prepared = pending
+             .result
+             .try_recv()
+-            .unwrap_or_else(|error| Err(format!("Failed to prepare images: {error}")))
++            .unwrap_or_else(|error| Err(format!("Failed to prepare input: {error}")));
++        let prepared = if pending.thread != self.thread_id()
++            || pending.chat_provider != self.needs_chat_synchronization()
+         {
++            Err("Input destination changed during preparation; draft retained".into())
++        } else {
++            prepared
++        };
++        match prepared {
+             Ok(images) => {
+-                let (accepted, _) = self.submit_user_message_with_prepared_images(
++                let (accepted, _) = self.submit_user_message_with_prepared_input(
+                     pending.message,
+                     pending.history_record,
+                     ShellEscapePolicy::Disallow,
+@@ -97,8 +162,8 @@ impl ChatWidget {
+         self.request_redraw();
+     }
+
+-    pub(super) fn requeue_image_submission(&mut self) {
+-        if let Some(pending) = self.pending_image_submission.take() {
++    pub(super) fn requeue_input_submission(&mut self) {
++        if let Some(pending) = self.pending_input_submission.take() {
+             self.input_queue
+                 .queued_user_messages
+                 .push_front(QueuedUserMessage {
+@@ -113,8 +178,8 @@ impl ChatWidget {
+         }
+     }
+
+-    pub(super) fn cancel_image_submission(&mut self) -> bool {
+-        let Some(pending) = self.pending_image_submission.take() else {
++    pub(super) fn cancel_input_submission(&mut self) -> bool {
++        let Some(pending) = self.pending_input_submission.take() else {
+             return false;
+         };
+         self.input_queue.recovered_queue |= self.input_queue.has_queued_follow_up_messages();
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index bc4a9c1..97da74c 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -356,7 +356,7 @@ impl ChatWidget {
+     /// When there are queued user messages, restore them into the composer
+     /// separated by newlines rather than auto-submitting the next one.
+     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
+-        self.requeue_image_submission();
++        self.requeue_input_submission();
+         // Finalize, log a gentle prompt, and clear running state.
+         self.finalize_turn();
+         // Cancellation means idle in the program-status protocol, not a failed task.
+@@ -605,7 +605,7 @@ impl ChatWidget {
+     }
+
+     pub(crate) fn capture_thread_input_state(&mut self) -> Option<ThreadInputState> {
+-        self.cancel_image_submission();
++        self.cancel_input_submission();
+         let draft = self.bottom_pane.composer_draft_snapshot();
+         let composer = ThreadComposerState {
+             text: draft.text,
+diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
+index 9998e77..b733aaf 100644
+--- a/codex-rs/tui/src/chatwidget/input_submission.rs
++++ b/codex-rs/tui/src/chatwidget/input_submission.rs
+@@ -118,34 +118,34 @@ impl ChatWidget {
+         shell_escape_policy: ShellEscapePolicy,
+         source: UserMessageSource,
+     ) -> (bool, Option<AppCommand>) {
+-        self.submit_user_message_with_prepared_images(
++        self.submit_user_message_with_prepared_input(
+             user_message,
+             history_record,
+             shell_escape_policy,
+             source,
+-            /*prepared_images*/ None,
++            /*prepared_input*/ None,
+         )
+     }
+
+-    pub(super) fn submit_user_message_with_prepared_images(
++    pub(super) fn submit_user_message_with_prepared_input(
+         &mut self,
+         user_message: UserMessage,
+         history_record: UserMessageHistoryRecord,
+         shell_escape_policy: ShellEscapePolicy,
+         source: UserMessageSource,
+-        prepared_images: Option<Vec<UserInput>>,
++        prepared_input: Option<Vec<UserInput>>,
+     ) -> (bool, Option<AppCommand>) {
+         self.bottom_pane.dismiss_composer_sparkle();
+         if self.has_misalignment_policy_violation() {
+             return (false, None);
+         }
+         self.empty_state_animation.borrow_mut().dismiss();
+-        if self.input_queue.rate_limit_recovery_pending || self.pending_image_submission.is_some() {
++        if self.input_queue.rate_limit_recovery_pending || self.pending_input_submission.is_some() {
+             let model_prompt = source == UserMessageSource::Prompt
+                 && (shell_escape_policy == ShellEscapePolicy::Disallow
+                     || !user_message.text.starts_with('!'));
+             // A prepared submission was accepted before any messages queued behind it.
+-            let queue_index = if prepared_images.is_some() {
++            let queue_index = if prepared_input.is_some() {
+                 0
+             } else {
+                 self.input_queue.queued_user_messages.len()
+@@ -250,10 +250,12 @@ impl ChatWidget {
+             });
+         }
+
+-        if let Some(prepared_images) = prepared_images {
+-            items.extend(prepared_images);
+-        } else if self.snapshot_local_images && !local_images.is_empty() {
+-            self.prepare_image_submission(
++        if let Some(prepared_input) = prepared_input {
++            items.extend(prepared_input);
++        } else if (self.snapshot_local_images && !local_images.is_empty())
++            || self.needs_chat_synchronization()
++        {
++            self.prepare_input_submission(
+                 UserMessage {
+                     text,
+                     local_images,
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 8a0d75a..8eaf671 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -151,16 +151,24 @@ impl ChatWidget {
+             || key_hint::ctrl(KeyCode::Char('c')).is_press(key_event))
+             && self.bottom_pane.no_modal_or_popup_active()
+             && !self.should_handle_vim_insert_escape(key_event)
+-            && self.pending_image_submission.is_some()
++            && self.pending_input_submission.is_some()
+         {
+-            if self.is_cancellable_work_active() {
+-                self.requeue_image_submission();
++            if self
++                .pending_input_submission
++                .as_ref()
++                .is_some_and(|pending| pending.chat_provider)
++            {
++                // Cancel this unadmitted draft before treating another Ctrl-C
++                // as an interruption of the independently admitted source turn.
++                self.cancel_input_submission();
++            } else if self.is_cancellable_work_active() {
++                self.requeue_input_submission();
+                 self.input_queue.recovered_queue = true;
+                 if self.submit_op(AppCommand::interrupt()) {
+                     self.pause_active_goal_for_interrupt();
+                 }
+             } else {
+-                self.cancel_image_submission();
++                self.cancel_input_submission();
+             }
+             return KeyEventAction::None;
+         }
+@@ -241,7 +249,7 @@ impl ChatWidget {
+
+         if key_event.kind == KeyEventKind::Press
+             && self.chat_keymap.edit_queued_message.is_pressed(key_event)
+-            && (self.has_queued_follow_up_messages() || self.pending_image_submission.is_some())
++            && (self.has_queued_follow_up_messages() || self.pending_input_submission.is_some())
+             && self.bottom_pane.no_modal_or_popup_active()
+         {
+             if let Some(composer) = self.pop_latest_queued_composer_state() {
+@@ -250,7 +258,7 @@ impl ChatWidget {
+                 self.refresh_pending_input_preview();
+                 self.request_redraw();
+             } else {
+-                self.cancel_image_submission();
++                self.cancel_input_submission();
+             }
+             return KeyEventAction::None;
+         }
+diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/chatwidget/model_command.rs
+index bde9ce7..c34cf76 100644
+--- a/codex-rs/tui/src/chatwidget/model_command.rs
++++ b/codex-rs/tui/src/chatwidget/model_command.rs
+@@ -128,10 +128,14 @@ fn resolve_model_command(chat: &ChatWidget, args: &str) -> Result<ModelCommand,
+         .model
+         .clone()
+         .unwrap_or_else(|| chat.current_model().to_owned());
+-    let Some(model) =
+-        chat.model_catalog.models.iter().find(|model| {
+-            model.model == model_name && (args.model.is_none() || model.show_in_picker)
+-        })
++    #[cfg(unix)]
++    let models =
++        crate::termux_chat_models::augment(&chat.config, chat.model_catalog.models.clone());
++    #[cfg(not(unix))]
++    let models = &chat.model_catalog.models;
++    let Some(model) = models
++        .iter()
++        .find(|model| model.model == model_name && (args.model.is_none() || model.show_in_picker))
+     else {
+         return Err(format!(
+             "Model '{model_name}' is unavailable. Use /model to see available models."
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
 index aa5de8b..c27a44b 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
@@ -938,6 +1635,19 @@ index 0e48527..2c03b07 100644
      pub(crate) fn set_rate_limit_switch_prompt_hidden(&mut self, hidden: bool) {
          self.local_settings.notices.hide_rate_limit_model_nudge = Some(hidden);
          if hidden {
+diff --git a/codex-rs/tui/src/chatwidget/reconnect.rs b/codex-rs/tui/src/chatwidget/reconnect.rs
+index d2608b1..f374713 100644
+--- a/codex-rs/tui/src/chatwidget/reconnect.rs
++++ b/codex-rs/tui/src/chatwidget/reconnect.rs
+@@ -30,7 +30,7 @@ impl ChatWidget {
+         if !preserve_startup_input {
+             self.cancel_startup_submission();
+         }
+-        self.cancel_image_submission();
++        self.cancel_input_submission();
+         // The app-server transport can fail while the separate WebRTC helper
+         // still sends microphone audio. Retire local media before showing offline UI.
+         self.record_realtime_disconnect_failure();
 diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
 index 3e9e3db..476c91a 100644
 --- a/codex-rs/tui/src/chatwidget/session_model_selection.rs
@@ -979,6 +1689,41 @@ index e9ea6e4..0ce09bd 100644
          }
      }
 
+diff --git a/codex-rs/tui/src/chatwidget/streaming.rs b/codex-rs/tui/src/chatwidget/streaming.rs
+index 7dee87c..515c521 100644
+--- a/codex-rs/tui/src/chatwidget/streaming.rs
++++ b/codex-rs/tui/src/chatwidget/streaming.rs
+@@ -90,6 +90,12 @@ impl ChatWidget {
+     fn flush_answer_stream(&mut self, completed_message: Option<&str>) {
+         let had_stream_controller = self.stream_controller.is_some();
+         if let Some(mut controller) = self.stream_controller.take() {
++            let source_item_id = if completed_message.is_some() {
++                self.transcript.last_completed_agent_message.as_ref()
++            } else {
++                self.transcript.active_streamed_agent_message.as_ref()
++            }
++            .map(|(_, id)| id.clone());
+             let needs_scrollback_reflow = controller.needs_scrollback_reflow();
+             self.clear_active_stream_tail();
+             let (cell, streamed_source) = controller.finalize();
+@@ -145,6 +151,7 @@ impl ChatWidget {
+                 self.note_stream_consolidation_queued();
+                 self.app_event_tx.send(AppEvent::ConsolidateAgentMessage {
+                     source,
++                    source_item_id,
+                     copy_source,
+                     cwd: self.config.cwd.to_path_buf(),
+                     inline_visualization_context,
+@@ -475,7 +482,8 @@ impl ChatWidget {
+                     self.config.cwd.as_path(),
+                     context,
+                 )
+-                .with_copy_source(Some(message.clone())),
++                .with_copy_source(Some(message.clone()))
++                .with_source_item_id(Some(item.id.clone())),
+             );
+             self.handle_stream_finished();
+             self.request_redraw();
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
 index 1cc51a1..6e57f48 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
@@ -993,6 +1738,291 @@ index 1cc51a1..6e57f48 100644
  #[path = "tests/terminal_program_status.rs"]
  mod terminal_program_status;
  mod terminal_title;
+diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
+index 0434900..c254ebf 100644
+--- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
++++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
+@@ -2574,7 +2574,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
+             let mut rendered = Vec::new();
+             let (items, client_user_message_id) = loop {
+                 match rx.recv().await.unwrap() {
+-                    AppEvent::ImagesPrepared(id) => chat.on_images_prepared(id),
++                    AppEvent::InputPrepared(id) => chat.on_input_prepared(id),
+                     AppEvent::InsertHistoryCell(cell) => {
+                         rendered.push(cell.display_lines(/*width*/ 80))
+                     }
+@@ -2685,8 +2685,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
+         }
+         chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+         while let Some(event) = rx.recv().await {
+-            if let AppEvent::ImagesPrepared(id) = event {
+-                chat.on_images_prepared(id);
++            if let AppEvent::InputPrepared(id) = event {
++                chat.on_input_prepared(id);
+                 break;
+             }
+         }
+@@ -2750,8 +2750,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
+         pixels.save(&path).unwrap();
+         chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+         while let Some(event) = rx.recv().await {
+-            if let AppEvent::ImagesPrepared(id) = event {
+-                chat.on_images_prepared(id);
++            if let AppEvent::InputPrepared(id) = event {
++                chat.on_input_prepared(id);
+                 break;
+             }
+         }
+@@ -2818,13 +2818,13 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                 drop(release);
+                 worker.await.unwrap();
+                 let id = loop {
+-                    if let AppEvent::ImagesPrepared(id) = rx.recv().await.unwrap() {
++                    if let AppEvent::InputPrepared(id) = rx.recv().await.unwrap() {
+                         break id;
+                     }
+                 };
+                 if scenario == "rate_limit_recovery" {
+                     chat.input_queue.rate_limit_recovery_pending = true;
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                     assert_eq!(
+                         chat.input_queue
+                             .queued_user_messages
+@@ -2842,7 +2842,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                             .retain(|modality| *modality != InputModality::Image);
+                     }
+                     chat.model_catalog = Arc::new(ModelCatalog::new(models));
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                     assert_eq!(chat.bottom_pane.composer_text(), "describe\nnew draft");
+                 } else if scenario == "escape" || scenario == "ctrl_c" {
+                     chat.on_task_started();
+@@ -2862,7 +2862,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                         );
+                         assert_eq!(chat.input_queue.queued_user_messages.len(), 2);
+                     }
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                 } else if scenario == "parent_owned" || scenario == "external_writer" {
+                     chat.codex_op_target = CodexOpTarget::AppEvent;
+                     if scenario == "parent_owned" {
+@@ -2871,7 +2871,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                         chat.show_external_writer_thread();
+                     }
+                     assert_eq!(chat.bottom_pane.composer_text(), "describe");
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                     assert!(drain_insert_history(&mut rx).is_empty());
+                 } else if scenario == "interrupt" {
+                     chat.input_queue
+@@ -2879,7 +2879,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                         .push_back(pending_steer("earlier"));
+                     chat.on_interrupted_turn(TurnAbortReason::Interrupted);
+                     assert_eq!(chat.bottom_pane.composer_text(), "earlier\ndescribe\nx");
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                 } else if scenario == "disconnect" {
+                     chat.pause_for_disconnect();
+                     chat.reconnect_failed();
+@@ -2893,16 +2893,120 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+                         normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 80))
+                             .replace('◦', "•")
+                     );
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                 } else {
+                     // A completion already in flight must not submit to a replacement widget/thread.
+                     let saved = chat.capture_thread_input_state().unwrap();
+                     assert_eq!(saved.composer.as_ref().unwrap().text, "describe");
+                     assert_eq!(saved.composer.as_ref().unwrap().local_images.len(), 1);
+-                    chat.on_images_prepared(id);
++                    chat.on_input_prepared(id);
+                 }
+                 assert_no_submit_op(&mut ops);
+-                assert!(chat.pending_image_submission.is_none());
++                assert!(chat.pending_input_submission.is_none());
+             });
+     }
+ }
++
++#[cfg(unix)]
++#[tokio::test(flavor = "multi_thread")]
++async fn bound_chat_synchronization_orders_native_input_and_retains_cancelled_or_failed_drafts() {
++    use std::os::unix::fs::PermissionsExt;
++    for scenario in ["ready", "cancel", "failure"] {
++        let root = tempfile::tempdir().unwrap();
++        let binary = root.path().join("provider");
++        let shell = std::env::var_os("PREFIX")
++            .map(PathBuf::from)
++            .map(|prefix| prefix.join("bin/sh"))
++            .unwrap_or_else(|| PathBuf::from("/bin/sh"));
++        std::fs::write(&binary, format!(r##"#!{}
++: > "$6/observed"
++if [ -f "$6/failure" ]; then printf '{{"error":"bound_chat_native_route_changed"}}'; exit 2; fi
++if [ -f "$6/ready" ]; then
++  printf '{{"thread_id":"%s","status":"ready","inference_submitted":false}}' "$4"
++else
++  printf '{{"thread_id":"%s","status":"waiting","reason":"bound_chat_turn_active","retry_after_seconds":1,"inference_submitted":false}}' "$4"
++fi
++"##, shell.display())).unwrap();
++        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
++        let profile = root.path().join("chatgpt.config.toml");
++        std::fs::write(&profile, format!(
++            "# codex-chatgpt-provider generated v1\nmodel_provider=\"chatgpt_desktop\"\nmodel_catalog_json=\"/catalog.json\"\n[model_providers.chatgpt_desktop]\nbase_url=\"http://127.0.0.1:12345/v1\"\nwire_api=\"responses\"\nrequires_openai_auth=false\n[model_providers.chatgpt_desktop.auth]\ncommand={binary:?}\nargs=[\"token\",\"--state\",{:?}]\n", root.path()
++        )).unwrap();
++        std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600)).unwrap();
++        let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
++        chat.config.codex_home =
++            codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
++        chat.config.model_provider_id = crate::termux_chat_models::PROVIDER.into();
++        chat.thread_id = Some(ThreadId::new());
++        if scenario == "cancel" {
++            handle_turn_started(&mut chat, "external-source");
++        }
++        let image = root.path().join("image.png");
++        image::RgbImage::new(2, 2).save(&image).unwrap();
++        chat.handle_paste(image.display().to_string());
++        chat.handle_paste("describe $file".into());
++        chat.bottom_pane.set_composer_text_with_mention_bindings(
++            chat.bottom_pane.composer_text(),
++            chat.bottom_pane.composer_text_elements(),
++            vec![image],
++            vec![MentionBinding {
++                sigil: '$',
++                mention: "file".into(),
++                path: "/skills/file/SKILL.md".into(),
++            }],
++        );
++        let original = chat.bottom_pane.composer_draft_snapshot();
++        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++        tokio::time::timeout(Duration::from_secs(5), async {
++            while !root.path().join("observed").exists() {
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++        })
++        .await
++        .expect("source observation started");
++        assert_no_submit_op(&mut operations);
++        assert!(chat.pending_input_submission.is_some());
++        if scenario == "cancel" {
++            chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
++            assert!(
++                chat.turn_lifecycle.agent_turn_running,
++                "cancel the draft before interrupting the existing source turn"
++            );
++        } else {
++            std::fs::write(root.path().join(scenario), "").unwrap();
++            tokio::time::timeout(Duration::from_secs(5), async {
++                loop {
++                    if let AppEvent::InputPrepared(id) = events.recv().await.unwrap() {
++                        chat.on_input_prepared(id);
++                        break;
++                    }
++                }
++            })
++            .await
++            .expect("source settled or reported its original failure");
++        }
++        if scenario == "ready" {
++            assert_matches!(next_submit_op(&mut operations), Op::UserTurn {items, ..}
++                if items.iter().any(|item| matches!(item, UserInput::Text {text, ..} if text == &original.text))
++                    && items.iter().any(|item| matches!(item, UserInput::Image {..} | UserInput::LocalImage {..})));
++        } else {
++            assert_no_submit_op(&mut operations);
++            let restored = chat.bottom_pane.composer_draft_snapshot();
++            assert_eq!(
++                (
++                    restored.text,
++                    restored.text_elements,
++                    restored.local_images,
++                    restored.mention_bindings
++                ),
++                (
++                    original.text,
++                    original.text_elements,
++                    original.local_images,
++                    original.mention_bindings
++                )
++            );
++        }
++        assert!(chat.pending_input_submission.is_none());
++    }
++}
+diff --git a/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs b/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
+index 58bc215..f0efcdd 100644
+--- a/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
++++ b/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
+@@ -280,7 +280,7 @@ async fn review_during_mcp_startup_preserves_draft_when_foreground_work_is_pendi
+                 "turn" => handle_turn_started(&mut chat, "turn-1"),
+                 "review" => chat.review.is_review_mode = true,
+                 "pending" => chat.input_queue.user_turn_pending_start = true,
+-                "images" => chat.prepare_image_submission(
++                "images" => chat.prepare_input_submission(
+                     "image prompt".into(),
+                     UserMessageHistoryRecord::UserMessageText,
+                     UserMessageSource::Prompt,
+diff --git a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
+index e56ea9b..18b6d7f 100644
+--- a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
+@@ -30,7 +30,7 @@ async fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rend
+         )
+     };
+
+-    for prepared_images in [None, Some(vec![image])] {
++    for prepared_input in [None, Some(vec![image])] {
+         let (mut chat, _events, mut ops) = make_chatwidget_manual(Some("gpt-6-astra")).await;
+         chat.thread_id = Some(ThreadId::new());
+         chat.local_settings.tui.animations = true;
+@@ -41,14 +41,14 @@ async fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rend
+         assert_eq!(untouched, Default::default());
+         assert!(visible(&chat));
+
+-        let mut expected_items = prepared_images.clone().unwrap_or_default();
++        let mut expected_items = prepared_input.clone().unwrap_or_default();
+         expected_items.push(UserInput::Text {
+             text: text.into(),
+             text_elements: Vec::new(),
+         });
+         let message = UserMessage::from(text);
+-        let (accepted, _command) = match prepared_images {
+-            Some(images) => chat.submit_user_message_with_prepared_images(
++        let (accepted, _command) = match prepared_input {
++            Some(images) => chat.submit_user_message_with_prepared_input(
+                 message,
+                 UserMessageHistoryRecord::UserMessageText,
+                 ShellEscapePolicy::Disallow,
+diff --git a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
+index f44ad24..996d853 100644
+--- a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
+@@ -124,11 +124,11 @@ async fn initial_prompt_image_preparation_preserves_recall_metadata() {
+             create_initial_user_message(Some(input.into()), vec![path.clone()], elements);
+
+         chat.submit_initial_user_message_if_pending();
+-        assert!(chat.pending_image_submission.is_some());
++        assert!(chat.pending_input_submission.is_some());
+         tokio::time::timeout(Duration::from_secs(10), async {
+             loop {
+-                if let AppEvent::ImagesPrepared(id) = events.recv().await.unwrap() {
+-                    chat.on_images_prepared(id);
++                if let AppEvent::InputPrepared(id) = events.recv().await.unwrap() {
++                    chat.on_input_prepared(id);
+                     break;
+                 }
+             }
+@@ -171,8 +171,8 @@ async fn initial_prompt_image_preparation_preserves_recall_metadata() {
+         chat.handle_key_event(KeyCode::Enter.into());
+         tokio::time::timeout(Duration::from_secs(10), async {
+             loop {
+-                if let AppEvent::ImagesPrepared(id) = events.recv().await.unwrap() {
+-                    chat.on_images_prepared(id);
++                if let AppEvent::InputPrepared(id) = events.recv().await.unwrap() {
++                    chat.on_input_prepared(id);
+                     break;
+                 }
+             }
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
 index 29469b2..5caeb50 100644
 --- a/codex-rs/tui/src/cli.rs
@@ -1008,6 +2038,82 @@ index 29469b2..5caeb50 100644
      /// Internal: launching CLI that handles daemon updates after the TUI exits.
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
+diff --git a/codex-rs/tui/src/history_cell/messages.rs b/codex-rs/tui/src/history_cell/messages.rs
+index 1cd4a35..4b250d5 100644
+--- a/codex-rs/tui/src/history_cell/messages.rs
++++ b/codex-rs/tui/src/history_cell/messages.rs
+@@ -507,9 +507,33 @@ pub(crate) struct AgentMarkdownCell {
+     inline_visualization_context: Option<crate::inline_visualization::InlineVisualizationContext>,
+     rendered_lines: Option<MarkdownRenderCache>,
+     spoken_artifacts: bool,
++    source_item_id: Option<String>,
++    folded_progress: bool,
+ }
+
+ impl AgentMarkdownCell {
++    pub(crate) fn with_source_item_id(mut self, id: Option<String>) -> Self {
++        self.source_item_id = id;
++        self
++    }
++    pub(crate) fn source_item_id(&self) -> Option<&str> {
++        self.source_item_id.as_deref()
++    }
++    pub(crate) fn progress_is_folded(&self) -> bool {
++        self.folded_progress
++    }
++    pub(crate) fn with_progress_folded(&self, folded: bool) -> Self {
++        let mut next = Self::new_with_inline_visualizations(
++            self.markdown_source.clone(),
++            &self.cwd,
++            self.inline_visualization_context.clone(),
++        );
++        next.copy_source = self.copy_source.clone();
++        next.source_item_id = self.source_item_id.clone();
++        next.folded_progress = folded;
++        next.spoken_artifacts = self.spoken_artifacts;
++        next
++    }
+     pub(crate) fn with_copy_source(mut self, source: Option<String>) -> Self {
+         self.copy_source = source;
+         self
+@@ -546,6 +570,8 @@ impl AgentMarkdownCell {
+             inline_visualization_context,
+             rendered_lines,
+             spoken_artifacts: false,
++            source_item_id: None,
++            folded_progress: false,
+         }
+     }
+
+@@ -640,7 +666,27 @@ impl HistoryCell for AgentMarkdownCell {
+         self.render_lines(width, crate::markdown_render::ListSpacing::AfterMultiline)
+     }
+
+-    fn retained_hyperlink_lines(&self, width: u16, _detailed: bool) -> Vec<HyperlinkLine> {
++    fn activity_ids(&self) -> Vec<String> {
++        self.source_item_id
++            .as_ref()
++            .filter(|_| self.folded_progress)
++            .map(|id| vec![format!("provider-progress:{id}")])
++            .unwrap_or_default()
++    }
++    fn compact_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
++        if self.folded_progress {
++            plain_hyperlink_lines(vec![Line::from("• 진행 내용 · 최종 답변에 포함").dim()])
++        } else {
++            self.display_hyperlink_lines(width)
++        }
++    }
++    fn expanded_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
++        self.transcript_hyperlink_lines(width)
++    }
++    fn retained_hyperlink_lines(&self, width: u16, detailed: bool) -> Vec<HyperlinkLine> {
++        if self.folded_progress && !detailed {
++            return self.compact_hyperlink_lines(width);
++        }
+         self.render_lines(width, crate::markdown_render::ListSpacing::Uniform)
+     }
+
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
 index 147ff23..cb11c46 100644
 --- a/codex-rs/tui/src/lib.rs
@@ -1250,179 +2356,11 @@ index effb98e..0eb41c3 100644
  use std::collections::HashSet;
  use std::time::Duration;
  use uuid::Uuid;
-diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index dfd0538..7557d9c 100644
---- a/codex-rs/tui/src/slash_command.rs
-+++ b/codex-rs/tui/src/slash_command.rs
-@@ -34,6 +34,8 @@ pub enum SlashCommand {
-     Archive,
-     Delete,
-     Resume,
-+    #[cfg(unix)]
-+    Switch,
-     Fork,
-     Worktree,
-     App,
-@@ -101,6 +103,8 @@ impl SlashCommand {
-             SlashCommand::Review => "review my current changes and find issues",
-             SlashCommand::Rename => "rename the current thread",
-             SlashCommand::Resume => "resume a saved chat",
-+            #[cfg(unix)]
-+            SlashCommand::Switch => "switch execution profile for this conversation",
-             SlashCommand::Archive => "archive this session",
-             SlashCommand::Delete => "permanently delete this session",
-             SlashCommand::Clear => "clear the terminal and start a new chat",
-@@ -201,6 +205,10 @@ impl SlashCommand {
-
-     /// Whether this command remains available inside an active side conversation.
-     pub fn available_in_side_conversation(self) -> bool {
-+        #[cfg(unix)]
-+        if self == SlashCommand::Switch {
-+            return true;
-+        }
-         matches!(
-             self,
-             SlashCommand::Copy
-@@ -226,6 +234,10 @@ impl SlashCommand {
-
-     /// Commands that do not require a writable current thread. The server must still be connected.
-     pub(crate) fn available_when_thread_unavailable(self) -> bool {
-+        #[cfg(unix)]
-+        if self == SlashCommand::Switch {
-+            return true;
-+        }
-         matches!(
-             self,
-             SlashCommand::New
-@@ -248,6 +260,8 @@ impl SlashCommand {
-     /// Whether this command can be run while a task is in progress.
-     pub fn available_during_task(self) -> bool {
-         match self {
-+            #[cfg(unix)]
-+            SlashCommand::Switch => true,
-             SlashCommand::New
-             | SlashCommand::Delete
-             | SlashCommand::Fork
-diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index d3fde72..169d862 100644
---- a/codex-rs/tui/src/startup_orchestration.rs
-+++ b/codex-rs/tui/src/startup_orchestration.rs
-@@ -545,7 +545,10 @@ pub(super) async fn run_main_inner(
-     } else {
-         None
-     };
--    let auto_start_daemon = config.features.enabled(Feature::DaemonAutoStart)
-+    let core_owned =
-+        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
-+    let auto_start_daemon = !core_owned
-+        && config.features.enabled(Feature::DaemonAutoStart)
-         && implicit_connection
-         && !cli.agents_overview
-         && !cli.no_daemon
-@@ -617,7 +620,7 @@ pub(super) async fn run_main_inner(
-         }
-     }
-     // The overview must inspect the shared server's agents regardless of local settings.
--    let compatibility_warning = if cli.agents_overview {
-+    let compatibility_warning = if cli.agents_overview || core_owned {
-         None
-     } else {
-         daemon_recovery::check(
-
-diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/chatwidget/model_command.rs
---- a/codex-rs/tui/src/chatwidget/model_command.rs
-+++ b/codex-rs/tui/src/chatwidget/model_command.rs
-@@ -128,8 +128,12 @@
-         .model
-         .clone()
-         .unwrap_or_else(|| chat.current_model().to_owned());
-+    #[cfg(unix)]
-+    let models = crate::termux_chat_models::augment(&chat.config, chat.model_catalog.models.clone());
-+    #[cfg(not(unix))]
-+    let models = &chat.model_catalog.models;
-     let Some(model) =
--        chat.model_catalog.models.iter().find(|model| {
-+        models.iter().find(|model| {
-             model.model == model_name && (args.model.is_none() || model.show_in_picker)
-         })
-     else {
-diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
-index ef5b912..6d917e9 100644
---- a/codex-rs/tui/src/app/config_persistence.rs
-+++ b/codex-rs/tui/src/app/config_persistence.rs
-@@ -28,10 +28,16 @@ async fn build_config_on_runtime_worker(
-     }
- }
-
--pub(super) fn resume_model_settings_for_overrides(
-+pub(crate) fn resume_model_settings_for_overrides(
-     config: &Config,
-     harness_overrides: &ConfigOverrides,
- ) -> crate::app_server_session::ResumeModelSettings {
-+    #[cfg(unix)]
-+    if crate::termux_permissions::enabled()
-+        && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume")
-+    {
-+        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
-+    }
-     let has_layer_override = config.config_layer_stack.layers_high_to_low().any(|layer| {
-         matches!(
-             &layer.name,
-@@ -1134,6 +1140,15 @@ impl App {
-     }
-
-     pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
-+        #[cfg(unix)]
-+        if crate::termux_permissions::enabled()
-+            && matches!(
-+                std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref(),
-+                Ok("select" | "resume")
-+            )
-+        {
-+            return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
-+        }
-         resume_model_settings_for_overrides(&self.config, &self.harness_overrides)
-     }
-
-diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
-index 811d971..909b502 100644
---- a/codex-rs/tui/src/app/session_lifecycle.rs
-+++ b/codex-rs/tui/src/app/session_lifecycle.rs
-@@ -1375,6 +1375,29 @@ impl App {
-             self.add_session_picker_error(format!("{error:#}"));
-             return Ok(AppRunControl::Continue);
-         }
-+        #[cfg(unix)]
-+        if crate::profile_transport::core_owned(
-+            &self.app_server_target,
-+            crate::termux_permissions::enabled(),
-+        ) && self.resume_model_settings()
-+            == crate::app_server_session::ResumeModelSettings::RestoreFromThread
-+        {
-+            match super::chat_model_reentry::resume_saved(
-+                self,
-+                app_server,
-+                target_session.thread_id,
-+                &resume_config,
-+            )
-+            .await
-+            {
-+                Ok(Some(request)) => return Err(std::io::Error::other(request).into()),
-+                Ok(None) => (),
-+                Err(error) => {
-+                    self.add_session_picker_error(error.to_string());
-+                    return Ok(AppRunControl::Continue);
-+                }
-+            }
-+        }
-         let permission_overrides = self.resume_permission_overrides(&resume_config);
-
-         if let Some(history_mode) = target_session.history_mode {
-
 diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+index ce873fb..031f3ca 100644
 --- a/codex-rs/tui/src/resume_picker.rs
 +++ b/codex-rs/tui/src/resume_picker.rs
-@@ -3561,11 +3561,12 @@
+@@ -3561,11 +3561,12 @@ fn plural_time(value: i64, unit: &str) -> String {
  }
 
  fn format_timestamp(ts: DateTime<Utc>, clock_format: ClockFormat) -> String {
@@ -1440,7 +2378,7 @@ diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.
  }
 
  fn render_empty_state_line(state: &PickerState) -> Line<'static> {
-@@ -4146,6 +4147,84 @@
+@@ -4146,6 +4147,84 @@ mod tests {
          assert!(row.matches_query(&thread_id.to_string()[..8]));
      }
 
@@ -1525,7 +2463,7 @@ diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.
      #[test]
      fn relative_time_formats_zero_seconds_as_now() {
          let reference = DateTime::parse_from_rfc3339("2026-05-02T12:00:00Z")
-@@ -4214,8 +4293,20 @@
+@@ -4214,8 +4293,20 @@ mod tests {
          assert!(rendered.contains(
              "Session:    feat(tui): add raw scrollback mode (019dabc1-0ef5-7431-b81c-03037f51f62c)"
          ));
@@ -1548,3 +2486,109 @@ diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.
          assert!(rendered.contains(&format!("Directory:  {expected_directory}")));
          assert!(rendered.contains("Branch:      codex/raw-scrollback-mode"));
          assert!(rendered.contains("Conversation:"));
+diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
+index dfd0538..7557d9c 100644
+--- a/codex-rs/tui/src/slash_command.rs
++++ b/codex-rs/tui/src/slash_command.rs
+@@ -34,6 +34,8 @@ pub enum SlashCommand {
+     Archive,
+     Delete,
+     Resume,
++    #[cfg(unix)]
++    Switch,
+     Fork,
+     Worktree,
+     App,
+@@ -101,6 +103,8 @@ impl SlashCommand {
+             SlashCommand::Review => "review my current changes and find issues",
+             SlashCommand::Rename => "rename the current thread",
+             SlashCommand::Resume => "resume a saved chat",
++            #[cfg(unix)]
++            SlashCommand::Switch => "switch execution profile for this conversation",
+             SlashCommand::Archive => "archive this session",
+             SlashCommand::Delete => "permanently delete this session",
+             SlashCommand::Clear => "clear the terminal and start a new chat",
+@@ -201,6 +205,10 @@ impl SlashCommand {
+
+     /// Whether this command remains available inside an active side conversation.
+     pub fn available_in_side_conversation(self) -> bool {
++        #[cfg(unix)]
++        if self == SlashCommand::Switch {
++            return true;
++        }
+         matches!(
+             self,
+             SlashCommand::Copy
+@@ -226,6 +234,10 @@ impl SlashCommand {
+
+     /// Commands that do not require a writable current thread. The server must still be connected.
+     pub(crate) fn available_when_thread_unavailable(self) -> bool {
++        #[cfg(unix)]
++        if self == SlashCommand::Switch {
++            return true;
++        }
+         matches!(
+             self,
+             SlashCommand::New
+@@ -248,6 +260,8 @@ impl SlashCommand {
+     /// Whether this command can be run while a task is in progress.
+     pub fn available_during_task(self) -> bool {
+         match self {
++            #[cfg(unix)]
++            SlashCommand::Switch => true,
+             SlashCommand::New
+             | SlashCommand::Delete
+             | SlashCommand::Fork
+diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
+index d3fde72..169d862 100644
+--- a/codex-rs/tui/src/startup_orchestration.rs
++++ b/codex-rs/tui/src/startup_orchestration.rs
+@@ -545,7 +545,10 @@ pub(super) async fn run_main_inner(
+     } else {
+         None
+     };
+-    let auto_start_daemon = config.features.enabled(Feature::DaemonAutoStart)
++    let core_owned =
++        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
++    let auto_start_daemon = !core_owned
++        && config.features.enabled(Feature::DaemonAutoStart)
+         && implicit_connection
+         && !cli.agents_overview
+         && !cli.no_daemon
+@@ -617,7 +620,7 @@ pub(super) async fn run_main_inner(
+         }
+     }
+     // The overview must inspect the shared server's agents regardless of local settings.
+-    let compatibility_warning = if cli.agents_overview {
++    let compatibility_warning = if cli.agents_overview || core_owned {
+         None
+     } else {
+         daemon_recovery::check(
+diff --git a/codex-rs/tui/src/thread_transcript.rs b/codex-rs/tui/src/thread_transcript.rs
+index babf331..12df492 100644
+--- a/codex-rs/tui/src/thread_transcript.rs
++++ b/codex-rs/tui/src/thread_transcript.rs
+@@ -266,14 +266,17 @@ fn item_to_cells(
+                 remote_image_urls: item.image_urls(),
+             }));
+         }
+-        ThreadItem::AgentMessage { text, .. } => {
++        ThreadItem::AgentMessage { id, text, .. } => {
+             let parsed = parse_assistant_markdown(&text, cwd.as_path());
+             if !parsed.visible_markdown.trim().is_empty() {
+-                cells.push(Arc::new(AgentMarkdownCell::new_with_inline_visualizations(
+-                    parsed.visible_markdown,
+-                    cwd.as_path(),
+-                    inline_visualization_context,
+-                )));
++                cells.push(Arc::new(
++                    AgentMarkdownCell::new_with_inline_visualizations(
++                        parsed.visible_markdown,
++                        cwd.as_path(),
++                        inline_visualization_context,
++                    )
++                    .with_source_item_id(Some(id)),
++                ));
+             }
+         }
+         ThreadItem::FunctionCallOutput {

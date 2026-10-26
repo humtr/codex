@@ -9,9 +9,8 @@ import stat
 import subprocess
 
 BINARY = 'codex-chatgpt-provider'
-SOURCE_FILES = ('Cargo.lock', 'NOTICE.md', 'licenses/bridge-LICENSE',
-                'licenses/novnc-LICENSE.txt', 'licenses/proot-LICENSE',
-                'licenses/upstream-codex-LICENSE')
+SOURCE_FILES = ('Cargo.lock', 'NOTICE.md',
+                'licenses/novnc-LICENSE.txt', 'licenses/proot-LICENSE')
 FILES = {BINARY, *SOURCE_FILES}
 FLAGS = ('signed', 'device_qualified', 'installation_authorized_by_this_record',
          'app_rootfs_or_credentials_bundled')

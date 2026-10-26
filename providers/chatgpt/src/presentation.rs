@@ -2,6 +2,67 @@
 //! no mutation of literal code, tool arguments, native input or host history.
 const TAGS: &[&str] = &["<MemoryCite", "</MemoryCite", "<box", "</box"];
 
+/// Presentation correlation only: these IDs never change native text or history.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Sources(std::collections::BTreeMap<String, Option<Source>>);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Source {
+    physical: String,
+    final_answer: bool,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct ProgressGroup {
+    pub final_id: String,
+    pub progress_ids: Vec<String>,
+}
+impl Sources {
+    pub(crate) fn observe(&mut self, id: &str, physical: String, final_answer: bool) {
+        use std::collections::btree_map::Entry;
+        match self.0.entry(id.into()) {
+            Entry::Vacant(entry) => {
+                entry.insert(Some(Source {
+                    physical,
+                    final_answer,
+                }));
+            }
+            Entry::Occupied(mut entry) => {
+                // An externally reused message ID cannot prove identity. Keep
+                // all content visible, including on a later exact replay.
+                if let Some(old) = entry.get_mut() {
+                    if old.physical == physical {
+                        old.final_answer |= final_answer;
+                    } else {
+                        *entry.get_mut() = None;
+                    }
+                }
+            }
+        }
+    }
+    pub(crate) fn groups(&self) -> Vec<ProgressGroup> {
+        let mut physical = std::collections::BTreeMap::<_, (Vec<_>, Vec<_>)>::new();
+        for (id, source) in &self.0 {
+            if let Some(source) = source {
+                let (finals, progress) = physical.entry(&source.physical).or_default();
+                if source.final_answer {
+                    finals.push(id);
+                } else {
+                    progress.push(id);
+                }
+            }
+        }
+        physical
+            .into_values()
+            .filter_map(|(finals, progress)| {
+                // An ambiguous physical final offers no folding authority.
+                (finals.len() == 1 && !progress.is_empty()).then(|| ProgressGroup {
+                    final_id: finals[0].clone(),
+                    progress_ids: progress.into_iter().cloned().collect(),
+                })
+            })
+            .collect()
+    }
+}
+
 fn tag_end(text: &str) -> Option<usize> {
     let mut quote = None;
     for (i, c) in text.char_indices().take_while(|(i, _)| *i < 4096) {
@@ -127,6 +188,26 @@ pub fn text(input: &str, settled: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_committed_identical_sources_offer_progress_folding() {
+        let mut sources = Sources::default();
+        sources.observe("p1", "physical-a".into(), false);
+        sources.observe("p2", "physical-a".into(), false);
+        sources.observe("separate-report", "physical-b".into(), false);
+        assert!(sources.groups().is_empty());
+        sources.observe("final", "physical-a".into(), true);
+        let groups = sources.groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].final_id, "final");
+        assert_eq!(groups[0].progress_ids, ["p1", "p2"]);
+        // Persistence/replay keeps identities; reusing an ID for another
+        // physical source removes its eligibility, never its visible content.
+        let mut restored: Sources =
+            serde_json::from_value(serde_json::to_value(&sources).unwrap()).unwrap();
+        restored.observe("p1", "another-chat-source".into(), false);
+        restored.observe("p1", "physical-a".into(), false);
+        assert_eq!(restored.groups()[0].progress_ids, ["p2"]);
+    }
     fn streamed(input: &str, expected: &str) {
         let mut previous = String::new();
         for (i, _) in input.char_indices() {

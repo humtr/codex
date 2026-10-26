@@ -527,6 +527,12 @@ impl Pool {
     pub async fn for_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
         self.find_thread(thread, Some(&self.home)).await
     }
+    /// Observe a recorded rendezvous without starting Core or loading a thread.
+    /// Reload the kernel owner so a dead process cannot remain an authority.
+    pub(crate) async fn observe_owner(&self, recorded: &Owner) -> Result<Arc<Native>, Error> {
+        let owner = Owner::load(&recorded.directory, &recorded.home, &self.installation)?;
+        self.client(owner).await
+    }
     /// Incoming native requests carry a thread identity, not a Provider-default
     /// account. Discover its unique live owner before selecting an execution scope.
     pub async fn discover_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {

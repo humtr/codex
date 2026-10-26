@@ -117,6 +117,21 @@ test('connector refresh requires explicit paths before app access',()=>{
  }finally{rmSync(root,{recursive:true});}
 });
 const readConnectorWhenReady=eval('('+refreshSource.match(/async function readConnectorWhenReady\([\s\S]*?\n\}/)[0]+')');
+const catalogAgreement=eval('('+refreshSource.match(/function catalogAgreement\([\s\S]*?\n\}/)[0]+')');
+test('connector readiness rejects stale action enums and missing context cursors',()=>{
+ const schema={type:'object',properties:{action:{type:'string',enum:['list','claim','queue']},context_cursor:{type:'object'}},required:['action'],additionalProperties:false};
+ const tools=[{name:'codex_sessions',inputSchema:schema}];
+ const actions=[{name:'codex_sessions',params:structuredClone(schema)}];
+ expect(catalogAgreement(actions,tools)).toBe(true);
+ actions[0].params.properties.action.enum.pop();
+ expect(catalogAgreement(actions,tools)).toBe(false);
+ actions[0].params=structuredClone(schema);delete actions[0].params.properties.context_cursor;
+ expect(catalogAgreement(actions,tools)).toBe(false);
+ expect(catalogAgreement([],tools)).toBe(false);
+ expect(catalogAgreement([{name:'codex_sessions'}],[{name:'codex_sessions'}])).toBe(false);
+ expect(catalogAgreement([{name:'codex_sessions',params:{...schema,properties:schema.properties}},...actions],tools)).toBe(false);
+});
+
 const uninitialized=()=>new TypeError("Cannot read properties of undefined (reading 'httpFetch')");
 
 test('cold connector initialization waits before its first transport request',async()=>{

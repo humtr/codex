@@ -185,8 +185,8 @@ impl Store {
     }
 }
 fn verify(roots: &LocalCoreRoots, path: &Path, key: ReleasePublicKey) -> Result<Manifest> {
-    codex_release_builder::provider::exact_layout(path)?;
     let manifest = Manifest::parse(&read(&path.join("payload.manifest"), 8192)?)?;
+    codex_release_builder::provider::exact_layout(path, &manifest)?;
     for name in ["payload.manifest", "payload.sig"] {
         if fs::symlink_metadata(path.join(name))?.mode() & 0o7777 != 0o644 {
             return Err("Provider envelope mode mismatch".into());

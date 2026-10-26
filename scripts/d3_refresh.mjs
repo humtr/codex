@@ -9,6 +9,16 @@ function responseFailure(error){
  return {status:error?.status??error?.responseStatus,upstream_status:detail?.upstream_status??null};
 }
 
+// tools/list is the live producer; connector actions are the registered consumer.
+// Matching names alone misses removed actions and missing cursor arguments.
+function catalogAgreement(actions,tools){
+ const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+ return Array.isArray(actions)&&Array.isArray(tools)&&actions.length===tools.length&&tools.every(tool=>{
+  const matches=actions.filter(action=>action.name===tool.name);
+  return matches.length===1&&matches[0].params?.type==='object'&&tool.inputSchema?.type==='object'&&JSON.stringify(canonical(matches[0].params))===JSON.stringify(canonical(tool.inputSchema));
+ });
+}
+
 async function readConnectorWhenReady(read,{now=Date.now,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),timeoutMs=30000}={}){
  const deadline=now()+timeoutMs;
  for(;;){
@@ -47,6 +57,7 @@ try {
   const slot='__d3MetadataRefresh_'+attempt+'_'+Date.now();
   await c.evaluate(`globalThis[${JSON.stringify(slot)}]={pending:true};void(async()=>{
    const responseFailure=${responseFailure.toString()};
+   const catalogAgreement=${catalogAgreement.toString()};
    const readConnectorWhenReady=${readConnectorWhenReady.toString()};
    const api=(await import('app://-/assets/app-shared-2d77298f0100.js')).$wt,id=${JSON.stringify(id)};
    const options={surface:'connector_setup',parameters:{path:{connector_id:id},query:{include_actions:true}}};
@@ -58,7 +69,7 @@ try {
    const started=new Date().toISOString();
    try {result=await api.safePost('/aip/connectors/mcp/refresh_actions',{surface:'settings',requestBody:{link_id:link.id},additionalHeaders:{'OAI-Product-Sku':'CONNECTOR_SETTING'},retry:'never'});}
    catch(e){error={keys:Object.getOwnPropertyNames(e),name:e?.name,...responseFailure(e),retryAtMs:e?.retryAtMs,message:e?.message,data:e?.data,body:e?.body,responseBody:e?.responseBody};}
-   let cacheRefresh=false,probe,probeError;
+   let cacheRefresh=false,probe,probeError,liveTools;
    if(!error&&result?.error==null){
     // Match the app's Refresh onSuccess cache invalidation as well as its POST.
     // A direct metadata GET does not refresh plugin/app/system-hint queries.
@@ -80,7 +91,8 @@ try {
      {
       const began=performance.now();
       const catalog=await api.safePost('/ecosystem/call_mcp',{surface:'other',retry:'never',requestBody:{app_uri:'connectors://'+id,launcher_host:'chatgpt',method:'tools/list',params:{}}});
-      const names=catalog.tools?.map(v=>v.name).sort();
+      liveTools=catalog.tools;
+      const names=liveTools?.map(v=>v.name).sort();
       if(names?.length!==${expected}||!${JSON.stringify(expectedNames)}.every(n=>names.includes(n)))throw Error('live_mcp_catalog_mismatch');
       let readCall;
       if(${expectedNames.includes('codex_sessions')}){
@@ -96,9 +108,10 @@ try {
    }
    let after=await api.safeGet('/aip/connectors/{connector_id}',options);
    const matches=v=>v.id===before.id&&v.tunnel_id===before.tunnel_id&&Array.isArray(v.actions)&&v.actions.length===${expected}&&
-    ${JSON.stringify(expectedNames)}.every(name=>v.actions.some(x=>x.name===name));
+    ${JSON.stringify(expectedNames)}.every(name=>v.actions.some(x=>x.name===name))&&catalogAgreement(v.actions,liveTools);
    if(!error&&result?.error==null)for(let i=0;i<5&&!matches(after);i++){await new Promise(resolve=>setTimeout(resolve,500*(i+1)));after=await api.safeGet('/aip/connectors/{connector_id}',options);}
-   return {ok:!error&&result?.error==null&&matches(after)&&cacheRefresh&&probe?.accepted===true,started,finished:new Date().toISOString(),before,after,result,error,cacheRefresh,probe,probeError};
+   if(probe?.accepted===true)for(const sample of probe.samples)sample.schema_agreement=catalogAgreement(after.actions,liveTools);
+   return {ok:!error&&result?.error==null&&matches(after)&&cacheRefresh&&probe?.accepted===true,schema_error:probe?.accepted===true&&!catalogAgreement(after.actions,liveTools)?'registered_mcp_schema_mismatch':null,started,finished:new Date().toISOString(),before,after,result,error,cacheRefresh,probe,probeError};
   })().then(value=>globalThis[${JSON.stringify(slot)}]={value},error=>globalThis[${JSON.stringify(slot)}]={failure:String(error)});true`);
   let value;
   for(let i=0;i<100;i++) {
@@ -112,7 +125,7 @@ try {
   }
   if(!value)throw Error('Refresh outcome unknown; reconcile before another attempt');
   writeFileSync(attemptDir+'/attempt-'+attempt+'-private.json',JSON.stringify(value,null,2),{mode:0o600});
-  console.log(JSON.stringify({attempt,ok:value.ok,status:value.error?.upstream_status??value.error?.status??value.probeError?.upstream_status??value.probeError?.status??null,expected,actions:value.after?.actions?.map(x=>x.name),errorKeys:value.error?.keys??[],cache_refresh:value.cacheRefresh,live_mcp_samples:value.probe?.samples?.length??0,model_requests:0}));
+  console.log(JSON.stringify({attempt,ok:value.ok,status:value.error?.upstream_status??value.error?.status??value.probeError?.upstream_status??value.probeError?.status??null,expected,actions:value.after?.actions?.map(x=>x.name),errorKeys:value.error?.keys??[],cache_refresh:value.cacheRefresh,live_mcp_samples:value.probe?.samples?.length??0,schema_error:value.schema_error,model_requests:0}));
   if(value.ok) {
    writeFileSync(directory+'/refresh-private.json',JSON.stringify({refresh:true,attempts:attempt,evidence:attemptDir,result:value.result,cache_refresh:value.cacheRefresh,live_mcp_probe:value.probe},null,2),{mode:0o600});
    process.exitCode=0;break;
@@ -124,6 +137,7 @@ try {
    writeFileSync(cooldownPath,JSON.stringify({not_before_unix_ms:Math.max(Date.now()+60000,Number.isSafeInteger(offered)?offered:0),cause:'upstream_429',automatic_retry:false,model_requests:0},null,2),{mode:0o600});
    throw Error('MCP upstream rate limited; no refresh or model retry');
   }
+  if(value.schema_error)throw Error('Registered connector schema differs from live MCP input schemas; no model request submitted');
   if(value.probeError)throw Error('Actual MCP readiness probe failed; no model request submitted; private evidence retained');
   if(value.error?.status!==424||attempt===3)throw Error('Owned connector metadata refresh did not succeed');
   await new Promise(resolve=>setTimeout(resolve,attempt*3000));

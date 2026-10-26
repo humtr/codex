@@ -151,6 +151,24 @@ struct Binding {
 fn key() -> String {
     digest(&"termux-codex-responses-service-v1")
 }
+/// Publish the current authenticated listener for local CLI discovery. The
+/// listener owner supplies the same token used by its service readiness proof.
+pub fn publish_listener(
+    journal: &Journal,
+    port: u16,
+    token: String,
+    viewer_capability: Option<String>,
+) -> Result<(), Error> {
+    let binding = Binding {
+        schema: "termux-codex-responses-service-v1".into(),
+        process: Process::read(std::process::id())?,
+        port,
+        token,
+        viewer_capability,
+    };
+    validate_binding(&binding)?;
+    journal.write(&key(), &binding)
+}
 pub fn state_path() -> Result<PathBuf, Error> {
     let root = match std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
         Some(path) => PathBuf::from(path),
@@ -382,6 +400,7 @@ impl Drop for StartupChild {
 
 pub async fn status(root: &Path) -> Result<serde_json::Value, Error> {
     let selected = verified_binding(root).await?;
+
     Ok(
         json!({"schema":"termux-codex-provider-status-v1","live":true,"base_url":format!("http://127.0.0.1:{}/v1",selected.port),"process":selected.process,"meaning":"authenticated local endpoint; model/task progress is reported separately"}),
     )
@@ -543,6 +562,31 @@ pub async fn control(
     args: serde_json::Value,
 ) -> Result<serde_json::Value, Error> {
     let selected = verified_binding(root).await?;
+    if tool == "codex_sessions" && args["action"] == "synchronize" {
+        let list = json!({"jsonrpc":"2.0","id":random_id()?,"method":"tools/list","params":{}});
+        let listed = tokio::time::timeout(
+            Duration::from_secs(3),
+            crate::mcp_stdio::forward(selected.port, &list, Some(&selected.token)),
+        )
+        .await
+        .map_err(|_| Error("mcp_observer_timeout"))??
+        .ok_or(Error("mcp_response_invalid"))?;
+        let tools = listed["result"]["tools"]
+            .as_array()
+            .ok_or(Error("mcp_response_invalid"))?;
+        let sessions = tools
+            .iter()
+            .find(|tool| tool["name"] == "codex_sessions")
+            .ok_or(Error("mcp_response_invalid"))?;
+        let actions = sessions["inputSchema"]["properties"]["action"]["enum"]
+            .as_array()
+            .ok_or(Error("mcp_response_invalid"))?;
+        if !actions.iter().any(|action| action == "synchronize") {
+            return Ok(
+                json!({"is_error":false,"result":{"thread_id":args["thread_id"],"status":"legacy","inference_submitted":false}}),
+            );
+        }
+    }
     let row = json!({"jsonrpc":"2.0","id":random_id()?,"method":"tools/call","params":{"name":tool,"arguments":args}});
     let response = tokio::time::timeout(
         Duration::from_secs(610),
@@ -717,6 +761,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     } else {
         Service::configured(config, token.clone(), host.clone())?
     };
+    service = service.with_handoff_issuer(crate::handoff::Issuer::new(journal.owner.clone()))?;
     if let Some(mcp) = mcp {
         service = service.with_mcp(mcp)?;
     }
@@ -726,16 +771,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .as_ref()
         .map(|v| v.capability.clone());
     service = service.with_viewer_slot(viewer_slot)?;
-    journal.write(
-        &key(),
-        &Binding {
-            schema: "termux-codex-responses-service-v1".into(),
-            process: Process::read(std::process::id())?,
-            port,
-            token,
-            viewer_capability,
-        },
-    )?;
+    publish_listener(&journal, port, token, viewer_capability)?;
     println!(
         "{}",
         json!({"schema":"termux-codex-provider-listener-v1","base_url":format!("http://127.0.0.1:{port}/v1"),"app_connected":false,"production_qualified":false})

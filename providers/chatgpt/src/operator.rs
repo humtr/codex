@@ -27,6 +27,26 @@ use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
 const LIMIT: usize = 16 * 1024 * 1024;
+const SOURCE_OBSERVE_INTERVAL: Duration = Duration::from_secs(2);
+fn source_observation_pending(error: &Error) -> bool {
+    matches!(
+        error.0,
+        "app_chat_read_pending"
+            | "app_chat_rate_limited"
+            | "app_chat_temporarily_unavailable"
+            | "app_chat_request_failed"
+            | "bound_chat_turn_active"
+            | "bound_chat_observation_busy"
+            | "bound_chat_observation_superseded"
+            | "native_thread_not_loaded"
+    )
+}
+fn queue_key(thread: &str, call: &str) -> String {
+    digest(&("native-queue-v1", thread, call))
+}
+fn queue_client_id(thread: &str, call: &str) -> String {
+    format!("termux-queue-{}", queue_key(thread, call))
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
@@ -48,14 +68,14 @@ struct Budget {
     max_elapsed_seconds: u64,
 }
 impl Budget {
-    fn extend_time(&self, proposed: Self) -> Result<Self, Error> {
+    fn extend_budget(&self, proposed: Self) -> Result<Self, Error> {
         if proposed.max_parallel != self.max_parallel
             || proposed.max_app_starts != self.max_app_starts
-            || proposed.max_native_calls != self.max_native_calls
+            || proposed.max_native_calls < self.max_native_calls
             || proposed.max_elapsed_seconds < self.max_elapsed_seconds
             || proposed.max_elapsed_seconds == 0
         {
-            return Err(Error("assignment_time_extension_invalid"));
+            return Err(Error("assignment_budget_extension_invalid"));
         }
         Ok(proposed)
     }
@@ -220,7 +240,7 @@ impl Bridge for LimitedBridge {
         let remote = self.remote.clone();
         let works = self.works.clone();
         Box::pin(async move {
-            if command["op"] == "open" {
+            if matches!(command["op"].as_str(), Some("open" | "chat_adopt")) {
                 let works = works.lock().await;
                 if let Some(work) = command["nativeThread"]
                     .as_str()
@@ -240,10 +260,8 @@ impl Bridge for LimitedBridge {
                         return Err(Error("operator_controller_fenced"));
                     }
                     if let Some(assignment) = &work.record.assignment {
-                        if command["op"] == "open" {
-                            command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.started_at_unix_ms.map(|start|start.saturating_add(assignment.budget.max_elapsed_seconds.saturating_mul(1000)))});
-                            command["nativeThread"] = json!(work.record.thread);
-                        }
+                        command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.started_at_unix_ms.map(|start|start.saturating_add(assignment.budget.max_elapsed_seconds.saturating_mul(1000)))});
+                        command["nativeThread"] = json!(work.record.thread);
                     }
                 }
             }
@@ -395,8 +413,9 @@ impl Operator {
     ) -> Result<Arc<Self>, Error> {
         let mut works = BTreeMap::new();
         for id in recover_work_index(&journal)?.ids {
+            let key = digest(&("operator-work-v1", &id));
             let mut record: Record = journal
-                .read(&digest(&("operator-work-v1", &id)))?
+                .read(&key)?
                 .ok_or(Error("operator_record_missing"))?;
             if record.id != id
                 || record.schema != "termux-codex-operator-work-v1"
@@ -411,6 +430,9 @@ impl Operator {
             if works.contains_key(&record.thread) {
                 return Err(Error("operator_record_invalid"));
             }
+            // The local CLI resolves the current controller from this record.
+            // Publish the same rotation held in memory before accepting calls.
+            journal.write(&key, &record)?;
             works.insert(
                 record.thread.clone(),
                 Work {
@@ -662,7 +684,11 @@ impl Operator {
         let id = random_id()?;
         let token = self
             .broker
-            .register(&id, request.map_or_else(BTreeMap::new, |v| v.tools.clone()))
+            .register(
+                &id,
+                request.map_or_else(BTreeMap::new, |v| v.tools.clone()),
+                false,
+            )
             .await?;
         let record = Record {
             schema: "termux-codex-operator-work-v1".into(),
@@ -862,7 +888,7 @@ impl Operator {
         self.broker.retire(&work.record.token, true).await?;
         work.record.token = self
             .broker
-            .register(&record.id, request.tools.clone())
+            .register(&record.id, request.tools.clone(), false)
             .await?;
         work.record.capability = random_id()?;
         work.record.generation += 1;
@@ -1290,7 +1316,7 @@ impl Operator {
             "codex_sessions"
                 if !matches!(
                     args["action"].as_str(),
-                    Some("list" | "events" | "wait" | "chat_result")
+                    Some("list" | "events" | "wait" | "synchronize" | "chat_result")
                 ) =>
             {
                 Some(
@@ -1349,9 +1375,11 @@ impl Operator {
         summary_round: Option<String>,
     ) -> Result<Value, Error> {
         match name {
-            "native_catalog" => Ok(json!(
-                self.broker.catalog(text(&args, "turn_token", 48)?).await?
-            )),
+            "native_catalog" => {
+                self.broker
+                    .catalog_readback(text(&args, "turn_token", 48)?)
+                    .await
+            }
             "native_tool" => {
                 let token = text(&args, "turn_token", 48)?.to_owned();
                 let mut args = args;
@@ -1394,7 +1422,7 @@ impl Operator {
             "codex_chats" => {
                 let secrets = {
                     let works = self.works.lock().await;
-                    let mut secrets = vec![self.token.clone()];
+                    let mut secrets = vec![self.token.clone(), self.journal.owner.clone()];
                     for work in works.values() {
                         secrets.extend([work.record.capability.clone(), work.record.token.clone()]);
                     }
@@ -1728,7 +1756,7 @@ impl Operator {
         let thread = text(&args, "thread_id", 256)?;
         let call = text(&args, "call_id", 160)?;
         let message = text(&args, "text", 256 * 1024)?;
-        let key = digest(&("native-queue-v1", thread, call));
+        let key = queue_key(thread, call);
         let fingerprint = digest(&args);
         let previous = self.journal.read::<Value>(&key)?;
         if let Some(previous) = &previous {
@@ -1756,7 +1784,7 @@ impl Operator {
                 Err(error) => return Err(error),
             }
         };
-        let client_id = format!("termux-queue-{key}");
+        let client_id = queue_client_id(thread, call);
         if previous.is_some() {
             let mut cursor = Value::Null;
             loop {
@@ -1907,6 +1935,7 @@ impl Operator {
         };
         match args["action"].as_str() {
             Some("queue") => self.queue_input(args).await,
+            Some("synchronize") => self.synchronize(args).await,
             Some("transfer" | "transfer_accept") => self.transfer(args, receipt).await,
             Some("chat_input" | "chat_result") => {
                 let input = crate::chat_input::Inputs {
@@ -1916,7 +1945,7 @@ impl Operator {
                 };
                 let secrets = {
                     let works = self.works.lock().await;
-                    let mut secrets = vec![self.token.clone()];
+                    let mut secrets = vec![self.token.clone(), self.journal.owner.clone()];
                     for work in works.values() {
                         secrets.extend([work.record.capability.clone(), work.record.token.clone()]);
                     }
@@ -2398,8 +2427,10 @@ impl Operator {
                         // Give that generation a fresh retained-call token;
                         // the completed turn's retired token cannot admit it.
                         let _ = self.broker.retire(&work.record.token, false).await;
-                        work.record.token =
-                            self.broker.register(&record.id, BTreeMap::new()).await?;
+                        work.record.token = self
+                            .broker
+                            .register(&record.id, BTreeMap::new(), false)
+                            .await?;
                         work.record.accepted = false;
                     }
                     work.record.phase = "starting_native".into();
@@ -2452,7 +2483,10 @@ impl Operator {
                     }
                     self.mutation_intent(receipt)?;
                     work.record.phase = "native_compacting".into();
-                    work.record.token = self.broker.register(&record.id, BTreeMap::new()).await?;
+                    work.record.token = self
+                        .broker
+                        .register(&record.id, BTreeMap::new(), false)
+                        .await?;
                     work.record.accepted = true;
                     self.persist(&work.record)?;
                 }
@@ -2586,7 +2620,7 @@ impl Operator {
                         .is_some_and(|s| s.reasoning == Reasoning::Current)
                     {
                         return Err(Error(
-                            "assignment_time_extension_requires_current_reasoning",
+                            "assignment_budget_extension_requires_current_reasoning",
                         ));
                     }
                     let assignment = record
@@ -2595,7 +2629,7 @@ impl Operator {
                         .ok_or(Error("assignment_unavailable"))?;
                     let proposed = serde_json::from_value(value.clone())
                         .map_err(|_| Error("assignment_budget_invalid"))?;
-                    let proposed = assignment.budget.extend_time(proposed)?;
+                    let proposed = assignment.budget.extend_budget(proposed)?;
                     if let Some(parent) = &assignment.parent {
                         let works = self.works.lock().await;
                         let owner = works
@@ -2611,7 +2645,9 @@ impl Operator {
                             .as_ref()
                             .ok_or(Error("assignment_unavailable"))?
                             .budget;
-                        if proposed.max_elapsed_seconds > budget.max_elapsed_seconds {
+                        if proposed.max_elapsed_seconds > budget.max_elapsed_seconds
+                            || proposed.max_native_calls > budget.max_native_calls
+                        {
                             return Err(Error("assignment_budget_exceeds_parent"));
                         }
                     }
@@ -2638,7 +2674,10 @@ impl Operator {
                 work.record.pending.clear();
                 work.record.execution = native.owner.clone();
                 work.record.origin = "chatgpt".into();
-                work.record.token = self.broker.register(&record.id, BTreeMap::new()).await?;
+                work.record.token = self
+                    .broker
+                    .register(&record.id, BTreeMap::new(), false)
+                    .await?;
                 work.record.phase =
                     if record.phase == "completed" && state["thread"]["status"]["type"] == "idle" {
                         "completed"
@@ -2667,18 +2706,80 @@ impl Operator {
         }
         Err(Error("native_observation_superseded"))
     }
-    fn watch_completion(&self, record: Record, native: Arc<Native>, cancel: CancellationToken) {
-        let mut events = native.events.subscribe();
+    pub(crate) async fn restore_source_observers(&self, stop: &CancellationToken) {
+        let records = self
+            .works
+            .lock()
+            .await
+            .values()
+            .filter(|work| {
+                work.record.phase == "completed"
+                    && work.record.selection.as_ref().is_some_and(|selection| {
+                        selection.reasoning == Reasoning::Managed
+                            && selection.return_path == ReturnPath::Mcp
+                    })
+            })
+            .map(|work| work.record.clone())
+            .collect::<Vec<_>>();
+        for record in records {
+            if stop.is_cancelled() {
+                return;
+            }
+            match self.managed_mcp.has_retained_source(&record.thread).await {
+                Ok(true) => (),
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("saved_source_restore_failed: {}", error.0);
+                    continue;
+                }
+            }
+            let cancel = stop.child_token();
+            let mut works = self.works.lock().await;
+            let Some(work) = works.get_mut(&record.thread) else {
+                continue;
+            };
+            if !same_native_round(&record, &work.record)
+                || work.record.phase != "completed"
+                || work.stops_in_progress != 0
+                || work
+                    .completion_observer
+                    .as_ref()
+                    .is_some_and(|observer| !observer.is_cancelled())
+            {
+                continue;
+            }
+            work.completion_observer = Some(cancel.clone());
+            drop(works);
+            self.watch_completion(record, None, cancel);
+        }
+    }
+    fn watch_completion(
+        &self,
+        record: Record,
+        initial_native: Option<Arc<Native>>,
+        cancel: CancellationToken,
+    ) {
         let this = self.clone();
         tokio::spawn(async move {
+            let _retire = cancel.clone().drop_guard();
+            let mut native = initial_native;
+            let mut events = native.as_ref().map(|native| native.events.subscribe());
+            let mut source_queued = false;
+            let mut polling = tokio::time::interval(SOURCE_OBSERVE_INTERVAL);
+            polling.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 let event = tokio::select! {
+                    biased;
                     _ = cancel.cancelled() => return,
-                    event = events.recv() => event,
+                    event = async { events.as_mut().unwrap().recv().await }, if events.is_some() => Some(event),
+                    _ = polling.tick() => None,
                 };
                 match event {
-                    Ok(event) if event["method"] == "operator/nativeDisconnected" => return,
-                    Ok(event) => {
+                    Some(Ok(event)) if event["method"] == "operator/nativeDisconnected" => {
+                        native = None;
+                        events = None;
+                    }
+                    Some(Ok(event)) => {
                         let terminal = event["method"] == "turn/completed"
                             || event["method"] == "thread/status/changed"
                                 && event["params"]["status"]["type"] == "idle";
@@ -2686,22 +2787,86 @@ impl Operator {
                             continue;
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (),
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    None | Some(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => (),
+                    Some(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
+                        native = None;
+                        events = None;
+                    }
                 }
                 let current = {
                     let works = this.works.lock().await;
                     let Some(work) = works.get(&record.thread) else {
                         return;
                     };
-                    if !same_native_round(&record, &work.record) || work.record.phase != "running" {
+                    if !same_native_round(&record, &work.record)
+                        || work.stops_in_progress != 0
+                        || !matches!(work.record.phase.as_str(), "running" | "completed")
+                    {
                         return;
                     }
                     work.record.clone()
                 };
-                match this.observe_native(current, &native).await {
-                    Ok((record, _, _)) if record.phase != "running" => return,
+                if native.is_none() {
+                    let observed = async {
+                        let pool = this.work_pool(&current).await?;
+                        match pool.observe_owner(&current.execution).await {
+                            Ok(native) => Ok(native),
+                            Err(Error(
+                                "native_binding_unavailable"
+                                | "stale_process_owner"
+                                | "native_runtime_owner_changed",
+                            )) => pool.for_thread(&current.thread).await,
+                            Err(error) => Err(error),
+                        }
+                    }
+                    .await;
+                    match observed {
+                        Ok(observed) => {
+                            events = Some(observed.events.subscribe());
+                            native = Some(observed);
+                        }
+                        Err(Error("native_thread_owner_unavailable")) => continue,
+                        Err(error) => {
+                            eprintln!("saved_source_owner_observation_failed: {}", error.0);
+                            return;
+                        }
+                    }
+                }
+                let current_native = native.as_ref().unwrap();
+                match this.observe_native(current, current_native).await {
+                    Ok((current, _, _))
+                        if current.phase == "completed"
+                            && !source_queued
+                            && current.selection.as_ref().is_some_and(|selection| {
+                                selection.return_path == ReturnPath::Mcp
+                            }) =>
+                    {
+                        match this.observe_external(&current, current_native).await {
+                            Ok(queued) => source_queued = queued,
+                            Err(Error("bound_chat_owner_generation_changed")) => {
+                                if let Err(error) =
+                                    this.synchronize(json!({"thread_id":current.thread})).await
+                                {
+                                    eprintln!("bound_chat_reattachment_failed: {}", error.0);
+                                    return;
+                                }
+                            }
+                            Err(error) if source_observation_pending(&error) => (),
+                            Err(error) => {
+                                eprintln!("bound_chat_observation_failed: {}", error.0);
+                                return;
+                            }
+                        }
+                    }
                     Ok(_) => (),
+                    Err(Error(
+                        "native_delivery_unknown"
+                        | "stale_process_owner"
+                        | "native_binding_changed",
+                    )) => {
+                        native = None;
+                        events = None;
+                    }
                     Err(error) => {
                         eprintln!("managed_completion_observation_failed: {}", error.0);
                         return;
@@ -2709,6 +2874,263 @@ impl Operator {
                 }
             }
         });
+    }
+    async fn synchronize(&self, args: Value) -> Result<Value, Error> {
+        let thread = text(&args, "thread_id", 64)?;
+        let ready = || json!({"thread_id":thread,"status":"ready","inference_submitted":false});
+        let pending = |reason: &str, retry: u64| json!({"thread_id":thread,"status":"waiting","reason":reason,"retry_after_seconds":retry,"inference_submitted":false});
+        let record = {
+            let works = self.works.lock().await;
+            let Some(work) = works.get(thread) else {
+                return Ok(ready());
+            };
+            if work.stops_in_progress != 0 || work.record.phase == "stop_requested" {
+                return Err(Error("operator_controller_fenced"));
+            }
+            work.record.clone()
+        };
+        if !record.selection.as_ref().is_some_and(|selection| {
+            selection.reasoning == Reasoning::Managed && selection.return_path == ReturnPath::Mcp
+        }) || record.phase == "stopped"
+        {
+            return Ok(ready());
+        }
+        if record.phase == "reconciliation_required" {
+            return Err(Error("operator_reconciliation_required"));
+        }
+        let pool = self.work_pool(&record).await?;
+        let native = pool.discover_thread(thread).await?;
+        let (record, state, _) = self.observe_native(record, &native).await?;
+        if state["thread"]["status"]["type"] == "notLoaded" {
+            return Ok(pending(
+                "native_thread_not_loaded",
+                SOURCE_OBSERVE_INTERVAL.as_secs(),
+            ));
+        }
+        if state["thread"]["modelProvider"] != crate::registration::PROVIDER {
+            return Err(Error("bound_chat_native_route_changed"));
+        }
+        if state["thread"]["status"]["type"] != "idle" {
+            return Ok(
+                if self
+                    .managed_mcp
+                    .source_turn_pending(thread, record.native_turn.as_deref())?
+                {
+                    pending("bound_chat_turn_active", SOURCE_OBSERVE_INTERVAL.as_secs())
+                } else {
+                    ready()
+                },
+            );
+        }
+        let result = async {
+            match self.observe_external(&record, &native).await {
+                Ok(true) => Ok(pending(
+                    "bound_chat_turn_admitted",
+                    SOURCE_OBSERVE_INTERVAL.as_secs(),
+                )),
+                Ok(false) => {
+                    let current = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":thread,"includeTurns":false}),
+                        )
+                        .await?;
+                    let works = self.works.lock().await;
+                    let work = works
+                        .get(thread)
+                        .ok_or(Error("operator_controller_fenced"))?;
+                    if work.stops_in_progress != 0
+                        || matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
+                    {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    if work.record.phase == "reconciliation_required" {
+                        return Err(Error("operator_reconciliation_required"));
+                    }
+                    if !same_native_round(&record, &work.record)
+                        || self.managed_mcp.source_turn_pending(thread, None)?
+                    {
+                        return Ok(pending(
+                            "bound_chat_observation_superseded",
+                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                        ));
+                    }
+                    drop(works);
+                    if current["thread"]["modelProvider"] != crate::registration::PROVIDER {
+                        return Err(Error("bound_chat_native_route_changed"));
+                    }
+                    Ok(if current["thread"]["status"]["type"] == "idle" {
+                        ready()
+                    } else {
+                        pending(
+                            "bound_chat_observation_superseded",
+                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                        )
+                    })
+                }
+                Err(Error("bound_chat_owner_generation_changed")) => {
+                    if record.phase != "completed" {
+                        return Err(Error("bound_chat_reattachment_unsettled"));
+                    }
+                    native.verify_scope(thread, &pool.workspace).await?;
+                    let admission = {
+                        let works = self.works.lock().await;
+                        let work = works
+                            .get(thread)
+                            .ok_or(Error("operator_controller_fenced"))?;
+                        if !same_native_round(&record, &work.record)
+                            || work.record.phase != "completed"
+                            || work.stops_in_progress != 0
+                            || work.managed_cancel.is_some()
+                        {
+                            return Err(Error("bound_chat_observation_superseded"));
+                        }
+                        work.native_admission.clone()
+                    };
+                    let Ok(_admission) = admission.try_lock_owned() else {
+                        return Ok(pending(
+                            "bound_chat_observation_busy",
+                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                        ));
+                    };
+                    let history = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":thread,"includeTurns":true}),
+                        )
+                        .await?;
+                    let last = history["thread"]["turns"]
+                        .as_array()
+                        .and_then(|turns| turns.last());
+                    if history["thread"]["status"]["type"] != "idle"
+                        || !last.is_some_and(|turn| {
+                            turn["id"].as_str() == record.native_turn.as_deref()
+                                && turn["status"] == "completed"
+                        })
+                        || !self.owned_jobs(&native, &record).await?.is_empty()
+                    {
+                        return Err(Error("bound_chat_reattachment_unsettled"));
+                    }
+                    {
+                        let works = self.works.lock().await;
+                        let work = works
+                            .get(thread)
+                            .ok_or(Error("operator_controller_fenced"))?;
+                        if !same_native_round(&record, &work.record)
+                            || work.record.phase != "completed"
+                            || work.stops_in_progress != 0
+                            || work.managed_cancel.is_some()
+                        {
+                            return Err(Error("bound_chat_observation_superseded"));
+                        }
+                    }
+                    self.managed_mcp.reattach_settled_source(thread).await?;
+                    Ok(pending(
+                        "bound_chat_reattached",
+                        SOURCE_OBSERVE_INTERVAL.as_secs(),
+                    ))
+                }
+                Err(error) => Err(error),
+            }
+        }
+        .await;
+        match result {
+            Err(error) if source_observation_pending(&error) => {
+                let status = self.bridge.operation(json!({"op":"host_status"})).await?;
+                let retry = if status["saved_read_backoff"]["cooling_down"] == true {
+                    status["saved_read_backoff"]["retry_after_seconds"]
+                        .as_u64()
+                        .ok_or(Error("app_chat_response_invalid"))?
+                } else {
+                    SOURCE_OBSERVE_INTERVAL.as_secs()
+                };
+                Ok(pending(error.0, retry))
+            }
+            other => other,
+        }
+    }
+
+    async fn observe_external(&self, record: &Record, native: &Native) -> Result<bool, Error> {
+        if native.owner.home != record.execution.home {
+            return Err(Error("bound_chat_native_owner_changed"));
+        }
+        let current = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":false}),
+            )
+            .await?;
+        if current["thread"]["modelProvider"] != crate::registration::PROVIDER {
+            return Err(Error("bound_chat_native_route_changed"));
+        }
+        if current["thread"]["status"]["type"] == "notLoaded" {
+            return Err(Error("native_thread_not_loaded"));
+        }
+        if current["thread"]["status"]["type"] != "idle" {
+            return Err(Error("bound_chat_turn_active"));
+        }
+        let Some(source) = self.managed_mcp.external_input(&record.thread).await? else {
+            return Ok(false);
+        };
+        let pool = self.work_pool(record).await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        let admission = {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_controller_fenced"))?;
+            if !same_native_round(record, &work.record)
+                || !matches!(work.record.phase.as_str(), "running" | "completed")
+                || work.managed_cancel.is_some()
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("bound_chat_observation_superseded"));
+            }
+            work.native_admission.clone()
+        };
+        let Ok(_admission) = admission.try_lock_owned() else {
+            return Err(Error("bound_chat_observation_busy"));
+        };
+        {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_controller_fenced"))?;
+            if !same_native_round(record, &work.record)
+                || !matches!(work.record.phase.as_str(), "running" | "completed")
+                || work.managed_cancel.is_some()
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("bound_chat_observation_superseded"));
+            }
+        }
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":false}),
+            )
+            .await?;
+        if state["thread"]["status"]["type"] != "idle" {
+            return Err(Error("bound_chat_turn_active"));
+        }
+        if state["thread"]["modelProvider"] != crate::registration::PROVIDER {
+            return Err(Error("bound_chat_native_route_changed"));
+        }
+        {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_controller_fenced"))?;
+            if !same_native_round(record, &work.record)
+                || !matches!(work.record.phase.as_str(), "running" | "completed")
+                || work.managed_cancel.is_some()
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("bound_chat_observation_superseded"));
+            }
+        }
+        self.queue_input(json!({"thread_id":record.thread,"call_id":source.input.call_id(),"text":source.text,"execution_home":record.execution.home})).await?;
+        Ok(true)
     }
     async fn observe_native(
         &self,
@@ -3096,12 +3518,15 @@ impl Operator {
             .is_some_and(|s| s.reasoning == Reasoning::Managed)
             .then(|| crate::app::inspect_lane(&self.journal.root, &record.thread));
         let host_requested = record.driver.is_some()
-            || managed_lane.is_some_and(|lane| {
+            || managed_lane.as_ref().is_some_and(|lane| {
                 lane.as_ref()
                     .map(managed_lane_requires_host_stop)
                     .unwrap_or(true)
             });
-        let host_confirmed = if host_requested {
+        let host_confirmed = if host_requested || managed_lane.is_some() {
+            // The response worker can finish acknowledged app cancellation
+            // while native interruption is being observed. Its owner must
+            // confirm/reuse that settlement even if no new Stop is needed.
             self.stop_driver(&record).await.unwrap_or(false)
         } else {
             // Absence is not confirmation. Preserve a previously observed and
@@ -3707,7 +4132,7 @@ impl Operator {
             work.record.generation += 1;
             work.record.token = self
                 .broker
-                .register(&record.id, request.tools.clone())
+                .register(&record.id, request.tools.clone(), false)
                 .await?;
             work.record.accepted = false;
             work.record.phase = "waiting_native".into();
@@ -3850,9 +4275,9 @@ impl Operator {
                     Some(Command::Summary{capability,round:summary_round,text,ack})=>{
                         let valid={let works=self.works.lock().await;let work=works.get(&request.thread).unwrap();work.record.capability==capability && work.round==summary_round && work.record.accepted && work.record.phase=="native_summary"};
                         if !valid {let _=ack.send(Err(Error("operator_controller_fenced")));continue;}
-                        let result=async { let checkpoint=context::Checkpoint::offer(&request,&text)?;
+                        let result=async { let checkpoint=context::Checkpoint::offer(&request,&text,&summary_round)?;
                             self.works.lock().await.get_mut(&request.thread).unwrap().checkpoint=Some(checkpoint.clone());
-                            events.send(match request.compaction {Some(context::Compaction::Checkpoint)=>Event::Checkpoint{id:random_id()?,encrypted_content:checkpoint.encoded().to_owned()},_=>Event::Text{id:random_id()?,phase:"final_answer".into(),delta:text}}).await.map_err(|_|Error("native_observer_lost"))?;
+                            events.send(checkpoint.event(format!("checkpoint_{summary_round}"))).await.map_err(|_|Error("native_observer_lost"))?;
                             {let mut works=self.works.lock().await;let work=works.get_mut(&request.thread).unwrap();work.active=None;if manual_compact{work.record.phase="native_summary_offered".into();self.persist(&work.record)?;}}
                             events.send(Event::Completed{input_tokens:0,output_tokens:0}).await.map_err(|_|Error("native_observer_lost"))?; Ok(()) }.await;
                         let _=ack.send(result); break Ok(());
@@ -4099,6 +4524,30 @@ impl Host for Operator {
             }
             if let Some(path) = path {
                 let thread = request.thread.clone();
+                if path == ReturnPath::Mcp {
+                    if let Some(source) = this.managed_mcp.pending_external(&thread).await? {
+                        let client_id = queue_client_id(&thread, &source.call_id());
+                        let turn = request
+                            .turn
+                            .as_deref()
+                            .ok_or(Error("bound_chat_native_turn_missing"))?;
+                        let consumed =
+                            Self::history(&native, &thread)
+                                .await?
+                                .into_iter()
+                                .any(|row| {
+                                    row["turn_id"] == turn
+                                        && row["item"]["type"] == "userMessage"
+                                        && row["item"]["clientId"] == client_id
+                                });
+                        if !consumed {
+                            return Err(Error("bound_chat_input_not_consumed"));
+                        }
+                        this.managed_mcp
+                            .bind_external(&thread, &source, turn)
+                            .await?;
+                    }
+                }
                 let completion_cancel = CancellationToken::new();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
@@ -4118,7 +4567,7 @@ impl Host for Operator {
                     *record = work.record.clone();
                 }
                 if let Some(record) = &record {
-                    this.watch_completion(record.clone(), native.clone(), completion_cancel);
+                    this.watch_completion(record.clone(), Some(native.clone()), completion_cancel);
                 }
                 let deadline = record
                     .as_ref()
@@ -4378,7 +4827,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
         }
         "action" => {
-            json!({"type":"string","enum":["list","create","resume","fork","start","queue","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
+            json!({"type":"string","enum":["list","create","resume","fork","start","queue","synchronize","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
         }
         _ => json!({"type":"string"}),
     };
@@ -4386,7 +4835,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action", false),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action", false),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action", true),
-        ("codex_sessions", "List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. For follow-up to existing work, use its listed source_conversation_id/thread_id and read history. Claim the completed work with the current history/context cursors to obtain its controller; transfer to current reasoning and accept the offer before start when this Chat should own reasoning. Do not create a second work for that follow-up. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app/native caps and a longer elapsed cap; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. queue enqueues text on an explicit thread_id with stable call_id without changing its model or effort; the ACK is not proof of consumption. Supply execution_home for an explicit account. Identical retries return the original receipt; uncertain enqueue reconciles queue/history without retransmission. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
+        ("codex_sessions", "Before a new native prompt, action=synchronize with thread_id reports ready or waiting and the source retry timing; it imports only existing saved input, never the new draft or a new inference. List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. For follow-up to existing work, use its listed source_conversation_id/thread_id and read history. Claim the completed work with the current history/context cursors to obtain its controller; transfer to current reasoning and accept the offer before start when this Chat should own reasoning. Do not create a second work for that follow-up. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app caps and increased or unchanged total native-call/elapsed caps; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. queue enqueues text on an explicit thread_id with stable call_id without changing its model or effort; the ACK is not proof of consumption. Supply execution_home for an explicit account. Identical retries return the original receipt; uncertain enqueue reconciles queue/history without retransmission. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller", false),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id", true),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller", true),
@@ -4398,8 +4847,8 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id", false),
         ("codex_handoff", "Prepare a grounded summary at a history cursor, fence the old Chat and optionally request a successor on the same Codex thread.", "work_id controller call_id summary cursor context_cursor renew", "work_id controller call_id summary cursor context_cursor", false),
         ("codex_native_summary", "Answer an upstream-requested inference summary without replacing Chat. Supply a unique stable call_id per summary request and reuse identical arguments on delivery retries; an old keyed receipt cannot answer a later native round.", "work_id controller summary call_id", "work_id controller summary", false),
-        ("native_catalog", "Read the isolated native reviewer tool schemas.", "turn_token", "turn_token", true),
-        ("native_tool", "Run an isolated reviewer native tool and return its result.", "turn_token call_id name input report", "turn_token call_id name input report", false),
+        ("native_catalog", "Read the admitted native turn's tool schemas. After a saved Chat continuation, discovery can return tools and a fresh turn_token; use that token for subsequent calls. Old execution tokens remain retired.", "turn_token", "turn_token", true),
+        ("native_tool", "Run one advertised native tool and return its original result. Delivery retries reuse exact turn_token/call_id/name/input/report.", "turn_token call_id name input report", "turn_token call_id name input report", false),
     ];
     controls.into_iter().map(|(name, description, fields, required, _read)| {
         let mut properties = fields.split_whitespace().map(|key| (key.to_owned(), field(key))).collect::<serde_json::Map<_,_>>();
@@ -4909,7 +5358,7 @@ mod local_tests {
     }
 
     #[test]
-    fn elapsed_extension_preserves_other_caps_and_rejects_resets() {
+    fn budget_extension_preserves_host_caps_and_rejects_allowance_resets() {
         let original = Budget {
             max_parallel: 2,
             max_app_starts: 12,
@@ -4917,16 +5366,17 @@ mod local_tests {
             max_elapsed_seconds: 1200,
         };
         let extended = original
-            .extend_time(Budget {
+            .extend_budget(Budget {
                 max_elapsed_seconds: 3600,
+                max_native_calls: 1000,
                 ..original.clone()
             })
             .unwrap();
         assert_eq!(extended.max_elapsed_seconds, 3600);
-        assert_eq!(extended.max_native_calls, 100);
+        assert_eq!(extended.max_native_calls, 1000);
         for invalid in [
             Budget {
-                max_native_calls: 101,
+                max_native_calls: 99,
                 ..original.clone()
             },
             Budget {
@@ -4943,8 +5393,8 @@ mod local_tests {
             },
         ] {
             assert!(matches!(
-                original.extend_time(invalid),
-                Err(Error("assignment_time_extension_invalid"))
+                original.extend_budget(invalid),
+                Err(Error("assignment_budget_extension_invalid"))
             ));
         }
     }

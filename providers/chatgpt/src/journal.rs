@@ -92,6 +92,17 @@ pub struct Journal {
 impl Journal {
     /// Read-only inspection while the running provider holds its writer lease.
     pub fn inspect(root: &Path, key: &str) -> Result<Option<serde_json::Value>, Error> {
+        let owner = Self::read_owner(root)?;
+        let reader = Self {
+            root: root.into(),
+            owner,
+            _lease: Lease::reader(
+                File::open(root).map_err(|_| Error("state_directory_unavailable"))?,
+            ),
+        };
+        reader.read(key)
+    }
+    pub fn read_owner(root: &Path) -> Result<String, Error> {
         let metadata =
             fs::symlink_metadata(root).map_err(|_| Error("state_directory_unavailable"))?;
         if !metadata.is_dir()
@@ -102,14 +113,13 @@ impl Journal {
         }
         let owner = String::from_utf8(private_read(&root.join("owner-v1"), 128)?)
             .map_err(|_| Error("invalid_state_owner"))?;
-        let reader = Self {
-            root: root.into(),
-            owner,
-            _lease: Lease::reader(
-                File::open(root).map_err(|_| Error("state_directory_unavailable"))?,
-            ),
-        };
-        reader.read(key)
+        Self::validate_owner(owner)
+    }
+    fn validate_owner(owner: String) -> Result<String, Error> {
+        if owner.len() != 48 || !owner.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(Error("invalid_state_owner"));
+        }
+        Ok(owner)
     }
     pub fn open(path: &Path) -> Result<Self, Error> {
         if !path.is_absolute() {
@@ -145,9 +155,7 @@ impl Journal {
             }
             Err(error) => return Err(error),
         };
-        if owner.len() != 48 || !owner.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(Error("invalid_state_owner"));
-        }
+        let owner = Self::validate_owner(owner)?;
         Ok(Self {
             root: path.into(),
             owner,

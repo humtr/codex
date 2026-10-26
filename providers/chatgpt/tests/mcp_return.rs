@@ -89,7 +89,7 @@ async fn detached_peer_and_rpc_id_changes_reconcile_one_durable_logical_call() {
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal.clone());
     let token = broker
-        .register("native-lane", parsed().tools)
+        .register("native-lane", parsed().tools, false)
         .await
         .unwrap();
     let args = Arguments {
@@ -188,7 +188,7 @@ async fn recorded_token_can_be_retired_after_restart_without_reactivation() {
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal.clone());
     let token = broker
-        .register("retained-owner", parsed().tools)
+        .register("retained-owner", parsed().tools, false)
         .await
         .unwrap();
     let call = Arguments {
@@ -233,7 +233,7 @@ async fn recorded_token_can_be_retired_after_restart_without_reactivation() {
         .unwrap();
     assert_eq!(retired["retired"], true);
     let fresh = restarted
-        .register("retained-owner", parsed().tools)
+        .register("retained-owner", parsed().tools, false)
         .await
         .unwrap();
     assert_ne!(fresh, token);
@@ -246,7 +246,7 @@ async fn restarted_retirement_preserves_unreturned_calls_and_completion_guard() 
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal.clone());
     let token = broker
-        .register("pending-owner", parsed().tools)
+        .register("pending-owner", parsed().tools, false)
         .await
         .unwrap();
     broker
@@ -571,6 +571,41 @@ async fn a_public_message_spanning_mcp_returns_preserves_history_and_its_complet
             } else {
                 "Overview.\nProject created."
             }
+        );
+        let native_before = history.clone();
+        let display =
+            codex_chatgpt_provider::app::presentation_groups(&root.0, "owned-mcp-native-thread");
+        let display = display.unwrap();
+        let cli = std::process::Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args([
+                "presentation",
+                "--thread",
+                "owned-mcp-native-thread",
+                "--state",
+            ])
+            .arg(&root.0)
+            .output()
+            .unwrap();
+        assert!(
+            cli.status.success(),
+            "{}",
+            String::from_utf8_lossy(&cli.stderr)
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&cli.stdout).unwrap(),
+            display,
+            "the actual TUI command reads correlation while the service owns its writer lease"
+        );
+        assert_eq!(display["groups"].as_array().unwrap().len(), 1);
+        assert_eq!(display["groups"][0]["final_id"], finals[0]["id"]);
+        let progress = display["groups"][0]["progress_ids"].as_array().unwrap();
+        assert_eq!(progress.len(), 2);
+        assert!(progress.iter().all(|id| messages
+            .iter()
+            .any(|item| item["id"] == *id && item["phase"] == "commentary")));
+        assert_eq!(
+            history, native_before,
+            "display metadata never rewrites public native text"
         );
         let app = state.lock().unwrap();
         assert_eq!(
@@ -991,7 +1026,10 @@ async fn catalog_updates_commit_with_results_before_the_model_can_discover_the_n
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal);
     let mut catalog = parsed().tools;
-    let token = broker.register("owned", catalog.clone()).await.unwrap();
+    let token = broker
+        .register("owned", catalog.clone(), false)
+        .await
+        .unwrap();
     let b = broker.clone();
     let t = token.clone();
     let caller = tokio::spawn(async move {
@@ -1044,7 +1082,7 @@ async fn graceful_service_shutdown_releases_pending_mcp_http_without_waiting_for
     let journal = Arc::new(Journal::open(&root.0).unwrap());
     let broker = Broker::new(journal.clone());
     let token = broker
-        .register("shutdown-lane", parsed().tools)
+        .register("shutdown-lane", parsed().tools, false)
         .await
         .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1109,7 +1147,10 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
     let broker = Broker::new(journal.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let state = Arc::new(Mutex::new(AppState::default()));
+    let state = Arc::new(Mutex::new(AppState {
+        continued_final: Some(true),
+        ..AppState::default()
+    }));
     let app = Arc::new(App {
         state: state.clone(),
         address,
@@ -1231,7 +1272,7 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
         String::from_utf8_lossy(&output.stderr)
     );
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("Implemented and tested"));
+    assert!(text.contains("Overview.\\nProject created.\\nChecks passed."));
     assert_eq!(
         std::fs::read_to_string(root.0.join("work/effect-count")).unwrap(),
         "one-native-effect\n"
@@ -1257,6 +1298,37 @@ async fn actual_native_commands_patch_and_test_return_on_three_original_mcp_http
         .as_str()
         .unwrap()
         .to_owned();
+    let presentation =
+        codex_chatgpt_provider::app::presentation_groups(&root.0.join("journal"), &thread).unwrap();
+    let groups = presentation["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1);
+    let mut source_records = Vec::new();
+    fn read_rollouts(directory: &std::path::Path, records: &mut Vec<Value>) {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                read_rollouts(&path, records);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                records.extend(
+                    std::fs::read_to_string(path)
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str::<Value>(line).unwrap()),
+                );
+            }
+        }
+    }
+    read_rollouts(&root.0.join("codex/sessions"), &mut source_records);
+    for id in
+        std::iter::once(&groups[0]["final_id"]).chain(groups[0]["progress_ids"].as_array().unwrap())
+    {
+        assert!(
+            source_records
+                .iter()
+                .any(|row| row["type"] == "response_item" && row["payload"]["id"] == *id),
+            "presentation source ID must survive actual native canonical persistence: {id}"
+        );
+    }
     let native = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         native_command()

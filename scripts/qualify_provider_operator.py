@@ -23,7 +23,19 @@ import urllib.request
 from qualify_permission_lifecycle import fixture, server_paths, rpc as native_rpc
 from qualify_provider_d3 import stop_owned_pid
 
-TOKEN = 'owned-fixture-bearer-000000000000000000000000'
+TOKEN = '88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42'
+
+
+def fixture_auth(path, provider_binary=None):
+    """Use fixture HTTP auth but the actual installed CLI control protocol."""
+    control = ''
+    if provider_binary is not None:
+        control = ('if [ "$1" = presentation ] || [ "$1" = work ]; then exec ' +
+                   shlex.quote(str(provider_binary.resolve(strict=True))) + ' "$@"; fi\n')
+    path.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\n' + control +
+                    'if [ "$1" = work ]; then echo "codex-chatgpt-provider: unsupported work action" >&2; exit 2; fi\n' +
+                    'printf %s ' + shlex.quote(TOKEN) + '\n')
+    path.chmod(0o700)
 
 
 def probe(args):
@@ -50,8 +62,7 @@ def probe(args):
         if getattr(args, 'config', None):
             env['CODEX_PROVIDER_OPERATOR_CONFIG'] = str(args.config)
         auth = root / 'fixture-auth'
-        auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + shlex.quote(TOKEN) + '\n')
-        auth.chmod(0o700)
+        fixture_auth(auth, getattr(args, 'provider_binary', None))
         output = (root / 'provider-test.log').open('wb')
         service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
             'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
@@ -646,7 +657,7 @@ def probe(args):
         print('Explicit host completion without native finish reached CLI/history as incomplete, with no replay',flush=True)
 
         selected_proof = None
-        if getattr(args, 'inputs', None):
+        if getattr(args, 'inputs', None) or getattr(args, 'selected_controls', False):
             # Additional new-control integration proof on real native Android
             # threads; synthetic reasoning never counts as F live agent proof.
             before_selected = len(json.loads((root / 'bridge-commands.json').read_text()))
@@ -678,7 +689,8 @@ def probe(args):
             # project-configured service preflight separately proves managed
             # status/Stop before its first turn, without submitting inference.
             managed_status_proved = False
-            configured_history = tomllib.loads(args.config.read_text()).get('history', {})
+            configured_history = (tomllib.loads(args.config.read_text()).get('history', {})
+                                  if getattr(args, 'config', None) else {})
             if configured_history.get('mode') == 'project':
                 unstarted, _ = selected('managed-status', reasoning='managed')
                 unstarted_status = rpc('codex_status', {'work_id': unstarted['work_id']})
@@ -726,9 +738,9 @@ def probe(args):
             unloaded = rpc('codex_status', {'work_id': coordinator['work_id']})
             assert unloaded['native_status']['type'] == 'notLoaded', unloaded
             source = rpc('codex_history', {'work_id': coordinator['work_id']})
-            extended = rpc('codex_sessions', {'work_id':coordinator['work_id'], 'action':'claim', 'call_id':'selected-time-extension',
-                'cursor':source['cursor'], 'context_cursor':source['context_cursor'], 'budget':{**budget,'max_elapsed_seconds':360}})
-            assert extended['thread_id']==original['thread_id'] and extended['assignment']['budget']['max_native_calls']==budget['max_native_calls']
+            extended = rpc('codex_sessions', {'work_id':coordinator['work_id'], 'action':'claim', 'call_id':'selected-budget-extension',
+                'cursor':source['cursor'], 'context_cursor':source['context_cursor'], 'budget':{**budget,'max_elapsed_seconds':360,'max_native_calls':1000}})
+            assert extended['thread_id']==original['thread_id'] and extended['assignment']['budget']['max_native_calls']==1000
             retained_start=extended['assignment']['started_at_unix_ms']
             retained_calls=extended['assignment']['admitted_calls']
             assert retained_start is not None and retained_calls
@@ -833,12 +845,14 @@ if __name__ == '__main__':
     parser.add_argument('--core', type=Path)
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--service-test', type=Path)
+    parser.add_argument('--provider-binary', type=Path, help='actual Provider CLI used by the native client synchronization gate')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--cold-resume', action='store_true', help='also qualify cold native owner replacement and asynchronous start failure; zero real Chat')
+    parser.add_argument('--selected-controls', action='store_true', help='also exercise explicit assignment/controller/budget controls with legacy explicit fixture inputs; zero real Chat')
     args=parser.parse_args()
     if args.inputs:
         from provider_qualification import prepare, path, reference, require, digest
-        require(not any((args.core,args.frontend,args.service_test,args.report)), '--inputs cannot be combined with implicit/override selectors')
+        require(not any((args.core,args.frontend,args.service_test,args.provider_binary,args.report)), '--inputs cannot be combined with implicit/override selectors')
         resolved=json.loads(prepare(args.inputs).read_text())
         inputs=resolved['inputs']
         require(inputs['limits']['mode']=='synthetic_android' and inputs['cases']==['F7-idempotency'], 'this driver qualifies only its declared synthetic F7 subset')

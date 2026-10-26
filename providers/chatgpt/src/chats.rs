@@ -33,6 +33,16 @@ impl Chats {
         self
     }
     pub async fn call(&self, args: Value, secrets: &[String]) -> Result<Value, Error> {
+        let mut result = self.read_source(args).await?;
+        let mut redactions = 0;
+        redact_public(&mut result, secrets, &self.public_ids, &mut redactions);
+        result["redactions"] =
+            json!({"count":redactions,"policy":"credentials_and_private_capabilities"});
+        Ok(result)
+    }
+    /// Internal source consumers preserve the exact authorized user text. The
+    /// public tools still redact credentials and private capabilities in call().
+    pub(crate) async fn read_source(&self, args: Value) -> Result<Value, Error> {
         let identity = self.bridge.operation(json!({"op":"identity"})).await?;
         let identity = json!({"account":identity["account"],"user":identity["user"],"structure":identity["structure"]});
         if !identity["account"].is_string() || !identity["user"].is_string() {
@@ -302,10 +312,6 @@ impl Chats {
         {
             return Err(Error("app_account_changed"));
         }
-        let mut redactions = 0;
-        redact_public(&mut result, secrets, &self.public_ids, &mut redactions);
-        result["redactions"] =
-            json!({"count":redactions,"policy":"credentials_and_private_capabilities"});
         result["observed_at_unix_ms"] = json!(std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

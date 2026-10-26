@@ -26,6 +26,124 @@ impl Drop for Root {
 }
 
 struct Service(std::process::Child);
+#[tokio::test]
+async fn checkpoint_cli_and_real_service_share_issuance_without_internal_metadata() {
+    use std::io::Write;
+    let root = Root::new();
+    std::fs::create_dir(&root.0).unwrap();
+    std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let process = Process::read(std::process::id()).unwrap();
+    // The only app endpoint is owned here and rejects before any app protocol.
+    // This qualifies admission through the real service, with no possible Chat.
+    let app_endpoint = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let app_url = format!("http://{}/", app_endpoint.local_addr().unwrap());
+    let reject_app = tokio::spawn(async move {
+        let (mut stream, _) = app_endpoint.accept().await.unwrap();
+        let mut request = [0u8; 8192];
+        let _ = stream.read(&mut request).await;
+        let _ = stream
+            .write_all(
+                b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await;
+    });
+    let descriptor = root.0.join("descriptor.json");
+    std::fs::write(&descriptor, json!({"version":1,"kind":"termux-electron-pipe","endpoint":app_url,"token":"a".repeat(43),"host":process,"browser":process}).to_string()).unwrap();
+    std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let (_service, listener) = Service::start(&root);
+    let state = root.0.join("state");
+    let binary = env!("CARGO_BIN_EXE_codex-chatgpt-provider");
+    let mut issue = Command::new(binary)
+        .args([
+            "checkpoint",
+            "--thread",
+            "owned",
+            "--from-model",
+            "old-native",
+            "--model",
+            "chatgpt-desktop/gpt-6",
+            "--effort",
+            "none",
+            "--state",
+        ])
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    issue
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            json!({"id":"owned","status":{"type":"idle"},"turns":[]})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let signed = issue.wait_with_output().unwrap();
+    assert!(
+        signed.status.success(),
+        "issuance failed with a live service writer"
+    );
+    let item: Value = serde_json::from_slice(&signed.stdout).unwrap();
+    assert!(item
+        .get("internal_chat_message_metadata_passthrough")
+        .is_none());
+    let credential = Command::new(binary)
+        .args(["token", "--state"])
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(credential.status.success());
+    let token = String::from_utf8(credential.stdout).unwrap();
+    let port = listener["base_url"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("http://127.0.0.1:")
+        .unwrap()
+        .strip_suffix("/v1")
+        .unwrap();
+    for valid in [true, false] {
+        let mut marker = item.clone();
+        if !valid {
+            marker["id"] = json!("msg_user_paste");
+        }
+        let body = json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":[{"type":"compaction","encrypted_content":"foreign"},marker,{"role":"user","content":"continue"}],"client_metadata":{"x-codex-turn-metadata":{"thread_id":"owned"}}}).to_string();
+        let mut socket = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .unwrap();
+        socket.write_all(format!("POST /v1/responses HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",token.trim(),body.len(),body).as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            socket.read_to_end(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let response = String::from_utf8(response).unwrap();
+        if valid {
+            assert!(
+                response.starts_with("HTTP/1.1 200"),
+                "issued handoff failed at actual admission"
+            );
+            assert!(!response.contains("opaque_context_unavailable"));
+        } else {
+            assert!(response.starts_with("HTTP/1.1 400"));
+            assert!(response.contains("opaque_context_unavailable"));
+        }
+    }
+    reject_app.abort();
+    assert!(
+        !state.join("desktop").exists(),
+        "no authenticated app or model was acquired"
+    );
+}
+
 #[test]
 fn app_controls_without_native_binding_observe_absent_host_without_acquisition() {
     let root = Root::new();

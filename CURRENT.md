@@ -1,6 +1,6 @@
 # Operating state and product completion
 
-Reviewed 2026-10-25 UTC. `rewrite/rust-core` owns implementation; `main` pins
+Reviewed 2026-10-26 UTC. `rewrite/rust-core` owns implementation; `main` pins
 accepted exact sources for signed publication. SPEC owns product contracts,
 README user instructions, and this file the current operating state. Superseded
 incident/release narratives remain in Git; original private evidence remains in
@@ -14,11 +14,395 @@ repair. Older deferred setup, packaging and architecture work does not precede t
 
 | Order | Required outcome | Status |
 | --- | --- | --- |
-| 1 — source first | Core supplies Android TZif to the runtime and TUI; absolute session-picker dates use that same local timezone | Source implemented; focused Core/Android child checks passed. Full native frontend build, acceptance and delivery are deferred to the combined batch |
-| 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Highest remaining runtime priority: incident investigated; implementation and actual two-entrance qualification pending |
+| 1 — source first | Core supplies Android TZif to the runtime and TUI; absolute session-picker dates use that same local timezone | Source, focused checks and combined current-Core/native-TUI execution passed, including shared Seoul TZif and KST completion display; final acceptance and delivery remain |
+| 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Native continuity, restart, retained-chain eviction/Stop, all63 affected TUI tests and disposable signed install/TLS/update/rollback passed. Actual Android→same native TUI/history→successful native follow-up passed, with no reinference. The subsequent single-read source settlement correction passed full Provider/JS gates, fault checks and actual-server SDK→same native TUI→native follow-up after Provider replacement. All5 original finals match; real web native-tool routing, uncontrolled concurrent entrances and exact-source delivery remain |
 | 3 — next after2 | Retain common ChatGPT connection/work logic and branch by local/MCP transport, separating transport initialization, checks, configuration and lifecycle | Agreed implementation target; defer the refactor until1 and2 are complete |
 
+The user also authorized a later Provider budget-extension change, to join the
+combined implementation/build batch. `max_native_calls` currently accumulates per
+assigned work across turns;75 was this work's supplied budget, not a hardcoded
+default. Existing claim supports time extension but rejects a changed native-call
+cap. Add explicit owner-authorized extension while preserving consumed calls and
+parent/ownership boundaries; do not reset usage or edit live journals. For the
+current Chat-first source assignment, the user chose a fresh work with1000 native
+calls and requested actual consumption afterward. Preserve the exhausted75-call
+work and report admitted calls separately from successful executions. Its source implementation is now under Codex qualification below; it is not
+an installed runtime change.
+
+Budget policy clarification:1000 was the user's deliberately generous temporary
+allowance, not a chosen product default. Neither75 nor1000 is a global hardcoded
+limit. Selected assignments currently require all finite budget fields; ordinary
+unassigned native work does not acquire that assignment cap. Increasing the cap
+does not settle whether that requirement is appropriate. Usage recording must
+remain independent of policy; platform limits, approval, Stop and logical-call
+deduplication remain separate.
+Do not describe the1000-call extension proof as acceptance of mandatory fixed
+budgets or silently turn1000 into a default.
+The user's subsequent proposal is to let the initially delegated model estimate
+its allowance, then reassess progress/remaining work at exhaustion and either
+grant a justified increment within any owner-set total limit or summarize the
+remaining work. Treat this as a review checkpoint in the same conversation;
+exhaustion must return a structured unexecuted-call result for reassessment,
+not cancel the model stream. No separate reviewer model or fixed extension
+multiplier was requested. This policy discussion is not yet a runtime change.
+
+The exhausted source-editor work `431ed8daca18eed9d52ee241a758f1e217172b53af2afdca`
+was natively stopped with no remaining jobs; its75 admitted calls remain recorded.
+The same saved Chat now owns implementation work
+`9c0c3147f9d38168b72dfc19b2418f03c563f3882a95c591`, native thread
+`01a17171-124d-72f0-91da-8ae97307ec75`, in
+`$TMPDIR/codex-originality-chat-nzbslj9a/source`. The actual assignment journal
+confirms1000 native calls and a4-hour elapsed cap. The source-edit batch completed
+with91 admitted calls and0 pending calls; its16-file candidate includes the
+inherited9-file diff. Preserve that workspace for Codex review. Initial static
+review found contradictory checkpoint/visibility tests and a formerly successful
+model-downshift route changed to rejection; the candidate is not admitted.
+`chat-source-initial-review.json` and the complete original candidate diff are
+retained in the evidence directory below. Compilation, tests, signing, deployment
+and activation were not authorized for that Chat batch. Original instructions, saved-message readback and
+the initial usage observation are retained in
+`~/.cache/codex/acceptance/independence-review-20261025/`.
+
+### Chat-first source audit and Codex supplementation — in progress
+
+Repeated shutdown investigation: mobile ADB now supplies a system exit record
+for `com.termux` PID31170 at2026-10-26 11:21:06.316 KST, reason3
+`LOW_MEMORY`. Android's configured timezone is `Asia/Seoul`. The resumed build's
+last observation was11:21:04.880589 KST, about1.435 seconds earlier; its supervisor
+and compiler subsequently disappeared without an exit receipt. This links that
+interruption to an Android-recorded low-memory Termux termination. The original
+user-supplied record and correlation remain in `user-adb-termux-exit-info.txt`
+and `source-admission-adb-exit-correlation.json`. It does not establish the cause
+of all earlier exits, a TUI leak, duplicate compilers, a fixed3GiB limit or the
+exact pressure/threshold that selected Termux. The reported77MB RSS is the last
+sample of the Termux app process, not the aggregate child/compiler usage or an
+exact death-time sample; see the [Android ApplicationExitInfo contract](https://developer.android.com/reference/android/app/ApplicationExitInfo).
+The detached status still said `running` despite both recorded PIDs being absent;
+`source-admission-native-tests-resumed-disappearance.json` preserves that fact.
+Termux itself could not read system exit-info; ADB supplied the missing boundary.
+The user requested one operation at a time. Provider regression/static/release
+checks and native restart qualification completed first. Then a single directly
+attached TUI test build completed normally (exit0,10m31s), with one compiler job,
+debug information disabled and incremental output disabled. Musl-loader-aware
+argument inspection found one TUI compiler and no overlapping Core/Provider/TUI
+compiler. Observed compiler VmHWM reached3219392KiB; this is compiler memory,
+not the running product TUI. This successful run mitigates build-time pressure
+but is not a guarantee against future system low-memory kills.
+The new executable lists5881 tests. All63 selected regressions passed, none
+failed/ignored (`source-admission-native-tests-current-focused.log`), including
+bound-input ordering/cancel/failure with retained attachments, disclosure, complete
+history, image preparation and TZif/local-time formatting. Exact new executable
+and inventory are retained outside the mutable compiler target.
+The initial Provider check with mismatched default debug settings was explicitly
+interrupted (exit130), not an unexplained exit; its log is retained separately
+and is not accepted validation.
+The2.7GiB observation belongs to Rust's TUI test compiler, not the running TUI.
+Read-only ownership inspection found one matching Core daemon with one loaded
+thread, three distinct tunnel destinations with separate child servers, and the
+ChatGPT application's own server. Stale PID files included reused PIDs; compare
+the actual executable before counting them as live owners. A62-second observation
+without another workload showed Provider/tunnel memory flat, Core PSS+swap about
+1.1MiB higher and the app-owned Codex server about0.6MiB higher. This does not
+establish or exclude a longer-running/request-driven leak. Original per-process
+samples and ownership evidence remain in `shutdown-*.json`; no live process was
+terminated during this inspection. The earlier local TUI compilation and Provider
+qualification overlapped, increasing build-time resource load independently of
+whether the product has a leak.
+
+The resumed native compiler completed code generation and returned exit101 with
+missing Zig UBSan runtime symbols at link time; that run was not an unexplained
+process disappearance. The isolated linker now includes the unmodified UBSan
+runtime built from pinned Zig0.14.0, retaining its checks. This is a development
+host-tool correction, not a product workaround or native TUI acceptance. Original
+failure and monitored process status are `progress-tui-monitored-build.*`.
+The native TUI test executable subsequently linked successfully with the pinned
+Zig UBSan and compiler runtimes. Actual renderer disclosure/mouse expansion and
+TZif child tests passed; the long full-history test passed with the existing CI
+`CODEX_PROFILE_CORE=''` environment and an8MiB test-thread stack. Its earlier
+2MiB test-thread stack overflow remains recorded; no product guard or assertion
+was removed. Evidence is `progress-native-render-disclosure.log`,
+`progress-native-timezone.log`, `progress-native-complete-history-ci-env.log` and
+`progress-tui-complete-runtime-link.log`. These focused tests do not establish
+signed release acceptance. The complete native CLI subsequently built successfully
+under a detached supervisor: `progress-native-cli-resumed-status.json` records
+exit0. The earlier CLI build lost its tool session and process
+without a recorded exit status; do not relabel it as OOM or a compiler error.
+The complete Provider gate passed195 Rust tests (30 explicitly armed device/live
+tests remain ignored by that source gate), clippy with warnings denied, release
+build, Bun and Python checks. Actual Android operator qualification passed both
+entrance continuity, original tool-result retry, Stop/restart and failure paths.
+Its selected-control batch also proved1000-call budget extension preserves the
+original start and1 consumed call, with no Chat inference. Evidence is
+`bound-chat-resumed-provider-gate.log`, `resumed-native-operator.json` and
+`resumed-native-budget-controls.json`. Original Chat source-editor usage remains
+91/1000; the budget proof's1 call is a separate disposable assignment.
+
+The original completed16-file Chat candidate and root's preceding diff are
+preserved in the private independence-review evidence directory. Codex imported
+the candidate for supplementation, not release admission. Its public JSON
+checkpoint had no format identity, rejected its own valid encoding in a test,
+and coupled ACK with full reimport while dropping continuation policy recovery.
+The environment projection and test disagreed; a constant-false visibility helper
+also changed account/new-input identity. The model-downshift test replaced a
+supported outcome with rejection, and unrelated-thread handoff checks were removed.
+
+Supplemented source uses a namespaced, versioned public JSON continuation record:
+`format=codex-chatgpt-public-continuation`, version1 and nonempty summary. Unknown,
+duplicate, foreign and unsupported fields/versions are refused, while whitespace
+and key ordering are ordinary JSON. The official Codex Compaction string field is
+preserved; this is neither OpenAI-encrypted context nor issuer authentication.
+The private offered-checkpoint journal owns ACK admission. ACK commits the native
+cursor past the resident summary once, keeps the Chat and reasserts ordinary
+policy/tools. Source metadata controls environment/handoff presentation; user
+text never acquires developer authority. Public user/assistant/tool prefix
+integrity remains checked while native developer/environment updates are admitted
+and forwarded separately. Ordinary user wrappers cannot select models. Real native injection/re-entry
+exposed a further blocker in the Chat candidate: Codex removes internal source
+metadata before sending to a third-party Provider. Requiring the handoff kind
+therefore fails with opaque_context_unavailable despite passing pure tests.
+The wire evidence and failed probe remain under pc-c9006df2 in TMPDIR.
+
+Issuance now authenticates the complete public handoff and its native message
+ID using domain-separated HMAC with the existing private journal owner. This
+survives the actual metadata-stripping boundary. A public self-hash is removed;
+only an issued exact message can supply foreign-history projection or the
+necessary old-model compactor route. Copied text/new message ID, changed route,
+other owner and unissued wrappers fail verification without role elevation.
+CLI initialization may create only the existing owner marker, with no host/login
+or second history. Issuance reads that owner while a live service holds its writer
+lease. TUI uses the auth definition's exact state; production Service admission
+uses that journal's owner, and Request carries only verified public data, never
+the secret. Actual Android native handoff, native-model↔Chat-provider round-trip,
+fork, warm/cold child resume and nested fork passed using synthetic Chat replies
+and the installed runtime. They start no real Chat inference. Production CLI
+checkpoint→HTTP Service admission also passed with internal metadata absent;
+changing the issued native ID fails admission. Removing MAC verification or the
+production runtime's issuer wiring makes the targeted regressions fail. Original
+native records and fault results remain in the evidence directory.
+
+A further caller defect was found while auditing completeness: upstream
+`thread_read(includeTurns=true)` hydrates only bounded display history for
+paginated threads. The TUI handoff now has a separate complete-public-history
+operation using ascending Full-detail turn pages, with cursor/duplicate-turn
+failure detection. Both initial and pre-injection confirmation reads use it.
+Provider issuance rejects explicit Summary/NotLoaded views, preserving the
+legacy Full default. Removing that admission check fails its regression. The
+actual native long-paginated-history test now checks all256 ordered fixture
+items through the new operation. Final source assembly against pristine pinned
+upstream succeeds. The current native producer/test passed all256 ordered items
+in the combined TZ/reverse-entry batch, with the exact harness environment and
+stack settings recorded below; the earlier small handoff probes have narrower scope.
+
+Caller review also rejected an engine patch in optional TUI, which does not
+produce the actual daemon request, and a current-thread selection lookup, whose
+fields are explicitly not per-request telemetry. Their plumbing is removed;
+their discarded draft is retained privately for review evidence.
+
+
+Package verification now derives the exact allowed inventory from the parsed
+signed manifest: new six-file packages omit the retired adapter and upstream
+summary-template notices. Immutable eight-file rollback packages still require
+all eight assets; the installed generations inspected all use that layout.
+The obsolete bridge-patch whitespace attribute was removed with its retired
+consumer. No historical release is edited.
+
+A further originality audit found that the copied upstream summary preamble was
+used at runtime for text-compaction acknowledgment, despite the earlier notice
+calling it a fixture. That runtime/template dependency is now removed. Text
+compaction produces the complete unchanged model summary with a Provider-owned
+versioned round marker; native Core owns any additional preamble. The context
+codec creates the same typed checkpoint response for AppHost and operator entry,
+checks the exact issued body at a native message boundary and rejects an old
+round, modified summary or unchanged history. Only compaction control output is
+buffered; ordinary answer/tool streaming remains unchanged. The source template
+and its Provider-only notice/license are removed from new packages; installed
+and historical signed eight-file packages remain intact. Library checks pass122 cases with2 armed ignores; the full Provider Rust suite
+passes200 reported cases (including its self-spawned child), with30 explicitly
+armed ignores. Actual native manual text compaction and remote V2 checkpoint
+both passed on the installed manifest-matched runtime: each uses three synthetic
+model requests, commits once, preserves the same thread and continues without
+reimporting the resident summary (`owned-text-native-compaction-results.json`).
+The text trace contains one complete summary with its issued marker; the V2
+trace preserves the exact public JSON item. The first attempt used an unadapted
+TUI binary and failed configuration before any model request; its log and fixture
+are retained separately, not counted as product proof. Python publication and
+candidate gates passed7+6 cases. The Core workspace tests and warnings-denied
+Clippy gate now pass. This also corrected a stale literal seven-file count by
+deriving accepted counts from the authoritative inventories. The current Core
+passed374 workspace tests plus its separately armed real-Termux read-only launch
+smoke. Actual native automatic and interrupted compaction also passed: partial
+interrupted summaries never commit, and the same thread recovers. Removing the
+issued marker in disposable producer source made actual native continuation fail
+with `native_context_prefix_changed`; that source was restored
+(`owned-text-native-producer-mutation.json`).
+The actual MCP and local operator paths passed with the current Core/Provider and
+the real CLI synchronization consumer (`owned-text-native-operator.json` and
+`owned-text-native-local-operator.json`). The latest combined continuity proof
+(`owned-text-native-continuity.json`, fixture `$TMPDIR/ct-cg50xfpo`) passed5 external
+inputs and7 native turns, one actual native effect with retained retry, source
+admission before a new native draft, Provider restart on the same saved Chat,
+rotated local controller, Stop and live/resumed mouse disclosure. It made2 primary
+submissions and reinferred no saved answer. Saved Chat and host Stop are synthetic;
+ordinary Android/browser input and actual ChatGPT server Stop remain unqualified.
+Disposable signed package acceptance passed Base/Full installation, local and
+owned-TLS remote delivery, authenticated stable-index update and rollback
+(`owned-text-provider-package.json`). The fixture now copies the admitted
+generation's launcher mode, and download verification derives the complete exact
+asset set from its signed manifest instead of assuming the old package size.
+Earlier fixture failures are retained separately. No live install has changed.
+The final optimized Provider build and all-targets warnings-denied Clippy passed
+(`resumed-final-provider-static-release.log`). The current JavaScript gate passed89
+cases and Python gates passed224 cases across18/113/11/6/76 suites, including
+publication, frontend source assembly and qualification inputs
+(`resumed-final-js-python.log`). The embedded-asset inventory regression now uses
+the active native model JSON rather than the removed summary template; it retains
+the same generated-target exclusion and complete-asset assertions.
+Current source/diff and the optimized executable are preserved outside mutable
+targets. Manifest-matched inactive fixtures reclaimed7.268GiB with verified
+compressed restore objects and `resumed-final-cleanup-*.jsonl`; original native
+histories, source, screen frames and results remain. Reusable Core/Provider/TUI
+compiler caches total about13.3GiB, below the15GiB development budget. The unknown
+pre-existing `providers/chatgpt/target` was preserved.
+
+The existing settled current-reasoning claim can now increase total native-call
+and elapsed budgets while retaining concurrency/app caps, original start and
+consumed calls. Child extension also checks the parent's native-call allowance.
+Its Android operator qualification now passed the explicit1000-call extension
+with the actual native consumer: the same thread, original start and1 previously
+admitted call were retained. This disposable assignment is separate from the
+source-editor work's91/1000 usage. Managed host-ledger extension
+remains rejected. No live budget journal was edited.
+
+The connector refresh gate previously checked names only. It now compares actual
+live MCP `inputSchema` against registered action `params`, including queue enums
+and context cursors, and refuses readiness on disagreement. Historical registered
+metadata already includes context_cursor in some records, while the web exposed
+schema omitted it: do not collapse registered metadata, live tools/list and the
+model's cached schema into one observation. Actual refreshed web use remains to
+be qualified after combined delivery; no live connector has been refreshed here.
+Read-only resumption checks find the existing default Provider and app host live
+and ready, with no saved-read failure. Its actual local MCP catalog has17 tools
+and includes `queue`, but not the new `synchronize` action: this is the existing
+installed service, not activation of the qualified candidate. The pending Android
+trial's separate Provider now reports `stale_process_owner`; no model request or
+old prompt was replayed. The user confirmed only the Codex login changed; the
+Android ChatGPT account remains unchanged. A new isolated current-source trial
+in `$TMPDIR/ca-e9ma06cq` verified that same app identity and completed one actual
+native→ChatGPT→native answer. The user's actual Android input then entered that
+same native history and live TUI, and its native follow-up completed in the same
+saved Chat/thread. All3 complete original answers match saved-source readback;
+the2 candidate primary submissions plus1 Android submission generated exactly3
+turns, with no reinference or native tool execution. Per-turn records retain
+GPT-6/none throughout. Evidence is `resumed-actual-android-continuity.json` and the
+retained fixture. The original driver's final read hit429 after all3 turns had
+completed; a later read reconciled that assertion without resending any input.
+Its original failed aggregate result remains separate from the verified result.
+The new host reuses access/ID credentials only,
+with an empty required refresh-token field and no copied browser profile.
+Initial trial setup omitted that required empty field and used a Provider
+installation root different from the TUI's root. Those fixture errors were
+corrected; the latter failed with `native_thread_owner_unavailable` before any
+app dispatch, and its original native record remains. No history was rewritten
+or failed source prompt retransmitted. One trial-service Stop exceeded its15s
+confirmation bound; later pidfd/syscall observation confirmed that owner's exit.
+Termux Bridge tools are not exposed in this Codex turn;
+local catalog success does not establish external connector/schema readiness.
+
+Actual Android import latency remains material: its saved assistant message's
+creation timestamp precedes native completion by450.3 seconds. This is not an
+exact server-completion timestamp. Repeated HTTP429 saved-read cooldowns were
+observed; source inspection found a second GET during `follow_settle` after the
+same answer had already been read successfully. A rate-limiting fixture makes
+that second GET block completion despite the complete source answer. Source now
+retains one transient raw snapshot per observing app lane, consumes it only when
+the current account/scope, lane/round, final ID and entire final body match, and
+releases it on settlement, Stop or a new round. Missing/mismatched snapshots use
+the existing paced read and reject changed final text. The Rust consumer supplies
+the complete final body already retained in its public projection. This adds no
+model request, source text change or persistent secondary history.
+The boundary tests also exposed stale renderer-scope admission across an account
+switch; settlement now validates the currently selected scope before hydration.
+The complete JavaScript suite passes92 cases; the Provider suite passed200 reported
+cases with30 explicitly armed ignores, all-targets Clippy with warnings denied
+and the optimized build passed (`source-settlement-provider-gate.log`). Disposable
+faults restoring the duplicate GET, accepting changed text, reusing an earlier
+round or ignoring the current app account each failed the source/SDK boundary
+tests. Omitting the final body from the Rust producer also failed the real
+AppHost/McpBridge exchange; all isolated sources were restored, with no live
+source mutation (`source-settlement-*-mutation*.json` and retained fault logs).
+The new Provider then replaced only the completed owned trial service, reusing
+its state/endpoint and all3 existing native turns. A separate actual app SDK input
+and native follow-up passed in the same Chat/thread, producing turns4/5 with
+exactly2 additional model requests and no source-answer reinference. All5 complete
+saved-source finals match canonical native history, and per-turn GPT-6/none is
+unchanged (`source-settlement-real-continuity.json`). The original actual Android
+trial is retained; this supplementary stage used an SDK caller, not a second
+physical Android submission. The previous immutable auth CLI remains the actual
+consumer of the same rotated listener credential; its protocol is unchanged.
+These
+findings do not establish that every429 is caused by this duplicate GET or reveal
+the upstream's account-wide rate threshold. No operating installation changed.
+The supplementary SDK input's original result was also confirmed complete
+without retransmission. Both owned trial services were stopped only after their
+work completed; the final teardown observed no loaded native threads and then
+confirmed both isolated runtime exits through pinned kernel handles. It did not
+query background-job pages for an unloaded thread; the qualified histories record
+zero native tool effects. `post-proof-teardown.json` preserves that distinction.
+The trial's manifest-matched payloads were archived with verified restore objects
+through `scripts/clean_development.py`; original Android/SDK/native histories,
+source and failure records remain (`source-settlement-fixture-cleanup.jsonl`).
+Compiler caches remain about13.3GiB; the unowned pre-existing Provider target
+remains untouched. Current source/diff and optimized executables are retained
+outside mutable compiler outputs. The trial TUI and its polling host are now
+closed; this result does not activate the user's operating installation.
+
+Automatic bound-Chat reverse propagation and same-source duplicate display are
+implemented and qualified on actual native Core/TUI/Provider with synthetic saved
+Chat. Each external input receives its own native turn and fresh tool authority;
+the source fixture includes active native execution, not just completed text
+import. Actual ordinary Android/browser input after the429 correction, current
+connector tool routing and public exact-source delivery remain open. The combined
+native runtime has been built and exercised in disposable roots, with no live
+installation, activation or publication.
+
+Current audit evidence includes the green workspace full gate, ordinary Provider
+Rust suite and clippy, Bun bridge/schema tests and affected Python checks. The
+latest focused handoff7 tests, real CLI/Service issuer admission and frontend11
+Python tests pass; the current ordinary Provider suite has200 reported passes
+(including its self-spawned child) and30 explicit
+device/live ignores. The final current-source Android native-model/Chat-provider
+round-trip also passed with synthetic replies. Targeted faults are exercised in
+disposable source only. `audit-batch-result.json` and the reviewed full source
+diff are retained; owned partial assembly and fault sources were reclaimed.
+Do not present synthetic Chat replies, source assembly, schema readiness checks
+or issued-handoff model round-trips as actual external-web reverse propagation,
+refreshed web queue use or signed delivery.
+
 ### Bound ChatGPT follow-ups and Codex re-entry — next runtime repair
+
+The completed source batch reported91/1000 native calls; the canonical work
+journal confirms91 calls, completed phase and0 pending calls. Completion had not
+been configured to notify the original Codex receiver through its queue.
+The user's actual web-Chat queue test now proves a separate capability exposure
+defect: its `codex_sessions` action enum rejects `queue` before server dispatch,
+and its advertised claim arguments omit the server-required `context_cursor`.
+Both failures happened before enqueue. Fix the server/registered web schema
+agreement at its producer/registration boundary; do not weaken the server's
+ownership or cursor validation. Include this in the entrance-continuity repair.
+
+The same exact notification and stable call ID were then enqueued through the
+installed local CLI to original TUI thread `01a16d35-ed95-78a0-b268-344263df33e5`
+in the explicit szob execution home. Receipt
+`01a1718e-0e9a-7793-a5b7-e2fde3e9e18a` confirms queued delivery. The notification was subsequently received as a new
+user turn and independently found as the same exact text in the target native
+canonical transcript at2026-10-25T05:37:50.639Z, turn
+`01a17190-b1f1-7070-994b-bca208937d5f`. Local CLI→queue→Codex consumption is
+qualified for this receiver; physical screen display was not observed. The
+web-schema failure and automatic bound-Chat reverse entry remain distinct. Do not
+resend the consumed notification. `queue-test-summary.json` and the original web
+schema error, local receipt and candidate review remain in the evidence directory
+above. No source repair, build, installation or service restart was performed by
+this queue experiment.
 
 Reported native thread `01a170ac-abaa-7e42-8346-742c32ebfaea` is linked to saved
 Chat `6add5bed-5598-83e8-8e39-a6dd4123e9a1`. Four Codex-origin GPT-6/xhigh
@@ -44,16 +428,23 @@ streams through. AppHost exchanges observe their own native requests, not an idl
 subscription to all later inputs in the bound Chat. Existing saved-chat input,
 queue and takeover controls are distinct explicit operations. Add continuation
 for the already-bound conversation while preserving unrelated ordinary Chats.
+The user confirmed the direct entrance is an ordinary web browser or ChatGPT
+Android app, not the wrapper's hosted renderer. A renderer-only send hook cannot
+repair that entrance. Installed SDK inspection confirms its prepare operation
+also runs for unsent drafts, and existing-stream resume is separate from a new
+completion (`/f/conversation/resume`, conversation_id and offset). Saved-source
+observation and correlation to the same native owner must cover the external
+client; SDK method existence alone does not qualify the continuation or tool lease.
 
 Implementation direction: keep one verified native thread/work/conversation and
 controller binding across entrances. Observe actual bound-Chat input/public output,
 refresh per-turn native tool authority, and reconcile it through the native owner
 without another primary model call, new work or replay of completed tools. Use
-Core-owned history APIs rather than editing session DB/rollout files. Existing
-`thread/inject_items` is a candidate for history-only append, not a complete UI
-solution: upstream currently publishes raw-item notifications which the TUI
-ignores. Qualify native persistence, live item/turn projection and subsequent
-request context together; add the minimal frontend/event integration required.
+Core-owned history APIs rather than editing session DB/rollout files. The current
+source uses native queue admission and verifies the consumed user item's
+clientId/turn before observing the existing saved answer; raw-item injection
+alone cannot provide live TUI turn projection. Qualify native persistence, live
+item/turn projection and subsequent request context together.
 Use stable source-message identity and acknowledged cursors for deduplication and
 lost-receipt reconciliation. Update app/native context cursors only for verified
 commits so imported source turns are not echoed back to Chat. Preserve prefix,
@@ -77,6 +468,243 @@ virtual rounds, reconnect, replay and reload before choosing the exact display
 mechanism. Do not fix repetition by dropping the final body, showing only its
 suffix, or changing canonical history to a lossy summary.
 
+The user selected option1: show progress and tools in source order while running;
+after receiving the complete final, fold only progress from that exact source
+message, with its full text available to expand. Keep the entire final visible
+and independent reports/tool results in place. Preserve response fidelity and
+completeness: change only
+presentation, not prompts, model/effort, generation, model-visible context or
+canonical records. Do not summarize, trim the final, request another answer or
+merge messages by text similarity. Group only verified identical source-message
+identity, keep distinct reports/tools available, and verify full final content
+plus live/reloaded display. This selection does not suspend the separate
+reverse-entry repair.
+
+Native TUI qualification advanced: the actual musl test executable passed its
+real renderer/mouse disclosure regression (same-source progress only, expand to
+original code, complete final/independent report/tool preservation), the actual
+timestamp formatter with KST TZif and New York DST in fresh children, and complete
+public-history pagination with256 ordered entries. The latter first exposed the
+unoptimized test harness's2MiB stack limit and an inherited live-profile Core
+entry flag; it passed with an8MiB test stack and the workflow's existing empty
+`CODEX_PROFILE_CORE`, without altering product permission checks or assertions.
+Logs are
+`progress-native-render-disclosure.log`, `progress-native-timezone.log` and
+`progress-native-complete-history-ci-env.log` in the existing evidence directory.
+Removing physical-source separation in disposable Provider source made the
+regression select an independent report for folding and fail. The original
+source was restored; fault diff/output remain in
+`progress-false-source-identity-fault.*`. No model text or prompts were altered.
+
+The complete native CLI and actual Provider journal CLI now passed live and
+resumed owned-screen disclosure, including real PTY mouse input. Folded progress
+occupies its original position; expanding reveals its original text, with the
+complete final, independent report and native command/result still visible.
+Native canonical history is unchanged before/after TUI resume. The source
+fixture now prepares its profile in the same canonical registry as public
+`prepare`; the former arbitrary registry was rejected by the TUI's existing
+symlink check. The driver waits for a loaded native thread and rendered draft
+before Enter, avoiding startup/paste coalescing rather than retrying input.
+
+`progress-live-disclosure-ready.json` used an older retained Core executable:
+its UTC timestamps exposed that input mismatch. Preserve that result's narrower
+scope. `next-proof-core-current` was then rebuilt from the current source;
+`progress-combined-current-core.json` passed the full source fixture with it:
+5 external inputs,7 native turns, one actual tool effect, retained receipt retry,
+native reentry, Stop and live/resumed mouse disclosure, with2 primary submissions
+and zero reinference of saved answers. Actual runtime and TUI child environments
+both referenced the same valid Seoul TZif; the screen displayed23:36 KST.
+Child observation is `progress-combined-tzif-child-observation.json`; original
+native records and folded/expanded frames remain in its named disposable root.
+These are native product execution with synthetic saved Chat input, not actual
+browser/Android Chat input or physical touchscreen observation. Inline physical
+terminal scrollback is retained; the folding proof covers the owned viewport.
+
+Actual-server qualification then used a disposable authenticated host, current
+Core and the new native CLI in `$TMPDIR/cw-srka4brz`. Original user state was not
+activated or replaced. The original host refused Stop because3 native works
+require reconciliation; its empty renderer lane list is not sufficient to stop
+that owner. Preserve it. The disposable host reused valid access/ID tokens only,
+without copying the refresh token; the original host/account remained available.
+Native → a separate app SDK input → native passed in one saved Chat/thread:
+3 saved user/assistant pairs,2 candidate primary dispatches, no saved-answer
+reinference and no native tool execution. Its native history/source comparisons
+and `real-continuity-result.json` remain in that root. A CLI spelling mistake
+was rejected locally before the SDK input; no model request was resent.
+
+The user then entered the supplied fourth prompt through the Android app. Its
+original successful answer exists in saved Chat and its user input was consumed
+by native turn4, but native output failed with `app_round_identity_unconfirmed`.
+Saved-read429 occurred684ms after native turn admission. McpBridge read the saved
+source before recording its new round; a failed read left the previous round
+authoritative, and common recovery relabeled that failure as identity loss.
+Injecting one429 reproduced that exact error. This is a confirmed cause for the
+bounded Android failure, not a diagnosis of the older unexplained process exits.
+No fifth/native-followup model request was sent. Preserve the4-request source,
+failed native turn and `android-failure-correlation.json`; no source message was
+resent, native history edited or original work stopped to conceal the failure.
+
+The source fix prepares/persists the source round before retrieval and keeps
+the previous discovery capability private until source revalidation succeeds.
+Cooldown therefore retains the same round; Stop fences both pending discovery
+and execution. The existing complete-answer/reentry regression now injects429,
+waits through backoff and proves discovery is unavailable until source validation.
+A separate active-source Stop regression proves pending discovery wakes fenced
+without another primary request. Both pass. Common observer exhaustion now
+retains its originating static transport code instead of a generic wrapper.
+Logs are `actual-android-429-regression-before.log`,
+`actual-android-429-regression-source-lease.log` and
+`actual-android-429-stop-regression-fixed.log` in the existing evidence directory.
+Affected Rust tests passed196 with30 explicitly armed tests ignored by that source
+gate; clippy with warnings denied and release build passed. Disposable mutations
+reintroducing the early read and omitting the pending-discovery Stop fence each
+failed their targeted regression (`source429-mutation-results.json`). Actual
+current-Core/new-TUI/Provider execution passed5 external inputs/7 turns, one actual
+native effect, receipt retry, Stop and live/resumed disclosure with synthetic source
+(`source429-native-continuity.json`). Archived `next-proof-provider-source429` and
+its service executable own that exact source scope. Later synchronization work
+below requires its own qualification.
+A fresh actual-server test in `$TMPDIR/cf-_zgv56er` completed its first native
+request once, using Chat6ade2a38-cb14-83ee-bb06-13740001855c. The requested second
+Android marker has not been confirmed; retain that same Chat/thread rather than
+repeating the first prompt. Its pending observation is not successful app proof.
+Two disposable service
+Stops exceeded the15s confirmation bound and exited later; this is retained as
+an observation/teardown boundary, not forced termination or an OOM diagnosis.
+
+A separate native admission defect is confirmed in `source429-overlap-diagnostic.log`:
+typing a new native question while a saved external reply is active admits the
+new user before the original final, causing `native_context_prefix_changed`.
+The stronger producer-to-consumer qualification rejects the previous client at
+that earlier admission boundary (`source-admission-old-client-red.log`, fixture
+`$TMPDIR/ct-5rhtptkv`), even with the corrected429 Provider. Do not weaken prefix
+checks, reset history, truncate finals or reinfer them to conceal this defect.
+Provider now owns the one-shot `codex_sessions synchronize` source observation
+and queues only existing saved inputs. The saved-source lane owns external-turn origin before
+native queue admission and retains it through actual native completion; Operator
+reads that existing journal instead of duplicating origin in the strict work record. Ordinary
+native steering remains native behavior. A capable TUI waits before recording its
+new draft and reuses the existing image-input preparation lifecycle, now named
+input preparation, retaining attachments, mentions and cancellation. Source
+pending/read-backoff causes and retry timing come from Provider; hard failures
+restore the draft. Canceling that unadmitted draft does not interrupt the already
+admitted external turn. Local CLI discovery shares authenticated listener publication
+between production and the native fixture. A verified older tools/list action enum
+or exact older CLI rejection retains explicit legacy submission; other failures
+must not become success. Current source tests passed before the final admission
+rechecks; the final full checks passed. Actual native overlap execution passed in
+`source-admission-native-continuity.json` (`$TMPDIR/ct-c0v0yu3n`):5 external inputs,
+7 turns, one native effect and retained retry, exact original finals, delayed new
+native draft, subsequent native question, Stop and live/resumed mouse disclosure.
+It uses actual Core/TUI/Provider CLI but synthetic saved Chat input. The retired
+consumer failed that same admission contract. Fresh TUI compilation and all63
+affected unit tests now passed. The retained retired-consumer failure remains the
+actual native admission regression evidence.
+The detached native CLI build records process exit/resource samples in
+`source-admission-native-cli-status.json`; no installation or activation occurred.
+Latest Provider checks are `source-admission-tests-settled.log` (22 result groups,
+196 reported passes including the self-spawned child;30 explicitly armed ignored),
+`source-admission-clippy-settled.log` and `source-admission-release-settled.log`.
+The native driver now reaches the authenticated synchronization CLI rather than
+assuming a synthetic response. Final image preparation snapshots attachments
+before the source check, avoids an empty blocking image worker, and then waits
+before native admission. Its pristine assembly and compiler inputs match
+(`source-admission-pristine-assembly-snapshot-first.*`).
+The restart defect is confirmed: McpBridge's owner epoch changes at Provider
+construction, but the previous external-input check called that an account change
+and prevented the next native draft even on the same settled Chat. The original
+failure remains in `source-restart-same-account-regression.log`, with disposable
+source at `$TMPDIR/source-restart-review-8g_5607r`. Source now distinguishes owner
+generation from account identity, verifies the completed native turn/writer/jobs,
+and adopts the same saved Chat only after account/project/anchor validation.
+Old execution capabilities stay retired; only the bound discovery lineage is
+restored. Explicit Stop fences that lineage even before it enters the new live
+map. Startup restores observation of completed bound MCP work without launching
+Core or loading a thread; local CLI controller publication uses the same rotated
+private record as the live operator. Pending/unknown work stays fenced.
+Current Provider regression tests passed (197 reported passes, including the
+self-spawned child;30 explicitly armed ignored cases,22 result groups), and Clippy
+passed with warnings denied. Actual Android Core/TUI/Provider CLI restart
+qualification passed in `source-reattach-native-continuity.json` at
+`$TMPDIR/ct-0zdij3hi`: same saved Chat/native history, automatic external-source
+observation after service replacement, rotated local controller,5 external inputs,
+7 turns, one actual native effect with retained retry, delayed native draft,
+subsequent native question, Stop and live/resumed source disclosure. No saved
+answer was reinferred. The saved Chat and server Stop are synthetic; this does
+not qualify an ordinary Android/browser client or actual ChatGPT server Stop.
+The optimized Provider build passed (exit0). Final JavaScript tests passed89
+cases, and affected Provider/Python qualification checks passed6+76 cases.
+Disposable mutations that reactivated retired execution or bypassed the shared
+read policy both failed their targeted contracts; both isolated sources were
+restored (`source-reattach-mutation-results.json`). Actual native executable/input
+copies are retained before cache cleanup. The inactive accepted and missing-dependency fixtures reclaimed about2.65GiB
+of manifest-matched payloads through `scripts/clean_development.py`, with
+compressed restore objects and `source-reattach-fixture-cleanup.jsonl` plus
+`source-reattach-import-fixture-cleanup.jsonl`; source/native records remain.
+After TUI qualification, reusable compiler caches total about13.0GiB.
+This source is not installed or released. Ordinary Android/browser retake, actual
+connector tool routing and exact-source signed frontend/public delivery remain.
+The long-session audit confirmed that payload-cache eviction incorrectly removed
+source discovery authority, including an evicted settled predecessor. The new
+Broker registry separates current-owner discovery admission from bounded payload
+retention, reads only retired source links from the existing private journal,
+and validates a reattached chain without loading every payload into memory.
+Fresh execution remains live-owner-only. Stop revokes cached/evicted discovery,
+retains pending durable revocations across a failed journal access, and retries
+that persistence without restoring authority. Individual stopped-token retirement
+uses the same lane revocation implementation. Close now reports persistence
+failures instead of swallowing them. A300-source-input/300-other-turn regression
+and a repaired-journal Stop retry reproduce both failures before correction;
+current library tests passed121 cases with2 explicitly armed ignores, and Clippy
+passed (`source-retention-*.log`). Both faults were reintroduced into disposable
+source and detected (`source-retention-mutation-results.json`). The subsequent
+full Provider suite and current combined native continuity passed with this
+registry and the compaction-origin correction (`owned-text-checkpoint-full-tests.log`
+and `owned-text-native-continuity.json`).
+Earlier incomplete fixture-asset copies that failed compilation are not product
+reproductions.
+The adoption GET now uses the existing shared account read policy instead of
+bypassing cooldown/in-flight exclusion and leaking raw request failures. Ordinary
+adoption and bound recovery share the same cause-specific401/403/404/429/5xx
+mapping and Retry-After behavior. `source-reattach-read-policy-red.log` records
+8 failures before correction; the corrected complete app-bridge file passes72
+cases in `source-reattach-read-policy-green.log`. This is a local fixture proof,
+not an actual ChatGPT request or Android retake.
+The native workflow now includes the affected input/image preparation, disclosure,
+timezone and complete-history regressions. The freshly built inventory lists5881 cases and confirms exactly63 selected
+cases, all passed, matching the workflow and release qualification count. The existing accepted frontend pin
+still names the older publication and must be replaced only through successful
+exact-source frontend qualification/publication before combined release admission.
+This pre-admission check does not claim an atomic transaction with an uncontrolled
+browser input arriving after the check. Restart reattachment and real connector
+tool routing also remain separate qualification boundaries.
+
+Provider source tests now cover a completed saved web answer entering the same
+lane without another primary request, exact-text reentry, distinct source IDs for
+identical prompts, and new per-turn discovery while old execution tokens remain
+retired. Existing source-read backoff is honored. These tests use synthetic saved
+Chat replies. The initial `scripts/qualify_provider_continuity.py` also passed on actual Android
+Core/runtime/TUI: two equal-text saved inputs with distinct source IDs, a third
+active response with one real native command, retained MCP result retry, complete
+source answers in canonical history/live TUI and a following native prompt all
+stayed on one native thread (five turns, two primary submissions). Actual Operator
+discovery initially bypassed the new common Broker readback; that caller is fixed
+and the native proof passed afterward. The saved Chat source remains synthetic;
+ordinary browser/Android Chat input and uncontrolled concurrent admission remain
+unqualified; subsequent same-Chat restart proof is recorded above. Evidence for
+this initial batch is `bound-chat-native-active-continuity.json` and its owned
+fixture under the existing independence-review directory.
+Do not describe reverse propagation as deployed or complete.
+
+The display implementation correlates physical source IDs in Provider state and
+reads them through a model-free CLI for TUI disclosure. The actual Android native
+runtime preserved all correlated IDs in canonical response items; complete finals,
+separate reports and tool execution also passed. Native renderer/disclosure tests
+passed in the isolated official musl compiler workspace; Android host-tool
+adaptation is not release acceptance. The subsequent input-preparation changes
+passed compilation and all63 affected tests in that same disposable workspace.
+Installed executables remain unchanged.
+
 Acceptance must exercise the user's actual existing-TUI/opened-Chat path:
 Codex→Chat→Codex, direct input in that bound Chat→same live Codex TUI/history→a
 successful Codex follow-up, repeated alternation with/without tools, unchanged
@@ -87,7 +715,7 @@ primary inference for importing an existing answer, and preserved model/effort,
 project/account/controller identity. Earlier Codex-only follow-up or explicit
 saved-chat-input proofs do not close this automatic reverse-entry boundary.
 
-### Timezone source batch — implemented, combined native qualification pending
+### Timezone source batch — native qualified, delivery pending
 
 The same conversation's TZ proposal is implemented in source: Core supplies
 Android timezone data to the musl runtime; existing Local-based TUI formatting
@@ -137,10 +765,22 @@ preserving the mutation log. The pre-existing untracked Provider target is untou
 The complete native patch assembled from pristine pinned inputs and the changed
 resume-picker source was formatted. Its new real-formatter regression covers a
 TZif date rollover and New York DST rollback in isolated processes, and is
-required by the native feature gate; that test and its mutation have not executed
-yet. The expanded-details test now derives local timestamps while retaining its
-metadata checks. Full workspace/provider gates, musl frontend build, installed
-`/status`/resume display, signing and delivery remain for the combined batch.
+required by the native feature gate. That formatter test now passed in actual
+musl execution and in the fresh63-case focused gate; the Core launch mutation
+above detects missing timezone delivery. The expanded-details test derives local
+timestamps while retaining its metadata checks. The current full Core/Provider
+gates, musl frontend build and disposable combined same-TZif KST display passed.
+The formatter-specific mutation now also passed: its exact production formatter
+and existing child-process test were extracted into disposable source and run
+with the same musl compiler/dependencies. The unchanged producer passed; replacing
+Local with UTC failed the Seoul rollover expectation (exit101), then the isolated
+source was restored. This narrow proof does not rebuild the whole TUI; that
+producer's full-TUI test passed above. Evidence is
+`resumed-picker-timezone-mutation.json` and its baseline/fault logs. The initial
+harness omitted an imported clock-test dependency; that compilation failure was
+retained separately and corrected without modifying product or test assertions.
+Installed `/status`/resume observation, exact-source release qualification,
+signing and delivery remain separate work.
 
 ### Later: common Provider with transport-specific responsibility
 

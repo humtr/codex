@@ -38,7 +38,7 @@ class ProviderPublicationTests(unittest.TestCase):
         self.manifest = ('codex-provider-payload-v1\nprovider\tchatgpt\ngeneration_id\tchatgpt-test-1\nrelease_sequence\t1\n'
                          'source\t' + 'a' * 40 + '\nsource_inputs_sha256\t' + hashlib.sha256(b'x' * 64).hexdigest() +
                          '\ntarget\taarch64-linux-android\ncore_api\tprovider-payload-v1\ndependencies\t' + p.DEPENDENCIES +
-                         '\nfile_count\t8\n' + '\n'.join(entries) + '\n')
+                         f'\nfile_count\t{len(p.FILES)}\n' + '\n'.join(entries) + '\n')
         (self.package / 'payload.manifest').write_text(self.manifest)
         subprocess.run([self.openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', self.private,
                         '-in', self.package / 'payload.manifest', '-out', self.package / 'payload.sig'], check=True, capture_output=True)
@@ -47,13 +47,46 @@ class ProviderPublicationTests(unittest.TestCase):
         self.assertEqual(p.verify(self.package, self.public, self.openssl)['generation_id'], 'chatgpt-test-1')
         assets = self.root / 'assets'
         p.export(self.package, assets, self.public, self.openssl)
-        self.assertEqual(len(list(assets.iterdir())), 10)
+        self.assertEqual(len(list(assets.iterdir())), len(p.FILES) + len(p.CONTROL))
         restored = self.root / 'restored'
         p.restore(assets, restored, self.public, self.openssl)
         self.assertEqual(p.verify(restored, self.public, self.openssl)['release_sequence'], '1')
         (assets / 'extra').write_text('extra')
         with self.assertRaises(ValueError):
             p.restore(assets, self.root / 'extra-restore', self.public, self.openssl)
+
+    def test_previous_signed_eight_file_layout_is_verifiable_for_rollback(self):
+        old_names = ('licenses/bridge-LICENSE', 'licenses/upstream-codex-LICENSE')
+        for name in old_names:
+            path = self.package / name
+            path.write_bytes(b'x' * 64)
+            path.chmod(0o644)
+        rows = [line for line in self.manifest.splitlines() if not line.startswith('file\t')]
+        rows[9] = 'file_count\t8'
+        historical = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider',
+                      'licenses/bridge-LICENSE', 'licenses/novnc-LICENSE.txt',
+                      'licenses/proot-LICENSE', 'licenses/upstream-codex-LICENSE',
+                      'source-inputs.json')
+        for name in historical:
+            mode = 0o755 if name == 'codex-chatgpt-provider' else 0o644
+            data = (self.package / name).read_bytes()
+            rows.append(f'file\t{name}\t{hashlib.sha256(data).hexdigest()}\t{len(data)}\t{mode:04o}')
+        old_manifest = '\n'.join(rows) + '\n'
+        (self.package / 'payload.manifest').write_text(old_manifest)
+        subprocess.run([self.openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', self.private,
+                        '-in', self.package / 'payload.manifest', '-out', self.package / 'payload.sig'],
+                       check=True, capture_output=True)
+        fields = p.verify(self.package, self.public, self.openssl)
+        self.assertEqual(fields['file_count'], '8')
+        assets = self.root / 'old-assets'
+        p.export(self.package, assets, self.public, self.openssl)
+        self.assertIn('licenses--bridge-LICENSE', {path.name for path in assets.iterdir()})
+        restored = self.root / 'old-restored'
+        p.restore(assets, restored, self.public, self.openssl)
+        self.assertEqual(p.verify(restored, self.public, self.openssl)['file_count'], '8')
+        (self.package / old_names[0]).unlink()
+        with self.assertRaises(ValueError):
+            p.verify(self.package, self.public, self.openssl)
 
     def test_unknown_authority_and_changed_signature_fail(self):
         other_private, other_public = self.root / 'other.pem', self.root / 'other-public.pem'

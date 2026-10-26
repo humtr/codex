@@ -21,6 +21,7 @@ import time
 import urllib.request
 
 from qualify_permission_lifecycle import fixture, server_paths
+from qualify_provider_operator import TOKEN, fixture_auth
 
 
 def probe(args):
@@ -34,10 +35,8 @@ def probe(args):
         (root / 'owned-fixture').touch()
         (root / 'local-function-fixture').touch()
         env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
-        token = 'owned-fixture-bearer-000000000000000000000000'
         auth = root / 'fixture-auth'
-        auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\nprintf %s ' + token + '\n')
-        auth.chmod(0o700)
+        fixture_auth(auth, args.provider_binary)
         with (root / 'provider-test.log').open('wb') as output:
             service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
                 'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
@@ -72,7 +71,7 @@ def probe(args):
             body = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
                 'params': {'name': name, 'arguments': arguments}}
             request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
-                data=json.dumps(body).encode(), headers={'Authorization': 'Bearer ' + token,
+                data=json.dumps(body).encode(), headers={'Authorization': 'Bearer ' + TOKEN,
                     'Content-Type': 'application/json'})
             with urllib.request.urlopen(request, timeout=15) as response:
                 result = json.load(response)['result']
@@ -219,5 +218,6 @@ if __name__ == '__main__':
     parser.add_argument('--core', type=Path, required=True)
     parser.add_argument('--frontend', type=Path, required=True)
     parser.add_argument('--service-test', type=Path, required=True)
+    parser.add_argument('--provider-binary', type=Path, help='actual Provider CLI used by the native client synchronization gate')
     parser.add_argument('--report', type=Path, required=True)
     probe(parser.parse_args())

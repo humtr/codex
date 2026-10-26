@@ -284,7 +284,7 @@ codex provider chatgpt prepare
 codex provider rollback chatgpt
 ```
 
-Install verifies an independent eight-file Android payload and its detached
+Install verifies an independent six-file Android payload and its detached
 Ed25519 manifest using Core's admitted update authority. It stages privately,
 checks every hash/size/mode and probes the executable without model work before
 selecting an immutable generation. Status reports selection, not app/login/model
@@ -297,6 +297,8 @@ lease or immutable executable blocks selection changes; the installer never stop
 jobs. Rollback retains the sequence high water and the previous admitted verifier
 key, including across later authority changes. Neither command deletes older
 payloads, downloads a desktop/rootfs, logs in or submits model work.
+Historical signed eight-file payloads remain accepted with their complete
+original inventories for rollback.
 
 The package lease can remain inherited by a native catalog daemon after Provider
 exits. Diagnose busy selection through kernel FD/lock ownership and actual loaded
@@ -317,7 +319,7 @@ direct binary remains usable for pinned profiles and owned services.
 Release producers use `codex-release-builder provider-package` with explicit
 binary/assets/source-input inventory, exact base commit, generation/sequence,
 private Ed25519 key, OpenSSL and absent output directory. The signed inventory
-contains the binary, Cargo.lock, NOTICE, four licenses and source-inputs.json;
+contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inputs.json;
 it excludes desktop software, credentials, conversations and user configuration.
 Local fixture signing and lifecycle evidence do not establish public delivery or
 authorize device activation. See [the package contract](../../SPEC.md#optional-provider-packaging-and-selection)
@@ -562,6 +564,15 @@ handoff and recovery require their source cursors. Later committed instructions
 return with the original MCP tool result. Input queued by upstream during an
 active turn becomes observable when upstream commits it on a subsequent round.
 
+Before a new native prompt, a compatible TUI uses `work synchronize --thread-id`
+to observe the bound saved Chat. Existing source input is queued once and its
+original answer is committed before the retained new draft is sent. The draft
+keeps attachments and mentions; cancel or a hard failure restores it. Waiting
+uses the Provider's actual saved-read backoff. The operation creates no Chat or
+primary model request. Older pinned protocols retain explicit legacy submission;
+transport failures do not silently bypass synchronization. See CURRENT for the
+qualified source, native and actual Android-client scopes.
+
 ## Configuration and commands
 
 The executable is `codex-chatgpt-provider`. The selected signed package exposes
@@ -779,21 +790,31 @@ project grouping establishes a free allowance or absent remote history.
 The existing adapter imports public native history on cold admission and sends
 needed deltas/results while warm; import is not itself model summarization. Native
 Codex requests inference-context compaction, ChatGPT supplies the summary through
-Provider, upstream commits its active-context replacement, then Provider retires
-and rebuilds the Chat lane. The original durable native history remains. There is
+Provider, and upstream commits its active-context replacement. The Provider
+acknowledges that replacement once, retains the owned Chat and restores normal
+policy/tools without resending the resident summary. The original durable native
+history remains. There is
 no independently verified Chat remaining-context sensor. This coupled lifecycle
 belongs to the model adapter; operator Chat renewal follows the
 [same-thread incremental handoff design](../../CURRENT.md#same-thread-continuity-and-chat-context-handoff).
 
 The existing adapter tracks warm-prefix deltas and native checkpoint acknowledgment.
 Summary policy/results are transient until upstream commits the offered checkpoint;
-identical summary text in unchanged old input is not acknowledgment. Public `ocx1:`
-checkpoints do not decode or share OpenAI's foreign opaque reasoning format.
+identical summary text in unchanged old input is not acknowledgment. The public
+checkpoint is JSON with `format=codex-chatgpt-public-continuation`, version1 and
+a nonempty summary. Whitespace and key order are insignificant; unknown/duplicate
+fields and unsupported versions are rejected. It neither decodes OpenAI's foreign
+opaque reasoning nor reads retired `ocx1:` records.
 Native compaction and model/hash transitions remain upstream lifecycle operations.
 
-`checkpoint --thread ID --from-model ID --model ID --effort EFFORT` reads a complete
-idle public snapshot from stdin and emits an external-context message. It starts no
-app/inference and writes no native history. TUI uses the upstream API to persist it,
+`checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH]`
+reads a complete settled public snapshot from stdin and emits an external-context
+message. TUI loads all Full-detail turn pages, independently of display limits;
+explicit Summary/NotLoaded snapshots are refused. The command starts no
+app/inference and writes no native history. It may initialize the private owner
+marker before first use. The existing owner authenticates this public message and
+its native ID because Codex strips internal metadata on the Provider wire. TUI
+passes its auth definition's exact state and uses the upstream API to persist it,
 preserving original history/thread and source readability. Same-thread or declared
 fork/parent lineage and current policy/later input are validated. Historical calls
 are quoted observations, never executable replay. A synthetic API/PTY handoff does

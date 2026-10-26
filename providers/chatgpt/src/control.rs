@@ -44,6 +44,9 @@ pub(crate) fn tools() -> Vec<Value> {
 }
 impl Controls {
     pub async fn call(&self, name: &str, args: Value, secrets: &[String]) -> Result<Value, Error> {
+        let mut redactions = secrets.to_vec();
+        redactions.push(self.journal.owner.clone());
+        let secrets = redactions.as_slice();
         crate::operator::validate_arguments(&tools(), name, &args)?;
         match name {
             "codex_projects" => {

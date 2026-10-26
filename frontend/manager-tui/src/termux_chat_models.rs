@@ -15,6 +15,145 @@ pub(crate) const PROVIDER: &str = "chatgpt_desktop";
 pub(crate) const REENTRY_MODE: &str = "CODEX_CHAT_MODEL_REENTRY";
 const BEGIN: &str = "# codex-chatgpt-provider generated v1\n";
 
+pub(crate) struct ProviderCommand {
+    pub binary: std::path::PathBuf,
+    pub state: std::path::PathBuf,
+}
+
+/// Use the installed auth definition's exact binary/state for local read-only
+/// presentation and public handoff operations, independently of the active model.
+pub(crate) fn installed_command(config: &Config) -> Option<ProviderCommand> {
+    let routing = installed_routing(config)?;
+    let auth = routing.get("model_providers")?.get(PROVIDER)?.get("auth")?;
+    let binary = std::path::PathBuf::from(auth.get("command")?.as_str()?);
+    let args = auth.get("args")?.as_array()?;
+    if args.len() != 3 || args[0].as_str() != Some("token") || args[1].as_str() != Some("--state") {
+        return None;
+    }
+    let state = std::path::PathBuf::from(args[2].as_str()?);
+    let metadata = std::fs::symlink_metadata(&binary).ok()?;
+    if !binary.is_absolute()
+        || !state.is_absolute()
+        || !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o022 != 0
+        || metadata.mode() & 0o111 == 0
+    {
+        return None;
+    }
+    Some(ProviderCommand { binary, state })
+}
+
+/// Observe existing source input before the native client records its new draft.
+/// Waiting follows the service's saved-read policy; it never resubmits inference.
+pub(crate) async fn synchronize_input(
+    provider: ProviderCommand,
+    thread: codex_protocol::ThreadId,
+) -> Result<(), String> {
+    use tokio::io::AsyncReadExt;
+    let thread = thread.to_string();
+    loop {
+        let mut child = tokio::process::Command::new(&provider.binary)
+            .args(["work", "synchronize", "--thread-id", &thread, "--state"])
+            .arg(&provider.state)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| format!("ChatGPT input synchronization unavailable: {error}"))?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or("ChatGPT synchronization stdout unavailable")?
+            .take(16385);
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or("ChatGPT synchronization stderr unavailable")?
+            .take(4097);
+        let mut output = Vec::new();
+        let mut errors = Vec::new();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            let (_, _, status) = tokio::try_join!(
+                stdout.read_to_end(&mut output),
+                stderr.read_to_end(&mut errors),
+                child.wait()
+            )?;
+            Ok::<_, std::io::Error>(status)
+        })
+        .await
+        .map_err(|_| "ChatGPT input synchronization timed out; draft retained")?
+        .map_err(|error| format!("ChatGPT input synchronization failed: {error}"))?;
+        if output.len() > 16384 || errors.len() > 4096 {
+            return Err(
+                "ChatGPT input synchronization response exceeded its limit; draft retained".into(),
+            );
+        }
+        // Older installed CLIs reject this action locally, before contacting a
+        // service. Only that exact protocol result retains legacy submission.
+        if status.code() == Some(2)
+            && output.is_empty()
+            && std::str::from_utf8(&errors).ok().map(str::trim)
+                == Some("codex-chatgpt-provider: unsupported work action")
+        {
+            tracing::warn!(
+                "Installed Provider lacks input synchronization; using its legacy protocol"
+            );
+            return Ok(());
+        }
+        if !status.success() {
+            let code = serde_json::from_slice::<serde_json::Value>(&output)
+                .ok()
+                .and_then(|value| {
+                    value["error"]
+                        .as_str()
+                        .or_else(|| value["error"]["code"].as_str())
+                        .map(str::to_owned)
+                })
+                .or_else(|| {
+                    std::str::from_utf8(&errors)
+                        .ok()
+                        .map(str::trim)
+                        .filter(|text| {
+                            !text.is_empty()
+                                && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                        })
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "provider_control_failed".into());
+            return Err(format!(
+                "ChatGPT input synchronization failed: {code}; draft retained"
+            ));
+        }
+        let value: serde_json::Value = serde_json::from_slice(&output)
+            .map_err(|_| "Invalid ChatGPT input synchronization response; draft retained")?;
+        if value["thread_id"] != thread || value["inference_submitted"] != false {
+            return Err("ChatGPT input synchronization identity mismatch; draft retained".into());
+        }
+        match value["status"].as_str() {
+            Some("ready") => return Ok(()),
+            Some("legacy") => {
+                tracing::warn!(
+                    "Running Provider service lacks input synchronization; using its legacy protocol"
+                );
+                return Ok(());
+            }
+            Some("waiting")
+                if value["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty()) =>
+            {
+                let seconds = value["retry_after_seconds"]
+                    .as_u64()
+                    .ok_or("ChatGPT input synchronization omitted retry timing; draft retained")?;
+                tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
+            }
+            _ => return Err("Invalid ChatGPT input synchronization status; draft retained".into()),
+        }
+    }
+}
+
 pub(crate) fn private_bytes(path: &Path, limit: u64) -> Option<Vec<u8>> {
     let mut file = File::options()
         .read(true)

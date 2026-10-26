@@ -6,6 +6,61 @@ import {pathToFileURL} from 'node:url';
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+test('an admitted external response is observed and hydrated without another model submission',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'bound',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'bound',round:'initial',messages:[{role:'user',text:'Initial native input'}]});await Promise.resolve();
+ f.draft='Preserve my unsent draft';
+ const text='Complete external answer, including its conclusion.';
+ const answer={id:'external-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:[text]}};
+ let served=false;
+ f.chatGet=async()=>{
+  if(served)throw Object.assign(Error('duplicate saved GET rate limited'),{responseStatus:429});
+  served=true;
+  return {conversation_id:'server-owned',gizmo_id:null,current_node:'external-final',mapping:{'external-final':{message:answer}}};
+ };
+ const source={op:'follow',owner:'owned',lane:'bound',round:'external',conversation_id:'server-owned'};
+ expect(await bridge(source)).toEqual({observing:true});
+ expect(await bridge(source)).toEqual({observing:true,reused:true});
+ const observing=await bridge({op:'snapshot',owner:'owned',lane:'bound'});
+ expect(observing.roundStarts).toBe(0);expect(observing.dispatches).toBe(1);expect(observing.terminals).toEqual([]);
+ expect(f.sent).toHaveLength(1);
+ await bridge({op:'chat_read',owner:'owned',conversation_id:'server-owned'});
+ await expect(bridge({op:'chat_list',owner:'owned'})).rejects.toThrow('app_chat_rate_limited');
+ await bridge({...source,op:'follow_settle',branch:'external-final',text});
+ expect(await bridge({...source,op:'follow_settle',branch:'external-final',text})).toEqual({settled:true,reused:true});
+ expect(f.hydrated.raw.mapping['external-final'].message.content.parts).toEqual([text]);
+ expect(f.hydrated.raw.current_node).toBe('external-final');expect(f.draft).toBe('Preserve my unsent draft');
+ await bridge({op:'submit',owner:'owned',lane:'bound',round:'next',messages:[{role:'user',text:'Next native input'}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(2);expect(f.submitOptions.conversationId).toBe('server-owned');expect(f.submitOptions.parentMessageId).toBe('external-final');
+ expect(f.sent.map(request=>request.messages.filter(message=>message.author.role==='user').map(message=>message.content.parts).flat()).flat()).toEqual(['Initial native input','Next native input']);
+}));
+for(const outcome of ['changed-final','new-round','changed-account'])test('source settlement fences its retained snapshot: '+outcome,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'bound',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'bound',round:'initial',messages:[{role:'user',text:'Native input'}]});await Promise.resolve();
+ let text='Original complete answer';
+ f.chatGet=async()=>({conversation_id:'server-owned',gizmo_id:null,current_node:'final',mapping:{final:{message:{id:'final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:[text]}}}}});
+ const source={owner:'owned',lane:'bound',round:'external',conversation_id:'server-owned'};
+ await bridge({...source,op:'follow'});
+ await bridge({op:'chat_read',owner:'owned',conversation_id:'server-owned'});
+ const settle={...source,op:'follow_settle',branch:'final',text};
+ let error;
+ if(outcome==='changed-final') {
+  text='Edited answer';await bridge({op:'chat_read',owner:'owned',conversation_id:'server-owned'});
+  error='app_chat_response_changed';
+ } else if(outcome==='new-round') {
+  settle.round='next-external';await bridge({...source,round:settle.round,op:'follow'});
+  f.chatGet=async()=>{throw Object.assign(Error('new source read rate limited'),{responseStatus:429});};
+  error='app_chat_rate_limited';
+ } else {
+  const scope=f.scope;
+  f.scope={...scope,get(node){return node.kind==='identity'?{authMethod:'chatgpt',accountId:'other',authenticatedAccountId:'other',userId:'other',authenticatedUserId:'other',accountStructure:'personal'}:scope.get(node);}};
+  error='app_account_changed';
+ }
+ await expect(bridge(settle)).rejects.toThrow(error);
+ expect(f.hydrated).toBeUndefined();expect(f.sent).toHaveLength(1);
+}));
 test('saved-Chat adoption preserves selected branch and draft without allocating a Chat',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  const raw={conversation_id:'old-chat',gizmo_id:null,current_node:'alternate',mapping:{selected:{message:{status:'finished_successfully'}},alternate:{message:{status:'finished_successfully'}}}};
@@ -25,6 +80,29 @@ test('saved-Chat adoption preserves selected branch and draft without allocating
  await bridge({op:'release',owner:'owned',lane:'input'});
  f.active=true;await expect(bridge({...adopt,lane:'busy'})).rejects.toThrow('app_chat_active_unowned');
  expect(f.sent).toHaveLength(1);expect(f.created).toBe(0);
+}));
+
+for(const outcome of ['bound-active','changed-branch','missing-assignment-ledger'])test('settled bound-source adoption preserves SDK ownership: '+outcome,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ f.draft='Full unsent draft';f.active=true;
+ const anchor={id:'anchor',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true};
+ f.chatGet=async()=>({conversation_id:'old-chat',gizmo_id:null,current_node:'progress',mapping:{
+  anchor:{parent:null,message:anchor},
+  user:{parent:outcome==='changed-branch'?'unrelated':'anchor',message:{id:'user',author:{role:'user'}}},
+  progress:{parent:'user',message:{id:'progress',author:{role:'assistant'},status:'in_progress'}}}});
+ const command={op:'chat_adopt',owner:'owned',lane:'reattached',nativeThread:'native-thread',
+  conversation_id:'old-chat',branch:'anchor',bound_source_anchor:'anchor',
+  source_counters:{dispatches:3,userMessages:3,toolMessages:0,hostReplyMessages:0},
+  identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'},
+  ...(outcome==='missing-assignment-ledger'?{limits:{maxDispatches:10,deadlineUnixMs:null}}:{})};
+ if(outcome==='changed-branch')await expect(bridge(command)).rejects.toThrow('bound_chat_branch_changed');
+ else if(outcome==='missing-assignment-ledger')await expect(bridge(command)).rejects.toThrow('assignment_app_ledger_unavailable');
+ else {
+  expect(await bridge(command)).toEqual({localId:'old-chat'});
+  expect(await bridge({op:'snapshot',owner:'owned',lane:'reattached'})).toMatchObject({serverId:'old-chat',dispatches:3,userMessages:3});
+  await bridge({op:'follow',owner:'owned',lane:'reattached',round:'new-source-round',conversation_id:'old-chat'});
+ }
+ expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);expect(f.draft).toBe('Full unsent draft');
 }));
 
 test('release cannot abandon a stream that is still active',async()=>fixture(async({f,bindings})=>{
@@ -725,11 +803,11 @@ test('an asynchronous app stream startup failure settles only its owned stream',
  expect((await bridge({op:'stop',owner:'owned',lane:'failure'})).stopped).toBe(false);
 }));
 
-for(const status of [401,403,404,429,500,503,null])test('saved read failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{
+for(const op of ['chat_read','chat_adopt'])for(const status of [401,403,404,429,500,503,null])test(op+' failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  f.chatGet=async()=>{throw Object.assign(Error('private request token must not escape'),{responseStatus:status});};
  const code=({401:'app_chat_auth_expired',403:'app_chat_forbidden',404:'app_chat_not_found',429:'app_chat_rate_limited'})[status]??([500,503].includes(status)?'app_chat_temporarily_unavailable':'app_chat_request_failed');
- await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow(code);
+ await expect(bridge({op,owner:'owned',lane:'reattached',conversation_id:'saved',branch:'anchor',bound_source_anchor:'anchor',source_counters:{dispatches:1,userMessages:1,toolMessages:0,hostReplyMessages:0},identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}})).rejects.toThrow(code);
  const host=await bridge({op:'host_status',owner:'owned'});
  expect(JSON.stringify(host)).not.toContain('private request token');
  if(![401,403,404].includes(status))expect(host.saved_read_failure).toMatchObject({code,http_status:status});
@@ -752,6 +830,7 @@ test('account cooldown suppresses repeated and cross-reader GETs, survives owner
   for(let n=0;n<50;n++)await expect(read()).rejects.toThrow('app_chat_rate_limited');
   await expect(bridge({op:'chat_list',owner:'owned'})).rejects.toThrow('app_chat_rate_limited');
   await expect(bridge({op:'chat_page',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_rate_limited');
+  await expect(bridge({op:'chat_adopt',owner:'owned',lane:'reattached',conversation_id:'saved',branch:'anchor',bound_source_anchor:'anchor',identity:{account:'account',user:'user',structure:'personal'}})).rejects.toThrow('app_chat_rate_limited');
   expect(calls).toBe(1);
   await bridge({op:'dispose',owner:'owned'});
   await expect(bridge({op:'chat_read',owner:'other-reader',readOnlyContext:true,bindings,conversation_id:'saved'})).rejects.toThrow('app_chat_rate_limited');

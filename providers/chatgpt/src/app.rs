@@ -16,6 +16,11 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 pub trait Bridge: Send + Sync + 'static {
+    /// Revoke a transport-owned discovery/execution lease without requesting
+    /// remote inference cancellation. Local functions have no separate lease.
+    fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
+        Box::pin(async { Ok(()) })
+    }
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>>;
     /// Read-only transport admission before common journal state is advanced.
     /// A known rejection is distinct from an uncertain dispatched operation.
@@ -31,7 +36,7 @@ pub(crate) struct Transport {
 }
 impl Bridge for Transport {
     fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
-        if command["op"] == "open" {
+        if matches!(command["op"].as_str(), Some("open" | "chat_adopt")) {
             command["returnPath"] = json!(match self.path {
                 crate::config::ReturnPath::Mcp => "mcp",
                 crate::config::ReturnPath::LocalFunction => "local_function",
@@ -197,7 +202,9 @@ impl Bridge for Remote {
                 command["bindings"] = bindings;
                 command["bridgeRevision"] = json!(context::digest(&include_str!("app_bridge.js")));
             }
-            if command["op"] == "open" && command.get("returnPath").is_none() {
+            if matches!(command["op"].as_str(), Some("open" | "chat_adopt"))
+                && command.get("returnPath").is_none()
+            {
                 command["returnPath"] = json!(if mcp { "mcp" } else { "local_function" });
             }
             if command["op"] == "approve_ui" {
@@ -267,7 +274,17 @@ pub(crate) fn valid_dispatches(snapshot: &Value) -> bool {
             None => return false,
         },
     };
-    matches!(replies.checked_add(1), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
+    let starts = match snapshot.get("sourceObservation") {
+        None => 1,
+        Some(source)
+            if serde_json::from_value::<crate::bound_chat::Input>(source.clone())
+                .is_ok_and(|source| source.validate().is_ok()) =>
+        {
+            0
+        }
+        Some(_) => return false,
+    };
+    matches!(replies.checked_add(starts), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
 }
 async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
     // Export only our own static bridge codes. Host exception text may include
@@ -313,12 +330,15 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_chat_rate_limited",
         "app_chat_read_pending",
         "app_chat_request_failed",
+        "bound_chat_branch_changed",
+        "assignment_app_ledger_unavailable",
         "app_scope_unavailable",
         "app_operation_not_read_only",
         "app_bindings_unavailable",
         "app_chat_input_unavailable",
         "app_chat_owned_work",
         "app_chat_active_unowned",
+        "app_chat_response_changed",
         "assignment_budget_invalid",
         "assignment_budget_changed",
         "assignment_app_budget_exhausted",
@@ -385,9 +405,8 @@ fn user_input_identity(request: &Request) -> String {
         &request
             .input
             .iter()
-            .filter(|v| v["role"] == "user")
+            .filter(|v| v["role"] == "user" && !context::context_only(v))
             .filter_map(|v| context::text(v).ok())
-            .filter(|s| !context::internal_visibility_hint(s))
             .collect::<Vec<_>>(),
     )
 }
@@ -414,6 +433,14 @@ struct Lane {
     confirmed: BTreeMap<String, String>,
     public: BTreeMap<String, (String, String)>,
     cached: Vec<Event>,
+    #[serde(default)]
+    presentation: crate::presentation::Sources,
+    #[serde(default)]
+    source_anchor: Option<String>,
+    #[serde(default)]
+    external: Option<External>,
+    #[serde(default)]
+    last_external_turn: Option<String>,
     user_messages: u64,
     tool_messages: u64,
     dispatches: u64,
@@ -430,6 +457,11 @@ struct Lane {
     previous_chats: Vec<String>,
     #[serde(default)]
     rejected: u8,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct External {
+    input: crate::bound_chat::Input,
+    native_turn: Option<String>,
 }
 
 /// Read-only, content-free last observation; not a fresh app progress query.
@@ -468,7 +500,38 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
         "chat_allowance_debits":"unknown","app_queried":false}),
     )
 }
+
+/// Read presentation identity while the live service retains its writer lease.
+/// No model, host, service startup or canonical-history write is involved.
+pub fn presentation_groups(root: &std::path::Path, thread: &str) -> Result<Value, Error> {
+    if thread.is_empty() || thread.len() > 256 || thread.chars().any(char::is_control) {
+        return Err(Error("invalid_thread_identity"));
+    }
+    let value =
+        Journal::inspect(root, &context::digest(&thread))?.ok_or(Error("native_lane_not_found"))?;
+    let lane: Lane = serde_json::from_value(value).map_err(|_| Error("invalid_lane_record"))?;
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    Ok(
+        json!({"schema":"codex-chatgpt-presentation-v1","thread":thread,"groups":lane.presentation.groups()}),
+    )
+}
 impl Lane {
+    fn retained_source(&self) -> Option<(&str, &str)> {
+        if self.phase != Phase::Idle
+            || !self.pending.is_empty()
+            || self.external.is_some()
+            || self.checkpoint.is_some()
+            || !matches!(self.cached.last(), Some(Event::Completed { .. }))
+        {
+            return None;
+        }
+        Some((
+            self.conversation_id.as_deref()?,
+            self.source_anchor.as_deref()?,
+        ))
+    }
     fn new(thread: &str) -> Result<Self, Error> {
         Ok(Self {
             native_thread: thread.into(),
@@ -485,6 +548,10 @@ impl Lane {
             confirmed: BTreeMap::new(),
             public: BTreeMap::new(),
             cached: Vec::new(),
+            presentation: Default::default(),
+            source_anchor: None,
+            external: None,
+            last_external_turn: None,
             user_messages: 0,
             tool_messages: 0,
             dispatches: 0,
@@ -500,6 +567,7 @@ impl Lane {
     }
     fn successor(&self, thread: &str) -> Result<Self, Error> {
         let mut next = Self::new(thread)?;
+        next.presentation = self.presentation.clone();
         next.previous_chats = self.previous_chats.clone();
         if let Some(id) = &self.conversation_id {
             if !next.previous_chats.contains(id) {
@@ -569,6 +637,182 @@ pub struct AppHost {
     connector: String,
 }
 impl AppHost {
+    /// Read the atomic source journal while an inference owns its lane lock.
+    /// Keep source origin through the gap between emitting and native commit.
+    pub(crate) fn source_turn_pending(
+        &self,
+        thread: &str,
+        native_turn: Option<&str>,
+    ) -> Result<bool, Error> {
+        let Some(lane): Option<Lane> = self.journal.read(&context::digest(&thread))? else {
+            return Ok(false);
+        };
+        if lane.native_thread != thread {
+            return Err(Error("native_thread_identity_conflict"));
+        }
+        Ok(lane.external.is_some()
+            || native_turn.is_some_and(|turn| lane.last_external_turn.as_deref() == Some(turn)))
+    }
+    pub(crate) async fn has_retained_source(&self, thread: &str) -> Result<bool, Error> {
+        let Some(mutex) = self.existing_lane(thread).await? else {
+            return Ok(false);
+        };
+        let lane = mutex
+            .try_lock()
+            .map_err(|_| Error("bound_chat_observation_busy"))?;
+        Ok(lane.retained_source().is_some())
+    }
+    /// Observe only this already bound, settled conversation. Slow source reads
+    /// never hold the inference lane lock or prevent ordinary native admission.
+    pub(crate) async fn external_input(
+        &self,
+        thread: &str,
+    ) -> Result<Option<crate::bound_chat::Turn>, Error> {
+        let Some(mutex) = self.existing_lane(thread).await? else {
+            return Ok(None);
+        };
+        let snapshot = {
+            let Ok(lane) = mutex.try_lock() else {
+                return Err(Error("bound_chat_observation_busy"));
+            };
+            if lane.phase != Phase::Idle || !lane.pending.is_empty() || lane.checkpoint.is_some() {
+                return Err(Error("bound_chat_turn_active"));
+            }
+            lane.clone()
+        };
+        let (Some(conversation), Some(anchor)) =
+            (&snapshot.conversation_id, &snapshot.source_anchor)
+        else {
+            return Ok(None);
+        };
+        let observed = self
+            .bridge
+            .operation(json!({"op":"identity","lane":snapshot.marker}))
+            .await?;
+        let current = Identity::parse(&observed)?;
+        let previous = snapshot
+            .identity
+            .as_ref()
+            .ok_or(Error("app_identity_unavailable"))?;
+        if !previous.account_matches(&current) {
+            return Err(Error("app_account_changed"));
+        }
+        if previous.generation != current.generation || observed["present"] != true {
+            return Err(Error("bound_chat_owner_generation_changed"));
+        }
+        let Some(turn) = crate::bound_chat::read(
+            self.bridge.clone(),
+            conversation,
+            anchor,
+            snapshot.external.as_ref().map(|external| &external.input),
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        let Ok(mut lane) = mutex.try_lock() else {
+            return Err(Error("bound_chat_observation_superseded"));
+        };
+        if lane.phase != Phase::Idle
+            || lane.request != snapshot.request
+            || lane.source_anchor != snapshot.source_anchor
+        {
+            return Err(Error("bound_chat_observation_superseded"));
+        }
+        if lane.external.is_none() {
+            lane.external = Some(External {
+                input: turn.input.clone(),
+                native_turn: None,
+            });
+            self.journal.write(&context::digest(&thread), &*lane)?;
+        }
+        Ok(Some(turn))
+    }
+    /// The native owner must first prove its recorded completed turn and idle
+    /// scoped writer. This reattaches source observation, never native history.
+    pub(crate) async fn reattach_settled_source(&self, thread: &str) -> Result<(), Error> {
+        let mutex = self
+            .existing_lane(thread)
+            .await?
+            .ok_or(Error("native_lane_not_found"))?;
+        let mut lane = mutex
+            .try_lock()
+            .map_err(|_| Error("bound_chat_observation_busy"))?;
+        let (conversation, anchor) = lane
+            .retained_source()
+            .map(|(conversation, anchor)| (conversation.to_owned(), anchor.to_owned()))
+            .ok_or(Error("bound_chat_reattachment_unsettled"))?;
+        let observed = self
+            .bridge
+            .operation(json!({"op":"identity","lane":lane.marker}))
+            .await?;
+        let current = Identity::parse(&observed)?;
+        if !lane
+            .identity
+            .as_ref()
+            .is_some_and(|previous| previous.account_matches(&current))
+        {
+            return Err(Error("app_account_changed"));
+        }
+        if lane
+            .identity
+            .as_ref()
+            .is_some_and(|previous| previous.generation == current.generation)
+            && observed["present"] == true
+        {
+            return Ok(());
+        }
+        self.bridge
+            .operation(
+                json!({"op":"chat_adopt","lane":lane.marker,"nativeThread":lane.native_thread,
+            "signature":signature(&lane.gateway),"project":lane.project,"identity":current,
+            "conversation_id":conversation,"branch":anchor,"bound_source_anchor":anchor,"source_counters":{"dispatches":lane.dispatches,"userMessages":lane.user_messages,"toolMessages":lane.tool_messages,"hostReplyMessages":lane.host_reply_messages}}),
+            )
+            .await?;
+        lane.identity = Some(current);
+        self.journal.write(&context::digest(&thread), &*lane)
+    }
+    pub(crate) async fn bind_external(
+        &self,
+        thread: &str,
+        input: &crate::bound_chat::Input,
+        turn: &str,
+    ) -> Result<(), Error> {
+        let mutex = self
+            .existing_lane(thread)
+            .await?
+            .ok_or(Error("native_lane_not_found"))?;
+        let mut lane = mutex.lock().await;
+        let external = lane
+            .external
+            .as_mut()
+            .ok_or(Error("bound_chat_input_missing"))?;
+        if external.input != *input
+            || external
+                .native_turn
+                .as_ref()
+                .is_some_and(|native| native != turn)
+        {
+            return Err(Error("bound_chat_input_changed"));
+        }
+        external.native_turn = Some(turn.into());
+        lane.last_external_turn = Some(turn.into());
+        self.journal.write(&context::digest(&thread), &*lane)
+    }
+    pub(crate) async fn pending_external(
+        &self,
+        thread: &str,
+    ) -> Result<Option<crate::bound_chat::Input>, Error> {
+        let Some(mutex) = self.existing_lane(thread).await? else {
+            return Ok(None);
+        };
+        let lane = mutex.lock().await;
+        Ok(lane
+            .external
+            .as_ref()
+            .filter(|external| external.native_turn.is_none())
+            .map(|external| external.input.clone()))
+    }
     pub fn new(bridge: Arc<dyn Bridge>, journal: Arc<Journal>) -> Self {
         Self {
             bridge,
@@ -639,6 +883,7 @@ impl AppHost {
         {
             // Durable response settlement remains proof after a clean app
             // context replacement. Do not recreate a completed conversation.
+            self.bridge.fence_tools(lane.marker.clone()).await?;
             lane.phase = Phase::Stopped;
             self.journal.write(&key, &*lane)?;
             return Ok(true);
@@ -690,7 +935,9 @@ impl AppHost {
                                         && state["error"].is_null())
                                 || lane.phase == Phase::Idle && state["error"].is_null())
                             && bridge
-                                .operation(json!({"op":"release","lane":lane.marker}))
+                                .operation(json!({"op":"release","lane":lane.marker,
+                                    "preserve_settled_source":lane.phase==Phase::Idle
+                                        && matches!(lane.cached.last(),Some(Event::Completed{..}))}))
                                 .await
                                 .is_ok_and(|v| v["released"] == true)
                         {
@@ -1034,19 +1281,44 @@ async fn exchange(
         return Ok(());
     }
 
-    let readable_handoff = lane.phase == Phase::Idle
-        && new_turn(lane, request)
-        && crate::handoff::latest(&request.input)?.is_some()
-        && lane.prefix.delta(request).map_or(true, |delta| {
-            crate::handoff::latest(delta).is_ok_and(|v| v.is_some())
-        });
+    // Native checkpoint acceptance changes the canonical native prefix, not
+    // the remote Chat's availability. Keep the owned lane and pending-tool
+    // identity; rebuild the import cursor from the new native prefix.
     if lane.phase == Phase::Idle
-        && (readable_handoff
-            || lane
-                .checkpoint
-                .as_ref()
-                .is_some_and(|v| v.acknowledged(request)))
+        && lane
+            .checkpoint
+            .as_ref()
+            .is_some_and(|v| v.acknowledged(request))
     {
+        let summary = lane
+            .checkpoint
+            .as_ref()
+            .unwrap()
+            .replacement_end(request)
+            .unwrap();
+        let mut resident = request.clone();
+        resident.input.truncate(summary);
+        lane.prefix.accept(&resident, &[]);
+        // The summary operation changed the remote policy. Reassert the normal
+        // policy/catalog without reimporting summary/history already in Chat.
+        lane.prefix.instructions.clear();
+        lane.prefix.tools.clear();
+        lane.checkpoint = None;
+        journal.write(key, lane)?;
+    }
+
+    // A genuinely new native turn can replace its canonical history with
+    // opaque foreign-provider items. That history is incompatible with the
+    // current Chat's prefix, independently of any user-authored handoff text.
+    // This is a separate remote-context availability decision, not a
+    // compaction ACK or an authorization conveyed by the wrapper.
+    let foreign_context_replacement = lane.phase == Phase::Idle
+        && lane.checkpoint.is_none()
+        && lane.prefix.count > 0
+        && new_turn(lane, request)
+        && lane.prefix.delta(request).is_err()
+        && request.input.iter().any(context::foreign_opaque_checkpoint);
+    if foreign_context_replacement {
         bridge
             .operation(json!({"op":"release","lane":lane.marker}))
             .await?;
@@ -1157,7 +1429,10 @@ async fn exchange(
             })
             .cloned()
             .collect::<Vec<_>>();
-        let mut messages = context::messages(&import)?;
+        let mut messages = context::messages(&crate::handoff::readable(
+            &import,
+            request.handoff.as_ref(),
+        )?)?;
         let mut instructions = Vec::<String>::new();
         if lane.prefix.instructions != context::digest(&request.instructions) {
             for value in &request.instructions {
@@ -1184,7 +1459,7 @@ async fn exchange(
                 message.hidden = true;
             }
             instructions.push(context::SUMMARY_INSTRUCTION.into());
-        } else if lane.checkpoint.is_some() && lane.prefix.instructions.is_empty() {
+        } else if lane.prefix.count != 0 && lane.prefix.instructions.is_empty() {
             instructions.push(context::CONTINUE_INSTRUCTION.into());
         }
         let results=results.into_iter().map(|(id,entries)| {
@@ -1197,7 +1472,24 @@ async fn exchange(
         if cancel.is_cancelled() {
             return stop_lane(bridge, journal, key, lane).await;
         }
-        bridge.admit_submission(json!({"lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await?;
+        let source = lane
+            .external
+            .as_ref()
+            .filter(|external| {
+                lane.phase == Phase::Idle
+                    && external.native_turn.as_ref() == request.turn.as_ref()
+                    && external.native_turn.is_some()
+            })
+            .map(|external| &external.input);
+        let mut command = json!({"lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results});
+        if let Some(source) = source {
+            if lane.phase != Phase::Idle || !results.is_empty() {
+                return Err(Error("bound_chat_native_admission_invalid"));
+            }
+            command["source_input"] = serde_json::to_value(source).unwrap();
+            command["source_anchor"] = json!(lane.source_anchor);
+        }
+        bridge.admit_submission(command.clone()).await?;
         if cancel.is_cancelled() {
             return stop_lane(bridge, journal, key, lane).await;
         }
@@ -1212,7 +1504,9 @@ async fn exchange(
         lane.host_block = None;
         lane.last_error = None;
         journal.write(key, lane)?;
-        let result=bridge.operation(json!({"op":"submit","lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"round":lane.round,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results})).await;
+        command["op"] = json!("submit");
+        command["round"] = json!(lane.round);
+        let result = bridge.operation(command).await;
         if result.is_err() {
             // Snapshot the same app round below. Do not replay submit after a
             // lost evaluate reply; it may already have sent the model request.
@@ -1251,7 +1545,7 @@ async fn exchange(
                     eprintln!("app_observation_failed: {}", error.0);
                     lane.phase = Phase::Unknown;
                     journal.write(key, lane)?;
-                    return Err(Error("app_observation_lost"));
+                    return Err(error);
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;
@@ -1372,10 +1666,18 @@ async fn exchange(
             let offset = previous_rendered.len();
             lane.public.insert(id.into(), (phase.into(), text.clone()));
             let promoted = previous.as_ref().is_some_and(|(p, _)| p != phase);
-            if (rendered.len() > offset || promoted)
-                && request.compaction != Some(context::Compaction::Checkpoint)
-            {
+            if (rendered.len() > offset || promoted) && request.compaction.is_none() {
                 let event = public_delta(lane, id, phase, rendered[offset..].into(), &rendered);
+                if request.compaction.is_none() {
+                    if let Event::Text { id: native_id, .. } = &event {
+                        let physical = message["provider_source_message"].as_str().unwrap_or(id);
+                        lane.presentation.observe(
+                            native_id,
+                            context::digest(&(&lane.marker, physical)),
+                            phase == "final_answer",
+                        );
+                    }
+                }
                 publish(lane, events, event).await?;
             }
             if phase == "final_answer" {
@@ -1563,20 +1865,12 @@ async fn exchange(
                             .map(|(_, text)| text.clone())
                     })
                     .ok_or(Error("empty_compaction_summary"))?;
-                let checkpoint = context::Checkpoint::offer(request, &summary)?;
-                let event =
-                    (request.compaction == Some(context::Compaction::Checkpoint)).then(|| {
-                        Event::Checkpoint {
-                            id: format!("checkpoint_{}", lane.round),
-                            encrypted_content: checkpoint.encoded().into(),
-                        }
-                    });
-                if let Some(event) = &event {
-                    lane.cached.push(event.clone());
-                }
+                let checkpoint = context::Checkpoint::offer(request, &summary, &lane.round)?;
+                let event = checkpoint.event(format!("checkpoint_{}", lane.round));
+                lane.cached.push(event.clone());
                 lane.checkpoint = Some(checkpoint);
                 lane.prefix.accept_compaction(request);
-                event
+                Some(event)
             } else {
                 let output = native_output(&lane.cached)?;
                 lane.prefix.accept(request, &output);
@@ -1588,6 +1882,20 @@ async fn exchange(
             } else {
                 Phase::ToolsReady
             };
+            if final_seen && request.compaction.is_none() {
+                lane.source_anchor = messages
+                    .iter()
+                    .rev()
+                    .find(|message| committed_final(message))
+                    .and_then(|message| {
+                        message
+                            .get("provider_source_message")
+                            .unwrap_or(&message["id"])
+                            .as_str()
+                    })
+                    .map(str::to_owned);
+                lane.external = None;
+            }
             let completed = Event::Completed {
                 input_tokens: (serde_json::to_vec(request).unwrap().len() / 4) as u64,
                 output_tokens: (serde_json::to_vec(&output).unwrap().len() / 4) as u64,
@@ -1818,6 +2126,565 @@ mod approval_tests {
         assert_eq!(next.previous_chats, ["saved-source"]);
         assert_eq!(next.native_thread, "thread");
         assert!(next.conversation_id.is_none());
+    }
+    #[derive(Default)]
+    struct SavedSourceState {
+        commands: Vec<Value>,
+        snapshot: Value,
+        saved: Vec<Value>,
+        fail_saved_read: bool,
+        saved_read_backoff: bool,
+        backoff_observed: Arc<tokio::sync::Notify>,
+    }
+    struct SavedSource(Arc<SyncMutex<SavedSourceState>>);
+    impl Bridge for SavedSource {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            let mut state = self.0.lock().unwrap();
+            state.commands.push(command.clone());
+            let result = match command["op"].as_str().unwrap() {
+                "identity" => {
+                    json!({"generation":"saved-generation","account":"saved-account","user":"saved-user","structure":"personal","present":true})
+                }
+                "host_status" => json!({"saved_read_backoff":{"cooling_down":false}}),
+                "open" | "chat_adopt" => json!({"localId":"saved-chat"}),
+                "release" => json!({"released":true}),
+                "dispose" => json!({"disposed":true}),
+                "submit" => {
+                    let index = state
+                        .commands
+                        .iter()
+                        .filter(|command| command["op"] == "submit")
+                        .count();
+                    let id = format!("native-final-{index}");
+                    state.snapshot = json!({"round":command["round"],"serverId":"saved-chat","messages":[{"id":id,"author":{"role":"assistant"},"recipient":"all","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":[format!("Native answer {index}")]}}],"terminals":["done"],"roundStarts":1,"dispatches":index,"userMessages":index,"toolMessages":0});
+                    json!({"started":true})
+                }
+                "follow" => {
+                    state.snapshot["round"] = command["round"].clone();
+                    state.snapshot["roundStarts"] = json!(0);
+                    state.snapshot["messages"] = json!([]);
+                    state.snapshot["terminals"] = json!([]);
+                    json!({"observing":true})
+                }
+                "follow_settle" => {
+                    let final_message = state
+                        .saved
+                        .iter()
+                        .find(|message| message["id"] == command["branch"]);
+                    if !final_message.is_some_and(|message| {
+                        message["content"]["parts"].as_array().is_some_and(|parts| {
+                            command["text"]
+                                == parts.iter().filter_map(Value::as_str).collect::<String>()
+                        })
+                    }) {
+                        return Box::pin(async { Err(Error("app_chat_response_changed")) });
+                    }
+                    json!({"settled":true})
+                }
+                "stop" => {
+                    state.snapshot["stopped"] = json!(true);
+                    json!({"requested":true})
+                }
+                "snapshot" => {
+                    let mut snapshot = state.snapshot.clone();
+                    snapshot["savedReadBackoff"] = json!({"cooling_down":state.saved_read_backoff});
+                    if state.saved_read_backoff {
+                        state.backoff_observed.notify_one();
+                    }
+                    snapshot
+                }
+                "chat_read" => {
+                    if state.fail_saved_read {
+                        state.fail_saved_read = false;
+                        state.saved_read_backoff = true;
+                        return Box::pin(async { Err(Error("app_chat_rate_limited")) });
+                    }
+                    let mut mapping = serde_json::Map::new();
+                    let mut parent = Value::Null;
+                    for message in &state.saved {
+                        mapping.insert(
+                            message["id"].as_str().unwrap().into(),
+                            json!({"parent":parent,"message":message}),
+                        );
+                        parent = message["id"].clone();
+                    }
+                    json!({"conversation_id":"saved-chat","current_node":parent,"mapping":mapping})
+                }
+                _ => panic!("unexpected saved-source operation: {}", command["op"]),
+            };
+            Box::pin(async move { Ok(result) })
+        }
+    }
+    async fn saved_round(host: &AppHost, body: &Value, turn: &str) -> Vec<Event> {
+        let mut request = Request::parse(
+            body.clone(),
+            &crate::config::Config::default(),
+            Some("bound-native-thread"),
+        )
+        .unwrap();
+        request.turn = Some(turn.into());
+        let (sender, mut receiver) = mpsc::channel(64);
+        host.exchange(request, sender, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = receiver.recv().await {
+            events.push(event);
+        }
+        events
+    }
+    #[tokio::test]
+    async fn settled_source_reattachment_preserves_chat_prefix_and_retires_old_execution() {
+        let root = std::env::temp_dir().join(format!("source-reattach-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let make_host = |broker: Arc<crate::mcp::Broker>| {
+            AppHost::new(
+                Arc::new(
+                    crate::mcp_bridge::McpBridge::new(
+                        Arc::new(SavedSource(state.clone())),
+                        broker,
+                        journal.clone(),
+                        "Owned connector".into(),
+                    )
+                    .unwrap(),
+                ),
+                journal.clone(),
+            )
+        };
+        let original_broker = crate::mcp::Broker::new(journal.clone());
+        let host = make_host(original_broker.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Initial native input"}],"tools":[]});
+        let initial = saved_round(&host, &body, "native-1").await;
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&initial).unwrap());
+        let original_token = state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .find(|row| row["op"] == "submit")
+            .unwrap()["instructions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .split("Exact turn_token: ")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .to_owned();
+        let anchor = json!({"id":"native-final-1","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Native answer 1"]}});
+        state.lock().unwrap().saved = vec![anchor.clone()];
+        original_broker.close().await;
+        host.shutdown().await;
+        drop(host);
+        let broker = crate::mcp::Broker::new(journal.clone());
+        let replacement = make_host(broker.clone());
+        assert!(matches!(
+            replacement.external_input("bound-native-thread").await,
+            Err(Error("bound_chat_owner_generation_changed"))
+        ));
+        replacement
+            .reattach_settled_source("bound-native-thread")
+            .await
+            .unwrap();
+        assert!(replacement
+            .external_input("bound-native-thread")
+            .await
+            .unwrap()
+            .is_none());
+        // Observation restoration cannot make any old execution capability live.
+        assert_eq!(
+            broker.catalog(&original_token).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+        let restored_discovery = {
+            let broker = broker.clone();
+            let token = original_token.clone();
+            tokio::spawn(async move { broker.catalog_readback(&token).await })
+        };
+        tokio::task::yield_now().await;
+        assert!(!restored_discovery.is_finished());
+        state.lock().unwrap().saved = vec![
+            anchor,
+            json!({"id":"after-restart-user","role":"user","content":{"content_type":"text","parts":["Original web input after restart"]}}),
+            json!({"id":"after-restart-final","role":"assistant","channel":"final","status":"finished_partial_completion","end_turn":false,"content":{"content_type":"text","parts":["Original"]}}),
+        ];
+        let source = replacement
+            .external_input("bound-native-thread")
+            .await
+            .unwrap()
+            .unwrap();
+        replacement
+            .bind_external("bound-native-thread", &source.input, "native-web-2")
+            .await
+            .unwrap();
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":source.text}));
+        let finish_source = async {
+            let renewed = tokio::time::timeout(Duration::from_secs(1), restored_discovery)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let mut source = state.lock().unwrap();
+            let answer = source.saved.last_mut().unwrap();
+            answer["status"] = json!("finished_successfully");
+            answer["end_turn"] = json!(true);
+            answer["content"]["parts"] = json!(["Original complete answer after restart"]);
+            renewed
+        };
+        let (original, renewed) = tokio::join!(
+            saved_round(&replacement, &body, "native-web-2"),
+            finish_source
+        );
+        let public = native_output(&original).unwrap();
+        assert!(public.iter().any(|row| row["phase"] == "final_answer"
+            && row["content"][0]["text"] == "Original complete answer after restart"));
+        assert_ne!(renewed["turn_token"], original_token);
+        assert_eq!(
+            broker.catalog(&original_token).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+        body["input"].as_array_mut().unwrap().extend(public);
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Next native input"}));
+        saved_round(&replacement, &body, "native-3").await;
+        let commands = state.lock().unwrap().commands.clone();
+        assert_eq!(
+            commands.iter().filter(|row| row["op"] == "submit").count(),
+            2
+        );
+        let adoption = commands
+            .iter()
+            .find(|row| row["op"] == "chat_adopt")
+            .unwrap();
+        assert_eq!(adoption["conversation_id"], "saved-chat");
+        assert_eq!(adoption["branch"], "native-final-1");
+        assert_eq!(adoption["source_counters"]["dispatches"], 1);
+        let last = commands
+            .iter()
+            .rev()
+            .find(|row| row["op"] == "submit")
+            .unwrap();
+        assert_eq!(last["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(last["messages"][0]["text"], "Next native input");
+        drop(replacement);
+        drop(broker);
+        drop(original_broker);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completed_web_turn_enters_same_lane_without_another_primary_request() {
+        let root = std::env::temp_dir().join(format!("saved-source-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let broker = crate::mcp::Broker::new(journal.clone());
+        let bridge = Arc::new(
+            crate::mcp_bridge::McpBridge::new(
+                Arc::new(SavedSource(state.clone())),
+                broker.clone(),
+                journal.clone(),
+                "Owned connector".into(),
+            )
+            .unwrap(),
+        );
+        let host = AppHost::new(bridge, journal);
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Initial native input"}],"tools":[]});
+        let initial = saved_round(&host, &body, "native-1").await;
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&initial).unwrap());
+        {
+            let mut state = state.lock().unwrap();
+            state.saved = vec![
+                json!({"id":"native-final-1","role":"assistant","channel":"final","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Native answer 1"]}}),
+                json!({"id":"web-user-1","role":"user","content":{"content_type":"text","parts":["Web input: exact original text"]}}),
+                json!({"id":"web-final-1","role":"assistant","channel":"final","recipient":"all","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Complete original web answer"]}}),
+            ];
+        }
+        let source = host
+            .external_input("bound-native-thread")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(source.text, "Web input: exact original text");
+        assert_eq!(
+            host.external_input("bound-native-thread")
+                .await
+                .unwrap()
+                .unwrap()
+                .input,
+            source.input,
+            "reobservation keeps exact source identity"
+        );
+        host.bind_external("bound-native-thread", &source.input, "native-web-1")
+            .await
+            .unwrap();
+        let token = state
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .find(|command| command["op"] == "submit")
+            .unwrap()["instructions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .split("Exact turn_token: ")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .to_owned();
+        let catalog_broker = broker.clone();
+        let discovery = tokio::spawn(async move { catalog_broker.catalog_readback(&token).await });
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":source.text}));
+        let backoff = {
+            let mut state = state.lock().unwrap();
+            state.fail_saved_read = true;
+            let answer = state.saved.last_mut().unwrap();
+            answer["status"] = json!("finished_partial_completion");
+            answer["end_turn"] = json!(false);
+            state.backoff_observed.clone()
+        };
+        let resume = async {
+            tokio::time::timeout(Duration::from_secs(3), backoff.notified())
+                .await
+                .expect("the actual source observer reaches saved-read backoff");
+            assert!(
+                !discovery.is_finished(),
+                "unvalidated source must not publish a fresh execution capability"
+            );
+            state.lock().unwrap().saved_read_backoff = false;
+            assert!(
+                tokio::time::timeout(Duration::from_secs(3), discovery)
+                    .await
+                    .expect("source discovery completes while the admitted response is active")
+                    .unwrap()
+                    .is_ok(),
+                "validated source publishes its admitted catalog"
+            );
+            let mut state = state.lock().unwrap();
+            let answer = state.saved.last_mut().unwrap();
+            answer["status"] = json!("finished_successfully");
+            answer["end_turn"] = json!(true);
+        };
+        let (imported, ()) = tokio::join!(saved_round(&host, &body, "native-web-1"), resume);
+        let output = native_output(&imported).unwrap();
+        assert!(output.iter().any(|item| item["phase"] == "final_answer"
+            && item["content"][0]["text"] == "Complete original web answer"));
+        body["input"].as_array_mut().unwrap().extend(output);
+        assert!(
+            host.external_input("bound-native-thread")
+                .await
+                .unwrap()
+                .is_none(),
+            "consumed source does not enqueue again"
+        );
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Next native input"}));
+        saved_round(&host, &body, "native-2").await;
+        let commands = state.lock().unwrap().commands.clone();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            2,
+            "only the initial and next native inputs start inference"
+        );
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| command["op"] == "follow")
+                .count(),
+            1
+        );
+        let next = commands
+            .iter()
+            .rev()
+            .find(|command| command["op"] == "submit")
+            .unwrap();
+        assert_eq!(
+            next["messages"].as_array().unwrap().len(),
+            1,
+            "native reentry sends only its new input"
+        );
+        assert_eq!(next["messages"][0]["text"], "Next native input");
+        let token = next["instructions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .split("Exact turn_token: ")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .to_owned();
+        let waiting = tokio::spawn(async move { broker.catalog_readback(&token).await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        assert!(host.stop("bound-native-thread").await.unwrap());
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), waiting)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(Error("mcp_turn_unavailable")),
+            "settled Stop fences discovery without another app request"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn source_backoff_stop_fences_unpublished_discovery_and_execution() {
+        let root = std::env::temp_dir().join(format!("source-stop-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let broker = crate::mcp::Broker::new(journal.clone());
+        let host = AppHost::new(
+            Arc::new(
+                crate::mcp_bridge::McpBridge::new(
+                    Arc::new(SavedSource(state.clone())),
+                    broker.clone(),
+                    journal.clone(),
+                    "Owned connector".into(),
+                )
+                .unwrap(),
+            ),
+            journal,
+        );
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Initial native input"}],"tools":[]});
+        let mut initial = Request::parse(
+            body.clone(),
+            &crate::config::Config::default(),
+            Some("stopping-bound-thread"),
+        )
+        .unwrap();
+        initial.turn = Some("native-1".into());
+        let (sender, mut receiver) = mpsc::channel(64);
+        host.exchange(initial, sender, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = receiver.recv().await {
+            events.push(event);
+        }
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&events).unwrap());
+        state.lock().unwrap().saved = vec![
+            json!({"id":"native-final-1","role":"assistant","channel":"final","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Native answer 1"]}}),
+            json!({"id":"web-user","role":"user","content":{"content_type":"text","parts":["External response to stop"]}}),
+        ];
+        let source = host
+            .external_input("stopping-bound-thread")
+            .await
+            .unwrap()
+            .unwrap();
+        host.bind_external("stopping-bound-thread", &source.input, "native-web")
+            .await
+            .unwrap();
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":source.text}));
+        let (backoff, token) = {
+            let mut state = state.lock().unwrap();
+            state.fail_saved_read = true;
+            let token = state
+                .commands
+                .iter()
+                .find(|command| command["op"] == "submit")
+                .unwrap()["instructions"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .split("Exact turn_token: ")
+                .nth(1)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .to_owned();
+            (state.backoff_observed.clone(), token)
+        };
+        let discovery = tokio::spawn(async move { broker.catalog_readback(&token).await });
+        let cancel = CancellationToken::new();
+        let mut request = Request::parse(
+            body,
+            &crate::config::Config::default(),
+            Some("stopping-bound-thread"),
+        )
+        .unwrap();
+        request.turn = Some("native-web".into());
+        let (sender, _receiver) = mpsc::channel(64);
+        let stop = async {
+            tokio::time::timeout(Duration::from_secs(3), backoff.notified())
+                .await
+                .unwrap();
+            assert!(
+                !discovery.is_finished(),
+                "unvalidated execution capability remains private"
+            );
+            cancel.cancel();
+        };
+        let (result, ()) = tokio::join!(host.exchange(request, sender, cancel.clone()), stop);
+        assert_eq!(result, Err(Error("app_stop_acknowledged")));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), discovery)
+                .await
+                .expect("Stop wakes the retained pre-admission discovery")
+                .unwrap(),
+            Err(Error("mcp_turn_unavailable"))
+        );
+        assert_eq!(
+            inspect_lane(&root, "stopping-bound-thread").unwrap()["phase"],
+            "stopped"
+        );
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            1,
+            "backoff and Stop do not create another primary request"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
     struct Cleanup {
         calls: SyncMutex<Vec<Value>>,

@@ -58,6 +58,7 @@ pub struct Service {
     viewer: crate::viewer::Slot,
     mcp: Option<Arc<crate::mcp::Broker>>,
     operator: Option<Arc<crate::operator::Operator>>,
+    handoff_issuer: Option<crate::handoff::Issuer>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -82,6 +83,7 @@ impl Service {
             viewer: Arc::new(std::sync::RwLock::new(None)),
             mcp: None,
             operator: None,
+            handoff_issuer: None,
         }))
     }
     pub fn configured(
@@ -95,6 +97,15 @@ impl Service {
         let mut service = Self::new(config, token, host)?;
         Arc::get_mut(&mut service).unwrap().config_path = Some(path);
         Ok(service)
+    }
+    pub fn with_handoff_issuer(
+        mut self: Arc<Self>,
+        issuer: crate::handoff::Issuer,
+    ) -> Result<Arc<Self>, Error> {
+        Arc::get_mut(&mut self)
+            .ok_or(Error("shared_service_configuration"))?
+            .handoff_issuer = Some(issuer);
+        Ok(self)
     }
     fn effective(&self) -> Result<Config, Error> {
         match &self.config_path {
@@ -352,10 +363,11 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     };
     let thread = one_header(&parts.headers, "session_id")
         .or_else(|| one_header(&parts.headers, "x-codex-thread-id"));
-    let parsed = match Request::parse(body, &config, thread) {
-        Ok(value) => value,
-        Err(error) => return failure(StatusCode::BAD_REQUEST, error.0),
-    };
+    let parsed =
+        match Request::parse_with_issuer(body, &config, thread, service.handoff_issuer.as_ref()) {
+            Ok(value) => value,
+            Err(error) => return failure(StatusCode::BAD_REQUEST, error.0),
+        };
     let cancel = service.shutdown.child_token();
     let (events, mut input) = mpsc::channel(64);
     let (output, receiver) = mpsc::channel(64);
@@ -450,6 +462,12 @@ pub async fn serve(
     let viewer = service.viewer.clone();
     let mcp = service.mcp.clone();
     let operator = service.operator.clone();
+    if let Some(operator) = operator.clone() {
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            operator.restore_source_observers(&stop).await;
+        });
+    }
     axum::serve(listener, service.router())
         .with_graceful_shutdown(async move {
             shutdown.cancelled().await;

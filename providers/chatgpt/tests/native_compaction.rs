@@ -121,16 +121,23 @@ impl Bridge for App {
     }
 }
 struct Root(PathBuf);
+impl Root {
+    fn preserve_native(&self) {
+        if let Some(proof) = std::env::var_os("CODEX_PROVIDER_NATIVE_PROOF") {
+            let proof = PathBuf::from(proof);
+            assert!(!proof.exists(), "never overwrite a retained native proof");
+            fs::rename(&self.0, &proof).unwrap();
+        }
+    }
+}
 impl Drop for Root {
     fn drop(&mut self) {
-        if std::thread::panicking() {
+        if self.0.exists() {
             eprintln!(
                 "owned native compaction diagnostic retained: {}",
                 self.0.display()
             );
-            return;
         }
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 struct Rpc {
@@ -222,6 +229,12 @@ async fn native_manual_compaction_commits_public_checkpoint_and_continues_same_t
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn native_v2_checkpoint_is_stored_and_reused_as_provider_public_data() {
+    native_context_fixture(Scenario::Checkpoint).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
 async fn native_public_handoff_preserves_original_opaque_history_and_user_turns() {
     native_context_fixture(Scenario::Handoff).await;
 }
@@ -259,6 +272,7 @@ async fn interrupted_native_automatic_compaction_preserves_history_and_resumes_l
 #[derive(Clone, Copy)]
 enum Scenario {
     Compact,
+    Checkpoint,
     Handoff,
     Bidirectional,
     Fork,
@@ -364,6 +378,15 @@ async fn native_context_fixture(scenario: Scenario) {
     let mut config: toml::Table = toml::from_str(&profile).unwrap();
     config.insert("sandbox_mode".into(), "danger-full-access".into());
     config.insert("approval_policy".into(), "never".into());
+    if matches!(scenario, Scenario::Checkpoint) {
+        config["model_providers"][codex_chatgpt_provider::registration::PROVIDER]
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                "capabilities".into(),
+                toml::from_str("remote_compaction = 'v2'").unwrap(),
+            );
+    }
     if matches!(
         scenario,
         Scenario::Automatic | Scenario::InterruptedAutomatic
@@ -396,7 +419,11 @@ async fn native_context_fixture(scenario: Scenario) {
         toml::to_string(&config).unwrap(),
     )
     .unwrap();
-    let service = Service::new(provider_config, token, host.clone()).unwrap();
+    let issuer = codex_chatgpt_provider::handoff::Issuer::new(journal.owner.clone());
+    let service = Service::new(provider_config, token, host.clone())
+        .unwrap()
+        .with_handoff_issuer(issuer.clone())
+        .unwrap();
     let stop = CancellationToken::new();
     let shutdown = stop.clone();
     let trace = root.0.join("request-trace.jsonl");
@@ -593,6 +620,7 @@ async fn native_context_fixture(scenario: Scenario) {
         child.wait().await.unwrap();
         stop.cancel();
         server.await.unwrap();
+        root.preserve_native();
         println!(
             "{}",
             json!({"accepted":true,"actualNativeBlockingQuestion":true,"originalHostCallReturn":true,"userMessageResubmitted":false,"appFixtureDispatches":2,"chatSubmissions":0,"nativeUserTurns":1,"physicalTuiObserved":false})
@@ -688,6 +716,7 @@ async fn native_context_fixture(scenario: Scenario) {
         stop.cancel();
         server.await.unwrap();
         host.shutdown().await;
+        root.preserve_native();
         println!(
             "{}",
             json!({"accepted":true,"actualNativeInterruptedCompaction":true,"stopAcknowledged":true,"partialCheckpointCommitted":false,"sameThread":true,"resumedFromLatestNativeWork":true,"fixtureAppDispatches":4,"chatSubmissions":0})
@@ -718,10 +747,11 @@ async fn native_context_fixture(scenario: Scenario) {
         let requests = trace
             .iter()
             .map(|v| {
-                codex_chatgpt_provider::protocol::Request::parse(
+                codex_chatgpt_provider::protocol::Request::parse_with_issuer(
                     v.clone(),
                     &Config::default(),
                     None,
+                    Some(&issuer),
                 )
                 .unwrap()
             })
@@ -737,8 +767,8 @@ async fn native_context_fixture(scenario: Scenario) {
             assert_eq!(commands.iter().filter(|v| v["op"] == "submit").count(), 3);
             assert_eq!(
                 commands.iter().filter(|v| v["op"] == "release").count(),
-                1,
-                "committed automatic checkpoint retires once"
+                0,
+                "native compaction does not require Chat retirement"
             );
         }
         drop(rpc);
@@ -747,6 +777,7 @@ async fn native_context_fixture(scenario: Scenario) {
         stop.cancel();
         server.await.unwrap();
         host.shutdown().await;
+        root.preserve_native();
         println!(
             "{}",
             json!({"accepted":true,"actualNativeAutomaticCompaction":true,"manualCompactRequested":false,"sameThread":true,"compactionRequests":1,"fixtureAppDispatches":3,"chatSubmissions":0})
@@ -774,6 +805,7 @@ async fn native_context_fixture(scenario: Scenario) {
             &Config::default(),
         )
         .unwrap();
+        let checkpoint = issuer.issue(checkpoint).unwrap();
         rpc.call(5,"thread/inject_items",json!({"threadId":thread,"items":[{"type":"compaction","encrypted_content":"UNREADABLE_FOREIGN_NATIVE_CHECKPOINT"},checkpoint]})).await;
         let after = rpc
             .call(
@@ -918,7 +950,7 @@ async fn native_context_fixture(scenario: Scenario) {
             );
             let input = requests[1]["input"].to_string();
             if live.is_some() {
-                assert!(input.contains(codex_chatgpt_provider::context::SUMMARY_PREFIX.trim()));
+                assert!(input.contains("[termux-codex-summary/v1:"));
                 assert!(
                     input.contains("HANDOFF_STATE_7K2Q"),
                     "real summary lost the user's continuation marker"
@@ -959,8 +991,8 @@ async fn native_context_fixture(scenario: Scenario) {
         };
         assert_eq!(
             commands.iter().filter(|v| v["op"] == "release").count(),
-            usize::from(!cross_provider),
-            "an explicit new handoff retires the settled old lane once"
+            0,
+            "public context import alone does not retire an available owned Chat"
         );
         let submissions = commands
             .iter()
@@ -1026,6 +1058,8 @@ async fn native_context_fixture(scenario: Scenario) {
             );
             assert!(!proof.exists(), "never overwrite a retained live proof");
             fs::rename(&root.0, &proof).unwrap();
+        } else {
+            root.preserve_native();
         }
         println!(
             "{}",
@@ -1072,16 +1106,41 @@ async fn native_context_fixture(scenario: Scenario) {
         .unwrap()
         .iter()
         .any(|v| v == codex_chatgpt_provider::context::SUMMARY_INSTRUCTION));
-    assert!(submissions[2]["messages"]
+    let continued = submissions[2]["messages"].as_array().unwrap();
+    assert!(continued
+        .iter()
+        .any(|v| v["text"] == "Continue from the accepted public summary"));
+    assert!(
+        !continued.iter().any(|v| v["text"]
+            .as_str()
+            .is_some_and(|s| s.contains("COMPACTED_PUBLIC_WORK_STATE"))),
+        "resident summary must not be reimported after native acknowledgment"
+    );
+    assert!(submissions[2]["instructions"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|v| v["text"]
-            .as_str()
-            .is_some_and(|s| s.contains("COMPACTED_PUBLIC_WORK_STATE"))));
-    assert_eq!(commands.iter().filter(|v| v["op"] == "release").count(), 1);
+        .any(|v| v == codex_chatgpt_provider::context::CONTINUE_INSTRUCTION));
+    if matches!(scenario, Scenario::Checkpoint) {
+        let trace = fs::read_to_string(root.0.join("request-trace.jsonl")).unwrap();
+        let last: Value = serde_json::from_str(trace.lines().last().unwrap()).unwrap();
+        let checkpoint = last["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["type"] == "compaction")
+            .expect("native runtime must store and resend the original V2 item");
+        let public: Value =
+            serde_json::from_str(checkpoint["encrypted_content"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            public,
+            json!({"format":"codex-chatgpt-public-continuation","version":1,"summary":"COMPACTED_PUBLIC_WORK_STATE"})
+        );
+    }
+    assert_eq!(commands.iter().filter(|v| v["op"] == "release").count(), 0);
+    root.preserve_native();
     println!(
         "{}",
-        json!({"accepted":true,"actualNativeManualCompaction":true,"sameThreadAfterCompaction":true,"checkpointAppliedOnce":true,"fixtureHostSubmissions":3,"chatSubmissions":0})
+        json!({"accepted":true,"actualNativeManualCompaction":true,"remoteV2":matches!(scenario,Scenario::Checkpoint),"sameThreadAfterCompaction":true,"checkpointAppliedOnce":true,"fixtureHostSubmissions":3,"chatSubmissions":0})
     );
 }

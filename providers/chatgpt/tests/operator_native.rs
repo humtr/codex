@@ -91,9 +91,9 @@ impl Bridge for Synthetic {
         let value = match command["op"].as_str().unwrap() {
             "identity" => {
                 json!({"generation":"fixture","account":if self.path.parent().unwrap().join("changed-account").exists(){"changed-synthetic-account"}else{"owned-synthetic-account"},"user":"owned-synthetic-user","structure":"personal",
-                    "present":self.commands.lock().unwrap().iter().any(|row|row["op"]=="open" && row["lane"]==lane)})
+                    "present":self.commands.lock().unwrap().iter().any(|row|matches!(row["op"].as_str(),Some("open"|"chat_adopt")) && row["lane"]==lane)})
             }
-            "open" => {
+            "open" | "chat_adopt" => {
                 if command["signature"]["name"]
                     .as_str()
                     .is_some_and(|v| v.starts_with("operator_local_"))
@@ -110,9 +110,62 @@ impl Bridge for Synthetic {
                 self.released.lock().unwrap().remove(&lane);
                 json!({"localId":lane})
             }
+            "host_status" => json!({"saved_read_backoff":{"cooling_down":false}}),
+            "chat_read" => {
+                let saved = self.path.parent().unwrap().join("saved-source.json");
+                if saved.exists() {
+                    serde_json::from_slice::<Value>(&std::fs::read(saved).unwrap()).unwrap()
+                } else {
+                    let commands = self.commands.lock().unwrap();
+                    let submitted = commands
+                        .iter()
+                        .rev()
+                        .find(|row| row["op"] == "submit" && row["lane"] == lane)
+                        .or_else(|| commands.iter().rev().find(|row| row["op"] == "submit"))
+                        .unwrap();
+                    let id = format!("owned-adapter-{}", submitted["round"].as_str().unwrap());
+                    json!({"conversation_id":"owned-saved-chat","current_node":id,"mapping":{id.clone():{"parent":null,"message":{"id":id,"role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]}}}}})
+                }
+            }
+            "follow" | "follow_settle" => json!({"observing":true}),
             "submit" => {
                 if self.path.parent().unwrap().join("reject-submit").exists() {
                     return Box::pin(async { Err(Error("synthetic_submit_unknown")) });
+                }
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("bound-source-fixture")
+                    .exists()
+                {
+                    // Normal native-origin requests also become saved Chat
+                    // history. This producer must advance before a later web
+                    // follow-up is published by the external test actor.
+                    let saved = self.path.parent().unwrap().join("saved-source.json");
+                    let mut source: Value = if saved.exists() {
+                        serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap()
+                    } else {
+                        json!({"conversation_id":"owned-saved-chat","current_node":null,"mapping":{}})
+                    };
+                    let round = command["round"].as_str().unwrap();
+                    let user = format!("owned-native-user-{round}");
+                    let answer = format!("owned-adapter-{round}");
+                    let text = command["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "user" && message["hidden"] != true)
+                        .unwrap()["text"]
+                        .clone();
+                    let parent = source["current_node"].clone();
+                    source["mapping"][&user] = json!({"parent":parent,"message":{"id":user,"role":"user","content":{"content_type":"text","parts":[text]}}});
+                    source["mapping"][&answer] = json!({"parent":user,"message":{"id":answer,"role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]}}});
+                    source["current_node"] = json!(answer);
+                    let temporary = saved.with_extension("native.tmp");
+                    std::fs::write(&temporary, serde_json::to_vec(&source).unwrap()).unwrap();
+                    std::fs::rename(temporary, saved).unwrap();
                 }
                 self.stopped.lock().unwrap().insert(lane, false);
                 let hold = self.path.parent().unwrap().join("hold-submit");
@@ -132,10 +185,9 @@ impl Bridge for Synthetic {
             }
             "snapshot" => {
                 let commands = self.commands.lock().unwrap();
-                let submitted = commands
-                    .iter()
-                    .rev()
-                    .find(|row| row["op"] == "submit" && row["lane"] == lane);
+                let submitted = commands.iter().rev().find(|row| {
+                    matches!(row["op"].as_str(), Some("submit" | "follow")) && row["lane"] == lane
+                });
                 let reviewer = commands
                     .iter()
                     .find(|row| row["op"] == "open" && row["lane"] == lane)
@@ -216,7 +268,7 @@ impl Bridge for Synthetic {
                 } else {
                     json!([])
                 };
-                json!({"round":submitted.map(|row|&row["round"]),"accepted":submitted.is_some(),"pending":self.path.parent().unwrap().join("hold-host-completion").exists(),"streamActive":false,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"approvalResponses":if self.ui_approval_at.lock().unwrap().is_some_and(|at|at.elapsed()>=std::time::Duration::from_millis(350)){json!(["fixture-confirmation"])}else{json!([])},"messages":messages,"terminals":["done"],"roundStarts":1,"dispatches":1,"userMessages":1,"toolMessages":0})
+                json!({"serverId":if self.path.parent().unwrap().join("bound-source-fixture").exists(){json!("owned-saved-chat")}else{Value::Null},"roundStarts":if submitted.is_some_and(|row|row["op"]=="follow"){0}else{1},"round":submitted.map(|row|&row["round"]),"accepted":submitted.is_some(),"pending":self.path.parent().unwrap().join("hold-host-completion").exists(),"streamActive":false,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"approvalResponses":if self.ui_approval_at.lock().unwrap().is_some_and(|at|at.elapsed()>=std::time::Duration::from_millis(350)){json!(["fixture-confirmation"])}else{json!([])},"messages":messages,"terminals":["done"],"dispatches":1,"userMessages":1,"toolMessages":0})
             }
             "release" => {
                 self.released.lock().unwrap().insert(lane);
@@ -310,7 +362,7 @@ async fn synthetic_operator_service() {
     codex_chatgpt_provider::registration::prepare(
         &config,
         &root.join("provider-state"),
-        &root.join("profile-registry"),
+        &root.join("h/.local/share/codex/core/config/profiles"),
         &root.join("h/.codex"),
         &root.join("fixture-auth"),
         &format!("http://127.0.0.1:{port}/v1"),
@@ -318,7 +370,12 @@ async fn synthetic_operator_service() {
     .unwrap();
     let bridge = Arc::new(Synthetic {
         path: root.join("bridge-commands.json"),
-        commands: Mutex::new(vec![]),
+        commands: Mutex::new(if root.join("bridge-commands.json").exists() {
+            serde_json::from_slice(&std::fs::read(root.join("bridge-commands.json")).unwrap())
+                .unwrap()
+        } else {
+            vec![]
+        }),
         stopped: Mutex::new(BTreeMap::new()),
         released: Mutex::new(BTreeSet::new()),
         ui_approval_at: Mutex::new(None),
@@ -326,19 +383,26 @@ async fn synthetic_operator_service() {
     let operator = Operator::new(
         pool,
         Broker::new(journal.clone()),
-        journal,
+        journal.clone(),
         config.clone(),
         bridge,
-        "owned-fixture-bearer-000000000000000000000000".into(),
+        "88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42".into(),
     )
     .unwrap();
     let service = Service::new(
         config,
-        "owned-fixture-bearer-000000000000000000000000".into(),
+        "88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42".into(),
         operator.clone(),
     )
     .unwrap()
     .with_operator(operator)
+    .unwrap();
+    codex_chatgpt_provider::runtime::publish_listener(
+        &journal,
+        port,
+        "88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42".into(),
+        None,
+    )
     .unwrap();
     std::fs::write(
         root.join("provider-ready.json"),

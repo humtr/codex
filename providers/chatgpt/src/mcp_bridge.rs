@@ -41,6 +41,12 @@ struct Lane {
     complete: bool,
     #[serde(default)]
     settlement: Option<Settlement>,
+    #[serde(default)]
+    source: Option<(crate::bound_chat::Input, String)>,
+    #[serde(default)]
+    discovery_from: Option<String>,
+    #[serde(default)]
+    discovery_root: Option<String>,
 }
 async fn settle_round(
     lane: &mut Lane,
@@ -197,6 +203,19 @@ fn apply_host_block(snapshot: &mut Value, item: &Value) {
     }
 }
 impl Bridge for McpBridge {
+    fn fence_tools(&self, marker: String) -> BoxFuture<'static, Result<(), Error>> {
+        let broker = self.broker.clone();
+        let journal = self.journal.clone();
+        Box::pin(async move {
+            let recorded: Option<Lane> = journal.read(&digest(&("mcp-lane-v1", &marker)))?;
+            broker
+                .stop_lane(
+                    &marker,
+                    recorded.as_ref().and_then(|lane| lane.token.as_deref()),
+                )
+                .await
+        })
+    }
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
         let remote = self.remote.clone();
@@ -209,6 +228,16 @@ impl Bridge for McpBridge {
                 .cloned()
                 .ok_or(Error("mcp_owner_unavailable"))?;
             let lane = lane.lock().await;
+            if !command["source_input"].is_null() {
+                if !lane.complete || lane.settlement.is_some() || !lane.offered.is_empty() {
+                    return Err(Error("bound_chat_native_admission_invalid"));
+                }
+                serde_json::from_value::<crate::bound_chat::Input>(command["source_input"].clone())
+                    .map_err(|_| Error("bound_chat_input_invalid"))?
+                    .validate()?;
+                drop(lane);
+                return remote.admit_submission(command).await;
+            }
             if lane.token.is_some() && !lane.complete {
                 if command["messages"]
                     .as_array()
@@ -249,19 +278,30 @@ impl Bridge for McpBridge {
                     json!(digest(&("mcp-owner-generation-v1", &epoch, generation)));
                 return Ok(observed);
             }
-            if !matches!(op, "open" | "submit" | "snapshot" | "stop" | "release") {
+            let restoring = op == "chat_adopt" && command["bound_source_anchor"].is_string();
+            if !restoring && !matches!(op, "open" | "submit" | "snapshot" | "stop" | "release") {
                 return remote.operation(command).await;
             }
             let marker = command["lane"]
                 .as_str()
                 .ok_or(Error("mcp_lane_required"))?
                 .to_owned();
+            let key = digest(&("mcp-lane-v1", &marker));
+            let restored = if restoring {
+                let old: Lane = journal.read(&key)?.ok_or(Error("mcp_owner_unavailable"))?;
+                if !old.complete || old.settlement.is_some() || !old.offered.is_empty() {
+                    return Err(Error("mcp_settlement_reconciliation_required"));
+                }
+                Some(old)
+            } else {
+                None
+            };
             let mutex = {
                 let mut lanes = lanes.lock().await;
-                if op == "open" {
+                if op == "open" || restoring {
                     lanes
                         .entry(marker.clone())
-                        .or_insert_with(|| Arc::new(Mutex::new(Lane::default())))
+                        .or_insert_with(|| Arc::new(Mutex::new(restored.unwrap_or_default())))
                         .clone()
                 } else if let Some(lane) = lanes.get(&marker) {
                     lane.clone()
@@ -272,8 +312,7 @@ impl Bridge for McpBridge {
                 }
             };
             let mut lane = mutex.lock().await;
-            let key = digest(&("mcp-lane-v1", &marker));
-            if op == "open" {
+            if op == "open" || restoring {
                 let gateway = command["signature"]["name"]
                     .as_str()
                     .ok_or(Error("mcp_gateway_required"))?;
@@ -281,13 +320,37 @@ impl Bridge for McpBridge {
                     return Err(Error("app_lane_declaration_changed"));
                 }
                 lane.gateway = gateway.into();
+                if restoring {
+                    let released = remote
+                        .operation(json!({"op":"release","lane":marker}))
+                        .await?;
+                    if released["released"] != true {
+                        return Err(Error("app_lane_release_unconfirmed"));
+                    }
+                    let observed = remote.operation(command).await?;
+                    let last = lane.token.as_deref().ok_or(Error("mcp_turn_unavailable"))?;
+                    let root = lane.discovery_root.as_deref().unwrap_or(last);
+                    broker.restore_source_discovery(root, last, &marker).await?;
+                    journal.write(&key, &*lane)?;
+                    return Ok(observed);
+                }
                 journal.write(&key, &*lane)?;
                 return remote.operation(command).await;
             }
             if op == "stop" || op == "release" {
+                let preserve = op == "release" && command["preserve_settled_source"] == true;
+                if preserve
+                    && (!lane.complete || lane.settlement.is_some() || !lane.offered.is_empty())
+                {
+                    return Err(Error("mcp_pending_completion"));
+                }
                 let result = remote.operation(command.clone()).await;
-                if let Some(token) = &lane.token {
-                    broker.retire(token, true).await?;
+                if preserve {
+                    if let Some(token) = &lane.token {
+                        broker.retire(token, false).await?;
+                    }
+                } else {
+                    broker.stop_lane(&marker, lane.token.as_deref()).await?;
                 }
                 // Preserve stopped state/last round for actual stop observation.
                 // Only explicit release forgets an already stopped/settled lane.
@@ -371,8 +434,28 @@ impl Bridge for McpBridge {
                 if !results.is_empty() {
                     return Err(Error("mcp_result_without_pending_call"));
                 }
+                let source = if command["source_input"].is_null() {
+                    None
+                } else {
+                    let input: crate::bound_chat::Input =
+                        serde_json::from_value(command["source_input"].clone())
+                            .map_err(|_| Error("bound_chat_input_invalid"))?;
+                    let anchor = command["source_anchor"]
+                        .as_str()
+                        .ok_or(Error("bound_chat_anchor_missing"))?
+                        .to_owned();
+                    input.validate()?;
+                    Some((input, anchor))
+                };
                 let catalog = tools(&instructions)?.unwrap_or_else(|| lane.tools.clone());
-                let token = broker.register(&marker, catalog.clone()).await?;
+                let previous_token = lane.token.clone();
+                let token = broker.register(&marker, catalog.clone(), true).await?;
+                if source.is_none() {
+                    lane.discovery_root = Some(token.clone());
+                }
+                // Observation can be rate-limited. Keep this prepared round
+                // stable; only a validated source snapshot publishes its tools.
+                lane.discovery_from = source.as_ref().and(previous_token);
                 lane.tools = catalog;
                 lane.token = Some(token.clone());
                 lane.round = round.into();
@@ -386,8 +469,14 @@ impl Bridge for McpBridge {
                 lane.offered.clear();
                 lane.complete = false;
                 lane.submission = digest(&command);
+                lane.source = source;
                 journal.write(&key, &*lane)?;
                 let mut submitted = command;
+                if let Some((input, _)) = &lane.source {
+                    submitted["op"] = json!("follow");
+                    submitted["conversation_id"] = json!(input.conversation);
+                    return remote.operation(submitted).await;
+                }
                 let mut native_policy = policy(&instructions);
                 native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Native Codex executes, approves and records actions. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
                 submitted["instructions"] = json!(native_policy);
@@ -397,9 +486,60 @@ impl Bridge for McpBridge {
                 settle_round(&mut lane, &broker, &journal, &key).await?;
             }
             let mut snapshot = remote.operation(command).await?;
+            if snapshot["round"] == lane.real_round && snapshot["stopped"] == true {
+                snapshot["round"] = json!(lane.round);
+                return Ok(snapshot);
+            }
+            let mut source_validated = false;
+            if let Some((input, anchor)) = &lane.source {
+                snapshot["sourceObservation"] = serde_json::to_value(input).unwrap();
+                if snapshot["savedReadBackoff"]["cooling_down"] == true {
+                    snapshot["messages"] = json!([]);
+                    snapshot["terminals"] = json!([]);
+                } else {
+                    let observed = crate::bound_chat::read(
+                        remote.clone(),
+                        &input.conversation,
+                        anchor,
+                        Some(input),
+                    )
+                    .await?
+                    .ok_or(Error("bound_chat_input_missing"))?;
+                    snapshot["messages"] = json!(observed.messages);
+                    snapshot["terminals"] = if observed.ended {
+                        json!(["done"])
+                    } else {
+                        json!([])
+                    };
+                    source_validated = true;
+                }
+                if snapshot["round"] != lane.real_round {
+                    // Attaching observation has no model/effect dispatch. A lost
+                    // attach reply can be reconciled using this exact identity.
+                    remote
+                        .operation(json!({"op":"follow","lane":marker,"round":lane.real_round,
+                        "conversation_id":input.conversation}))
+                        .await?;
+                    let mut attached = remote
+                        .operation(json!({"op":"snapshot","lane":marker}))
+                        .await?;
+                    for field in ["messages", "terminals", "sourceObservation"] {
+                        attached[field] = snapshot[field].take();
+                    }
+                    snapshot = attached;
+                }
+            }
             let before = digest(&*lane);
             if snapshot["round"] != lane.real_round {
                 return Err(Error("app_round_identity_unconfirmed"));
+            }
+            if source_validated {
+                if let Some(previous) = &lane.discovery_from {
+                    let token = lane.token.as_deref().ok_or(Error("mcp_turn_unavailable"))?;
+                    broker.source_discovery(previous, token).await?;
+                    lane.discovery_from = None;
+                    journal.write(&key, &*lane)?;
+                }
             }
             if snapshot["stopped"] == true {
                 snapshot["round"] = json!(lane.round);
@@ -453,6 +593,9 @@ impl Bridge for McpBridge {
                     continue;
                 }
                 let mut item = item.clone();
+                // The app-wire consumer retains physical identity separately
+                // from the distinct canonical IDs required by virtual rounds.
+                item["provider_source_message"] = json!(id);
                 // One app message can cross several native Responses rounds.
                 // Reusing its source ID would replace earlier canonical text.
                 // Commit the complete final under a separate item if its prefix
@@ -485,6 +628,21 @@ impl Bridge for McpBridge {
                 }
                 snapshot["terminals"] = json!(["done"]);
             } else if !snapshot["error"].is_string() && snapshot["terminals"] == json!(["done"]) {
+                if let Some((source, _)) = lane.source.as_ref().filter(|_| !lane.complete) {
+                    let final_id = raw
+                        .iter()
+                        .rev()
+                        .find(|message| committed_final(message))
+                        .and_then(|message| message["id"].as_str())
+                        .ok_or(Error("invalid_public_message"))?;
+                    remote
+                        .operation(
+                            json!({"op":"follow_settle","lane":marker,"round":lane.real_round,
+                        "conversation_id":source.conversation,"branch":final_id,
+                        "text":lane.last_public.get(final_id).ok_or(Error("invalid_public_message"))?}),
+                        )
+                        .await?;
+                }
                 broker.retire(&token, false).await?;
                 lane.complete = true;
             }
@@ -533,7 +691,7 @@ mod tests {
         )
         .unwrap();
         let token = broker
-            .register("owned-native-thread", request.tools.clone())
+            .register("owned-native-thread", request.tools.clone(), false)
             .await
             .unwrap();
         broker.enqueue(&token, &original_call()).await.unwrap();
