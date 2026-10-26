@@ -122,13 +122,13 @@ fn replacements(
 ) -> Vec<(usize, Arc<dyn HistoryCell>)> {
     let mut positions = HashMap::new();
     for (index, cell) in cells.iter().enumerate() {
-        if let Some(message) = cell.as_any().downcast_ref::<AgentMarkdownCell>() {
-            if let Some(id) = message.source_item_id() {
-                positions
-                    .entry(id)
-                    .and_modify(|position| *position = None)
-                    .or_insert(Some(index));
-            }
+        if let Some(message) = cell.as_any().downcast_ref::<AgentMarkdownCell>()
+            && let Some(id) = message.source_item_id()
+        {
+            positions
+                .entry(id)
+                .and_modify(|position| *position = None)
+                .or_insert(Some(index));
         }
     }
     let mut progress = HashMap::new();
@@ -250,7 +250,7 @@ mod tests {
             buffer
                 .content
                 .chunks(usize::from(area.width))
-                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .map(|row| row.iter().map(ratatui::buffer::Cell::symbol).collect::<String>())
                 .collect::<Vec<_>>()
         };
         let folded = render(&mut view);
