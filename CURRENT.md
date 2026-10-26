@@ -14,20 +14,38 @@ repair. Older deferred setup, packaging and architecture work does not precede t
 
 | Order | Required outcome | Status |
 | --- | --- | --- |
-| 1 — source first | Core supplies Android TZif to the runtime and TUI; absolute session-picker dates use that same local timezone | Source, focused checks and combined current-Core/native-TUI execution passed, including shared Seoul TZif and KST completion display; final acceptance and delivery remain |
-| 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Native continuity, restart, retained-chain eviction/Stop, all63 affected TUI tests and disposable signed install/TLS/update/rollback passed. Actual Android→same native TUI/history→successful native follow-up passed, with no reinference. The subsequent single-read source settlement correction passed full Provider/JS gates, fault checks and actual-server SDK→same native TUI→native follow-up after Provider replacement. All5 original finals match; real web native-tool routing, uncontrolled concurrent entrances and exact-source delivery remain |
+| 1 — source first | Core supplies Android TZif to the runtime and TUI; absolute session-picker dates use that same local timezone | Qualified shared Seoul TZif/KST display and signed Full117 delivery passed; activated on this device. Existing TUI processes keep their original executable/environment until the next launch |
+| 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Native continuity, restart, retained-chain eviction/Stop, all63 affected TUI tests and signed install/TLS/update/rollback passed. Actual Android→same native TUI/history→successful native follow-up passed without reinference. The single-read settlement correction passed Provider/JS gates, fault checks and actual-server SDK→native TUI→native follow-up after replacement; all5 original finals match. Real web native-tool development, signed delivery and operating activation now pass (Full117/Provider14). Uncontrolled simultaneous entrances remain an unqualified boundary |
 | 3 — next after2 | Retain common ChatGPT connection/work logic and branch by local/MCP transport, separating transport initialization, checks, configuration and lifecycle | Agreed implementation target; defer the refactor until1 and2 are complete |
 
-Current delivery qualification: the accepted native build `ed1d6b5` passed all63
+Current operating delivery: signed Full117/source `e41617f` and Provider14/source
+`4aad4e9` are public and activated. Core's actual stable `update --wait` moved this
+device from Full113 to Full117, preserving12 user configuration/auth inputs.
+Provider selection, the existing runit executable pin and shared generated routing
+now use14; the logged-in app identity,26 retained works and17 protected inputs
+are unchanged. Three old failed works remain reconciliation_required, never
+relabeled completed or replayed. Two inherited-lease native catalogs were closed
+only after actual empty loaded-thread lists, no child processes and pidfd-confirmed
+exits; their owner metadata and histories remain. The remaining observed native
+processes were preserved. Existing TUI instances were not restarted.
+
+The accepted native build `ed1d6b5` passed all63
 focused regressions, retained upstream features and Clippy. The initial build's
 Clippy normalization of progress disclosure is incorporated without changing its
-behavior. Provider source `4aad4e9` has a signed staged generation14; stable
-promotion and device activation remain separate pending consumer gates.
+behavior. Provider14's ten public assets passed signature/full readback and ten
+actual Android consumer steps, including signed13→14 update and rollback.
+Stable promotion was non-forced; the final Full pipeline completed public
+composition readback and disposable update proof. A preceding Full attempt was
+correctly fenced before release creation when Provider promotion advanced main
+during its staging. The final attempt used the new exact baseline; no publication
+guard was weakened or immutable asset replaced.
 The exact hosted Android Provider passes real web-app SDK/cloud-tunnel native
 development and a second task in the same Chat/work/thread:14 admitted calls out
 of the explicitly supplied1000, none pending,14 independent tests passing and
 original tests preserved. Both requests retained gpt-6-thinking/extended.
-All17 registered/live tool schemas agree, including queue and synchronize.
+The operating connector's stale16-action registration was refreshed to17, with
+complete live/registered input-schema agreement, including queue and synchronize;
+an actual cloud-tunnel MCP read returned the existing26 works without inference.
 Host acquisition/Stop/restart preserves authentication; kernel pidfds confirm
 the owned app supervisor and display exited. No new physical Android UI observation
 is claimed by these SDK-driven trials. Evidence is the `deployment-*.json` records
@@ -41,18 +59,22 @@ authenticated manifest inventory, retaining exact layout/hash/mode revalidation.
 The package lifecycle fixture now starts with an independently declared signed
 eight-file envelope and exercises remote/local installation, update to six files
 and rollback. The original hosted Core fails that regression at real TLS install;
-the corrected Core and fresh public consumer qualification are being verified.
+the corrected Core passes both Base/Full lifecycle cases. A deliberate omission
+fault in disposable source also fails, preserves selection and is restored.
+The complete local Rust/Clippy gate passes374 tests; its separate explicitly
+armed real-Termux readonly smoke passes1. The first new fixture's local-mode
+failure was an incorrectly600-mode generated license, corrected to the signed
+0644 expectation without relaxing validation. Original failures remain retained.
 
-The user also authorized a later Provider budget-extension change, to join the
-combined implementation/build batch. `max_native_calls` currently accumulates per
-assigned work across turns;75 was this work's supplied budget, not a hardcoded
-default. Existing claim supports time extension but rejects a changed native-call
-cap. Add explicit owner-authorized extension while preserving consumed calls and
-parent/ownership boundaries; do not reset usage or edit live journals. For the
-current Chat-first source assignment, the user chose a fresh work with1000 native
-calls and requested actual consumption afterward. Preserve the exhausted75-call
-work and report admitted calls separately from successful executions. Its source implementation is now under Codex qualification below; it is not
-an installed runtime change.
+The authorized explicit budget extension is delivered in Provider14.
+`max_native_calls` accumulates per assigned work across turns;75 was the source
+work's supplied budget, not a hardcoded default. A settled owner-authorized claim
+can increase the cap while preserving consumed calls, original start and parent/
+ownership boundaries; no usage reset or live-journal edit is used. The qualified
+1000-call extension retains its already consumed call. The separate Chat-first
+source assignment used91/1000 admitted calls; the later installed-candidate MCP
+development trial used14/1000. These are separate works, not one combined counter.
+Preserve the exhausted75-call work and distinguish admission from execution success.
 
 Budget policy clarification:1000 was the user's deliberately generous temporary
 allowance, not a chosen product default. Neither75 nor1000 is a global hardcoded
@@ -79,16 +101,17 @@ The same saved Chat now owns implementation work
 `$TMPDIR/codex-originality-chat-nzbslj9a/source`. The actual assignment journal
 confirms1000 native calls and a4-hour elapsed cap. The source-edit batch completed
 with91 admitted calls and0 pending calls; its16-file candidate includes the
-inherited9-file diff. Preserve that workspace for Codex review. Initial static
+inherited9-file diff. Preserve that original workspace. Initial static
 review found contradictory checkpoint/visibility tests and a formerly successful
-model-downshift route changed to rejection; the candidate is not admitted.
+model-downshift route changed to rejection; that original artifact was not admitted.
+Codex's reviewed and supplemented implementation is delivered as described above.
 `chat-source-initial-review.json` and the complete original candidate diff are
 retained in the evidence directory below. Compilation, tests, signing, deployment
 and activation were not authorized for that Chat batch. Original instructions, saved-message readback and
 the initial usage observation are retained in
 `~/.cache/codex/acceptance/independence-review-20261025/`.
 
-### Chat-first source audit and Codex supplementation — in progress
+### Chat-first source audit and Codex supplementation — delivered; proof boundaries above
 
 Repeated shutdown investigation: mobile ADB now supplies a system exit record
 for `com.termux` PID31170 at2026-10-26 11:21:06.316 KST, reason3
