@@ -143,6 +143,7 @@ def qualify(args):
             # through the actual installer, update and rollback consumers.
             for name in ('bridge-LICENSE', 'upstream-codex-LICENSE'):
                 (one / 'licenses' / name).write_text('Owned historical-layout fixture.\n')
+                (one / 'licenses' / name).chmod(0o644)
             legacy_names = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider',
                             'licenses/bridge-LICENSE', 'licenses/novnc-LICENSE.txt',
                             'licenses/proot-LICENSE', 'licenses/upstream-codex-LICENSE',
