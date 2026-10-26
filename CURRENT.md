@@ -18,6 +18,31 @@ repair. Older deferred setup, packaging and architecture work does not precede t
 | 2 — next runtime repair and combined qualification | Continue the same bound work from Codex or its opened ChatGPT conversation, return both entrances' public turns to the same native history/TUI, and make subsequent Codex requests succeed. Include duplicate progress/final presentation | Native continuity, restart, retained-chain eviction/Stop, all63 affected TUI tests and disposable signed install/TLS/update/rollback passed. Actual Android→same native TUI/history→successful native follow-up passed, with no reinference. The subsequent single-read source settlement correction passed full Provider/JS gates, fault checks and actual-server SDK→same native TUI→native follow-up after Provider replacement. All5 original finals match; real web native-tool routing, uncontrolled concurrent entrances and exact-source delivery remain |
 | 3 — next after2 | Retain common ChatGPT connection/work logic and branch by local/MCP transport, separating transport initialization, checks, configuration and lifecycle | Agreed implementation target; defer the refactor until1 and2 are complete |
 
+Current delivery qualification: the accepted native build `ed1d6b5` passed all63
+focused regressions, retained upstream features and Clippy. The initial build's
+Clippy normalization of progress disclosure is incorporated without changing its
+behavior. Provider source `4aad4e9` has a signed staged generation14; stable
+promotion and device activation remain separate pending consumer gates.
+The exact hosted Android Provider passes real web-app SDK/cloud-tunnel native
+development and a second task in the same Chat/work/thread:14 admitted calls out
+of the explicitly supplied1000, none pending,14 independent tests passing and
+original tests preserved. Both requests retained gpt-6-thinking/extended.
+All17 registered/live tool schemas agree, including queue and synchronize.
+Host acquisition/Stop/restart preserves authentication; kernel pidfds confirm
+the owned app supervisor and display exited. No new physical Android UI observation
+is claimed by these SDK-driven trials. Evidence is the `deployment-*.json` records
+under `independence-review-20261025`.
+
+The actual signed13→14 consumer trial exposed an installer defect that the codec
+and same-format package fixtures missed: Core verified the retained eight-file
+manifest but copied only the new six-file constant into staging. Selection stayed
+unchanged and the original failure is retained. Installation now copies the
+authenticated manifest inventory, retaining exact layout/hash/mode revalidation.
+The package lifecycle fixture now starts with an independently declared signed
+eight-file envelope and exercises remote/local installation, update to six files
+and rollback. The original hosted Core fails that regression at real TLS install;
+the corrected Core and fresh public consumer qualification are being verified.
+
 The user also authorized a later Provider budget-extension change, to join the
 combined implementation/build batch. `max_native_calls` currently accumulates per
 assigned work across turns;75 was this work's supplied budget, not a hardcoded

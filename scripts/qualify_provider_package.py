@@ -139,6 +139,23 @@ def qualify(args):
                 return destination
 
             one = package('signed package 1', 'chatgpt-g-test-1', 1)
+            # Exercise an independently declared retained eight-file envelope
+            # through the actual installer, update and rollback consumers.
+            for name in ('bridge-LICENSE', 'upstream-codex-LICENSE'):
+                (one / 'licenses' / name).write_text('Owned historical-layout fixture.\n')
+            legacy_names = ('Cargo.lock', 'NOTICE.md', 'codex-chatgpt-provider',
+                            'licenses/bridge-LICENSE', 'licenses/novnc-LICENSE.txt',
+                            'licenses/proot-LICENSE', 'licenses/upstream-codex-LICENSE',
+                            'source-inputs.json')
+            header = (one / 'payload.manifest').read_text().split('file_count\t', 1)[0]
+            (one / 'payload.manifest').write_text(header + 'file_count\t8\n' + ''.join(
+                'file\t' + name + '\t' + sha(one / name) + '\t'
+                + str((one / name).stat().st_size) + '\t'
+                + ('0755' if name == 'codex-chatgpt-provider' else '0644') + '\n'
+                for name in legacy_names))
+            run('sign retained eight-file fixture', ['openssl', 'pkeyutl', '-sign',
+                '-inkey', key, '-rawin', '-in', one / 'payload.manifest',
+                '-out', one / 'payload.sig'])
             two = package('signed package 2', 'chatgpt-g-test-2', 2)
             package('refuse package output replacement', 'chatgpt-g-test-1', 1, expected=1)
             public('absent Provider inventory', 'status', 'chatgpt')

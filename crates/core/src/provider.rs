@@ -1,6 +1,6 @@
 //! Optional signed payload selection. No Manager, host or inference side effects.
 use super::*;
-use codex_release_builder::provider::{Index, Manifest, FILES, PROBE};
+use codex_release_builder::provider::{Index, Manifest, PROBE};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -356,21 +356,14 @@ fn install(
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(staging.join("licenses"))?;
-            for name in FILES.into_iter().chain(["payload.manifest", "payload.sig"]) {
+            for (name, bound) in manifest
+                .files
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.bytes))
+                .chain([("payload.manifest", 8192), ("payload.sig", 64)])
+            {
                 let input = source.join(name);
                 let m = fs::symlink_metadata(&input)?;
-                let bound = if name == "payload.manifest" {
-                    8192
-                } else if name == "payload.sig" {
-                    64
-                } else {
-                    manifest
-                        .files
-                        .iter()
-                        .find(|v| v.name == name)
-                        .ok_or("Provider file missing")?
-                        .bytes
-                };
                 if !m.is_file() || m.len() != bound && name != "payload.manifest" || m.len() > bound
                 {
                     return Err("Provider staging input changed".into());
