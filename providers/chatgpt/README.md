@@ -26,10 +26,10 @@ remain in force. Earlier F/G/H qualification and delivery apply at their recorde
 scope; [CURRENT](../../CURRENT.md#evidence-map-and-limits) separates those results
 from confirmed entrance-continuity defects. [AUDIT](../../AUDIT.md) independently
 rechecks original Chats/native work and defines the selected implementation plan.
-Persistent source binding and Bridge-native join for the already active Chat
-response are candidate controls, not installed controls. Current saved-source
-observation can recover public text without reinference, but it does not make
-all host tools native execution or guarantee live TUI display.
+Provider15 delivers persistent binding and Bridge-native join for an active Chat
+response at the qualification scope in CURRENT. Saved-source recovery is explicit;
+ordinary Bridge work does not crawl Chat. Source recovery does not make all host
+tools Native execution or establish unobserved original host message identities.
 
 All annotation values except idempotentHint are intentionally fixed. The
 [idempotency study](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
@@ -396,8 +396,17 @@ can start new inference; the existing no-reinference follow path additionally
 requires verified saved-source admission. chat_input deliberately starts a new
 saved-Chat user request and must not mirror an already active original prompt.
 
-The installed Provider14 does not expose bind/unbind/join. The unreleased A1
-candidate implements them; see CURRENT for exact qualification and remaining gaps.
+Provider15 exposes bind/unbind/join; see CURRENT for exact qualification and
+remaining source-identity gaps. Earlier immutable Provider14 lacks these controls.
+An existing Provider14 journal must be converted while its service is stopped:
+`migrate-reasoning --state /absolute/state --backup /absolute/new-backup.json --target direct-provider`
+uses the new verified executable and preserves original control records. The
+installed CLI form is `codex provider chatgpt migrate-reasoning ...` after package
+selection. It starts no service or inference. Before rolling back to Provider14,
+use the new executable with `--target provider14` while stopped, then select the
+old package. Pending/unknown execution must reconcile first. Runtime aliases are
+not used to read old state. Installation changes package selection; existing
+service executable pins and generated profiles need their explicit update too.
 Ordinary `join` admits Bridge-submitted input directly on a selected completed
 Native work, without saved-source crawling. Accept current context via
 `codex_attach`; progress, actual tools/results and submitted final use the common
@@ -763,6 +772,14 @@ host; it does not repair an arbitrary hung/partially failed app/display by killi
 it. Inspect such unknown state and settle work before deliberate host/service
 repair. Logs/readiness never establish physical viewer usability. Xvnc is acquired
 through Provider; no independent Xvnc or browser/desktop launcher is installed.
+
+During maintenance, serialize service startup and profile preparation. `prepare`
+can start a detached Provider when the supervisor has not yet bound the endpoint.
+Start runit alone, verify that its supervised PID matches the actual authenticated
+Provider status, then prepare the generated profile. If preparing before enabling
+runit, stop that prepared idle service first. Concurrent starts can leave runit
+reporting `provider_already_running` while the detached service owns the endpoint.
+Do not resolve it by killing unrelated Native sessions or replaying work.
 
 The old local tmux runtime was explicitly stopped before runit activation. Its
 remote alias remains, but `tunnel-client runtimes` local metadata describes that

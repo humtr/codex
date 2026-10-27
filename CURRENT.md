@@ -5,29 +5,31 @@ e4d5400754e86f0ca68f9e3ac02ff6621df5234c. SPEC owns contracts; this file owns
 actual state. [AUDIT.md](AUDIT.md) contains the original-record audit, claim
 verdicts, confirmed architecture, file-level implementation plan and acceptance.
 Earlier incident narratives remain in [Git at the audit baseline](https://github.com/humtr/codex/blob/e4d5400754e86f0ca68f9e3ac02ff6621df5234c/CURRENT.md) and their original private evidence.
-The independent audit was documentation-only. A1 implementation and actual SDK/native qualification are now in progress;
-source changes are not installed. Qualification claims below name their exact producer/consumer boundaries.
+The independent audit was documentation-only. A1 source and its recorded
+SDK/Native/Android qualification are complete at the boundaries below. Full119
+and Provider15 are signed, publicly delivered and activated on this device.
+General entrance equivalence remains bounded by the unresolved host-source facts.
 
 ## Current status and next action
 
-**Full117 and Provider14 are delivered and selected, but complete entrance
-execution/record/screen equivalence remains unfinished.** Restarting a client
-selects its installed executable; it does not fix the confirmed observer or
-persistent-connection gaps. Earlier E/F/G/H acceptance applies to its declared
-inputs and scenarios, not all future direct-Chat continuations.
+**Full119 and Provider15 are delivered, selected and running.** New clients use
+the corrected catalog-preserving frontend. Provider runs once under runit; host
+readiness, the original account and35 retained works are verified. Already-open
+TUI processes retain their existing executable until normal restart. Complete
+entrance/source identity equivalence is not implied by package activation.
 
 The active batch is A1 entrance equivalence. The source-follow candidate and its
 bounded evidence are preserved, but the user has corrected the primary route to
 Bridge-first Native admission. Saved-source polling must not gate ordinary Bridge
-requests. Qualify the implemented primary-path replacement and original-input/public-event
-semantics before claiming equivalence or delivering this candidate. Common MCP/
+requests. The implemented primary replacement is delivered at the tested scope;
+full original-input/host-event provenance remains unfinished. Common MCP/
 local responsibility refactoring follows; independent-model/native-child
 extensions follow the foundation. The delivered TZ requirement is not reopened.
 
-## Active A1 implementation — not released
+## Delivered A1 implementation and remaining qualification boundaries
 
 **Bridge-first execution and the corrected Native/TUI catalog path pass their
-recorded source and actual-Chat boundaries; hosted delivery remains pending.** `join` shares Native start /
+recorded source and actual-Chat boundaries; Full119/Provider15 are activated.** `join` shares Native start /
 admission with explicit work/task/call_id, Direct generation and existing context
 acceptance. Ordinary join, the Native input barrier, service startup and completion
 observation no longer crawl saved Chat. Explicit source_sync/source_join retain
@@ -36,7 +38,8 @@ exit0: Rust, Clippy, optimized release,101 JS and82 Python checks). Final Native
 TUI fixtures passed both Bridge inputs, exact concurrent retries, context/effects /
 results, restart and CLI return to Provider on the same work with zero saved reads
 (bridge-final-native.json). Explicit source recovery also passed its retained
-Native/Core/TUI scope. The working candidate is not publicly installed.
+Native/Core/TUI scope. The resulting Provider15 is publicly installed; original
+candidate proofs retain their precise source and simulation boundaries.
 
 One actual ordinary Android ChatGPT prompt then completed8 MCP controls (join,
 two attaches, tools, two reports, execute and finish), one actual file write/read
@@ -117,8 +120,8 @@ tracked, staged, renamed and untracked source. Allowed Config/TUI input passes;
 unrelated source is rejected. Omitting untracked paths in disposable source
 produces the two expected failures and is restored. Requalification of source
 170763e passed as [40465709544](https://github.com/humtr/codex/actions/runs/40465709544)
-with mutation checking; no frontend Rust change or new model request was needed. Signing/public delivery
-and activation remain pending. After clearing the stale old input, the completion
+with mutation checking; no frontend Rust change or new model request was needed.
+After clearing the stale old input, the completion
 relay pinned the successfully qualified170763e frontend in5b42758. This selects a
 release input, not a device installation. The candidate focused
 acceptance now requires64 tests (retained63 plus the new source-preservation
@@ -144,9 +147,8 @@ same work, concurrent identical join once, changed/busy input rejection, accepte
 context before effects, exact effect/final retries, unchanged previous turns and
 zero saved reads or new model requests (unloaded-join-receipt-native-created.json).
 Resume and turn start share one durable operation intent; the regression also
-caught a double-intent implementation before acceptance. Final source/package
-requalification remains pending, so170763e is not admitted
-for publication. Initial standalone helper
+caught a double-intent implementation before acceptance. Source170763e was not
+published as Provider; the subsequent correction is eb0a5be. Initial standalone helper
 failures (CLI text/JSON handling, old/new history schema and loaded-only lookup)
 are preserved separately; the unloaded live-job rejection is independently
 confirmed on the actual Native protocol. No real model request was used.
@@ -163,7 +165,54 @@ driver start with no retry (unloaded-summary-cold-operator.json). Its synthetic
 Chat boundary is explicit. Restoring only the old summary-barrier predicate in
 disposable source reproduces the post-compaction wait after the earlier
 cold-resume checks pass; the source was restored (unloaded-summary-mutation.json).
-The final source gate and new signed-candidate qualification remain pending.
+The final source gate passed (unloaded-summary-final-provider-check-exit.json:0).
+Exact-source eb0a5be passed source40476107531, Provider40476107583 and independent
+Core/runtime40476175050. Its hosted Android executable passed three actual Native
+turns with exact effect retries, new/Provider14/new codec startup and unchanged
+history, cold claim and post-rollback join (eb0a5be-hosted-native-codec.json).
+The same hosted bytes passed all three product compositions and signed-package
+remote/local lifecycle (eb0a5be-hosted-provider-product.json;
+eb0a5be-hosted-provider-package.json). An independently observed ready copied
+profile then passed two actual host start/idle/stop cycles with preserved auth,
+kernel-confirmed app/display exits and the service left alive until final Stop
+(eb0a5be-hosted-host-lifecycle.json). An earlier cold/stale copied profile returned
+app_target_unavailable; later diagnostic observation found a visible composer,
+but the initial cause is unconfirmed. Preserve that failed result and the
+preparation-only copy/home errors; do not claim every cold profile is qualified.
+These trials made zero model requests and changed no operating profile/service.
+The normal Core release producer completed signing, full public readback,
+disposable update and non-forced stable promotion for Full119, source eb0a5be
+(run40476429639). Provider15 signing/public readback passed40481676037. Its complete
+immutable public inventory and stable pointer were read back and independently
+verified on Android. The public consumer preserved one Native work across signed
+Provider14→15 installation, offline codec conversion, explicit owner claim, actual
+follow-up, inverse conversion, signed rollback and another old-generation Native
+follow-up. All previous Native items and exact three file effects were retained;
+effect/final retries did not duplicate execution (eb0a5be-public-consumer.json).
+The installer correctly refused inherited leases from test-only Termux
+service-daemon children. Their cwd/argv/lease identity established ownership before
+pidfd retirement; global services were not stopped. A replaced Native owner needs
+the existing explicit history/context claim before effects; it is not silently
+accepted. Failed preliminary consumer results remain preserved separately.
+Provider15 stable promotion was non-forced with unchanged Base/Full pointers
+(eb0a5be-provider-promotion.json). Actual normal stable update selected Full119 and
+preserved13 protected files (full119-device-update.json). Provider activation
+converted62 control records with original backup, preserved all35 work identities
+and phases,17 protected files and four preexisting Native owners. Its new executable,
+generated profile and17-tool catalog including join are verified
+(provider15-device-activation-completed.json). Initial backup-name and activation
+check failures remain retained. Starting runit concurrently with prepare created a
+detached process first; maintenance stopped that exact idle service and restarted
+runit alone. The actual service PID now equals its supervisor PID, with the same
+authenticated account and ready idle host (provider15-service-settlement.json).
+No new model inference or physical-screen observation was used for deployment.
+The existing operating web connector was refreshed once through the authenticated
+app SDK, preserving its connector/tunnel destination. Registered17 full schemas,
+cloud tools/list and the actual local Provider catalog match, including join;
+remote codex_sessions list returns all35 works (provider15-operating-web-mcp.json).
+The inspector exited normally. An initial helper read the output file during its
+write; the same completed result was validated after exit without repeating the
+refresh or remote call. This is SDK/cloud proof, not a physical Android UI trial.
 Required Native proof binaries and original inputs/results are frozen outside
 mutable targets; after confirming no active cache user, clean_development.py
 reclaimed about11GiB of idle TUI debug outputs
@@ -206,14 +255,28 @@ three inactive fixtures were archived by clean_development.py; histories, state,
 configs and frozen proof executables remain. The reusable compiler targets total
 about14.96GiB, so their inspected cache cleanup was not applied. Operating services,
 profiles, source conversations and the unknown old providers/chatgpt/target remain
-untouched. Operating Full117/Provider14, profiles and unrelated
-running jobs remain unchanged. MCP/local common-responsibility extraction follows
-this entrance/screen qualification as a separate logical change; it may share a
-release after both routes pass, rather than mixing unqualified changes.
+untouched by that trial. The subsequent Full119/Provider15 deployment is described
+above. MCP/local common-responsibility extraction follows
+as a separate qualified change; no transport refactoring was mixed into this release.
+
+The A2 caller review confirms that Operator::new already builds both routes over
+one LimitedBridge and the same AppHost implementation; app_route/app_host selects
+each admitted work's route. app::Transport adds the immutable open/adopt return
+path. McpBridge alone owns remote discovery/Broker settlement/source leases;
+local functions have no equivalent remote lease. The older Operator control-driver
+route remains consumed by records without an explicit reasoning selection, so it
+cannot be deleted as dead code. Consolidation must preserve that control-tool
+surface, approvals, handoff, compaction and original returns rather than merely
+replace names or merge distinct state machines. The installed Provider15 CLI plus
+source-matched service passed actual Native/TUI local-function qualification:
+12 original control returns, failed-command correction, system-only successor,
+complete final and confirmed Native/host Stop with no pending jobs or real Chat
+requests (provider15-local-operator.json). Together with the MCP proofs, this is
+the retained behavior baseline for A2, not a claim that refactoring is complete.
 
 Approved 2026-10-27: complete A1 through acceptance, delivery and activation;
-optional Pro discovery is authorized. The operating Full117/Provider14 install
-remains unchanged. Candidate behavior and real-world qualification are separate.
+optional Pro discovery is authorized. Operating installation is now Full119/
+Provider15. Source behavior and real-world qualification remain separate.
 The first candidate passed `scripts/check.sh provider`: Rust tests, Clippy
 -D warnings, optimized release build,97 JS tests,6 package Python tests and76
 qualification Python tests. The source-reference extension then passed the same
@@ -246,7 +309,9 @@ include previous-controller records, not62 distinct works. No service, Native
 request or model was started; the live state was never written
 (operating-records-offline-codec-roundtrip.json). This extends codec coverage,
 not signed installer/profile/runtime activation proof.
-Installer activation/matching operational rollback acceptance remains pending.
+Matching signed installer/codec/Native rollback passed on the disposable public
+consumer; device activation is complete. No rollback of the operating device was
+performed merely to repeat that disposable proof.
 
 The existing AppHost/McpBridge source-follow and native executor now serve both
 origins. New canonical native CLI input selects Provider automatically; existing
@@ -569,7 +634,8 @@ rather than repeat the configured surface. This review consumed no model request
 **Remaining A1 acceptance.** Actual interrupted client/restart, simultaneous
 entrances, account/model/compaction boundaries, full original public host-tool/
 source-event correlation, large supported context/snapshot bounds, current TUI/event
-recovery and release/activation/matching rollback remain unfinished.
+recovery remain broader qualification work. Release/activation and matching
+public signed-code/state rollback are complete at the recorded disposable scope.
 
 Owned-source binding is implemented; arbitrary existing-source adoption remains
 explicitly unavailable. A1 is not complete merely because these source/native
@@ -581,23 +647,23 @@ follow the entrance foundation. Preserve existing sessions and unknown
 
 | Plane | Verified state and boundary |
 | --- | --- |
-| Source | rewrite/rust-core e4d5400 at audit start; tracked clean then; only unknown providers/chatgpt/target/ untracked and preserved |
-| Selected Core | Signed Full117, local-relay-hosted-0-164-0-e41617f3b3bf-s117; actual earlier Full113→117 stable update evidence |
+| Source | rewrite/rust-core eb0a5be product source; audit started at e4d5400; unknown providers/chatgpt/target/ remains preserved |
+| Selected Core | Signed Full119, local-relay-hosted-0-164-0-eb0a5beb98d8-s119; actual Full117→119 normal stable update |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
-| Selected TUI | Native sourceed1d6b5, installed in Full117. Old running clients retain their own image/environment until normal exit |
-| Selected Provider | chatgpt-4aad4e9b7632-s14, source4aad4e9, high-water14, previous13; directly reread during this audit |
-| Provider service | runit Provider/host/tunnel remain running at observed PIDs18236/18238/18240; this audit neither restarted nor interrupted them |
-| Host | Existing provisioned app26.1007.21434, original account/auth preserved by earlier activation proof; service liveness is not fresh model readiness |
+| Selected TUI | Native source170763e, focused64 and retained-feature/mutation/lint proof40465709544; installed in Full119. Old clients retain their own image until normal restart |
+| Selected Provider | chatgpt-eb0a5beb98d8-s15, sourceeb0a5be, high-water15, previous14; actual signed public install and codec conversion completed |
+| Provider service | Provider21859 is supervised by runit with matching actual PID; host/tunnel restored, same authenticated account ready,35 retained works |
+| Host | Existing provisioned app26.1007.21434; same authenticated identity and ready idle host verified after actual Provider15 activation; no new model request |
 | Tunnel | Previously qualified scoped HTTP/2 recovery buildbb78162; no global tunnel replacement. A running tunnel is not proof of an arbitrary request's delivery |
 | History/project config | Current file now selects Project: ChatGPT, ID g-p-6adf2b7125d88191bf74947acb7f09e6, project mode/MCP. This was changed by the later recorded web investigation, not by this audit |
 | Existing Chat | Seed6adf2ada… retained its original Project: Codex membership. Changing the default project does not move that Chat |
-| Work inventory | Current read returns28 works. Earlier activation preserved26 at that time; subsequent work creation is not evidence of activation data loss |
+| Work inventory | Local and actual cloud-MCP reads return35 works; all pre-activation identities/phases preserved. Earlier28/26 inventories retain their original scope |
 
-Provider14 binary SHA256 from the immutable admitted delivery is
-9626de3e46d699f3dbe77266e496d9cab9a15d4e61248380a4297945d12bac63.
+Provider15 binary SHA256 from the immutable admitted delivery is
+52ff50a3adba647f64abdef47b120d1a0979fb969f02a43b6bc227bf3d5f7e55.
 Current package readback is distinct from host readiness, actual inference,
-native commit and physical screen observation. No fresh activation is needed
-for the document changes, and they are not a new software release.
+native commit and physical screen observation. Documentation follow-up does not
+require repeating the accepted runtime checks or a new software release.
 
 ## Confirmed defects and unresolved behavior
 
@@ -633,7 +699,7 @@ Three earlier failed works remain reconciliation_required; do not relabel or rep
 
 | Capability | Current implementation / actual proof limit |
 | --- | --- |
-| CLI Chat model execution | Responses/native tools and MCP or local-function return; current/native explicit work and managed app-started work exist |
+| CLI Chat model execution | Responses/native tools and MCP or local-function return; Direct uses the active response and Provider starts a response. Neither implies an independent child |
 | Serial bound-Chat continuation | Actual Android input→same native history/TUI→native follow-up passed without reinference. This does not cover interrupted/current-route/concurrent entrances above |
 | Full final and progress display | Physical source identity preserves full final and tools; completed progress may fold locally and expand. No model/effort lowering for display |
 | Saved Chat retrieval | Account/conversation/branch/cursor-bound reading, pagination, explicit hidden/unsupported/redaction; no inference/controller just for reading |
@@ -784,10 +850,11 @@ original workspace/diff and native history; do not overwrite it with this audit.
 
 ### G product qualification
 
-The selected Full117/Provider14 delivery is accepted at the evidence-map scope.
-A new A1 runtime candidate requires source/fault checks, changed-path native
-integration and actual Android/web/TUI proof, then signed public delivery and
-separate operating activation. Existing delivery success is not new-feature proof.
+The selected Full119/Provider15 delivery passes the source/fault checks,
+changed-path Native/TUI and hosted Android package/codec/rollback tests above,
+signed public readback, non-forced promotion, actual device activation and
+operating web-MCP schema/read verification. Broader host-source equivalence
+boundaries remain listed separately; delivery does not close them.
 
 ## Deferred setup and repository work
 
