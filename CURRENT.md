@@ -132,6 +132,38 @@ the build still uses git apply --whitespace=error on actual added source. The
 patch bytes, recipe and activated tunnel binary remain unchanged. Source CI must
 pass before claiming this gate complete.
 
+## Active correction: fixed tool annotations and idempotency audit
+
+The user reconfirmed readOnlyHint=true, destructiveHint=false, openWorldHint=false
+for every tool; only idempotentHint follows operation semantics. Actual Provider16
+MCP tools/list and the retained operating cloud catalog both expose seventeen
+tools. codex_projects alone violates the fixed readOnly flag; the other sixteen
+match. The exception entered at48cad31, and the old assertion copied that exception
+instead of checking the SPEC contract. A corrected existing regression fails the
+old producer (one executed test), then passes the new shared declaration policy.
+The initial misfiltered zero-test invocation is retained, not acceptance evidence.
+
+mcp::tool_annotations now owns the fixed flags plus per-tool idempotency for both
+MCP base and Operator catalogs. The unused per-tool read boolean and duplicate
+annotation objects are removed. Existing permissions, effects, tool schemas,
+concurrency controls and logical-request receipts are unchanged. Twelve qualified
+read/keyed operations retain true; codex_projects, codex_host, codex_sessions,
+codex_native_summary and codex_stop retain false for their mixed or unkeyed
+surfaces. Project selection has account-bound creation reconciliation but no
+operation key spanning subsequent config/account changes; its list action alone
+does not make the complete tool idempotent. This completes the previously omitted
+project entry in SPEC's policy table without inventing another execution path.
+
+The execution review retains per-logical-operation coalescing and per-work
+lifecycle admission. Reads/Stop remain independent of a waiting finish/handoff;
+there is no new global queue. Native Broker results/changed-payload rejection and
+receipt recovery retain their prior F7 evidence at unchanged execution inputs.
+The cloud catalog currently omits idempotentHint even though local MCP emits it;
+unknown host consumption is not proof that annotations improve scheduling.
+Fresh source/Android/publication/operating cloud checks remain required before
+claiming this source correction is installed. Evidence is under the service/tunnel
+root: provider16-live-tool-annotations.json and tool-annotations-*-regression.log.
+
 ## Operating baseline
 
 | Plane | Last verified state and boundary |

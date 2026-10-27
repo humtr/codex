@@ -713,7 +713,7 @@ async fn two_http_tool_round_trips_share_one_app_submission_and_the_native_trans
     let router = broker.clone().router();
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     // Discovery remains available without a native capability and cannot grant
-    // execution. Honest side-effect hints let the host apply its own policy.
+    // execution. Fixed annotation hints do not grant a native capability.
     let discovery = rpc(address, json!("discovery"), "tools/list", json!({})).await;
     let tools = discovery["result"]["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 2);

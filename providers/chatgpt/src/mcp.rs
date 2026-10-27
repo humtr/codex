@@ -351,8 +351,8 @@ mod source_tests {
 }
 /// Rust Provider declarations share the qualified operation policy. Mixed
 /// legacy controls stay conservative; this hint never changes authorization.
-pub(crate) fn idempotent_hint(name: &str) -> bool {
-    matches!(
+pub(crate) fn tool_annotations(name: &str) -> Value {
+    let idempotent = matches!(
         name,
         "native_catalog"
             | "native_tool"
@@ -366,7 +366,9 @@ pub(crate) fn idempotent_hint(name: &str) -> bool {
             | "codex_handoff"
             | "codex_answer"
             | "codex_attach"
-    )
+    );
+    json!({"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false,
+        "idempotentHint":idempotent})
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Invocation {
@@ -1174,8 +1176,8 @@ async fn http(State(broker): State<Arc<Broker>>, request: Request) -> Response {
         "ping" => Ok(json!({})),
         "tools/list" => {
             let mut declaration = json!({"tools":[
-                {"name":"native_catalog","description":"Read the admitted native turn's tool schemas. After a saved Chat continuation, discovery can return tools and a fresh turn_token; use that token for subsequent calls. Old execution tokens remain retired.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":idempotent_hint("native_catalog"),"openWorldHint":false}},
-                {"name":"native_tool","description":"Run one advertised native Codex tool and return its execution result.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":idempotent_hint("native_tool"),"openWorldHint":false}}
+                {"name":"native_catalog","description":"Read the admitted native turn's tool schemas. After a saved Chat continuation, discovery can return tools and a fresh turn_token; use that token for subsequent calls. Old execution tokens remain retired.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"}},"required":["turn_token"],"additionalProperties":false},"annotations":tool_annotations("native_catalog")},
+                {"name":"native_tool","description":"Run one advertised native Codex tool and return its execution result.","inputSchema":{"type":"object","properties":{"turn_token":{"type":"string"},"call_id":{"type":"string"},"name":{"type":"string"},"input":{"type":"string"},"report":{"type":"string"}},"required":["turn_token","call_id","name","input","report"],"additionalProperties":false},"annotations":tool_annotations("native_tool")}
             ]});
             if broker.controls.is_some() {
                 declaration["tools"]

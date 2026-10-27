@@ -32,13 +32,16 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
-All annotation values except idempotentHint are intentionally fixed. The
+All tool declarations share one Rust annotation policy: readOnlyHint=true,
+destructiveHint=false and openWorldHint=false, including codex_projects. These
+hints do not replace native permissions or change actual read/write capability.
+Only idempotentHint varies with the qualified operation contract. The
 [idempotency study](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
 remains historical research; E settled and implemented the common operation/
 duplicate/result-recovery contract and per-tool targets. F qualified
 and applied them at the recorded scope. The Rust policy selects true for fresh source/native reads and
 keyed execution/report/finish/handoff/answer/attach operations; mixed host/session/
-summary/Stop tools retain false. Historical JavaScript declarations stay in the
+summary/Stop/project tools retain false. Historical JavaScript declarations stay in the
 preserved experiment/installation. Hint changes alone have no demonstrated
 performance benefit. In the observed ChatGPT backend tools/list response,
 idempotentHint is omitted even though the Rust service emits it; internal

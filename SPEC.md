@@ -2060,7 +2060,8 @@ failed attempts. No quota or billing improvement is inferred from authentication
 
 The existing readOnlyHint=true, destructiveHint=false and openWorldHint=false
 annotations are intentional immutable user requirements across all tool definitions,
-including added common interfaces.
+including added common interfaces. The MCP base catalog and Native management
+catalog use one declaration policy, without a per-tool read-only exception.
 Do not change them or reopen their selection as a product-admission prerequisite.
 Only idempotentHint is under design review, alongside the actual operation contract
 and implementation. Preliminary per-tool recommendations are research, not accepted
@@ -2139,7 +2140,7 @@ The retained JavaScript adapter keeps its own declarations and exact-input proof
 | Target idempotentHint | Tools / reason |
 | --- | --- |
 | true, subject to F proof | native_catalog, codex_history, codex_tools, codex_status and codex_chats: fresh observations; native_tool and codex_execute: scoped original Broker result; codex_report, codex_finish and codex_handoff: mandatory keyed intent/settlement; codex_answer: keyed native question; codex_attach: offered generation/source-receipt acceptance |
-| false for the compatible mixed surface | codex_host: status plus ensure/open/stop with separate ownership/lifecycle effects; codex_sessions: list plus keyed and legacy unkeyed mutations; codex_native_summary: legacy unkeyed round-scoped input remains; codex_stop: fresh convergence over current work, without a request generation in its old input |
+| false for the compatible mixed surface | codex_projects: list plus account/project selection without a generation-scoped operation key; codex_host: status plus ensure/open/stop with separate ownership/lifecycle effects; codex_sessions: list plus keyed and legacy unkeyed mutations; codex_native_summary: legacy unkeyed round-scoped input remains; codex_stop: fresh convergence over current work, without a request generation in its old input |
 
 Known validation rejection occurs before intent/dispatch. For virtual MCP results,
 Broker validation and lane-intent preparation share the same commit admission
