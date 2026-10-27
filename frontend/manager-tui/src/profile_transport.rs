@@ -14,6 +14,21 @@ pub(super) fn core_owned(target: &AppServerTarget, termux: bool) -> bool {
         )
 }
 
+/// A shared backend reports its default account policy; local threads select
+/// their own resolved provider. Remote account policy stays server-owned.
+pub(super) fn startup_requires_openai_auth(
+    target: &AppServerTarget,
+    termux: bool,
+    selected_provider_requires_auth: bool,
+    backend_requires_auth: bool,
+) -> bool {
+    if core_owned(target, termux) {
+        selected_provider_requires_auth
+    } else {
+        backend_requires_auth
+    }
+}
+
 /// Native package lifecycle cannot replace a Core-qualified server or generation.
 pub(super) fn daemon_action_blocked(
     target: &AppServerTarget,

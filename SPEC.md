@@ -1400,6 +1400,17 @@ not identify its live event stream. Existing recorded owners remain pinned and
 fenced; do not rewrite history or transfer authority implicitly. Observers of an
 existing work use its actual recorded owner.
 
+For a Core-owned local shared backend, startup login UI follows the selected
+invocation's resolved model provider authentication requirement. The backend's
+account/read response describes its default provider and need not match that
+per-thread selection. A ChatGPT Provider configured with requires_openai_auth=false
+must not require a separate native OpenAI login merely to display/resume its
+work in an otherwise fresh execution home. Conversely, selecting an OpenAI-auth
+provider must retain its login requirement even when the shared default does not
+require it. Remote, embedded and unqualified backends retain their account-read
+policy. This changes only the local startup UI decision: no fabricated account,
+credential copy, inert API key or weakening of actual request authentication.
+
 The frontend qualification patch includes the bounded upstream Config source-
 preservation change as well as TUI code. Artifact evidence must retain both;
 format/lint comparison must cover both trees. Only the declared configuration

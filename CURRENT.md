@@ -100,6 +100,28 @@ refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
+## Active A1 correction: fresh-home login scope
+
+Actual installed Full119 TUI resume in a new, credential-free execution home
+stops at OpenAI login despite explicit `--profile chatgpt` and that provider's
+`requires_openai_auth=false`. The same verified local backend reports its default
+account requirement as true, while thread/read identifies chatgpt_desktop. This
+is a reproduced TUI startup policy mismatch, not a missing ChatGPT account or
+transport failure. No Android prompt or model inference was submitted in this
+failed preflight; its completed Native baseline and original terminal output are
+preserved. Existing qualification fixtures contained an inert native API key and
+did not cover this boundary.
+
+The current source change makes only Core-owned local startup UI consult the
+resolved invocation provider. Remote/embedded policy and actual request
+authentication remain unchanged. The continuity driver can remove its verified
+owned inert credential with --fresh-auth-home. A focused policy regression and
+disposable default-account fault check are added to the existing native frontend
+workflow. Source checks, hosted native build/fault test and actual Android fresh-
+home resume remain required before calling this correction qualified or delivered.
+Evidence: service-tunnel-20261027/installed-a1-fresh-home-login-boundary.json and
+installed-a1-observer.log; original trial codex-a1-installed-54tmdqfl under TMPDIR.
+
 ## Operating baseline
 
 | Plane | Last verified state and boundary |
@@ -515,11 +537,11 @@ disposable-build settings, not a claimed universal crash fix.
 
 ## Audit verification and remaining acceptance
 
-This consolidation re-read AGENTS, source/callers, contracts, existing result
-summaries and the complete pre-consolidation CURRENT. It corrects status and work
-order only; no new model, build, Native/client trial, publication or activation.
-Run scripts/check.sh docs, local document-link/status consistency review and final
-diff review for this edit. The existing actual test results retain their exact
-inputs, environment and limitations. Remaining acceptance is the matrix above;
-public activation is complete, whereas full A1 and independent-child scenario10
-remain open.
+The original consolidation reviewed source/callers, contracts, result summaries
+and the complete pre-consolidation CURRENT. Subsequent service/tunnel work includes
+the actual builds, Native/cloud trials, publication and bounded activation stated
+above. The fresh-home A1 preflight is a reproduced failure; its source correction
+is not yet accepted. Each result retains its actual inputs, environment and
+limitations. Remaining acceptance is the matrix above; Provider16/Full119 public
+activation is complete, whereas full A1, signed tunnel distribution and independent-
+child scenario10 remain open.

@@ -32,6 +32,12 @@ def probe(args):
     # Core's Unix socket uses this root; retain the existing short fixture form.
     root = Path(tempfile.mkdtemp(prefix='ct-', dir=os.environ['TMPDIR']))
     home, prefix, env = fixture(root, args.core, args.frontend)
+    if args.fresh_auth_home:
+        auth = home / '.codex/auth.json'
+        assert json.loads(auth.read_text()) == {
+            'OPENAI_API_KEY': 'owned-inert-fixture', 'auth_mode': 'apikey'}
+        auth.unlink()
+        env.pop('OPENAI_API_KEY', None)
     config=home/'.codex/config.toml'
     config.write_text(config.read_text()+'\n[projects.'+json.dumps(str(root/'w'))+']\ntrust_level = "trusted"\n')
     for name in ['owned-fixture', 'model-adapter-fixture', 'bound-source-fixture']:
@@ -303,7 +309,8 @@ def probe(args):
                 'bridge_additional_primary_submissions':0,'cli_followup_primary_submissions':0 if created_before_tui else 1,
                 'cli_after_bridge_same_work_completed':not bool(created_before_tui),'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
                 'bridge_finals_in_active_viewport':bool(display),
-                'actual_web_or_android_chat_client':False,'supplied_completion_is_not_observed_chat_final':True},indent=2)+'\n')
+                'actual_web_or_android_chat_client':False,'supplied_completion_is_not_observed_chat_final':True,
+                'fresh_native_home_without_openai_credentials':bool(args.fresh_auth_home)},indent=2)+'\n')
             origin = 'Native-created work→ordinary TUI resume' if created_before_tui else 'Provider→Direct same work'
             print(f'Bridge-first: {origin}, concurrent retry once, context gate, actual effects/results, public progress/final in live TUI, restart and zero saved-Chat reads',flush=True)
             return
@@ -930,6 +937,7 @@ if __name__=='__main__':
     parser.add_argument('--direct', action='store_true', help='Qualify retained source, actual native effect and Stop after Direct transfers, with automatic Provider reentry')
     parser.add_argument('--native-created', action='store_true', help='Create and complete Native work before ordinary TUI resume; verify same execution backend')
     parser.add_argument('--bridge-first', action='store_true', help='Qualify ordinary Bridge-native admission without saved-Chat reads; actual Native/TUI, synthetic Chat')
+    parser.add_argument('--fresh-auth-home', action='store_true', help='Remove only the owned inert auth fixture before Native/TUI startup; no OpenAI credentials or login bypass')
     parser.add_argument('--join', action='store_true', help='Qualify active response context/accept, same native tool lease and omission/ended-source diagnostics')
     parser.add_argument('--source-recovery', dest='observer_recovery', action='store_true', help='Verify retry/blocked diagnostics and recovery of an actual host-selected branch conflict without restart')
     parser.add_argument('--binding', action='store_true', help='Exercise actual work unbind/bind controls and source admission barrier across optional restart')

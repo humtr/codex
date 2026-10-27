@@ -42,6 +42,35 @@ fn profile_transport_unselected_upstream_unix_target_stays_remote() {
 }
 
 #[test]
+fn profile_transport_login_uses_selected_local_provider_and_preserves_remote_authority() {
+    let local = target(unix(), true);
+    let remote = target(unix(), false);
+    let fallback = AppServerTarget::LocalDaemon {
+        endpoint: unix(),
+        allow_embedded_fallback: true,
+    };
+    for selected in [false, true] {
+        for backend in [false, true] {
+            assert_eq!(
+                startup_requires_openai_auth(&local, true, selected, backend),
+                selected
+            );
+            for (target, termux) in [
+                (&local, false),
+                (&remote, true),
+                (&fallback, true),
+                (&AppServerTarget::Embedded, true),
+            ] {
+                assert_eq!(
+                    startup_requires_openai_auth(target, termux, selected, backend),
+                    backend
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn profile_transport_websocket_stays_remote_even_with_preview_bridge() {
     let target = target(
         RemoteAppServerEndpoint::WebSocket {

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       mutation_check:
-        description: Verify the saved-Chat catalog regression with a disposable source fault
+        description: Verify catalog and local-provider login regressions with disposable source faults
         type: boolean
         default: false
 permissions:
@@ -254,6 +254,38 @@ jobs:
           cp "$original" "$source"
           cmp "$original" "$source"
           trap - EXIT
+      - name: Verify local-provider login regression detects the default-account fault
+        if: inputs.mutation_check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/tui/src/profile_transport.rs
+          original="$RUNNER_TEMP/profile-tui-login-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('codex-rs/tui/src/profile_transport.rs')
+          text = path.read_text()
+          selected = '        selected_provider_requires_auth\n'
+          assert text.count(selected) == 1
+          path.write_text(text.replace(selected, '        backend_requires_auth\n'))
+          PYTHON
+          status=0
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport_login_uses_selected_local_provider)' > "$RUNNER_TEMP/profile-tui-login-mutation.log" 2>&1 || status=$?
+          test "$status" -ne 0
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          text = Path(os.environ['RUNNER_TEMP'], 'profile-tui-login-mutation.log').read_text()
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*1 tests? run:.*1 failed', text), text[-4000:]
+          assert 'left: true' in text and 'right: false' in text, text[-4000:]
+          PYTHON
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
       - name: Qualify retained upstream 0.162 features
         shell: bash
         run: |
@@ -337,6 +369,7 @@ jobs:
           path: |
             ${{ runner.temp }}/profile-tui-focused.log
             ${{ runner.temp }}/profile-tui-mutation.log
+            ${{ runner.temp }}/profile-tui-login-mutation.log
             ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-linted.patch

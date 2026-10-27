@@ -2115,7 +2115,7 @@ index 1cd4a35..4b250d5 100644
      }
 
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 147ff23..cb11c46 100644
+index 147ff23..85c01fa 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -139,7 +139,11 @@ mod experimental_features;
@@ -2196,7 +2196,21 @@ index 147ff23..cb11c46 100644
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1837,50 +1863,95 @@ async fn run_ratatui_app(
+@@ -1352,6 +1378,13 @@ async fn run_ratatui_app(
+     let requires_openai_auth = startup_account
+         .as_ref()
+         .is_some_and(|account| account.requires_openai_auth);
++    #[cfg(unix)]
++    let requires_openai_auth = profile_transport::startup_requires_openai_auth(
++        &app_server_target,
++        termux_permissions::enabled(),
++        initial_config.model_provider.requires_openai_auth,
++        requires_openai_auth,
++    );
+     let should_show_onboarding = should_show_onboarding(
+         login_status,
+         requires_openai_auth,
+@@ -1837,50 +1870,95 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
