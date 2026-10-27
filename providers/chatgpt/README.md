@@ -255,6 +255,11 @@ existing credentials/remote registration; include private bounded logs,
 dependency/readiness checks and persistent disable/restore operations. The
 runtime check must establish Android compatibility before enabling the tunnel;
 an executable name or a successful version print alone does not establish it.
+The [service and tunnel targets](../../SPEC.md#explicit-device-service-integration)
+keep tunnel source/build/release management independent while connecting its
+validated artifacts to wrapper dependency installation and separate update/
+rollback. Core-only and local-function paths do not thereby require a remote
+tunnel. These dependency controls are not shipped commands.
 The owner's additional runit-root recovery layer is optional, not a prerequisite. This service
 registration is an explicit device action here, not an implemented setup command.
 This document does not introduce a new command or change installed behavior.
@@ -262,8 +267,8 @@ This document does not introduce a new command or change installed behavior.
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
-TUI. This device has been explicitly updated to Full95; other installations must
-first update Core to a compatible signed generation.
+TUI. [CURRENT](../../CURRENT.md#operating-baseline) owns this device's selected
+release; other installations must first update Core to a compatible signed generation.
 
 ```sh
 codex provider install chatgpt

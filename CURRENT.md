@@ -35,6 +35,12 @@ unjoined requests remain visibility limits to investigate, not facts inferred
 from model arguments. Independent worker/native-child extensions follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
+Before expanding real-model A1 trials, address the startup ownership and tunnel
+maintenance milestones2a/2b below; they can proceed together in disposable roots.
+Read-only investigation and tests independent of those changes can continue.
+The future contracts are in [SPEC device service integration](SPEC.md#explicit-device-service-integration);
+neither the concurrency correction nor automatic tunnel updating is delivered.
+
 ## Operating baseline
 
 | Plane | Last verified state and boundary |
@@ -298,9 +304,9 @@ not a new mandatory platform guarantee or permission gate.
 
 Orders1/2 are iterative: a failure need not wait for every matrix case before its
 fix.2a is newly identified lifecycle work; documented serialization is the current
-operating procedure. Complete it before automating setup, and bring it forward
-if it obstructs A1.2b can proceed with2a; version/recovery qualification should
-precede expanded live-model testing. Full automatic dependency installation/update
+operating procedure. Complete2a and2b before expanding live-model qualification;
+the two maintenance tasks can proceed together without blocking independent
+read-only/source investigation. Full automatic dependency installation/update
 is still order6, distinct from this maintenance. Budget and worker features follow A2 so they do not create
 another admission/usage implementation. Read-only supported-host research can
 proceed while actual-model tests are rate limited; the last Pro call is conditional.
@@ -331,8 +337,8 @@ a bounded investigation, rather than reopening every accepted feature:
   inspected configuration or repository lookup. Current Codex install/update
   does not update it. Recommend independent upstream tracking/Termux builds and
   release ownership, consumed by wrapper setup/update as a selected dependency;
-  this integration is proposed, not delivered. Inspect the latest transport and
-  rerun the half-open regression before retaining/replacing the patch. Neither
+  this integration is the documented target, not delivered. Inspect the latest
+  transport and rerun the half-open regression before retaining/replacing the patch. Neither
   age nor a successful version probe settles runtime compatibility.
 - **Existing A1 scope, now more precise:** qualify Chat-origin Provider context
   acceptance/result return and external-source attribution before declaring full

@@ -2549,6 +2549,20 @@ Provider owns the bridge/MCP service; the tunnel runtime transports its MCP
 traffic. They remain separate processes. Use the existing `termux-services`
 startup/root-recovery mechanism rather than tmux or another daemon manager.
 
+**Startup ownership target (not yet implemented).** The generic termux-services
+layer owns the shared runit graph and its recovery, not Provider health or task
+policy. When supervised service operation is selected, runit owns Provider
+startup; preparation/authentication must use the verified supervised endpoint
+or report bounded readiness failure, rather than race it with detached startup.
+Standalone operation retains its existing lazy-start capability. Establish the
+selected lifecycle authority explicitly without guessing from a process name or
+an unresponsive endpoint. Concurrent preparation and supervisor startup must
+converge to one authenticated service under the selected authority, preserving
+the Journal lease, active Native owners and pending work. No second supervisor
+or Provider-specific recovery policy belongs in the generic root monitor.
+CURRENT records the present serialized maintenance procedure and remaining
+disposable concurrent-start qualification; this target is not a delivered fix.
+
 Run Provider's existing `serve` command in the foreground under runit. A separate
 opt-in host keeper may observe that service and use `host ensure` only when the
 owned host is confirmed absent. Provider still owns Xvnc, the Linux app, private
@@ -2577,6 +2591,28 @@ verifies the current service endpoint/credential per RPC. Provider PID/start
 changes do not restart the tunnel or replay a request. Rebinding the immutable
 stdio executable is a separate bounded maintenance action. MCP stdio stdout
 remains reserved for protocol messages, separate from diagnostics.
+
+**Tunnel distribution target (not yet implemented).** Maintain upstream tracking,
+the minimal required Termux/mobile changes, Android builds, regression tests and
+versioned releases in the tunnel's independently maintained source/release plane.
+The wrapper consumes an admitted immutable artifact through its installation
+authority; it does not embed a second tunnel implementation or require a Core/
+Provider rebuild for every tunnel update. Setup for a selected remote MCP route
+must offer the required tunnel dependency, and updates must expose its version,
+source and independent selection/rollback. Core-only execution and local-function
+routes must not acquire an unnecessary remote-tunnel requirement.
+
+Qualify platform execution, existing profile/credential compatibility, actual
+MCP request/result delivery and the mobile half-open HTTP/2 regression before
+switching the configured service image. Evaluate each local patch against the
+selected upstream instead of blindly retaining it. Preserve remote registration,
+credentials and unrelated global/shared tunnel consumers. Intentional replacement
+stops the exact old service runtime, selects the validated image and verifies the
+actual new process and remote delivery; failure restores the matched previous
+selection without inference/effect replay. A successful build, version probe or
+package install alone is not activation proof. Supervision never performs an
+update on its own. CURRENT owns installed versions and the separate maintenance
+versus future automatic-dependency integration milestones.
 
 Runit may restart an exited service, but it must not replay native/Chat work,
 submit prompts, grant approval, perform updates or change account/model settings.
