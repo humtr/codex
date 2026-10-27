@@ -156,7 +156,9 @@ project entry in SPEC's policy table without inventing another execution path.
 
 The execution review retains per-logical-operation coalescing and per-work
 lifecycle admission. Reads/Stop remain independent of a waiting finish/handoff;
-there is no new global queue. Native Broker results/changed-payload rejection and
+there is no new global queue. The existing cancellation/coalescing regression now
+also requires an unrelated operation to finish while the original is blocked.
+Native Broker results/changed-payload rejection and
 receipt recovery retain their prior F7 evidence at unchanged execution inputs.
 The cloud catalog currently omits idempotentHint even though local MCP emits it;
 unknown host consumption is not proof that annotations improve scheduling.

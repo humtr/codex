@@ -166,6 +166,21 @@ mod tests {
             .await
         });
         entered.notified().await;
+        // A pending logical request must not hold up a different operation.
+        assert_eq!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                operations.run(
+                    "independent".into(),
+                    "input".into(),
+                    Box::pin(async { Ok(json!({"independent":"completed"})) }),
+                ),
+            )
+            .await
+            .expect("unrelated operation waited behind the original")
+            .unwrap(),
+            json!({"independent":"completed"})
+        );
         assert_eq!(
             operations
                 .run(
