@@ -119,8 +119,18 @@ owned inert credential with --fresh-auth-home. A focused policy regression and
 disposable default-account fault check are added to the existing native frontend
 workflow. Source checks, hosted native build/fault test and actual Android fresh-
 home resume remain required before calling this correction qualified or delivered.
-Evidence: service-tunnel-20261027/installed-a1-fresh-home-login-boundary.json and
-installed-a1-observer.log; original trial codex-a1-installed-54tmdqfl under TMPDIR.
+Evidence: service-tunnel-20261027/installed-a1-fresh-home-login-boundary.json,
+installed-a1-observer.log and fresh-home-old-frontend.log. The automated credential-
+free continuity test also fails the old hosted frontend at initial TUI display;
+original trials codex-a1-installed-54tmdqfl and ct-9_h6x4i6 remain under TMPDIR.
+The source is committed at0d0236b; native workflow40516028268 is pending acceptance.
+
+Follow-up CI review found that source workflow40507549161 failed on unified Go
+patch context (space-prefixed source tabs and blank lines), not a Go compile/test
+failure. Path-specific Git whitespace attributes distinguish that patch syntax;
+the build still uses git apply --whitespace=error on actual added source. The
+patch bytes, recipe and activated tunnel binary remain unchanged. Source CI must
+pass before claiming this gate complete.
 
 ## Operating baseline
 

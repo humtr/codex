@@ -1,0 +1,3 @@
+# Unified Go patch context carries a space before source tabs and blank lines.
+# git apply --whitespace=error still checks actual added source during the build.
+transport/tunnel-client/termux.patch whitespace=-blank-at-eol,-space-before-tab
