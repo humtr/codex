@@ -127,6 +127,13 @@ and7 Native owners. A normal installed TUI launch resumes the same formerly fail
 work without auth.json or an extra model request. Existing Native processes retain
 their recorded execution generation; no running user job was restarted.
 
+The same isolated existing work is prepared for the next actual Android prompt
+under installed Full121/Provider18. The Native baseline is visible in an ordinary
+live TUI with no OpenAI auth file; provider18-installed-a1-armed.json records the
+bounded observer. This setup submitted no model request and is not proof of a
+received Android input. The original same-work app/CLI matrix remains open until
+that real input, native effect/history and live viewport are correlated.
+
 The first bounded device attempt incorrectly used the raw Full GitHub asset root,
 which lacks its referenced Base payload, and failed remote transport after7.7s.
 No activation changed. Normal signed-channel update succeeded; the failed original
@@ -144,8 +151,8 @@ Follow-up CI review found that source workflow40507549161 failed on unified Go
 patch context (space-prefixed source tabs and blank lines), not a Go compile/test
 failure. Path-specific Git whitespace attributes distinguish that patch syntax;
 the build still uses git apply --whitespace=error on actual added source. The
-patch bytes, recipe and activated tunnel binary remain unchanged. Source CI must
-pass before claiming this gate complete.
+patch bytes, recipe and activated tunnel binary remain unchanged. Subsequent
+exact source gates40529976583 and40530657896 pass; that whitespace gate is closed.
 
 ## Delivered correction: fixed tool annotations and idempotency audit
 
