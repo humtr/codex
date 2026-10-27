@@ -2,9 +2,9 @@
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
 delivery and remaining work. Status consolidated on 2026-10-27 UTC from product
-source eb0a5beb98d8f6339a66401c7b79059faf85890f and the original acceptance records.
-This documentation consolidation submits no model request, restarts no service
-and does not requalify or republish unchanged binaries.
+source a2baf054265301e75d9ee966a9e1455101756dda (Provider16), wrapper tunnel
+recipe3236692 and the original acceptance records. The service/tunnel maintenance
+batch below includes bounded actual device activation, with zero model requests.
 
 [AUDIT.md](AUDIT.md) preserves the independent 2026-10-26 original-record audit.
 Its superseded proposals are historical, not the current implementation plan.
@@ -15,10 +15,11 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full119 and Provider15 are signed, publicly delivered and activated on this
-device. A1 entrance equivalence is partially qualified, not complete.** At the
-recorded activation boundary the Provider had one supervised process, the same
-ready authenticated host and35 preserved works. This is a dated observation,
+**Full119 and Provider16 are signed, publicly delivered and activated on this
+device. A1 entrance equivalence is partially qualified, not complete.** The
+startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
+Android0.0.18 patch. The Provider has one supervised process, the same ready
+authenticated host and35 preserved works at the recorded maintenance boundary. This is a dated observation,
 not a claim that those processes have been rechecked on every documentation edit.
 New TUI launches use the corrected frontend; already-running clients retain their
 old executable until normal restart.
@@ -35,11 +36,11 @@ unjoined requests remain visibility limits to investigate, not facts inferred
 from model arguments. Independent worker/native-child extensions follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
-Before expanding real-model A1 trials, address the startup ownership and tunnel
-maintenance milestones2a/2b below; they can proceed together in disposable roots.
-Read-only investigation and tests independent of those changes can continue.
-The future contracts are in [SPEC device service integration](SPEC.md#explicit-device-service-integration);
-neither the concurrency correction nor automatic tunnel updating is delivered.
+Startup ownership and current tunnel maintenance milestones2a/2b are complete
+at the source, actual Android, cloud and operating-activation boundaries below.
+Return to the actual-client A1 matrix; automatic tunnel/component installation
+and Full bundling remain stage6. [SPEC device service integration](SPEC.md#explicit-device-service-integration)
+distinguishes these targets from the already activated maintenance.
 
 Startup correction now passes local source and actual Android qualification:
 service.startup explicitly selects standalone versus supervised acquisition.
@@ -51,10 +52,20 @@ same foreground owner, with no detached startup and kernel-confirmed shutdown.
 The real Native/TUI Bridge-first cold/restart flow, all three product
 compositions and signed local/remote package lifecycle pass with that candidate. A targeted fault disables the selection,
 actually starts a detached owner and is rejected; disposable source was restored.
-No live source was faulted. The old Provider15 remains installed. A real Provider15→new→Provider15 cycle also preserves the journal owner/endpoint
-when its matching legacy configuration is restored before rollback. Old code
-explicitly rejects the new field. Signed delivery and operating activation remain pending;
-do not apply the new configuration field to Provider15.
+No live source was faulted. Source/Core/Provider workflows40501965398,
+40502044606 and40501965359 pass at exact sourcea2baf05. Hosted Android bytes
+passed Native history/retry/cold-operator/Stop/compaction, all compositions,
+remote/local package lifecycle and two host start/stop cycles. The unchanged
+v2 work codec survives actual Provider15→16→15 Native history/effects; separate
+config rollback proves that old code rejects the new field until matching legacy
+config is restored. Signing/public readback40505552705 and the public signed
+consumer15→16→15 pass; stable promotion modifies only Provider pointers.
+Actual installation preserves35 work identities/phases,16 protected files and
+6 existing Native owners. The generated profile and runit image pin point to
+Provider16; startup=supervised, authenticated PID11032 equals runit's PID. These
+are recorded observations, not physical UI proof. Original config/environment
+backups remain under the activation evidence root; old-code rollback must restore
+that compatible configuration while stopped.
 
 Tunnel maintenance has an isolated v0.0.18-based branch:9a06183 carries the
 HTTP/2 correction; b9238c8 additionally makes existing Unix-socket/shell tests use
@@ -79,27 +90,36 @@ rejects an unsupported newer stable without choosing an old version;2 focused
 selection tests and scripts/check.sh python pass. Core/Provider service activation
 and future optional-component/Full packaging are separate from this helper.
 The build helper is available in this repository; it is not yet installed as a
-native end-user source-build command or bundled Full artifact. Original source/fault/runtime records
-remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
+native end-user source-build command or bundled Full artifact.
+The exact wrapper-built bytes also passed the isolated cloud test, then replaced
+only Codex's pinned tunnel. Its actual process image/version matches the build,
+the old child has a kernel-confirmed exit and both unrelated tunnel processes
+and global0.0.14 remain unchanged. The existing operating connector/tunnel then
+returned35 works and17 matching full schemas including join, with zero metadata
+refreshes or inference. This is local-derived bounded device activation, not a
+signed public tunnel component or new Full publication. Original source/fault/
+runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Operating baseline
 
 | Plane | Last verified state and boundary |
 | --- | --- |
-| Product source | rewrite/rust-core eb0a5be; later documentation commits do not change admitted product bytes |
+| Product source | Providera2baf05; CoreFull119 eb0a5be; wrapper tunnel recipe3236692; sources and selections are independently recorded |
 | Core | Full119: local-relay-hosted-0-164-0-eb0a5beb98d8-s119; actual normal Full117→119 update |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
 | TUI | Frontend source170763e; hosted focused64, retained53 TUI/40 Core/2 protocol, mutation and lint proof40465709544 |
-| Provider | chatgpt-eb0a5beb98d8-s15, sourceeb0a5be, high-water15/previous14; matching offline codec conversion completed |
-| Service/host | At activation: actual Provider PID21859 matched runit's supervised PID; original authenticated identity, ready idle host, tunnel restored |
-| Preserved state |35 work identities/phases,17 protected files and4 existing Native owners;62 converted control records include previous controllers, not62 works |
+| Provider | chatgpt-a2baf0542653-s16, sourcea2baf05, high-water16/previous15; actual signed update and profile rebinding |
+| Service/host | At latest activation: actual Provider PID11032 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
+| Preserved state | Latest maintenance preserved35 work identities/phases,16 protected files and6 existing Native owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
 | Operating MCP | Same existing connector/tunnel; registered/cloud/local full schemas agree for17 tools including join; actual cloud read returned35 works |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
-| Tunnel | Codex service runs scoped Android/arm64 build0.0.14+bb78162 (actual child PID22660 at follow-up); global CLI remains0.0.14. No automatic tunnel updater is shipped; process/health status alone does not prove request delivery |
+| Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, actual PID15754 and SHA082d7b04…; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
-Provider15 binary SHA256:
-52ff50a3adba647f64abdef47b120d1a0979fb969f02a43b6bc227bf3d5f7e55.
+Provider16 binary SHA256:
+7c299435b2087589838a1be2d678f7cb71f9c2c513e73b1bc522dcf946702820.
+Wrapper-built tunnel binary SHA256:
+082d7b0485652b73640665e8cd6767f65b6ec88e0bd1c6b8c449085d8965e9ed.
 Package selection, generated-profile binding, actual service image, authenticated
 host readiness, Native commit and active/physical UI display are separate facts.
 
@@ -220,6 +240,30 @@ architecture. The earlier cold/stale copied profile returned app_target_unavaila
 later visible composer observation did not establish the initial cause. No
 universal cold-profile readiness is claimed.
 
+### Service and tunnel maintenance evidence
+
+The following originals are in
+~/.cache/codex/acceptance/service-tunnel-20261027/:
+
+| Proof | Established boundary |
+| --- | --- |
+| provider-check.log / provider-check.exit | Full Provider source gate0; ignored explicit helper cases are not passing tests |
+| startup-mutation-source.json; supervised-startup-mutation-no-lock.log | Disabling supervision selection actually starts a detached process; regression rejects it, source restored |
+| supervised-startup-runit.json | Exact hosted release binary, actual Android runsv, concurrent prepare+2 token consumers, same foreground PID, kernel-confirmed shutdown |
+| hosted-startup-native-history.json; hosted-startup-cold-operator.json | Actual Native effects/history/old-new-old startup and cold owner/compaction/Stop/failure propagation; synthetic Chat |
+| hosted-startup-provider-product.json; hosted-startup-provider-package.json; hosted-startup-host-lifecycle.json | Exact hosted bytes, three compositions, signed local/TLS package lifecycle and two authenticated host cycles |
+| startup-config-rollback.json | New config rejected by Provider15; matching old config restored before actual old-code startup |
+| provider16-release-input.json; provider16-public-consumer.json; provider16-promotion.json | Complete immutable signed public readback; actual15→16→15 installation, Native effects/retries/history, non-forced stable promotion without Base/Full pointer changes |
+| provider16-device-activation.json | Actual selected binary/profile/startup policy, same account/35 works, protected state and Native owners retained |
+| tunnel18-unpatched-http2.log; tunnel18-patched-http2.log | Silent old connection fails original0.0.18; bounded liveness patch recovers while healthy long wait stays valid |
+| wrapper-tunnel-build.log; wrapper-built-tunnel/build.json | Real latest discovery, official source fetch without another checkout, bundled patch and affected tests, actual Android build identity |
+| tunnel18-cloud-mcp.json | Exact wrapper-built binary and hosted Provider16, existing isolated cloud connector, matching17 schemas and work read; no model/new remote object |
+| tunnel18-device-activation.json; provider16-tunnel18-operating-web-mcp.json | Codex-only pin switch and old child exit; actual operating cloud read35, all17 full schemas, no metadata refresh; unrelated clients preserved |
+
+No new Pro or ordinary primary inference was used by this maintenance batch.
+The initial stale catalog and helper/Clippy/platform failures remain retained.
+They are not credited as passing tests or silently rewritten as transport faults.
+
 ## Confirmed defects and unresolved behavior
 
 | Status | Finding / next action |
@@ -229,7 +273,7 @@ universal cold-profile readiness is claimed.
 | Actual-client failure retained | Source-recovery Android sibling conflict and earlier Provider-parent context rejection; exercise current Bridge-first path before attributing either old result to it |
 | Host provenance limit | Ordinary MCP envelope's opaque openai/session stayed stable across8 calls but is not the Chat ID; current controls consume model arguments without trusted original user/branch IDs |
 | Host final limit | Submitted task/report/finish may differ from the original user/progress/later final. One bounded actual comparison passes; arbitrary originals/tool events are unqualified |
-| Lifecycle follow-up | Runit/prepare startup collision settled manually with documented ordering; deterministic concurrent startup is not yet qualified |
+| Fixed and activated | Explicit service.startup policy; actual runit concurrent prepare/auth, standalone retention, no-owner timeout and targeted mutation pass. Provider16 runs supervised |
 | Investigation | One mcp_rpc_id_in_flight read rejection; sender RPC ID not captured. Sequential read succeeded; do not remove same-session guard or claim producer bug proven |
 | Investigation | Cold copied-profile app_target_unavailable and long-duration/resource behavior remain unconfirmed, separate from resolved Native notLoaded |
 
@@ -335,8 +379,8 @@ not a new mandatory platform guarantee or permission gate.
 |0 Completed here | Consolidate CURRENT, correct stale SPEC/README/AUDIT status | Delivered versus unqualified versus proposed work no longer conflicts; docs/diff check |
 |1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
-|2a Startup coordination follow-up | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
-|2b Tunnel maintenance before expanded live qualification/A2 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
+|2a Completed maintenance | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
+|2b Completed source/build/device maintenance; packaging at6 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
 |3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
 |4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
 |5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |
@@ -344,11 +388,10 @@ not a new mandatory platform guarantee or permission gate.
 |7 Separate product polish | Repository separation, version/update UI, physical viewer and long-duration operation | Own affected-path acceptance; no incidental change to models, discovery defaults or current release pins |
 
 Orders1/2 are iterative: a failure need not wait for every matrix case before its
-fix.2a is newly identified lifecycle work; documented serialization is the current
-operating procedure. Complete2a and2b before expanding live-model qualification;
-the two maintenance tasks can proceed together without blocking independent
-read-only/source investigation. Full automatic dependency installation/update
-is still order6, distinct from this maintenance. Budget and worker features follow A2 so they do not create
+fix.2a is now delivered and activated, and2b has its wrapper-owned build/patch,
+actual cloud proof and scoped device activation. Full automatic dependency
+installation/update is still order6, distinct from accepted maintenance.
+Budget and worker features follow A2 so they do not create
 another admission/usage implementation. Read-only supported-host research can
 proceed while actual-model tests are rate limited; the last Pro call is conditional.
 A2 should not be blocked indefinitely by an upstream provenance capability that
@@ -361,8 +404,8 @@ a bounded investigation, rather than reopening every accepted feature:
 - **New lifecycle work (2a):** concurrent runit/prepare startup produced the
   observed detached-owner/supervisor mismatch. First amend the lifecycle contract
   for the selected ownership mechanism, then reproduce and fix at that owner.
-  The existing Journal exclusivity correctly prevented a second service owner;
-  weakening that lease is not the correction.
+  Provider16 now implements and qualifies that ownership contract. The existing
+  Journal exclusivity remains intact; it was not weakened to obtain success.
 - **Conditional host diagnosis:** reproduce copied-profile app_target_unavailable
   only if it recurs or blocks qualification/setup. Capture app-target/composer
   readiness at failure; the later composer alone identifies no cause. This is
@@ -407,8 +450,9 @@ client; no tunnel-version cause of the observed startup collision is established
 
 ### G product qualification
 
-Full119/Provider15 delivery and actual activation are complete at the evidence
-map's scope. New substantive product changes require applicable checks, Android
+Full119/Provider16 delivery and actual activation are complete at their recorded
+scopes. Codex-only tunnel0.0.18 is activated as a qualified local-derived build;
+signed optional/Full tunnel distribution is not yet shipped. New substantive product changes require applicable checks, Android
 execution, exact-source signing/public readback/disposable update and non-forced
 promotion before activation. Documentation-only consolidation needs no release.
 

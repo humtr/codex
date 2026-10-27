@@ -71,7 +71,7 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 Earlier A–H batches are accepted only at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-Full119 and Provider15 are delivered and activated at the
+Full119 and Provider16 are delivered and activated at the
 [recorded scope](CURRENT.md#delivered-a1-implementation-and-remaining-qualification-boundaries).
 Persistent owned-source binding, Bridge-first join and Native cold-resume/
 compaction fixes are implemented. Complete ChatGPT/CLI entrance equivalence still

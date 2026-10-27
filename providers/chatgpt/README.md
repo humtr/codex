@@ -648,17 +648,17 @@ configuration/operations will remain its authority. Scope and priority are in
   base settings and login. It may authenticate/start the configured Rust service;
   it submits no Chat or project creation. No bearer is written in the profile.
 
-The development source adds `service.startup=standalone|supervised`. Standalone
+Provider16 adds `service.startup=standalone|supervised`. Standalone
 is the default and retains lazy service startup. Supervised preparation/token
 requests wait for authenticated foreground-service readiness, for at most45s,
 and never start a detached Provider. Status stays read-only. Configure the mode
 through `config set service.startup supervised` only after selecting code that
-supports it; installed Provider15 does not. Setting it does not enable runit or
+supports it; Provider15 and earlier do not. Setting it does not enable runit or
 transfer an existing process into supervision. Preserve the old configuration
 before maintenance, settle work and stop the prior owner, then start the chosen
 supervisor. Before an old-code rollback, restore its compatible configuration
-while stopped. CURRENT owns actual source/release qualification; this paragraph
-does not claim a new installed package or setup command.
+while stopped. This device uses supervised startup with Provider16; CURRENT
+owns exact delivery/activation proof. No shared setup command is implied.
 
 Initial catalog data is in `default-models.toml`, not a Rust model-family list.
 GPT-6 and manual-only Pro are retained; GPT-5.6 is excluded. A hidden Instant alias
@@ -774,8 +774,9 @@ maintenance. Provider's `execution.home` and `execution.workspace` select native
 execution, rather than a hardcoded account name in the service scripts.
 
 The tunnel executable must be Android-compatible. This device's global
-`tunnel-client` is native0.0.14, while this Codex service pins the separate
-Android0.0.14+bb78162 HTTP/2 recovery image. Neither is updated by the current
+`tunnel-client` is native0.0.14, while this Codex service now pins the wrapper-built
+Android0.0.18-termux.0ad5d2db16a9 HTTP/2 recovery image. Its old scoped image
+is retained for rollback; unrelated consumers are preserved. Neither is updated by the current
 Codex package updater. Upstream tracking/Termux release maintenance and wrapper
 dependency integration remain separate work in
 [CURRENT](../../CURRENT.md#product-completion-scope-and-work-order); the current
