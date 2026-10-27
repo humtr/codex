@@ -1704,6 +1704,18 @@ Qualify rollback startup/readback with the retained Provider on disposable new
 idle state; it may lack new connection capability but must still read old work.
 Fence/reconcile active or unknown new execution before downgrade. Legacy absence
 never permits guessed migration, auto takeover or replay of reconciliation-required work.
+An explicitly admitted start/join or claim may reload an unloaded persisted thread
+on its verified Native owner before querying live jobs or starting a turn. Preserve
+its public history/context across resume and revalidate scope and the work/controller
+generation. A read-only status/history request must not load a thread. Unknown
+writers, changed history/context and resume failure remain explicit failures; no
+user input, tool effect or model request is replayed to recover loading.
+Resume and the requested start/claim share one durable logical-call intent;
+an existing intent from another invocation never authorizes redispatch.
+After Native becomes idle following a supplied compaction summary, the input
+barrier permits the next request even while the summary checkpoint is retained.
+The actual next Native request must acknowledge that checkpoint before execution;
+waiting for that request at the input barrier would deadlock its own validation.
 
 #### E selected common interfaces and lifecycle
 

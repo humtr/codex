@@ -1072,16 +1072,7 @@ impl Operator {
                     "reconciliation_required" | "completed" | "stop_requested" | "stopped"
                 ) =>
             {
-                let native = pool.prepare().await?;
-                if args["action"] == "claim" {
-                    native
-                        .call(
-                            "thread/resume",
-                            json!({"threadId":record.thread,"cwd":pool.workspace,"config":pool.routing()?}),
-                        )
-                        .await?;
-                }
-                native
+                pool.prepare().await?
             }
             Err(error) => return Err(error),
         };
@@ -2749,6 +2740,53 @@ impl Operator {
         }
         Ok(())
     }
+    async fn resume_unloaded_native(
+        &self,
+        record: &Record,
+        native: &Native,
+        receipt: Option<&(String, String)>,
+    ) -> Result<bool, Error> {
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":false}),
+            )
+            .await?;
+        if state["thread"]["status"]["type"] != "notLoaded" {
+            return Ok(false);
+        }
+        let pool = self.work_pool(record).await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        let history = Self::cursor(&Self::history(native, &record.thread).await?);
+        let context = Self::cursor(&native.public_context(&record.thread).await?);
+        {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?;
+            if work.record.generation != record.generation
+                || work.record.capability != record.capability
+                || work.stops_in_progress != 0
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
+            self.mutation_intent(receipt)?;
+        }
+        native
+            .call(
+                "thread/resume",
+                json!({"threadId":record.thread,"cwd":pool.workspace,"config":pool.routing()?}),
+            )
+            .await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        if Self::cursor(&Self::history(native, &record.thread).await?) != history {
+            return Err(Error("native_history_boundary_changed"));
+        }
+        if Self::cursor(&native.public_context(&record.thread).await?) != context {
+            return Err(Error("native_context_boundary_changed"));
+        }
+        Ok(true)
+    }
     async fn native_admission(
         &self,
         args: &Value,
@@ -3233,8 +3271,21 @@ impl Operator {
                         return Err(Error("operator_arguments_invalid"));
                     }
                 }
+                let task = text(&args, "task", 256 * 1024)?;
+                if args
+                    .get("mode")
+                    .is_some_and(|mode| !matches!(mode.as_str(), Some("default" | "plan")))
+                {
+                    return Err(Error("operator_arguments_invalid"));
+                }
                 let (mut record, native) = self.binding(&args, false).await?;
+                let mut resumed = false;
                 if joining {
+                    if record.phase == "completed" {
+                        resumed = self
+                            .resume_unloaded_native(&record, &native, receipt)
+                            .await?;
+                    }
                     record = self.observe_native(record, &native).await?.0;
                     if record.phase != "completed" {
                         return Err(Error("native_writer_unsettled"));
@@ -3269,12 +3320,10 @@ impl Operator {
                 {
                     return Err(Error("operator_controller_fenced"));
                 }
-                let task = text(&args, "task", 256 * 1024)?;
-                if args
-                    .get("mode")
-                    .is_some_and(|mode| !matches!(mode.as_str(), Some("default" | "plan")))
-                {
-                    return Err(Error("operator_arguments_invalid"));
+                if !joining {
+                    resumed = self
+                        .resume_unloaded_native(&record, &native, receipt)
+                        .await?;
                 }
                 self.wait_assignment(&record).await?;
                 let collaboration_mode = if let Some(mode) = args.get("mode") {
@@ -3327,7 +3376,10 @@ impl Operator {
                     {
                         return Err(Error("native_start_reconciliation_required"));
                     }
-                    self.mutation_intent(receipt)?;
+                    // Resume and turn start belong to one logical mutation.
+                    if !resumed {
+                        self.mutation_intent(receipt)?;
+                    }
                     if let Some(assignment) = &mut work.record.assignment {
                         if assignment.started_at_unix_ms.is_none() {
                             assignment.started_at_unix_ms = Some(unix_ms());
@@ -3486,7 +3538,6 @@ impl Operator {
                 ) {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
-                let recovered = self.recovery_receipts(&native, &record).await?;
                 let history = Self::history(&native, &record.thread).await?;
                 let cursor: Cursor = serde_json::from_value(args["cursor"].clone())
                     .map_err(|_| Error("operator_cursor_invalid"))?;
@@ -3499,38 +3550,17 @@ impl Operator {
                 if context_cursor != Self::cursor(&context) {
                     return Err(Error("native_context_boundary_changed"));
                 }
+                let resumed = self
+                    .resume_unloaded_native(&record, &native, receipt)
+                    .await?;
+                let recovered = self.recovery_receipts(&native, &record).await?;
                 // Restart recovers the same thread at a settled native boundary only.
-                let mut state = native
+                let state = native
                     .call(
                         "thread/read",
                         json!({"threadId":record.thread,"includeTurns":false}),
                     )
                     .await?;
-                if state["thread"]["status"]["type"] == "notLoaded" {
-                    let pool = self.work_pool(&record).await?;
-                    self.mutation_intent(receipt)?;
-                    native
-                        .call(
-                            "thread/resume",
-                            json!({"threadId":record.thread,
-                        "cwd":pool.workspace,"config":pool.routing()?}),
-                        )
-                        .await?;
-                    native.verify_scope(&record.thread, &pool.workspace).await?;
-                    if Self::cursor(&Self::history(&native, &record.thread).await?) != cursor {
-                        return Err(Error("native_history_boundary_changed"));
-                    }
-                    if Self::cursor(&native.public_context(&record.thread).await?) != context_cursor
-                    {
-                        return Err(Error("native_context_boundary_changed"));
-                    }
-                    state = native
-                        .call(
-                            "thread/read",
-                            json!({"threadId":record.thread,"includeTurns":false}),
-                        )
-                        .await?;
-                }
                 if !matches!(
                     state["thread"]["status"]["type"].as_str(),
                     Some("idle" | "systemError")
@@ -3588,7 +3618,9 @@ impl Operator {
                 {
                     return Err(Error("native_writer_unsettled"));
                 }
-                self.mutation_intent(receipt)?;
+                if !resumed {
+                    self.mutation_intent(receipt)?;
+                }
                 self.preserve_controller(&work.record)?;
                 if let Some(budget) = extension {
                     work.record.assignment.as_mut().unwrap().budget = budget;
@@ -3783,7 +3815,11 @@ impl Operator {
             && !matches!(
                 record.phase.as_str(),
                 "completed" | "interrupted" | "stopped"
-            );
+            )
+            // The next Native request proves checkpoint acknowledgment in
+            // exchange_inner; it must pass this barrier to reach that check.
+            && !(record.phase == "native_summary_offered"
+                && state["thread"]["status"]["type"] == "idle");
         let source_active = self
             .mcp_host
             .source_turn_pending(thread, record.native_turn.as_deref())?;

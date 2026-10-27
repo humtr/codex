@@ -19,6 +19,7 @@ import urllib.request
 
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN, fixture_auth
+from qualify_tasks import Ws
 
 
 def probe(args):
@@ -102,6 +103,9 @@ def probe(args):
                 with (root/'pending-status-observations.jsonl').open('a') as out:
                     out.write(json.dumps(value)+'\n')
                 return None
+            if result['isError'] != expect_error:
+                with (root/'unexpected-control-errors.jsonl').open('a') as record:
+                    record.write(json.dumps({'tool':name,'call_id':arguments.get('call_id'),'value':value})+'\n')
             assert result['isError']==expect_error, value
             return value
 
@@ -184,7 +188,13 @@ def probe(args):
             before_submits = sum(row['op']=='submit' for row in bridge_commands())
             admissions = []
             for index in [1, 2]:
+                before_turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
                 if index == 2:
+                    terminal.terminate()
+                    terminal.wait(timeout=15)
+                    terminal = None
+                    os.close(master)
+                    master = None
                     (root/'stop-provider').touch()
                     service.wait(timeout=30)
                     assert service.returncode == 0
@@ -198,9 +208,16 @@ def probe(args):
                         stderr=subprocess.STDOUT,cwd=root/'w')
                     wait(lambda:(root/'provider-ready.json').exists(),'Bridge-first service restart')
                     assert json.loads((root/'provider-ready.json').read_text())['port']==port
+                    paths=server_paths(home)
+                    assert len(paths)==1, 'one verified owned Native server required'
+                    observer=Ws(str(paths[0].resolve()),uri_path='/rpc')
+                    try:
+                        state=observer.call('thread/read',{'threadId':thread,'includeTurns':False})
+                        assert state['thread']['status']['type']=='notLoaded', 'restart did not exercise an unloaded work'
+                    finally:
+                        observer.close()
                 command_args = {'action':'join','work_id':work['work_id'],
                     'task':f'BRIDGE_ORIGINAL_INPUT_{index}', 'call_id':f'bridge-input-{index}'}
-                before_turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as clients:
                     first = clients.submit(rpc,'codex_sessions',command_args)
                     second = clients.submit(rpc,'codex_sessions',command_args)
@@ -211,6 +228,15 @@ def probe(args):
                 assert rejected['error']=='operator_call_changed', rejected
                 bound = {'work_id':work['work_id'],'controller':started['controller']}
                 wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='running','Bridge-owned Native turn')
+                if index==2:
+                    master,slave=pty.openpty()
+                    fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',80 if display else 44,160,0,0))
+                    terminal=subprocess.Popen([str(prefix/'bin/codex'),*screen_args,
+                        '--profile','chatgpt','-c','tui.animations=false','resume',thread],env=env,cwd=root/'w',
+                        stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+                    os.close(slave)
+                    wait(lambda:f'BRIDGE_ORIGINAL_INPUT_{index}' in '\n'.join(display.display) if display else f'BRIDGE_ORIGINAL_INPUT_{index}' in screen,
+                         'reopened TUI sees the input admitted before it attached')
                 busy = rpc('codex_sessions',{**command_args,'call_id':f'overlap-{index}'},True)
                 assert busy['error']=='native_writer_unsettled', busy
                 assert rpc('codex_tools',bound,True)['error']=='operator_controller_fenced'
@@ -273,6 +299,7 @@ def probe(args):
                 'context_before_effect':True,'concurrent_identical_join_once':True,'changed_input_rejected':True,
                 'busy_work_rejected':True,'original_native_prefix_unchanged':True,'exact_effect_and_finish_retry':True,
                 'service_restart_same_work':True,'saved_chat_reads':len(source_reads()),
+                'join_after_all_clients_closed_and_thread_unloaded':True,
                 'bridge_additional_primary_submissions':0,'cli_followup_primary_submissions':0 if created_before_tui else 1,
                 'cli_after_bridge_same_work_completed':not bool(created_before_tui),'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
                 'bridge_finals_in_active_viewport':bool(display),

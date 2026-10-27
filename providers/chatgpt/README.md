@@ -7,18 +7,11 @@ applies its approval/reviewer policy and owns canonical history. Neither Core no
 Manager links Provider implementation. Manager and enhanced TUI are not required
 for the upstream configuration route.
 
-[CURRENT](../../CURRENT.md#operating-baseline) distinguishes accepted source,
-signed publication, selected packages and actual running owners. The accepted
-public generation is `chatgpt-81890a7b16c4-s4`, with release sequence4. Provider
-is the component name; `chatgpt` is its CLI identifier. The sequence is release
-metadata, not part of the component name.
-This device selects Full95 and this signed Provider generation. Its shared native
-profile binds the immutable Rust executable; same-account owned-host readiness,
-local16-tool MCP and the existing tunnel have been verified without model work.
-Release sequence4 includes the recognized inactive-legacy binding discovery fix;
-exact hosted Android bytes, signed delivery, disposable public/stable consumption
-and this device's activation are recorded in CURRENT. Original G evidence retains
-its original release sequence3 scope.
+[CURRENT](../../CURRENT.md#operating-baseline) owns the selected generations,
+signed delivery evidence and actual running owners. Provider is the component
+name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
+not part of that component name. Source qualification, package selection,
+service activation, actual inference and physical UI observation are distinct.
 
 ## Bridge design and implementation status
 
@@ -53,10 +46,8 @@ consumption is unknown. Other hints must remain unchanged.
 The [idempotency implementation](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
 shares in-flight duplicate results and durable mutation/finish/registration/round
 receipts, with per-work admission and Stop fencing. Other hints remain unchanged.
-Current delivery is Full117/Provider14; see the exact
-[operating baseline](../../CURRENT.md#operating-baseline). Older signed generations
-retain their own evidence and rollback inventory. Package selection, service
-activation, actual inference and physical UI observation are separate boundaries.
+Older signed generations retain their own evidence and rollback inventory; see
+the [operating baseline](../../CURRENT.md#operating-baseline).
 
 ## First-time setup
 
@@ -390,7 +381,7 @@ users identify the project/task and the desired reasoning source.
 | User intent | Existing control path |
 | --- | --- |
 | Work from this Chat | `codex_sessions` with direct reasoning, native attach/receipt, tools/report/finish |
-| Delegate to a separate work Chat | Managed work with explicit app/project readiness and distinct assignment; retrieve its original final |
+| Delegate to a separate work Chat | Provider-started work with explicit app/project readiness and distinct assignment; retrieve its original final |
 | List or inspect work | `codex_sessions` list and `codex_status` |
 | Retrieve an existing result | Events/wait and public history on that work; no new task |
 | Continue a settled task | Reconcile and resume/start the related work at its supported boundary |

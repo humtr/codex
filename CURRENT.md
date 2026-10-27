@@ -97,7 +97,10 @@ without a completion record; both supervisor and compiler processes disappeared.
 The second observed about3147MiB peak process-tree RSS, but no current system exit
 record establishes its cause. Neither attempt is a passing gate. The actual
 product builds passed with one compiler job, no debug information and incremental
-output disabled; complete TUI unit/native-hosted qualification remains unfinished.
+output disabled. The subsequent hosted Native qualification passed the focused
+64 tests, retained feature suites (53 TUI,40 Core and2 protocol cases), mutation
+check and lint inspection (hosted170-native-success.log). These are selected
+upstream suites, not all upstream tests.
 A preliminary JSON-value prototype build was explicitly cancelled; the final
 byte-preserving implementation retains the original parser's behavior.
 
@@ -112,12 +115,60 @@ an earlier producer guard still demanded zero Core changes. The corrected
 assembler now owns one scope check reused after apply/format/lint, including
 tracked, staged, renamed and untracked source. Allowed Config/TUI input passes;
 unrelated source is rejected. Omitting untracked paths in disposable source
-produces the two expected failures and is restored. Requalification is pending;
-no product Rust change or new model request was needed. Signing/public delivery
-and activation remain pending. The completion relay cleared the stale old
-frontend input in197bef7 (frontend:null); no unqualified pair is selected. The candidate focused
+produces the two expected failures and is restored. Requalification of source
+170763e passed as [40465709544](https://github.com/humtr/codex/actions/runs/40465709544)
+with mutation checking; no frontend Rust change or new model request was needed. Signing/public delivery
+and activation remain pending. After clearing the stale old input, the completion
+relay pinned the successfully qualified170763e frontend in5b42758. This selects a
+release input, not a device installation. The candidate focused
 acceptance now requires64 tests (retained63 plus the new source-preservation
-regression); this is an expected gate, not a claim that hosted64 already passed.
+regression); the original hosted log confirms64 passed.
+
+The exact-source Provider workflow40468232248 also passed its complete source
+gate and Android build. Its downloaded binary and the hosted frontend passed
+actual Android composition/relocation (Base, Manager without TUI, Full) and signed
+package lifecycle, including remote TLS rejection paths
+(hosted170-provider-product.json; hosted170-provider-package.json). Those owned
+payloads were archived by the existing fixture cleaner after acceptance.
+Additional rollback/startup qualification found an unqualified cold-join case:
+after all clients close, persisted history remains readable but live job queries
+reject an unloaded thread. Original Native wire shows loaded:[], status:notLoaded
+and backgroundTerminals/list -32600 thread not found
+(hosted170-unloaded-native-wire.json). The strengthened continuity driver fails
+the original candidate on the second join after closing the TUI and restarting
+Provider (unloaded-join-original-red.log). A correction shares explicit
+start/join/claim resume with before/after history/context checks, and removes
+the earlier claim-side load hidden in binding. Read-only binding stays read-only.
+The corrected service passed the actual unloaded-thread/reopened-TUI proof:
+same work, concurrent identical join once, changed/busy input rejection, accepted
+context before effects, exact effect/final retries, unchanged previous turns and
+zero saved reads or new model requests (unloaded-join-receipt-native-created.json).
+Resume and turn start share one durable operation intent; the regression also
+caught a double-intent implementation before acceptance. Final source/package
+requalification remains pending, so170763e is not admitted
+for publication. Initial standalone helper
+failures (CLI text/JSON handling, old/new history schema and loaded-only lookup)
+are preserved separately; the unloaded live-job rejection is independently
+confirmed on the actual Native protocol. No real model request was used.
+The missing-resume fault was then introduced only in disposable source: the same
+Native/TUI test failed with native_request_rejected, and the source was restored
+(unloaded-join-mutation.json). Wider cold-owner qualification also found an input
+barrier deadlock after manual compaction: native_summary_offered remained pending
+although Native was idle, while the next request was needed to acknowledge its
+checkpoint. The Native-only barrier now admits that next request at idle; the
+existing exchange checkpoint verification remains mandatory. The actual cold
+operator suite passes owner replacement/history preservation/controller fencing,
+compaction and follow-up, queued-input Stop, service restart/claim and uncertain
+driver start with no retry (unloaded-summary-cold-operator.json). Its synthetic
+Chat boundary is explicit. Restoring only the old summary-barrier predicate in
+disposable source reproduces the post-compaction wait after the earlier
+cold-resume checks pass; the source was restored (unloaded-summary-mutation.json).
+The final source gate and new signed-candidate qualification remain pending.
+Required Native proof binaries and original inputs/results are frozen outside
+mutable targets; after confirming no active cache user, clean_development.py
+reclaimed about11GiB of idle TUI debug outputs
+(unloaded-native-cache-cleanup.jsonl). No accepted Native build is rerun merely
+to recreate those frozen executables.
 
 The earlier isolated lazy-host service is no longer live after process losses;
 its original Android work and records are preserved. A new isolated service and
@@ -188,6 +239,13 @@ native items (actual-format-rollback.json). New reservation-state changes also
 have unit proof. Final candidate-codec downgrade/actual Provider14 startup/list/
 history/Stop and upgrade/startup/list/history/Stop also passed on preserved copied
 state with the same16 original native items (final-codec-proof/actual-format-rollback.json).
+An additional offline trial copied423 top-level operating journal/owner files,
+converted them to Direct/Provider, then converted them back. All JSON values and
+the owner equal the operating snapshot afterward. The62 mode-bearing records
+include previous-controller records, not62 distinct works. No service, Native
+request or model was started; the live state was never written
+(operating-records-offline-codec-roundtrip.json). This extends codec coverage,
+not signed installer/profile/runtime activation proof.
 Installer activation/matching operational rollback acceptance remains pending.
 
 The existing AppHost/McpBridge source-follow and native executor now serve both
