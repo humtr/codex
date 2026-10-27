@@ -46,6 +46,14 @@ An old Core still eagerly supplies its socket; an old helper still receives the
 same eager behavior from a new Core. The signed helper identity/inventory is
 unchanged. No provider policy or profile TOML parsing moves into Core.
 
+On Core-owned local backends, startup login UI uses the resolved invocation
+provider's requires_openai_auth setting. The shared server's account/read reflects
+its default provider, which can differ from the resumed thread's selected route.
+Remote/embedded account authority and actual request authentication are retained.
+A credential-free continuity trial (--fresh-auth-home) exercises this distinction
+without the usual owned inert native API key. The optional mutation_check also
+checks that restoring the default-account decision fails the login regression.
+
 The maintained hosted workflow checks pristine command collisions, unchanged
 external dependencies, exact executable version, actual native tests and lint.
 The release builder owns FD adaptation and signed generation publication. This
