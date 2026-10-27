@@ -27,18 +27,27 @@ impl Input {
         }
         Ok(())
     }
-    pub fn call_id(&self) -> String {
+    pub fn call_id(&self, account_ref: &str) -> String {
         format!(
             "chat-source:{}",
-            digest(&(&self.conversation, &self.message))
+            digest(&(account_ref, &self.conversation, &self.message))
         )
     }
 }
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum End {
+    Active,
+    Completed,
+    Interrupted { anchor: String },
+}
 pub(crate) struct Turn {
+    pub account_ref: String,
+    pub anchor: String,
     pub input: Input,
     pub text: String,
     pub messages: Vec<Value>,
-    pub ended: bool,
+    pub tool_messages: Vec<Value>,
+    pub end: End,
 }
 
 pub(crate) async fn read(
@@ -46,42 +55,53 @@ pub(crate) async fn read(
     conversation: &str,
     anchor: &str,
     input: Option<&Input>,
+    require_single_branch: bool,
+    selection: Option<(&str, &[String])>,
 ) -> Result<Option<Turn>, Error> {
     let source = Chats::new(bridge);
-    let mut after = Value::Null;
-    let mut messages = Vec::new();
-    let mut bytes = 0;
-    loop {
-        let mut args = json!({"action":"read","conversation_id":conversation,"limit":200});
-        if !after.is_null() {
-            args["after"] = after.clone();
-        }
-        let page = source.read_source(args).await?;
-        let items = page["messages"]
+    let page = source.read_complete_source(conversation).await?;
+    if require_single_branch
+        && page["branches"]
             .as_array()
-            .ok_or(Error("app_chat_response_invalid"))?;
-        bytes += serde_json::to_vec(items).unwrap().len();
-        if bytes > crate::config::MAX_DECODED_BYTES as usize {
-            return Err(Error("bound_chat_history_read_bound"));
-        }
-        messages.extend_from_slice(items);
-        if page["complete"] == true {
-            break;
-        }
-        if page["cursor"] == after || items.is_empty() {
-            return Err(Error("chat_pagination_incomplete"));
-        }
-        after = page["cursor"].clone();
+            .is_none_or(|branches| branches.len() != 1)
+    {
+        return Err(Error("source_selection_required"));
     }
-    select(conversation, anchor, input, &messages)
+    let account_ref = page["account"]
+        .as_str()
+        .ok_or(Error("app_identity_unavailable"))?;
+    let messages = page["messages"]
+        .as_array()
+        .ok_or(Error("app_chat_response_invalid"))?;
+    let anchor = if messages.iter().any(|message| message["id"] == anchor) {
+        anchor
+    } else if let Some((_, committed)) = selection {
+        messages
+            .iter()
+            .rev()
+            .find_map(|message| {
+                let id = message["id"].as_str()?;
+                committed.iter().any(|known| known == id).then_some(id)
+            })
+            .ok_or(Error("bound_chat_branch_changed"))?
+    } else {
+        return Err(Error("bound_chat_branch_changed"));
+    };
+    let turn = select(account_ref, conversation, anchor, input, messages)?;
+    if selection.is_some_and(|(id, _)| turn.as_ref().is_none_or(|turn| turn.input.message != id)) {
+        return Err(Error("source_selection_required"));
+    }
+    Ok(turn)
 }
 
 fn select(
+    account_ref: &str,
     conversation: &str,
     anchor: &str,
     expected: Option<&Input>,
     messages: &[Value],
 ) -> Result<Option<Turn>, Error> {
+    let source_anchor = anchor;
     let anchor = messages
         .iter()
         .position(|message| message["id"] == anchor)
@@ -136,23 +156,87 @@ fn select(
             || !matches!(message["channel"].as_str(), None | Some("commentary" | "final"))
             || message["recipient"].as_str().is_some_and(|recipient| recipient != "all") { return None }
         Some(json!({"id":message["id"],"author":{"role":"assistant"},"content":message["content"],
-            "channel":message["channel"],"status":message["status"],"end_turn":message["end_turn"],"recipient":message["recipient"]}))
+            "channel":message["channel"],"status":message["status"],"end_turn":message["end_turn"],"recipient":message["recipient"],
+            "metadata":{"model_slug":message["model"]}}))
     }).collect::<Vec<_>>();
     let completed = public.iter().any(crate::app::committed_final);
-    if end < messages.len() && !completed {
-        return Err(Error("bound_chat_turn_interrupted"));
-    }
+    let tool_messages = messages[start + 1..end].iter().filter(|message|
+        message["role"]=="assistant" && message["recipient"]=="api_tool.call_tool"
+            && message["unavailable"].is_null() && message["content"]["content_type"]=="code"
+            && message["status"]=="finished_successfully")
+        .map(|message|json!({"id":message["id"],"author":{"role":"assistant"},"recipient":message["recipient"],
+            "status":message["status"],"content":message["content"]})).collect();
+    let ended = if completed {
+        End::Completed
+    } else if end < messages.len() {
+        End::Interrupted {
+            anchor: messages[end - 1]["id"]
+                .as_str()
+                .ok_or(Error("app_chat_response_invalid"))?
+                .into(),
+        }
+    } else {
+        End::Active
+    };
     Ok(Some(Turn {
+        account_ref: account_ref.into(),
+        anchor: source_anchor.into(),
         input,
         text,
         messages: public,
-        ended: completed,
+        tool_messages,
+        end: ended,
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn interrupted_source_preserves_partial_text_and_next_original_input() {
+        let messages = vec![
+            json!({"id":"anchor","role":"assistant"}),
+            json!({"id":"u1","role":"user","content":{"content_type":"text","parts":["first input"]}}),
+            json!({"id":"partial","role":"assistant","channel":"commentary","status":"finished_partial_completion","end_turn":false,"content":{"content_type":"text","parts":["Original partial output"]}}),
+            json!({"id":"u2","role":"user","content":{"content_type":"text","parts":["next input"]}}),
+        ];
+        let first = select("test-account", "chat", "anchor", None, &messages)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.input.message, "u1");
+        assert_eq!(
+            first.end,
+            End::Interrupted {
+                anchor: "partial".into()
+            }
+        );
+        assert_eq!(
+            first.messages[0]["content"]["parts"][0],
+            "Original partial output"
+        );
+        assert!(!first.messages.iter().any(crate::app::committed_final));
+        let next = select("test-account", "chat", "partial", None, &messages)
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.input.message, "u2");
+        assert_eq!(next.end, End::Active);
+        assert_eq!(next.text, "next input");
+        let empty = vec![
+            messages[0].clone(),
+            messages[1].clone(),
+            messages[3].clone(),
+        ];
+        assert_eq!(
+            select("test-account", "chat", "anchor", None, &empty)
+                .unwrap()
+                .unwrap()
+                .end,
+            End::Interrupted {
+                anchor: "u1".into()
+            }
+        );
+    }
+
     #[test]
     fn source_identity_separates_same_text_inputs_and_complete_prior_answers() {
         let user = |id| json!({"id":id,"role":"user","content":{"content_type":"text","parts":["identical follow-up"]}});
@@ -165,22 +249,47 @@ mod tests {
             user("u2"),
             answer("a2", "final", "complete second answer"),
         ];
-        let first = select("chat", "anchor", None, &messages).unwrap().unwrap();
+        let first = select("test-account", "chat", "anchor", None, &messages)
+            .unwrap()
+            .unwrap();
         assert_eq!(first.input.message, "u1");
         assert_eq!(first.text, "identical follow-up");
-        assert!(first.ended);
+        assert_eq!(first.end, End::Completed);
         assert_eq!(first.messages.len(), 1);
         assert_eq!(first.messages[0]["id"], "a1");
-        let second = select("chat", "a1", None, &messages).unwrap().unwrap();
+        let second = select("test-account", "chat", "a1", None, &messages)
+            .unwrap()
+            .unwrap();
         assert_eq!(second.input.message, "u2");
-        assert_ne!(first.input.call_id(), second.input.call_id());
+        assert_ne!(
+            first.input.call_id("test-account"),
+            second.input.call_id("test-account")
+        );
+        assert_ne!(
+            first.input.call_id("account-one"),
+            first.input.call_id("account-two")
+        );
         assert!(!serde_json::to_string(&first.messages)
             .unwrap()
             .contains("PRIVATE"));
-        assert!(select("chat", "anchor", Some(&second.input), &messages).is_err());
-        assert!(select("chat", "unrelated-branch", None, &messages).is_err());
+        assert!(select(
+            "test-account",
+            "chat",
+            "anchor",
+            Some(&second.input),
+            &messages
+        )
+        .is_err());
+        assert!(select("test-account", "chat", "unrelated-branch", None, &messages).is_err());
         let mut changed = messages.clone();
         changed[1]["content"]["parts"] = json!(["changed source"]);
-        assert!(select("chat", "anchor", Some(&first.input), &changed).is_err());
+        assert!(select(
+            "test-account",
+            "chat",
+            "anchor",
+            Some(&first.input),
+            &changed
+        )
+        .is_err());
     }
 }

@@ -188,6 +188,15 @@ async function termuxCodexBridge(command) {
         if (lane.starts.has(ids)) fail('app_dispatch_replayed');
         before?.(value);
         lane.starts.add(ids); lane.roundStarts++;
+        if(!hostReply&&roles.includes('user'))lane.dispatchedInput={
+          conversation_id:request.conversation_id??null,parent_message_id:request.parent_message_id??null,
+          requested_model:request.model??null,
+          users:request.messages.filter(m=>m.author?.role==='user').map(m=>{
+            const prepared=lane.preparedUsers?.get(m.id);
+            return {id:m.id,fingerprint:prepared?.content===JSON.stringify(m.content)?prepared.fingerprint??null:null,
+              hidden:m.metadata?.is_visually_hidden_from_conversation===true};
+          })
+        };
         if(hostReply){lane.hostReplies.add(target);lane.hostReplyMessages++;lane.roundHostReplies++;lane.terminals=[];lane.error=null;lane.rejectedBeforeDispatch=false;}
         lane.userMessages += roles.filter(r => r === 'user').length;
         if(!hostReply)lane.toolMessages += roles.filter(r => r === 'tool').length;
@@ -216,24 +225,30 @@ async function termuxCodexBridge(command) {
     const entries=globalThis[slot]??=new Map();
     if(!entries.has(key)){
       if(entries.size>=8)entries.delete(entries.keys().next().value);
-      entries.set(key,{failures:0,notBefore:0,lastFailure:null,inFlight:false});
+      entries.set(key,{failures:0,notBefore:0,lastFailure:null,inFlight:false,requests:0,successes:0,rateLimits:0,cooldownRejections:0,pendingRejections:0});
     }
-    return entries.get(key);
+    const policy=entries.get(key);
+    // Read pacing can outlive an earlier bridge revision in this renderer.
+    for(const name of ['requests','successes','rateLimits','cooldownRejections','pendingRejections'])policy[name]??=0;
+    return policy;
   };
   const retryStatus=()=>{
     const p=readPolicy();
-    return {cooling_down:p.notBefore>Date.now(),retry_after_seconds:Math.max(0,Math.ceil((p.notBefore-Date.now())/1000)),last_failure:p.lastFailure};
+    return {cooling_down:p.notBefore>Date.now(),retry_after_seconds:Math.max(0,Math.ceil((p.notBefore-Date.now())/1000)),last_failure:p.lastFailure,
+      requests:{scope:'renderer_account_lifetime',wire_requests:p.requests,successful_replies:p.successes,http429_replies:p.rateLimits,cooldown_rejections:p.cooldownRejections,in_flight_rejections:p.pendingRejections}};
   };
   const readSavedChat=async(path,parameters,before)=>{
     if(typeof state.wire.safeGet!=='function')fail('app_chat_operations_unavailable');
     const policy=readPolicy();
-    if(policy.notBefore>Date.now())fail(policy.lastFailure.code);
-    if(policy.inFlight)fail('app_chat_read_pending');
+    if(policy.notBefore>Date.now()){policy.cooldownRejections++;fail(policy.lastFailure.code);}
+    if(policy.inFlight){policy.pendingRejections++;fail('app_chat_read_pending');}
     const options={retry:'never',additionalHeaders:{'ChatGPT-Account-ID':before.account},assertRequestCurrent:()=>{if(JSON.stringify(identity())!==JSON.stringify(before))fail('app_account_changed');}};
     let result;
     policy.inFlight=true;
     try {
+      policy.requests++;
       result=await state.wire.safeGet(path,{...options,parameters});
+      policy.successes++;
       options.assertRequestCurrent();
     } catch(error) {
       options.assertRequestCurrent();
@@ -242,6 +257,7 @@ async function termuxCodexBridge(command) {
       if(error?.responseStatus===403)fail('app_chat_forbidden');
       if(error?.responseStatus===404)fail('app_chat_not_found');
       const status=Number.isInteger(error?.responseStatus)?error.responseStatus:null;
+      if(status===429)policy.rateLimits++;
       const code=status===429?'app_chat_rate_limited':status!==null&&status>=500&&status<=599?'app_chat_temporarily_unavailable':'app_chat_request_failed';
       const now=Date.now();policy.failures=policy.lastFailure?.code===code?policy.failures+1:1;
       const headers=error?.responseHeaders??error?.headers;
@@ -403,12 +419,16 @@ async function termuxCodexBridge(command) {
       const current=raw.mapping[raw.current_node]?.message;
       if(bound) {
         const anchor=raw.mapping[command.branch].message;
-        if(anchor?.author?.role!=='assistant'||anchor.status!=='finished_successfully'||anchor.end_turn!==true||!['final',null,undefined].includes(anchor.channel))fail('app_chat_response_invalid');
-        let node=raw.current_node;const seen=new Set();
+        const completed=anchor?.author?.role==='assistant'&&anchor.status==='finished_successfully'&&anchor.end_turn===true&&['final',null,undefined].includes(anchor.channel);
+        if(!command.bound_source_interrupted&&!completed)fail('app_chat_response_invalid');
+        let node=raw.current_node,child;const seen=new Set();
         while(node!==command.branch) {
           if(typeof node!=='string'||seen.has(node)||!raw.mapping[node])fail('bound_chat_branch_changed');
-          seen.add(node);node=raw.mapping[node].parent;
+          seen.add(node);child=node;node=raw.mapping[node].parent;
         }
+        // Rust has reconciled the failed native turn. The saved branch must
+        // independently confirm that a new user follows its unfinished source.
+        if(command.bound_source_interrupted&&(completed||raw.mapping[child]?.message?.author?.role!=='user'))fail('app_chat_response_invalid');
       } else if(current?.status==='in_progress'||current?.status==='inProgress'||state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
       if([...state.lanes.values()].some(l=>[l.localId,l.serverId,l.uiLocalId].includes(id)))fail('app_chat_owned_work');
       if((command.project??null)!==(raw.gizmo_id??null))fail('project_membership_unconfirmed');
@@ -466,9 +486,11 @@ async function termuxCodexBridge(command) {
       (m.recipient === 'local.' + lane.signature.name || ((m.recipient == null || m.recipient === 'all') &&
        m.content?.content_type==='text' && [undefined,null,'commentary','final'].includes(m.channel) && !m.metadata?.is_visually_hidden_from_conversation)));
     return {round:lane.round,messages,budget:lane.budget??null,hostResponses:[...hostResponses],approvalResponses:[...lane.messages.values()].filter(m=>hostTargets(m).some(t=>lane.hostReplies.has(t))).map(m=>m.id),accepted: lane.accepted,error: lane.error,terminals: lane.terminals,roundStarts: lane.roundStarts,
+      sourceToolMessages:[...lane.messages.values()].filter(m=>m.author?.role==='assistant'&&m.recipient==='api_tool.call_tool'&&m.content?.content_type==='code'&&m.status==='finished_successfully'&&!m.metadata?.is_visually_hidden_from_conversation).map(m=>({id:m.id,author:{role:'assistant'},recipient:m.recipient,status:m.status,content:m.content})),
       dispatches: (lane.previousDispatches??0)+lane.starts.size,userMessages: lane.userMessages,toolMessages: lane.toolMessages,hostReplyMessages:lane.hostReplyMessages,roundHostReplies:lane.roundHostReplies,serverId: lane.serverId,
       pending:lane.pending===true,streamActive:lane.streamActive===true,
       transportObservation:lane.transportObservation??null,
+      dispatchedInput:lane.dispatchedInput??null,
       savedReadBackoff:retryStatus(),
       rejectedBeforeDispatch:lane.rejectedBeforeDispatch===true,approvalPending:lane.approvalPending===true,approvalUi:lane.approvalUi??null,
       localStreamStopped: lane.pending !== true && lane.streamActive !== true,
@@ -483,7 +505,7 @@ async function termuxCodexBridge(command) {
     if(['account','user','structure'].some(k=>identity()[k]!==lane.accountIdentity[k]))fail('app_account_changed');
     // The public saved source was admitted by Rust. Observe that existing
     // response without calling yRt/startCompletionStream or changing its model.
-    lane.round=command.round;lane.epoch++;lane.messages.clear();lane.terminals=[];lane.savedSource=null;
+    lane.round=command.round;lane.epoch++;lane.messages.clear();lane.terminals=[];lane.savedSource=null;lane.dispatchedInput=null;
     lane.error=null;lane.accepted=true;lane.roundStarts=0;lane.roundHostReplies=0;
     lane.stopRequested=false;lane.serverStopPromise=null;lane.serverStopConfirmed=false;
     lane.completedBeforeCancellation=false;lane.localCancellationStarted=false;
@@ -670,6 +692,8 @@ async function termuxCodexBridge(command) {
     if (lane.pending||lane.approvalPending||lane.streamActive) fail('app_lane_busy');
     lane.round = command.round;
     lane.externalResponse=false;
+    lane.dispatchedInput=null;
+    lane.preparedUsers=new Map();
     lane.savedSource=null;
     lane.priorStreamUnsettled=lane.streamActive===true;
     lane.nonUserBootstrap=command.bootstrap===true;lane.rejectedBeforeDispatch=false;lane.admissionCause=null;
@@ -677,7 +701,11 @@ async function termuxCodexBridge(command) {
     lane.epoch++; lane.messages.clear(); lane.terminals = []; lane.error = null; lane.transportObservation = null; lane.accepted = false; lane.stopRequested = false; lane.roundStarts = 0; lane.roundHostReplies=0; lane.hostReplies.clear(); lane.roundPrepared = false;
     lane.older = new Set(Object.values(state.scope.get(state.api.JRn,lane.localId) || {}).map(n => n.message?.id).filter(Boolean));
     lane.controller = new AbortController();
-    const message = ({role,text,hidden}) => ({id: role==='user'&&command.messageId?command.messageId:crypto.randomUUID(),author: {role: role === 'developer' ? 'system' : role},content: {content_type: 'text',parts: [text]},metadata: {is_visually_hidden_from_conversation: hidden || role === 'developer',termux_codex_lane:command.lane},recipient: 'all',status: 'finished_successfully',end_turn: role === 'assistant' ? true : null});
+    const message = ({role,text,hidden,sourceFingerprint}) => {
+      const value={id: role==='user'&&command.messageId?command.messageId:crypto.randomUUID(),author: {role: role === 'developer' ? 'system' : role},content: {content_type: 'text',parts: [text]},metadata: {is_visually_hidden_from_conversation: hidden || role === 'developer',termux_codex_lane:command.lane},recipient: 'all',status: 'finished_successfully',end_turn: role === 'assistant' ? true : null};
+      if(role==='user')lane.preparedUsers.set(value.id,{content:JSON.stringify(value.content),fingerprint:sourceFingerprint});
+      return value;
+    };
     const results = command.results || [], context = (command.messages || []).map(message);
     const instructions = command.instructions || [];
     lane.resultOnly = results.length > 0 && !context.some(m => m.author.role === 'user');

@@ -1,6 +1,8 @@
 // Owned connector refresh plus actual backend MCP readiness. No model or screen input.
 import {readFileSync,writeFileSync,mkdirSync,existsSync} from 'node:fs';
 import {dirname} from 'node:path';
+import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import {connectDesktop} from '../providers/chatgpt/desktop_cdp.mjs';
 
 function responseFailure(error){
@@ -16,6 +18,37 @@ function catalogAgreement(actions,tools){
  return Array.isArray(actions)&&Array.isArray(tools)&&actions.length===tools.length&&tools.every(tool=>{
   const matches=actions.filter(action=>action.name===tool.name);
   return matches.length===1&&matches[0].params?.type==='object'&&tool.inputSchema?.type==='object'&&JSON.stringify(canonical(matches[0].params))===JSON.stringify(canonical(tool.inputSchema));
+ });
+}
+
+async function candidateTools(binary,state){
+ if(typeof binary!=='string'||typeof state!=='string')throw Error('candidate_provider_required');
+ const id=randomUUID(),request={jsonrpc:'2.0',id,method:'tools/list',params:{}};
+ return await new Promise((resolve,reject)=>{
+  const child=spawn(binary,['mcp-stdio','--state',state],{stdio:['pipe','pipe','ignore']});
+  let text='',tools,settled=false;
+  const fail=code=>{if(settled)return;settled=true;clearTimeout(timer);child.kill();reject(Error(code));};
+  const timer=setTimeout(()=>fail('candidate_catalog_read_timeout'),30000);
+  child.once('error',()=>fail('candidate_catalog_read_failed'));
+  child.stdin.once('error',()=>fail('candidate_catalog_read_failed'));
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data',chunk=>{
+   text+=chunk;
+   if(Buffer.byteLength(text)>16*1024*1024)return fail('candidate_catalog_response_invalid');
+   if(tools||!text.includes('\n'))return;
+   let reply;try{reply=JSON.parse(text.slice(0,text.indexOf('\n')));}catch{return fail('candidate_catalog_response_invalid');}
+   tools=reply.result?.tools;
+   if(reply.id!==id||reply.error||!Array.isArray(tools)||tools.length===0||new Set(tools.map(tool=>tool.name)).size!==tools.length||tools.some(tool=>typeof tool.name!=='string'||tool.inputSchema?.type!=='object'))return fail('candidate_catalog_response_invalid');
+   // EOF detaches the MCP observer, so keep stdin open until its reply arrives.
+   child.stdin.end();
+  });
+  child.once('close',code=>{
+   if(settled)return;
+   if(code!==0||!tools)return fail('candidate_catalog_read_failed');
+   if(text.slice(text.indexOf('\n')+1).trim())return fail('candidate_catalog_response_invalid');
+   settled=true;clearTimeout(timer);resolve(tools);
+  });
+  child.stdin.write(JSON.stringify(request)+'\n');
  });
 }
 
@@ -40,15 +73,15 @@ if(existsSync(cooldownPath)){
  const cooldown=JSON.parse(readFileSync(cooldownPath,'utf8'));
  if(Number.isSafeInteger(cooldown.not_before_unix_ms)&&cooldown.not_before_unix_ms>Date.now())throw Error('MCP refresh cooldown active; no network request');
 }
-const operatorNames=['native_catalog','native_tool','codex_sessions','codex_attach','codex_history','codex_tools','codex_execute','codex_answer','codex_report','codex_finish','codex_status','codex_stop','codex_handoff','codex_native_summary'];
-const expectedNames=info.expected_tools??(info.mode==='operator'?operatorNames:['native_catalog','native_tool']);
-if(!Array.isArray(expectedNames)||new Set(expectedNames).size!==expectedNames.length||!expectedNames.every(v=>typeof v==='string'))throw Error('explicit_tool_catalog_invalid');
-const expected=expectedNames.length;
 if(typeof info.connector_reference!=='string'||!info.connector_reference.trim())throw Error('explicit_connector_reference_required');
 const prior=JSON.parse(readFileSync(info.connector_reference,'utf8')).matches;
 const connectorName=info.connector_name??prior[0]?.name;
 if(prior.length!==1||typeof connectorName!=='string'||!connectorName.trim()||connectorName.length>160||prior[0].name!==connectorName)throw Error('exact_owned_connector_required');
 if(typeof info.desktop_session!=='string'||!info.desktop_session.trim())throw Error('explicit_desktop_session_required');
+const candidate=await candidateTools(info.binary,info.state);
+const expectedNames=candidate.map(tool=>tool.name);
+const expectedActions=candidate.map(tool=>({name:tool.name,params:tool.inputSchema}));
+const expected=expectedNames.length;
 const id=prior[0].connector_id;
 const attemptDir=directory+'/refresh-'+Date.now();mkdirSync(attemptDir,{mode:0o700});
 const c=await connectDesktop(info.desktop_session,undefined,{app:true});
@@ -93,7 +126,8 @@ try {
       const catalog=await api.safePost('/ecosystem/call_mcp',{surface:'other',retry:'never',requestBody:{app_uri:'connectors://'+id,launcher_host:'chatgpt',method:'tools/list',params:{}}});
       liveTools=catalog.tools;
       const names=liveTools?.map(v=>v.name).sort();
-      if(names?.length!==${expected}||!${JSON.stringify(expectedNames)}.every(n=>names.includes(n)))throw Error('live_mcp_catalog_mismatch');
+      const candidateAgreement=catalogAgreement(${JSON.stringify(expectedActions)},liveTools);
+      if(!candidateAgreement)throw Error('live_mcp_catalog_mismatch');
       let readCall;
       if(${expectedNames.includes('codex_sessions')}){
        readCall=await api.safePost('/ecosystem/call_mcp',{surface:'other',retry:'never',requestBody:{app_uri:'connectors://'+id,launcher_host:'chatgpt',method:'tools/call',params:{name:'codex_sessions',arguments:{action:'list'},_meta:{'openai/connector_id':id,'openai/link_id':link.id,'openai/action_name':'codex_sessions'}}}});
@@ -101,7 +135,7 @@ try {
        const value=typeof payload==='string'?JSON.parse(payload):readCall?.structuredContent;
        if(readCall?.isError!==false||!Array.isArray(value?.work))throw Error('read_only_mcp_probe_failed');
       }
-      samples.push({sample:1,UTC:new Date().toISOString(),elapsed_ms:performance.now()-began,names,read_call:!!readCall});
+      samples.push({sample:1,UTC:new Date().toISOString(),elapsed_ms:performance.now()-began,names,read_call:!!readCall,candidate_schema_agreement:candidateAgreement});
      }
      probe={accepted:true,samples,model_requests:0,native_effects:0};
     }catch(e){probeError={name:e?.name,...responseFailure(e),retryAtMs:e?.retryAtMs,message:e?.message,data:e?.data};probe={accepted:false,samples,model_requests:0,native_effects:0};}
@@ -127,7 +161,7 @@ try {
   writeFileSync(attemptDir+'/attempt-'+attempt+'-private.json',JSON.stringify(value,null,2),{mode:0o600});
   console.log(JSON.stringify({attempt,ok:value.ok,status:value.error?.upstream_status??value.error?.status??value.probeError?.upstream_status??value.probeError?.status??null,expected,actions:value.after?.actions?.map(x=>x.name),errorKeys:value.error?.keys??[],cache_refresh:value.cacheRefresh,live_mcp_samples:value.probe?.samples?.length??0,schema_error:value.schema_error,model_requests:0}));
   if(value.ok) {
-   writeFileSync(directory+'/refresh-private.json',JSON.stringify({refresh:true,attempts:attempt,evidence:attemptDir,result:value.result,cache_refresh:value.cacheRefresh,live_mcp_probe:value.probe},null,2),{mode:0o600});
+   writeFileSync(directory+'/refresh-private.json',JSON.stringify({refresh:true,attempts:attempt,evidence:attemptDir,result:value.result,cache_refresh:value.cacheRefresh,candidate_tools:candidate,live_mcp_probe:value.probe},null,2),{mode:0o600});
    process.exitCode=0;break;
   }
   // A definite metadata 424 response is safe to refresh again after a delay.

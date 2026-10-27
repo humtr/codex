@@ -13,6 +13,31 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Mutex;
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceLease {
+    pub thread: String,
+    pub turn: String,
+    pub input: crate::bound_chat::Input,
+    pub token: String,
+}
+fn source_lease_key(thread: &str, turn: &str) -> String {
+    digest(&("source-lease-v1", thread, turn))
+}
+pub(crate) fn source_lease(
+    journal: &Journal,
+    thread: &str,
+    turn: &str,
+) -> Result<Option<SourceLease>, Error> {
+    let value: Option<SourceLease> = journal.read(&source_lease_key(thread, turn))?;
+    if value
+        .as_ref()
+        .is_some_and(|value| value.thread != thread || value.turn != turn)
+    {
+        return Err(Error("source_lease_conflict"));
+    }
+    Ok(value)
+}
 const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
 #[derive(Clone, Serialize, Deserialize)]
 struct Settlement {
@@ -96,6 +121,34 @@ pub struct McpBridge {
     connector: String,
     epoch: String,
     lanes: Lanes,
+}
+fn source_tool_request(
+    message: &Value,
+    connector: &str,
+) -> Option<(String, String, crate::mcp::Arguments)> {
+    if message["author"]["role"] != "assistant"
+        || message["recipient"] != "api_tool.call_tool"
+        || message["status"] != "finished_successfully"
+        || message["content"]["content_type"] != "code"
+    {
+        return None;
+    }
+    let id = message["id"].as_str()?;
+    if id.is_empty() || id.len() > 256 || id.chars().any(char::is_control) {
+        return None;
+    }
+    let call: Value = serde_json::from_str(message["content"]["text"].as_str()?).ok()?;
+    let path = call["path"].as_str()?;
+    if !path.starts_with(&format!("/{connector}/")) || !path.ends_with("/native_tool") {
+        return None;
+    }
+    let mut args = call["args"].as_object()?.clone();
+    let token = args.remove("turn_token")?.as_str()?.to_owned();
+    Some((
+        id.into(),
+        token,
+        serde_json::from_value(Value::Object(args)).ok()?,
+    ))
 }
 impl McpBridge {
     pub fn new(
@@ -450,6 +503,9 @@ impl Bridge for McpBridge {
                 let catalog = tools(&instructions)?.unwrap_or_else(|| lane.tools.clone());
                 let previous_token = lane.token.clone();
                 let token = broker.register(&marker, catalog.clone(), true).await?;
+                if source.is_some() && command["source_context_required"] == true {
+                    broker.require_source_context(&token).await?;
+                }
                 if source.is_none() {
                     lane.discovery_root = Some(token.clone());
                 }
@@ -473,12 +529,26 @@ impl Bridge for McpBridge {
                 journal.write(&key, &*lane)?;
                 let mut submitted = command;
                 if let Some((input, _)) = &lane.source {
+                    // Correlation to the actual native turn survives replacement
+                    // of this transport's active slot; it grants no live lease.
+                    if let (Some(thread), Some(turn)) = (
+                        submitted["nativeThread"].as_str(),
+                        submitted["nativeTurn"].as_str(),
+                    ) {
+                        let binding = SourceLease {
+                            thread: thread.into(),
+                            turn: turn.into(),
+                            input: input.clone(),
+                            token: token.clone(),
+                        };
+                        journal.write(&source_lease_key(thread, turn), &binding)?;
+                    }
                     submitted["op"] = json!("follow");
                     submitted["conversation_id"] = json!(input.conversation);
                     return remote.operation(submitted).await;
                 }
                 let mut native_policy = policy(&instructions);
-                native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Native Codex executes, approves and records actions. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
+                native_policy.push(json!(format!("You are the model for a native Codex development task. Use only the installed app {} and its native_catalog/native_tool functions for native tools. Native Codex executes, approves and records actions. This token belongs only to this admitted response. For a later user instruction, list codex_sessions, select this same native thread, and use join with that work_id, the full submitted task and stable call_id, then accept codex_attach context. Do not create a second work or wait for a retired catalog to admit a new input. Original-source verification uses explicit source_sync/source_join, not ordinary join. Never use Work/handoff or fabricate results. Exact turn_token: {}\nFirst discover the complete native catalog using native_catalog with this token. Preserve canonical names, schemas, deferred search and custom/freeform inputs. For each action use a unique logical call_id; delivery retries MUST reuse exact call_id/name/input/report. Supply useful public initial/intermediate reports in report and a public final answer after actual results. Tool results return on the retained MCP invocation; never request another user message. Never disclose private reasoning.",serde_json::to_string(&connector).unwrap(),token)));
                 submitted["instructions"] = json!(native_policy);
                 return remote.operation(submitted).await;
             }
@@ -502,11 +572,19 @@ impl Bridge for McpBridge {
                         &input.conversation,
                         anchor,
                         Some(input),
+                        false,
+                        None,
                     )
                     .await?
                     .ok_or(Error("bound_chat_input_missing"))?;
                     snapshot["messages"] = json!(observed.messages);
-                    snapshot["terminals"] = if observed.ended {
+                    snapshot["sourceToolMessages"] = json!(observed.tool_messages);
+                    snapshot["source_account_ref"] = json!(observed.account_ref);
+                    snapshot["sourceInterrupted"] = json!(matches!(
+                        observed.end,
+                        crate::bound_chat::End::Interrupted { .. }
+                    ));
+                    snapshot["terminals"] = if observed.end == crate::bound_chat::End::Completed {
                         json!(["done"])
                     } else {
                         json!([])
@@ -523,7 +601,13 @@ impl Bridge for McpBridge {
                     let mut attached = remote
                         .operation(json!({"op":"snapshot","lane":marker}))
                         .await?;
-                    for field in ["messages", "terminals", "sourceObservation"] {
+                    for field in [
+                        "messages",
+                        "terminals",
+                        "sourceObservation",
+                        "sourceInterrupted",
+                        "source_account_ref",
+                    ] {
                         attached[field] = snapshot[field].take();
                     }
                     snapshot = attached;
@@ -550,6 +634,28 @@ impl Bridge for McpBridge {
                 .as_ref()
                 .ok_or(Error("mcp_turn_unavailable"))?
                 .clone();
+            let mut source_requests = Vec::new();
+            if let Some(messages) = snapshot
+                .as_object_mut()
+                .ok_or(Error("invalid_app_snapshot"))?
+                .remove("sourceToolMessages")
+            {
+                for message in messages.as_array().ok_or(Error("invalid_app_snapshot"))? {
+                    if let Some((id, observed_token, args)) =
+                        source_tool_request(message, &connector)
+                    {
+                        if observed_token == token {
+                            source_requests.push((id, args));
+                        }
+                    }
+                }
+            }
+            snapshot["sourceNativeCalls"] =
+                json!(broker.source_calls(&token, source_requests).await);
+            if snapshot["sourceInterrupted"] == true {
+                broker.interrupt_source(&token).await?;
+                lane.complete = true;
+            }
             if lane.offered.is_empty() && !lane.complete {
                 lane.offered = broker.offer(&token).await?;
             }
@@ -663,6 +769,29 @@ impl Bridge for McpBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_tool_requests_use_the_actual_native_argument_contract() {
+        let args = json!({"turn_token":"owned-token","call_id":"original","name":"exec","input":"{}","report":""});
+        let message = |args: Value| {
+            json!({"id":"platform-message","author":{"role":"assistant"},
+            "recipient":"api_tool.call_tool","status":"finished_successfully",
+            "content":{"content_type":"code","text":json!({"path":"/Owned connector/link/native_tool","args":args}).to_string()}})
+        };
+        assert!(source_tool_request(&message(args.clone()), "Owned connector").is_some());
+        for field in ["turn_token", "call_id", "name", "input", "report"] {
+            let mut missing = args.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(
+                source_tool_request(&message(missing), "Owned connector").is_none(),
+                "missing {field}"
+            );
+        }
+        let mut unknown = args.clone();
+        unknown["unexpected"] = json!(true);
+        assert!(source_tool_request(&message(unknown), "Owned connector").is_none());
+        assert!(source_tool_request(&message(args), "Another connector").is_none());
+    }
 
     struct SettlementRoot(std::path::PathBuf);
     impl Drop for SettlementRoot {

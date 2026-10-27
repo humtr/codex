@@ -664,7 +664,7 @@ def probe(args):
             budget = {'max_parallel': 2, 'max_app_starts': 12,
                       'max_native_calls': 24, 'max_elapsed_seconds': 240}
 
-            def selected(label, parent=None, dependencies=None, reasoning='current', parallel=None):
+            def selected(label, parent=None, dependencies=None, reasoning='direct', parallel=None):
                 workspace = root / ('work-' + label)
                 workspace.mkdir()
                 request = {'action': 'create', 'call_id': 'selected-create-' + label,
@@ -692,9 +692,9 @@ def probe(args):
             configured_history = (tomllib.loads(args.config.read_text()).get('history', {})
                                   if getattr(args, 'config', None) else {})
             if configured_history.get('mode') == 'project':
-                unstarted, _ = selected('managed-status', reasoning='managed')
+                unstarted, _ = selected('managed-status', reasoning='provider')
                 unstarted_status = rpc('codex_status', {'work_id': unstarted['work_id']})
-                assert not unstarted_status['completed'] and unstarted_status['managed_lane'] is None
+                assert not unstarted_status['completed'] and unstarted_status['app_lane'] is None
                 initial_events = rpc('codex_sessions', {'action': 'events', 'work_id': unstarted['work_id']})
                 assert not initial_events['status']['completed'] and initial_events['events'] == []
                 if initial_events['history_observation_available'] is False:
@@ -707,8 +707,8 @@ def probe(args):
                 managed_status_proved = True
             else:
                 missing = rpc('codex_sessions', {'action': 'create', 'call_id': 'managed-without-project',
-                    'reasoning': 'managed', 'role': 'managed-status', 'budget': budget}, True)
-                assert missing['error'] == 'managed_project_required'
+                    'reasoning': 'provider', 'role': 'managed-status', 'budget': budget}, True)
+                assert missing['error'] == 'provider_project_required'
 
             independent_a, _ = selected('independent-a', parallel=1)
             independent_a = begin(independent_a, 'independent-a')
@@ -750,7 +750,7 @@ def probe(args):
             rpc('codex_finish',{**coordinator,'call_id':'selected-extended-final','text':'EXTENDED_BUDGET_COMPLETE'})
             source = rpc('codex_history', {'work_id': coordinator['work_id']})
             offered = rpc('codex_sessions', {**coordinator, 'action': 'transfer', 'call_id': 'selected-transfer',
-                          'reasoning': 'current', 'text': 'source.txt contains source; continue this same native work.',
+                          'reasoning': 'direct', 'text': 'source.txt contains source; continue this same native work.',
                           'cursor': source['cursor'], 'context_cursor': source['context_cursor']})
             rpc('codex_tools', coordinator, True)
             successor = {'work_id': coordinator['work_id'], 'controller': offered['controller']}

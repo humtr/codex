@@ -20,7 +20,7 @@ async function evaluate(action,args={}) {
   const b=eval('('+bridge+')'),slot=Symbol.for('termux.codex.chat-entry.client.v1');
   function inputRequestScope(lanes,sourceLane,request) {
    const entry=[...lanes].find(([,l])=>request.conversation_id!=null&&[l.localId,l.serverId,l.uiLocalId].includes(request.conversation_id)||request.messages?.some(m=>m.metadata?.termux_codex_lane===l.marker)||request.local_function_signatures?.some(f=>f.name===l.signature?.name));
-   return entry?{lane_id:entry[0],scope:entry[0]===sourceLane?'source':'managed'}:null;
+   return entry?{lane_id:entry[0],scope:entry[0]===sourceLane?'source':'provider'}:null;
   }
   function admitObservedRequest(requests,scope,plan) {
    if(requests.length>=(plan.max_model_responses??plan.max_source_requests))throw Error('chat_entry_total_request_budget_exhausted');

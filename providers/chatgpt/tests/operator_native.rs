@@ -110,8 +110,46 @@ impl Bridge for Synthetic {
                 self.released.lock().unwrap().remove(&lane);
                 json!({"localId":lane})
             }
-            "host_status" => json!({"saved_read_backoff":{"cooling_down":false}}),
+            "host_status" => {
+                json!({"saved_read_backoff":if self.path.parent().unwrap().join("source-read-rate-limit").exists(){json!({"cooling_down":true,"retry_after_seconds":3})}else{json!({"cooling_down":false})}})
+            }
+            "project_read" if command["project"] == "g-p-owned-source-project" => {
+                json!({"id":"g-p-owned-source-project","name":"Owned source project","compatible":true})
+            }
             "chat_read" => {
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("source-read-rate-limit")
+                    .exists()
+                {
+                    return Box::pin(async { Err(Error("app_chat_rate_limited")) });
+                }
+                let fault = self.path.parent().unwrap().join("source-read-timeout-once");
+                if fault.exists() {
+                    std::fs::rename(&fault, fault.with_extension("observed")).unwrap();
+                    return Box::pin(async { Err(Error("cdp_operation_timeout")) });
+                }
+                let branch_fault = self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("source-read-branch-conflict");
+                if branch_fault.exists() {
+                    std::fs::write(
+                        branch_fault.with_extension("observed"),
+                        b"Original anchor absent from host-selected branch",
+                    )
+                    .unwrap();
+                    return Box::pin(async {
+                        Ok(
+                            json!({"conversation_id":"owned-saved-chat","current_node":"different-branch", "mapping":{
+                                "different-branch":{"parent":null,"message":{"id":"different-branch","author":{"role":"assistant"},"channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Unrelated original branch"]}}}
+                            }}),
+                        )
+                    });
+                }
                 let saved = self.path.parent().unwrap().join("saved-source.json");
                 if saved.exists() {
                     serde_json::from_slice::<Value>(&std::fs::read(saved).unwrap()).unwrap()
@@ -338,6 +376,11 @@ async fn synthetic_operator_service() {
             Some(root.join("w").as_path())
         );
         assert_eq!(config.execution.mode, mode);
+    }
+    if root.join("source-project-fixture").exists() {
+        config.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
+        config.history.project_name = Some("Owned source project".into());
+        config.history.project_id = Some("g-p-owned-source-project".into());
     }
     config.validate().unwrap();
     let journal = Arc::new(Journal::open(&root.join("provider-state")).unwrap());

@@ -28,16 +28,18 @@ that bridge; the app displays its MCP connection as **Termux Bridge**. ChatGPT
 supplies judgment; native Codex executes, approves and records. `operator` remains
 a code/config/API label for native-work controls, not another reasoning agent.
 
-E's [selected contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
-and [capability findings](../../CURRENT.md#linux-app-and-host-capability-research)
-are settled. F1–F9 common integration and G's declared runtime/public delivery
-scope are accepted. H source/worktree retirement and Provider/full verification
-are complete and committed. Original actual, synthetic, interrupted and failed
-proofs retain their own inputs and limits; see
-[CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
+The [retained control contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
+remain in force. Earlier F/G/H qualification and delivery apply at their recorded
+scope; [CURRENT](../../CURRENT.md#evidence-map-and-limits) separates those results
+from confirmed entrance-continuity defects. [AUDIT](../../AUDIT.md) independently
+rechecks original Chats/native work and defines the selected implementation plan.
+Persistent source binding and Bridge-native join for the already active Chat
+response are candidate controls, not installed controls. Current saved-source
+observation can recover public text without reinference, but it does not make
+all host tools native execution or guarantee live TUI display.
 
 All annotation values except idempotentHint are intentionally fixed. The
-[idempotency study](../../CURRENT.md#idempotency-preliminary-research-and-phased-work)
+[idempotency study](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
 remains historical research; E settled and implemented the common operation/
 duplicate/result-recovery contract and per-tool targets. F qualified
 and applied them at the recorded scope. The Rust policy selects true for fresh source/native reads and
@@ -48,15 +50,13 @@ performance benefit. In the observed ChatGPT backend tools/list response,
 idempotentHint is omitted even though the Rust service emits it; internal
 consumption is unknown. Other hints must remain unchanged.
 
-The [idempotency implementation](../../CURRENT.md#idempotency-preliminary-research-and-phased-work)
+The [idempotency implementation](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
 shares in-flight duplicate results and durable mutation/finish/registration/round
 receipts, with per-work admission and Stop fencing. Other hints remain unchanged.
-G admits source6aa2280 after exact-source qualification, retained-capability review,
-signing, complete12-asset public readback and14 actual Android immutable/stable
-consumer commands. The earlier approval task's source final remains failed;
-a distinct same-thread report-only turn closes the corrected native-final path
-without repeating its reviewer/program/effect. Earlier public generations keep
-their own evidence. Package selection and operating activation are separate actions.
+Current delivery is Full117/Provider14; see the exact
+[operating baseline](../../CURRENT.md#operating-baseline). Older signed generations
+retain their own evidence and rollback inventory. Package selection, service
+activation, actual inference and physical UI observation are separate boundaries.
 
 ## First-time setup
 
@@ -69,9 +69,9 @@ use their current configuration; these examples are for first-time setup.
 
 | Entry | Primary reasoning | Linux app needed? | Remote MCP needed? |
 | --- | --- | --- | --- |
-| Terminal with ChatGPT | Managed app Chat | Yes, with app login | Only for MCP inner returns; local_function does not need it |
-| ChatGPT direct | Current Chat (`reasoning=current`) | No for primary direct work | Yes |
-| ChatGPT general delegation | Managed work Chat (`reasoning=managed`) | Yes, with app login and project configuration | Yes for the requesting Chat |
+| Terminal with ChatGPT | Provider response | Yes, with app login | Only for MCP inner returns; local_function does not need it |
+| ChatGPT direct | Active response develops directly (`reasoning=direct`) | No for primary direct work | Yes |
+| ChatGPT general delegation | Provider-started response (`reasoning=provider`) | Yes, with app login and project configuration | Yes for the requesting Chat |
 
 Native Codex login, Linux app login and the ChatGPT MCP connection are separate
 boundaries. Direct current-Chat work does not require a native subscription login
@@ -181,7 +181,7 @@ This device's local runtime now uses [runit services](#device-runit-services);
 do not start a second tmux runtime against the same remote tunnel.
 
 Once connected, use [direct development](../../README.md#chatgpt-with-direct-local-development).
-The assistant selects `reasoning=current` and completes the native attach/receipt/
+The assistant selects `reasoning=direct` and completes the native attach/receipt/
 execution/final protocol through advertised tools. No Linux rootfs is required
 for this primary path.
 
@@ -220,11 +220,11 @@ setup. Native `codex login` is not a substitute for this app login.
 
 Terminal use can now select `/model` in Full or run `codex --profile chatgpt`.
 The built-in local_function return avoids a separate MCP connection for this
-terminal-managed path. If you explicitly choose MCP returns, configure and verify
+terminal Provider path. If you explicitly choose MCP returns, configure and verify
 that connection before sending work. General ChatGPT delegation additionally
 needs the remote connection described above and an explicit project below.
 
-### Managed Chat project
+### Provider Chat project
 
 Create or reuse the requested owned private project and select it for new work:
 
@@ -243,9 +243,9 @@ remote binding for reconciliation; retry the same selection without creating a
 duplicate. Direct `config set` remains available for policy-only changes and
 does not itself create a remote project.
 Do not change an active work's destination underneath it. General delegation
-selects `reasoning=managed`; the actual managed task requires app readiness and
+selects `reasoning=provider`; the Provider task requires app readiness and
 its own work/receipt/budget controls. See the
-[entrypoint example](../../README.md#chatgpt-delegating-managed-development).
+[entrypoint example](../../README.md#chatgpt-delegating-provider-development).
 
 ### Small shared setup flow to implement later
 
@@ -310,7 +310,7 @@ reconciliation; neither is permission to remove a lock or kill unrelated runtime
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
 config/auth/model defaults remain protected. Retain profile-pinned generations
-through H. Managed work supplies native routing directly without republishing
+through H. Provider work supplies native routing directly without republishing
 shared or per-home profiles; its catalog snapshots stay in its own state.
 Shared `work`, `chats`, `host`, `config`, `serve` and other Provider
 arguments pass through `codex provider chatgpt` to that executable. The original
@@ -335,11 +335,11 @@ this development helper.
 
 | Usage | Path |
 | --- | --- |
-| Codex development | Native Codex -> Linux app API -> managed work Chat -> MCP/local tools -> same native work |
-| ChatGPT direct development | Current Chat -> MCP -> native work; current Chat supplies intelligence |
-| ChatGPT general development | Current Chat -> MCP request/return -> the SAME managed Codex path, including its app/session management |
+| Codex development | Native Codex -> Linux app API -> Provider work Chat -> MCP/local tools -> same native work |
+| ChatGPT direct development | Active ChatGPT response -> MCP -> native work; active ChatGPT response supplies intelligence |
+| ChatGPT general development | Active ChatGPT response -> MCP request/return -> the same Provider Codex path, including its app/session management |
 
-MCP/local selects the inner tool return for an app-managed work Chat. General
+MCP/local selects the inner tool return for an app-Provider work Chat. General
 development still enters through MCP; ordinary direct ChatGPT local injection is
 not an implemented equivalent. The Linux app is retained for useful authenticated
 session reuse/replacement. Replacing it with browser/DOM is not the next objective.
@@ -348,7 +348,7 @@ the shared work interface binds the selected reasoning source per work.
 Stable native work, one current controller, related Chat reuse, grounded handoff,
 original question/result return and model-free status are integration boundaries.
 
-The [ChatGPT-operated Codex workflow](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
+The [ChatGPT-operated Codex workflow](../../CURRENT.md#chatgpt-entry-and-task-management)
 shares native Responses dispatch, approvals, events and history across managed,
 direct and general-delegation entrances. The work interface selects its reasoning
 source and transport per work; a service-wide `execution.mode` value alone does
@@ -368,11 +368,11 @@ model task, resumes no work and transfers no control. General delegation and
 [agent/orchestration](../../SPEC.md#agent-and-orchestration-extension-direction)
 reuse this common bridge and independent native roles/contexts. Their actual,
 synthetic and recovered-result scopes are accepted in
-[CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery); a universal quality,
+[CURRENT](../../CURRENT.md#audit-verification-and-remaining-acceptance); a universal quality,
 latency, billing or capacity advantage remains unproven.
 
 E/F design/integration, G product/public delivery and H preservation/retirement
-are complete at their [recorded scopes](../../CURRENT.md#product-completion-scope-and-work-order).
+have bounded acceptance at their [recorded scopes](../../CURRENT.md#product-completion-scope-and-work-order).
 Original failed/interrupted cohorts and exact comparison inputs remain preserved.
 Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
 polish stay separate follow-ups. Linux-app removal is not a prerequisite.
@@ -389,12 +389,43 @@ users identify the project/task and the desired reasoning source.
 
 | User intent | Existing control path |
 | --- | --- |
-| Work from this Chat | `codex_sessions` with current reasoning, native attach/receipt, tools/report/finish |
-| Delegate to a separate work Chat | Managed work with explicit app/project readiness; retrieve its original final |
+| Work from this Chat | `codex_sessions` with direct reasoning, native attach/receipt, tools/report/finish |
+| Delegate to a separate work Chat | Managed work with explicit app/project readiness and distinct assignment; retrieve its original final |
 | List or inspect work | `codex_sessions` list and `codex_status` |
 | Retrieve an existing result | Events/wait and public history on that work; no new task |
 | Continue a settled task | Reconcile and resume/start the related work at its supported boundary |
 | Stop a selected task | `codex_stop`; use tree Stop only when that whole scope is requested |
+
+The only reasoning values are `direct` and `provider`: direct uses the active
+Chat response; provider starts/manages a model response, including sequential
+follow-ups in the same saved Chat. Neither proves an independent child model.
+Previous names are not accepted as aliases. Existing installation state requires
+explicit offline format migration with its originals retained. MCP/local_function describe tool/result transport. A plain queue
+can start new inference; the existing no-reinference follow path additionally
+requires verified saved-source admission. chat_input deliberately starts a new
+saved-Chat user request and must not mirror an already active original prompt.
+
+The installed Provider14 does not expose bind/unbind/join. The unreleased A1
+candidate implements them; see CURRENT for exact qualification and remaining gaps.
+Ordinary `join` admits Bridge-submitted input directly on a selected completed
+Native work, without saved-source crawling. Accept current context via
+`codex_attach`; progress, actual tools/results and submitted final use the common
+Native controls. Pending saved-source verification belongs to explicitly requested
+`source_sync`/`source_join`, whose exact branch/account checks and context obligation
+remain enforced. Repeated source participants, including after interruption, must
+accept their current Native context before effects. A Provider continuation imports
+full Native context and clears source divergence only after completion.
+
+The [entrance contract](../../SPEC.md#entrance-equivalence-and-continuous-development-binding)
+requires one actual execution and preserved response quality. General Android/web
+requests start outside Provider's renderer: model guidance can encourage Bridge
+use, but original host input/message identity and the later host public final must
+be established from real metadata/events. Model-supplied arguments/completion do
+not establish those source facts. No native tools are fabricated for unjoined host
+output. Saved-source verification/recovery is explicit; no whole-Chat timer reader
+runs in ordinary development. The offline notification prototype was withdrawn
+and never activated. CURRENT separates implemented candidate behavior, Native/TUI
+qualification and remaining actual Android/Web boundaries.
 
 The assistant should report the returned work/thread identity with progress and
 results so follow-ups can address the same work. Resolve ambiguous targets before
@@ -457,8 +488,8 @@ account/filter-bound `list_cursor`; `chats read` returns stable IDs, parents,
 source cursors and explicit unavailable content. Range enumeration (`complete`)
 and readable content (`content_complete`) are separate.
 
-New native work may select `reasoning=current` (origin Chat/MCP) or
-`reasoning=managed` (saved project Chat, explicit return path). Related starts
+New native work may select `reasoning=direct` (origin Chat/MCP) or
+`reasoning=provider` (saved project Chat, explicit return path). Related starts
 retain the native work. `work events` retrieves its original public results;
 `work wait --max-wait-seconds N` waits locally up to300 seconds for a genuine
 question, completion or pending handle without a supervising model. Explicit
@@ -564,14 +595,27 @@ handoff and recovery require their source cursors. Later committed instructions
 return with the original MCP tool result. Input queued by upstream during an
 active turn becomes observable when upstream commits it on a subsequent round.
 
+For an existing completed work, `codex_sessions join` takes its explicit
+`work_id`, the Bridge-submitted `task` and a stable `call_id`. It reuses the
+Native start transition with Direct reasoning, returns the generation controller,
+and performs no saved-Chat retrieval or new Provider inference. Read and accept
+current context through `codex_attach` before tools; use `codex_report` and
+`codex_finish` for full submitted progress/final. Exact retries reuse their
+receipt. Busy, stopped and unreconciled works are rejected, not taken over.
+Submitted text is not falsely labelled as an unobserved ChatGPT original.
+
 Before a new native prompt, a compatible TUI uses `work synchronize --thread-id`
-to observe the bound saved Chat. Existing source input is queued once and its
-original answer is committed before the retained new draft is sent. The draft
-keeps attachments and mentions; cancel or a hard failure restores it. Waiting
-uses the Provider's actual saved-read backoff. The operation creates no Chat or
-primary model request. Older pinned protocols retain explicit legacy submission;
-transport failures do not silently bypass synchronization. See CURRENT for the
-qualified source, native and actual Android-client scopes.
+as a Native-only barrier for an already admitted Direct/source execution. It
+retrieves no saved Chat. The draft retains attachments/mentions and is restored
+on cancellation or a hard failure. Ordinary development has no periodic remote
+history reader, including after restart or binding.
+
+`work source-sync` and `work source-join` explicitly request saved-source
+verification/recovery. They retain original-ID/account/branch verification and
+source context acceptance; their saved reads obey cooldowns. They are separate
+from ordinary Bridge admission. Actual Android/Web original identity and the
+later Chat public final require their own qualification; CURRENT records those
+remaining boundaries.
 
 ## Configuration and commands
 
@@ -582,7 +626,7 @@ one authority:
 `~/.config/codex/providers/chatgpt.toml`.
 Broader ChatGPT setup/management UX is deferred; explicit project selection and
 configuration/operations will remain its authority. Scope and priority are in
-[CURRENT.md](../../CURRENT.md#chatgpt-projects-and-history).
+[CURRENT.md](../../CURRENT.md#operating-baseline).
 
 - `models` reads `catalog.models`; `catalog` generates native model JSON.
 - `config show|effective|validate|edit` inspects or edits settings. Effective output
@@ -612,7 +656,7 @@ compatible host-route/history changes at request admission.
 is the configuration fallback, distinct from Manager login accounts. Current exact
 source/device composition proof, accepted actual TUI re-entry and separate device
 activation are in
-[CURRENT](../../CURRENT.md#remaining-acceptance-and-delivery).
+[CURRENT](../../CURRENT.md#audit-verification-and-remaining-acceptance).
 
 ## Service and observation
 
@@ -673,7 +717,7 @@ confirm physical visibility. Existing notifications and their pinned installed
 helpers remain unchanged by source retirement. noVNC visual/touch/IME polish
 retains its lower priority under [app management and viewer work](../../CURRENT.md#linux-chatgpt-app-management-and-deferred-viewer-work).
 
-E's [app/host capability research](../../CURRENT.md#linux-app-and-host-capability-research)
+The [recorded app/host capability evidence](../../CURRENT.md#evidence-map-and-limits)
 covers authenticated Chat/project APIs, session reuse/input, process ownership,
 connection/readiness/recovery, configuration and shared management surfaces.
 F implements the selected common management interfaces; H preserves reusable
@@ -796,7 +840,7 @@ policy/tools without resending the resident summary. The original durable native
 history remains. There is
 no independently verified Chat remaining-context sensor. This coupled lifecycle
 belongs to the model adapter; operator Chat renewal follows the
-[same-thread incremental handoff design](../../CURRENT.md#same-thread-continuity-and-chat-context-handoff).
+[same-thread incremental handoff design](../../CURRENT.md#implemented-and-qualified-at-recorded-scope).
 
 The existing adapter tracks warm-prefix deltas and native checkpoint acknowledgment.
 Summary policy/results are transient until upstream commits the offered checkpoint;
@@ -921,7 +965,7 @@ and supervisor verification. Future materially different paths need their own re
 trial there under its AGENTS/Git baseline, without a temporary worktree or a
 supervisor-written substitute patch. Preserve unrelated user edits; exercise
 analysis, failure/correction, tests and latest-state resume. The single
-[acceptance matrix](../../CURRENT.md#remaining-acceptance-and-delivery) owns open
+[acceptance matrix](../../CURRENT.md#audit-verification-and-remaining-acceptance) owns open
 gates. That no-MCP proof alone does not qualify MCP controls; separately recorded
 C/C2, D2/D3 and direct-entry proof apply at their exact inputs/scopes. F common
 integration/general delegation and G's declared product/delivery scope are

@@ -188,6 +188,30 @@ mod source_tests {
             .register("source-lane", request.tools.clone(), true)
             .await
             .unwrap();
+        assert_eq!(
+            broker.source_participation(&first).unwrap()["state"],
+            "execution_not_joined"
+        );
+        broker.require_source_context(&first).await.unwrap();
+        let before_context = Arguments {
+            call_id: "before-context".into(),
+            name: "exec".into(),
+            input: "{}".into(),
+            report: "Must not execute before current native context".into(),
+        };
+        assert_eq!(
+            broker.enqueue(&first, &before_context).await,
+            Err(Error("source_context_required"))
+        );
+        assert!(broker.offer(&first).await.unwrap().is_empty());
+        broker
+            .accept_source_context(&first, "verified-context")
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.source_participation(&first).unwrap()["context_accepted"],
+            true
+        );
         let call = Arguments {
             call_id: "original".into(),
             name: "exec".into(),
@@ -197,6 +221,11 @@ mod source_tests {
         broker.enqueue(&first, &call).await.unwrap();
         let offered = broker.offer(&first).await.unwrap();
         let output = json!({"output":"Original result"});
+        assert_eq!(
+            broker.interrupt_source(&first).await,
+            Err(Error("mcp_pending_completion")),
+            "offered native effects must settle before interruption advances"
+        );
         broker
             .settle(
                 &first,
@@ -204,7 +233,30 @@ mod source_tests {
             )
             .await
             .unwrap();
-        broker.retire(&first, false).await.unwrap();
+        let rejected = Arguments {
+            call_id: "not-offered".into(),
+            name: "exec".into(),
+            input: "{}".into(),
+            report: "Never admitted to Native".into(),
+        };
+        broker.enqueue(&first, &rejected).await.unwrap();
+        broker.interrupt_source(&first).await.unwrap();
+        assert_eq!(
+            broker.accept_source_context(&first, "other-context").await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+        assert_eq!(
+            broker.source_participation(&first).unwrap()["context_accepted"],
+            true
+        );
+        assert_eq!(
+            broker.invoke(&first, rejected).await.unwrap(),
+            json!({"error":"source_response_interrupted","executed":false})
+        );
+        assert_eq!(
+            broker.offer(&first).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
         let observing = {
             let broker = broker.clone();
             let first = first.clone();
@@ -337,6 +389,12 @@ struct Turn {
     discovery: Option<String>,
     #[serde(default)]
     source_bound: bool,
+    #[serde(default)]
+    catalog_discovered: bool,
+    #[serde(default)]
+    context_receipt: Option<String>,
+    #[serde(default)]
+    requires_context: bool,
 }
 impl Turn {
     fn retire(&mut self, stopped: bool) {
@@ -457,6 +515,9 @@ impl Broker {
             order,
             discovery: None,
             source_bound,
+            catalog_discovered: false,
+            context_receipt: None,
+            requires_context: false,
         };
         self.persist(&token, &turn)?;
         if source_bound {
@@ -601,7 +662,7 @@ impl Broker {
                 tokio::pin!(changed);
                 changed.as_mut().enable();
                 {
-                    let registry = self.registry.lock().await;
+                    let mut registry = self.registry.lock().await;
                     if self.closed.load(Ordering::Acquire) { return Err(Error("mcp_turn_unavailable")); }
                     let mut current = self.source_turn(&registry, token)?;
                     let lane = current.lane.clone();
@@ -622,14 +683,65 @@ impl Broker {
                         current = candidate;
                     }
                     if !current.retired {
-                        return Ok(if next == token { json!(current.tools) } else {
-                            json!({"turn_token":next,"tools":current.tools,"message":"This saved Chat input is now admitted to its new native Codex turn. Use the returned turn_token for subsequent native_tool calls; old execution tokens remain retired."})
+                        let mut admitted = current.into_owned();
+                        if !admitted.catalog_discovered {
+                            admitted.catalog_discovered = true;
+                            self.persist(&next, &admitted)?;
+                            registry.turns.insert(next.clone(),admitted.clone());
+                        }
+                        return Ok(if next == token { json!(admitted.tools) } else {
+                            json!({"turn_token":next,"tools":admitted.tools,"message":"This saved Chat input is now admitted to its new native Codex turn. Use the returned turn_token for subsequent native_tool calls; old execution tokens remain retired."})
                         });
                     }
                 }
                 changed.await;
             }
         }).await.map_err(|_| Error("mcp_observer_timeout"))?
+    }
+    pub(crate) async fn require_source_context(&self, token: &str) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let turn = registry
+            .turns
+            .get_mut(token)
+            .filter(|turn| !turn.retired && turn.source_bound && turn.calls.is_empty())
+            .ok_or(Error("source_context_policy_unsettled"))?;
+        let mut next = turn.clone();
+        next.requires_context = true;
+        self.persist(token, &next)?;
+        *turn = next;
+        Ok(())
+    }
+    pub(crate) async fn accept_source_context(
+        &self,
+        token: &str,
+        receipt: &str,
+    ) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let turn = registry
+            .turns
+            .get_mut(token)
+            .filter(|turn| !turn.retired && turn.source_bound)
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        if turn.context_receipt.as_deref() != Some(receipt) {
+            let mut next = turn.clone();
+            next.context_receipt = Some(receipt.into());
+            self.persist(token, &next)?;
+            *turn = next;
+        }
+        Ok(())
+    }
+    pub(crate) fn source_participation(&self, token: &str) -> Result<Value, Error> {
+        let turn: Turn = self
+            .journal
+            .read(&digest(&("mcp-turn-v1", token)))?
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        Ok(
+            json!({"state":if turn.catalog_discovered || turn.context_receipt.is_some() || !turn.calls.is_empty() {
+            "participated" } else { "execution_not_joined" },
+            "catalog_discovered":turn.catalog_discovered,"context_accepted":turn.context_receipt.is_some(),"context_required":turn.requires_context,
+            "tool_requests":turn.calls.len(),"call_observations":turn.calls.values().map(|call|
+                json!({"id":call.id,"offered":call.offered,"settled":call.result.is_some()})).collect::<Vec<_>>()}),
+        )
     }
     pub async fn update(&self, token: &str, tools: BTreeMap<String, Tool>) -> Result<(), Error> {
         let mut registry = self.registry.lock().await;
@@ -676,6 +788,9 @@ impl Broker {
         if turn.retired {
             return Err(Error("mcp_turn_unavailable"));
         }
+        if turn.requires_context && turn.context_receipt.is_none() {
+            return Err(Error("source_context_required"));
+        }
         if turn.calls.len() >= 4096 {
             return Err(Error("mcp_turn_call_limit"));
         }
@@ -715,6 +830,23 @@ impl Broker {
                 |call| json!({"id":call.id,"offered":call.offered,"settled":call.result.is_some()}),
             )
             .collect())
+    }
+    /// Correlate a public host request with an already admitted invocation.
+    /// Rejected/unknown calls are not evidence of another native effect.
+    pub(crate) async fn source_calls(
+        &self,
+        token: &str,
+        requests: Vec<(String, Arguments)>,
+    ) -> Vec<Value> {
+        let registry = self.registry.lock().await;
+        let Some(turn) = registry.turns.get(token) else {
+            return Vec::new();
+        };
+        requests.into_iter().filter_map(|(source, args)| {
+            turn.calls.get(&args.call_id).filter(|call|
+                call.name==args.name && call.input==args.input && call.report==args.report)
+                .map(|call|json!({"source_message_id":source,"logical_call_id":args.call_id,"native_call_id":call.id}))
+        }).collect()
     }
     pub fn contains_call(&self, token: &str, call_id: &str) -> Result<bool, Error> {
         let turn: Turn = self
@@ -837,6 +969,34 @@ impl Broker {
         // All-or-nothing catalog/result validation and durable commit precede
         // waking the model, which may immediately discover/call the new tools.
         prepare()?;
+        self.persist(token, &next)?;
+        *turn = next;
+        self.changed.notify_waiters();
+        Ok(())
+    }
+    /// End a source response without revoking this development connection.
+    /// Calls already offered to Native must settle before the source advances.
+    pub(crate) async fn interrupt_source(&self, token: &str) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let turn = registry
+            .turns
+            .get_mut(token)
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        if !turn.source_bound {
+            return Err(Error("mcp_source_discovery_invalid"));
+        }
+        if turn
+            .calls
+            .values()
+            .any(|call| call.offered && call.result.is_none())
+        {
+            return Err(Error("mcp_pending_completion"));
+        }
+        let mut next = turn.clone();
+        for call in next.calls.values_mut().filter(|call| call.result.is_none()) {
+            call.result = Some(json!({"error":"source_response_interrupted","executed":false}));
+        }
+        next.retire(false);
         self.persist(token, &next)?;
         *turn = next;
         self.changed.notify_waiters();

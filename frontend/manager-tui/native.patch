@@ -2592,3 +2592,68 @@ index babf331..12df492 100644
              }
          }
          ThreadItem::FunctionCallOutput {
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -1055,6 +1055,10 @@
+     /// When set, this replaces the bundled catalog for the current process.
+     pub model_catalog: Option<ModelsResponse>,
+
++    /// Complete source bytes used to configure a Core-owned backend. Typed UI
++    /// metadata can omit fields and insert defaults during deserialization.
++    pub model_catalog_source: Option<Vec<u8>>,
++
+     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
+     pub model_verbosity: Option<Verbosity>,
+
+@@ -2215,7 +2219,7 @@
+     managed_features::validate_feature_requirements_in_config_toml(cfg, feature_requirements)
+ }
+
+-fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> {
++fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<(ModelsResponse, Vec<u8>)> {
+     let file_contents = std::fs::read_to_string(path)?;
+     let catalog = serde_json::from_str::<ModelsResponse>(&file_contents).map_err(|err| {
+         std::io::Error::new(
+@@ -2235,15 +2239,19 @@
+             ),
+         ));
+     }
+-    Ok(catalog)
++    Ok((catalog, file_contents.into_bytes()))
+ }
+
+ fn load_model_catalog(
+     model_catalog_json: Option<AbsolutePathBuf>,
+-) -> std::io::Result<Option<ModelsResponse>> {
+-    model_catalog_json
+-        .map(|path| load_catalog_json(&path))
+-        .transpose()
++) -> std::io::Result<(Option<ModelsResponse>, Option<Vec<u8>>)> {
++    match model_catalog_json {
++        Some(path) => {
++            let (catalog, source) = load_catalog_json(&path)?;
++            Ok((Some(catalog), Some(source)))
++        }
++        None => Ok((None, None)),
++    }
+ }
+
+ fn filter_mcp_servers_by_requirements(
+@@ -4240,7 +4248,7 @@
+         let review_model = override_review_model.or(cfg.review_model);
+
+         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
+-        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
++        let (model_catalog, model_catalog_source) = load_model_catalog(cfg.model_catalog_json.clone())?;
+
+         let log_dir = cfg
+             .log_dir
+@@ -4597,6 +4605,7 @@
+             plan_mode_reasoning_effort: cfg.plan_mode_reasoning_effort,
+             model_reasoning_summary: cfg.model_reasoning_summary,
+             model_catalog,
++            model_catalog_source,
+             model_verbosity: cfg.model_verbosity,
+             chatgpt_base_url: cfg
+                 .chatgpt_base_url

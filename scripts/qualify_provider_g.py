@@ -47,7 +47,7 @@ def input_client_id(root):
 
 
 def cold_budget(record, deadline_unix_ms):
-    assert record['selection']['reasoning']=='current'
+    assert record['selection']['reasoning']=='direct'
     start=record['assignment']['started_at_unix_ms']
     assert isinstance(start,int) and start>0
     budget=dict(record['assignment']['budget'])
@@ -55,12 +55,14 @@ def cold_budget(record, deadline_unix_ms):
     return budget
 
 
-def require_connector_ready(info, proof):
+def require_connector_ready(proof):
     probe=proof.get('live_mcp_probe') or {}
-    expected=set(info['expected_tools'])
+    tools=proof.get('candidate_tools') or []
+    expected={tool.get('name') for tool in tools}
+    assert tools and len(expected)==len(tools) and all(isinstance(tool.get('name'),str) and tool.get('inputSchema',{}).get('type')=='object' for tool in tools),'candidate MCP catalog missing'
     assert proof.get('refresh') and proof.get('cache_refresh') and probe.get('accepted'),'backend MCP readiness missing'
     assert probe.get('model_requests')==0 and probe.get('native_effects')==0
-    assert any(sample.get('read_call') and sample.get('schema_agreement') is True and set(sample.get('names',[]))==expected
+    assert any(sample.get('read_call') and sample.get('schema_agreement') is True and sample.get('candidate_schema_agreement') is True and set(sample.get('names',[]))==expected
                for sample in probe.get('samples',[])),'actual backend MCP catalog/read probe missing'
 
 
@@ -108,7 +110,7 @@ def prepare(args):
     info=dict(mode='common',binary=str(package_binary),binary_sha256=sha(package_binary),state=str(root/'state'),home=str(home/'.codex'),
               workspace=str(native/'w'),core=str(launcher),fixture_home=str(home),fixture_root=str(native),pid=process.pid,
               port=int(ready['base_url'].split(':')[-1].split('/')[0]),connector_reference=str(connector),prior_root=str(prior),tunnel_profile=str(tunnel_profile),tunnel_alias=tunnel_alias,
-              desktop_session=str(prior/'relay'),expected_tools=['native_catalog','native_tool','codex_host','codex_chats','codex_sessions','codex_attach','codex_history','codex_tools','codex_execute','codex_answer','codex_report','codex_finish','codex_status','codex_stop','codex_handoff','codex_native_summary'])
+              desktop_session=str(prior/'relay'))
     save(root/'info.json',info,True);save(root/'environment-private.json',env,True)
     plan=dict(schema='termux-codex-g-live-v1',repository=str(SOURCE),desktop_session=str(prior/'relay'),project_name='Termux Provider: G',
               bindings=dict(initial='app://-/assets/app-initial-ed5807835d97.js',shared='app://-/assets/app-shared-2d77298f0100.js'),
@@ -128,7 +130,7 @@ def prepare(args):
         for command in [['git','init','-q'],['git','add','.'],['git','-c','user.name=G fixture','-c','user.email=g-fixture@localhost','commit','-qm','owned original G contract']]:
             subprocess.run(command,cwd=workspace,env=env,check=True,capture_output=True)
     (root/'task.txt').write_text(TASK+'\n')
-    for name, reasoning in [('direct','current'),('general','managed')]:
+    for name, reasoning in [('direct','direct'),('general','provider')]:
         create=dict(action='create',call_id=creation_call_id(root,name),reasoning=reasoning,return_path='mcp',workspace=str(root/('w-'+name)),role='g-'+name,budget=plan['assignment_budget'])
         instructions=('This Chat is the reasoning source. After create, start this genuine task once, attach and echo its exact receipt as accept before effects. Discover tools, execute with stable call IDs, publish through codex_report and finish through codex_finish.' if name=='direct' else 'Delegate reasoning to the created managed worker. Start this genuine task once with a stable call ID, wait on the original work, read its completed native history and report the actual result here. Do not attach or execute on behalf of the managed worker.')
         (root/('task-'+name+'.txt')).write_text('Use only the installed Termux Bridge MCP; no Work. Create exactly one work with these fields: '+json.dumps(create)+'. '+instructions+'\nTask:\n'+TASK+'\nPublish the full final in this saved Chat, then G_'+name.upper()+'_COMPLETE alone on the last line.\n')
@@ -164,7 +166,7 @@ def connect(root):
     refresh=subprocess.run([plan['bun'],str(SOURCE/'scripts/d3_refresh.mjs'),str(root)],capture_output=True,timeout=260)
     (root/'refresh.stdout').write_bytes(refresh.stdout);(root/'refresh.stderr').write_bytes(refresh.stderr)
     assert refresh.returncode==0,'backend MCP refresh/probe failed; no model submitted'
-    require_connector_ready(json.loads((root/'info.json').read_text()),json.loads((root/'refresh-private.json').read_text()))
+    require_connector_ready(json.loads((root/'refresh-private.json').read_text()))
     save(root/'connection-ready.json',dict(ready=True,backend_mcp_ready=True,Chat_requests=0,refresh_submitted=True,**stamp()),True)
     print(json.dumps(dict(ready=True,Chat_requests=0)))
 
@@ -236,7 +238,7 @@ def audit(root,batch):
         finals=[v['item']['text'] for v in history['items'] if v['item'].get('type')=='agentMessage' and v['item'].get('phase')=='final_answer']
         assert finals and all(cli_final_visible(cli.read_text(errors='replace'),value) for value in finals),'original CLI final mismatch: '+record['id']
         assert len(list(workspace.glob('test_*.py')))>=2,'meaningful added regression suite required'
-        saved=(status.get('managed_lane') or {}).get('conversation_id')
+        saved=(status.get('app_lane') or {}).get('conversation_id')
         if saved:
             pages=batch.read(saved);save(root/(record['id']+'-saved-chat-private.json'),pages)
             texts=['\n'.join(p for p in m['content'].get('parts',[]) if isinstance(p,str))
@@ -256,14 +258,14 @@ def prepare_cold(root, prior_requests=0):
     assert isinstance(prior_requests,int) and 0<=prior_requests<4
     request_ceiling=4-prior_requests
     prior=explicit_input('PRIOR_BATCH')
-    target=next(w for w in native_work(root) if w['selection']['reasoning']=='current')
+    target=next(w for w in native_work(root) if w['selection']['reasoning']=='direct')
     assert target['phase']=='stopped' and not target['pending']
     shutil.copytree(prior/'candidate',root/'candidate')
     shutil.copy2(SOURCE/'scripts/d3_notify.py',root/'notify.py')
     (root/'run.py').write_text(Path(__file__).read_text())
     (root/'client.mjs').write_text((SOURCE/'scripts/chat_entry_client.mjs').read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'",json.dumps(str(SOURCE/'providers/chatgpt/desktop_cdp.mjs'))))
     info=json.loads((root/'info.json').read_text())
-    require_connector_ready(info,json.loads((root/'refresh-private.json').read_text()))
+    require_connector_ready(json.loads((root/'refresh-private.json').read_text()))
     plan=json.loads((prior/'plan.json').read_text())
     plan.update(cold_followup=True,desktop_session=info['desktop_session'],
                 input_client_id=input_client_id(root),deadline_unix_ms=int(time.time()*1000)+1200000,

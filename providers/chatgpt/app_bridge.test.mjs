@@ -6,6 +6,40 @@ import {pathToFileURL} from 'node:url';
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+test('source references retain actual wire user IDs and clear them for an observed external response',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'source',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'source',round:'first',messages:[{role:'user',text:'Exact native input',sourceFingerprint:'a'.repeat(64)}]});await Promise.resolve();
+ const source=(await bridge({op:'snapshot',owner:'owned',lane:'source'})).dispatchedInput;
+ expect(source.users).toEqual([{id:f.sent[0].messages.find(m=>m.author.role==='user').id,fingerprint:'a'.repeat(64),hidden:false}]);
+ expect(source.users[0].id).toBeTruthy();
+ await bridge({op:'follow',owner:'owned',lane:'source',round:'external',conversation_id:'server-owned'});
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'source'})).dispatchedInput).toBeNull();
+ expect(f.sent).toHaveLength(1);
+}));
+for(const changed of [false,true])test('large source input exports only verified wire references: '+changed,async()=>fixture(async({f,bindings})=>{
+ const text='Original native context.\n'.repeat(100000),fingerprint='b'.repeat(64);
+ if(changed){const start=f.client.startCompletionStream;f.client.startCompletionStream=function(options){options.request.messages.find(m=>m.author.role==='user').content.parts=['App-transformed input'];return start.call(this,options);};}
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'large',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'large',round:'one',messages:[{role:'user',text,sourceFingerprint:fingerprint}]});await Promise.resolve();
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'large'});
+ expect(snapshot.dispatchedInput.users).toEqual([{id:f.sent[0].messages.find(m=>m.author.role==='user').id,fingerprint:changed?null:fingerprint,hidden:false}]);
+ expect(JSON.stringify(snapshot)).not.toContain(text);
+ expect(f.sent[0].messages.find(m=>m.author.role==='user').content.parts).toEqual([changed?'App-transformed input':text]);
+}));
+test('actual stream callback preserves public tool-request identity separately from native projection',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'tool-source',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'tool-source',round:'one',messages:[{role:'user',text:'Source tool identity'}]});await Promise.resolve();
+ const call={id:'platform-native-call',author:{role:'assistant'},recipient:'api_tool.call_tool',status:'finished_successfully',content:{content_type:'code',text:JSON.stringify({path:'/Owned connector/link/native_tool',args:{call_id:'original'}})}};
+ for(const message of [call,{...call,id:'hidden-call',metadata:{is_visually_hidden_from_conversation:true}},
+  {id:'private-analysis',author:{role:'assistant'},recipient:'all',channel:'analysis',content:{content_type:'text',parts:['Private reasoning']}}])f.options[0].onUpdate({message});
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'tool-source'});
+ expect(snapshot.sourceToolMessages).toEqual([call]);
+ expect(snapshot.messages.map(m=>m.id)).not.toContain(call.id);
+ expect(JSON.stringify(snapshot)).not.toContain('Private reasoning');
+}));
 test('an admitted external response is observed and hydrated without another model submission',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'bound',signature:{name:'unused'}});
@@ -103,6 +137,22 @@ for(const outcome of ['bound-active','changed-branch','missing-assignment-ledger
   await bridge({op:'follow',owner:'owned',lane:'reattached',round:'new-source-round',conversation_id:'old-chat'});
  }
  expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);expect(f.draft).toBe('Full unsent draft');
+}));
+
+for(const outcome of ['partial','user-only','no-next-user','completed'])test('interrupted bound source adoption verifies the next original user: '+outcome,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const anchor=outcome==='user-only'?{id:'anchor',author:{role:'user'}}:
+  {id:'anchor',author:{role:'assistant'},channel:outcome==='completed'?'final':'commentary',
+   status:outcome==='completed'?'finished_successfully':'finished_partial_completion',end_turn:outcome==='completed'};
+ f.chatGet=async()=>({conversation_id:'old-chat',gizmo_id:null,current_node:'next',mapping:{
+  anchor:{parent:null,message:anchor},next:{parent:'anchor',message:{id:'next',author:{role:outcome==='no-next-user'?'assistant':'user'}}}}});
+ const command={op:'chat_adopt',owner:'owned',lane:'reattached',nativeThread:'native-thread',conversation_id:'old-chat',
+  branch:'anchor',bound_source_anchor:'anchor',bound_source_interrupted:true,
+  source_counters:{dispatches:1,userMessages:1,toolMessages:0,hostReplyMessages:0},
+  identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}};
+ if(['no-next-user','completed'].includes(outcome))await expect(bridge(command)).rejects.toThrow('app_chat_response_invalid');
+ else expect(await bridge(command)).toEqual({localId:'old-chat'});
+ expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);
 }));
 
 test('release cannot abandon a stream that is still active',async()=>fixture(async({f,bindings})=>{
@@ -840,6 +890,7 @@ test('account cooldown suppresses repeated and cross-reader GETs, survives owner
   expect(calls).toBe(2);
   const host=await bridge({op:'host_status',owner:'other-reader',readOnlyContext:true,bindings});
   expect(host.saved_read_backoff.retry_after_seconds).toBe(120);
+  expect(host.saved_read_backoff.requests).toEqual({scope:'renderer_account_lifetime',wire_requests:2,successful_replies:0,http429_replies:2,cooldown_rejections:54,in_flight_rejections:0});
   expect(JSON.stringify(host)).not.toContain('private429');
  }finally{Date.now=realNow;}
 }));
@@ -876,6 +927,7 @@ test('an in-flight saved GET does not multiply requests or block an idle lane St
  await expect(bridge({op:'chat_read',owner:'owned',conversation_id:'saved'})).rejects.toThrow('app_chat_read_pending');
  expect((await bridge({op:'stop',owner:'owned',lane:'idle'})).stopped).toBe(true);
  expect(calls).toBe(1);release({mapping:{}});await first;expect(f.sent).toHaveLength(0);
+ expect((await bridge({op:'host_status',owner:'owned'})).saved_read_backoff.requests).toEqual({scope:'renderer_account_lifetime',wire_requests:1,successful_replies:1,http429_replies:0,cooldown_rejections:0,in_flight_rejections:1});
 }));
 
 test('old submission cannot settle a newer host-reply stream',async()=>fixture(async({f,bindings})=>{

@@ -53,11 +53,11 @@ class QualificationInputs(unittest.TestCase):
 
     def test_schema_requires_routes_budgets_and_original_return_without_bool_integer_aliases(self):
         route = self.schema["$defs"]["route"]
-        for entry, reasoning, transport in [("codex", "managed", "mcp"), ("codex", "managed", "local_function"),
-                                             ("chatgpt_direct", "current", "mcp"), ("chatgpt_delegated", "managed", "mcp")]:
+        for entry, reasoning, transport in [("codex", "provider", "mcp"), ("codex", "provider", "local_function"),
+                                             ("chatgpt_direct", "direct", "mcp"), ("chatgpt_delegated", "provider", "mcp")]:
             q.validate({"entry": entry, "reasoning": reasoning, "return_path": transport}, route, self.schema)
-        for entry, reasoning, transport in [("chatgpt_direct", "managed", "mcp"), ("chatgpt_direct", "current", "local_function"),
-                                             ("codex", "current", "mcp")]:
+        for entry, reasoning, transport in [("chatgpt_direct", "provider", "mcp"), ("chatgpt_direct", "direct", "local_function"),
+                                             ("codex", "direct", "mcp")]:
             with self.assertRaises(q.InvalidInputs):
                 q.validate({"entry": entry, "reasoning": reasoning, "return_path": transport}, route, self.schema)
         with self.assertRaises(q.InvalidInputs):

@@ -263,9 +263,9 @@ class FDriverTests(unittest.TestCase):
 
     def test_unavailable_host_observation_is_not_an_approval_or_error(self):
         batch = object.__new__(Batch)
-        for status in [{}, {"managed_lane": None, "host_observation": None},
-                       {"managed_lane": {"host_block": None}, "host_observation": None},
-                       {"managed_lane": {}, "host_observation": {}}]:
+        for status in [{}, {"app_lane": None, "host_observation": None},
+                       {"app_lane": {"host_block": None}, "host_observation": None},
+                       {"app_lane": {}, "host_observation": {}}]:
             with patch("scripts.qualify_provider_f.subprocess.check_output") as token, \
                     patch("scripts.qualify_provider_f.urllib.request.urlopen") as send:
                 batch.approve({"thread_id": "owned-thread"}, status)
@@ -280,7 +280,7 @@ class FDriverTests(unittest.TestCase):
                 "max_native_calls": 100, "max_elapsed_seconds": 1200}}
             batch.works, batch.steps = {}, []
             work = {"work_id": "a" * 48, "thread_id": "owned-thread", "controller": "fake-controller"}
-            status = {"managed_lane": None, "host_observation": None, "pending_calls": [], "human_requests": []}
+            status = {"app_lane": None, "host_observation": None, "pending_calls": [], "human_requests": []}
             replies = [work.copy(), {"controller": "new-fake-controller"},
                 {"wait_reason": "pending", "status": status},
                 {"wait_reason": "completed", "status": {**status, "completed": True}}]
@@ -399,7 +399,7 @@ class FDriverTests(unittest.TestCase):
             batch.plan = {"stop_probe_timeout_seconds": 10}
             batch.expected_stops, batch.steps = set(), []
             work = {"work_id": "a" * 48}
-            status = {"managed_lane": {"conversation_id": "owned-chat"}, "completed": False}
+            status = {"app_lane": {"conversation_id": "owned-chat"}, "completed": False}
             stop = {"native_stop_confirmed": True, "host_stop_confirmed": True, "remaining_jobs": []}
             client = unittest.mock.Mock()
             batch.client = client

@@ -31,7 +31,12 @@ The common managed development loop is Codex -> Linux app API -> work Chat ->
 MCP or app-injected local functions -> the same native work. ChatGPT general
 and direct development use the same native execution path through MCP. The
 primary Codex thread retains durable history while Chat contexts can be replaced.
-Origin, controller identity and original tool-return bindings survive handoff.
+Origin, controller identity and original tool-return bindings survive qualified
+handoff. A direct Android/web follow-up does not automatically inherit that
+execution context: model participation and saved-source observation are different
+paths. Saving an answer is separate from live TUI display. The
+[current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
+the remaining gaps; a client restart does not implement their repair.
 
 ## Start here
 
@@ -45,7 +50,7 @@ is an optional separate package in either edition.
 | Terminal: Codex using Termux Bridge tools | Your selected Codex model; a managed Chat only for work explicitly delegated there | Native Codex plus Provider's local MCP connection; app/login for managed Chat work |
 | Terminal: Codex with ChatGPT | A managed Chat in the provisioned Linux ChatGPT app | Base or Full, Provider, app/login; MCP connection if using its MCP return path |
 | ChatGPT: direct local development | The Chat you are currently using | Base or Full, Provider/native execution binding, reachable MCP connection; no Linux app for primary direct work |
-| ChatGPT: delegate managed development | A separate managed work Chat; the current Chat requests and receives the work | Direct-entry setup plus the Linux app/login and an explicit ChatGPT project |
+| ChatGPT: delegate managed development | A separate Provider work Chat; the current Chat requests and receives the work | Direct-entry setup plus the Linux app/login and an explicit ChatGPT project |
 
 Core is installation/runtime support. Manager provides account/window conveniences.
 TUI is the terminal interface. Provider owns the ChatGPT connection. **Termux
@@ -60,8 +65,11 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 ## Current status
 
-A–H are complete at their
+Earlier A–H batches are accepted only at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
+Complete ChatGPT/CLI entrance equivalence remains unfinished: persistent source
+connection, interrupted-response recovery and active-response participation are
+the next implementation batch. See the [independent audit and plan](AUDIT.md).
 [CURRENT](CURRENT.md#operating-baseline) owns accepted sources, signed releases,
 device selections and actual running processes. Existing sessions keep their pinned
 executable until normal exit. Ordinary account configuration does not force a model.
@@ -227,7 +235,7 @@ With Termux Bridge selected, ask:
 
 > Work in /absolute/path/to/your-project from this Chat. Fix [problem] and verify it.
 
-This Chat supplies reasoning (`reasoning=current`); native Codex executes,
+This Chat supplies reasoning (`reasoning=direct`); native Codex executes,
 approves and records. The assistant handles the advertised attachment and native
 tool protocol, including project instructions, existing changes and actual final
 results. You do not need to spell out protocol fields, call sequences or private
@@ -235,7 +243,7 @@ credentials. This primary path needs neither a Linux app nor an extra native
 Codex subscription login. Separately configured app-backed reviewers retain
 their own prerequisites.
 
-### ChatGPT delegating managed development
+### ChatGPT delegating Provider development
 
 Use the same MCP connection, with a provisioned/authenticated Linux app and
 [explicit project configuration](providers/chatgpt/README.md#managed-chat-project).
@@ -245,7 +253,7 @@ With Termux Bridge selected, ask:
 > Bring back its progress and original final result.
 
 The current Chat requests/observes the work; a separate managed Chat does the
-reasoning (`reasoning=managed`). Managed work can use MCP (default) or explicitly selected
+reasoning (`reasoning=provider`). Managed work can use MCP (default) or explicitly selected
 `local_function` internally. That internal transport choice does not create a
 second direct ChatGPT entrypoint. `work wait`/events retrieve original results;
 uncertain calls are observed by their existing handles rather than resent.

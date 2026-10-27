@@ -23,25 +23,30 @@ class GDriver(unittest.TestCase):
             self.assertEqual(server_paths(home),[])
 
     def test_connector_readiness_requires_actual_remote_tools_and_read_call(self):
-        info={'expected_tools':['codex_sessions','native_tool']}
-        proof={'refresh':True,'cache_refresh':True,'live_mcp_probe':{'accepted':True,'model_requests':0,'native_effects':0,'samples':[{'read_call':True,'schema_agreement':True,'names':['native_tool','codex_sessions']}]}}
-        g.require_connector_ready(info,proof)
+        proof={'candidate_tools':[{'name':name,'inputSchema':{'type':'object'}} for name in ['codex_sessions','native_tool']], 'refresh':True,'cache_refresh':True,'live_mcp_probe':{'accepted':True,'model_requests':0,'native_effects':0,'samples':[{'read_call':True,'schema_agreement':True,'candidate_schema_agreement':True,'names':['native_tool','codex_sessions']}]}}
+        g.require_connector_ready(proof)
         for change in [dict(refresh=False),dict(cache_refresh=False),dict(live_mcp_probe={'accepted':False})]:
-            with self.assertRaises(AssertionError):g.require_connector_ready(info,dict(proof,**change))
+            with self.assertRaises(AssertionError):g.require_connector_ready(dict(proof,**change))
+        extended=json.loads(json.dumps(proof))
+        extended['candidate_tools'].append({'name':'additional_advertised_tool','inputSchema':{'type':'object'}})
+        extended['live_mcp_probe']['samples'][0]['names'].append('additional_advertised_tool')
+        g.require_connector_ready(extended)
+        extended['live_mcp_probe']['samples'][0]['candidate_schema_agreement']=False
+        with self.assertRaises(AssertionError):g.require_connector_ready(extended)
         proof['live_mcp_probe']['samples'][0]['schema_agreement']=False
-        with self.assertRaises(AssertionError):g.require_connector_ready(info,proof)
+        with self.assertRaises(AssertionError):g.require_connector_ready(proof)
         proof['live_mcp_probe']['samples'][0]['schema_agreement']=True
         proof['live_mcp_probe']['samples'][0]['read_call']=False
-        with self.assertRaises(AssertionError):g.require_connector_ready(info,proof)
+        with self.assertRaises(AssertionError):g.require_connector_ready(proof)
 
     def test_cold_budget_extends_only_elapsed_cap_without_resetting_original_start(self):
         budget=dict(max_parallel=1,max_app_starts=4,max_native_calls=40,max_elapsed_seconds=900)
-        record=dict(selection={'reasoning':'current'},assignment={'started_at_unix_ms':1000,'budget':budget})
+        record=dict(selection={'reasoning':'direct'},assignment={'started_at_unix_ms':1000,'budget':budget})
         self.assertEqual(g.cold_budget(record,1000001),dict(budget,max_elapsed_seconds=1000))
         self.assertEqual(record['assignment']['started_at_unix_ms'],1000)
         self.assertEqual(budget['max_elapsed_seconds'],900)
         self.assertEqual(g.cold_budget(record,2000),budget)
-        record['selection']['reasoning']='managed'
+        record['selection']['reasoning']='provider'
         with self.assertRaises(AssertionError):g.cold_budget(record,1000001)
 
     def test_input_budget_namespace_is_stable_and_separate_per_batch(self):

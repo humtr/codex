@@ -44,8 +44,8 @@ pub(crate) fn installed_command(config: &Config) -> Option<ProviderCommand> {
     Some(ProviderCommand { binary, state })
 }
 
-/// Observe existing source input before the native client records its new draft.
-/// Waiting follows the service's saved-read policy; it never resubmits inference.
+/// Wait for admitted Native execution before recording a new CLI draft.
+/// The service barrier neither retrieves saved Chat nor resubmits inference.
 pub(crate) async fn synchronize_input(
     provider: ProviderCommand,
     thread: codex_protocol::ThreadId,
@@ -427,20 +427,21 @@ fn checked_routing(value: toml::Value) -> Option<toml::Value> {
     Some(value)
 }
 
-fn installed_catalog(config: &Config) -> Option<Catalog> {
+fn installed_catalog(config: &Config) -> Option<(Catalog, Vec<u8>)> {
     let value = installed_routing(config)?;
     let path = Path::new(value.get("model_catalog_json")?.as_str()?);
     if !path.is_absolute() {
         return None;
     }
-    let catalog: Catalog = match serde_json::from_slice(&private_bytes(path, 4 * 1024 * 1024)?) {
+    let source = private_bytes(path, 4 * 1024 * 1024)?;
+    let catalog: Catalog = match serde_json::from_slice(&source) {
         Ok(catalog) => catalog,
         Err(error) => {
             tracing::debug!(%error, "installed Chat catalog could not be decoded");
             return None;
         }
     };
-    Some(catalog)
+    Some((catalog, source))
 }
 
 /// Resolve launch-scoped metadata without changing selected model/effort defaults.
@@ -454,16 +455,19 @@ pub(crate) fn restore_catalog(
     if config.model_catalog.is_some() {
         return Ok(false);
     }
-    let catalog = installed_catalog(config).ok_or("installed_chat_catalog_unavailable")?;
+    let (catalog, source) =
+        installed_catalog(config).ok_or("installed_chat_catalog_unavailable")?;
     if !valid_chat_id(model) || !catalog.models.iter().any(|entry| entry.slug == model) {
         return Err("saved_chat_model_unavailable");
     }
     config.model_catalog = Some(catalog);
+    config.model_catalog_source = Some(source);
     Ok(true)
 }
 
 fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
     let models: Vec<ModelPreset> = installed_catalog(config)?
+        .0
         .models
         .into_iter()
         .map(Into::into)
@@ -585,6 +589,10 @@ mod tests {
         assert_eq!(
             restore_catalog(&mut cold, Some("chatgpt-desktop/gpt-6")),
             Ok(true)
+        );
+        assert_eq!(
+            cold.model_catalog_source.as_deref(),
+            Some(include_bytes!("fixtures/chat-model-catalog.json").as_slice())
         );
         assert_eq!(cold.model.as_deref(), Some("gpt-6.1-sol"));
         assert_eq!(cold.model_reasoning_effort, Some(ReasoningEffort::High));

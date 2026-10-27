@@ -440,6 +440,8 @@ struct Lane {
     #[serde(default)]
     external: Option<External>,
     #[serde(default)]
+    source_context_owed: bool,
+    #[serde(default)]
     last_external_turn: Option<String>,
     user_messages: u64,
     tool_messages: u64,
@@ -461,7 +463,160 @@ struct Lane {
 #[derive(Clone, Serialize, Deserialize)]
 struct External {
     input: crate::bound_chat::Input,
+    #[serde(default)]
+    queue_call_id: String,
     native_turn: Option<String>,
+}
+
+const SOURCE_EXECUTION_SCHEMA: &str = "codex-chatgpt-source-execution-v1";
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceExecution {
+    schema: String,
+    thread_id: String,
+    turn_id: String,
+    account_ref: String,
+    conversation_id: String,
+    inputs: BTreeMap<String, Value>,
+    public_items: BTreeMap<String, Value>,
+    #[serde(default)]
+    native_tool_calls: BTreeMap<String, Value>,
+}
+fn source_execution_key(thread: &str, turn: &str) -> String {
+    context::digest(&(SOURCE_EXECUTION_SCHEMA, thread, turn))
+}
+fn source_id(value: &Value) -> Result<&str, Error> {
+    value
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .ok_or(Error("source_execution_identity_invalid"))
+}
+fn observe_source_execution(
+    journal: &Journal,
+    lane: &Lane,
+    state: &Value,
+    public_item: Option<(&str, &Value)>,
+) -> Result<(), Error> {
+    let (Some(turn), Some(conversation), Some(identity)) =
+        (&lane.turn, &lane.conversation_id, &lane.identity)
+    else {
+        return Ok(());
+    };
+    let key = source_execution_key(&lane.native_thread, turn);
+    let before: Option<SourceExecution> = journal.read(&key)?;
+    let mut record = before.clone().unwrap_or_else(|| SourceExecution {
+        schema: SOURCE_EXECUTION_SCHEMA.into(),
+        thread_id: lane.native_thread.clone(),
+        turn_id: turn.clone(),
+        account_ref: crate::chats::account_reference(&serde_json::to_value(identity).unwrap()),
+        conversation_id: conversation.clone(),
+        inputs: BTreeMap::new(),
+        public_items: BTreeMap::new(),
+        native_tool_calls: BTreeMap::new(),
+    });
+    if record.schema != SOURCE_EXECUTION_SCHEMA
+        || record.thread_id != lane.native_thread
+        || record.turn_id != *turn
+        || record.conversation_id != *conversation
+        || record.account_ref
+            != crate::chats::account_reference(&serde_json::to_value(identity).unwrap())
+    {
+        return Err(Error("source_execution_identity_changed"));
+    }
+    if let Some(external) = lane
+        .external
+        .as_ref()
+        .filter(|v| v.native_turn.as_ref() == Some(turn))
+    {
+        let input = json!({"fingerprint":external.input.fingerprint,"origin":"observed_original"});
+        merge_source_reference(&mut record.inputs, &external.input.message, input)?;
+    }
+    if let Some(dispatched) = state.get("dispatchedInput").filter(|v| !v.is_null()) {
+        if !dispatched["conversation_id"].is_null()
+            && dispatched["conversation_id"] != *conversation
+        {
+            return Err(Error("source_execution_identity_changed"));
+        }
+        for user in dispatched["users"]
+            .as_array()
+            .ok_or(Error("source_execution_input_invalid"))?
+        {
+            let id = source_id(&user["id"])?;
+            let fingerprint = &user["fingerprint"];
+            if !fingerprint.is_null()
+                && !fingerprint.as_str().is_some_and(|text| {
+                    text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+            {
+                return Err(Error("source_execution_input_invalid"));
+            }
+            merge_source_reference(
+                &mut record.inputs,
+                id,
+                json!({
+                    "fingerprint":fingerprint,"origin":if fingerprint.is_null(){"unverified_wire_input"}else{"submitted_context"},
+                    "hidden":user["hidden"],"parent_message_id":dispatched["parent_message_id"],
+                    "requested_model":dispatched["requested_model"]
+                }),
+            )?;
+        }
+    }
+    if let Some((native_id, message)) = public_item {
+        let original = message
+            .get("provider_source_message")
+            .unwrap_or(&message["id"]);
+        let original = source_id(original)?;
+        let mut item = json!({"source_message_id":original,"channel":message["channel"],
+            "model":message["metadata"]["model_slug"]});
+        if let Some(old) = record.public_items.get(native_id) {
+            if old["source_message_id"] != original
+                || (!old["model"].is_null()
+                    && !item["model"].is_null()
+                    && old["model"] != item["model"])
+                || (old["channel"] != item["channel"]
+                    && !(old["channel"] == "commentary" && item["channel"] == "final"))
+            {
+                return Err(Error("source_execution_message_changed"));
+            }
+            if item["model"].is_null() {
+                item["model"] = old["model"].clone();
+            }
+        }
+        record.public_items.insert(native_id.into(), item);
+    }
+    if let Some(calls) = state.get("sourceNativeCalls") {
+        for call in calls
+            .as_array()
+            .ok_or(Error("source_execution_tool_invalid"))?
+        {
+            let id = source_id(&call["source_message_id"])?;
+            let value = json!({"logical_call_id":source_id(&call["logical_call_id"])?,
+                "native_call_id":source_id(&call["native_call_id"])?});
+            if record
+                .native_tool_calls
+                .get(id)
+                .is_some_and(|old| old != &value)
+            {
+                return Err(Error("source_execution_tool_changed"));
+            }
+            record.native_tool_calls.insert(id.into(), value);
+        }
+    }
+    if before.as_ref() != Some(&record) {
+        journal.write(&key, &record)?;
+    }
+    Ok(())
+}
+fn merge_source_reference(
+    items: &mut BTreeMap<String, Value>,
+    id: &str,
+    value: Value,
+) -> Result<(), Error> {
+    if items.get(id).is_some_and(|old| old != &value) {
+        return Err(Error("source_execution_input_changed"));
+    }
+    items.insert(id.into(), value);
+    Ok(())
 }
 
 /// Read-only, content-free last observation; not a fresh app progress query.
@@ -517,13 +672,58 @@ pub fn presentation_groups(root: &std::path::Path, thread: &str) -> Result<Value
         json!({"schema":"codex-chatgpt-presentation-v1","thread":thread,"groups":lane.presentation.groups()}),
     )
 }
+/// Offline control-state conversion preserves an already reserved queue ID.
+/// The runtime never guesses an old ID or re-enqueues to repair provenance.
+pub(crate) fn migrate_source_queue(mut value: Value, target: &str) -> Result<Value, Error> {
+    let lane: Lane = serde_json::from_value(value.clone())
+        .map_err(|_| Error("source_queue_migration_invalid"))?;
+    let Some(external) = lane.external else {
+        return Ok(value);
+    };
+    external.input.validate()?;
+    let legacy = format!(
+        "chat-source:{}",
+        context::digest(&(&external.input.conversation, &external.input.message))
+    );
+    if target == "direct-provider" {
+        if external.queue_call_id.is_empty() {
+            value["external"]["queue_call_id"] = json!(legacy);
+        }
+    } else {
+        if !external.queue_call_id.is_empty() && external.queue_call_id != legacy {
+            return Err(Error("source_queue_downgrade_requires_settlement"));
+        }
+        value["external"]
+            .as_object_mut()
+            .unwrap()
+            .remove("queue_call_id");
+    }
+    Ok(value)
+}
+pub(crate) struct SourceConnection {
+    pub account_ref: String,
+    pub conversation: String,
+    pub previous_chats: Vec<String>,
+    pub anchor: String,
+}
 impl Lane {
+    fn source_connection(&self) -> Option<SourceConnection> {
+        Some(SourceConnection {
+            account_ref: crate::chats::account_reference(
+                &serde_json::to_value(self.identity.as_ref()?).unwrap(),
+            ),
+            conversation: self.conversation_id.clone()?,
+            previous_chats: self.previous_chats.clone(),
+            anchor: self.source_anchor.clone()?,
+        })
+    }
     fn retained_source(&self) -> Option<(&str, &str)> {
         if self.phase != Phase::Idle
             || !self.pending.is_empty()
             || self.external.is_some()
             || self.checkpoint.is_some()
-            || !matches!(self.cached.last(), Some(Event::Completed { .. }))
+            || !(matches!(self.cached.last(), Some(Event::Completed { .. }))
+                || self.last_error.as_deref() == Some("bound_chat_turn_interrupted"))
         {
             return None;
         }
@@ -551,6 +751,7 @@ impl Lane {
             presentation: Default::default(),
             source_anchor: None,
             external: None,
+            source_context_owed: false,
             last_external_turn: None,
             user_messages: 0,
             tool_messages: 0,
@@ -637,6 +838,25 @@ pub struct AppHost {
     connector: String,
 }
 impl AppHost {
+    pub(crate) fn source_execution(
+        &self,
+        thread: &str,
+        turn: &str,
+    ) -> Result<Option<Value>, Error> {
+        let record: Option<SourceExecution> =
+            self.journal.read(&source_execution_key(thread, turn))?;
+        record
+            .map(|record| {
+                if record.schema != SOURCE_EXECUTION_SCHEMA
+                    || record.thread_id != thread
+                    || record.turn_id != turn
+                {
+                    return Err(Error("source_execution_identity_changed"));
+                }
+                Ok(serde_json::to_value(record).unwrap())
+            })
+            .transpose()
+    }
     /// Read the atomic source journal while an inference owns its lane lock.
     /// Keep source origin through the gap between emitting and native commit.
     pub(crate) fn source_turn_pending(
@@ -653,6 +873,40 @@ impl AppHost {
         Ok(lane.external.is_some()
             || native_turn.is_some_and(|turn| lane.last_external_turn.as_deref() == Some(turn)))
     }
+    pub(crate) fn external_origin(
+        &self,
+        thread: &str,
+        input: &crate::bound_chat::Input,
+    ) -> Result<(String, String), Error> {
+        let lane: Lane = self
+            .journal
+            .read(&context::digest(&thread))?
+            .ok_or(Error("native_lane_not_found"))?;
+        if lane.native_thread != thread
+            || lane
+                .external
+                .as_ref()
+                .is_none_or(|source| source.input != *input)
+        {
+            return Err(Error("bound_chat_input_changed"));
+        }
+        let source = lane
+            .source_connection()
+            .ok_or(Error("bound_chat_input_missing"))?;
+        Ok((source.account_ref, source.anchor))
+    }
+    pub(crate) fn source_connection(
+        &self,
+        thread: &str,
+    ) -> Result<Option<SourceConnection>, Error> {
+        let Some(lane): Option<Lane> = self.journal.read(&context::digest(&thread))? else {
+            return Ok(None);
+        };
+        if lane.native_thread != thread {
+            return Err(Error("native_thread_identity_conflict"));
+        }
+        Ok(lane.source_connection())
+    }
     pub(crate) async fn has_retained_source(&self, thread: &str) -> Result<bool, Error> {
         let Some(mutex) = self.existing_lane(thread).await? else {
             return Ok(false);
@@ -667,6 +921,8 @@ impl AppHost {
     pub(crate) async fn external_input(
         &self,
         thread: &str,
+        selected_message: Option<&str>,
+        native_history: &[Value],
     ) -> Result<Option<crate::bound_chat::Turn>, Error> {
         let Some(mutex) = self.existing_lane(thread).await? else {
             return Ok(None);
@@ -700,16 +956,57 @@ impl AppHost {
         if previous.generation != current.generation || observed["present"] != true {
             return Err(Error("bound_chat_owner_generation_changed"));
         }
+        let mut committed_anchors = Vec::new();
+        if selected_message.is_some() {
+            let mut executions = BTreeMap::new();
+            for row in native_history {
+                if row["item"]["type"] != "agentMessage" || row["item"]["phase"] != "final_answer" {
+                    continue;
+                }
+                let Some(turn) = row["turn_id"].as_str() else {
+                    continue;
+                };
+                let execution = match executions.entry(turn.to_owned()) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(self.source_execution(thread, turn)?)
+                    }
+                };
+                if let Some(execution) = execution {
+                    if execution["account_ref"]
+                        != crate::chats::account_reference(&serde_json::to_value(previous).unwrap())
+                        || execution["conversation_id"] != *conversation
+                    {
+                        continue;
+                    }
+                    if let Some(item) = row["item"]["id"].as_str() {
+                        let reference = &execution["public_items"][item];
+                        if reference["channel"].is_null() || reference["channel"] == "final" {
+                            if let Some(id) = reference["source_message_id"].as_str() {
+                                committed_anchors.push(id.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let Some(turn) = crate::bound_chat::read(
             self.bridge.clone(),
             conversation,
             anchor,
             snapshot.external.as_ref().map(|external| &external.input),
+            false,
+            selected_message.map(|id| (id, committed_anchors.as_slice())),
         )
         .await?
         else {
             return Ok(None);
         };
+        if turn.account_ref
+            != crate::chats::account_reference(&serde_json::to_value(previous).unwrap())
+        {
+            return Err(Error("app_account_changed"));
+        }
         let Ok(mut lane) = mutex.try_lock() else {
             return Err(Error("bound_chat_observation_superseded"));
         };
@@ -720,7 +1017,11 @@ impl AppHost {
             return Err(Error("bound_chat_observation_superseded"));
         }
         if lane.external.is_none() {
+            // Selection advances observation, preserving Native and saved branches.
+            lane.source_anchor = Some(turn.anchor.clone());
+            lane.source_context_owed |= selected_message.is_some();
             lane.external = Some(External {
+                queue_call_id: turn.input.call_id(&turn.account_ref),
                 input: turn.input.clone(),
                 native_turn: None,
             });
@@ -728,7 +1029,108 @@ impl AppHost {
         }
         Ok(Some(turn))
     }
-    /// The native owner must first prove its recorded completed turn and idle
+    /// Called only after Native confirms this exact source turn failed, with
+    /// no outstanding effects. Preserve the partial response and advance its
+    /// original source anchor; this never submits or completes a model request.
+    pub(crate) async fn reconcile_interrupted_source(
+        &self,
+        thread: &str,
+        turn: &str,
+    ) -> Result<(), Error> {
+        let mutex = self
+            .existing_lane(thread)
+            .await?
+            .ok_or(Error("native_lane_not_found"))?;
+        let snapshot = {
+            let lane = mutex
+                .try_lock()
+                .map_err(|_| Error("bound_chat_observation_busy"))?;
+            if lane.last_error.as_deref() != Some("bound_chat_turn_interrupted")
+                || lane.last_external_turn.as_deref() != Some(turn)
+                || !lane.pending.is_empty()
+                || lane.checkpoint.is_some()
+            {
+                return Err(Error("bound_chat_reattachment_unsettled"));
+            }
+            // A repeated observation can race the next original reservation.
+            // This exact failed turn already advanced to Idle; retain its successor.
+            if lane.phase == Phase::Idle
+                && lane
+                    .external
+                    .as_ref()
+                    .is_none_or(|source| source.native_turn.as_deref() != Some(turn))
+            {
+                return Ok(());
+            }
+            if lane.phase != Phase::Unknown
+                || lane
+                    .external
+                    .as_ref()
+                    .and_then(|source| source.native_turn.as_deref())
+                    != Some(turn)
+            {
+                return Err(Error("bound_chat_reattachment_unsettled"));
+            }
+            lane.clone()
+        };
+        let identity = self
+            .bridge
+            .operation(json!({"op":"identity","lane":snapshot.marker}))
+            .await?;
+        let current = Identity::parse(&identity)?;
+        if !snapshot
+            .identity
+            .as_ref()
+            .is_some_and(|previous| previous.account_matches(&current))
+        {
+            return Err(Error("app_account_changed"));
+        }
+        let external = snapshot
+            .external
+            .as_ref()
+            .ok_or(Error("bound_chat_input_missing"))?;
+        let source = crate::bound_chat::read(
+            self.bridge.clone(),
+            snapshot
+                .conversation_id
+                .as_deref()
+                .ok_or(Error("bound_chat_input_missing"))?,
+            snapshot
+                .source_anchor
+                .as_deref()
+                .ok_or(Error("bound_chat_input_missing"))?,
+            Some(&external.input),
+            false,
+            None,
+        )
+        .await?
+        .ok_or(Error("bound_chat_input_missing"))?;
+        let crate::bound_chat::End::Interrupted { anchor } = source.end else {
+            return Err(Error("bound_chat_reattachment_unsettled"));
+        };
+        let mut lane = mutex
+            .try_lock()
+            .map_err(|_| Error("bound_chat_observation_busy"))?;
+        if lane.request != snapshot.request
+            || lane.phase != snapshot.phase
+            || lane.source_anchor != snapshot.source_anchor
+            || lane
+                .external
+                .as_ref()
+                .map(|source| (&source.input, &source.native_turn))
+                != snapshot
+                    .external
+                    .as_ref()
+                    .map(|source| (&source.input, &source.native_turn))
+        {
+            return Err(Error("bound_chat_observation_superseded"));
+        }
+        lane.source_anchor = Some(anchor);
+        lane.external = None;
+        lane.phase = Phase::Idle;
+        self.journal.write(&context::digest(&thread), &*lane)
+    }
+    /// The native owner must first prove its recorded settled turn and idle
     /// scoped writer. This reattaches source observation, never native history.
     pub(crate) async fn reattach_settled_source(&self, thread: &str) -> Result<(), Error> {
         let mutex = self
@@ -766,7 +1168,8 @@ impl AppHost {
             .operation(
                 json!({"op":"chat_adopt","lane":lane.marker,"nativeThread":lane.native_thread,
             "signature":signature(&lane.gateway),"project":lane.project,"identity":current,
-            "conversation_id":conversation,"branch":anchor,"bound_source_anchor":anchor,"source_counters":{"dispatches":lane.dispatches,"userMessages":lane.user_messages,"toolMessages":lane.tool_messages,"hostReplyMessages":lane.host_reply_messages}}),
+            "conversation_id":conversation,"branch":anchor,"bound_source_anchor":anchor,
+            "bound_source_interrupted":lane.last_error.as_deref()==Some("bound_chat_turn_interrupted"),"source_counters":{"dispatches":lane.dispatches,"userMessages":lane.user_messages,"toolMessages":lane.tool_messages,"hostReplyMessages":lane.host_reply_messages}}),
             )
             .await?;
         lane.identity = Some(current);
@@ -799,19 +1202,30 @@ impl AppHost {
         lane.last_external_turn = Some(turn.into());
         self.journal.write(&context::digest(&thread), &*lane)
     }
-    pub(crate) async fn pending_external(
+    pub(crate) fn pending_external(
         &self,
         thread: &str,
-    ) -> Result<Option<crate::bound_chat::Input>, Error> {
-        let Some(mutex) = self.existing_lane(thread).await? else {
+    ) -> Result<Option<(crate::bound_chat::Input, String)>, Error> {
+        let Some(lane): Option<Lane> = self.journal.read(&context::digest(&thread))? else {
             return Ok(None);
         };
-        let lane = mutex.lock().await;
-        Ok(lane
+        if lane.native_thread != thread {
+            return Err(Error("native_thread_identity_conflict"));
+        }
+        let Some(external) = lane
             .external
             .as_ref()
             .filter(|external| external.native_turn.is_none())
-            .map(|external| external.input.clone()))
+        else {
+            return Ok(None);
+        };
+        if external.queue_call_id.is_empty() {
+            return Err(Error("source_queue_migration_required"));
+        }
+        Ok(Some((
+            external.input.clone(),
+            external.queue_call_id.clone(),
+        )))
     }
     pub fn new(bridge: Arc<dyn Bridge>, journal: Arc<Journal>) -> Self {
         Self {
@@ -879,7 +1293,8 @@ impl AppHost {
             .map_err(|_| Error("app_stop_unconfirmed"))?;
         if lane.phase == Phase::Idle
             && lane.pending.is_empty()
-            && matches!(lane.cached.last(), Some(Event::Completed { .. }))
+            && (matches!(lane.cached.last(), Some(Event::Completed { .. }))
+                || lane.retained_source().is_some())
         {
             // Durable response settlement remains proof after a clean app
             // context replacement. Do not recreate a completed conversation.
@@ -910,13 +1325,15 @@ impl AppHost {
             let journal = self.journal.clone();
             stops.spawn(async move {
                 let mut lane = mutex.lock().await;
-                if matches!(
+                let interrupted = lane.phase == Phase::Unknown
+                    && lane.last_error.as_deref() == Some("bound_chat_turn_interrupted");
+                if !interrupted && matches!(
                     lane.phase,
                     Phase::Dispatching | Phase::Running | Phase::Unknown | Phase::CancelRequested
                 ) {
                     let _ = stop_lane(bridge.as_ref(), &journal, &key, &mut lane).await;
                 }
-                if matches!(lane.phase, Phase::Idle | Phase::Stopped) {
+                if interrupted || matches!(lane.phase, Phase::Idle | Phase::Stopped) {
                     if let Ok(state) = bridge
                         .operation(json!({"op":"snapshot","lane":lane.marker}))
                         .await
@@ -933,11 +1350,10 @@ impl AppHost {
                                             Some(Event::Completed { .. })
                                         )
                                         && state["error"].is_null())
-                                || lane.phase == Phase::Idle && state["error"].is_null())
+                                || (lane.phase == Phase::Idle || interrupted) && state["error"].is_null())
                             && bridge
                                 .operation(json!({"op":"release","lane":lane.marker,
-                                    "preserve_settled_source":lane.phase==Phase::Idle
-                                        && matches!(lane.cached.last(),Some(Event::Completed{..}))}))
+                                    "preserve_settled_source":interrupted || lane.retained_source().is_some()}))
                                 .await
                                 .is_ok_and(|v| v["released"] == true)
                         {
@@ -1233,7 +1649,11 @@ async fn exchange(
                 .await
                 .map_err(|_| Error("native_observer_closed"))?;
         }
-        return Ok(());
+        return if lane.last_error.as_deref() == Some("bound_chat_turn_interrupted") {
+            Err(Error("bound_chat_turn_interrupted"))
+        } else {
+            Ok(())
+        };
     }
     if lane.phase == Phase::CancelRequested {
         return stop_lane(bridge, journal, key, lane).await;
@@ -1245,6 +1665,7 @@ async fn exchange(
     if let Some(old) = lane.identity.clone() {
         if !old.account_matches(&current) {
             if request.history.account_change == crate::config::AccountChange::NewChat
+                && lane.external.is_none()
                 && matches!(lane.phase, Phase::Idle | Phase::Stopped)
                 && lane.pending.is_empty()
                 && new_turn(lane, request)
@@ -1396,6 +1817,13 @@ async fn exchange(
     }
     if !recovering {
         let delta = lane.prefix.delta(request)?;
+        // A retained branch may be missing Native work. A new Provider-started
+        // response must receive the complete current context before that debt
+        // can be settled; tool continuations still send only their deltas.
+        let reimport_context = lane.source_context_owed
+            && lane.phase == Phase::Idle
+            && lane.external.is_none()
+            && request.compaction.is_none();
         let received = request.results().collect::<BTreeMap<_, _>>();
         let mut results = BTreeMap::<String, Vec<(Call, Value)>>::new();
         for call in &lane.pending {
@@ -1420,30 +1848,37 @@ async fn exchange(
             .iter()
             .map(|c| c.id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        let import = delta
-            .iter()
-            .filter(|v| {
-                !v["call_id"]
-                    .as_str()
-                    .is_some_and(|id| pending_ids.contains(id))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+        let import = (if reimport_context {
+            &request.input
+        } else {
+            &delta
+        })
+        .iter()
+        .filter(|v| {
+            !v["call_id"]
+                .as_str()
+                .is_some_and(|id| pending_ids.contains(id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
         let mut messages = context::messages(&crate::handoff::readable(
             &import,
             request.handoff.as_ref(),
         )?)?;
         let mut instructions = Vec::<String>::new();
-        if lane.prefix.instructions != context::digest(&request.instructions) {
+        if reimport_context || lane.prefix.instructions != context::digest(&request.instructions) {
             for value in &request.instructions {
                 instructions.push(context::text(value)?);
             }
         }
-        if lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools)) {
+        if reimport_context
+            || lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools))
+        {
             instructions.push(format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n{}",serde_json::to_string(&request.tools).unwrap()));
         }
         if !request.host_tools.is_empty()
-            && lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools))
+            && (reimport_context
+                || lane.prefix.tools != context::digest(&(&request.tools, &request.host_tools)))
         {
             instructions.push(format!("Separate host-side capabilities: {}. These are app-owned search capabilities, not native Codex function names; do not send them through the local gateway. Keep public findings distinct from native command execution.",serde_json::to_string(&request.host_tools).unwrap()));
         }
@@ -1481,13 +1916,19 @@ async fn exchange(
                     && external.native_turn.is_some()
             })
             .map(|external| &external.input);
-        let mut command = json!({"lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results});
+        let mut command = json!({"lane":lane.marker,"nativeThread":request.thread,"nativeTurn":request.turn,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results});
+        for message in command["messages"].as_array_mut().unwrap() {
+            if message["role"] == "user" {
+                message["sourceFingerprint"] = json!(context::digest(&message["text"]));
+            }
+        }
         if let Some(source) = source {
             if lane.phase != Phase::Idle || !results.is_empty() {
                 return Err(Error("bound_chat_native_admission_invalid"));
             }
             command["source_input"] = serde_json::to_value(source).unwrap();
             command["source_anchor"] = json!(lane.source_anchor);
+            command["source_context_required"] = json!(lane.source_context_owed);
         }
         bridge.admit_submission(command.clone()).await?;
         if cancel.is_cancelled() {
@@ -1566,7 +2007,16 @@ async fn exchange(
                 "round":lane.round,"observation":transport_observation})
             );
         }
+        if let Some(source_account) = state["source_account_ref"].as_str() {
+            if !lane.identity.as_ref().is_some_and(|identity| {
+                crate::chats::account_reference(&serde_json::to_value(identity).unwrap())
+                    == source_account
+            }) {
+                return Err(Error("app_account_changed"));
+            }
+        }
         observe_counts(journal, key, lane, &state)?;
+        observe_source_execution(journal, lane, &state, None)?;
         if let Some(
             code @ ("mcp_host_authentication_required" | "mcp_host_confirmation_required"),
         ) = state["error"].as_str()
@@ -1676,6 +2126,12 @@ async fn exchange(
                             context::digest(&(&lane.marker, physical)),
                             phase == "final_answer",
                         );
+                        observe_source_execution(
+                            journal,
+                            lane,
+                            &state,
+                            Some((native_id, message)),
+                        )?;
                     }
                 }
                 publish(lane, events, event).await?;
@@ -1683,6 +2139,12 @@ async fn exchange(
             if phase == "final_answer" {
                 final_seen = true;
             }
+        }
+        if state["sourceInterrupted"] == true {
+            publish(lane, events, Event::Flush).await?;
+            lane.phase = Phase::Unknown;
+            journal.write(key, lane)?;
+            return Err(Error("bound_chat_turn_interrupted"));
         }
         if !state["terminals"].as_array().is_some_and(|v| v.is_empty()) {
             if state["terminals"] != json!(["done"]) || !valid_dispatches(&state) {
@@ -1883,6 +2345,9 @@ async fn exchange(
                 Phase::ToolsReady
             };
             if final_seen && request.compaction.is_none() {
+                if lane.external.is_none() {
+                    lane.source_context_owed = false;
+                }
                 lane.source_anchor = messages
                     .iter()
                     .rev()
@@ -2127,12 +2592,71 @@ mod approval_tests {
         assert_eq!(next.native_thread, "thread");
         assert!(next.conversation_id.is_none());
     }
+    #[tokio::test]
+    async fn offline_source_queue_conversion_preserves_reserved_identity_and_blocks_active_downgrade(
+    ) {
+        let root =
+            std::env::temp_dir().join(format!("source-queue-codec-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let input = crate::bound_chat::Input {
+            conversation: "saved-chat".into(),
+            message: "original-user".into(),
+            fingerprint: context::digest(&"Exact original"),
+        };
+        let mut lane = Lane::new("native-source-thread").unwrap();
+        lane.external = Some(External {
+            input: input.clone(),
+            queue_call_id: input.call_id("account-reference"),
+            native_turn: None,
+        });
+        assert_eq!(
+            migrate_source_queue(serde_json::to_value(&lane).unwrap(), "provider14"),
+            Err(Error("source_queue_downgrade_requires_settlement"))
+        );
+        let mut old = serde_json::to_value(&lane).unwrap();
+        old["external"]
+            .as_object_mut()
+            .unwrap()
+            .remove("queue_call_id");
+        journal
+            .write(&context::digest(&lane.native_thread), &old)
+            .unwrap();
+        let bridge = Arc::new(SavedSource(Arc::new(SyncMutex::new(
+            SavedSourceState::default(),
+        ))));
+        let old_host = AppHost::new(bridge.clone(), journal.clone());
+        assert_eq!(
+            old_host.pending_external(&lane.native_thread),
+            Err(Error("source_queue_migration_required"))
+        );
+        drop(old_host);
+        let converted = migrate_source_queue(old.clone(), "direct-provider").unwrap();
+        journal
+            .write(&context::digest(&lane.native_thread), &converted)
+            .unwrap();
+        let host = AppHost::new(bridge, journal);
+        let (pending, reserved) = host.pending_external(&lane.native_thread).unwrap().unwrap();
+        assert_eq!(pending, input);
+        assert_eq!(
+            reserved,
+            format!(
+                "chat-source:{}",
+                context::digest(&(&input.conversation, &input.message))
+            )
+        );
+        assert_ne!(reserved, input.call_id("account-reference"));
+        assert_eq!(migrate_source_queue(converted, "provider14").unwrap(), old);
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[derive(Default)]
     struct SavedSourceState {
         commands: Vec<Value>,
         snapshot: Value,
         saved: Vec<Value>,
         fail_saved_read: bool,
+        saved_read_calls: usize,
+        reject_repeat_saved_read: bool,
         saved_read_backoff: bool,
         backoff_observed: Arc<tokio::sync::Notify>,
     }
@@ -2157,6 +2681,9 @@ mod approval_tests {
                         .count();
                     let id = format!("native-final-{index}");
                     state.snapshot = json!({"round":command["round"],"serverId":"saved-chat","messages":[{"id":id,"author":{"role":"assistant"},"recipient":"all","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":[format!("Native answer {index}")]}}],"terminals":["done"],"roundStarts":1,"dispatches":index,"userMessages":index,"toolMessages":0});
+                    state.snapshot["dispatchedInput"] = json!({"conversation_id":"saved-chat","parent_message_id":null,"requested_model":command["model"],
+                        "users":command["messages"].as_array().unwrap().iter().enumerate().filter(|(_,m)|m["role"]=="user")
+                        .map(|(n,m)|json!({"id":format!("submitted-{index}-{n}"),"hidden":m["hidden"],"fingerprint":m["sourceFingerprint"]})).collect::<Vec<_>>()});
                     json!({"started":true})
                 }
                 "follow" => {
@@ -2164,6 +2691,7 @@ mod approval_tests {
                     state.snapshot["roundStarts"] = json!(0);
                     state.snapshot["messages"] = json!([]);
                     state.snapshot["terminals"] = json!([]);
+                    state.snapshot["dispatchedInput"] = Value::Null;
                     json!({"observing":true})
                 }
                 "follow_settle" => {
@@ -2187,6 +2715,8 @@ mod approval_tests {
                 }
                 "snapshot" => {
                     let mut snapshot = state.snapshot.clone();
+                    snapshot["pending"] = json!(false);
+                    snapshot["streamActive"] = json!(false);
                     snapshot["savedReadBackoff"] = json!({"cooling_down":state.saved_read_backoff});
                     if state.saved_read_backoff {
                         state.backoff_observed.notify_one();
@@ -2194,6 +2724,10 @@ mod approval_tests {
                     snapshot
                 }
                 "chat_read" => {
+                    state.saved_read_calls += 1;
+                    if state.reject_repeat_saved_read && state.saved_read_calls > 1 {
+                        return Box::pin(async { Err(Error("app_chat_rate_limited")) });
+                    }
                     if state.fail_saved_read {
                         state.fail_saved_read = false;
                         state.saved_read_backoff = true;
@@ -2233,6 +2767,177 @@ mod approval_tests {
         }
         events
     }
+    #[tokio::test]
+    async fn long_source_turn_uses_one_complete_snapshot_without_refetching_delivery_pages() {
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        {
+            let mut saved = state.lock().unwrap();
+            saved.reject_repeat_saved_read = true;
+            for index in 0..450 {
+                saved.saved.push(json!({"id":format!("old-{index}"),"role":"assistant","channel":"commentary","content":{"content_type":"text","parts":["Retained original history"]}}));
+            }
+            saved.saved.extend([
+                json!({"id":"committed-anchor","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Previous native final"]}}),
+                json!({"id":"original-user","role":"user","content":{"content_type":"text","parts":["Exact long-history input"]}}),
+                json!({"id":"original-answer","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Exact original final"]}}),
+            ]);
+        }
+        let turn = crate::bound_chat::read(
+            Arc::new(SavedSource(state.clone())),
+            "saved-chat",
+            "committed-anchor",
+            None,
+            false,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(turn.input.message, "original-user");
+        assert_eq!(turn.text, "Exact long-history input");
+        assert_eq!(
+            turn.messages[0]["content"]["parts"][0],
+            "Exact original final"
+        );
+        assert_eq!(turn.end, crate::bound_chat::End::Completed);
+        assert_eq!(state.lock().unwrap().saved_read_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn explicit_sibling_selection_requires_native_commit_and_preserves_source() {
+        let root = std::env::temp_dir().join(format!("source-sibling-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let host = AppHost::new(Arc::new(SavedSource(state.clone())), journal.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"First native input"}],"tools":[]});
+        let first = native_output(&saved_round(&host, &body, "native-first").await).unwrap();
+        body["input"].as_array_mut().unwrap().extend(first.clone());
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Newer CLI sibling"}));
+        saved_round(&host, &body, "native-second").await;
+        state.lock().unwrap().saved = vec![
+            json!({"id":"native-final-1","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Native answer 1"]}}),
+            json!({"id":"android-user","role":"user","content":{"content_type":"text","parts":["Original Android sibling"]}}),
+        ];
+        assert!(matches!(
+            host.external_input("bound-native-thread", None, &[]).await,
+            Err(Error("bound_chat_branch_changed"))
+        ));
+        assert!(
+            matches!(
+                host.external_input("bound-native-thread", Some("android-user"), &[])
+                    .await,
+                Err(Error("bound_chat_branch_changed"))
+            ),
+            "observation alone is not a native commit"
+        );
+        let committed = first.iter().map(|item| json!({"turn_id":"native-first","item":{"id":item["id"],"type":"agentMessage","phase":item["phase"],"text":item["content"][0]["text"]}})).collect::<Vec<_>>();
+        assert!(matches!(
+            host.external_input("bound-native-thread", Some("another-user"), &committed)
+                .await,
+            Err(Error("source_selection_required"))
+        ));
+        let mut wrong = committed.clone();
+        wrong[0]["item"]["id"] = json!("uncommitted-item");
+        assert!(matches!(
+            host.external_input("bound-native-thread", Some("android-user"), &wrong)
+                .await,
+            Err(Error("bound_chat_branch_changed"))
+        ));
+        let selected = host
+            .external_input("bound-native-thread", Some("android-user"), &committed)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.anchor, "native-final-1");
+        assert_eq!(selected.input.message, "android-user");
+        assert_eq!(selected.text, "Original Android sibling");
+        assert_eq!(
+            host.external_origin("bound-native-thread", &selected.input)
+                .unwrap()
+                .1,
+            "native-final-1"
+        );
+        let lane: Lane = journal
+            .read(&context::digest(&"bound-native-thread"))
+            .unwrap()
+            .unwrap();
+        assert!(lane.source_context_owed);
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            2,
+            "branch selection cannot submit a new inference"
+        );
+        drop(host);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn provider_continuation_receives_full_context_before_clearing_branch_debt() {
+        let root = std::env::temp_dir().join(format!("source-context-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let host = AppHost::new(Arc::new(SavedSource(state.clone())), journal.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Earlier native input"}],"tools":[]});
+        let first = saved_round(&host, &body, "native-first").await;
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&first).unwrap());
+        {
+            let mutex = host
+                .existing_lane("bound-native-thread")
+                .await
+                .unwrap()
+                .unwrap();
+            let mut lane = mutex.lock().await;
+            lane.source_context_owed = true;
+            journal
+                .write(&context::digest(&"bound-native-thread"), &*lane)
+                .unwrap();
+        }
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Provider continuation"}));
+        saved_round(&host, &body, "native-second").await;
+        let commands = &state.lock().unwrap().commands;
+        let submitted = commands
+            .iter()
+            .rev()
+            .find(|command| command["op"] == "submit")
+            .unwrap();
+        assert!(submitted["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["text"] == "Earlier native input" && message["hidden"] == true));
+        assert!(submitted["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |message| message["text"] == "Provider continuation" && message["hidden"] == false
+            ));
+        let lane: Lane = journal
+            .read(&context::digest(&"bound-native-thread"))
+            .unwrap()
+            .unwrap();
+        assert!(!lane.source_context_owed);
+        drop(host);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn settled_source_reattachment_preserves_chat_prefix_and_retires_old_execution() {
         let root = std::env::temp_dir().join(format!("source-reattach-{}", random_id().unwrap()));
@@ -2288,7 +2993,9 @@ mod approval_tests {
         let broker = crate::mcp::Broker::new(journal.clone());
         let replacement = make_host(broker.clone());
         assert!(matches!(
-            replacement.external_input("bound-native-thread").await,
+            replacement
+                .external_input("bound-native-thread", None, &[])
+                .await,
             Err(Error("bound_chat_owner_generation_changed"))
         ));
         replacement
@@ -2296,7 +3003,7 @@ mod approval_tests {
             .await
             .unwrap();
         assert!(replacement
-            .external_input("bound-native-thread")
+            .external_input("bound-native-thread", None, &[])
             .await
             .unwrap()
             .is_none());
@@ -2318,7 +3025,7 @@ mod approval_tests {
             json!({"id":"after-restart-final","role":"assistant","channel":"final","status":"finished_partial_completion","end_turn":false,"content":{"content_type":"text","parts":["Original"]}}),
         ];
         let source = replacement
-            .external_input("bound-native-thread")
+            .external_input("bound-native-thread", None, &[])
             .await
             .unwrap()
             .unwrap();
@@ -2388,6 +3095,165 @@ mod approval_tests {
     }
 
     #[tokio::test]
+    async fn interrupted_source_replay_stays_failed_and_next_source_uses_original_response() {
+        let root =
+            std::env::temp_dir().join(format!("interrupted-source-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let mut broker = crate::mcp::Broker::new(journal.clone());
+        let make_host = |broker: Arc<crate::mcp::Broker>| {
+            AppHost::new(
+                Arc::new(
+                    crate::mcp_bridge::McpBridge::new(
+                        Arc::new(SavedSource(state.clone())),
+                        broker,
+                        journal.clone(),
+                        "Owned connector".into(),
+                    )
+                    .unwrap(),
+                ),
+                journal.clone(),
+            )
+        };
+        let mut host = make_host(broker.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"Initial input"}],"tools":[]});
+        let initial = saved_round(&host, &body, "native-1").await;
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&initial).unwrap());
+        state.lock().unwrap().saved = vec![
+            json!({"id":"native-final-1","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Native answer 1"]}}),
+            json!({"id":"u1","role":"user","content":{"content_type":"text","parts":["Interrupted original"]}}),
+            json!({"id":"partial","role":"assistant","channel":"commentary","status":"finished_partial_completion","end_turn":false,"content":{"content_type":"text","parts":["Original partial"]}}),
+            json!({"id":"u2","role":"user","content":{"content_type":"text","parts":["Next original"]}}),
+            json!({"id":"final","role":"assistant","channel":"final","status":"finished_successfully","end_turn":true,"content":{"content_type":"text","parts":["Original next answer"]}}),
+        ];
+        let source = host
+            .external_input("bound-native-thread", None, &[])
+            .await
+            .unwrap()
+            .unwrap();
+        host.bind_external("bound-native-thread", &source.input, "native-web-1")
+            .await
+            .unwrap();
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":source.text}));
+        let mut request = Request::parse(
+            body.clone(),
+            &crate::config::Config::default(),
+            Some("bound-native-thread"),
+        )
+        .unwrap();
+        request.turn = Some("native-web-1".into());
+        let mut failed_events = vec![];
+        for replay in [false, true] {
+            let (sender, mut receiver) = mpsc::channel(64);
+            assert_eq!(
+                host.exchange(request.clone(), sender, CancellationToken::new())
+                    .await,
+                Err(Error("bound_chat_turn_interrupted"))
+            );
+            let mut events = vec![];
+            while let Some(event) = receiver.recv().await {
+                events.push(event);
+            }
+            assert!(matches!(events.last(), Some(Event::Flush)));
+            assert!(!events
+                .iter()
+                .any(|event| matches!(event, Event::Completed { .. })));
+            if replay {
+                assert_eq!(
+                    serde_json::to_value(&events).unwrap(),
+                    serde_json::to_value(&failed_events).unwrap()
+                );
+            } else {
+                failed_events = events;
+                host.shutdown().await;
+                broker.close().await;
+                assert!(
+                    !state
+                        .lock()
+                        .unwrap()
+                        .commands
+                        .iter()
+                        .any(|command| command["op"] == "stop"),
+                    "shutdown must not stop the next original Chat response"
+                );
+                assert!(state
+                    .lock()
+                    .unwrap()
+                    .commands
+                    .iter()
+                    .any(|command| command["op"] == "release"
+                        && command["preserve_settled_source"] == true));
+                broker = crate::mcp::Broker::new(journal.clone());
+                host = make_host(broker.clone());
+                assert_eq!(
+                    host.reconcile_interrupted_source("bound-native-thread", "wrong-turn")
+                        .await,
+                    Err(Error("bound_chat_reattachment_unsettled"))
+                );
+                host.reconcile_interrupted_source("bound-native-thread", "native-web-1")
+                    .await
+                    .unwrap();
+                host.reattach_settled_source("bound-native-thread")
+                    .await
+                    .unwrap();
+                assert!(host
+                    .has_retained_source("bound-native-thread")
+                    .await
+                    .unwrap());
+            }
+        }
+        let source = host
+            .external_input("bound-native-thread", None, &[])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(source.input.message, "u2");
+        let reserved_before = host.pending_external("bound-native-thread").unwrap();
+        host.reconcile_interrupted_source("bound-native-thread", "native-web-1")
+            .await
+            .unwrap();
+        assert_eq!(
+            host.pending_external("bound-native-thread").unwrap(),
+            reserved_before,
+            "repeated failed-turn observation must preserve the next reserved original"
+        );
+        host.bind_external("bound-native-thread", &source.input, "native-web-2")
+            .await
+            .unwrap();
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&failed_events).unwrap());
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":source.text}));
+        let final_events = saved_round(&host, &body, "native-web-2").await;
+        assert!(native_output(&final_events)
+            .unwrap()
+            .iter()
+            .any(|item| item["content"][0]["text"] == "Original next answer"));
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            1
+        );
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn completed_web_turn_enters_same_lane_without_another_primary_request() {
         let root = std::env::temp_dir().join(format!("saved-source-{}", random_id().unwrap()));
         let journal = Arc::new(Journal::open(&root).unwrap());
@@ -2414,17 +3280,17 @@ mod approval_tests {
             state.saved = vec![
                 json!({"id":"native-final-1","role":"assistant","channel":"final","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Native answer 1"]}}),
                 json!({"id":"web-user-1","role":"user","content":{"content_type":"text","parts":["Web input: exact original text"]}}),
-                json!({"id":"web-final-1","role":"assistant","channel":"final","recipient":"all","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Complete original web answer"]}}),
+                json!({"id":"web-final-1","role":"assistant","model":"original-web-model","channel":"final","recipient":"all","end_turn":true,"status":"finished_successfully","content":{"content_type":"text","parts":["Complete original web answer"]}}),
             ];
         }
         let source = host
-            .external_input("bound-native-thread")
+            .external_input("bound-native-thread", None, &[])
             .await
             .unwrap()
             .unwrap();
         assert_eq!(source.text, "Web input: exact original text");
         assert_eq!(
-            host.external_input("bound-native-thread")
+            host.external_input("bound-native-thread", None, &[])
                 .await
                 .unwrap()
                 .unwrap()
@@ -2497,7 +3363,7 @@ mod approval_tests {
             && item["content"][0]["text"] == "Complete original web answer"));
         body["input"].as_array_mut().unwrap().extend(output);
         assert!(
-            host.external_input("bound-native-thread")
+            host.external_input("bound-native-thread", None, &[])
                 .await
                 .unwrap()
                 .is_none(),
@@ -2508,6 +3374,54 @@ mod approval_tests {
             .unwrap()
             .push(json!({"role":"user","content":"Next native input"}));
         saved_round(&host, &body, "native-2").await;
+        let initial_source = host
+            .source_execution("bound-native-thread", "native-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            initial_source["inputs"]["submitted-1-0"]["fingerprint"],
+            context::digest(&"Initial native input")
+        );
+        assert_eq!(
+            initial_source["inputs"]["submitted-1-0"]["origin"],
+            "submitted_context"
+        );
+        let initial_output = native_output(&initial).unwrap();
+        let initial_native_id = initial_output[0]["id"].as_str().unwrap();
+        assert_eq!(
+            initial_source["public_items"][initial_native_id]["source_message_id"],
+            "native-final-1"
+        );
+        assert!(
+            initial_source["public_items"][initial_native_id]["model"].is_null(),
+            "selected model cannot replace absent source model metadata"
+        );
+        let web_source = host
+            .source_execution("bound-native-thread", "native-web-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            web_source["inputs"]["web-user-1"]["origin"],
+            "observed_original"
+        );
+        assert_eq!(
+            web_source["inputs"]["web-user-1"]["fingerprint"],
+            context::digest(&"Web input: exact original text")
+        );
+        for item in native_output(&imported).unwrap() {
+            let reference = &web_source["public_items"][item["id"].as_str().unwrap()];
+            assert_eq!(reference["source_message_id"], "web-final-1");
+            assert_eq!(reference["model"], "original-web-model");
+        }
+        assert_eq!(web_source["conversation_id"], "saved-chat");
+        let reopened = AppHost::new(host.bridge.clone(), host.journal.clone());
+        assert_eq!(
+            reopened
+                .source_execution("bound-native-thread", "native-web-1")
+                .unwrap()
+                .unwrap(),
+            web_source
+        );
         let commands = state.lock().unwrap().commands.clone();
         assert_eq!(
             commands
@@ -2606,7 +3520,7 @@ mod approval_tests {
             json!({"id":"web-user","role":"user","content":{"content_type":"text","parts":["External response to stop"]}}),
         ];
         let source = host
-            .external_input("stopping-bound-thread")
+            .external_input("stopping-bound-thread", None, &[])
             .await
             .unwrap()
             .unwrap();

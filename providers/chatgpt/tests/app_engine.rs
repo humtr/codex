@@ -251,7 +251,7 @@ async fn v2_checkpoint_commits_native_cursor_without_replacing_resident_chat() {
         .collect::<Vec<_>>();
     assert_eq!(
         submissions[3]["messages"],
-        json!([{"role":"user","text":"Continue the accepted work","hidden":false}])
+        json!([{"role":"user","text":"Continue the accepted work","hidden":false,"sourceFingerprint":"6d20394d2985bc808989e9e3f7ba3f48417b8312f22eea1e72e4ef081dfefd24"}])
     );
     assert!(submissions[3]["instructions"]
         .as_array()
@@ -262,7 +262,7 @@ async fn v2_checkpoint_commits_native_cursor_without_replacing_resident_chat() {
         )));
     assert_eq!(
         submissions[4]["messages"],
-        json!([{"role":"user","text":"Continue again","hidden":false}])
+        json!([{"role":"user","text":"Continue again","hidden":false,"sourceFingerprint":"4fccc10e712952ffe3da9a74b9eefb6514eee2fadd117f80282bca0ff1233ce3"}])
     );
 }
 

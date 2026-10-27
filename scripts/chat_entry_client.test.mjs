@@ -1,7 +1,8 @@
 import {test, expect} from 'bun:test';
-import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {readFileSync,mkdtempSync,writeFileSync,rmSync,chmodSync} from 'node:fs';
 import {join} from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 
 // Exercise the actual self-contained function injected into the app context.
 const source=readFileSync(new URL('./chat_entry_client.mjs',import.meta.url),'utf8');
@@ -21,23 +22,23 @@ test('native model-adapter lane resolves by exact owned driver without managed a
  expect(()=>ownedLane(lanes,{conversation_id:'saved-native'})).toThrow('ambiguous');
 });
 
-test('shared wire classifies source and managed requests once, without unrelated traffic',()=>{
+test('shared wire classifies source and provider requests once, without unrelated traffic',()=>{
  const lanes=new Map([['source',{localId:'local-source',serverId:'saved-source',marker:'source-marker',signature:{name:'source-function'}}],['worker',{localId:'local-worker',serverId:'saved-worker',marker:'worker-marker',signature:{name:'worker-function'}}]]);
  expect(inputRequestScope(lanes,'source',{conversation_id:'saved-source'})).toEqual({lane_id:'source',scope:'source'});
- expect(inputRequestScope(lanes,null,{conversation_id:'saved-worker'})).toEqual({lane_id:'worker',scope:'managed'});
- expect(inputRequestScope(lanes,'source',{messages:[{metadata:{termux_codex_lane:'worker-marker'}}]})).toEqual({lane_id:'worker',scope:'managed'});
+ expect(inputRequestScope(lanes,null,{conversation_id:'saved-worker'})).toEqual({lane_id:'worker',scope:'provider'});
+ expect(inputRequestScope(lanes,'source',{messages:[{metadata:{termux_codex_lane:'worker-marker'}}]})).toEqual({lane_id:'worker',scope:'provider'});
  expect(inputRequestScope(lanes,'source',{local_function_signatures:[{name:'source-function'}]}).scope).toBe('source');
  expect(inputRequestScope(lanes,'source',{conversation_id:'unrelated'})).toBeNull();
 });
 
-test('source and total wire ceilings reject before forwarding; managed requests are not charged twice',()=>{
+test('source and total wire ceilings reject before forwarding; provider requests are not charged twice',()=>{
  const plan={max_source_requests:4,max_source_lane_requests:2,max_model_responses:4};
- const rows=[{scope:'managed'},{scope:'managed'}];
+ const rows=[{scope:'provider'},{scope:'provider'}];
  expect(()=>admitObservedRequest(rows,'source',plan)).not.toThrow();rows.push({scope:'source'});
  expect(()=>admitObservedRequest(rows,'source',plan)).not.toThrow();rows.push({scope:'source'});
  expect(()=>admitObservedRequest(rows,'source',plan)).toThrow('total_request_budget');
  expect(()=>admitObservedRequest(rows.slice(2),'source',plan)).toThrow('source_request_budget');
- expect(()=>admitObservedRequest([{scope:'managed'}],'managed',{max_source_requests:1})).toThrow('total_request_budget');
+ expect(()=>admitObservedRequest([{scope:'provider'}],'provider',{max_source_requests:1})).toThrow('total_request_budget');
 });
 
 test('title preservation ignores only volatile message timestamps and object order',()=>{
@@ -118,6 +119,22 @@ test('connector refresh requires explicit paths before app access',()=>{
 });
 const readConnectorWhenReady=eval('('+refreshSource.match(/async function readConnectorWhenReady\([\s\S]*?\n\}/)[0]+')');
 const catalogAgreement=eval('('+refreshSource.match(/function catalogAgreement\([\s\S]*?\n\}/)[0]+')');
+const candidateTools=eval('('+refreshSource.match(/async function candidateTools\([\s\S]*?\n\}/)[0]+')');
+test('candidate catalog comes from its actual stdio producer with exact arguments',async()=>{
+ const root=mkdtempSync(process.env.TMPDIR+'/candidate-catalog-');
+ try{
+  const binary=join(root,'provider'),state=join(root,'state');
+  const tools=[{name:'codex_sessions',inputSchema:{type:'object',properties:{reasoning:{type:'string',enum:['direct','provider']}}}},{name:'additional-advertised-tool',inputSchema:{type:'object'}}];
+  const program=reply=>`#!${process.execPath}\nimport {createInterface} from 'node:readline';const lines=createInterface({input:process.stdin});lines.once('line',line=>{const q=JSON.parse(line);if(JSON.stringify(process.argv.slice(2))!==${JSON.stringify(JSON.stringify(['mcp-stdio','--state',state]))})process.exit(3);console.log(JSON.stringify(${reply}));});\n`;
+  writeFileSync(binary,program(`{jsonrpc:'2.0',id:q.id,result:{tools:${JSON.stringify(tools)}}}`));chmodSync(binary,0o700);
+  expect(await candidateTools(binary,state)).toEqual(tools);
+  writeFileSync(binary,program(`{jsonrpc:'2.0',id:'wrong-request',result:{tools:${JSON.stringify(tools)}}}`));
+  await expect(candidateTools(binary,state)).rejects.toThrow('candidate_catalog_response_invalid');
+  writeFileSync(binary,program(`{jsonrpc:'2.0',id:q.id,result:{tools:[{name:'missing-schema'}]}}`));
+  await expect(candidateTools(binary,state)).rejects.toThrow('candidate_catalog_response_invalid');
+ }finally{rmSync(root,{recursive:true});}
+});
+
 test('connector readiness rejects stale action enums and missing context cursors',()=>{
  const schema={type:'object',properties:{action:{type:'string',enum:['list','claim','queue']},context_cursor:{type:'object'}},required:['action'],additionalProperties:false};
  const tools=[{name:'codex_sessions',inputSchema:schema}];

@@ -157,11 +157,11 @@ jobs:
           just fmt
           git diff --check
           git add -N codex-rs/tui
-          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-formatted.patch"
+          git diff -- codex-rs/tui codex-rs/core > "$RUNNER_TEMP/profile-tui-formatted.patch"
           python3 - <<'PYTHON'
           import subprocess
           files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
-          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          assert all(p in ('codex-rs/Cargo.lock', 'codex-rs/core/src/config/mod.rs') or p.startswith('codex-rs/tui/') for p in files), files
           PYTHON
       - name: Build actual patched CLI with pinned external dependencies
         shell: bash
@@ -294,7 +294,7 @@ jobs:
           set -euo pipefail
           cd upstream
           # Validation-only compiler capacity and ARM64 fstatfs type allowances.
-          # The CLI above contains pristine Core/daemon_startup; neither temporary
+          # The CLI above contains pristine Core lib.rs/daemon_startup; neither temporary
           # allowance enters an asset or suppresses a lint in maintained code.
           python3 - <<'PYTHON'
           from pathlib import Path
@@ -329,14 +329,13 @@ jobs:
               core.write_bytes(original)
               daemon.write_bytes(daemon_original)
           PYTHON
-          git diff --exit-code -- codex-rs/core
           git diff --exit-code -- codex-rs/tui/src/daemon_startup.rs
-          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
+          git diff -- codex-rs/tui codex-rs/core > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
           python3 - <<'PYTHON'
           import subprocess
           files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
-          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          assert all(p in ('codex-rs/Cargo.lock', 'codex-rs/core/src/config/mod.rs') or p.startswith('codex-rs/tui/') for p in files), files
           PYTHON
       - name: Retain native focus and pending snapshots
         if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}

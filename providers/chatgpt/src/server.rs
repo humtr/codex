@@ -462,12 +462,6 @@ pub async fn serve(
     let viewer = service.viewer.clone();
     let mcp = service.mcp.clone();
     let operator = service.operator.clone();
-    if let Some(operator) = operator.clone() {
-        let stop = stop.clone();
-        tokio::spawn(async move {
-            operator.restore_source_observers(&stop).await;
-        });
-    }
     axum::serve(listener, service.router())
         .with_graceful_shutdown(async move {
             shutdown.cancelled().await;

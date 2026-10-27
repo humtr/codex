@@ -103,12 +103,12 @@
       "type": "object", "additionalProperties": false, "required": ["entry", "reasoning", "return_path"],
       "properties": {
         "entry": {"enum": ["codex", "chatgpt_direct", "chatgpt_delegated"]},
-        "reasoning": {"enum": ["current", "managed"]},
+        "reasoning": {"enum": ["direct", "provider"]},
         "return_path": {"enum": ["mcp", "local_function"]}
       },
       "allOf": [
-        {"if": {"properties": {"entry": {"const": "chatgpt_direct"}}}, "then": {"properties": {"reasoning": {"const": "current"}, "return_path": {"const": "mcp"}}}},
-        {"if": {"properties": {"entry": {"enum": ["codex", "chatgpt_delegated"]}}}, "then": {"properties": {"reasoning": {"const": "managed"}}}}
+        {"if": {"properties": {"entry": {"const": "chatgpt_direct"}}}, "then": {"properties": {"reasoning": {"const": "direct"}, "return_path": {"const": "mcp"}}}},
+        {"if": {"properties": {"entry": {"enum": ["codex", "chatgpt_delegated"]}}}, "then": {"properties": {"reasoning": {"const": "provider"}}}}
       ]
     }
   }

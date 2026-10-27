@@ -309,7 +309,7 @@ def native_work(root):
         except (ValueError, OSError):
             continue
         row = envelope.get("payload") if isinstance(envelope, dict) else None
-        if isinstance(row, dict) and row.get("schema") == "termux-codex-operator-work-v1":
+        if isinstance(row, dict) and row.get("schema") == "termux-codex-operator-work-v2":
             # Archived controllers carry the same schema; only the current
             # journal key is an authoritative work binding.
             key = hashlib.sha256(json.dumps(["operator-work-v1", row["id"]], separators=(",", ":")).encode()).hexdigest()

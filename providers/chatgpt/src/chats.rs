@@ -21,6 +21,12 @@ struct Cursor {
     count: usize,
     prefix: String,
 }
+/// Stable saved-source account identity; host generation is deliberately absent.
+pub(crate) fn account_reference(identity: &Value) -> String {
+    digest(
+        &json!({"account":identity["account"],"user":identity["user"],"structure":identity["structure"]}),
+    )
+}
 impl Chats {
     pub fn new(bridge: Arc<dyn Bridge>) -> Self {
         Self {
@@ -43,12 +49,24 @@ impl Chats {
     /// Internal source consumers preserve the exact authorized user text. The
     /// public tools still redact credentials and private capabilities in call().
     pub(crate) async fn read_source(&self, args: Value) -> Result<Value, Error> {
+        self.read(args, false).await
+    }
+    /// One bounded selected-branch snapshot for internal source observation.
+    /// Public delivery pagination must not turn into repeated upstream reads.
+    pub(crate) async fn read_complete_source(&self, conversation: &str) -> Result<Value, Error> {
+        self.read(
+            json!({"action":"read","conversation_id":conversation}),
+            true,
+        )
+        .await
+    }
+    async fn read(&self, args: Value, complete_source: bool) -> Result<Value, Error> {
         let identity = self.bridge.operation(json!({"op":"identity"})).await?;
         let identity = json!({"account":identity["account"],"user":identity["user"],"structure":identity["structure"]});
         if !identity["account"].is_string() || !identity["user"].is_string() {
             return Err(Error("app_identity_unavailable"));
         }
-        let account = digest(&identity);
+        let account = account_reference(&identity);
         let limit = args
             .get("limit")
             .map(|v| {
@@ -287,7 +305,17 @@ impl Chats {
                 } else {
                     0
                 };
-                let end = (start + limit).min(messages.len());
+                if complete_source
+                    && serde_json::to_vec(&messages).unwrap().len()
+                        > crate::config::MAX_DECODED_BYTES as usize
+                {
+                    return Err(Error("bound_chat_history_read_bound"));
+                }
+                let end = if complete_source {
+                    messages.len()
+                } else {
+                    (start + limit).min(messages.len())
+                };
                 let next = Cursor {
                     account: account.clone(),
                     conversation: conversation.into(),

@@ -10,8 +10,9 @@ source or installed baseline. CURRENT records those independently. Every new pai
 must pass exact native/device gates before publication. Official runtime remains
 the sole execution backend.
 
-`native.patch` contains TUI integration changes to existing upstream files.
-Backend configuration, command classification, approval eligibility and Guardian
+`native.patch` contains TUI integration changes to existing upstream files,
+including retaining the original model-catalog bytes in upstream configuration.
+Native execution policy, command classification, approval eligibility and Guardian
 reviewer behavior remain unchanged. Approve for me retains OnRequest/AutoReview;
 it reviews native approval requests rather than all ordinary commands.
 The maintained TUI implementation is ordinary source under `src/`, including
@@ -49,7 +50,12 @@ unsigned source build alone does not admit or install a stable release. Historic
 preview assets remain protected until their clients exit.
 
 The frontend passes its upstream-resolved model catalog to Core's existing
-backend coordinator before local startup. Exact catalog bytes, execution home
+backend coordinator before local startup. Configuration loading retains both the
+typed UI metadata and the original bytes; backend startup consumes those bytes,
+including fields the UI does not know. Installed-catalog restoration supplies
+both views from the same read. Re-serializing typed UI metadata can lose fields
+or insert defaults and incorrectly select another execution server.
+Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
 For an initial resume/fork without an explicit catalog, startup first reads the
 selected native model and resolves installed Chat metadata before attachment.
@@ -111,7 +117,7 @@ Provider acceptance (release sequence3), including a distinct same-thread
 report-only final. Accepted scopes and the actual device baseline are in
 [CURRENT](../../CURRENT.md#current-status-and-next-action).
 
-The [ChatGPT-operated MCP workflow](../../CURRENT.md#proposed-chatgpt-control-through-mcp)
+The [ChatGPT-operated MCP workflow](../../CURRENT.md#chatgpt-entry-and-task-management)
 has bounded actual/synthetic integration and G delivery acceptance in CURRENT.
 TUI displays the same bound work and
 receives native execution plus public report/final events; it does not become
@@ -127,10 +133,11 @@ execution socket; a generic resume may select another backend and encounter an
 external writer. This does not close every real-Chat cross-provider/downshift/
 cold-resume or physical UI gate. The shared bridge, completed E design and bounded F integration,
 G delivery and H retirement are recorded in
-[CURRENT](../../CURRENT.md#agreed-bridge-structure-and-e-work).
-E selects shared Provider CLI/MCP work/read/management interfaces and reuses native
-thread/child navigation, public progress/questions, cancellation and source-bound
-completion notices. A bespoke agent dashboard is not a prerequisite. F implemented
+[CURRENT](../../CURRENT.md#evidence-map-and-limits).
+The retained shared Provider CLI/MCP work/read/management interfaces use native
+records, public progress/questions, cancellation and source-bound completion.
+Provider assignment ancestry is separate from actual native child navigation;
+AUDIT defines the further external-child integration boundary. A bespoke agent dashboard is not a prerequisite. F implemented
 and boundedly qualified the new composition while Provider remains usable without enhanced
 TUI or Manager; old exact-socket CLI proof retains its original scope.
 Origin metadata does not belong in a synthetic
@@ -157,3 +164,13 @@ the selected namespace; `--native-catalog` exercises the native/default path.
 through the real frontend. Syscall observation attaches only to the exact owned
 server after resume, before /btw, so tracing bundled-file extraction cannot distort
 startup deadlines. The actual fork response is still required for acceptance.
+
+The current entrance-equivalence audit distinguishes canonical record commitment,
+subscription to the correct execution home/backend/thread, live viewport updates
+and reopened history. Existing source-identity progress folding preserves full
+answers/tools; it does not establish that every external Android/web response
+joined native execution. Bridge-first admission and the Native-only input barrier are the next
+Provider/native/TUI acceptance batch. Ordinary development must not retrieve saved
+Chat on a timer; explicit source verification/recovery remains separately tested.
+See [the confirmed design and tests](../../AUDIT.md). Do not introduce another
+transcript store or model request to hide a missing native event.

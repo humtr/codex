@@ -11,7 +11,7 @@ pub(crate) struct Controls {
 }
 pub(crate) fn public_work_ids(journal: &Journal) -> Result<Vec<String>, Error> {
     let mut ids = std::collections::BTreeSet::new();
-    for (key, record) in journal.records("termux-codex-operator-work-v1")? {
+    for (key, record) in journal.records(crate::operator::WORK_SCHEMA)? {
         if let (Some(id), Some(generation)) = (record["id"].as_str(), record["generation"].as_u64())
         {
             if id.len() == 48

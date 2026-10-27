@@ -230,7 +230,7 @@ class Batch:
                     stream.write(chunk)
 
     def approve(self, work, status):
-        block = (status.get("managed_lane") or {}).get("host_block") or (status.get("host_observation") or {}).get("waiting_for")
+        block = (status.get("app_lane") or {}).get("host_block") or (status.get("host_observation") or {}).get("waiting_for")
         if block == "mcp_host_confirmation_required":
             token = subprocess.check_output([self.info["binary"], "token", "--state", self.info["state"]], env=self.env, text=True).strip()
             request = urllib.request.Request("http://127.0.0.1:" + str(self.info["port"]) + "/__approve", data=b"",
@@ -240,7 +240,7 @@ class Batch:
             self.event("original_app_confirmation_replied", work_id=work["work_id"], confirmed=approved.get("app_approval_requested"))
 
     def created(self, name, route="mcp", workspace=None, dependencies=None, parent=None):
-        args = {"action": "create", "call_id": creation_call_id(self.root, name), "reasoning": "managed", "return_path": route,
+        args = {"action": "create", "call_id": creation_call_id(self.root, name), "reasoning": "provider", "return_path": route,
             "workspace": str(workspace or self.root / ("w-" + name)), "role": name,
             "budget": self.plan["assignment_budget"]}
         if dependencies:
@@ -301,7 +301,7 @@ class Batch:
             self.drain()
             status = self.rpc("codex_status", {"work_id": work["work_id"]})
             self.approve(work, status)
-            conversation = (status.get("managed_lane") or {}).get("conversation_id")
+            conversation = (status.get("app_lane") or {}).get("conversation_id")
             if conversation and (self.root / "w-server-stop/F_STOP_READY").is_file():
                 lane = self.client.call("owned_lane_status", {"conversation_id": conversation})
                 if lane["streamActive"] and not lane["stopRequested"]:
@@ -503,7 +503,7 @@ for balance,values in [(1,[-2,3]),(True,[]),(1,[False]),(-1,[]),(1.0,[])]:
             if row["item"].get("type") == "agentMessage" and row["item"].get("phase") == "final_answer"]
         assert finals, "canonical_final_missing"
         assert all(cli_final_visible(cli.read_text(errors="replace"), f) for f in finals), "canonical_final_not_visible_in_original_cli"
-        lane = status.get("managed_lane") or {}
+        lane = status.get("app_lane") or {}
         sources = []
         for conversation in lane.get("previous_chats", []) + ([lane["conversation_id"]] if lane.get("conversation_id") else []):
             pages = batch.read(conversation)

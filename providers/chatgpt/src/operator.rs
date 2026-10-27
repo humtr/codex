@@ -27,11 +27,14 @@ use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
 const LIMIT: usize = 16 * 1024 * 1024;
-const SOURCE_OBSERVE_INTERVAL: Duration = Duration::from_secs(2);
+pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v2";
+const SOURCE_ADMISSION_SCHEMA: &str = "codex-chatgpt-source-admission-v1";
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 fn source_observation_pending(error: &Error) -> bool {
     matches!(
         error.0,
         "app_chat_read_pending"
+            | "cdp_operation_timeout"
             | "app_chat_rate_limited"
             | "app_chat_temporarily_unavailable"
             | "app_chat_request_failed"
@@ -40,6 +43,52 @@ fn source_observation_pending(error: &Error) -> bool {
             | "bound_chat_observation_superseded"
             | "native_thread_not_loaded"
     )
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceAdmission {
+    schema: String,
+    work_id: String,
+    thread_id: String,
+    turn_id: String,
+    account_ref: String,
+    source: crate::bound_chat::Input,
+    source_anchor: String,
+    client_user_message_id: String,
+    execution_home: std::path::PathBuf,
+    workspace: std::path::PathBuf,
+}
+const DEVELOPMENT_BINDING_SCHEMA: &str = "codex-chatgpt-development-binding-v1";
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+enum SourceObservation {
+    Observing,
+    RetryWait {
+        reason: String,
+        retry_at_unix_ms: u64,
+    },
+    Blocked {
+        reason: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DevelopmentBinding {
+    schema: String,
+    work_id: String,
+    thread_id: String,
+    account_ref: String,
+    conversation_id: String,
+    enabled: bool,
+    last_observation: SourceObservation,
+    #[serde(default)]
+    source_selection_required: bool,
+}
+fn development_binding_key(work: &str) -> String {
+    digest(&("development-binding-v1", work))
+}
+fn source_admission_key(work: &str, turn: &str) -> String {
+    digest(&("source-admission-v1", work, turn))
 }
 fn queue_key(thread: &str, call: &str) -> String {
     digest(&("native-queue-v1", thread, call))
@@ -56,8 +105,8 @@ struct Selection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Reasoning {
-    Current,
-    Managed,
+    Direct,
+    Provider,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -128,6 +177,214 @@ struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     assignment: Option<Assignment>,
 }
+// This offline upgrade/rollback boundary is the only reader of old selection
+// names. Normal API and journal decoding accept only Direct/Provider.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReasoningMigration {
+    schema: String,
+    owner: String,
+    root: std::path::PathBuf,
+    target: String,
+    records: BTreeMap<String, Value>,
+}
+fn migrate_selection(value: &mut Value, target: &str) -> Result<(), Error> {
+    let Some(selection) = value.get_mut("selection").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let name = match selection["reasoning"].as_str() {
+        Some("current" | "direct") => {
+            if target == "direct-provider" {
+                "direct"
+            } else {
+                "current"
+            }
+        }
+        Some("managed" | "provider") => {
+            if target == "direct-provider" {
+                "provider"
+            } else {
+                "managed"
+            }
+        }
+        _ => return Err(Error("reasoning_migration_selection_invalid")),
+    };
+    selection["reasoning"] = json!(name);
+    Ok(())
+}
+fn migration_record(mut value: Value, target: &str) -> Result<Value, Error> {
+    if !matches!(
+        value["schema"].as_str(),
+        Some("termux-codex-operator-work-v1" | WORK_SCHEMA)
+    ) {
+        return Err(Error("reasoning_migration_record_invalid"));
+    }
+    value["schema"] = json!(WORK_SCHEMA);
+    migrate_selection(&mut value, "direct-provider")?;
+    serde_json::from_value::<Record>(value.clone())
+        .map_err(|_| Error("reasoning_migration_record_invalid"))?;
+    migrate_selection(&mut value, target)?;
+    if target == "provider14" {
+        value["schema"] = json!("termux-codex-operator-work-v1");
+    }
+    Ok(value)
+}
+/// Explicit offline format conversion, including the inverse needed before an
+/// old binary rollback. Original Chat/native history and call receipts stay put.
+pub fn migrate_reasoning(
+    root: &std::path::Path,
+    backup: &std::path::Path,
+    target: &str,
+) -> Result<Value, Error> {
+    use std::{
+        fs::{self, File, OpenOptions},
+        io::Write,
+        os::unix::fs::OpenOptionsExt,
+    };
+    if !matches!(target, "direct-provider" | "provider14") {
+        return Err(Error("reasoning_migration_target_invalid"));
+    }
+    let parent = backup
+        .parent()
+        .ok_or(Error("reasoning_migration_backup_invalid"))?;
+    if !root.is_absolute()
+        || fs::canonicalize(root).ok().as_deref() != Some(root)
+        || !backup.is_absolute()
+        || fs::canonicalize(parent).ok().as_deref() != Some(parent)
+        || backup.starts_with(root)
+        || !root.join("owner-v1").is_file()
+    {
+        return Err(Error("reasoning_migration_backup_invalid"));
+    }
+    crate::journal::private_directory(parent)?;
+    let journal = Journal::open(root)?;
+    let snapshot = if backup.exists() {
+        let size = fs::symlink_metadata(backup)
+            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?
+            .len();
+        let raw = crate::cdp::private_read(backup, size)?;
+        let snapshot: ReasoningMigration = serde_json::from_slice(&raw)
+            .map_err(|_| Error("reasoning_migration_backup_invalid"))?;
+        if snapshot.schema != "termux-codex-reasoning-migration-v1"
+            || snapshot.owner != journal.owner
+            || snapshot.root != root
+            || snapshot.target != target
+        {
+            return Err(Error("reasoning_migration_backup_invalid"));
+        }
+        snapshot
+    } else {
+        let mut records = BTreeMap::new();
+        let mut source = journal.records("termux-codex-operator-work-v1")?;
+        source.extend(journal.records(WORK_SCHEMA)?);
+        for (key, value) in source {
+            if key != digest(&("operator-work-v1", &value["id"]))
+                && key
+                    != digest(&(
+                        "operator-previous-controller-v1",
+                        &value["id"],
+                        &value["generation"],
+                    ))
+            {
+                return Err(Error("reasoning_migration_record_key_invalid"));
+            }
+            let converted = migration_record(value.clone(), target)?;
+            if converted != value {
+                records.insert(key, value.clone());
+            }
+            let lane_key = digest(&value["thread"]);
+            if let Some(lane) = journal.read::<Value>(&lane_key)? {
+                if lane["native_thread"] != value["thread"] {
+                    return Err(Error("reasoning_migration_record_key_invalid"));
+                }
+                if crate::app::migrate_source_queue(lane.clone(), target)? != lane {
+                    records.insert(lane_key, lane);
+                }
+            }
+            let key = digest(&("work-route-transfer-v1", &value["id"]));
+            if let Some(mut offer) = journal.read::<Value>(&key)? {
+                let before = offer.clone();
+                if offer["work_id"] != value["id"] {
+                    return Err(Error("reasoning_migration_record_key_invalid"));
+                }
+                migrate_selection(&mut offer, target)?;
+                if before != offer {
+                    records.insert(key, before);
+                }
+            }
+        }
+        let key = work_index_key();
+        if let Some(mut index) = journal.read::<Value>(&key)? {
+            let before = index.clone();
+            if !index["pending"].is_null() {
+                index["pending"] = migration_record(index["pending"].clone(), target)?;
+            }
+            if before != index {
+                records.insert(key, before);
+            }
+        }
+        let snapshot = ReasoningMigration {
+            schema: "termux-codex-reasoning-migration-v1".into(),
+            owner: journal.owner.clone(),
+            root: root.into(),
+            target: target.into(),
+            records,
+        };
+        let bytes = serde_json::to_vec(&snapshot)
+            .map_err(|_| Error("reasoning_migration_backup_invalid"))?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(backup)
+            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+        file.write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+        File::open(parent)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+        snapshot
+    };
+    // Validate every current value before changing any: an interrupted conversion
+    // may resume only from its original or exact converted values.
+    let mut updates = Vec::new();
+    for (key, before) in &snapshot.records {
+        let mut after = before.clone();
+        if matches!(
+            after["schema"].as_str(),
+            Some("termux-codex-operator-work-v1" | WORK_SCHEMA)
+        ) {
+            after = migration_record(after, target)?;
+        } else if let Some(thread) = after["native_thread"].as_str() {
+            if key != &digest(&thread) {
+                return Err(Error("reasoning_migration_record_key_invalid"));
+            }
+            after = crate::app::migrate_source_queue(after, target)?;
+        } else if key == &work_index_key() {
+            if !after["pending"].is_null() {
+                after["pending"] = migration_record(after["pending"].clone(), target)?;
+            }
+        } else {
+            migrate_selection(&mut after, target)?;
+        }
+        let current = journal
+            .read::<Value>(key)?
+            .ok_or(Error("reasoning_migration_state_changed"))?;
+        if current != *before && current != after {
+            return Err(Error("reasoning_migration_state_changed"));
+        }
+        updates.push((key, after));
+    }
+    for (key, after) in &updates {
+        journal.write(key, after)?;
+    }
+    Ok(
+        json!({"converted_records":updates.len(),"target":target,"backup":backup,
+        "original_transcripts_unchanged":true,"inference_submitted":false}),
+    )
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkIndex {
@@ -152,10 +409,13 @@ fn recover_work_index(journal: &Journal) -> Result<WorkIndex, Error> {
     let mut index = if let Some(index) = journal.read::<WorkIndex>(&work_index_key())? {
         index
     } else {
+        if !journal.records("termux-codex-operator-work-v1")?.is_empty() {
+            return Err(Error("reasoning_migration_required"));
+        }
         let mut ids = legacy.clone();
         // Include pre-migration orphan work records; do not mistake an old
         // incomplete index for authority that those native works do not exist.
-        for (key, value) in journal.records("termux-codex-operator-work-v1")? {
+        for (key, value) in journal.records(WORK_SCHEMA)? {
             let record: Record =
                 serde_json::from_value(value).map_err(|_| Error("operator_record_invalid"))?;
             if key != digest(&("operator-work-v1", &record.id)) {
@@ -175,6 +435,9 @@ fn recover_work_index(journal: &Journal) -> Result<WorkIndex, Error> {
         }
     }
     if let Some(record) = &index.pending {
+        if record.schema != WORK_SCHEMA {
+            return Err(Error("reasoning_migration_required"));
+        }
         let key = digest(&("operator-work-v1", &record.id));
         if journal.read::<Record>(&key)?.is_none() {
             journal.write(&key, record)?;
@@ -212,7 +475,7 @@ struct Work {
     driver_lock: Arc<Mutex<()>>,
     native_admission: Arc<Mutex<()>>,
     stops_in_progress: usize,
-    managed_cancel: Option<CancellationToken>,
+    app_cancel: Option<CancellationToken>,
     completion_observer: Option<CancellationToken>,
 }
 enum Command {
@@ -305,15 +568,15 @@ pub struct Operator {
     config: Config,
     bridge: Arc<dyn Bridge>,
     reviewer: Arc<AppHost>,
-    managed_mcp: Arc<AppHost>,
-    managed_local: Arc<AppHost>,
+    mcp_host: Arc<AppHost>,
+    local_host: Arc<AppHost>,
     token: String,
     session_mutations: Arc<Mutex<()>>,
     operations: Arc<Operations>,
     pools: Arc<Mutex<BTreeMap<String, Arc<Pool>>>>,
 }
 fn recovered_phase(phase: &str) -> &str {
-    if matches!(phase, "completed" | "stopped") {
+    if matches!(phase, "completed" | "interrupted" | "stopped") {
         phase
     } else {
         "reconciliation_required"
@@ -333,16 +596,15 @@ fn observed_owner_requires_reconciliation(
     Ok(true)
 }
 fn new_native_owner_allowed(record: &Record, turn: Option<&str>) -> bool {
-    record.origin == "codex"
-        && turn.is_some()
-        && turn != record.native_turn.as_deref()
-        && record.pending.is_empty()
+    turn.is_some() && turn != record.native_turn.as_deref() && record.pending.is_empty()
 }
-fn same_native_round(snapshot: &Record, current: &Record) -> bool {
+fn same_controller(snapshot: &Record, current: &Record) -> bool {
     snapshot.execution == current.execution
         && snapshot.generation == current.generation
         && snapshot.capability == current.capability
-        && snapshot.native_turn == current.native_turn
+}
+fn same_native_round(snapshot: &Record, current: &Record) -> bool {
+    same_controller(snapshot, current) && snapshot.native_turn == current.native_turn
 }
 fn driver_round_error(current: &Record) -> Option<Error> {
     // A deliberate Chat handoff rotates the controller within this native
@@ -357,8 +619,15 @@ fn driver_round_error(current: &Record) -> Option<Error> {
         None
     }
 }
-fn admit_managed_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Result<(), Error> {
-    if !same_native_round(snapshot, &work.record)
+fn admit_app_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Result<(), Error> {
+    // turn/start can publish its reserved turn ID while the model request is
+    // entering. That receipt is the same controller's request, not a new writer.
+    let start_returned = snapshot.phase == "starting_native"
+        && work.record.phase == "starting_native"
+        && turn.is_some()
+        && work.record.native_turn.as_deref() == turn
+        && same_controller(snapshot, &work.record);
+    if !same_native_round(snapshot, &work.record) && !start_returned
         || work.stops_in_progress != 0
         || work.record.phase == "stop_requested"
         || work.record.phase == "stopped"
@@ -366,13 +635,13 @@ fn admit_managed_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Re
     {
         return Err(Error("operator_controller_fenced"));
     }
-    if work.managed_cancel.is_some() {
+    if work.app_cancel.is_some() {
         return Err(Error("native_lane_busy"));
     }
     Ok(())
 }
 
-fn managed_lane_requires_host_stop(lane: &Value) -> bool {
+fn app_lane_requires_host_stop(lane: &Value) -> bool {
     if lane["pending_native_calls"].as_u64() != Some(0) {
         return true;
     }
@@ -391,7 +660,7 @@ fn controller_matches(record: &Record, args: &Value) -> bool {
         && !record
             .selection
             .as_ref()
-            .is_some_and(|s| s.reasoning == Reasoning::Managed)
+            .is_some_and(|s| s.reasoning == Reasoning::Provider)
         && record.accepted
         && matches!(
             record.phase.as_str(),
@@ -414,13 +683,15 @@ impl Operator {
         let mut works = BTreeMap::new();
         for id in recover_work_index(&journal)?.ids {
             let key = digest(&("operator-work-v1", &id));
-            let mut record: Record = journal
+            let value: Value = journal
                 .read(&key)?
                 .ok_or(Error("operator_record_missing"))?;
-            if record.id != id
-                || record.schema != "termux-codex-operator-work-v1"
-                || works.len() >= 256
-            {
+            if value["schema"] != WORK_SCHEMA {
+                return Err(Error("reasoning_migration_required"));
+            }
+            let mut record: Record =
+                serde_json::from_value(value).map_err(|_| Error("operator_record_invalid"))?;
+            if record.id != id || works.len() >= 256 {
                 return Err(Error("operator_record_invalid"));
             }
             // A new service never inherits an old controller or retransmits a call.
@@ -444,7 +715,7 @@ impl Operator {
                     driver_lock: Arc::new(Mutex::new(())),
                     native_admission: Arc::new(Mutex::new(())),
                     stops_in_progress: 0,
-                    managed_cancel: None,
+                    app_cancel: None,
                     completion_observer: None,
                 },
             );
@@ -467,25 +738,25 @@ impl Operator {
             journal.clone(),
             config.transport.connector_name.clone(),
         )?);
-        let managed_mcp = Arc::new(
+        let mcp_host = Arc::new(
             AppHost::new(mcp_bridge, journal.clone())
                 .with_connector(config.transport.connector_name.clone()),
         );
-        let managed_local = Arc::new(
+        let local_host = Arc::new(
             AppHost::new(local_bridge, journal.clone())
                 .with_connector(config.transport.connector_name.clone()),
         );
         let reviewer = if config.transport.return_path == ReturnPath::Mcp {
-            managed_mcp.clone()
+            mcp_host.clone()
         } else {
-            managed_local.clone()
+            local_host.clone()
         };
         Ok(Arc::new(Self {
             pool,
             broker: broker.clone(),
             reviewer,
-            managed_mcp,
-            managed_local,
+            mcp_host,
+            local_host,
             journal,
             works,
             config,
@@ -531,12 +802,20 @@ impl Operator {
         )
         .await
     }
-    fn managed(&self, path: ReturnPath) -> Arc<AppHost> {
+    fn app_host(&self, path: ReturnPath) -> Arc<AppHost> {
         if path == ReturnPath::Mcp {
-            self.managed_mcp.clone()
+            self.mcp_host.clone()
         } else {
-            self.managed_local.clone()
+            self.local_host.clone()
         }
+    }
+    fn app_route(&self, record: &Record, turn: Option<&str>) -> Result<Option<ReturnPath>, Error> {
+        if self.mcp_host.source_turn_pending(&record.thread, turn)? {
+            return Ok(Some(ReturnPath::Mcp));
+        }
+        Ok(record.selection.as_ref().and_then(|selection| {
+            (selection.reasoning == Reasoning::Provider).then_some(selection.return_path)
+        }))
     }
     async fn admit_native_call(&self, thread: &str, call_id: &str) -> Result<(), Error> {
         let mut works = self.works.lock().await;
@@ -691,7 +970,7 @@ impl Operator {
             )
             .await?;
         let record = Record {
-            schema: "termux-codex-operator-work-v1".into(),
+            schema: WORK_SCHEMA.into(),
             id,
             thread: thread.into(),
             execution,
@@ -740,7 +1019,7 @@ impl Operator {
                 driver_lock: Arc::new(Mutex::new(())),
                 native_admission: Arc::new(Mutex::new(())),
                 stops_in_progress: 0,
-                managed_cancel: None,
+                app_cancel: None,
                 completion_observer: None,
             },
         );
@@ -767,6 +1046,13 @@ impl Operator {
         }
         if require_controller && !controller_matches(&record, args) {
             return Err(Error("operator_controller_fenced"));
+        }
+        if require_controller
+            && self
+                .app_route(&record, record.native_turn.as_deref())?
+                .is_some()
+        {
+            return Err(Error("app_response_owns_execution"));
         }
         drop(works);
         if require_controller {
@@ -833,7 +1119,7 @@ impl Operator {
         Ok((record, native))
     }
 
-    async fn rebind_native_round(
+    async fn admit_native_round(
         &self,
         record: &Record,
         request: &Request,
@@ -841,17 +1127,22 @@ impl Operator {
         pool: &Pool,
     ) -> Result<(), Error> {
         native.verify_scope(&record.thread, &pool.workspace).await?;
-        if native.owner == record.execution
-            && record.workspace.as_deref() == Some(pool.workspace.as_path())
-        {
+        let owner_changed = native.owner != record.execution
+            || record.workspace.as_deref() != Some(pool.workspace.as_path());
+        let source = self.mcp_host.pending_external(&record.thread)?;
+        let new_input = request.compaction.is_none()
+            && request.turn.is_some()
+            && request.turn != record.native_turn;
+        let select_origin =
+            new_input && record.phase != "starting_native" && record.selection.is_some();
+        if !owner_changed && !select_origin && source.is_none() {
             return Ok(());
         }
-        // An upstream CLI resume of the same scoped thread can replace its
-        // backend. Only a genuinely new canonical native turn authorizes this
-        // automatic rebind; a Chat controller still needs its explicit claim.
-        if !new_native_owner_allowed(record, request.turn.as_deref()) {
+        if owner_changed && !new_native_owner_allowed(record, request.turn.as_deref()) {
             return Err(Error("native_owner_reconciliation_required"));
         }
+        // The request's claimed turn must be the actual canonical in-progress
+        // turn. Historical work origin is not authority for a later CLI input.
         let state = native
             .call(
                 "thread/read",
@@ -865,24 +1156,106 @@ impl Operator {
         if turn["id"].as_str() != request.turn.as_deref() || turn["status"] != "inProgress" {
             return Err(Error("native_round_not_ready"));
         }
-        self.recovery_receipts(native, record).await?;
-        let mut works = self.works.lock().await;
-        let work = works.get_mut(&record.thread).unwrap();
-        if work.record.execution == native.owner
-            && work.record.workspace.as_deref() == Some(pool.workspace.as_path())
-        {
-            return Ok(());
+        if let Some((source, call_id)) = &source {
+            let client_id = queue_client_id(&record.thread, call_id);
+            let consumed = Self::history(native, &record.thread)
+                .await?
+                .into_iter()
+                .any(|row| {
+                    row["turn_id"].as_str() == request.turn.as_deref()
+                        && row["item"]["type"] == "userMessage"
+                        && row["item"]["clientId"] == client_id
+                        && context::text(&row["item"])
+                            .is_ok_and(|text| digest(&text) == source.fingerprint)
+                });
+            if !consumed {
+                return Err(Error("bound_chat_input_not_consumed"));
+            }
+            let (account_ref, source_anchor) =
+                self.mcp_host.external_origin(&record.thread, source)?;
+            let admission = SourceAdmission {
+                schema: SOURCE_ADMISSION_SCHEMA.into(),
+                work_id: record.id.clone(),
+                thread_id: record.thread.clone(),
+                turn_id: request
+                    .turn
+                    .clone()
+                    .ok_or(Error("bound_chat_native_turn_missing"))?,
+                account_ref,
+                source: source.clone(),
+                source_anchor,
+                client_user_message_id: client_id,
+                execution_home: native.owner.home.clone(),
+                workspace: pool.workspace.clone(),
+            };
+            let key = source_admission_key(&record.id, &admission.turn_id);
+            if self
+                .journal
+                .read::<SourceAdmission>(&key)?
+                .is_some_and(|previous| previous != admission)
+            {
+                return Err(Error("source_admission_conflict"));
+            }
+            // This records consumed canonical input, not model participation or
+            // tool execution. Persist before binding so a crash cannot lose the
+            // original IDs after the active AppHost slot advances.
+            self.journal.write(&key, &admission)?;
+            self.mcp_host
+                .bind_external(
+                    &record.thread,
+                    source,
+                    request
+                        .turn
+                        .as_deref()
+                        .ok_or(Error("bound_chat_native_turn_missing"))?,
+                )
+                .await?;
         }
+        if owner_changed {
+            self.recovery_receipts(native, record).await?;
+        }
+        let source_bound = self
+            .mcp_host
+            .source_turn_pending(&record.thread, request.turn.as_deref())?;
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(&record.thread)
+            .ok_or(Error("operator_work_unavailable"))?;
         if work.record.execution != record.execution
             || work.record.generation != record.generation
             || work.record.capability != record.capability
             || work.stops_in_progress != 0
             || work.record.phase == "stop_requested"
             || work.active.is_some()
-            || work.managed_cancel.is_some()
+            || work.app_cancel.is_some()
             || !work.record.pending.is_empty()
         {
             return Err(Error("native_owner_reconciliation_required"));
+        }
+        let selection = work
+            .record
+            .selection
+            .as_ref()
+            .filter(|_| select_origin && work.record.phase != "starting_native")
+            .map(|previous| Selection {
+                reasoning: if source_bound {
+                    Reasoning::Direct
+                } else {
+                    Reasoning::Provider
+                },
+                return_path: if source_bound {
+                    ReturnPath::Mcp
+                } else {
+                    previous.return_path
+                },
+            });
+        let route_changed = selection.as_ref().is_some_and(|selected| {
+            work.record.selection.as_ref().is_none_or(|old| {
+                old.reasoning != selected.reasoning || old.return_path != selected.return_path
+            })
+        });
+        if !owner_changed && !route_changed {
+            return Ok(());
         }
         self.preserve_controller(&work.record)?;
         self.broker.retire(&work.record.token, true).await?;
@@ -895,16 +1268,17 @@ impl Operator {
         work.record.execution = native.owner.clone();
         work.record.workspace = Some(pool.workspace.clone());
         work.record.accepted = false;
+        if let Some(selection) = selection {
+            work.record.selection = Some(selection);
+        }
         if work
             .record
             .selection
             .as_ref()
-            .is_some_and(|selection| selection.reasoning == Reasoning::Managed)
+            .is_some_and(|selection| selection.reasoning == Reasoning::Provider)
         {
             work.record.phase = "waiting_native".into();
         }
-        // The operator path still admits its new user turn in exchange_inner.
-        // Preserve completed/reconciliation_required so it starts that driver.
         self.persist(&work.record)
     }
     async fn verify_identity(&self, record: &Record) -> Result<Value, Error> {
@@ -964,6 +1338,9 @@ impl Operator {
     }
     async fn owned_jobs(&self, native: &Native, record: &Record) -> Result<Vec<Value>, Error> {
         let owned = self.broker.recorded_calls(&record.token)?;
+        let app_owned = self
+            .app_route(record, record.native_turn.as_deref())?
+            .is_some();
         let mut cursor = Value::Null;
         let mut jobs = vec![];
         for page in 0..32 {
@@ -978,13 +1355,7 @@ impl Operator {
                 .ok_or(Error("native_jobs_unobservable"))?;
             jobs.extend(
                 data.iter()
-                    .filter(|job| {
-                        record
-                            .selection
-                            .as_ref()
-                            .is_some_and(|s| s.reasoning == Reasoning::Managed)
-                            || owned.iter().any(|call| call["id"] == job["itemId"])
-                    })
+                    .filter(|job| app_owned || owned.iter().any(|call| call["id"] == job["itemId"]))
                     .cloned(),
             );
             cursor = response["nextCursor"].clone();
@@ -998,15 +1369,8 @@ impl Operator {
         Err(Error("native_jobs_unobservable"))
     }
     async fn stop_driver(&self, record: &Record) -> Result<bool, Error> {
-        if let Some(selection) = record
-            .selection
-            .as_ref()
-            .filter(|s| s.reasoning == Reasoning::Managed)
-        {
-            return self
-                .managed(selection.return_path)
-                .stop(&record.thread)
-                .await;
+        if let Some(path) = self.app_route(record, record.native_turn.as_deref())? {
+            return self.app_host(path).stop(&record.thread).await;
         }
         let driver_lock = self
             .works
@@ -1094,6 +1458,461 @@ impl Operator {
         history
             .get(..cursor.count)
             .is_some_and(|prefix| digest(&prefix) == cursor.digest)
+    }
+    fn development_binding(&self, record: &Record) -> Result<Option<DevelopmentBinding>, Error> {
+        let binding: Option<DevelopmentBinding> =
+            self.journal.read(&development_binding_key(&record.id))?;
+        if binding.as_ref().is_some_and(|binding| {
+            binding.schema != DEVELOPMENT_BINDING_SCHEMA
+                || binding.work_id != record.id
+                || binding.thread_id != record.thread
+        }) {
+            return Err(Error("development_binding_conflict"));
+        }
+        Ok(binding)
+    }
+    /// An owned AppHost source establishes the connection. Explicit detachment
+    /// wins over later observation; only an owned successor advances its source.
+    async fn ensure_development_binding(
+        &self,
+        record: &Record,
+    ) -> Result<Option<DevelopmentBinding>, Error> {
+        let works = self.works.lock().await;
+        let work = works
+            .get(&record.thread)
+            .ok_or(Error("operator_work_unavailable"))?;
+        if !same_native_round(record, &work.record)
+            || work.stops_in_progress != 0
+            || matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
+        {
+            return Err(Error("bound_chat_observation_superseded"));
+        }
+        let old = self.development_binding(record)?;
+        if old.as_ref().is_some_and(|binding| !binding.enabled) {
+            return Ok(old);
+        }
+        if !record
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.return_path == ReturnPath::Mcp)
+        {
+            if let Some(mut binding) = old {
+                let blocked = SourceObservation::Blocked {
+                    reason: "source_observation_transport_unavailable".into(),
+                };
+                if binding.last_observation != blocked {
+                    binding.last_observation = blocked;
+                    self.journal
+                        .write(&development_binding_key(&record.id), &binding)?;
+                }
+                return Ok(Some(binding));
+            }
+            return Ok(None);
+        }
+        let Some(source) = self.mcp_host.source_connection(&record.thread)? else {
+            return Ok(old);
+        };
+        if let Some(binding) = &old {
+            if binding.account_ref == source.account_ref
+                && binding.conversation_id == source.conversation
+            {
+                return Ok(old);
+            }
+            if !source.previous_chats.contains(&binding.conversation_id) {
+                return Err(Error("development_source_changed"));
+            }
+        }
+        let binding = DevelopmentBinding {
+            schema: DEVELOPMENT_BINDING_SCHEMA.into(),
+            work_id: record.id.clone(),
+            thread_id: record.thread.clone(),
+            account_ref: source.account_ref,
+            conversation_id: source.conversation,
+            enabled: true,
+            last_observation: SourceObservation::Observing,
+            source_selection_required: false,
+        };
+        self.journal
+            .write(&development_binding_key(&record.id), &binding)?;
+        Ok(Some(binding))
+    }
+    async fn source_retry_seconds(&self) -> Result<u64, Error> {
+        let status = self.bridge.operation(json!({"op":"host_status"})).await?;
+        if status["saved_read_backoff"]["cooling_down"] == true {
+            status["saved_read_backoff"]["retry_after_seconds"]
+                .as_u64()
+                .ok_or(Error("app_chat_response_invalid"))
+        } else {
+            Ok(RECONCILE_INTERVAL.as_secs())
+        }
+    }
+    async fn save_source_observation(
+        &self,
+        record: &Record,
+        observation: SourceObservation,
+    ) -> Result<(), Error> {
+        let works = self.works.lock().await;
+        if works
+            .get(&record.thread)
+            .is_none_or(|work| !same_native_round(record, &work.record))
+        {
+            return Ok(());
+        }
+        let Some(mut binding) = self.development_binding(record)? else {
+            return Ok(());
+        };
+        let selection_required = match &observation {
+            SourceObservation::Observing => false,
+            SourceObservation::Blocked { reason }
+                if matches!(
+                    reason.as_str(),
+                    "bound_chat_branch_changed" | "source_selection_required"
+                ) =>
+            {
+                true
+            }
+            _ => binding.source_selection_required,
+        };
+        if binding.enabled
+            && (binding.last_observation != observation
+                || binding.source_selection_required != selection_required)
+        {
+            binding.source_selection_required = selection_required;
+            binding.last_observation = observation;
+            self.journal
+                .write(&development_binding_key(&record.id), &binding)?;
+        }
+        Ok(())
+    }
+    async fn source_observation_failed(&self, record: &Record, error: &Error) {
+        let observation = if source_observation_pending(error) {
+            match self.source_retry_seconds().await {
+                Ok(seconds) => SourceObservation::RetryWait {
+                    reason: error.0.into(),
+                    retry_at_unix_ms: unix_ms().saturating_add(seconds.saturating_mul(1000)),
+                },
+                Err(readiness) => {
+                    eprintln!("source_readiness_failed_after_{}: {}", error.0, readiness.0);
+                    SourceObservation::Blocked {
+                        reason: readiness.0.into(),
+                    }
+                }
+            }
+        } else {
+            SourceObservation::Blocked {
+                reason: error.0.into(),
+            }
+        };
+        if let Err(error) = self.save_source_observation(record, observation).await {
+            eprintln!("source_observation_save_failed: {}", error.0);
+        }
+    }
+    async fn set_development_binding(
+        &self,
+        args: Value,
+        receipt: Option<&(String, String)>,
+    ) -> Result<Value, Error> {
+        let (record, native) = self.binding(&args, false).await?;
+        if args["controller"].as_str() != Some(&record.capability) || record.phase != "completed" {
+            return Err(Error("native_writer_unsettled"));
+        }
+        let pool = self.work_pool(&record).await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        let history = Self::history(&native, &record.thread).await?;
+        let context = native.public_context(&record.thread).await?;
+        if args["cursor"] != json!(Self::cursor(&history))
+            || args["context_cursor"] != json!(Self::cursor(&context))
+        {
+            return Err(Error("native_history_boundary_changed"));
+        }
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":true}),
+            )
+            .await?;
+        if !source_native_settled(&record, &state)
+            || !state["thread"]["turns"]
+                .as_array()
+                .and_then(|turns| turns.last())
+                .is_some_and(|turn| settled_source_turn(&record, turn))
+            || !self.owned_jobs(&native, &record).await?.is_empty()
+        {
+            return Err(Error("native_writer_unsettled"));
+        }
+        let enabled = args["action"] == "bind";
+        let mut binding = self
+            .ensure_development_binding(&record)
+            .await?
+            .ok_or(Error("source_observation_unavailable"))?;
+        if enabled {
+            if !self.mcp_host.has_retained_source(&record.thread).await? {
+                return Err(Error("source_observation_unavailable"));
+            }
+            let source = self
+                .mcp_host
+                .source_connection(&record.thread)?
+                .ok_or(Error("source_observation_unavailable"))?;
+            if args["conversation_id"].as_str() != Some(source.conversation.as_str()) {
+                return Err(Error("development_source_changed"));
+            }
+            let page = crate::chats::Chats::new(self.bridge.clone())
+                .read_source(json!({"action":"read",
+                "conversation_id":source.conversation,"after":args["source_cursor"],"limit":1}))
+                .await?;
+            if page["cursor"] != args["source_cursor"]
+                || page["complete"] != true
+                || page["account"] != source.account_ref
+            {
+                return Err(Error("chat_source_boundary_changed"));
+            }
+            binding.account_ref = source.account_ref;
+            binding.conversation_id = source.conversation;
+        }
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(&record.thread)
+            .ok_or(Error("operator_controller_fenced"))?;
+        if !same_native_round(&record, &work.record)
+            || work.record.phase != "completed"
+            || work.stops_in_progress != 0
+            || work.app_cancel.is_some()
+            || work.active.is_some()
+        {
+            return Err(Error("operator_controller_fenced"));
+        }
+        self.mutation_intent(receipt)?;
+        binding.enabled = enabled;
+        self.journal
+            .write(&development_binding_key(&record.id), &binding)?;
+        if let Some(previous) = work.completion_observer.take() {
+            previous.cancel();
+        }
+        Ok(json!({"binding":binding,"inference_submitted":false}))
+    }
+    fn source_participation(&self, record: &Record, turn: &str) -> Result<Value, Error> {
+        let Some(lease) = crate::mcp_bridge::source_lease(&self.journal, &record.thread, turn)?
+        else {
+            return Ok(Value::Null);
+        };
+        if self
+            .source_admission(record, turn)?
+            .is_none_or(|admission| admission.source != lease.input)
+        {
+            return Err(Error("source_lease_conflict"));
+        }
+        self.broker.source_participation(&lease.token)
+    }
+    async fn join_verified_source(&self, args: Value) -> Result<Value, Error> {
+        let pending = |reason: &str| {
+            json!({"status":"waiting","reason":reason,
+            "retry_after_seconds":RECONCILE_INTERVAL.as_secs(),"inference_submitted":false})
+        };
+        let conversation = text(&args, "conversation_id", 256)?;
+        text(&args, "call_id", 160)?;
+        let (mut record, native) = self.binding(&args, false).await?;
+        let binding = self
+            .ensure_development_binding(&record)
+            .await?
+            .filter(|binding| binding.enabled)
+            .ok_or(Error("development_source_detached"))?;
+        if binding.conversation_id != conversation {
+            return Err(Error("development_source_changed"));
+        }
+        if matches!(record.phase.as_str(), "completed" | "interrupted") {
+            if let Some(selected) = args.get("source_message_id").and_then(Value::as_str) {
+                if record
+                    .native_turn
+                    .as_deref()
+                    .map(|turn| self.source_admission(&record, turn))
+                    .transpose()?
+                    .flatten()
+                    .is_some_and(|admission| admission.source.message == selected)
+                {
+                    return Err(Error("source_response_ended"));
+                }
+            }
+        }
+        if self
+            .source_admission(&record, record.native_turn.as_deref().unwrap_or(""))?
+            .is_none()
+            || matches!(record.phase.as_str(), "completed" | "interrupted")
+        {
+            let ready = self.synchronize_source(json!({"thread_id":record.thread,"source_message_id":args.get("source_message_id")})).await?;
+            record = self
+                .works
+                .lock()
+                .await
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?
+                .record
+                .clone();
+            if record.phase != "running" {
+                if ready["status"] == "waiting" {
+                    return Ok(json!({"status":"waiting","reason":ready["reason"],
+                        "retry_after_seconds":ready["retry_after_seconds"],"inference_submitted":false}));
+                }
+                if record
+                    .native_turn
+                    .as_deref()
+                    .map(|turn| self.source_admission(&record, turn))
+                    .transpose()?
+                    .flatten()
+                    .is_some()
+                {
+                    return Err(Error("source_response_ended"));
+                }
+                return Ok(
+                    json!({"status":"waiting","reason":ready.get("reason").and_then(Value::as_str).unwrap_or("source_admission_pending"),
+                    "retry_after_seconds":ready.get("retry_after_seconds").and_then(Value::as_u64).unwrap_or(RECONCILE_INTERVAL.as_secs()),
+                    "inference_submitted":false}),
+                );
+            }
+        }
+        let Some(turn) = record.native_turn.as_deref() else {
+            return Ok(pending("source_admission_pending"));
+        };
+        let Some(admission) = self.source_admission(&record, turn)? else {
+            return Ok(pending("source_admission_pending"));
+        };
+        if admission.account_ref != binding.account_ref
+            || admission.source.conversation != conversation
+        {
+            return Err(Error("development_source_changed"));
+        }
+        let explicit = args.get("source_message_id").is_some();
+        if explicit && args["source_message_id"] != admission.source.message {
+            return Err(Error("source_selection_required"));
+        }
+        let source = match crate::bound_chat::read(
+            self.bridge.clone(),
+            conversation,
+            &admission.source_anchor,
+            Some(&admission.source),
+            !explicit,
+            None,
+        )
+        .await {
+            Err(error) if source_observation_pending(&error) => {
+                return Ok(json!({"status":"waiting","reason":error.0,
+                    "retry_after_seconds":self.source_retry_seconds().await?,"inference_submitted":false}));
+            }
+            other => other?,
+        }
+        .ok_or(Error("bound_chat_input_missing"))?;
+        if source.account_ref != admission.account_ref {
+            return Err(Error("app_account_changed"));
+        }
+        if source.end != crate::bound_chat::End::Active {
+            return Err(Error("source_response_ended"));
+        }
+        let pool = self.work_pool(&record).await?;
+        native.verify_scope(&record.thread, &pool.workspace).await?;
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":true}),
+            )
+            .await?;
+        if !state["thread"]["turns"]
+            .as_array()
+            .and_then(|turns| turns.last())
+            .is_some_and(|latest| latest["id"] == turn && latest["status"] == "inProgress")
+        {
+            return Err(Error("source_native_round_unavailable"));
+        }
+        let Some(lease) = crate::mcp_bridge::source_lease(&self.journal, &record.thread, turn)?
+        else {
+            return Ok(pending("source_admission_pending"));
+        };
+        if lease.input != admission.source {
+            return Err(Error("source_lease_conflict"));
+        }
+        let history = Self::history(&native, &record.thread).await?;
+        let context = native.public_context(&record.thread).await?;
+        let (instructions, policy) = {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?;
+            if !same_native_round(&record, &work.record)
+                || work.record.phase != "running"
+                || work.stops_in_progress != 0
+                || work.app_cancel.is_none()
+                || !self
+                    .development_binding(&record)?
+                    .is_some_and(|binding| binding.enabled)
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
+            let Some(request) = work.request.as_ref() else {
+                return Ok(pending("native_round_not_ready"));
+            };
+            (request.instructions.clone(), digest(&request.instructions))
+        };
+        let receipt = digest(&(
+            "source-context-v1",
+            &admission,
+            record.generation,
+            Self::cursor(&history),
+            Self::cursor(&context),
+            policy,
+        ));
+        let accepted = match args.get("accept") {
+            None => false,
+            Some(value) if value.as_str() == Some(receipt.as_str()) => {
+                let works = self.works.lock().await;
+                let work = works
+                    .get(&record.thread)
+                    .ok_or(Error("operator_work_unavailable"))?;
+                if !same_native_round(&record, &work.record)
+                    || work.record.phase != "running"
+                    || work.stops_in_progress != 0
+                    || work.app_cancel.is_none()
+                    || !self
+                        .development_binding(&record)?
+                        .is_some_and(|binding| binding.enabled)
+                {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                self.broker
+                    .accept_source_context(&lease.token, &receipt)
+                    .await?;
+                true
+            }
+            _ => return Err(Error("source_context_changed")),
+        };
+        let tools = if accepted {
+            Some(self.broker.catalog(&lease.token).await?)
+        } else {
+            None
+        };
+        Ok(
+            json!({"status":if accepted {"ready"}else{"context_required"},"work_id":record.id,"thread_id":record.thread,
+            "native_turn":turn,"source_admission":admission,"history":history,"cursor":Self::cursor(&history),
+            "context":context,"context_cursor":Self::cursor(&context),"instructions":instructions,"receipt":receipt,
+            "turn_token":if accepted {Some(&lease.token)}else{None},"tools":tools,"inference_submitted":false,
+            "completion":"The original ChatGPT public final completes this source turn. Do not call codex_finish or start another response."}),
+        )
+    }
+    fn source_admission(
+        &self,
+        record: &Record,
+        turn: &str,
+    ) -> Result<Option<SourceAdmission>, Error> {
+        let admission: Option<SourceAdmission> =
+            self.journal.read(&source_admission_key(&record.id, turn))?;
+        if let Some(source) = &admission {
+            if source.schema != SOURCE_ADMISSION_SCHEMA
+                || source.work_id != record.id
+                || source.thread_id != record.thread
+                || source.turn_id != turn
+            {
+                return Err(Error("source_admission_conflict"));
+            }
+            source.source.validate()?;
+        }
+        Ok(admission)
     }
     async fn wait_item(&self, native: &Native, record: &Record, id: &str) -> Result<(), Error> {
         tokio::time::timeout(Duration::from_secs(15), async {
@@ -1222,6 +2041,12 @@ impl Operator {
             return Ok(
                 json!({"native_item":id,"recorded":true,"reused":true,"completed":final_answer}),
             );
+        }
+        if self
+            .app_route(&record, record.native_turn.as_deref())?
+            .is_some()
+        {
+            return Err(Error("app_response_owns_execution"));
         }
         if !record.accepted || record.phase != "running" {
             return Err(Error("operator_controller_fenced"));
@@ -1393,12 +2218,12 @@ impl Operator {
                 let action = text(&args, "action", 16)?;
                 if action == "stop"
                     && self.works.lock().await.values().any(|work| {
-                        work.managed_cancel.is_some()
+                        work.app_cancel.is_some()
                             || work
                                 .record
                                 .selection
                                 .as_ref()
-                                .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                                .is_some_and(|s| s.reasoning == Reasoning::Provider)
                                 && !matches!(
                                     work.record.phase.as_str(),
                                     "completed" | "stop_requested" | "stopped"
@@ -1458,8 +2283,28 @@ impl Operator {
                 if !Self::covered(&context, &after_context) {
                     return Err(Error("native_context_boundary_changed"));
                 }
+                let turns = history[after.count..]
+                    .iter()
+                    .filter_map(|row| row["turn_id"].as_str())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let source_participation = turns.iter().map(|turn| Ok(json!({"turn_id":turn,"participation":self.source_participation(&record,turn)?})))
+                    .collect::<Result<Vec<_>,Error>>()?;
+                let source_admissions = turns
+                    .iter()
+                    .map(|turn| self.source_admission(&record, turn))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let source_executions = turns
+                    .iter()
+                    .map(|turn| self.mcp_host.source_execution(&record.thread, turn))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
                 Ok(
-                    json!({"items":history[after.count..],"cursor":Self::cursor(&history),"context_items":context[after_context.count..],"context_cursor":Self::cursor(&context)}),
+                    json!({"items":history[after.count..],"cursor":Self::cursor(&history),"context_items":context[after_context.count..],"context_cursor":Self::cursor(&context),"source_admissions":source_admissions,"source_executions":source_executions,"source_participation":source_participation}),
                 )
             }
             "codex_tools" => {
@@ -1473,9 +2318,9 @@ impl Operator {
                 if record
                     .selection
                     .as_ref()
-                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                    .is_some_and(|s| s.reasoning == Reasoning::Provider)
                 {
-                    return Err(Error("managed_worker_owns_controller"));
+                    return Err(Error("app_response_owns_execution"));
                 }
                 self.verify_identity(&record).await?;
                 let call: Arguments = serde_json::from_value(json!({"call_id":args["call_id"],"name":args["name"],"input":args["input"],"report":args["report"]}))
@@ -1707,12 +2552,11 @@ impl Operator {
                 }),
         ));
         if args["accept"].as_str() == Some(&receipt) {
-            if record
-                .selection
-                .as_ref()
-                .is_some_and(|s| s.reasoning == Reasoning::Managed)
+            if self
+                .app_route(&record, record.native_turn.as_deref())?
+                .is_some()
             {
-                return Err(Error("managed_worker_owns_controller"));
+                return Err(Error("app_response_owns_execution"));
             }
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -1844,24 +2688,43 @@ impl Operator {
             args["action"].as_str(),
             Some(
                 "start"
+                    | "join"
                     | "compact"
                     | "claim"
                     | "takeover"
                     | "evaluate"
                     | "transfer"
                     | "transfer_accept"
+                    | "bind"
+                    | "unbind"
             )
         ) && args.get("call_id").is_some()
         {
             let call = text(&args, "call_id", 160)?;
+            let binding_control =
+                matches!(args["action"].as_str(), Some("bind" | "unbind" | "join"));
+            let controller_scope = if binding_control {
+                &Value::Null
+            } else {
+                &args["controller"]
+            };
             let key = digest(&(
                 "operator-session-mutation-v1",
                 &args["work_id"],
-                &args["controller"],
+                controller_scope,
                 &args["action"],
                 call,
             ));
-            let fingerprint = digest(&args);
+            // Bind/unbind and join are selected by authenticated work identity,
+            // not a caller's old capability. A join retry returns its original
+            // generation; it cannot authorize effects after that owner is fenced.
+            let fingerprint = if binding_control {
+                let mut input = args.clone();
+                input.as_object_mut().unwrap().remove("controller");
+                digest(&input)
+            } else {
+                digest(&args)
+            };
             if let Some(result) = operation::recover(
                 &self.journal,
                 &key,
@@ -1921,12 +2784,15 @@ impl Operator {
             args["action"].as_str(),
             Some(
                 "start"
+                    | "join"
                     | "compact"
                     | "claim"
                     | "takeover"
                     | "evaluate"
                     | "transfer"
                     | "transfer_accept"
+                    | "bind"
+                    | "unbind"
             )
         ) {
             Some(self.native_admission(&args).await?)
@@ -1935,7 +2801,10 @@ impl Operator {
         };
         match args["action"].as_str() {
             Some("queue") => self.queue_input(args).await,
-            Some("synchronize") => self.synchronize(args).await,
+            Some("synchronize") => self.synchronize_native(args).await,
+            Some("source_sync") => self.synchronize_source(args).await,
+            Some("source_join") => self.join_verified_source(args).await,
+            Some("bind" | "unbind") => self.set_development_binding(args, receipt).await,
             Some("transfer" | "transfer_accept") => self.transfer(args, receipt).await,
             Some("chat_input" | "chat_result") => {
                 let input = crate::chat_input::Inputs {
@@ -2026,7 +2895,7 @@ impl Operator {
                     {
                         work.record.accepted = false;
                         work.record.phase = "stop_requested".into();
-                        if let Some(cancel) = &work.managed_cancel {
+                        if let Some(cancel) = &work.app_cancel {
                             cancel.cancel();
                         }
                         self.persist(&work.record)?;
@@ -2096,7 +2965,7 @@ impl Operator {
                         };
                     rows.push(json!({"work_id":work.record.id,"thread_id":work.record.thread,"origin":work.record.origin,
                         "phase":work.record.phase,"selection":work.record.selection,"workspace":work.record.workspace,
-                        "execution_home":work.record.execution.home,"source_conversation_id":conversation}));
+                        "execution_home":work.record.execution.home,"source_conversation_id":conversation,"development_binding":self.development_binding(&work.record)?}));
                 }
                 Ok(json!({"work":rows}))
             }
@@ -2157,13 +3026,13 @@ impl Operator {
                                 .map_err(|_| Error("operator_arguments_invalid"))?,
                             None => ReturnPath::Mcp,
                         };
-                        if reasoning == Reasoning::Current && return_path != ReturnPath::Mcp {
+                        if reasoning == Reasoning::Direct && return_path != ReturnPath::Mcp {
                             return Err(Error("direct_requires_mcp"));
                         }
-                        if reasoning == Reasoning::Managed
+                        if reasoning == Reasoning::Provider
                             && self.config.history.mode != crate::config::HistoryMode::Project
                         {
-                            return Err(Error("managed_project_required"));
+                            return Err(Error("provider_project_required"));
                         }
                         Some(Selection {
                             reasoning,
@@ -2288,7 +3157,7 @@ impl Operator {
                                     .record
                                     .selection
                                     .as_ref()
-                                    .is_some_and(|s| s.reasoning == Reasoning::Managed)
+                                    .is_some_and(|s| s.reasoning == Reasoning::Provider)
                                 && work.record.workspace.as_ref().is_some_and(|other| {
                                     workspace.starts_with(other) || other.starts_with(&workspace)
                                 })
@@ -2346,14 +3215,57 @@ impl Operator {
                 operation::settle(&self.journal, &key, &fingerprint, &result)?;
                 Ok(result)
             }
-            Some("start") => {
-                let (record, native) = self.binding(&args, false).await?;
-                if args["controller"].as_str() != Some(&record.capability)
-                    || !matches!(
-                        record.phase.as_str(),
-                        "waiting_native" | "completed" | "queued"
-                    )
-                    || record.phase == "completed" && record.selection.is_none()
+            Some("start" | "join") => {
+                let joining = args["action"] == "join";
+                if joining {
+                    text(&args, "call_id", 160)?;
+                    if [
+                        "controller",
+                        "reasoning",
+                        "return_path",
+                        "conversation_id",
+                        "source_message_id",
+                        "accept",
+                    ]
+                    .iter()
+                    .any(|field| args.get(field).is_some())
+                    {
+                        return Err(Error("operator_arguments_invalid"));
+                    }
+                }
+                let (mut record, native) = self.binding(&args, false).await?;
+                if joining {
+                    record = self.observe_native(record, &native).await?.0;
+                    if record.phase != "completed" {
+                        return Err(Error("native_writer_unsettled"));
+                    }
+                    let pool = self.work_pool(&record).await?;
+                    native.verify_scope(&record.thread, &pool.workspace).await?;
+                    self.recovery_receipts(&native, &record).await?;
+                    let state = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":record.thread,"includeTurns":false}),
+                        )
+                        .await?;
+                    if state["thread"]["status"]["type"] != "idle"
+                        || self.mcp_host.pending_external(&record.thread)?.is_some()
+                        || self
+                            .broker
+                            .recorded_calls(&record.token)?
+                            .iter()
+                            .any(|call| call["settled"] != true)
+                    {
+                        return Err(Error("native_writer_unsettled"));
+                    }
+                }
+                if !joining
+                    && (args["controller"].as_str() != Some(&record.capability)
+                        || !matches!(
+                            record.phase.as_str(),
+                            "waiting_native" | "completed" | "queued"
+                        )
+                        || record.phase == "completed" && record.selection.is_none())
                 {
                     return Err(Error("operator_controller_fenced"));
                 }
@@ -2408,6 +3320,10 @@ impl Operator {
                     ) || work.stops_in_progress != 0
                         || work.record.capability != record.capability
                         || work.record.generation != record.generation
+                        || joining
+                            && (work.active.is_some()
+                                || work.app_cancel.is_some()
+                                || !work.record.pending.is_empty())
                     {
                         return Err(Error("native_start_reconciliation_required"));
                     }
@@ -2431,6 +3347,13 @@ impl Operator {
                             .broker
                             .register(&record.id, BTreeMap::new(), false)
                             .await?;
+                        work.record.accepted = false;
+                    }
+                    if joining {
+                        work.record.selection = Some(Selection {
+                            reasoning: Reasoning::Direct,
+                            return_path: ReturnPath::Mcp,
+                        });
                         work.record.accepted = false;
                     }
                     work.record.phase = "starting_native".into();
@@ -2458,9 +3381,11 @@ impl Operator {
                     work.record.native_turn = Some(turn.into());
                     self.persist(&work.record)?;
                 }
-                Ok(
-                    json!({"started":true,"work_id":record.id,"thread_id":record.thread,"native_turn":work.record.native_turn,"controller":work.record.capability,"delivery":"pending","retrieve":"codex_sessions events"}),
-                )
+                let mut result = json!({"started":true,"work_id":record.id,"thread_id":record.thread,"native_turn":work.record.native_turn,"controller":work.record.capability,"delivery":"pending","retrieve":if joining {"codex_attach"}else{"codex_sessions events"},"input_origin":"bridge_arguments"});
+                if joining {
+                    result["inference_submitted"] = json!(false);
+                }
+                Ok(result)
             }
             Some("compact") => {
                 let (record, native) = self.binding(&args, false).await?;
@@ -2617,10 +3542,10 @@ impl Operator {
                     if !record
                         .selection
                         .as_ref()
-                        .is_some_and(|s| s.reasoning == Reasoning::Current)
+                        .is_some_and(|s| s.reasoning == Reasoning::Direct)
                     {
                         return Err(Error(
-                            "assignment_budget_extension_requires_current_reasoning",
+                            "assignment_budget_extension_requires_direct_reasoning",
                         ));
                     }
                     let assignment = record
@@ -2706,53 +3631,6 @@ impl Operator {
         }
         Err(Error("native_observation_superseded"))
     }
-    pub(crate) async fn restore_source_observers(&self, stop: &CancellationToken) {
-        let records = self
-            .works
-            .lock()
-            .await
-            .values()
-            .filter(|work| {
-                work.record.phase == "completed"
-                    && work.record.selection.as_ref().is_some_and(|selection| {
-                        selection.reasoning == Reasoning::Managed
-                            && selection.return_path == ReturnPath::Mcp
-                    })
-            })
-            .map(|work| work.record.clone())
-            .collect::<Vec<_>>();
-        for record in records {
-            if stop.is_cancelled() {
-                return;
-            }
-            match self.managed_mcp.has_retained_source(&record.thread).await {
-                Ok(true) => (),
-                Ok(false) => continue,
-                Err(error) => {
-                    eprintln!("saved_source_restore_failed: {}", error.0);
-                    continue;
-                }
-            }
-            let cancel = stop.child_token();
-            let mut works = self.works.lock().await;
-            let Some(work) = works.get_mut(&record.thread) else {
-                continue;
-            };
-            if !same_native_round(&record, &work.record)
-                || work.record.phase != "completed"
-                || work.stops_in_progress != 0
-                || work
-                    .completion_observer
-                    .as_ref()
-                    .is_some_and(|observer| !observer.is_cancelled())
-            {
-                continue;
-            }
-            work.completion_observer = Some(cancel.clone());
-            drop(works);
-            self.watch_completion(record, None, cancel);
-        }
-    }
     fn watch_completion(
         &self,
         record: Record,
@@ -2764,8 +3642,7 @@ impl Operator {
             let _retire = cancel.clone().drop_guard();
             let mut native = initial_native;
             let mut events = native.as_ref().map(|native| native.events.subscribe());
-            let mut source_queued = false;
-            let mut polling = tokio::time::interval(SOURCE_OBSERVE_INTERVAL);
+            let mut polling = tokio::time::interval(RECONCILE_INTERVAL);
             polling.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 let event = tokio::select! {
@@ -2798,14 +3675,29 @@ impl Operator {
                     let Some(work) = works.get(&record.thread) else {
                         return;
                     };
-                    if !same_native_round(&record, &work.record)
-                        || work.stops_in_progress != 0
-                        || !matches!(work.record.phase.as_str(), "running" | "completed")
+                    if work.stops_in_progress != 0
+                        || matches!(work.record.phase.as_str(), "stop_requested" | "stopped")
                     {
+                        return;
+                    }
+                    if work.record.phase == "transfer_prepared" {
+                        continue;
+                    }
+                    if !matches!(
+                        work.record.phase.as_str(),
+                        "running" | "completed" | "interrupted"
+                    ) {
                         return;
                     }
                     work.record.clone()
                 };
+                if native
+                    .as_ref()
+                    .is_some_and(|native| native.owner != current.execution)
+                {
+                    native = None;
+                    events = None;
+                }
                 if native.is_none() {
                     let observed = async {
                         let pool = this.work_pool(&current).await?;
@@ -2825,38 +3717,25 @@ impl Operator {
                             events = Some(observed.events.subscribe());
                             native = Some(observed);
                         }
-                        Err(Error("native_thread_owner_unavailable")) => continue,
+                        Err(error @ Error("native_thread_owner_unavailable")) => {
+                            eprintln!("native_completion_observation_failed: {}", error.0);
+                            continue;
+                        }
                         Err(error) => {
-                            eprintln!("saved_source_owner_observation_failed: {}", error.0);
-                            return;
+                            eprintln!("native_completion_observation_failed: {}", error.0);
+                            continue;
                         }
                     }
                 }
                 let current_native = native.as_ref().unwrap();
-                match this.observe_native(current, current_native).await {
-                    Ok((current, _, _))
-                        if current.phase == "completed"
-                            && !source_queued
-                            && current.selection.as_ref().is_some_and(|selection| {
-                                selection.return_path == ReturnPath::Mcp
-                            }) =>
+                match this.observe_native(current.clone(), current_native).await {
+                    Ok((observed, _, _))
+                        if matches!(observed.phase.as_str(), "completed" | "interrupted") =>
                     {
-                        match this.observe_external(&current, current_native).await {
-                            Ok(queued) => source_queued = queued,
-                            Err(Error("bound_chat_owner_generation_changed")) => {
-                                if let Err(error) =
-                                    this.synchronize(json!({"thread_id":current.thread})).await
-                                {
-                                    eprintln!("bound_chat_reattachment_failed: {}", error.0);
-                                    return;
-                                }
-                            }
-                            Err(error) if source_observation_pending(&error) => (),
-                            Err(error) => {
-                                eprintln!("bound_chat_observation_failed: {}", error.0);
-                                return;
-                            }
+                        if let Err(error) = this.ensure_development_binding(&observed).await {
+                            eprintln!("development_binding_failed: {}", error.0);
                         }
+                        return;
                     }
                     Ok(_) => (),
                     Err(Error(
@@ -2868,14 +3747,55 @@ impl Operator {
                         events = None;
                     }
                     Err(error) => {
-                        eprintln!("managed_completion_observation_failed: {}", error.0);
+                        eprintln!("native_completion_observation_failed: {}", error.0);
                         return;
                     }
                 }
             }
         });
     }
-    async fn synchronize(&self, args: Value) -> Result<Value, Error> {
+    async fn synchronize_native(&self, args: Value) -> Result<Value, Error> {
+        let thread = text(&args, "thread_id", 64)?;
+        if args.get("source_message_id").is_some() {
+            return Err(Error("explicit_source_sync_required"));
+        }
+        let record = self
+            .works
+            .lock()
+            .await
+            .get(thread)
+            .map(|work| work.record.clone());
+        let Some(record) = record else {
+            return Ok(json!({"thread_id":thread,"status":"ready","inference_submitted":false}));
+        };
+        if matches!(
+            record.phase.as_str(),
+            "stop_requested" | "reconciliation_required"
+        ) {
+            return Err(Error("operator_reconciliation_required"));
+        }
+        let pool = self.work_pool(&record).await?;
+        let native = pool.discover_thread(thread).await?;
+        let (record, state, _) = self.observe_native(record, &native).await?;
+        let direct_active = self
+            .app_route(&record, record.native_turn.as_deref())?
+            .is_none()
+            && !matches!(
+                record.phase.as_str(),
+                "completed" | "interrupted" | "stopped"
+            );
+        let source_active = self
+            .mcp_host
+            .source_turn_pending(thread, record.native_turn.as_deref())?;
+        let active = state["thread"]["status"]["type"] == "active";
+        Ok(if direct_active || source_active && active {
+            json!({"thread_id":thread,"status":"waiting","reason":"native_turn_active",
+                "retry_after_seconds":RECONCILE_INTERVAL.as_secs(),"inference_submitted":false})
+        } else {
+            json!({"thread_id":thread,"status":"ready","inference_submitted":false})
+        })
+    }
+    async fn synchronize_source(&self, args: Value) -> Result<Value, Error> {
         let thread = text(&args, "thread_id", 64)?;
         let ready = || json!({"thread_id":thread,"status":"ready","inference_submitted":false});
         let pending = |reason: &str, retry: u64| json!({"thread_id":thread,"status":"waiting","reason":reason,"retry_after_seconds":retry,"inference_submitted":false});
@@ -2889,14 +3809,23 @@ impl Operator {
             }
             work.record.clone()
         };
-        if !record.selection.as_ref().is_some_and(|selection| {
-            selection.reasoning == Reasoning::Managed && selection.return_path == ReturnPath::Mcp
-        }) || record.phase == "stopped"
+        if !record
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.return_path == ReturnPath::Mcp)
+            || record.phase == "stopped"
         {
             return Ok(ready());
         }
         if record.phase == "reconciliation_required" {
             return Err(Error("operator_reconciliation_required"));
+        }
+        if self
+            .ensure_development_binding(&record)
+            .await?
+            .is_some_and(|binding| !binding.enabled)
+        {
+            return Ok(ready());
         }
         let pool = self.work_pool(&record).await?;
         let native = pool.discover_thread(thread).await?;
@@ -2904,29 +3833,34 @@ impl Operator {
         if state["thread"]["status"]["type"] == "notLoaded" {
             return Ok(pending(
                 "native_thread_not_loaded",
-                SOURCE_OBSERVE_INTERVAL.as_secs(),
+                RECONCILE_INTERVAL.as_secs(),
             ));
         }
         if state["thread"]["modelProvider"] != crate::registration::PROVIDER {
             return Err(Error("bound_chat_native_route_changed"));
         }
-        if state["thread"]["status"]["type"] != "idle" {
+        if !source_native_settled(&record, &state) {
             return Ok(
                 if self
-                    .managed_mcp
+                    .mcp_host
                     .source_turn_pending(thread, record.native_turn.as_deref())?
                 {
-                    pending("bound_chat_turn_active", SOURCE_OBSERVE_INTERVAL.as_secs())
+                    pending("bound_chat_turn_active", RECONCILE_INTERVAL.as_secs())
                 } else {
                     ready()
                 },
             );
         }
+        let selected = args
+            .get("source_message_id")
+            .filter(|value| !value.is_null())
+            .map(|_| text(&args, "source_message_id", 256))
+            .transpose()?;
         let result = async {
-            match self.observe_external(&record, &native).await {
+            match self.observe_external(&record, &native, selected).await {
                 Ok(true) => Ok(pending(
                     "bound_chat_turn_admitted",
-                    SOURCE_OBSERVE_INTERVAL.as_secs(),
+                    RECONCILE_INTERVAL.as_secs(),
                 )),
                 Ok(false) => {
                     let current = native
@@ -2948,28 +3882,28 @@ impl Operator {
                         return Err(Error("operator_reconciliation_required"));
                     }
                     if !same_native_round(&record, &work.record)
-                        || self.managed_mcp.source_turn_pending(thread, None)?
+                        || self.mcp_host.source_turn_pending(thread, None)?
                     {
                         return Ok(pending(
                             "bound_chat_observation_superseded",
-                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                            RECONCILE_INTERVAL.as_secs(),
                         ));
                     }
                     drop(works);
                     if current["thread"]["modelProvider"] != crate::registration::PROVIDER {
                         return Err(Error("bound_chat_native_route_changed"));
                     }
-                    Ok(if current["thread"]["status"]["type"] == "idle" {
+                    Ok(if source_native_settled(&record, &current) {
                         ready()
                     } else {
                         pending(
                             "bound_chat_observation_superseded",
-                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                            RECONCILE_INTERVAL.as_secs(),
                         )
                     })
                 }
                 Err(Error("bound_chat_owner_generation_changed")) => {
-                    if record.phase != "completed" {
+                    if !matches!(record.phase.as_str(), "completed" | "interrupted") {
                         return Err(Error("bound_chat_reattachment_unsettled"));
                     }
                     native.verify_scope(thread, &pool.workspace).await?;
@@ -2979,9 +3913,9 @@ impl Operator {
                             .get(thread)
                             .ok_or(Error("operator_controller_fenced"))?;
                         if !same_native_round(&record, &work.record)
-                            || work.record.phase != "completed"
+                            || !matches!(work.record.phase.as_str(), "completed" | "interrupted")
                             || work.stops_in_progress != 0
-                            || work.managed_cancel.is_some()
+                            || work.app_cancel.is_some()
                         {
                             return Err(Error("bound_chat_observation_superseded"));
                         }
@@ -2990,7 +3924,7 @@ impl Operator {
                     let Ok(_admission) = admission.try_lock_owned() else {
                         return Ok(pending(
                             "bound_chat_observation_busy",
-                            SOURCE_OBSERVE_INTERVAL.as_secs(),
+                            RECONCILE_INTERVAL.as_secs(),
                         ));
                     };
                     let history = native
@@ -3002,10 +3936,10 @@ impl Operator {
                     let last = history["thread"]["turns"]
                         .as_array()
                         .and_then(|turns| turns.last());
-                    if history["thread"]["status"]["type"] != "idle"
+                    if !source_native_settled(&record, &history)
                         || !last.is_some_and(|turn| {
                             turn["id"].as_str() == record.native_turn.as_deref()
-                                && turn["status"] == "completed"
+                                && settled_source_turn(&record, turn)
                         })
                         || !self.owned_jobs(&native, &record).await?.is_empty()
                     {
@@ -3017,17 +3951,17 @@ impl Operator {
                             .get(thread)
                             .ok_or(Error("operator_controller_fenced"))?;
                         if !same_native_round(&record, &work.record)
-                            || work.record.phase != "completed"
+                            || !matches!(work.record.phase.as_str(), "completed" | "interrupted")
                             || work.stops_in_progress != 0
-                            || work.managed_cancel.is_some()
+                            || work.app_cancel.is_some()
                         {
                             return Err(Error("bound_chat_observation_superseded"));
                         }
                     }
-                    self.managed_mcp.reattach_settled_source(thread).await?;
+                    self.mcp_host.reattach_settled_source(thread).await?;
                     Ok(pending(
                         "bound_chat_reattached",
-                        SOURCE_OBSERVE_INTERVAL.as_secs(),
+                        RECONCILE_INTERVAL.as_secs(),
                     ))
                 }
                 Err(error) => Err(error),
@@ -3036,21 +3970,41 @@ impl Operator {
         .await;
         match result {
             Err(error) if source_observation_pending(&error) => {
-                let status = self.bridge.operation(json!({"op":"host_status"})).await?;
-                let retry = if status["saved_read_backoff"]["cooling_down"] == true {
-                    status["saved_read_backoff"]["retry_after_seconds"]
-                        .as_u64()
-                        .ok_or(Error("app_chat_response_invalid"))?
-                } else {
-                    SOURCE_OBSERVE_INTERVAL.as_secs()
-                };
+                self.source_observation_failed(&record, &error).await;
+                let retry = self.source_retry_seconds().await?;
+                if selected.is_none()
+                    && self
+                        .development_binding(&record)?
+                        .is_some_and(|binding| binding.source_selection_required)
+                {
+                    return Err(Error("source_selection_required"));
+                }
                 Ok(pending(error.0, retry))
             }
-            other => other,
+            Err(error) => {
+                self.source_observation_failed(&record, &error).await;
+                Err(error)
+            }
+            Ok(value) => {
+                self.save_source_observation(&record, SourceObservation::Observing)
+                    .await?;
+                Ok(value)
+            }
         }
     }
 
-    async fn observe_external(&self, record: &Record, native: &Native) -> Result<bool, Error> {
+    async fn observe_external(
+        &self,
+        record: &Record,
+        native: &Native,
+        selected_message: Option<&str>,
+    ) -> Result<bool, Error> {
+        if !self
+            .development_binding(record)?
+            .is_some_and(|binding| binding.enabled)
+        {
+            return Ok(false);
+        }
         if native.owner.home != record.execution.home {
             return Err(Error("bound_chat_native_owner_changed"));
         }
@@ -3066,10 +4020,19 @@ impl Operator {
         if current["thread"]["status"]["type"] == "notLoaded" {
             return Err(Error("native_thread_not_loaded"));
         }
-        if current["thread"]["status"]["type"] != "idle" {
+        if !source_native_settled(record, &current) {
             return Err(Error("bound_chat_turn_active"));
         }
-        let Some(source) = self.managed_mcp.external_input(&record.thread).await? else {
+        let history = if selected_message.is_some() {
+            Self::history(native, &record.thread).await?
+        } else {
+            Vec::new()
+        };
+        let Some(source) = self
+            .mcp_host
+            .external_input(&record.thread, selected_message, &history)
+            .await?
+        else {
             return Ok(false);
         };
         let pool = self.work_pool(record).await?;
@@ -3080,8 +4043,11 @@ impl Operator {
                 .get(&record.thread)
                 .ok_or(Error("operator_controller_fenced"))?;
             if !same_native_round(record, &work.record)
-                || !matches!(work.record.phase.as_str(), "running" | "completed")
-                || work.managed_cancel.is_some()
+                || !matches!(
+                    work.record.phase.as_str(),
+                    "running" | "completed" | "interrupted"
+                )
+                || work.app_cancel.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
@@ -3091,14 +4057,23 @@ impl Operator {
         let Ok(_admission) = admission.try_lock_owned() else {
             return Err(Error("bound_chat_observation_busy"));
         };
+        if !self
+            .development_binding(record)?
+            .is_some_and(|binding| binding.enabled)
+        {
+            return Ok(false);
+        }
         {
             let works = self.works.lock().await;
             let work = works
                 .get(&record.thread)
                 .ok_or(Error("operator_controller_fenced"))?;
             if !same_native_round(record, &work.record)
-                || !matches!(work.record.phase.as_str(), "running" | "completed")
-                || work.managed_cancel.is_some()
+                || !matches!(
+                    work.record.phase.as_str(),
+                    "running" | "completed" | "interrupted"
+                )
+                || work.app_cancel.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
@@ -3110,7 +4085,7 @@ impl Operator {
                 json!({"threadId":record.thread,"includeTurns":false}),
             )
             .await?;
-        if state["thread"]["status"]["type"] != "idle" {
+        if !source_native_settled(record, &state) {
             return Err(Error("bound_chat_turn_active"));
         }
         if state["thread"]["modelProvider"] != crate::registration::PROVIDER {
@@ -3122,14 +4097,24 @@ impl Operator {
                 .get(&record.thread)
                 .ok_or(Error("operator_controller_fenced"))?;
             if !same_native_round(record, &work.record)
-                || !matches!(work.record.phase.as_str(), "running" | "completed")
-                || work.managed_cancel.is_some()
+                || !matches!(
+                    work.record.phase.as_str(),
+                    "running" | "completed" | "interrupted"
+                )
+                || work.app_cancel.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
             }
         }
-        self.queue_input(json!({"thread_id":record.thread,"call_id":source.input.call_id(),"text":source.text,"execution_home":record.execution.home})).await?;
+        let (input, call_id) = self
+            .mcp_host
+            .pending_external(&record.thread)?
+            .ok_or(Error("bound_chat_observation_superseded"))?;
+        if input != source.input {
+            return Err(Error("bound_chat_input_changed"));
+        }
+        self.queue_input(json!({"thread_id":record.thread,"call_id":call_id,"text":source.text,"execution_home":record.execution.home})).await?;
         Ok(true)
     }
     async fn observe_native(
@@ -3137,17 +4122,75 @@ impl Operator {
         mut record: Record,
         native: &Native,
     ) -> Result<(Record, Value, Option<Value>), Error> {
-        let managed = record
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.reasoning == Reasoning::Managed);
+        let app_routed = self
+            .app_route(&record, record.native_turn.as_deref())?
+            .is_some();
         let state = native
             .call(
                 "thread/read",
                 json!({"threadId":record.thread,"includeTurns":false}),
             )
             .await?;
-        let managed_lane = if managed {
+        if app_routed && record.phase == "interrupted" && source_native_settled(&record, &state) {
+            let pool = self.work_pool(&record).await?;
+            native.verify_scope(&record.thread, &pool.workspace).await?;
+            let admission = {
+                let works = self.works.lock().await;
+                let work = works
+                    .get(&record.thread)
+                    .ok_or(Error("operator_controller_fenced"))?;
+                if !same_native_round(&record, &work.record)
+                    || work.record.phase != "interrupted"
+                    || work.stops_in_progress != 0
+                    || work.app_cancel.is_some()
+                {
+                    return Err(Error("bound_chat_observation_superseded"));
+                }
+                work.native_admission.clone()
+            };
+            let _admission = admission
+                .try_lock_owned()
+                .map_err(|_| Error("bound_chat_observation_busy"))?;
+            let history = native
+                .call(
+                    "thread/read",
+                    json!({"threadId":record.thread,"includeTurns":true}),
+                )
+                .await?;
+            let last = history["thread"]["turns"]
+                .as_array()
+                .and_then(|turns| turns.last());
+            if !last.is_some_and(|turn| settled_source_turn(&record, turn))
+                || !self.owned_jobs(native, &record).await?.is_empty()
+            {
+                return Err(Error("bound_chat_reattachment_unsettled"));
+            }
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_controller_fenced"))?;
+            if !same_native_round(&record, &work.record)
+                || work.record.phase != "interrupted"
+                || work.stops_in_progress != 0
+                || work.app_cancel.is_some()
+            {
+                return Err(Error("bound_chat_observation_superseded"));
+            }
+            // Source reconciliation only advances observation. Release the
+            // work lock before host reads so Stop can still fence admission;
+            // the AppHost revalidates its lane before committing the anchor.
+            drop(works);
+            self.mcp_host
+                .reconcile_interrupted_source(
+                    &record.thread,
+                    record
+                        .native_turn
+                        .as_deref()
+                        .ok_or(Error("native_turn_unavailable"))?,
+                )
+                .await?;
+        }
+        let app_lane = if app_routed {
             match crate::app::inspect_lane(&self.journal.root, &record.thread) {
                 Ok(lane) => Some(lane),
                 Err(Error("native_lane_not_found")) => None,
@@ -3156,10 +4199,10 @@ impl Operator {
         } else {
             None
         };
-        if managed
+        if app_routed
             && record.phase == "running"
-            && state["thread"]["status"]["type"] == "idle"
-            && managed_lane
+            && source_native_settled(&record, &state)
+            && app_lane
                 .as_ref()
                 .is_some_and(|lane| lane["phase"] == "idle" && lane["pending_native_calls"] == 0)
         {
@@ -3194,13 +4237,13 @@ impl Operator {
                 }
             }
         }
-        Ok((record, state, managed_lane))
+        Ok((record, state, app_lane))
     }
     async fn observe_status(&self, args: &Value) -> Result<Value, Error> {
         let mut observed = false;
         let mut host_observation = Value::Null;
         let (record, native) = self.binding(args, false).await?;
-        let (mut record, state, managed_lane) = self.observe_native(record, &native).await?;
+        let (mut record, state, app_lane) = self.observe_native(record, &native).await?;
         if let Some(lane) = &record.driver {
             let snapshot = tokio::time::timeout(
                 Duration::from_secs(3),
@@ -3251,17 +4294,25 @@ impl Operator {
             .filter(|v| v["params"]["threadId"] == record.thread)
             .cloned()
             .collect::<Vec<_>>();
-        {
+        let native_observer_running = {
             let works = self.works.lock().await;
-            let current = &works.get(&record.thread).unwrap().record;
-            if !same_native_round(&record, current) || record.phase != current.phase {
+            let work = works.get(&record.thread).unwrap();
+            if !same_native_round(&record, &work.record) || record.phase != work.record.phase {
                 return Err(Error("native_observation_superseded"));
             }
-        }
+            work.completion_observer
+                .as_ref()
+                .is_some_and(|observer| !observer.is_cancelled())
+        };
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
+            "native_observer_running":native_observer_running,
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
-            "selection":record.selection,"workspace":record.workspace,"managed_lane":managed_lane,
+            "selection":record.selection,"workspace":record.workspace,"app_lane":app_lane,
+            "development_binding":self.development_binding(&record)?,
+            "source_admission":record.native_turn.as_deref().map(|turn|self.source_admission(&record,turn)).transpose()?.flatten(),
+            "source_execution":record.native_turn.as_deref().map(|turn|self.mcp_host.source_execution(&record.thread,turn)).transpose()?.flatten(),
+            "source_participation":record.native_turn.as_deref().map(|turn|self.source_participation(&record,turn)).transpose()?,
             "host_state":if observed{record.host_last_state.as_str()}else{"unknown"},"driver_phase":record.driver_phase,"last_observed_host_state":record.host_last_state,"host_observed_at":record.host_observed_at,"host_observation_available":observed,"host_progress":"unknown","host_observation":host_observation,"completed":record.phase=="completed"}),
         )
     }
@@ -3350,27 +4401,25 @@ impl Operator {
                 .transpose()?
                 .unwrap_or(ReturnPath::Mcp),
         };
-        if selection.reasoning == Reasoning::Current && selection.return_path != ReturnPath::Mcp {
+        if selection.reasoning == Reasoning::Direct && selection.return_path != ReturnPath::Mcp {
             return Err(Error("direct_requires_mcp"));
         }
-        if selection.reasoning == Reasoning::Managed
+        if selection.reasoning == Reasoning::Provider
             && self.config.history.mode != crate::config::HistoryMode::Project
         {
-            return Err(Error("managed_project_required"));
+            return Err(Error("provider_project_required"));
         }
         let summary = text(&args, "text", 256 * 1024)?;
         // Reconcile and stop the old owned host lane before offering a new
         // generation. The saved source is retained, never adopted by title.
-        if record
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.reasoning == Reasoning::Managed)
-            && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok()
+        if record.selection.as_ref().is_some_and(|s| {
+            s.reasoning == Reasoning::Provider && s.return_path != selection.return_path
+        }) && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok()
         {
             let host = if record.selection.as_ref().unwrap().return_path == ReturnPath::Mcp {
-                &self.managed_mcp
+                &self.mcp_host
             } else {
-                &self.managed_local
+                &self.local_host
             };
             host.detach_settled(&record.thread).await?;
         }
@@ -3414,7 +4463,7 @@ impl Operator {
             if let Some(observer) = work.completion_observer.take() {
                 observer.cancel();
             }
-            if let Some(cancel) = &work.managed_cancel {
+            if let Some(cancel) = &work.app_cancel {
                 cancel.cancel();
             }
             work.record.phase = "stop_requested".into();
@@ -3512,18 +4561,16 @@ impl Operator {
         })
         .await;
         let confirmed = matches!(native_result, Ok(Ok(())));
-        let managed_lane = record
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.reasoning == Reasoning::Managed)
-            .then(|| crate::app::inspect_lane(&self.journal.root, &record.thread));
+        let app_lane = self
+            .app_route(&record, record.native_turn.as_deref())?
+            .map(|_| crate::app::inspect_lane(&self.journal.root, &record.thread));
         let host_requested = record.driver.is_some()
-            || managed_lane.as_ref().is_some_and(|lane| {
+            || app_lane.as_ref().is_some_and(|lane| {
                 lane.as_ref()
-                    .map(managed_lane_requires_host_stop)
+                    .map(app_lane_requires_host_stop)
                     .unwrap_or(true)
             });
-        let host_confirmed = if host_requested || managed_lane.is_some() {
+        let host_confirmed = if host_requested || app_lane.is_some() {
             // The response worker can finish acknowledged app cancellation
             // while native interruption is being observed. Its owner must
             // confirm/reuse that settlement even if no new Stop is needed.
@@ -4192,7 +5239,7 @@ impl Operator {
         if record
             .selection
             .as_ref()
-            .is_none_or(|s| s.reasoning != Reasoning::Current)
+            .is_none_or(|s| s.reasoning != Reasoning::Direct)
             && (!existed || new_user_turn || (manual_compact && record.driver.is_some()))
         {
             let this = self.clone();
@@ -4385,8 +5432,8 @@ impl Operator {
         }
         while stops.join_next().await.is_some() {}
         self.reviewer.shutdown().await;
-        self.managed_mcp.shutdown().await;
-        self.managed_local.shutdown().await;
+        self.mcp_host.shutdown().await;
+        self.local_host.shutdown().await;
     }
 }
 impl Host for Operator {
@@ -4400,18 +5447,11 @@ impl Host for Operator {
                     .ok_or(Error("operator_work_unavailable"))?;
                 work.record.clone()
             };
-            if let Some(selection) = record
-                .selection
-                .as_ref()
-                .filter(|s| s.reasoning == Reasoning::Managed)
-            {
+            if let Some(path) = this.app_route(&record, record.native_turn.as_deref())? {
                 if record.phase != "running" {
                     return Err(Error("operator_work_not_running"));
                 }
-                return this
-                    .managed(selection.return_path)
-                    .approve(thread, ui)
-                    .await;
+                return this.app_host(path).approve(thread, ui).await;
             }
             if record.phase != "running"
                 || this
@@ -4446,12 +5486,8 @@ impl Host for Operator {
                 .ok_or(Error("operator_work_unavailable"))?
                 .record
                 .clone();
-            if let Some(selection) = record
-                .selection
-                .as_ref()
-                .filter(|s| s.reasoning == Reasoning::Managed)
-            {
-                return this.managed(selection.return_path).reveal(thread).await;
+            if let Some(path) = this.app_route(&record, record.native_turn.as_deref())? {
+                return this.app_host(path).reveal(thread).await;
             }
             let lane = record.driver.as_ref().ok_or(Error("app_lane_missing"))?;
             let identity = this.verify_identity(&record).await?;
@@ -4489,7 +5525,7 @@ impl Host for Operator {
                         Some(&request),
                         pool.clone(),
                         Some(Selection {
-                            reasoning: Reasoning::Managed,
+                            reasoning: Reasoning::Provider,
                             return_path: this.config.transport.return_path,
                         }),
                         None,
@@ -4497,12 +5533,18 @@ impl Host for Operator {
                     .await?,
                 );
             }
+            if let Some(prior) = &record {
+                this.admit_native_round(prior, &request, &native, &pool)
+                    .await?;
+                record = this
+                    .works
+                    .lock()
+                    .await
+                    .get(&request.thread)
+                    .map(|work| work.record.clone());
+            }
             let path = match &record {
-                Some(record) => record
-                    .selection
-                    .as_ref()
-                    .filter(|s| s.reasoning == Reasoning::Managed)
-                    .map(|s| s.return_path),
+                Some(record) => this.app_route(record, request.turn.as_deref())?,
                 None if this.config.execution.mode
                     == crate::config::ExecutionMode::ModelAdapter =>
                 {
@@ -4510,52 +5552,18 @@ impl Host for Operator {
                 }
                 _ => None,
             };
-            if let Some(prior) = &record {
-                if path.is_some() || prior.origin == "codex" {
-                    this.rebind_native_round(prior, &request, &native, &pool)
-                        .await?;
-                    record = this
-                        .works
-                        .lock()
-                        .await
-                        .get(&request.thread)
-                        .map(|work| work.record.clone());
-                }
-            }
             if let Some(path) = path {
                 let thread = request.thread.clone();
-                if path == ReturnPath::Mcp {
-                    if let Some(source) = this.managed_mcp.pending_external(&thread).await? {
-                        let client_id = queue_client_id(&thread, &source.call_id());
-                        let turn = request
-                            .turn
-                            .as_deref()
-                            .ok_or(Error("bound_chat_native_turn_missing"))?;
-                        let consumed =
-                            Self::history(&native, &thread)
-                                .await?
-                                .into_iter()
-                                .any(|row| {
-                                    row["turn_id"] == turn
-                                        && row["item"]["type"] == "userMessage"
-                                        && row["item"]["clientId"] == client_id
-                                });
-                        if !consumed {
-                            return Err(Error("bound_chat_input_not_consumed"));
-                        }
-                        this.managed_mcp
-                            .bind_external(&thread, &source, turn)
-                            .await?;
-                    }
-                }
                 let completion_cancel = CancellationToken::new();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
                     // Check and reserve under one lock: Stop cannot fence a
                     // work between admission and installation of its cancel.
-                    admit_managed_round(work, record, request.turn.as_deref())?;
-                    work.managed_cancel = Some(cancel.clone());
+                    admit_app_round(work, record, request.turn.as_deref())?;
+                    work.app_cancel = Some(cancel.clone());
+                    work.record.accepted = false;
+                    work.request = Some(request.clone());
                     work.record.native_turn = request.turn.clone();
                     work.record.phase = "running".into();
                     if let Some(previous) =
@@ -4607,7 +5615,7 @@ impl Host for Operator {
                     Ok(())
                 };
                 let (result, forwarded) = tokio::join!(
-                    this.managed(path).exchange(request, sender, cancel),
+                    this.app_host(path).exchange(request, sender, cancel),
                     forward
                 );
                 if let Some(timer) = timer {
@@ -4618,10 +5626,12 @@ impl Host for Operator {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
                     if same_native_round(record, &work.record) {
-                        work.managed_cancel = None;
+                        work.app_cancel = None;
                         if work.stops_in_progress == 0 && work.record.phase == "running" {
                             work.record.phase = if result.is_ok() {
                                 "running"
+                            } else if result == Err(Error("bound_chat_turn_interrupted")) {
+                                "interrupted"
                             } else {
                                 "reconciliation_required"
                             }
@@ -4718,6 +5728,19 @@ fn completed_result(completed: bool, turn: Option<&str>, history: &[Value]) -> O
     (!items.is_empty())
         .then(|| json!({"turn_id":turn,"items":items,"source":"native_thread_items"}))
 }
+fn source_native_settled(record: &Record, state: &Value) -> bool {
+    state["thread"]["status"]["type"] == "idle"
+        || record.phase == "interrupted" && state["thread"]["status"]["type"] == "systemError"
+}
+fn settled_source_turn(record: &Record, turn: &Value) -> bool {
+    record.native_turn.is_some()
+        && turn["id"].as_str() == record.native_turn.as_deref()
+        && match record.phase.as_str() {
+            "completed" => turn["status"] == "completed",
+            "interrupted" => matches!(turn["status"].as_str(), Some("failed" | "interrupted")),
+            _ => false,
+        }
+}
 fn wait_reason(result: &Value) -> Option<&'static str> {
     let status = &result["status"];
     if status["completed"] == true
@@ -4732,7 +5755,7 @@ fn wait_reason(result: &Value) -> Option<&'static str> {
         Some("human_request")
     } else if matches!(
         status["phase"].as_str(),
-        Some("stopped" | "reconciliation_required" | "handoff")
+        Some("stopped" | "interrupted" | "reconciliation_required" | "handoff")
     ) {
         Some("attention_required")
     } else {
@@ -4796,7 +5819,11 @@ pub(crate) fn validate_arguments(
             Some("array") => value.as_array().is_some(),
             _ => false,
         };
-        if !valid {
+        if !valid
+            || schema["properties"][key]["enum"]
+                .as_array()
+                .is_some_and(|allowed| !allowed.contains(value))
+        {
             return Err(Error("operator_arguments_invalid"));
         }
     }
@@ -4807,6 +5834,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "list_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"offset":{"type":"integer","minimum":0},"filter":{"type":"string"}},"required":["account","offset","filter"],"additionalProperties":false})
         }
+        "reasoning" => json!({"type":"string","enum":["direct","provider"]}),
         "source_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false})
         }
@@ -4827,7 +5855,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
         }
         "action" => {
-            json!({"type":"string","enum":["list","create","resume","fork","start","queue","synchronize","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","evaluate","stop_tree"]})
+            json!({"type":"string","enum":["list","create","resume","fork","start","queue","synchronize","source_sync","source_join","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","bind","unbind","join","evaluate","stop_tree"]})
         }
         _ => json!({"type":"string"}),
     };
@@ -4835,7 +5863,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action", false),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action", false),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action", true),
-        ("codex_sessions", "Before a new native prompt, action=synchronize with thread_id reports ready or waiting and the source retry timing; it imports only existing saved input, never the new draft or a new inference. List/create native work; choose current reasoning (this Chat, MCP) or managed reasoning (saved project Chat; MCP default or explicit local_function). Explicit workspace/execution_home isolate writers. Agent assignments declare role, budget, optional parent_work_id/parent_controller and dependencies. Evaluate completed native results with controller, cursor, decision and text before releasing dependent work. For managed reasoning, completed wait includes completed_result with the current native turn and its original final items. The final may occur before later reports in native item creation order: inspect completed_result, never assume the last history item is the final. Reuse returned cursor for incremental wait/events; completed_result remains available after that cursor. codex_finish is for current reasoning, not a required managed history item. Follow history pagination before declaring a final absent. stop_tree fences and accounts for every descendant. events retrieves original native results/questions without inference; wait observes those locally for max_wait_seconds (0..300), returning a pending handle or original question/final. chat_input explicitly submits one related task to a settled saved conversation_id at a complete source_cursor with stable call_id; budget is required. chat_result reconciles input_id from saved source without retransmission. For follow-up to existing work, use its listed source_conversation_id/thread_id and read history. Claim the completed work with the current history/context cursors to obtain its controller; transfer to current reasoning and accept the offer before start when this Chat should own reasoning. Do not create a second work for that follow-up. transfer prepares a route at a completed idle boundary using exact cursor/context_cursor and a grounded text summary, fencing the source; the destination echoes transfer_receipt via transfer_accept before another start. A settled current-reasoning claim may supply budget with unchanged concurrency/app caps and increased or unchanged total native-call/elapsed caps; preserve original start and consumed counters. Managed extension requires host-ledger reconciliation. queue enqueues text on an explicit thread_id with stable call_id without changing its model or effort; the ACK is not proof of consumption. Supply execution_home for an explicit account. Identical retries return the original receipt; uncertain enqueue reconciles queue/history without retransmission. Supply stable call_id on mutations; reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_cursor input_id transfer_receipt", "action", false),
+        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, reserves Direct reasoning without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. Direct means this response uses Native tools; provider means Native starts Provider model execution (MCP default or explicit local_function). start uses an existing controller and selected route; Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled Direct claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Provider extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept", "action", false),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller", false),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id", true),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller", true),
@@ -4847,7 +5875,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id", false),
         ("codex_handoff", "Prepare a grounded summary at a history cursor, fence the old Chat and optionally request a successor on the same Codex thread.", "work_id controller call_id summary cursor context_cursor renew", "work_id controller call_id summary cursor context_cursor", false),
         ("codex_native_summary", "Answer an upstream-requested inference summary without replacing Chat. Supply a unique stable call_id per summary request and reuse identical arguments on delivery retries; an old keyed receipt cannot answer a later native round.", "work_id controller summary call_id", "work_id controller summary", false),
-        ("native_catalog", "Read the admitted native turn's tool schemas. After a saved Chat continuation, discovery can return tools and a fresh turn_token; use that token for subsequent calls. Old execution tokens remain retired.", "turn_token", "turn_token", true),
+        ("native_catalog", "Read the current admitted native turn's tool schemas. For a later user request, use codex_sessions join on the existing work and accept codex_attach context; a retired catalog does not admit ordinary follow-up input. Explicit source recovery can return a fresh turn_token after its verified admission; old execution tokens remain retired.", "turn_token", "turn_token", true),
         ("native_tool", "Run one advertised native tool and return its original result. Delivery retries reuse exact turn_token/call_id/name/input/report.", "turn_token call_id name input report", "turn_token call_id name input report", false),
     ];
     controls.into_iter().map(|(name, description, fields, required, _read)| {
@@ -4939,30 +5967,30 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
 mod local_tests {
     use super::*;
     #[test]
-    fn settled_managed_lane_does_not_request_an_unneeded_host_stop() {
-        assert!(!managed_lane_requires_host_stop(
+    fn settled_app_lane_does_not_request_an_unneeded_host_stop() {
+        assert!(!app_lane_requires_host_stop(
             &json!({"phase":"idle","pending_native_calls":0,"app_dispatches":0,
                 "user_role_objects":0,"tool_return_objects":0,"public_event_count":0,
                 "conversation_id":null})
         ));
-        assert!(!managed_lane_requires_host_stop(
+        assert!(!app_lane_requires_host_stop(
             &json!({"phase":"stopped","pending_native_calls":0})
         ));
-        assert!(managed_lane_requires_host_stop(
+        assert!(app_lane_requires_host_stop(
             &json!({"phase":"idle","pending_native_calls":1})
         ));
-        assert!(managed_lane_requires_host_stop(
+        assert!(app_lane_requires_host_stop(
             &json!({"phase":"idle","pending_native_calls":0,"app_dispatches":0,
                 "user_role_objects":1,"tool_return_objects":0,"public_event_count":0,
                 "conversation_id":null})
         ));
-        assert!(managed_lane_requires_host_stop(
+        assert!(app_lane_requires_host_stop(
             &json!({"phase":"running","pending_native_calls":0})
         ));
-        assert!(managed_lane_requires_host_stop(
+        assert!(app_lane_requires_host_stop(
             &json!({"phase":"unknown","pending_native_calls":0})
         ));
-        assert!(managed_lane_requires_host_stop(
+        assert!(app_lane_requires_host_stop(
             &json!({"pending_native_calls":0})
         ));
     }
@@ -5028,7 +6056,7 @@ mod local_tests {
 
     fn fixture_record(root: &std::path::Path) -> Record {
         Record {
-            schema: "termux-codex-operator-work-v1".into(),
+            schema: WORK_SCHEMA.into(),
             id: "work-one".into(),
             thread: "thread-one".into(),
             execution: Owner {
@@ -5063,6 +6091,111 @@ mod local_tests {
     }
 
     #[test]
+    fn reasoning_contract_has_only_direct_and_provider() {
+        let catalog = tools();
+        let sessions = catalog
+            .iter()
+            .find(|tool| tool["name"] == "codex_sessions")
+            .unwrap();
+        assert_eq!(
+            sessions["inputSchema"]["properties"]["reasoning"]["enum"],
+            json!(["direct", "provider"])
+        );
+        for name in ["direct", "provider"] {
+            let value = json!({"reasoning":name,"return_path":"mcp"});
+            validate_arguments(
+                &catalog,
+                "codex_sessions",
+                &json!({"action":"list","reasoning":name}),
+            )
+            .unwrap();
+            let selection: Selection = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(selection).unwrap(), value);
+        }
+        for name in ["current", "managed", "Direct", "Provider"] {
+            assert!(validate_arguments(
+                &catalog,
+                "codex_sessions",
+                &json!({"action":"list","reasoning":name})
+            )
+            .is_err());
+            assert!(serde_json::from_value::<Selection>(
+                json!({"reasoning":name,"return_path":"mcp"})
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn offline_reasoning_conversion_preserves_originals_restarts_and_downgrades() {
+        let root = std::env::temp_dir().join(format!("reasoning-migrate-{}", random_id().unwrap()));
+        crate::journal::private_directory(&root).unwrap();
+        let state = root.join("state");
+        let journal = Journal::open(&state).unwrap();
+        let mut value = serde_json::to_value(fixture_record(&root)).unwrap();
+        value["schema"] = json!("termux-codex-operator-work-v1");
+        value["selection"] = json!({"reasoning":"current","return_path":"mcp"});
+        value["summary"] = json!("Original prose mentioning managed and current must not change.");
+        let key = digest(&("operator-work-v1", &value["id"]));
+        journal.write(&key, &value).unwrap();
+        let original = value.clone();
+        let mut other = value.clone();
+        other["id"] = json!("work-two");
+        other["selection"]["reasoning"] = json!("managed");
+        let other_key = digest(&("operator-work-v1", &other["id"]));
+        journal.write(&other_key, &other).unwrap();
+        let untouched =
+            json!({"result":{"selection":{"reasoning":"managed"}},"source":"original receipt"});
+        let receipt_key = digest(&"immutable-original-receipt");
+        journal.write(&receipt_key, &untouched).unwrap();
+        assert_eq!(
+            migrate_reasoning(&state, &root.join("busy.json"), "direct-provider"),
+            Err(Error("provider_already_running"))
+        );
+        drop(journal);
+        let backup = root.join("before.json");
+        assert_eq!(
+            migrate_reasoning(&state, &backup, "direct-provider").unwrap()["converted_records"],
+            2
+        );
+        // Resume a genuinely mixed transaction after one record write was lost.
+        let journal = Journal::open(&state).unwrap();
+        journal.write(&key, &original).unwrap();
+        drop(journal);
+        migrate_reasoning(&state, &backup, "direct-provider").unwrap();
+        let journal = Journal::open(&state).unwrap();
+        let upgraded: Record = journal.read(&key).unwrap().unwrap();
+        assert_eq!(upgraded.schema, WORK_SCHEMA);
+        assert_eq!(upgraded.selection.unwrap().reasoning, Reasoning::Direct);
+        assert_eq!(
+            journal.read::<Value>(&receipt_key).unwrap(),
+            Some(untouched)
+        );
+        let snapshot: ReasoningMigration =
+            serde_json::from_slice(&std::fs::read(&backup).unwrap()).unwrap();
+        assert_eq!(snapshot.records[&key], original);
+        let canonical: Value = journal.read(&key).unwrap().unwrap();
+        let mut changed = canonical.clone();
+        changed["summary"] = json!("Later user state must not be overwritten by a stale backup.");
+        journal.write(&key, &changed).unwrap();
+        drop(journal);
+        assert_eq!(
+            migrate_reasoning(&state, &backup, "direct-provider"),
+            Err(Error("reasoning_migration_state_changed"))
+        );
+        let journal = Journal::open(&state).unwrap();
+        assert_eq!(journal.read::<Value>(&key).unwrap(), Some(changed));
+        journal.write(&key, &canonical).unwrap();
+        drop(journal);
+        migrate_reasoning(&state, &root.join("downgrade.json"), "provider14").unwrap();
+        let journal = Journal::open(&state).unwrap();
+        assert_eq!(journal.read::<Value>(&key).unwrap(), Some(original));
+        assert_eq!(journal.read::<Value>(&other_key).unwrap(), Some(other));
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn old_status_snapshot_cannot_fence_a_rebound_native_round() {
         let snapshot = fixture_record(std::path::Path::new("/owned"));
         let mut current = snapshot.clone();
@@ -5087,7 +6220,7 @@ mod local_tests {
     }
 
     #[test]
-    fn native_owner_rebind_requires_a_new_cli_turn_without_pending_calls() {
+    fn native_owner_rebind_requires_a_new_canonical_turn_without_pending_calls() {
         let mut record = fixture_record(std::path::Path::new("/owned"));
         record.origin = "codex".into();
         record.native_turn = Some("original".into());
@@ -5098,7 +6231,7 @@ mod local_tests {
         assert!(!new_native_owner_allowed(&record, Some("new-user-turn")));
         record.pending.clear();
         record.origin = "chatgpt".into();
-        assert!(!new_native_owner_allowed(&record, Some("new-user-turn")));
+        assert!(new_native_owner_allowed(&record, Some("new-user-turn")));
     }
 
     #[test]
@@ -5150,7 +6283,7 @@ mod local_tests {
     }
 
     #[test]
-    fn managed_admission_respects_stop_busy_and_obsolete_rounds() {
+    fn app_admission_respects_stop_busy_and_obsolete_rounds() {
         let mut record = fixture_record(std::path::Path::new("/owned"));
         record.phase = "running".into();
         record.native_turn = Some("previous".into());
@@ -5163,38 +6296,46 @@ mod local_tests {
             driver_lock: Arc::new(Mutex::new(())),
             native_admission: Arc::new(Mutex::new(())),
             stops_in_progress: 0,
-            managed_cancel: None,
+            app_cancel: None,
             completion_observer: None,
         };
-        assert!(admit_managed_round(&work, &record, Some("next")).is_ok());
+        assert!(admit_app_round(&work, &record, Some("next")).is_ok());
         work.stops_in_progress = 1;
         assert_eq!(
-            admit_managed_round(&work, &record, Some("next")),
+            admit_app_round(&work, &record, Some("next")),
             Err(Error("operator_controller_fenced"))
         );
         work.stops_in_progress = 0;
         work.record.phase = "stop_requested".into();
         assert_eq!(
-            admit_managed_round(&work, &record, Some("next")),
+            admit_app_round(&work, &record, Some("next")),
             Err(Error("operator_controller_fenced"))
         );
         work.record.phase = "stopped".into();
         assert_eq!(
-            admit_managed_round(&work, &record, Some("previous")),
+            admit_app_round(&work, &record, Some("previous")),
             Err(Error("operator_controller_fenced"))
         );
-        assert!(admit_managed_round(&work, &record, Some("next")).is_ok());
-        work.managed_cancel = Some(CancellationToken::new());
+        assert!(admit_app_round(&work, &record, Some("next")).is_ok());
+        work.app_cancel = Some(CancellationToken::new());
         assert_eq!(
-            admit_managed_round(&work, &record, Some("next")),
+            admit_app_round(&work, &record, Some("next")),
             Err(Error("native_lane_busy"))
         );
-        work.managed_cancel = None;
+        work.app_cancel = None;
         work.record.native_turn = Some("already-newer".into());
         assert_eq!(
-            admit_managed_round(&work, &record, Some("next")),
+            admit_app_round(&work, &record, Some("next")),
             Err(Error("operator_controller_fenced"))
         );
+        let mut reserved = record.clone();
+        reserved.phase = "starting_native".into();
+        work.record = reserved.clone();
+        work.record.native_turn = Some("reserved-turn".into());
+        assert!(admit_app_round(&work, &reserved, Some("reserved-turn")).is_ok());
+        assert!(admit_app_round(&work, &reserved, Some("previous")).is_err());
+        work.record.capability = "other-controller".into();
+        assert!(admit_app_round(&work, &reserved, Some("reserved-turn")).is_err());
     }
 
     #[test]
@@ -5212,7 +6353,7 @@ mod local_tests {
         assert!(!controller_matches(&record, &current));
         record.phase = "running".into();
         record.selection = Some(Selection {
-            reasoning: Reasoning::Managed,
+            reasoning: Reasoning::Provider,
             return_path: ReturnPath::Mcp,
         });
         assert!(!controller_matches(&record, &current));
@@ -5344,6 +6485,7 @@ mod local_tests {
         assert!(!same_assignment_parent(Some("parent"), Some("other")));
         assert!(!same_assignment_parent(Some("parent"), None));
         assert_eq!(recovered_phase("completed"), "completed");
+        assert_eq!(recovered_phase("interrupted"), "interrupted");
         assert_eq!(recovered_phase("stopped"), "stopped");
         for phase in [
             "running",

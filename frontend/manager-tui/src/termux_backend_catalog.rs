@@ -26,6 +26,18 @@ pub(crate) fn capabilities(requested: bool) -> Option<crate::AppExitInfo> {
     })
 }
 
+/// Keep the complete configuration snapshot across the UI/backend boundary.
+fn catalog_bytes(config: &crate::legacy_core::config::Config) -> color_eyre::Result<Option<&[u8]>> {
+    if config.model_catalog.is_none() {
+        return Ok(None);
+    }
+    let source = config
+        .model_catalog_source
+        .as_deref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("complete model catalog source is unavailable"))?;
+    Ok(Some(source))
+}
+
 /// Upstream resolves configuration; this adapter owns local catalog selection.
 pub(crate) async fn bind(
     target: &mut crate::AppServerTarget,
@@ -35,18 +47,14 @@ pub(crate) async fn bind(
     if crate::termux_permissions::enabled()
         && matches!(target, crate::AppServerTarget::LocalDaemon { .. })
     {
-        let catalog = config
-            .model_catalog
-            .as_ref()
-            .map(serde_json::to_vec)
-            .transpose()?;
+        let catalog = catalog_bytes(config)?;
         if catalog.is_some()
             || std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() == Ok("resolved-v1")
         {
             let core = std::env::var_os("CODEX_PROFILE_CORE")
                 .map(std::path::PathBuf::from)
                 .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
-            let socket_path = prepare(&core, &config.codex_home, catalog.as_deref()).await?;
+            let socket_path = prepare(&core, &config.codex_home, catalog).await?;
             *target = crate::AppServerTarget::LocalDaemon {
                 endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket {
                     socket_path,
@@ -58,7 +66,8 @@ pub(crate) async fn bind(
         // resolved backend, without offering an installer/restart/embedded path.
         if crate::profile_transport::core_owned(target, true)
             && let Some(warning) =
-                crate::daemon_startup::compatibility_warning(target, config, cli_kv_overrides).await?
+                crate::daemon_startup::compatibility_warning(target, config, cli_kv_overrides)
+                    .await?
         {
             color_eyre::eyre::bail!("qualified backend is incompatible: {warning}");
         }
@@ -129,6 +138,36 @@ fn decode_socket(bytes: &[u8]) -> color_eyre::Result<AbsolutePathBuf> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn termux_backend_catalog_preserves_full_config_source_instead_of_ui_projection()
+    -> color_eyre::Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("models.json");
+        let mut original: serde_json::Value =
+            serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json"))?;
+        original["native_only_root"] = serde_json::json!({"retained":true});
+        original["models"][0]["native_only_setting"] = serde_json::json!({"retained":"original"});
+        let original_bytes = serde_json::to_vec_pretty(&original)?;
+        std::fs::write(&path, &original_bytes)?;
+        let mut config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(root.path().to_path_buf())
+            .cli_overrides(vec![(
+                "model_catalog_json".into(),
+                path.to_str().unwrap().into(),
+            )])
+            .build()
+            .await?;
+        assert_eq!(catalog_bytes(&config)?.unwrap(), original_bytes);
+        config.model_catalog_source = None;
+        assert!(
+            catalog_bytes(&config).is_err(),
+            "missing source must not fall back to a lossy UI projection"
+        );
+        config.model_catalog = None;
+        assert!(catalog_bytes(&config)?.is_none());
+        Ok(())
+    }
 
     #[test]
     fn termux_backend_catalog_rejects_non_socket_output() {
