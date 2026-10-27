@@ -1,21 +1,15 @@
 {
   "schema": 1,
   "upstream": {
-    "version": "0.164.0",
-    "source": "6aaac694803004a63c6f393d153c96d22521a6b9",
-    "archive_sha256": "5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5"
+    "version": "0.165.0",
+    "source": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+    "archive_sha256": "c8b2844fdef57498572db960344aee8c836ce9f75c203379da0a9c3a334fc3b7"
   },
   "toolchains": {
     "core_rust": "1.98.0",
     "frontend_rust": "1.99.1"
   },
-  "frontend": {
-    "source": "79b9d668fa66b1ccb2362307d8302417e9985999",
-    "run_id": "40517442561",
-    "sha256": "047f06d4892df51a756eb0cf10947695cc6e470ee0be40896f2c4811c823416b",
-    "input_url": "https://github.com/humtr/codex/releases/download/manager-tui-native-v0.164.0-79b9d668fa66/manager-tui-inputs-0.164.0-79b9d668fa66.tar.gz",
-    "input_sha256": "0ba8356daddd3d9aaaadb108269f07ebdb623d064512d6243804cf7435d6fe38"
-  },
+  "frontend": null,
   "qualification": {
     "focused_tests": 65,
     "lock_audit": {
