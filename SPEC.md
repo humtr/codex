@@ -3329,8 +3329,17 @@ canonically active native turn may rebind that work after verifying its executio
 home, workspace, route, original receipts and absence of pending calls/background
 jobs. Preserve its
 history, counters and budgets; fence the former controller. A repeated old turn,
-unknown effect, ambiguous owner or Chat-origin controller still requires explicit
-reconciliation. An observation started before a successful rebind must not revoke
+unknown effect or ambiguous owner still requires explicit reconciliation. An
+explicit Bridge join of a completed work, or start of an otherwise admitted
+completed/unstarted work, may select the verified replacement owner before
+reserving its one new Native turn. It must first verify the same
+execution home/workspace/route, retained history/receipts, no pending calls or live
+writer; rotate the controller/lease at that completed boundary and persist the
+selected owner before turn/start. A read/status observer cannot perform this
+transition. The async model exchange must not need another owner rebind after
+the returned turn ID has already been recorded. Existing request IDs and uncertain-
+result rules still prevent resubmitting that original input. An observation
+started before a successful rebind must not revoke
 the newer binding merely because its saved snapshot names the previous process.
 Apply completion/host observations only to their original native turn, generation
 and owner. Managed admission and Stop fencing must be atomic with cancellation

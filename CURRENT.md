@@ -101,6 +101,43 @@ refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
+## Active A1 defect: Bridge start after Native owner replacement
+
+The user sent INSTALLED_PROVIDER18_ANDROID once in the ordinary Android app.
+The original Bridge task appears once on the existing work/thread and in the live
+installed Full121 TUI. No file was created: its Native turn failed with
+native_owner_reconciliation_required; work phase reconciliation_required. This
+actual-client trial is a failure, not full entrance acceptance. The Provider did
+not submit an additional model request. A Bridge argument is still not independent
+proof of the host's original message ID. Evidence:
+provider18-actual-android-join-failure.json and the original private work/terminal
+records in codex-a1-installed-54tmdqfl.
+
+The completed work still recorded its original Full119 PID11454 after backend
+retirement/replacement. Explicit join reserved a new generation and Native turn,
+but retained that old execution owner. If turn/start's reply recorded the new
+turn ID before async exchange admission, the existing different-owner guard saw
+a repeated turn and rejected it. This is a real start-order defect; read/status
+fencing is correct and cannot itself transfer control.
+
+The source correction selects the uniquely verified replacement owner under the
+existing per-work start admission before turn/start. It rechecks snapshot owner,
+generation/controller, no active/pending work, route/workspace, retained receipts
+and jobs; completed/rebound starts rotate the controller/token before recording
+the new owner. Existing allowed unstarted start states are retained; joins still
+require completed work. Unknown effects, ambiguous owners, Stop and stale observers
+remain fenced. No input replay, saved-Chat crawler, synthetic success or second
+inference is added. The original failed request remains intact; it is not
+resubmitted by this source edit.
+
+The continuity driver now retires only its completed owned Native fixture before
+the second join. Provider18's original service fixture reproduces the same
+reconciliation_required/systemError after exactly one new input. The first source
+correction passes the actual Native/TUI path with unchanged history and one
+execution; qualification of the final source, fault mutation, hosted build,
+publication and real-client recovery/retest remain open. Initial red/green records
+are join-owner-{old,fixed}-provider.log; ordinary source/library tests are separate.
+
 ## Delivered A1 correction: fresh-home login scope
 
 Actual installed Full119 TUI resume in a new, credential-free execution home

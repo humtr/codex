@@ -207,6 +207,15 @@ def probe(args):
                     output.close()
                     (root/'stop-provider').unlink()
                     (root/'provider-ready.json').unlink()
+                    if args.replace_native_owner:
+                        from qualify_provider_d3 import stop_owned_pid
+                        paths=server_paths(home)
+                        assert len(paths)==1, 'one completed owned Native server required'
+                        retired_owner=int(paths[0].with_name('pid').read_text())
+                        retired=stop_owned_pid(retired_owner,home/'.local/lib/codex/core/generations/local-permission-fixture/runtime')
+                        assert retired['kernel_stop_confirmed']
+                        (root/'retired-completed-native-owner.json').write_text(json.dumps(retired,indent=2))
+                        assert not server_paths(home), 'old native owner still alive'
                     env['CODEX_PROVIDER_OPERATOR_PORT'] = str(port)
                     output = (root/'provider-restarted-test.log').open('wb')
                     service = subprocess.Popen([str(args.service_test),'--ignored','--exact',
@@ -214,14 +223,15 @@ def probe(args):
                         stderr=subprocess.STDOUT,cwd=root/'w')
                     wait(lambda:(root/'provider-ready.json').exists(),'Bridge-first service restart')
                     assert json.loads((root/'provider-ready.json').read_text())['port']==port
-                    paths=server_paths(home)
-                    assert len(paths)==1, 'one verified owned Native server required'
-                    observer=Ws(str(paths[0].resolve()),uri_path='/rpc')
-                    try:
-                        state=observer.call('thread/read',{'threadId':thread,'includeTurns':False})
-                        assert state['thread']['status']['type']=='notLoaded', 'restart did not exercise an unloaded work'
-                    finally:
-                        observer.close()
+                    if not args.replace_native_owner:
+                        paths=server_paths(home)
+                        assert len(paths)==1, 'one verified owned Native server required'
+                        observer=Ws(str(paths[0].resolve()),uri_path='/rpc')
+                        try:
+                            state=observer.call('thread/read',{'threadId':thread,'includeTurns':False})
+                            assert state['thread']['status']['type']=='notLoaded', 'restart did not exercise an unloaded work'
+                        finally:
+                            observer.close()
                 command_args = {'action':'join','work_id':work['work_id'],
                     'task':f'BRIDGE_ORIGINAL_INPUT_{index}', 'call_id':f'bridge-input-{index}'}
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as clients:
@@ -230,6 +240,11 @@ def probe(args):
                     started, retried = first.result(timeout=40), second.result(timeout=40)
                 assert started==retried and started['started'] and started['inference_submitted'] is False
                 assert started['thread_id']==thread and started['input_origin']=='bridge_arguments'
+                if index==2 and args.replace_native_owner:
+                    paths=server_paths(home)
+                    assert len(paths)==1
+                    assert int(paths[0].with_name('pid').read_text())!=retired_owner
+                    assert before_turns==native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns'][:-1]
                 rejected = rpc('codex_sessions',{**command_args,'task':'CHANGED_INPUT'},True)
                 assert rejected['error']=='operator_call_changed', rejected
                 bound = {'work_id':work['work_id'],'controller':started['controller']}
@@ -310,7 +325,8 @@ def probe(args):
                 'cli_after_bridge_same_work_completed':not bool(created_before_tui),'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
                 'bridge_finals_in_active_viewport':bool(display),
                 'actual_web_or_android_chat_client':False,'supplied_completion_is_not_observed_chat_final':True,
-                'fresh_native_home_without_openai_credentials':bool(args.fresh_auth_home)},indent=2)+'\n')
+                'fresh_native_home_without_openai_credentials':bool(args.fresh_auth_home),
+                'completed_native_owner_replaced_before_join':bool(args.replace_native_owner)},indent=2)+'\n')
             origin = 'Native-created work→ordinary TUI resume' if created_before_tui else 'Provider→Direct same work'
             print(f'Bridge-first: {origin}, concurrent retry once, context gate, actual effects/results, public progress/final in live TUI, restart and zero saved-Chat reads',flush=True)
             return
@@ -937,6 +953,7 @@ if __name__=='__main__':
     parser.add_argument('--direct', action='store_true', help='Qualify retained source, actual native effect and Stop after Direct transfers, with automatic Provider reentry')
     parser.add_argument('--native-created', action='store_true', help='Create and complete Native work before ordinary TUI resume; verify same execution backend')
     parser.add_argument('--bridge-first', action='store_true', help='Qualify ordinary Bridge-native admission without saved-Chat reads; actual Native/TUI, synthetic Chat')
+    parser.add_argument('--replace-native-owner', action='store_true', help='Retire only the completed owned Native backend before the second Bridge join; verify same work/history and a replacement owner')
     parser.add_argument('--fresh-auth-home', action='store_true', help='Remove only the owned inert auth fixture before Native/TUI startup; no OpenAI credentials or login bypass')
     parser.add_argument('--join', action='store_true', help='Qualify active response context/accept, same native tool lease and omission/ended-source diagnostics')
     parser.add_argument('--source-recovery', dest='observer_recovery', action='store_true', help='Verify retry/blocked diagnostics and recovery of an actual host-selected branch conflict without restart')
@@ -945,6 +962,8 @@ if __name__=='__main__':
     parser.add_argument('--interrupted', action='store_true', help='Preserve interrupted public response and consume next original without reinference')
     parser.add_argument('--source-timeout', action='store_true', help='Inject one saved-source CDP read timeout and require continued observation')
     arguments=parser.parse_args()
+    if arguments.replace_native_owner and not (arguments.bridge_first and arguments.native_created):
+        parser.error('--replace-native-owner requires --bridge-first --native-created')
     if (arguments.restart or arguments.binding or arguments.join) and not arguments.provider_binary:
         parser.error('--restart requires the actual --provider-binary control facade')
     probe(arguments)

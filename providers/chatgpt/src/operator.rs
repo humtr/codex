@@ -3325,6 +3325,16 @@ impl Operator {
                         .resume_unloaded_native(&record, &native, receipt)
                         .await?;
                 }
+                let owner_changed = native.owner != record.execution;
+                if owner_changed {
+                    // Explicit idle-work admission selects its verified owner
+                    // before turn/start can race the asynchronous model exchange.
+                    if !joining {
+                        let pool = self.work_pool(&record).await?;
+                        native.verify_scope(&record.thread, &pool.workspace).await?;
+                        self.recovery_receipts(&native, &record).await?;
+                    }
+                }
                 self.wait_assignment(&record).await?;
                 let collaboration_mode = if let Some(mode) = args.get("mode") {
                     let state = native
@@ -3369,7 +3379,8 @@ impl Operator {
                     ) || work.stops_in_progress != 0
                         || work.record.capability != record.capability
                         || work.record.generation != record.generation
-                        || joining
+                        || work.record.execution != record.execution
+                        || (joining || owner_changed)
                             && (work.active.is_some()
                                 || work.app_cancel.is_some()
                                 || !work.record.pending.is_empty())
@@ -3385,7 +3396,7 @@ impl Operator {
                             assignment.started_at_unix_ms = Some(unix_ms());
                         }
                     }
-                    if record.phase == "completed" {
+                    if record.phase == "completed" || owner_changed {
                         self.preserve_controller(&work.record)?;
                         work.record.generation += 1;
                         work.record.capability = random_id()?;
@@ -3407,6 +3418,9 @@ impl Operator {
                             return_path: ReturnPath::Mcp,
                         });
                         work.record.accepted = false;
+                    }
+                    if owner_changed {
+                        work.record.execution = native.owner.clone();
                     }
                     work.record.phase = "starting_native".into();
                     self.persist(&work.record)?;
