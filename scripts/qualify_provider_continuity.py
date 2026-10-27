@@ -20,13 +20,14 @@ import urllib.request
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN, fixture_auth
 from qualify_tasks import Ws
+from qualification_diagnostics import terminal_screen_lines
 
 
 def probe(args):
     display = stream = None
     if args.provider_binary:
         import pyte
-        from wcwidth import wcswidth
+        from wcwidth import wcwidth, wcswidth
         display = pyte.Screen(160, 80)
         stream = pyte.Stream(display)
     # Core's Unix socket uses this root; retain the existing short fixture form.
@@ -61,12 +62,17 @@ def probe(args):
             if master is not None:
                 while select.select([master], [], [], 0)[0]:
                     try:
-                        text = decoder.decode(os.read(master, 65536))
-                        screen += text
-                        if stream is not None:
-                            stream.feed(text)
+                        chunk = os.read(master, 65536)
                     except OSError:
                         break
+                    if not chunk:
+                        break
+                    text = decoder.decode(chunk)
+                    screen += text
+                    with (root / 'terminal.txt').open('a') as log:
+                        log.write(text)
+                    if stream is not None:
+                        stream.feed(text)
             return screen
 
         def wait(predicate, description, timeout=40):
@@ -150,7 +156,7 @@ def probe(args):
             # A separate Enter is intentional: upstream recognizes rapid text
             # plus Enter as a paste and protects it as an unsubmitted draft.
             if display:
-                wait(lambda: text in '\n'.join(display.display), 'typed input rendered before separate Enter')
+                wait(lambda: text in '\n'.join(terminal_screen_lines(display, wcwidth)), 'typed input rendered before separate Enter')
             else:
                 time.sleep(.2)
             os.write(master,b'\r')
@@ -256,7 +262,7 @@ def probe(args):
                         '--profile','chatgpt','-c','tui.animations=false','resume',thread],env=env,cwd=root/'w',
                         stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
                     os.close(slave)
-                    wait(lambda:f'BRIDGE_ORIGINAL_INPUT_{index}' in '\n'.join(display.display) if display else f'BRIDGE_ORIGINAL_INPUT_{index}' in screen,
+                    wait(lambda:f'BRIDGE_ORIGINAL_INPUT_{index}' in '\n'.join(terminal_screen_lines(display, wcwidth)) if display else f'BRIDGE_ORIGINAL_INPUT_{index}' in screen,
                          'reopened TUI sees the input admitted before it attached')
                 busy = rpc('codex_sessions',{**command_args,'call_id':f'overlap-{index}'},True)
                 assert busy['error']=='native_writer_unsettled', busy
@@ -284,7 +290,7 @@ def probe(args):
                 wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','Bridge completion')
                 wait(lambda:all(marker in screen for marker in [f'BRIDGE_ORIGINAL_INPUT_{index}', f'BRIDGE_PUBLIC_PROGRESS_{index}', f'BRIDGE_RESULT_{index}', f'BRIDGE_SUBMITTED_FINAL_{index}']),'Bridge input/result/progress/final live TUI')
                 if display:
-                    wait(lambda:f'BRIDGE_SUBMITTED_FINAL_{index}' in '\n'.join(display.display),
+                    wait(lambda:f'BRIDGE_SUBMITTED_FINAL_{index}' in '\n'.join(terminal_screen_lines(display, wcwidth)),
                          'Bridge final rendered in the active TUI viewport')
                 after_turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
                 assert after_turns[:-1]==before_turns and len(after_turns)==len(before_turns)+1
@@ -719,7 +725,7 @@ def probe(args):
                 assert history() == before_overlap, 'native draft was admitted before the active source committed'
                 assert sum(row['op']=='submit' for row in bridge_commands())==1
                 time.sleep(.05)
-            assert 'Synchronizing ChatGPT' in '\n'.join(display.display), 'pending full native draft not visible'
+            assert 'Synchronizing ChatGPT' in '\n'.join(terminal_screen_lines(display, wcwidth)), 'pending full native draft not visible'
         saved[-1].update(status='finished_successfully',end_turn=True)
         saved[-1]['content']['parts']=['Native action in progress.\nWEB_ORIGINAL_COMPLETE_ANSWER_3']
         publish_source()
@@ -729,7 +735,7 @@ def probe(args):
         wait(lambda: 'WEB_ORIGINAL_COMPLETE_ANSWER_3' in screen, 'complete external tool answer in live TUI')
         def disclosure_proof(label):
             def frame():
-                return '\n'.join(display.display)
+                return '\n'.join(terminal_screen_lines(display, wcwidth))
             caption = '진행 내용 · 최종 답변에 포함'
             wait(lambda: caption in frame() and 'WEB_ORIGINAL_COMPLETE_ANSWER_3' in frame(),
                  label + ' exact source progress folded in current viewport')
@@ -739,7 +745,7 @@ def probe(args):
             retained = ['WEB_ORIGINAL_COMPLETE_ANSWER_3',
                 'Perform the owned external native action once', 'external-effect-count']
             assert all(text in folded for text in retained), folded
-            rows = display.display
+            rows = terminal_screen_lines(display, wcwidth)
             progress_row = next(i for i, text in enumerate(rows) if caption in text)
             candidates = [(i, wcswidth(text[:text.index('+ Show details')]))
                 for i, text in enumerate(rows) if abs(i - progress_row) <= 4 and '+ Show details' in text]
@@ -915,30 +921,32 @@ def probe(args):
             'actual_provider_cli_live_and_resumed_mouse_disclosure':bool(display),
             'actual_web_or_android_chat_client':False,'settled_provider_restart_same_saved_chat':bool(args.restart),'active_external_native_draft_serialization':bool(args.provider_binary and not args.direct),'direct_route_source_execution':bool(args.direct),'automatic_provider_reentry':bool(args.direct),'source_timeout_recovered':bool(args.source_timeout),'simultaneous_entrances_qualified':False},indent=2)+'\n')
     finally:
-        (root / 'terminal.txt').write_text(screen)
-        if display:
-            (root / 'terminal-visible.txt').write_text('\n'.join(display.display))
-        (root / 'stop-provider').touch()
-        for process in [terminal,service]:
-            if process is not None:
-                if process.poll() is None:
-                    process.terminate()
+        try:
+            (root / 'terminal.txt').write_text(screen)
+            if display:
+                (root / 'terminal-visible.txt').write_text('\n'.join(terminal_screen_lines(display, wcwidth)))
+        finally:
+            (root / 'stop-provider').touch()
+            for process in [terminal,service]:
+                if process is not None:
+                    if process.poll() is None:
+                        process.terminate()
+                    try:
+                        process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        process.kill(); process.wait()
+            for path in server_paths(home):
                 try:
-                    process.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    process.kill(); process.wait()
-        for path in server_paths(home):
-            try:
-                pid=int(path.with_name('pid').read_text())
-                expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
-                if Path(f'/proc/{pid}/exe').resolve()==expected:
-                    os.kill(pid,signal.SIGTERM)
-            except (OSError,ValueError):
-                pass
-        if master is not None:
-            os.close(master)
-        output.close()
-        print('Owned source/native records retained at ' + str(root),flush=True)
+                    pid=int(path.with_name('pid').read_text())
+                    expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                    if Path(f'/proc/{pid}/exe').resolve()==expected:
+                        os.kill(pid,signal.SIGTERM)
+                except (OSError,ValueError):
+                    pass
+            if master is not None:
+                os.close(master)
+            output.close()
+            print('Owned source/native records retained at ' + str(root),flush=True)
 
 
 if __name__=='__main__':

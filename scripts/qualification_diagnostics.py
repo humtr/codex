@@ -42,6 +42,29 @@ def terminal_contains(output, phrase):
     return ''.join(phrase.split()) in ''.join(plain.split())
 
 
+def terminal_screen_lines(screen, character_width):
+    """Render observed cells, including pyte's orphaned wide-character stubs.
+
+    pyte 0.8.2 can leave an empty continuation cell after a wide glyph's first
+    cell is overwritten. It is then a blank column, not a missing glyph. Keep
+    normal wide/combining glyphs intact and do not mutate the observed buffer.
+    """
+    lines = []
+    for y in range(screen.lines):
+        row = screen.buffer[y]
+        parts = []
+        continuation = False
+        for x in range(screen.columns):
+            if continuation:
+                continuation = False
+                continue
+            text = row[x].data or ' '
+            parts.append(text)
+            continuation = character_width(text[0]) == 2
+        lines.append(''.join(parts))
+    return lines
+
+
 def listener_port(ready):
     """Return only an explicitly reported loopback listener port."""
     value = ready.get('base_url') if isinstance(ready, dict) else None

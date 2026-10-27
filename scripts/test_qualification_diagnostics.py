@@ -6,17 +6,29 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from scripts.qualification_diagnostics import (
     AndroidLogCapture, DispatchLedger, Recorder, candidate_info, classify,
     listener_port, observer_keeper, process_fact, release_observer_keeper, sample,
-    terminal_contains, native_thread_settled,
+    terminal_contains, terminal_screen_lines, native_thread_settled,
 )
 
 
 class Diagnostics(unittest.TestCase):
+    def test_terminal_cells_keep_wide_combining_and_overwritten_blank_columns(self):
+        # Expected columns are independent of the renderer: a wide glyph takes
+        # two, an orphaned continuation takes one blank, and accents take zero.
+        cells = [['가', '', 'e\u0301', ' ', ' ', ' '],
+                 [' ', '', 'X', '', '나', '']]
+        screen = SimpleNamespace(lines=2, columns=6, buffer=[
+            [SimpleNamespace(data=value) for value in row] for row in cells])
+        width = lambda char: 2 if char in '가나' else 1
+        self.assertEqual(terminal_screen_lines(screen, width), ['가e\u0301   ', '  X 나'])
+        self.assertEqual([[cell.data for cell in row] for row in screen.buffer], cells)
+
     def test_terminal_item_without_confirmed_completion_is_not_a_pass_or_exception(self):
         state = {'status': {'type': 'idle'}, 'turns': [
             {'status': 'interrupted', 'items': [{'type': 'agentMessage', 'phase': 'final_answer'}]}]}

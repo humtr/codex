@@ -33,8 +33,11 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: close the actual-client A1 matrix below and fix only demonstrated defects,
-then perform A2 common-responsibility extraction.** Original host identity and
+**Next: address the observed finish-versus-later-Chat-final fidelity gap and close
+the actual-client A1 matrix below, then perform A2 common-responsibility
+extraction.** The actual Android claim→start recovery now passes file execution,
+Native completion and reopened TUI display; its missed live-final capture and
+ordinary-join coverage remain explicit below. Original host identity and
 unjoined requests remain visibility limits to investigate, not facts inferred
 from model arguments. Independent worker/native-child extensions follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
@@ -103,7 +106,7 @@ refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
-## Delivered A1 correction: owner replacement; actual recovery pending
+## Delivered A1 correction: owner replacement and actual Android recovery
 
 The user sent INSTALLED_PROVIDER18_ANDROID once in the ordinary Android app.
 The original Bridge task appears once on the existing work/thread and in the live
@@ -152,16 +155,58 @@ readiness. Provider19 signing40539878351, complete ten-asset public readback,
 disposable18→19→18 Native consumer, and non-forced stable promotion pass. Actual
 activation retains36 works/phases,16 protected files and9 Native owners; supervised
 PID15925 and the same authenticated ready host are verified. All17 fixed annotation
-values and per-tool idempotency declarations are retained. Actual Android recovery
-has not passed merely because code/build/Native qualification passes.
+values and per-tool idempotency declarations are retained. These release checks
+alone do not establish actual Android recovery.
 
-The failed turn and its original Chat final are preserved. Provider19 has the same
-existing work open in an ordinary installed TUI; provider19-installed-a1-armed.json
-records the bounded observer with all four original items. The user has been asked
-for a new RECOVER_PROVIDER19_ANDROID instruction: latest history/cursors, explicit
-claim, then one start and context acceptance before the previously unexecuted file
-verification. Neither an unseen retry nor deletion of the failed turn substitutes
-for that actual-client trial. Source deployment did not replay the original input.
+The user then sent RECOVER_PROVIDER19_ANDROID once in the ordinary Android app.
+It performs history/read, explicit claim, one start, context acceptance, two public
+reports, one native command and one finish on the same work/thread. The original
+four Native items, including the failed request, remain exactly unchanged. The new
+task matches original Chat user bbb214f2-6ada-46fa-bc91-b1bc21a75e7c byte-for-byte
+and appears once. Native turns are completed/failed/completed, idle with no pending
+calls;10 public items retain the actual command/result and final. Exclusive file
+creation plus reread verifies roundtrip-android.txt as24 bytes containing exactly
+`installed android input` and one LF. There is no second Provider model submission
+or Pro call. Explicit two-page source readback covers289 unique messages on branch
+60aa2ee4-90ce-426d-866c-198df4c36e3e; visible final
+3c60e9ea-baa7-4a39-b9d9-8df70e55ac1b is finished_successfully/end_turn. Hidden and
+unsupported content remains unavailable. This is a bounded recovery pass using
+claim→start, not actual-client proof of ordinary join after owner replacement.
+
+The live installed TUI showed the new input, progress, command and PASS result.
+Its Python observer then failed in pyte0.8.2: overwriting a wide glyph can leave
+an empty continuation cell, and Screen.display indexes that empty string. Thus
+the original observer did not capture the live final viewport; its frozen Working
+screen is not evidence that Native execution remained active. The original
+trace/output is preserved. After confirming the owned TUI identity, that observer's
+orphaned TUI was retired; a fresh ordinary installed resume displays
+RECOVER_PROVIDER19_ANDROID_COMPLETE in its actual viewport without re-execution.
+This proves reopened display, not the missed live final or physical app viewing.
+
+Qualification now renders observed cells through terminal_screen_lines, preserving
+wide/combining glyphs and treating orphaned continuations as blank columns without
+mutating the buffer. The continuity driver saves terminal text before interpreting
+it and cleans up owned processes even if the last snapshot fails. The real pyte
+overwrite regression fails the original renderer, passes the correction, and fails
+again when that exact old behavior is restored in disposable source. All13 focused
+diagnostic tests and all145 cases in scripts/check.sh python pass; actual
+Native/TUI continuity with owner replacement and both
+finals in the live viewport also passes with this renderer. No product binary or
+response text is changed by this qualification correction.
+
+Two remaining boundaries are explicit. The text supplied to codex_finish differs
+from the later visible Chat final even within the same redacted source readback;
+both report the same completion marker, but this is not exact-final equivalence.
+The model also included a private controller capability in its Native finish text;
+the saved-Chat public reader redacts it. Retain the private originals, do not copy
+that capability into documentation, and review the existing public-output boundary
+when addressing final fidelity. Recovery success does not close either finding.
+Evidence: provider19-actual-android-recovery.json, provider19-recovery-original-chat*
+private records, provider19-installed-recovery-observer.log,
+provider19-recovery-reopened-tui.json, terminal-wide-cell-regression.json,
+terminal-renderer-{final-native-continuity,python-check,diagnostics-tests} records
+under the maintenance evidence root.
+
 The existing operating cloud route also passes a zero-refresh17-tool schema/
 annotation read and36-work listing under Provider19. It omits all17 idempotentHint
 fields as before; this does not prove host scheduling behavior.
@@ -536,10 +581,10 @@ separate proof boundaries. Do not mark a missing boundary green from another.
 | Original acceptance scenario | Available proof | Next actual-product proof |
 | --- | --- | --- |
 |1 CLI→Chat→Native | Actual ordinary CLI/SDK UUID/model/final and restart | Current installed frontend/live display and later app follow-up on same work |
-|2 Existing Chat direct input | Actual ordinary Android Bridge-first context/effect/final/TUI | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
+|2 Existing Chat direct input | Actual ordinary Android Bridge-first context/effect/final/TUI; Provider19 same-work claim→start recovery after the retained18 failure | Ordinary web input, actual-client ordinary join after owner replacement and repeated Android/CLI round trips with exact original comparison |
 |3 No duplicate inference/effect | Actual Native retries/concurrent identical join, one Android Direct turn | Concurrent distinct entrances, uncertain reply/reconnect; count actual submissions/effects, not just ACKs |
-|4 Complete public provenance | Native task/progress/tool/result/final; Provider-owned wire references | Trusted host input/tool/branch identity or explicit unavailable result; complete original final comparison without inventing provenance |
-|5 Storage versus live display | Separate history/live/reopened TUI checks and Android trial | Display after active connection loss/transfer, including canonical final once and full expandable progress |
+|4 Complete public provenance | Native task/progress/tool/result/final; Provider-owned wire references; actual recovery original input matches once | Trusted host input/tool/branch identity or explicit unavailable result; actual recovery finish differs from later Chat final, so exact-final fidelity remains open |
+|5 Storage versus live display | Separate history/live/reopened TUI checks and Android trial; recovery stored final and ordinary reopened viewport pass | Recovery live final was not captured due to the fixed observer defect; display after active connection loss/transfer, canonical final once and full expandable progress remain required |
 |6 Restart/no omission | Cold Native/service restart and signed code/state rollback | In-flight actual app/web disconnection plus later input and TUI reopen |
 |7 Missing participation | Source recovery can report execution_not_joined; unreceived input is invisible | Identify a supported host notification/explicit verification boundary; demonstrate honest recovery with no silent reinference/polling |
 |8 No unwanted work | Explicit selection/admission/source-reader rules | Ordinary unrelated Chat and task switch/reuse; verify work inventory and no unsolicited inference |
@@ -761,8 +806,11 @@ disposable-build settings, not a claimed universal crash fix.
 The original consolidation reviewed source/callers, contracts, result summaries
 and the complete pre-consolidation CURRENT. Subsequent service/tunnel work includes
 the actual builds, Native/cloud trials, publication and bounded activation stated
-above. The fresh-home A1 preflight is a reproduced failure; its source correction
-is not yet accepted. Each result retains its actual inputs, environment and
-limitations. Remaining acceptance is the matrix above; Provider19/Full121 public
+above. The original fresh-home login preflight failure is corrected, publicly
+delivered in Full121 and accepted by actual installed credential-free resume.
+Provider19's subsequent Android recovery passes its stated claim→start scope,
+while exact Chat/Native final equivalence remains open. Each result retains its
+actual inputs, environment and limitations. Remaining acceptance is the matrix
+above; Provider19/Full121 public
 activation is complete, whereas full A1, signed tunnel distribution and independent-
 child scenario10 remain open.
