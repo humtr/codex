@@ -17,7 +17,7 @@ class NativeLintBoundaryTests(unittest.TestCase):
         script = textwrap.dedent(block.split('        run: |\n', 1)[1])
         self.assertEqual(subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True).returncode, 0)
         git = shutil.which('git')
-        for fault in (None, 'failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'foreign-source',
+        for fault in (None, 'failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'outside-mutation', 'foreign-source',
                       'daemon-mutation', 'foreign-daemon'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory(prefix='native-lint-') as directory:
                 root = Path(directory)
@@ -32,6 +32,8 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 config = core.parent / 'config/mod.rs'
                 config.parent.mkdir()
                 config.write_bytes(b'// Original configuration\n')
+                outside = upstream / 'codex-rs/outside.rs'
+                outside.write_bytes(b'original\n')
                 (upstream / 'codex-rs/tui').mkdir()
                 (upstream / 'codex-rs/tui/original').write_bytes(b'original\n')
                 daemon = upstream / 'codex-rs/tui/src/daemon_startup.rs'
@@ -51,6 +53,9 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 daemon_before = daemon.read_bytes()
                 tools = root / 'bin'
                 tools.mkdir()
+                assembler = root / 'experiment/frontend/manager-tui/apply.py'
+                assembler.parent.mkdir(parents=True)
+                shutil.copy2(Path(__file__).resolve().parents[2] / 'frontend/manager-tui/apply.py', assembler)
                 (tools / 'just').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
                     import os, sys
                     from pathlib import Path
@@ -65,6 +70,7 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     if fault == 'daemon-mutation': daemon.write_bytes(b'changed')
                     if fault == 'other-core-mutation': Path('codex-rs/core/src/other.rs').write_bytes(b'changed')
                     if fault == 'config-mutation': Path('codex-rs/core/src/config/mod.rs').write_bytes(b'changed')
+                    if fault == 'outside-mutation': Path('codex-rs/outside.rs').write_bytes(b'changed')
                     sys.exit(7 if fault == 'failure' else 0)
                 '''))
                 (tools / 'just').chmod(0o755)

@@ -86,6 +86,11 @@ source/display limits are recorded below.
 All68 assembled source paths match the repository assembler. One old disposable
 formatting difference was found, restored and rebuilt before these exact-source
 proofs; the earlier result and disposition remain preserved.
+The local Termux build separately uses the retained protoc host adapter in its
+Cargo.toml/lock. The68-path comparison covers maintained frontend/Core Config
+assembly, not that local build-tool override or the complete public dependency
+recipe. Hosted qualification uses the unchanged official external dependencies;
+local debug execution is not substituted for that signed-release gate.
 
 Two attempts to compile the complete upstream TUI unit-test executable ended
 without a completion record; both supervisor and compiler processes disappeared.
@@ -101,23 +106,29 @@ formerly excluded Core and rejected the legitimate Config source change. Its sco
 now permits only that module in addition to TUI/Cargo.lock, and compares both trees
 before/after lint. The actual-script regression accepts the assembled Config patch
 and rejects all injected failures, including a new Config mutation; disposable
-omission of Core evidence fails the test. scripts/check.sh python passed. Hosted
-execution/signing/public delivery and activation remain pending; the accepted old
-frontend pin has not been replaced by an unqualified pair. The candidate focused
+omission of Core evidence fails the test. scripts/check.sh python passed.
+The first hosted run40463199410 failed at Apply bounded native profile patch:
+an earlier producer guard still demanded zero Core changes. The corrected
+assembler now owns one scope check reused after apply/format/lint, including
+tracked, staged, renamed and untracked source. Allowed Config/TUI input passes;
+unrelated source is rejected. Omitting untracked paths in disposable source
+produces the two expected failures and is restored. Requalification is pending;
+no product Rust change or new model request was needed. Signing/public delivery
+and activation remain pending. The completion relay cleared the stale old
+frontend input in197bef7 (frontend:null); no unqualified pair is selected. The candidate focused
 acceptance now requires64 tests (retained63 plus the new source-preservation
 regression); this is an expected gate, not a claim that hosted64 already passed.
 
 The earlier isolated lazy-host service is no longer live after process losses;
 its original Android work and records are preserved. A new isolated service and
-exact candidate TUI are now armed in the retained ct-yg_xgatq fixture with a
-separate catalog-real-state. An actual Native preflight input/progress/final
+exact candidate TUI were qualified in ct-yg_xgatq with a separate catalog-real-state. An actual Native preflight input/progress/final
 reached its live viewport on the sole owned catalog server, without a model
 request (catalog-real-armed-view.json). The launcher argv is explicitly recorded
 as planned, not the active endpoint. During startup, two unready context receipts
 were correctly refused; the actual running context was read and accepted before
 public effects. No guard was bypassed and no join was replayed. The original trial
-wrapper is restored; the reused qualification tunnel now points to a new bounded
-metadata tap and reports healthy/ready. The source-reading relay remains off.
+wrapper was restored; the reused qualification tunnel was verified healthy/ready
+with a new bounded metadata tap before the completed trial. The source-reading relay remains off.
 The requested actual Chat prompt completed on that work as one Native turn with
 8 cloud MCP controls, accepted context, exact file bytes and one canonical final.
 The complete rendered final appears once in the active TUI (1059 source characters;

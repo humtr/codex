@@ -4,10 +4,44 @@ import subprocess
 import tempfile
 import unittest
 
-from apply import apply
+from apply import apply, check_scope
 
 
 class AssemblyTests(unittest.TestCase):
+    def test_scope_accepts_catalog_config_and_tui_but_rejects_other_source_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            upstream, package, target = self.fixture(Path(temporary))
+            core = upstream / 'codex-rs/core/src/lib.rs'
+            core.parent.mkdir(parents=True)
+            core.write_text('original\n')
+            outside = upstream / 'codex-rs/outside.rs'
+            outside.write_text('original\n')
+            subprocess.run(['git', '-C', str(upstream), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(upstream), '-c', 'user.name=Owned',
+                            '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'owned'], check=True)
+            apply(upstream, package)
+            config = core.parent / 'config/mod.rs'
+            config.parent.mkdir()
+            config.write_text('complete catalog source\n')
+            (upstream / 'codex-rs/Cargo.lock').write_text('normalized release workspace\n')
+            check_scope(upstream)
+            for path in [core, outside, core.parent / 'new.rs', upstream / 'new.rs']:
+                with self.subTest(path=path.relative_to(upstream)):
+                    before = path.read_bytes() if path.exists() else None
+                    path.write_text('unrelated change\n')
+                    with self.assertRaises(ValueError):
+                        check_scope(upstream)
+                    if before is None:
+                        path.unlink()
+                    else:
+                        path.write_bytes(before)
+            check_scope(upstream)
+            # Moving an unrelated source into TUI must still expose its deletion.
+            outside.rename(target / 'moved.rs')
+            subprocess.run(['git', '-C', str(upstream), 'add', '-A'], check=True)
+            with self.assertRaises(ValueError):
+                check_scope(upstream)
+
     def fixture(self, root):
         upstream, package = root / 'upstream', root / 'package'
         target = upstream / 'codex-rs/tui/src'

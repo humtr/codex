@@ -8,6 +8,21 @@ import subprocess
 PACKAGE = Path(__file__).resolve().parent
 
 
+def check_scope(upstream):
+    """Check the assembled/format/lint input against the same owned boundary."""
+    changed = subprocess.check_output(
+        ['git', '-C', str(upstream), 'diff', '--no-renames', '--name-only', '-z', 'HEAD'])
+    added = subprocess.check_output(
+        ['git', '-C', str(upstream), 'ls-files', '--others', '--exclude-standard', '-z'])
+    unexpected = sorted(path for path in set((changed + added).split(b'\0'))
+                        if path and path not in (b'codex-rs/Cargo.lock',
+                                                 b'codex-rs/core/src/config/mod.rs')
+                        and not path.startswith(b'codex-rs/tui/'))
+    if unexpected:
+        raise ValueError('unexpected upstream frontend changes: ' +
+                         ', '.join(path.decode(errors='backslashreplace') for path in unexpected))
+
+
 def apply(upstream, package=PACKAGE):
     upstream = upstream.resolve(strict=True)
     source = package / 'src'
@@ -48,5 +63,10 @@ def apply(upstream, package=PACKAGE):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('upstream', type=Path)
+    parser.add_argument('--check-scope', action='store_true',
+                        help='validate assembled/format/lint scope without changing source')
     options = parser.parse_args()
-    print(f'assembled {apply(options.upstream)} owned frontend sources')
+    if options.check_scope:
+        check_scope(options.upstream)
+    else:
+        print(f'assembled {apply(options.upstream)} owned frontend sources')

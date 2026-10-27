@@ -21,6 +21,9 @@ callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a dispos
 pristine checkout; it preflights collisions and patch applicability before writing.
 Do not apply the patch alone. Qualification binds the complete owned source tree
 and assembler as well as the patch, and retains the assembled diff as evidence.
+`apply.py --check-scope` supplies the same read-only boundary check after assembly,
+formatting and lint. It permits TUI, the catalog-source Config module and normalized
+Cargo.lock; unrelated tracked, staged, renamed or untracked source is rejected.
 
 `termux_backend_catalog::bind` owns catalog startup selection after upstream loads
 configuration. `termux_chat_models::reentry_route` plans provider/profile arguments;
