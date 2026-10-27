@@ -790,6 +790,7 @@ impl Broker {
         if turn.retired {
             return Err(Error("mcp_turn_unavailable"));
         }
+        crate::control::ensure_public_text(&args.report, [token, self.journal.owner.as_str()])?;
         if turn.requires_context && turn.context_receipt.is_none() {
             return Err(Error("source_context_required"));
         }

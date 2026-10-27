@@ -9,6 +9,18 @@ pub(crate) struct Controls {
     pub config: Config,
     pub mutations: tokio::sync::Mutex<()>,
 }
+pub(crate) fn ensure_public_text<'a>(
+    text: &str,
+    private_values: impl IntoIterator<Item = &'a str>,
+) -> Result<(), Error> {
+    if private_values
+        .into_iter()
+        .any(|value| !value.is_empty() && text.contains(value))
+    {
+        return Err(Error("private_control_in_public_text"));
+    }
+    Ok(())
+}
 pub(crate) fn public_work_ids(journal: &Journal) -> Result<Vec<String>, Error> {
     let mut ids = std::collections::BTreeSet::new();
     for (key, record) in journal.records(crate::operator::WORK_SCHEMA)? {

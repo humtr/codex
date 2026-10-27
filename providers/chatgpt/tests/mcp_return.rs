@@ -98,6 +98,16 @@ async fn detached_peer_and_rpc_id_changes_reconcile_one_durable_logical_call() {
         input: "{}".into(),
         report: "Run once".into(),
     };
+    for private in [&token, &journal.owner] {
+        let mut rejected = args.clone();
+        rejected.report = format!("Public progress must not expose {private}");
+        assert_eq!(
+            broker.enqueue(&token, &rejected).await,
+            Err(Error("private_control_in_public_text"))
+        );
+        assert!(!broker.contains_call(&token, &args.call_id).unwrap());
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+    }
     let b = broker.clone();
     let t = token.clone();
     let a = args.clone();

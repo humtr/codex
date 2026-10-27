@@ -42,6 +42,27 @@ unjoined requests remain visibility limits to investigate, not facts inferred
 from model arguments. Independent worker/native-child extensions follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
+The next source candidate rejects new assistant-authored report/final/native-call
+report/handoff text containing currently known private controls before emission
+or effect admission. It preserves public work IDs, code examples and full text,
+allows correction under the same unreserved call ID and retains admitted exact
+receipts. Both ordinary Broker and Native Operator boundaries use the same exact
+known-value rule; private control collection also remains the saved-Chat reader's
+source. There is no new transcript scrubber or rewrite of original history.
+Direct attachment, finish declaration and Provider-driven control instructions now
+share one full-final policy: prepare the complete answer, submit it to finish,
+then return the same text in ChatGPT after success. This is an instruction,
+not a host-original receipt or a deterministic guarantee of later model behavior.
+The original Provider19 Native fixture accepts the leaking report and fails the
+new regression; the corrected fixture passes actual Native/TUI owner replacement,
+no saved reads, rejection/correction/retry and exact rich public-final preservation.
+Disabling the exact rejection in disposable source fails both Broker and Native
+tests; the disposable source is restored and live source was never faulted.
+Evidence: public-text-{old-native,fixed-native,mcp-return,mutation} records under
+the maintenance root. Full source qualification, exact hosted-byte qualification,
+signed delivery/activation and an ordinary-model actual later-final comparison
+remain pending for this candidate. Operating versions remain Full121/Provider19.
+
 Startup ownership and current tunnel maintenance milestones2a/2b are complete
 at the source, actual Android, cloud and operating-activation boundaries below.
 Return to the actual-client A1 matrix; automatic tunnel/component installation

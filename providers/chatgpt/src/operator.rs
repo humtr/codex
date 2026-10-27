@@ -26,6 +26,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
+const DIRECT_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
 const LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v2";
 const SOURCE_ADMISSION_SCHEMA: &str = "codex-chatgpt-source-admission-v1";
@@ -2013,6 +2014,18 @@ impl Operator {
         work.record = next;
         Ok(())
     }
+    async fn private_controls(&self) -> Vec<String> {
+        let works = self.works.lock().await;
+        let mut values = vec![self.token.clone(), self.journal.owner.clone()];
+        for work in works.values() {
+            values.extend([work.record.capability.clone(), work.record.token.clone()]);
+        }
+        values
+    }
+    async fn ensure_public_text(&self, text: &str) -> Result<(), Error> {
+        let values = self.private_controls().await;
+        crate::control::ensure_public_text(text, values.iter().map(String::as_str))
+    }
     async fn report(&self, args: &Value, final_answer: bool) -> Result<Value, Error> {
         let (record, native) = self.binding(args, false).await?;
         if args["controller"].as_str() != Some(&record.capability) {
@@ -2042,6 +2055,7 @@ impl Operator {
         if !record.accepted || record.phase != "running" {
             return Err(Error("operator_controller_fenced"));
         }
+        self.ensure_public_text(body).await?;
         self.verify_identity(&record).await?;
         if final_answer && !self.owned_jobs(&native, &record).await?.is_empty() {
             return Err(Error("operator_background_jobs_unsettled"));
@@ -2202,7 +2216,11 @@ impl Operator {
                 args.as_object_mut()
                     .ok_or(Error("mcp_call_invalid"))?
                     .remove("turn_token");
-                let args = serde_json::from_value(args).map_err(|_| Error("mcp_call_invalid"))?;
+                let args: Arguments =
+                    serde_json::from_value(args).map_err(|_| Error("mcp_call_invalid"))?;
+                if !self.broker.contains_call(&token, &args.call_id)? {
+                    self.ensure_public_text(&args.report).await?;
+                }
                 self.broker.invoke(&token, args).await
             }
             "codex_host" => {
@@ -2236,14 +2254,7 @@ impl Operator {
                 crate::project::control(self.bridge.as_ref(), &self.journal, &path, &args).await
             }
             "codex_chats" => {
-                let secrets = {
-                    let works = self.works.lock().await;
-                    let mut secrets = vec![self.token.clone(), self.journal.owner.clone()];
-                    for work in works.values() {
-                        secrets.extend([work.record.capability.clone(), work.record.token.clone()]);
-                    }
-                    secrets
-                };
+                let secrets = self.private_controls().await;
                 crate::chats::Chats::new(self.bridge.clone())
                     .with_public_ids(crate::control::public_work_ids(&self.journal)?)
                     .call(args, &secrets)
@@ -2317,6 +2328,7 @@ impl Operator {
                 let call: Arguments = serde_json::from_value(json!({"call_id":args["call_id"],"name":args["name"],"input":args["input"],"report":args["report"]}))
                     .map_err(|_| Error("mcp_call_invalid"))?;
                 if !self.broker.contains_call(&record.token, &call.call_id)? {
+                    self.ensure_public_text(&call.report).await?;
                     self.admit_native_call(&record.thread, &call.call_id)
                         .await?;
                 }
@@ -2577,6 +2589,10 @@ impl Operator {
             }
             self.persist(&work.record)?;
         }
+        let completion = self
+            .app_route(&record, record.native_turn.as_deref())?
+            .is_none()
+            .then_some(DIRECT_COMPLETION);
         let works = self.works.lock().await;
         let work = works.get(&record.thread).unwrap();
         Ok(
@@ -2584,6 +2600,7 @@ impl Operator {
             "summary":summary,"incremental_history":history[count..],"cursor":Self::cursor(&history),"receipt":receipt,
             "incremental_context":context[context_count..],"context_cursor":Self::cursor(&context),
             "accepted":work.record.accepted,"instructions":work.request.as_ref().map(|request|&request.instructions),
+            "completion":completion,
             "native_context":work.record.phase,"return_bound":record.origin=="codex"}),
         )
     }
@@ -4673,6 +4690,7 @@ impl Operator {
             return Err(Error("operator_background_jobs_unsettled"));
         }
         let summary = text(&args, "summary", 256 * 1024)?;
+        self.ensure_public_text(summary).await?;
         let cursor: Cursor = serde_json::from_value(args["cursor"].clone())
             .map_err(|_| Error("operator_cursor_invalid"))?;
         let history = Self::history(&native, &record.thread).await?;
@@ -4934,7 +4952,7 @@ impl Operator {
                 self.config.transport.connector_name
             )
         };
-        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. After codex_finish, end your Chat turn. The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
+        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. {DIRECT_COMPLETION} The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
         {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -5920,7 +5938,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_execute", "Execute one advertised native tool under upstream approvals and return its original result. Reuse exact call_id/name/input/report on delivery retries.", "work_id controller call_id name input report", "work_id controller call_id name input report"),
         ("codex_answer", "Forward the user's supplied answer to a pending native question. This cannot answer approval/reviewer requests.", "work_id controller request_id answers", "work_id controller request_id answers"),
         ("codex_report", "Record and display a public progress report in the bound native CLI. Retry the same call_id and text after uncertain delivery.", "work_id controller call_id text", "work_id controller call_id text"),
-        ("codex_finish", "Record a final answer and confirm settled native completion. Retry the same call_id and text to observe its item and resume completion settlement without emitting again.", "work_id controller call_id text", "work_id controller call_id text"),
+        ("codex_finish", DIRECT_COMPLETION, "work_id controller call_id text", "work_id controller call_id text"),
         ("codex_status", "Observe native execution, unresolved calls, human requests and unknown host progress.", "work_id", "work_id"),
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id"),
         ("codex_handoff", "Prepare a grounded summary at a history cursor, fence the old Chat and optionally request a successor on the same Codex thread.", "work_id controller call_id summary cursor context_cursor renew", "work_id controller call_id summary cursor context_cursor"),

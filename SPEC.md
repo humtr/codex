@@ -1388,6 +1388,28 @@ The Bridge-first path must qualify exact input, context, tool/result,
 completion and display semantics before replacing the current source-follow
 path; existing source equivalence is not claimed while that work is unfinished.
 
+For Bridge/Direct completion, prepare the full public final answer before calling
+codex_finish, submit that complete text, then return the same text unchanged in
+ChatGPT after successful settlement. This instruction must be available in the
+finish tool declaration, Direct context attachment and Provider-driven control
+instructions from one definition. It imposes no reduction of reasoning, tool use,
+answer detail or public progress. A model instruction is not trusted host
+provenance: qualify the actual later final separately, and report divergence
+instead of claiming equality or adding a saved-history timer. Source-joined and
+Provider model-adapter routes retain their observed-original completion contract.
+
+Public assistant-authored report, finish, native-call report and handoff text must
+not contain private service/controller/return values currently held by the accepting
+control boundary. Reject such new text with private_control_in_public_text before
+reserving its effect/receipt, consuming a native-call budget or emitting text.
+The error contains no private value. The model may remove only those control
+values and correct the same unreserved call_id; preserve all other public content.
+This is exact known-value admission, not a pattern-based rewrite of examples,
+public work IDs or arbitrary original user input/tool results. Previously admitted
+exact receipts remain recoverable without re-emission; retained private original
+history is not rewritten. Each accepting boundary validates the capabilities it
+owns; this does not promise detection of unknown third-party credentials.
+
 **Native execution rendezvous.** Native execution and its TUI must use the same
 selected execution home/runtime/system configuration and complete resolved model
 catalog. The original catalog is configuration input, not a projection of UI-known

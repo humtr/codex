@@ -190,6 +190,13 @@ def probe(args):
             'end_turn':True,'content':{'content_type':'text','parts':['OWNED_MANAGED_ROUND_COMPLETE']}}]
         baseline = history()
         if args.bridge_first:
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/mcp',
+                data=json.dumps({'jsonrpc':'2.0','id':'completion-declaration',
+                    'method':'tools/list','params':{}}).encode(),
+                headers={'Content-Type':'application/json','Authorization':'Bearer '+TOKEN})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                controls = json.load(response)['result']['tools']
+            completion = next(tool['description'] for tool in controls if tool['name']=='codex_finish')
             # The real CLI just completed Provider-origin execution. The next
             # requests arrive through authenticated MCP, not saved Chat reads.
             def source_reads():
@@ -272,6 +279,23 @@ def probe(args):
                 assert f'BRIDGE_ORIGINAL_INPUT_{index}' in json.dumps(context['incremental_history'])
                 accepted = rpc('codex_attach',{**bound,'accept':context['receipt']})
                 assert accepted['accepted'] is True
+                before_public = history()
+                for tool in ['codex_report', 'codex_finish']:
+                    denied = rpc(tool, {**bound, 'call_id':f'bridge-public-{tool}-{index}',
+                        'text':f'Public text with private controller {bound["controller"]}'}, True)
+                    assert denied['error']=='private_control_in_public_text', denied
+                    assert history()==before_public
+                    assert rpc('codex_status',{'work_id':work['work_id']})['phase']=='running'
+                denied = rpc('codex_handoff', {**bound, 'call_id':f'bridge-handoff-{index}',
+                    'summary':bound['controller'], 'cursor':accepted['cursor'],
+                    'context_cursor':accepted['context_cursor']}, True)
+                assert denied['error']=='private_control_in_public_text', denied
+                assert history()==before_public
+                assert accepted['completion']==completion
+                report = {**bound, 'call_id':f'bridge-public-codex_report-{index}',
+                    'text':f'BRIDGE_FULL_PUBLIC_REPORT_{index} — public work {work["work_id"]}'}
+                rpc('codex_report', report)
+                assert rpc('codex_report', report)['reused']
                 tools = rpc('codex_tools',bound)['tools']
                 name = next(name for name in tools if name.rsplit('.',1)[-1]=='exec_command')
                 effect = {**bound,'call_id':f'bridge-effect-{index}','name':name,
@@ -281,10 +305,18 @@ def probe(args):
                 rejected = rpc('codex_execute',{**effect,'controller':work['controller']},True) if 'controller' in work else None
                 if rejected is not None:
                     assert rejected['error']=='operator_controller_fenced', rejected
+                before_effect = history()
+                before_calls = rpc('codex_status',{'work_id':work['work_id']})['call_observations']
+                denied = rpc('codex_execute', {**effect, 'report':bound['controller']}, True)
+                assert denied['error']=='private_control_in_public_text', denied
+                assert history()==before_effect
+                assert rpc('codex_status',{'work_id':work['work_id']})['call_observations']==before_calls
                 result = rpc('codex_execute',effect)
                 assert f'BRIDGE_RESULT_{index}' in json.dumps(result)
                 assert rpc('codex_execute',effect)['result']==result['result']
-                final = {**bound,'call_id':f'bridge-final-{index}','text':f'BRIDGE_SUBMITTED_FINAL_{index}'}
+                final = {**bound,'call_id':f'bridge-public-codex_finish-{index}',
+                    'text':f'BRIDGE_SUBMITTED_FINAL_{index}\n전체 답변 · public work {work["work_id"]}\n'
+                        '```python\napi_key = "EXAMPLE_ONLY"\ncontroller = "example"\n```\nNo omitted details.\n'}
                 rpc('codex_finish',final)
                 assert rpc('codex_finish',final)['reused']
                 wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','Bridge completion')
@@ -293,6 +325,8 @@ def probe(args):
                     wait(lambda:f'BRIDGE_SUBMITTED_FINAL_{index}' in '\n'.join(terminal_screen_lines(display, wcwidth)),
                          'Bridge final rendered in the active TUI viewport')
                 after_turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+                assert next(row['item']['text'] for row in history()
+                    if row['item'].get('id')==rpc('codex_finish',final)['native_item'])==final['text']
                 assert after_turns[:-1]==before_turns and len(after_turns)==len(before_turns)+1
                 assert sum(row['item']['type']=='userMessage' and f'BRIDGE_ORIGINAL_INPUT_{index}' in json.dumps(row['item']) for row in history())==1
                 assert rpc('codex_sessions',command_args)==started
@@ -330,6 +364,11 @@ def probe(args):
                 'bridge_additional_primary_submissions':0,'cli_followup_primary_submissions':0 if created_before_tui else 1,
                 'cli_after_bridge_same_work_completed':not bool(created_before_tui),'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
                 'bridge_finals_in_active_viewport':bool(display),
+                'private_public_report_finish_handoff_rejected_before_admission':True,
+                'private_native_report_rejected_before_effect':True,
+                'corrected_public_text_same_unreserved_id_then_exact_retry':True,
+                'full_public_final_unicode_examples_and_work_id_unchanged':True,
+                'same_completion_instruction_in_declaration_and_attachment':True,
                 'actual_web_or_android_chat_client':False,'supplied_completion_is_not_observed_chat_final':True,
                 'fresh_native_home_without_openai_credentials':bool(args.fresh_auth_home),
                 'completed_native_owner_replaced_before_join':bool(args.replace_native_owner)},indent=2)+'\n')

@@ -632,6 +632,16 @@ current context through `codex_attach` before tools; use `codex_report` and
 `codex_finish` for full submitted progress/final. Exact retries reuse their
 receipt. Busy, stopped and unreconciled works are rejected, not taken over.
 Submitted text is not falsely labelled as an unobserved ChatGPT original.
+Prepare the complete public answer before `codex_finish`, then return that same
+text unchanged in ChatGPT after success. The tool declaration and attachment
+provide one common completion instruction; its presence does not prove that a
+host obeyed it. Compare the actual later public final separately.
+New public reports, finals, native-call reports and handoff summaries containing
+known current private control values are rejected before admission with
+`private_control_in_public_text`. Correct only those values under the same
+unreserved call ID. Public work IDs, example code and other public text remain
+unchanged; existing exact receipts remain recoverable. Original user/tool text
+and retained private history are not rewritten.
 
 Before a new native prompt, a compatible TUI uses `work synchronize --thread-id`
 as a Native-only barrier for an already admitted Direct/source execution. It

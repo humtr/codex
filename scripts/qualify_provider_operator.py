@@ -664,12 +664,15 @@ def probe(args):
             budget = {'max_parallel': 2, 'max_app_starts': 12,
                       'max_native_calls': 24, 'max_elapsed_seconds': 240}
 
-            def selected(label, parent=None, dependencies=None, reasoning='direct', parallel=None):
+            def selected(label, parent=None, dependencies=None, reasoning='direct', parallel=None,
+                         native_calls=None):
                 workspace = root / ('work-' + label)
                 workspace.mkdir()
                 request = {'action': 'create', 'call_id': 'selected-create-' + label,
                            'reasoning': reasoning, 'workspace': str(workspace),
                            'role': label, 'budget': {**budget, **({'max_parallel':parallel} if parallel is not None else {})}}
+                if native_calls is not None:
+                    request['budget']['max_native_calls'] = native_calls
                 if parent:
                     request.update(parent_work_id=parent['work_id'], parent_controller=parent['controller'])
                 if dependencies:
@@ -712,11 +715,17 @@ def probe(args):
 
             independent_a, _ = selected('independent-a', parallel=1)
             independent_a = begin(independent_a, 'independent-a')
-            independent_b, _ = selected('independent-b', parallel=1)
+            independent_b, created_b = selected('independent-b', parallel=1, native_calls=1)
+            assert created_b['assignment']['budget']['max_native_calls']==1
             independent_b = begin(independent_b, 'independent-b')
             assert rpc('codex_status', {'work_id':independent_a['work_id']})['phase'] == 'running'
             assert rpc('codex_stop', {'work_id':independent_a['work_id']})['native_stop_confirmed']
             assert rpc('codex_status', {'work_id':independent_b['work_id']})['phase'] == 'running'
+            denied = rpc('codex_execute', {**independent_b, 'call_id':'independent-effect',
+                'name':command_key, 'input':json.dumps({'cmd':'printf independent > independent.txt',
+                    'login':False, 'max_output_tokens':1000}),
+                'report':independent_b['controller']}, True)
+            assert denied['error']=='private_control_in_public_text', denied
             command(independent_b, 'independent-effect', 'printf independent > independent.txt')
             rpc('codex_finish', {**independent_b,'call_id':'independent-final','text':'INDEPENDENT_ROOT_COMPLETE'})
             restart_fixture()
@@ -796,6 +805,7 @@ def probe(args):
             after_selected = json.loads((root / 'bridge-commands.json').read_text())[before_selected:]
             assert not any(row['op'] == 'submit' for row in after_selected), 'direct selected work acquired managed reasoning'
             selected_proof = {'same_thread_successor': original['thread_id'], 'source_fenced_until_receipt': True,
+                              'private_report_did_not_consume_single_call_budget': True,
                               'two_isolated_native_writers': True, 'same_parent_limit_queued_third_writer':True, 'independent_roots_progress_with_parallel_one':True, 'terminal_stop_survived_restart':True, 'per_task_stop_preserved_sibling': True,
                               'evaluated_dependency': True, 'tree_stop_confirmed_descendants': 5,
                               'claim_reloaded_observed_notLoaded_thread': True, 'explicit_time_extension_same_native_thread': True, 'extension_retained_call_count':len(retained_calls), 'extension_original_start':retained_start,
