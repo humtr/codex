@@ -256,9 +256,11 @@ dependency/readiness checks and persistent disable/restore operations. The
 runtime check must establish Android compatibility before enabling the tunnel;
 an executable name or a successful version print alone does not establish it.
 The [service and tunnel targets](../../SPEC.md#explicit-device-service-integration)
-keep tunnel source/build/release management independent while connecting its
-validated artifacts to wrapper dependency installation and separate update/
-rollback. Core-only and local-function paths do not thereby require a remote
+make the patched Android tunnel individually selectable and part of future Full.
+Normal installation consumes validated prebuilt binaries; independent tunnel
+update/rollback remains available. Release and explicit source-build/recovery
+reuse one wrapper-owned official-source/patch/build recipe, without another
+repository checkout or ordinary-install compiler requirement. Core-only and local-function paths do not thereby require a remote
 tunnel. These dependency controls are not shipped commands.
 The owner's additional runit-root recovery layer is optional, not a prerequisite. This service
 registration is an explicit device action here, not an implemented setup command.

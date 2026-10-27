@@ -2604,15 +2604,37 @@ changes do not restart the tunnel or replay a request. Rebinding the immutable
 stdio executable is a separate bounded maintenance action. MCP stdio stdout
 remains reserved for protocol messages, separate from diagnostics.
 
-**Tunnel distribution target (not yet implemented).** Maintain upstream tracking,
-the minimal required Termux/mobile changes, Android builds, regression tests and
-versioned releases in the tunnel's independently maintained source/release plane.
-The wrapper consumes an admitted immutable artifact through its installation
-authority; it does not embed a second tunnel implementation or require a Core/
-Provider rebuild for every tunnel update. Setup for a selected remote MCP route
-must offer the required tunnel dependency, and updates must expose its version,
-source and independent selection/rollback. Core-only execution and local-function
-routes must not acquire an unnecessary remote-tunnel requirement.
+**Optional component and tunnel distribution target (not yet implemented).**
+Core is mandatory. Manager, enhanced TUI, Provider and the patched Termux tunnel
+client are independently selectable optional capabilities. Full selects all of
+these optional capabilities, including the prebuilt Android tunnel client;
+individual selection must also work without installing Full. Remote MCP setup
+resolves its tunnel dependency; a Core-only or local-function route has no new
+remote-tunnel requirement. Installing binaries does not enable services, log into
+an app, acquire credentials or create remote registrations implicitly.
+
+Ordinary installation/update uses qualified prebuilt artifacts produced during
+release preparation, with authenticated inventories and independent component
+version/selection/rollback. It requires neither Go/clang nor another source
+checkout on the user's device. Full may carry exact signed component packages
+under the same installation authority; it must not become a second implementation
+of their installers or couple independent tunnel updates to Core/Provider rebuilds.
+Existing Base/Full releases retain their original inventories and interpretation;
+CURRENT distinguishes that installed format from this future composition.
+
+The wrapper repository owns one authoritative tunnel compatibility recipe: the
+official source/version resolution, bounded Termux/mobile patches, Android build
+and affected-path tests. Reuse it for release builds and an explicitly selected
+source-build/recovery path. The latter acquires official source into temporary
+storage, checks required Go/clang/build tools and qualifies the result without
+requiring ~/prj/tunnel-client or a separate user-managed repository. Resolve latest
+stable when requested; a source revision outside the validated recipe must fail
+with its actual incompatibility rather than silently use an old build. Build-tool
+setup is scoped to the selected build operation, never ordinary Core startup.
+The additional tunnel checkout may remain a development experiment, but cannot
+be the product's patch/build authority or a runtime dependency. Keep one copy of
+each product patch and build rule in this repository. CURRENT records preparation,
+source-build availability, signed distribution and activation separately.
 
 Qualify platform execution, existing profile/credential compatibility, actual
 MCP request/result delivery and the mobile half-open HTTP/2 regression before
@@ -2927,8 +2949,10 @@ excluded. Git protection is not permission to reset or discard existing changes.
 
 ### Optional Provider packaging and selection
 
-Base excludes all optional components. Full composes qualified Manager/frontend;
-the provider remains opt-in and must not require signed desktop app/rootfs download
+In the deployed format Base excludes all optional components and Full composes
+qualified Manager/frontend; Provider is a separately selected package. The future
+selectable-component/Full target is defined under device service integration.
+Provider remains opt-in outside Full and must not require signed desktop app/rootfs download
 or login on ordinary update/startup. A stable provider needs a declared versioned
 payload/dependency inventory, authenticated delivery and tested activation/rollback
 before replacing its experimental installer. Preserve app authentication and user
@@ -5869,7 +5893,9 @@ Termux boundary rather than to accidental Linux desktop behavior.
 This extension does not reopen or weaken the accepted Core completion
 invariants. The resolver, signed-generation trust model, wrapper-owned update,
 coordinated Core/generation activation and rollback, profile/session/auth
-boundaries, sandbox policy, and no-on-device-compiler rule remain unchanged.
+boundaries and sandbox policy remain unchanged. Ordinary signed installation
+requires no on-device compiler; explicit source-build paths, including the tunnel
+recovery contract, are separate opt-in operations.
 It also does not authorize an unbounded raw-runtime byte patch: the selected
 version's exact termux-fd-remap policy and retained-generation policies remain
 bound to their qualified artifacts. Any additional binary rewrite requires a

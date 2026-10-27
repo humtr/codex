@@ -63,10 +63,23 @@ recovery while its healthy long-wait control passes. Both pass with the bounded
 change. Control-plane, transport, runtime-config, version and CLI suites pass on
 Android after correcting the tests' hardcoded /tmp and /bin/sh assumptions;
 assertions were retained and no skip was introduced to obtain that pass.
-The initial failed logs remain. The Android/arm64 CGO-enabled stripped build succeeds and reports the exact
-b9238c8 source with vcs.modified=false. Remote delivery and activation remain
-separate gates. The worktree is under TMPDIR, not an installation
-prerequisite or published update channel. Original source/fault/runtime records
+The initial failed logs remain. The experimental Android/arm64 build succeeds;
+its exact b9238c8 bytes passed actual cloud tools/list and tools/call on the
+existing isolated connector after one metadata refresh. No model/new remote
+object/operating service change occurred. That worktree is development evidence,
+not the product dependency or release authority.
+
+The wrapper now owns transport/tunnel-client/{recipe.json,termux.patch} and
+scripts/build_tunnel_client.py. A real fresh official-source fetch/build succeeded
+without another checkout or user credentials, using the bundled patches and
+Android Go/clang. The final build identifies upstream274a558 and patch0ad5d2db16a9;
+build.json binds its complete patch/recipe/binary digests for release consumption.
+Both HTTP/2 tests and the affected Go suites pass. Explicit latest selection
+rejects an unsupported newer stable without choosing an old version;2 focused
+selection tests and scripts/check.sh python pass. Core/Provider service activation
+and future optional-component/Full packaging are separate from this helper.
+The build helper is available in this repository; it is not yet installed as a
+native end-user source-build command or bundled Full artifact. Original source/fault/runtime records
 remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Operating baseline
@@ -323,7 +336,7 @@ not a new mandatory platform guarantee or permission gate.
 |1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
 |2a Startup coordination follow-up | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
-|2b Tunnel maintenance before expanded live qualification/A2 | Existing tunnel-client local branch and Android build, independent of Provider code; wrapper integration follows accepted artifacts | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
+|2b Tunnel maintenance before expanded live qualification/A2 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
 |3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
 |4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
 |5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |
@@ -363,9 +376,11 @@ a bounded investigation, rather than reopening every accepted feature:
   That local branch has one HTTP/2 liveness patch over0.0.14 and only the upstream
   origin. No independent Termux release/update channel was established by the
   inspected configuration or repository lookup. Current Codex install/update
-  does not update it. Recommend independent upstream tracking/Termux builds and
-  release ownership, consumed by wrapper setup/update as a selected dependency;
-  this integration is the documented target, not delivered. Inspect the latest
+  does not update it. The updated target puts the authoritative source/patch/build recipe in this
+  wrapper repository. Tunnel is individually selectable and included prebuilt in
+  future Full; ordinary installation requires no compiler or separate checkout.
+  An explicit source-build/recovery path reuses the release recipe. Independent
+  component updates/rollback remain required; none of this packaging is yet delivered. Inspect the latest
   transport and rerun the half-open regression before retaining/replacing the patch. Neither
   age nor a successful version probe settles runtime compatibility.
 - **Existing A1 scope, now more precise:** qualify Chat-origin Provider context
@@ -417,8 +432,10 @@ context. Do not restore a saved-history crawler to hide missing participation.
 ### Repository separation and cleanup
 
 Current Base/Full semantics stay unchanged during A1/A2. The approved target is
-mandatory Core with individually selectable optional layers and Full meaning
-all selected layers; signed composition, tunnel install/update ownership and
+mandatory Core with individually selectable Manager/TUI/Provider/tunnel and Full
+meaning all optional layers, including the prebuilt patched Android tunnel.
+Release and optional source-build use the wrapper-owned recipe, without another
+repository prerequisite. Signed composition, tunnel install/update ownership and
 migration remain a separate batch. Preserve independent published histories;
 main stays a caller pinned to accepted exact-source reusable release logic.
 

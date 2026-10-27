@@ -42,7 +42,11 @@ the remaining gaps; a client restart does not implement their repair.
 
 Install **Full** for the usual terminal experience (Core, Manager and TUI).
 Install **Base** when you want only Core and upstream Codex. ChatGPT Provider
-is an optional separate package in either edition.
+is an optional separate package in either edition. The future
+composition makes Manager, TUI, Provider and the patched Android tunnel individually
+selectable, with Full including them all. Normal installs use prebuilt binaries;
+source-building is an explicit recovery/development option. This target has not
+changed the current Full119 inventory; see [work order](CURRENT.md#product-completion-scope-and-work-order).
 
 | Where you start | Who reasons about the task | Required setup |
 | --- | --- | --- |
@@ -597,6 +601,24 @@ starts one checkpoint-continuation turn on an eligible account; it does not rese
 the original request or replay completed tool calls. Proactive idle switching
 submits no prompt. Unknown tool outcomes, conflicting writers, stale quota,
 cooldowns or missing destination capabilities pause safely with a reason.
+
+## Optional tunnel build recipe
+
+The wrapper owns the official-source and Termux patch recipe in
+[transport/tunnel-client/recipe.json](transport/tunnel-client/recipe.json).
+Release preparation and explicit source builds use the same helper:
+
+```sh
+python3 scripts/build_tunnel_client.py --output "$TMPDIR/codex-tunnel-artifact"
+```
+
+This optional build requires Termux Python, Git, curl, Go and clang. It fetches
+validated official source into TMPDIR, applies the bundled patch and runs actual
+HTTP/2 and affected-package tests before building an Android artifact. It needs
+no separate tunnel checkout, app login or tunnel credentials. An unsupported
+latest stable version fails explicitly. A build does not select a service binary
+or change a live tunnel. Normal future Full/individual-component installation
+will consume prebuilt packages; that packaging is still under implementation.
 
 ## Development
 
