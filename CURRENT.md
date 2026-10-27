@@ -41,6 +41,34 @@ Read-only investigation and tests independent of those changes can continue.
 The future contracts are in [SPEC device service integration](SPEC.md#explicit-device-service-integration);
 neither the concurrency correction nor automatic tunnel updating is delivered.
 
+Startup correction now passes local source and actual Android qualification:
+service.startup explicitly selects standalone versus supervised acquisition.
+The complete Provider gate passed (Rust/Clippy/optimized release,101 JS and82
+Python cases); the11 runtime CLI tests include no-owner timeout, foreground
+preparation and retained standalone startup. A disposable actual runit trial of
+the final release binary accepts one prepare plus two token consumers on the
+same foreground owner, with no detached startup and kernel-confirmed shutdown.
+The real Native/TUI Bridge-first cold/restart flow, all three product
+compositions and signed local/remote package lifecycle pass with that candidate. A targeted fault disables the selection,
+actually starts a detached owner and is rejected; disposable source was restored.
+No live source was faulted. The old Provider15 remains installed. A real Provider15→new→Provider15 cycle also preserves the journal owner/endpoint
+when its matching legacy configuration is restored before rollback. Old code
+explicitly rejects the new field. Signed delivery and operating activation remain pending;
+do not apply the new configuration field to Provider15.
+
+Tunnel maintenance has an isolated v0.0.18-based branch:9a06183 carries the
+HTTP/2 correction; b9238c8 additionally makes existing Unix-socket/shell tests use
+actual host paths. Unmodified upstream fails silent HTTP/2 connection-loss
+recovery while its healthy long-wait control passes. Both pass with the bounded
+change. Control-plane, transport, runtime-config, version and CLI suites pass on
+Android after correcting the tests' hardcoded /tmp and /bin/sh assumptions;
+assertions were retained and no skip was introduced to obtain that pass.
+The initial failed logs remain. The Android/arm64 CGO-enabled stripped build succeeds and reports the exact
+b9238c8 source with vcs.modified=false. Remote delivery and activation remain
+separate gates. The worktree is under TMPDIR, not an installation
+prerequisite or published update channel. Original source/fault/runtime records
+remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
+
 ## Operating baseline
 
 | Plane | Last verified state and boundary |

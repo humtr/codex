@@ -248,6 +248,132 @@ impl Drop for Service {
 }
 
 #[test]
+fn supervised_preparation_waits_for_the_foreground_owner_without_detached_start() {
+    let root = Root::new();
+    let config = root.0.join("config/codex/providers/chatgpt.toml");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(
+        &config,
+        format!(
+            "[service]\nstartup='supervised'\n[host]\nrootfs='{}'\n",
+            root.0.join("unused-rootfs").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::create_dir(root.0.join("native-home")).unwrap();
+    // A lazy service can publish readiness without acquiring an app/rootfs.
+    // With no external owner, an auth request must time out without launching it.
+    let state = root.0.join("state");
+    let binary = env!("CARGO_BIN_EXE_codex-chatgpt-provider");
+    let output = Command::new(binary)
+        .arg("token")
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    if output.status.success() {
+        // Retire only the test's own unintended child when fault injection
+        // exposes the bug, before reporting the public-contract violation.
+        let stopped = Command::new(binary)
+            .arg("stop")
+            .arg("--state")
+            .arg(&state)
+            .output()
+            .unwrap();
+        assert!(stopped.status.success());
+    }
+    assert!(
+        !output.status.success(),
+        "supervised authentication started a detached service"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("provider_supervised_start_timeout"));
+    assert!(output.stdout.is_empty());
+    assert!(
+        !state.exists(),
+        "waiting authentication must not create service state"
+    );
+    let waiting = Command::new(binary)
+        .args(["prepare", "--home"])
+        .arg(root.0.join("native-home"))
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut owner = Service(
+        Command::new(binary)
+            .arg("serve")
+            .arg("--state")
+            .arg(&state)
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut line = String::new();
+    BufReader::new(owner.0.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let listener: Value = serde_json::from_str(&line).expect("foreground owner readiness");
+    let prepared = waiting.wait_with_output().unwrap();
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    let value: Value = serde_json::from_slice(&prepared.stdout).unwrap();
+    assert_eq!(value["prepared"], true);
+    let actual = Command::new(binary)
+        .arg("status")
+        .arg("--state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(actual.status.success());
+    let actual: Value = serde_json::from_slice(&actual.stdout).unwrap();
+    assert_eq!(actual["process"]["pid"], owner.0.id());
+    assert_eq!(actual["base_url"], listener["base_url"]);
+    assert!(!state.join("startup.log").exists());
+    assert!(!state.join("desktop").exists());
+    drop(owner);
+    // Standalone explicitly retains lazy startup with the same app-free fixture.
+    let standalone = std::fs::read_to_string(&config)
+        .unwrap()
+        .replace("'supervised'", "'standalone'");
+    std::fs::write(&config, standalone).unwrap();
+    let started = Command::new(binary)
+        .arg("token")
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    let stopped = Command::new(binary)
+        .arg("stop")
+        .arg("--state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(stopped.status.success());
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    assert_eq!(started.stdout.len(), 49);
+    assert!(!state.join("desktop").exists());
+}
+
+#[test]
 fn reveal_never_bootstraps_a_missing_service_or_creates_state() {
     for command in ["reveal", "approve", "approve-ui"] {
         let root = Root::new();

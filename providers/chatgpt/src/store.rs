@@ -124,6 +124,7 @@ impl Snapshot {
         }).collect::<Result<BTreeMap<_,_>,ConfigError>>()?;
         let mut settings = serde_json::json!(&config);
         settings["history"]["account_change"] = serde_json::json!(config.history.account_change);
+        settings["service"] = serde_json::json!(config.service);
         Ok(
             serde_json::json!({"effective_model_contexts":contexts,"path":self.path,"exists":self.original.is_some(),"runtime_application":"not_queried","settings":settings,"origins":origins}),
         )

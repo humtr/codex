@@ -646,6 +646,18 @@ configuration/operations will remain its authority. Scope and priority are in
   base settings and login. It may authenticate/start the configured Rust service;
   it submits no Chat or project creation. No bearer is written in the profile.
 
+The development source adds `service.startup=standalone|supervised`. Standalone
+is the default and retains lazy service startup. Supervised preparation/token
+requests wait for authenticated foreground-service readiness, for at most45s,
+and never start a detached Provider. Status stays read-only. Configure the mode
+through `config set service.startup supervised` only after selecting code that
+supports it; installed Provider15 does not. Setting it does not enable runit or
+transfer an existing process into supervision. Preserve the old configuration
+before maintenance, settle work and stop the prior owner, then start the chosen
+supervisor. Before an old-code rollback, restore its compatible configuration
+while stopped. CURRENT owns actual source/release qualification; this paragraph
+does not claim a new installed package or setup command.
+
 Initial catalog data is in `default-models.toml`, not a Rust model-family list.
 GPT-6 and manual-only Pro are retained; GPT-5.6 is excluded. A hidden Instant alias
 is compatibility data. Model/effort/context entries are editable without rebuilding

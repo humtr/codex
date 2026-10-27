@@ -27,6 +27,7 @@ pub const FIELDS: &[&str] = &[
     "execution.core",
     "execution.home",
     "execution.workspace",
+    "service.startup",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,8 @@ pub struct Config {
     pub catalog: Catalog,
     pub host: HostConfig,
     pub execution: ExecutionConfig,
+    #[serde(skip_serializing_if = "ServiceConfig::is_default")]
+    pub service: ServiceConfig,
 }
 
 impl Default for Config {
@@ -53,7 +56,27 @@ impl Default for Config {
             catalog: Catalog::default(),
             host: HostConfig::default(),
             execution: ExecutionConfig::default(),
+            service: ServiceConfig::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceStartup {
+    #[default]
+    Standalone,
+    Supervised,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServiceConfig {
+    pub startup: ServiceStartup,
+}
+impl ServiceConfig {
+    fn is_default(&self) -> bool {
+        self.startup == ServiceStartup::Standalone
     }
 }
 
@@ -355,6 +378,10 @@ mod tests {
     #[test]
     fn defaults_roundtrip_without_claiming_host_capacity() {
         let value = Config::default();
+        assert!(serde_json::to_value(&value)
+            .unwrap()
+            .get("service")
+            .is_none());
         assert_eq!(value.context.window_tokens, 1_000_000);
         assert_eq!(value.context.auto_compact_token_limit, None);
         assert_eq!(
@@ -391,6 +418,7 @@ mod tests {
             "[transport]\nmax_wire_bytes=16777217",
             "[history]\nmode='project'",
             "[model]\nreasoning_effort='unconfigured'",
+            "[service]\nstartup='automatic'",
         ] {
             assert!(Config::parse(source.as_bytes()).is_err(), "{source}");
         }

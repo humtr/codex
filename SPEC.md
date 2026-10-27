@@ -2549,19 +2549,31 @@ Provider owns the bridge/MCP service; the tunnel runtime transports its MCP
 traffic. They remain separate processes. Use the existing `termux-services`
 startup/root-recovery mechanism rather than tmux or another daemon manager.
 
-**Startup ownership target (not yet implemented).** The generic termux-services
+**Startup ownership contract.** Provider configuration selects
+`service.startup=standalone|supervised`, defaulting to standalone. The default is
+omitted from persisted config serialization used by existing fingerprints.
+The generic termux-services
 layer owns the shared runit graph and its recovery, not Provider health or task
 policy. When supervised service operation is selected, runit owns Provider
 startup; preparation/authentication must use the verified supervised endpoint
 or report bounded readiness failure, rather than race it with detached startup.
-Standalone operation retains its existing lazy-start capability. Establish the
+Standalone operation retains its existing lazy-start capability. Supervised
+authentication/preparation waits within the existing45-second startup bound for
+authenticated readiness and returns provider_supervised_start_timeout if absent;
+it creates no detached service. Status remains read-only in both modes. Changing
+the setting does not adopt, stop or replace an existing service: maintenance must
+settle work, stop the old owner and enable the selected foreground supervisor.
+Older Provider binaries reject the new service configuration section. Preserve
+the previous configuration with the package/state rollback inputs, and restore
+the compatible configuration while stopped before starting that old binary.
+Establish the
 selected lifecycle authority explicitly without guessing from a process name or
 an unresponsive endpoint. Concurrent preparation and supervisor startup must
 converge to one authenticated service under the selected authority, preserving
 the Journal lease, active Native owners and pending work. No second supervisor
 or Provider-specific recovery policy belongs in the generic root monitor.
-CURRENT records the present serialized maintenance procedure and remaining
-disposable concurrent-start qualification; this target is not a delivered fix.
+CURRENT records implementation, qualification and delivery separately; the
+serialized maintenance procedure remains applicable to installed older code.
 
 Run Provider's existing `serve` command in the foreground under runit. A separate
 opt-in host keeper may observe that service and use `host ensure` only when the

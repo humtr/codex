@@ -252,6 +252,35 @@ async fn ensure_binding(root: &Path) -> Result<Binding, Error> {
     if let Ok(value) = verified_binding(root).await {
         return Ok(value);
     }
+    let path = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
+    let settings = store::Snapshot::open(&path)
+        .and_then(|v| v.config())
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    let until = tokio::time::Instant::now() + Duration::from_secs(45);
+    if settings.service.startup == crate::config::ServiceStartup::Supervised {
+        loop {
+            match verified_binding(root).await {
+                Ok(value) => return Ok(value),
+                Err(Error(
+                    "provider_not_running"
+                    | "stale_process_owner"
+                    | "provider_unavailable"
+                    | "readiness_timeout",
+                )) => (),
+                Err(Error("state_directory_unavailable"))
+                    if std::fs::symlink_metadata(root)
+                        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
+                Err(Error("private_file_unavailable"))
+                    if std::fs::symlink_metadata(root.join("owner-v1"))
+                        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+            if tokio::time::Instant::now() >= until {
+                return Err(Error("provider_supervised_start_timeout"));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
     crate::journal::private_directory(root)?;
     let lock = File::options()
         .read(true)
@@ -263,7 +292,6 @@ async fn ensure_binding(root: &Path) -> Result<Binding, Error> {
         .open(root.join("startup.lock"))
         .map_err(|_| Error("provider_start_lock_unavailable"))?;
     private_regular(&lock)?;
-    let until = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             break;
@@ -289,10 +317,6 @@ async fn ensure_binding(root: &Path) -> Result<Binding, Error> {
                 return Err(Error("provider_live_but_unavailable"));
             }
         }
-        let path = store::config_path().map_err(|_| Error("invalid_configuration_path"))?;
-        let settings = store::Snapshot::open(&path)
-            .and_then(|v| v.config())
-            .map_err(|_| Error("invalid_provider_configuration"))?;
         if settings.host.rootfs.is_none()
             && !(settings.execution.core.is_some()
                 && settings.execution.home.is_some()
