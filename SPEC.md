@@ -2063,10 +2063,11 @@ annotations are intentional immutable user requirements across all tool definiti
 including added common interfaces. The MCP base catalog and Native management
 catalog use one declaration policy, without a per-tool read-only exception.
 Do not change them or reopen their selection as a product-admission prerequisite.
-Only idempotentHint is under design review, alongside the actual operation contract
-and implementation. Preliminary per-tool recommendations are research, not accepted
-final values. E settles scope/semantics and implements the shared source logic;
-F verifies actual behavior and applies the accepted result to the selected paths.
+Only idempotentHint varies by the actual operation contract and implementation.
+E defines logical-request scope, duplicate/unknown-result behavior and shared
+source logic; F qualifies that behavior before applying each declaration. Earlier
+preliminary recommendations are research, not authority over the qualified policy
+below. The hint neither adds a global queue nor proves host parallel scheduling.
 
 The goal is consistent logical-request identity, duplicate handling and result/
 completion recovery across the tool surface. Reads retain freshness. Effectful

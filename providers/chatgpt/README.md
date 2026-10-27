@@ -32,7 +32,7 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
-The CLI retains inherited handles, including Core's payload selection lease,
+Provider18 retains inherited handles, including Core's payload selection lease,
 in its own process and marks non-stdio handles close-on-exec before starting
 children. Native/app children receive only explicitly exported descriptors; they
 must not keep an incidental Provider selection lock alive. Running Provider
@@ -309,12 +309,16 @@ payloads, downloads a desktop/rootfs, logs in or submits model work.
 Historical signed eight-file payloads remain accepted with their complete
 original inventories for rollback.
 
-The package lease can remain inherited by a native catalog daemon after Provider
-exits. Diagnose busy selection through kernel FD/lock ownership and actual loaded
-threads/jobs. Preserve the catalog's metadata, settle its work, and gracefully
-stop only a verified idle owner before checking exclusive lease availability.
-An unchanged-selection rejection and an uncertain mutation require different
-reconciliation; neither is permission to remove a lock or kill unrelated runtimes.
+Older Providers through17 can pass their package lease into native/app children,
+leaving selection busy after the Provider exits. Provider18 marks inherited
+non-stdio descriptors close-on-exec at entry: the Provider keeps its lease, while
+children receive only explicitly exported descriptors. Upgrading from older code
+can still encounter an already inherited lock. Diagnose its kernel FD owner and
+actual work; preserve unknown or active owners. Only an explicitly owned, settled
+test backend may be retired as part of its qualified maintenance action. Ordinary
+install never terminates Native work or removes a lock to force selection.
+An unchanged-selection rejection and an uncertain mutation need different
+reconciliation; neither permits replay or killing unrelated runtimes.
 
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
