@@ -48,7 +48,7 @@ Delivered TZif/KST, canonical names and signed release/activation are not reopen
 | Preserved state |35 work identities/phases,17 protected files and4 existing Native owners;62 converted control records include previous controllers, not62 works |
 | Operating MCP | Same existing connector/tunnel; registered/cloud/local full schemas agree for17 tools including join; actual cloud read returned35 works |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
-| Tunnel | Existing scoped HTTP/2 recovery buildbb78162; no global replacement. Process/health status alone does not prove request delivery |
+| Tunnel | Codex service runs scoped Android/arm64 build0.0.14+bb78162 (actual child PID22660 at follow-up); global CLI remains0.0.14. No automatic tunnel updater is shipped; process/health status alone does not prove request delivery |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
 Provider15 binary SHA256:
@@ -289,6 +289,7 @@ not a new mandatory platform guarantee or permission gate.
 |1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
 |2a Startup coordination follow-up | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
+|2b Tunnel maintenance before expanded live qualification/A2 | Existing tunnel-client local branch and Android build, independent of Provider code; wrapper integration follows accepted artifacts | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
 |3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
 |4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
 |5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |
@@ -298,15 +299,17 @@ not a new mandatory platform guarantee or permission gate.
 Orders1/2 are iterative: a failure need not wait for every matrix case before its
 fix.2a is newly identified lifecycle work; documented serialization is the current
 operating procedure. Complete it before automating setup, and bring it forward
-only if it obstructs A1. Budget and worker features follow A2 so they do not create
+if it obstructs A1.2b can proceed with2a; version/recovery qualification should
+precede expanded live-model testing. Full automatic dependency installation/update
+is still order6, distinct from this maintenance. Budget and worker features follow A2 so they do not create
 another admission/usage implementation. Read-only supported-host research can
 proceed while actual-model tests are rate limited; the last Pro call is conditional.
 A2 should not be blocked indefinitely by an upstream provenance capability that
 has been investigated and recorded as unsupported: first settle that A1 boundary,
 then retain the limitation explicitly without claiming universal equivalence.
 
-The release results add one concrete implementation candidate and one bounded
-investigation, rather than reopening every accepted feature:
+The release and service/tunnel follow-up add concrete maintenance candidates and
+a bounded investigation, rather than reopening every accepted feature:
 
 - **New lifecycle work (2a):** concurrent runit/prepare startup produced the
   observed detached-owner/supervisor mismatch. First amend the lifecycle contract
@@ -317,6 +320,20 @@ investigation, rather than reopening every accepted feature:
   only if it recurs or blocks qualification/setup. Capture app-target/composer
   readiness at failure; the later composer alone identifies no cause. This is
   distinct from the delivered Native notLoaded fix.
+- **Tunnel maintenance (2b):** upstream [v0.0.18](https://github.com/openai/tunnel-client/releases/tag/v0.0.18)
+  was published2026-10-23T20:25:58Z. The inspected0.0.14 base is162 upstream commits
+  behind that tag (four release increments); this does not establish protocol
+  incompatibility. The official inventory has Linux/macOS/Windows artifacts, not
+  an Android build. Actual Codex and global executables report GOOS=android,
+  GOARCH=arm64, CGO_ENABLED=1; the Codex image additionally identifies bb78162.
+  That local branch has one HTTP/2 liveness patch over0.0.14 and only the upstream
+  origin. No independent Termux release/update channel was established by the
+  inspected configuration or repository lookup. Current Codex install/update
+  does not update it. Recommend independent upstream tracking/Termux builds and
+  release ownership, consumed by wrapper setup/update as a selected dependency;
+  this integration is proposed, not delivered. Inspect the latest transport and
+  rerun the half-open regression before retaining/replacing the patch. Neither
+  age nor a successful version probe settles runtime compatibility.
 - **Existing A1 scope, now more precise:** qualify Chat-origin Provider context
   acceptance/result return and external-source attribution before declaring full
   entrance equivalence. Missing trusted host IDs may require a supported host
@@ -325,6 +342,19 @@ investigation, rather than reopening every accepted feature:
   inherited leases were qualification-helper findings. Preserve their evidence;
   do not infer a Provider leak, tunnel incompatibility or model retry bug from
   them. Accepted signed delivery/rollback, TZif and catalog fixes remain closed.
+
+**Service ownership finding.** The installed service-daemon matches
+~/prj/termux-services/files/bin/service-daemon at the follow-up. Boot/login starts
+the shared runit graph; its15s monitor observes root process identity, not remote
+Chat history. Read-only status showed one root and12 supervised services, with
+Codex Provider/host/tunnel up. It owns graph recovery, not Provider readiness.
+prepare calls runtime::ensure_token/ensure_binding, which can start its own
+detached serve process; runit separately invokes foreground serve. These two
+application startup authorities caused the observed collision without requiring
+duplicate runsvdir roots. Repair the Provider/service integration boundary first;
+do not add Provider-specific policy to the generic root monitor. The tunnel
+wrapper only reads authenticated local Provider status before running its pinned
+client; no tunnel-version cause of the observed startup collision is established.
 
 ### G product qualification
 

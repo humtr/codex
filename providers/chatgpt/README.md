@@ -755,8 +755,13 @@ maintenance. Provider's `execution.home` and `execution.workspace` select native
 execution, rather than a hardcoded account name in the service scripts.
 
 The tunnel executable must be Android-compatible. This device's global
-`tunnel-client` is native0.0.14; inactive Linux images were archived outside
-executable paths. Do not infer compatibility from the filename or modify a system
+`tunnel-client` is native0.0.14, while this Codex service pins the separate
+Android0.0.14+bb78162 HTTP/2 recovery image. Neither is updated by the current
+Codex package updater. Upstream tracking/Termux release maintenance and wrapper
+dependency integration remain separate work in
+[CURRENT](../../CURRENT.md#product-completion-scope-and-work-order); the current
+scoped pin is not an automatic update channel. Inactive Linux images were archived
+outside executable paths. Do not infer compatibility from the filename or modify a system
 resolver to accommodate a Linux binary. The MCP wrapper keeps stderr separate
 from its JSON-RPC stdout; runit service logs may merge their own stderr.
 
