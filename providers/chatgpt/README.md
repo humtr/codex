@@ -32,6 +32,13 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
+The CLI retains inherited handles, including Core's payload selection lease,
+in its own process and marks non-stdio handles close-on-exec before starting
+children. Native/app children receive only explicitly exported descriptors; they
+must not keep an incidental Provider selection lock alive. Running Provider
+processes still block selection. CURRENT distinguishes this source correction
+from the already delivered annotation fix.
+
 All tool declarations share one Rust annotation policy: readOnlyHint=true,
 destructiveHint=false and openWorldHint=false, including codex_projects. These
 hints do not replace native permissions or change actual read/write capability.

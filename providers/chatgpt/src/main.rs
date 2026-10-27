@@ -604,8 +604,26 @@ fn edit(path: &std::path::Path) -> Result<(), String> {
     let _ = fs::remove_file(temporary);
     result
 }
+// Keep Core's payload lease in this process. Child launches export only their
+// explicitly mapped descriptors, not incidental handles inherited by this CLI.
+fn mark_inherited_descriptors_close_on_exec() -> std::io::Result<()> {
+    for entry in fs::read_dir("/proc/self/fd")? {
+        let fd = entry?
+            .file_name()
+            .to_string_lossy()
+            .parse::<i32>()
+            .map_err(|_| std::io::Error::other("invalid inherited descriptor entry"))?;
+        if fd > 2 && unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 fn main() {
-    if let Err(error) = run() {
+    if let Err(error) = mark_inherited_descriptors_close_on_exec()
+        .map_err(|error| format!("inherited_descriptor_setup_failed: {error}"))
+        .and_then(|()| run())
+    {
         eprintln!("codex-chatgpt-provider: {error}");
         std::process::exit(2);
     }

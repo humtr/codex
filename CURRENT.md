@@ -2,7 +2,7 @@
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
 delivery and remaining work. Status consolidated on 2026-10-27 UTC from product
-source a2baf054265301e75d9ee966a9e1455101756dda (Provider16), wrapper tunnel
+source b08fc1f3b1a7a8f8c8297a57bcc17396652526d7 (Provider17), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
 batch below includes bounded actual device activation, with zero model requests.
 
@@ -15,12 +15,13 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full119 and Provider16 are signed, publicly delivered and activated on this
+**Full119 and Provider17 are signed, publicly delivered and activated on this
 device. A1 entrance equivalence is partially qualified, not complete.** The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
-authenticated host and35 preserved works at the recorded maintenance boundary. This is a dated observation,
-not a claim that those processes have been rechecked on every documentation edit.
+authenticated host and36 preserved works at the Provider17 activation boundary.
+That activation preserved16 protected files and7 existing Native owners. These are
+recorded observations, not a recheck on every documentation edit.
 New TUI launches use the corrected frontend; already-running clients retain their
 old executable until normal restart.
 
@@ -117,13 +118,17 @@ resolved invocation provider. Remote/embedded policy and actual request
 authentication remain unchanged. The continuity driver can remove its verified
 owned inert credential with --fresh-auth-home. A focused policy regression and
 disposable default-account fault check are added to the existing native frontend
-workflow. Source checks, hosted native build/fault test and actual Android fresh-
-home resume remain required before calling this correction qualified or delivered.
+workflow. Local source checks and actual Android fresh-home resume pass. Hosted workflow
+40517442561 has passed the focused native suite, both fault regressions and retained
+upstream features; final lint/artifact admission remains pending. The correction
+is not installed in Full119.
 Evidence: service-tunnel-20261027/installed-a1-fresh-home-login-boundary.json,
 installed-a1-observer.log and fresh-home-old-frontend.log. The automated credential-
 free continuity test also fails the old hosted frontend at initial TUI display;
 original trials codex-a1-installed-54tmdqfl and ct-9_h6x4i6 remain under TMPDIR.
-The source is committed at0d0236b; native workflow40516028268 is pending acceptance.
+The initial source0d0236b was superseded by79b9d66, which binds65 focused tests.
+Its native workflow40517442561 owns the candidate;40516028268 was intentionally
+cancelled before adding that acceptance binding, not accepted.
 
 Follow-up CI review found that source workflow40507549161 failed on unified Go
 patch context (space-prefixed source tabs and blank lines), not a Go compile/test
@@ -162,9 +167,57 @@ Native Broker results/changed-payload rejection and
 receipt recovery retain their prior F7 evidence at unchanged execution inputs.
 The cloud catalog currently omits idempotentHint even though local MCP emits it;
 unknown host consumption is not proof that annotations improve scheduling.
-Fresh source/Android/publication/operating cloud checks remain required before
-claiming this source correction is installed. Evidence is under the service/tunnel
-root: provider16-live-tool-annotations.json and tool-annotations-*-regression.log.
+Source b08fc1f passed source40519973271 and Provider40519973184. Hosted Android
+bytes passed all17 declarations, actual Native effects/retries/history across
+new/old/new code, cold owner/Stop/compaction, all compositions, signed local/TLS
+packages and two owned-host cycles. Signing40525867316, complete ten-asset public
+readback, disposable16→17→16 consumption and non-forced promotion passed.
+Provider17 is activated: supervised PID26949, same ready account/36 works,16
+protected files and7 preexisting Native owners retained. One operating metadata
+refresh plus official app cache invalidation confirms all17 local/live-cloud/
+registered fixed flags and unchanged schemas. Cloud still omits all17 idempotent
+hints. No model was invoked. Evidence: annotations-hosted-*.json,
+annotations-fresh-home-continuity.json, tool-annotations-mutation.json,
+provider17-{release-input,public-consumer,promotion,device-activation}.json and
+provider17-annotations-operating-web-mcp.json under the service/tunnel root.
+
+The first operating selection failed busy and restored Provider16. An inherited
+read lease belonged to the independently verified, completed A1 trial backend
+PID11454; its sole Native turn/history were checked before retiring only that
+owned process with kernel-confirmed exit. The second activation passed. Original
+failure and owner observations remain in provider17-device-activation-initial.json,
+provider17-selection-busy-holders.json and installed-a1-baseline-owner-retirement.json.
+
+Owned copied profile f6-derived trials returned app_target_unavailable twice;
+the first cleanup was unconfirmed, later service exit was observed. A local CDP
+startup capture sees a complete but initially blank app document and later an
+eligible composer, without any model or saved-Chat request. Provider16 passes the
+same source profile; Provider17 passes two cycles on original owned profile
+hh-4yiqwwdr and the operating profile. This does not identify the initial cause or
+prove universal cold-profile readiness. Failed originals, old-code control and
+host-startup diagnostic remain separate from accepted host qualification.
+
+## Active correction: inherited Provider lease scope
+
+Core's provider dispatch deliberately clears close-on-exec on its shared payload
+lease for the selected Provider process (provider.rs:636–649). That unmarked FD
+then escaped into Native/app children. Actual /proc observation found an otherwise
+idle Native backend holding FD64 after its Provider had stopped, blocking install.
+This is descriptor inheritance, not evidence of a memory leak or duplicate TUI.
+
+The Provider entrypoint now marks inherited non-stdio descriptors close-on-exec
+before any runtime/child starts, retaining them in the Provider itself. Child
+launches still explicitly export their own pipes. No new Core ABI/environment,
+source route or selection bypass is introduced. The existing busy/process guard
+remains authoritative. A new real CLI test fails old code because its detached
+service retains a simulated Core shared lease; it passes the correction and also
+requires a foreground Provider to retain its lease until actual process exit.
+An initial missing unused-rootfs fixture error is retained, not fault evidence.
+
+Source/fault qualification, actual Native survival during package selection and
+full release/device gates remain pending. Provider17 remains the operating version;
+this correction is not delivered by its immutable release. Evidence starts with
+inherited-lease-{original,fixed}-regression.log under the service/tunnel root.
 
 ## Operating baseline
 

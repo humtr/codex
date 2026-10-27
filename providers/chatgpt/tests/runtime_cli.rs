@@ -982,3 +982,112 @@ async fn authenticated_stdio_survives_service_replacement_without_desktop_or_cor
     assert!(!root.0.join(".local/share/codex/core").exists());
     drop(replacement);
 }
+
+#[test]
+fn inherited_selection_lease_stays_with_its_owner_not_detached_children() {
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let root = Root::new();
+    std::fs::create_dir_all(root.0.join("native-home")).unwrap();
+    let config = root.0.join("config/codex/providers/chatgpt.toml");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(
+        &config,
+        format!(
+            "[host]\nrootfs='{}'\n",
+            root.0.join("unused-rootfs").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let directory = root.0.join("selection-lease");
+    std::fs::create_dir(&directory).unwrap();
+    let binary = env!("CARGO_BIN_EXE_codex-chatgpt-provider");
+    let state = root.0.join("detached");
+    let lease = File::open(&directory).unwrap();
+    let inherited = lease.as_raw_fd();
+    assert_eq!(unsafe { libc::flock(inherited, libc::LOCK_SH) }, 0);
+    let mut prepare = Command::new(binary);
+    prepare
+        .args(["prepare", "--home"])
+        .arg(root.0.join("native-home"))
+        .arg("--state")
+        .arg(&state)
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"));
+    unsafe {
+        prepare.pre_exec(move || {
+            if libc::fcntl(inherited, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let prepared = prepare.output().unwrap();
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    drop(lease);
+    let contender = File::open(&directory).unwrap();
+    let detached_released =
+        unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    // Retire the real owned daemon even when the negative control detects a leak.
+    let stopped = Command::new(binary)
+        .arg("stop")
+        .arg("--state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    assert!(
+        detached_released,
+        "detached service inherited the Provider selection lease"
+    );
+    drop(contender);
+
+    let lease = File::open(&directory).unwrap();
+    let inherited = lease.as_raw_fd();
+    assert_eq!(unsafe { libc::flock(inherited, libc::LOCK_SH) }, 0);
+    let mut command = Command::new(binary);
+    command
+        .args(["serve", "--state"])
+        .arg(root.0.join("foreground"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(inherited, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut owner = Service(command.spawn().unwrap());
+    let mut line = String::new();
+    BufReader::new(owner.0.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let _: Value = serde_json::from_str(&line).expect("foreground readiness");
+    drop(lease);
+    let contender = File::open(&directory).unwrap();
+    let owner_retained =
+        unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0;
+    drop(owner);
+    assert!(
+        owner_retained,
+        "the Provider lost its own selection lease before exit"
+    );
+    assert_eq!(
+        unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+}

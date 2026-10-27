@@ -3021,7 +3021,15 @@ without replacement; changed bytes under an existing identity are rejected.
 Unknown/malformed state fails before mutation. Running payload leases or processes
 block selection changes; install/rollback never stop services, replay work, delete
 older generations or overwrite user data. Launch revalidates signature/inventory
-under a shared lease before executing the selected immutable binary.
+under a shared lease before executing the selected immutable binary. The Provider
+keeps inherited non-stdio descriptors, including that lease, in its own process
+but marks them close-on-exec before any runtime or child startup. Only descriptors
+explicitly exported by a child launch cross that boundary. Native backends, app
+children and detached service children must not retain an incidental parent lease;
+a live Provider still blocks selection by its own lease or verified process.
+Stopping an idle Provider must not require terminating an independent Native
+backend solely to release such an inherited lock. This adds no environment/FD ABI
+and does not change existing Core dispatch, payload verification or work authority.
 
 Package selection and generated native-profile preparation are distinct. Existing
 profiles/catalogs keep their immutable executable binding until explicit
