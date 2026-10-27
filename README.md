@@ -67,9 +67,14 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 Earlier A–H batches are accepted only at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-Complete ChatGPT/CLI entrance equivalence remains unfinished: persistent source
-connection, interrupted-response recovery and active-response participation are
-the next implementation batch. See the [independent audit and plan](AUDIT.md).
+Full119 and Provider15 are delivered and activated at the
+[recorded scope](CURRENT.md#delivered-a1-implementation-and-remaining-qualification-boundaries).
+Persistent owned-source binding, Bridge-first join and Native cold-resume/
+compaction fixes are implemented. Complete ChatGPT/CLI entrance equivalence still
+needs actual-client concurrency/recovery and trusted host-source qualification.
+The [acceptance matrix](CURRENT.md#implemented-but-incompletely-qualified) and
+[work order](CURRENT.md#product-completion-scope-and-work-order) distinguish this
+work from the later MCP/local refactoring and independent-worker extensions.
 [CURRENT](CURRENT.md#operating-baseline) owns accepted sources, signed releases,
 device selections and actual running processes. Existing sessions keep their pinned
 executable until normal exit. Ordinary account configuration does not force a model.
@@ -246,7 +251,7 @@ their own prerequisites.
 ### ChatGPT delegating Provider development
 
 Use the same MCP connection, with a provisioned/authenticated Linux app and
-[explicit project configuration](providers/chatgpt/README.md#managed-chat-project).
+[explicit project configuration](providers/chatgpt/README.md#provider-chat-project).
 With Termux Bridge selected, ask:
 
 > Delegate [task] in /absolute/path/to/your-project to a separate work Chat.

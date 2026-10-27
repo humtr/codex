@@ -4,8 +4,24 @@
 후속 실제 시험에서 항시 원본 조회의 요청 증폭이 확인됐고, 사용자는
 Bridge가 받은 요청을 기존 Native 작업에 등록하는 경로를 우선하도록 지시했다.
 지속 조회/알림 관찰을 기본 입장 절차로 삼는 권고는 이 부분에서 대체한다.
-최신 계약과 미구현 경계는 SPEC.md와 CURRENT.md를 따른다. 원본 감사의 증거와
+최신 계약과 잔여 검증 경계는 SPEC.md와 CURRENT.md를 따른다. 원본 감사의 증거와
 당시 판정은 보존하며, 사후 관찰을 실제 Native 실행으로 승격하지 않는다.
+
+**2026-10-27 문서 정리 시점의 적용 범위.** 아래 본문은 원본 감사 시점의 판정과
+제안을 보존한다. 현재 구현 명세로 그대로 사용하지 않는다. Full119·Provider15의
+서명 배포와 기기 적용은 완료됐으며, 실제 시험 범위와 다음 작업은
+[CURRENT의 수용 시험표](CURRENT.md#implemented-but-incompletely-qualified)와
+[작업 순서](CURRENT.md#product-completion-scope-and-work-order)가 소유한다.
+
+| 원본 감사의 표현·제안 | 현재 채택한 계약과 상태 |
+| --- | --- |
+| 원본 관찰을 지속 개발 입장의 기본 경로로 사용 | 일반 `join`은 Bridge 입력을 먼저 Native에 입장시킨다. 정기 saved-Chat 조회는 제거됐고, 원본 검증은 명시적 `source_sync`/`source_join`이다. |
+| 아래 미구현 `join`은 conversation/message를 읽고 task를 받지 않음 | 이 원본 기반 제안은 현재 `source_join`에 해당한다. 배포된 일반 `join`은 기존 work_id·task·고정 call_id를 받아 Direct 문맥 수락을 요구한다. 실제 필수 인수는 SPEC과 현행 schema를 따른다. |
+| bind/unbind/join을 앞으로 추가 | 소유 원본 binding과 세 API는 Provider15에 배포됐다. 임의 기존 Chat 입양과 모든 외부 원본 식별은 완료되지 않았다. |
+| Current/Managed, 또는 관찰과 실행의 혼용 | 현행 reasoning은 direct/provider만 허용한다. MCP/local_function은 반환 방식이고 독립 위임은 별도 추론 문맥의 속성이다. 과거 라벨은 역사적 기록에만 남는다. |
+| 참가 생략을 항상 감지·복구 | 수신한 요청·명시적으로 관찰한 원본에서만 판정 가능하다. Bridge에 도달하지 않은 앱 입력을 보이지 않는 상태에서 감지한다고 보장하지 않는다. |
+| 기존2초 원본 관찰 주기 | 일반 경로의 원격 원본 polling 근거가 아니다. Native 이벤트·로컬 회복 관찰과 명시적 원본 조회를 구분한다. |
+| A1 뒤 공통화·독립 작업자 확장 | A1의 실제 Android/Web/CLI 미검증 경계를 먼저 판정하고, A2는 이미 공유된 AppHost 위의 실제 중복만 정리한다. A3는 그 기반 위에서 별도 추론·계보·결과 반환을 실증한다. |
 
 
 감사 기준: 2026-10-26 UTC. 저장소 humtr/codex, rewrite/rust-core,

@@ -1,933 +1,400 @@
 # Operating state and product completion
 
-Reviewed independently 2026-10-26 UTC at rewrite/rust-core HEAD
-e4d5400754e86f0ca68f9e3ac02ff6621df5234c. SPEC owns contracts; this file owns
-actual state. [AUDIT.md](AUDIT.md) contains the original-record audit, claim
-verdicts, confirmed architecture, file-level implementation plan and acceptance.
-Earlier incident narratives remain in [Git at the audit baseline](https://github.com/humtr/codex/blob/e4d5400754e86f0ca68f9e3ac02ff6621df5234c/CURRENT.md) and their original private evidence.
-The independent audit was documentation-only. A1 source and its recorded
-SDK/Native/Android qualification are complete at the boundaries below. Full119
-and Provider15 are signed, publicly delivered and activated on this device.
-General entrance equivalence remains bounded by the unresolved host-source facts.
+SPEC owns product behavior; this file owns actual implementation, qualification,
+delivery and remaining work. Status consolidated on 2026-10-27 UTC from product
+source eb0a5beb98d8f6339a66401c7b79059faf85890f and the original acceptance records.
+This documentation consolidation submits no model request, restarts no service
+and does not requalify or republish unchanged binaries.
+
+[AUDIT.md](AUDIT.md) preserves the independent 2026-10-26 original-record audit.
+Its superseded proposals are historical, not the current implementation plan.
+The [pre-consolidation CURRENT](https://github.com/humtr/codex/blob/a4732b3830d06b3080f0476a4a020a8d3a08ba63/CURRENT.md)
+retains the detailed development sequence, initial failures and dispositions;
+private original results remain at the evidence roots below. New findings update
+this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full119 and Provider15 are delivered, selected and running.** New clients use
-the corrected catalog-preserving frontend. Provider runs once under runit; host
-readiness, the original account and35 retained works are verified. Already-open
-TUI processes retain their existing executable until normal restart. Complete
-entrance/source identity equivalence is not implied by package activation.
+**Full119 and Provider15 are signed, publicly delivered and activated on this
+device. A1 entrance equivalence is partially qualified, not complete.** At the
+recorded activation boundary the Provider had one supervised process, the same
+ready authenticated host and35 preserved works. This is a dated observation,
+not a claim that those processes have been rechecked on every documentation edit.
+New TUI launches use the corrected frontend; already-running clients retain their
+old executable until normal restart.
 
-The active batch is A1 entrance equivalence. The source-follow candidate and its
-bounded evidence are preserved, but the user has corrected the primary route to
-Bridge-first Native admission. Saved-source polling must not gate ordinary Bridge
-requests. The implemented primary replacement is delivered at the tested scope;
-full original-input/host-event provenance remains unfinished. Common MCP/
-local responsibility refactoring follows; independent-model/native-child
-extensions follow the foundation. The delivered TZ requirement is not reopened.
+Ordinary Bridge `join` now registers submitted input on the selected existing
+Native work, returns its controller/context and requires context acceptance before
+effects. It performs no saved-Chat retrieval or new Provider primary inference.
+Explicit `source_sync`/`source_join` retain original-source verification/recovery;
+a development binding enables no automatic saved-history polling.
 
-## Delivered A1 implementation and remaining qualification boundaries
-
-**Bridge-first execution and the corrected Native/TUI catalog path pass their
-recorded source and actual-Chat boundaries; Full119/Provider15 are activated.** `join` shares Native start /
-admission with explicit work/task/call_id, Direct generation and existing context
-acceptance. Ordinary join, the Native input barrier, service startup and completion
-observation no longer crawl saved Chat. Explicit source_sync/source_join retain
-original-ID recovery. The final Provider gate passed (bridge-final-provider-check
-exit0: Rust, Clippy, optimized release,101 JS and82 Python checks). Final Native /
-TUI fixtures passed both Bridge inputs, exact concurrent retries, context/effects /
-results, restart and CLI return to Provider on the same work with zero saved reads
-(bridge-final-native.json). Explicit source recovery also passed its retained
-Native/Core/TUI scope. The resulting Provider15 is publicly installed; original
-candidate proofs retain their precise source and simulation boundaries.
-
-One actual ordinary Android ChatGPT prompt then completed8 MCP controls (join,
-two attaches, tools, two reports, execute and finish), one actual file write/read
-and Native completion; the user confirmed the Chat final appeared. The exact
-file bytes and canonical Native user/progress/command/final items are retained
-(actual-android-bridge-first-partial.json). No Provider primary inference or Pro
-trial was used. Original host final content is not yet independently compared.
-The admitted Bridge task is not falsely labelled as a verified original message.
-
-The initially prepared observer used an older fixture frontend and received no
-new live items despite matching stored thread/baseline. Its command line recorded
-a default rendezvous, but that alone does not prove its active connection: later
-qualification established that Core can pass a planned default address and the
-frontend then selects the catalog backend in process. Preserve the original raw
-terminal/result and provisional socket labels without treating argv as endpoint
-observation. The display failure stands; controlled catalog comparison and the
-two-order tests independently establish the lossy-projection defect and fix. The actual MCP envelope
-supplies opaque openai/session plus subject/organization/locale/location metadata;
-its session semantics are not yet qualified. No original user-message/branch
-identity has been established from it. A temporary metadata-shape tap retains no
-user body or credential values and will be removed after bounded qualification.
-
-Further source/fixture comparison identified loss of catalog data in the latest
-frontend too: serializing the typed UI model catalog changes fields/defaults and
-therefore Core's backend namespace. Provider's original catalog was5378 bytes;
-the UI projection was5744 bytes and semantically different. A proposed default-
-server-only change was tested, rejected and fully withdrawn from product source
-(bridge-default-rendezvous-disposition.json); the selected catalog remains the
-backend authority. The current frontend correction preserves the original catalog
-bytes alongside typed UI metadata at the existing configuration read, forwards
-that snapshot to Core and updates the installed-catalog restore producer. Typed
-parsing, errors/defaults and actual Native execution/approval remain unchanged.
-The corrected frontend passed7 focused component tests using the actual upstream
-ConfigBuilder and maintained model-catalog module. Reintroducing typed-catalog
-serialization in disposable source fails the byte-preservation regression; the
-source was restored (catalog-source-boundary-mutation.json). This focused harness
-is not the complete upstream TUI suite.
-
-The exact assembled frontend now builds and passes actual Android Native/Core/TUI
-fixtures in both orders: Native-created work before ordinary resume
-(catalog-exact-native-created.json), and TUI/Provider before Bridge join then CLI
-return (catalog-exact-tui-first.json). Both preserve one work, reject conflicting
-or duplicate execution, accept context before effects, retain command results,
-render both supplied finals in the active viewport, survive service restart and
-perform zero saved-Chat reads. These fixtures use synthetic Chat. The subsequent actual ChatGPT trial and its
-source/display limits are recorded below.
-All68 assembled source paths match the repository assembler. One old disposable
-formatting difference was found, restored and rebuilt before these exact-source
-proofs; the earlier result and disposition remain preserved.
-The local Termux build separately uses the retained protoc host adapter in its
-Cargo.toml/lock. The68-path comparison covers maintained frontend/Core Config
-assembly, not that local build-tool override or the complete public dependency
-recipe. Hosted qualification uses the unchanged official external dependencies;
-local debug execution is not substituted for that signed-release gate.
-
-Two attempts to compile the complete upstream TUI unit-test executable ended
-without a completion record; both supervisor and compiler processes disappeared.
-The second observed about3147MiB peak process-tree RSS, but no current system exit
-record establishes its cause. Neither attempt is a passing gate. The actual
-product builds passed with one compiler job, no debug information and incremental
-output disabled. The subsequent hosted Native qualification passed the focused
-64 tests, retained feature suites (53 TUI,40 Core and2 protocol cases), mutation
-check and lint inspection (hosted170-native-success.log). These are selected
-upstream suites, not all upstream tests.
-A preliminary JSON-value prototype build was explicitly cancelled; the final
-byte-preserving implementation retains the original parser's behavior.
-
-The hosted frontend producer also needed correction: format/lint artifact evidence
-formerly excluded Core and rejected the legitimate Config source change. Its scope
-now permits only that module in addition to TUI/Cargo.lock, and compares both trees
-before/after lint. The actual-script regression accepts the assembled Config patch
-and rejects all injected failures, including a new Config mutation; disposable
-omission of Core evidence fails the test. scripts/check.sh python passed.
-The first hosted run40463199410 failed at Apply bounded native profile patch:
-an earlier producer guard still demanded zero Core changes. The corrected
-assembler now owns one scope check reused after apply/format/lint, including
-tracked, staged, renamed and untracked source. Allowed Config/TUI input passes;
-unrelated source is rejected. Omitting untracked paths in disposable source
-produces the two expected failures and is restored. Requalification of source
-170763e passed as [40465709544](https://github.com/humtr/codex/actions/runs/40465709544)
-with mutation checking; no frontend Rust change or new model request was needed.
-After clearing the stale old input, the completion
-relay pinned the successfully qualified170763e frontend in5b42758. This selects a
-release input, not a device installation. The candidate focused
-acceptance now requires64 tests (retained63 plus the new source-preservation
-regression); the original hosted log confirms64 passed.
-
-The exact-source Provider workflow40468232248 also passed its complete source
-gate and Android build. Its downloaded binary and the hosted frontend passed
-actual Android composition/relocation (Base, Manager without TUI, Full) and signed
-package lifecycle, including remote TLS rejection paths
-(hosted170-provider-product.json; hosted170-provider-package.json). Those owned
-payloads were archived by the existing fixture cleaner after acceptance.
-Additional rollback/startup qualification found an unqualified cold-join case:
-after all clients close, persisted history remains readable but live job queries
-reject an unloaded thread. Original Native wire shows loaded:[], status:notLoaded
-and backgroundTerminals/list -32600 thread not found
-(hosted170-unloaded-native-wire.json). The strengthened continuity driver fails
-the original candidate on the second join after closing the TUI and restarting
-Provider (unloaded-join-original-red.log). A correction shares explicit
-start/join/claim resume with before/after history/context checks, and removes
-the earlier claim-side load hidden in binding. Read-only binding stays read-only.
-The corrected service passed the actual unloaded-thread/reopened-TUI proof:
-same work, concurrent identical join once, changed/busy input rejection, accepted
-context before effects, exact effect/final retries, unchanged previous turns and
-zero saved reads or new model requests (unloaded-join-receipt-native-created.json).
-Resume and turn start share one durable operation intent; the regression also
-caught a double-intent implementation before acceptance. Source170763e was not
-published as Provider; the subsequent correction is eb0a5be. Initial standalone helper
-failures (CLI text/JSON handling, old/new history schema and loaded-only lookup)
-are preserved separately; the unloaded live-job rejection is independently
-confirmed on the actual Native protocol. No real model request was used.
-The missing-resume fault was then introduced only in disposable source: the same
-Native/TUI test failed with native_request_rejected, and the source was restored
-(unloaded-join-mutation.json). Wider cold-owner qualification also found an input
-barrier deadlock after manual compaction: native_summary_offered remained pending
-although Native was idle, while the next request was needed to acknowledge its
-checkpoint. The Native-only barrier now admits that next request at idle; the
-existing exchange checkpoint verification remains mandatory. The actual cold
-operator suite passes owner replacement/history preservation/controller fencing,
-compaction and follow-up, queued-input Stop, service restart/claim and uncertain
-driver start with no retry (unloaded-summary-cold-operator.json). Its synthetic
-Chat boundary is explicit. Restoring only the old summary-barrier predicate in
-disposable source reproduces the post-compaction wait after the earlier
-cold-resume checks pass; the source was restored (unloaded-summary-mutation.json).
-The final source gate passed (unloaded-summary-final-provider-check-exit.json:0).
-Exact-source eb0a5be passed source40476107531, Provider40476107583 and independent
-Core/runtime40476175050. Its hosted Android executable passed three actual Native
-turns with exact effect retries, new/Provider14/new codec startup and unchanged
-history, cold claim and post-rollback join (eb0a5be-hosted-native-codec.json).
-The same hosted bytes passed all three product compositions and signed-package
-remote/local lifecycle (eb0a5be-hosted-provider-product.json;
-eb0a5be-hosted-provider-package.json). An independently observed ready copied
-profile then passed two actual host start/idle/stop cycles with preserved auth,
-kernel-confirmed app/display exits and the service left alive until final Stop
-(eb0a5be-hosted-host-lifecycle.json). An earlier cold/stale copied profile returned
-app_target_unavailable; later diagnostic observation found a visible composer,
-but the initial cause is unconfirmed. Preserve that failed result and the
-preparation-only copy/home errors; do not claim every cold profile is qualified.
-These trials made zero model requests and changed no operating profile/service.
-The normal Core release producer completed signing, full public readback,
-disposable update and non-forced stable promotion for Full119, source eb0a5be
-(run40476429639). Provider15 signing/public readback passed40481676037. Its complete
-immutable public inventory and stable pointer were read back and independently
-verified on Android. The public consumer preserved one Native work across signed
-Provider14→15 installation, offline codec conversion, explicit owner claim, actual
-follow-up, inverse conversion, signed rollback and another old-generation Native
-follow-up. All previous Native items and exact three file effects were retained;
-effect/final retries did not duplicate execution (eb0a5be-public-consumer.json).
-The installer correctly refused inherited leases from test-only Termux
-service-daemon children. Their cwd/argv/lease identity established ownership before
-pidfd retirement; global services were not stopped. A replaced Native owner needs
-the existing explicit history/context claim before effects; it is not silently
-accepted. Failed preliminary consumer results remain preserved separately.
-Provider15 stable promotion was non-forced with unchanged Base/Full pointers
-(eb0a5be-provider-promotion.json). Actual normal stable update selected Full119 and
-preserved13 protected files (full119-device-update.json). Provider activation
-converted62 control records with original backup, preserved all35 work identities
-and phases,17 protected files and four preexisting Native owners. Its new executable,
-generated profile and17-tool catalog including join are verified
-(provider15-device-activation-completed.json). Initial backup-name and activation
-check failures remain retained. Starting runit concurrently with prepare created a
-detached process first; maintenance stopped that exact idle service and restarted
-runit alone. The actual service PID now equals its supervisor PID, with the same
-authenticated account and ready idle host (provider15-service-settlement.json).
-No new model inference or physical-screen observation was used for deployment.
-The existing operating web connector was refreshed once through the authenticated
-app SDK, preserving its connector/tunnel destination. Registered17 full schemas,
-cloud tools/list and the actual local Provider catalog match, including join;
-remote codex_sessions list returns all35 works (provider15-operating-web-mcp.json).
-The inspector exited normally. An initial helper read the output file during its
-write; the same completed result was validated after exit without repeating the
-refresh or remote call. This is SDK/cloud proof, not a physical Android UI trial.
-Required Native proof binaries and original inputs/results are frozen outside
-mutable targets; after confirming no active cache user, clean_development.py
-reclaimed about11GiB of idle TUI debug outputs
-(unloaded-native-cache-cleanup.jsonl). No accepted Native build is rerun merely
-to recreate those frozen executables.
-
-The earlier isolated lazy-host service is no longer live after process losses;
-its original Android work and records are preserved. A new isolated service and
-exact candidate TUI were qualified in ct-yg_xgatq with a separate catalog-real-state. An actual Native preflight input/progress/final
-reached its live viewport on the sole owned catalog server, without a model
-request (catalog-real-armed-view.json). The launcher argv is explicitly recorded
-as planned, not the active endpoint. During startup, two unready context receipts
-were correctly refused; the actual running context was read and accepted before
-public effects. No guard was bypassed and no join was replayed. The original trial
-wrapper was restored; the reused qualification tunnel was verified healthy/ready
-with a new bounded metadata tap before the completed trial. The source-reading relay remains off.
-The requested actual Chat prompt completed on that work as one Native turn with
-8 cloud MCP controls, accepted context, exact file bytes and one canonical final.
-The complete rendered final appears once in the active TUI (1059 source characters;
-Markdown fence labels/link targets and formatting are excluded only from the
-viewport comparison). Original Chat user bbb21273-4773-4933-a40e-0b7094eb929c and
-finished gpt-6-thinking final3a5f2c65-232e-4a0b-bc80-a856fa169b1e were independently
-read after execution, over two bounded public pages/229 messages. Both public
-bodies exactly match Native after the reader's one known work-ID mask; the older
-reader owns another journal and deliberately redacts unknown48-character IDs.
-Raw host byte identity for that masked field is not claimed, nor is hidden host
-content. No automatic source reader or additional Provider/Pro inference ran.
-The original byte-different comparison is preserved with the projection explanation
-(catalog-android-original-comparison.json; catalog-real-android-result.json).
-The user subsequently confirmed the Android app completion and supplied the
-visible final, including the same work ID and21-byte verification output. Opaque MCP openai/session was stable
-across the8 calls but is neither the conversation ID nor a containing string;
-no unsupported source identity was persisted by join.
-After the original host final and Native completion were observed, the dedicated
-trial tunnel was stopped and its metadata tap removed from the command path. The
-owned TUI and service exited; the remaining owned Core was observed with zero
-loaded threads and stopped through the existing pidfd helper with kernel exit
-confirmation (catalog-trial-close.json). Only manifest-matched payloads from
-three inactive fixtures were archived by clean_development.py; histories, state,
-configs and frozen proof executables remain. The reusable compiler targets total
-about14.96GiB, so their inspected cache cleanup was not applied. Operating services,
-profiles, source conversations and the unknown old providers/chatgpt/target remain
-untouched by that trial. The subsequent Full119/Provider15 deployment is described
-above. MCP/local common-responsibility extraction follows
-as a separate qualified change; no transport refactoring was mixed into this release.
-
-The A2 caller review confirms that Operator::new already builds both routes over
-one LimitedBridge and the same AppHost implementation; app_route/app_host selects
-each admitted work's route. app::Transport adds the immutable open/adopt return
-path. McpBridge alone owns remote discovery/Broker settlement/source leases;
-local functions have no equivalent remote lease. The older Operator control-driver
-route remains consumed by records without an explicit reasoning selection, so it
-cannot be deleted as dead code. Consolidation must preserve that control-tool
-surface, approvals, handoff, compaction and original returns rather than merely
-replace names or merge distinct state machines. The installed Provider15 CLI plus
-source-matched service passed actual Native/TUI local-function qualification:
-12 original control returns, failed-command correction, system-only successor,
-complete final and confirmed Native/host Stop with no pending jobs or real Chat
-requests (provider15-local-operator.json). Together with the MCP proofs, this is
-the retained behavior baseline for A2, not a claim that refactoring is complete.
-
-Approved 2026-10-27: complete A1 through acceptance, delivery and activation;
-optional Pro discovery is authorized. Operating installation is now Full119/
-Provider15. Source behavior and real-world qualification remain separate.
-The first candidate passed `scripts/check.sh provider`: Rust tests, Clippy
--D warnings, optimized release build,97 JS tests,6 package Python tests and76
-qualification Python tests. The source-reference extension then passed the same
-gate with98 JS tests and library129 tests (127 passed,2 pre-existing helpers ignored).
-The admission-pending correction then passed `source-pending-provider-check.log`
-(exit0), including its optimized build. Actual Native/TUI join qualification passed
-`source-pending-join-rate-limit.json`: both pre-admission and active-source429 return
-waiting, then the same source join/context/lease/effect/final succeeds. The initial
-source_admission_pending failed trial remains preserved separately.
-The exact working-source diff, executables and original test outputs are retained
-under `~/.cache/codex/acceptance/entrance-implementation-20261027/`.
-
-**Implemented candidate behavior.** Only `direct`/`provider` are accepted by the
-normal API and v2 work codec; no old-name aliases exist. All known callers and
-status/schema consumers use those values. The explicit offline
-`migrate-reasoning --state PATH --backup PATH --target direct-provider|provider14`
-holds the Journal lease, preserves original control records before writes,
-resumes only matching conversion states and leaves transcripts/old call receipts
-unchanged. It preserves old reserved source queue IDs; a new account-scoped source
-must settle before format downgrade. Actual Provider14 downgrade/start/list/
-history/Stop and upgrade/start/readback passed on copied state with16 unchanged
-native items (actual-format-rollback.json). New reservation-state changes also
-have unit proof. Final candidate-codec downgrade/actual Provider14 startup/list/
-history/Stop and upgrade/startup/list/history/Stop also passed on preserved copied
-state with the same16 original native items (final-codec-proof/actual-format-rollback.json).
-An additional offline trial copied423 top-level operating journal/owner files,
-converted them to Direct/Provider, then converted them back. All JSON values and
-the owner equal the operating snapshot afterward. The62 mode-bearing records
-include previous-controller records, not62 distinct works. No service, Native
-request or model was started; the live state was never written
-(operating-records-offline-codec-roundtrip.json). This extends codec coverage,
-not signed installer/profile/runtime activation proof.
-Matching signed installer/codec/Native rollback passed on the disposable public
-consumer; device activation is complete. No rollback of the operating device was
-performed merely to repeat that disposable proof.
-
-The existing AppHost/McpBridge source-follow and native executor now serve both
-origins. New canonical native CLI input selects Provider automatically; existing
-Chat input selects Direct without another primary Chat request. Work-keyed
-binding owns observer enablement independently of reasoning. `bind`/`unbind`
-validate the owned source and completed native boundary; detachment survives
-restart and old logical receipt replay cannot undo a newer rebind. Unowned Chat
-adoption is not implemented. Source queue keys include account/conversation/user;
-consumption verifies both the actual client ID and original text fingerprint.
-Per-turn source admissions and transport lease references retain provenance after
-the active slot advances; they do not duplicate the conversation or revive leases.
-AppHost now additionally retains source execution references for both entrances:
-actual dispatched user IDs/fingerprints, original parent/requested model and native
-public item→original Chat message/channel/observed-model correlations. History and
-status consume them; they are projection references, not native commit or screen
-receipts. Imported context is labelled separately from observed original
-input; absent model metadata stays unknown. The saved-source/native roundtrip test
-passes and a disposable dropped-model mutation fails its original-model assertion.
-Actual same-Chat SDK/CLI restart qualification now verifies the CLI-origin UUID,
-fingerprint, original model/final and Native/TUI boundary with one ordinary GPT-6
-request (actual-sdk-ordinary-restart-source-proof.json);52 prior native items are
-unchanged. Full host control-tool provenance remains open; these references alone
-are not complete entrance equivalence. A follow-up correction removes copied input bodies from
-snapshots: Rust supplies the prepared text fingerprint and JavaScript returns it
-only for matching actual wire content. Two2.4-million-character JS cases pass
-(unchanged/changed wire input); bypassing the text match fails the regression test.
-The full source-wire gate passed (source-wire-provider-check-exit.json:0):
-127 library tests passed,2 existing explicit helpers ignored,100 JS tests and the
-existing integration/Clippy/release/Python gates passed. Its initial checkpoint failure was an
-expected-JSON contract update for the new fingerprint, corrected with independently
-computed SHA-256 vectors without dropping its exact message assertions. Arbitrary
-large attachment/output limits still require separate qualification.
-
-`join` returns actual native context/instructions and a source-bound receipt;
-accepting that receipt returns the existing native tool lease. Wrong source,
-wrong context, ambiguous implicit branch selection and ended response cannot
-acquire it. Legacy controller attach/accept/report/finish cannot take over an
-AppHost-owned Direct response. Source participation separately reports catalog
-discovery, context acceptance and tool-request/effect observations. Mirrored final
-text without participation stays `execution_not_joined`.
-
-Source observation publishes cause-specific retry deadlines/blocked reasons and
-its running status. A restored branch resumes the same observer without service
-restart. Interruption preserves partial output and waits for the exact native
-failed/interrupted turn and settled effects before advancing. Actual Native uses
-thread `systemError` with turn `failed`, not `idle`; the initial idle-only attempt
-failed and its original evidence was retained. AppHost/JS tests additionally cover
-interrupted-source shutdown/replay/reattachment without stopping the next response.
-Stop still fences execution and earlier settled receipts remain readable.
-
-Qualification G/refresh now reads actual candidate tools/list, keeps stdio input
-open until the reply, and compares complete schemas with the remote producer and
-registered connector; no fixed14/16-name lists remain. Actual new isolated MCP
-link readback matched all17 full schemas, canonical reasoning values and
-queue/synchronize/bind/unbind/join (actual-connector-catalog-proof.json in the probe).
-
-| Evidence | Actual result and boundary |
-| --- | --- |
-| account-source-native-continuity.json / source-boundary-native-continuity.json | Synthetic saved Chat, real Android Core/TUI/commands: account-scoped queue identity, seven external inputs, nine native turns, one effect, automatic CLI reentry, restart, read timeout, original partial/failure/next source, Stop and live/resumed disclosure; legacy controller cannot finish source-owned execution |
-| source-observer-native-continuity.json | Explicit detach/restart/rebind/replayed old receipt, observable CDP retry and host-selected branch block/recovery; same observer, no extra model request |
-| source-join-native-continuity.json | Active source context/accept uses one native turn and its original tool/result/final; wrong receipt/source and ended response rejected; omission distinguishable |
-| source-join-final-branch-selection.json | Updated frozen candidate rejects ambiguous implicit source and accepts the explicitly verified original branch; same lease/effect and native history/TUI preserved |
-| direct-route-mutation.json, interrupted-mutation.json, source-observer-mutation.json | Disposable targeted faults were rejected; production source was not faulted. Initial wrong-executable mutation attempt is retained separately and is not mutation evidence |
-| actual-sdk-normal-pro-source-proof.json | Actual authenticated SDK and native CLI/Core/TUI: one GPT-6 primary, then one GPT-6 Pro original input in the same Chat/work/thread; two exact native user inputs,9 Pro source tool requests, context accepted, byte-exact original Pro final, no Provider reinference |
-| actual-android-provider-original-result-proof.json | User-confirmed real Android input, same work/thread, one exact original native user input/final,3 actual native effects, one Provider worker with2 successful native commands and exact original source/native final; original Chat wait call IDs and live TUI final. Partial qualification: context acceptance failed |
-| source-wire-join-rate-limit.json | Recorded candidate on actual Android Core/TUI with synthetic saved Chat: binding/restart/retry/branch recovery, join/wait/context, native effect, partial interruption/next original, source IDs, Stop and live/resumed mouse disclosure all pass |
-| actual-sdk-ordinary-restart-source-proof.json | Recorded candidate after real host/service restart, ordinary GPT-6 entered through actual CLI TUI: same Chat/work/thread, actual wire user UUID/fingerprint and model, byte-exact input/final, one native command, three note byte checks,52 earlier items unchanged, live TUI final; Pro untouched |
-| source-reference-mutation.json | Dropping actual saved public source model in disposable source fails the real saved-source/native correlation assertion; production source unchanged |
-
-The actual SDK baseline repaired normal/parent and Pro repaired pro/parent; their
-unchanged original tests passed independently. Child fixtures remain faulty and
-untouched. Both responses advertised Native Codex collaboration but no distinct
-ChatGPT-host agent facility; public host-child events observed:0. This is a scoped
-observation, not a claim that Pro has no hidden internal multi-model computation.
-The installed app source separately contains Work-labelled child activity/tool
-metadata and `/flora/subagent/thread/turns`; that does not establish availability
-on the tested non-Work GPT-6/Pro routes. Original assets/excerpts and the calibrated
-public-attribution oracle remain in `$TMPDIR/codex-model-run-probe-ah2l4szv/`.
-
-The initial PTY observer's pyte.display failed on an empty wide-character stub;
-its finally block terminated only its fixture TUI. Pro/native execution continued.
-A corrected explicit cell renderer reattached the same thread without input and
-showed the original Pro final. This is current/reopened terminal evidence, not
-physical Android screen observation. Native TUI removed one trailing newline
-from the baseline pasted prompt; that canonical original is retained separately.
-
-The existing credential file was intact. Default `env:OPENAI_ADMIN_KEY` was absent
-from this command environment. Reusing the stored credential privately for one
-native provisioning command created a separate workspace-scoped tunnel; global
-admin profiles/selection matched the prior snapshot afterward. No operating
-connection was retargeted. A timed-out connector-create reply was reconciled by
-installed-plugin/connector/tunnel readback, without a repeated POST. The private
-temporary relay uses verified owned browser process identity; no product debug API
-was added. Its owner and the PTY observer parent later disappeared while their
-children remained: cause not established, no system exit record captured. After
-checking PID/start/image, only the orphan qualification browser group was stopped
-and the same owned profile was reopened under tmux, without replaying inference.
-Authenticated original Chat readback then independently matched both finals.
-Model counts so far: ordinary8 (three SDK requests and five confirmed Android
-originals), Pro1. This resume submitted no Provider primary inference; the user-triggered
-actual Chat request is counted separately. The additional single ordinary request replaced the cancelled restart Pro
-trial after user steering; Pro remains1/2 and internal host inference is not exposed.
-One Pro slot remains reserved for capability discovery that benefits from Pro.
-The proposed restart/provenance Pro trial was cancelled before any prompt, intent
-or Enter was written; the user correctly identified ordinary-model qualification
-as sufficient. Model selection in a resumed TUI did not submit inference.
-
-**Actual Android finding and correction.** Original input
-bbb21bff-94a3-4bcf-9c91-6532845c9c8c was admitted as turn
-01a17a01-a024-77d1-b321-fe666875411e on the existing work/thread. The initial
-join incorrectly treated the older completed source as the new response's end
-while original-source reads were rate limited. The model tried claim/resume/attach;
-attach acceptance remained fenced, and the verified source catalog/lease ultimately
-performed the real native effects without context acceptance. The original answer
-honestly reports that limitation. One Provider worker completed and its original
-Chat final matched its native final exactly. The original parent wait calls are
-identified in full saved-source ancestry; completed_result readback after service recovery matched that same original
-final exactly, and the reopened TUI retained the parent final. No second inference of the Android original occurred.
-
-The candidate now returns waiting with the actual source-read retry reason/time,
-rather than source_response_ended, while a newer source is pending. Initial actual
-Native regression qualification additionally exposed the short interval between
-native turn start and source admission/lease publication (source_admission_pending);
-that interval now returns waiting too. Tool guidance directs callers back to the
-same join/call_id, not claim/resume/attach. The original failed native fixture and
-Android observations are retained. Corrected Native/TUI qualification passed;
-Corrected join still needs another real client-path context acceptance proof;
-the actual ordinary SDK restart/source references test passed. Full Native/TUI
-source-wire qualification also passed one fixture combining explicit bind/unbind,
-service restart, transient timeout, blocked branch recovery, both429 join intervals,
-interrupted original/next input, actual native effect, retained result and Stop
-(source-wire-join-rate-limit.json). Removing the pending-state handling in disposable source reproduced
-the original source_response_ended failure on the actual Native/TUI path
-(source-pending-mutation.json).
-
-**Active source/native tool reference follow-up.** Original saved Android
-native_tool requests were independently matched to all3 retained Broker invocations
-by logical ID and exact name/input/report, with one actual native effect per call
-(original-platform-native-tool-correlation-study.json). Product follow-up is now
-being qualified: source message IDs map only to that same admitted Broker call;
-retry messages share one native call, changed arguments and another connector do
-not inherit its effect. This adds references to source execution metadata, without
-new enqueue/result storage or raw capability export. The83 app-bridge JS tests pass, including actual callback public-tool identity
-and hidden-analysis exclusion. The full gate passed128 library tests (2 existing
-explicit helpers ignored),101 JS tests, integrations, Clippy, release build and
-Python checks (tool-source-provider-check-exit.json:0). Final actual Native/TUI
-qualification also passed with restart/binding/retry/branch recovery/join/
-interruption/Stop and the new correlations (tool-source-final-native-exit.json:0).
-The same Binder argument type validates both real RPCs and observed requests;
-matching is one read of the existing in-memory Broker registry, with no per-tool
-journal reload. A disposable report-comparison fault left actual RPC rejection
-intact but falsely attributed its source; the Native mapping assertion rejected it
-(tool-source-mutation.json). Source was restored. No new inference was required.
-The isolated service used this frozen candidate and has since been stopped.
-A new ordinary Android source input was requested to verify fixed join/context acceptance and
-these source references on the actual app path. Do not replace that input with
-SDK input. The earlier source-wire candidate/SDK evidence remains frozen separately.
-
-**New actual Android sibling finding — unresolved candidate follow-up.** The user
-confirmed the recheck input bbb215af-e892-4e46-8608-f27648418a99 and a later
-Android follow-up bbb21f0a-3238-40b7-9908-2c712678c235. Passive successful original
-HTTP readback identifies both on the selected ancestry (gpt-6-thinking public
-metadata), with original join calls. That ancestry descends from the previous
-Android final72d083aa…, alongside rather than after CLI final8f173c17….
-The last CLI final exists on a sibling. No context acceptance or requested note
-effect occurred. This is not a passed Android recheck
-(actual-android-sibling-source-failure.json). User/original response also report
-Session terminated; saved tool bodies do not establish its exact transport cause.
-Repeated429 reads coexist with the verified branch conflict; neither a guessed
-quadratic wait formula nor longer arbitrary retries reconciles that ancestry.
-Candidate follow-up adds explicit original-ID sibling selection using canonical
-native final items plus existing source references, retains source-selection
-conflicts across read cooldowns, and requires native context acceptance before
-new effects on the selected branch. Library tests pass129 (2 existing helpers
-ignored). A dedicated `--sibling` actual Native/TUI qualification scenario has
-passed with an interrupted selected source followed by the next original: the
-old catalog token cannot execute a Native effect before the next source accepts
-current context (context-debt-join-sibling-native.json). The full gate passed at the user-requested pause
-boundary (sibling-provider-check-exit.json:0):129 library passes,2 existing helpers
-ignored,101 JS tests, integrations, Clippy, optimized release and Python checks.
-The compiled checkpoint is frozen as sibling-checkpoint-release-provider and
-sibling-checkpoint-service-test; it is not installed or product-accepted.
-Actual client recovery is pending.
-The subsequent source candidate fixes the review finding by retaining the context
-obligation on the Native lane across interrupted and completed source responses.
-Every later source must accept current context before effects; a new Provider
-continuation imports the full Native context and clears the obligation only after
-completion. A Native/TUI saved-source continuity run also passed restart, join,
-binding, interruption, source timeout and actual Native effect coverage
-(context-debt-join-continuity-native.json). These runs used unoptimized candidate
-executables and saved Chat fixtures, not the actual Android or web client.
-In disposable mutated source, clearing the obligation on interruption let the
-next source execute the test effect before acceptance, and the regression
-rejected that result (context-debt-join-mutant-busy-handled.log). Its test driver
-waited only for the specific transient observation-busy response; two earlier
-mutation runs stopped at that response and are not credited as mutation proof.
-The context-debt candidate is not installed or product-accepted. The first full
-gate was interrupted during release build; original exit is unknown. A later
-2,800,000KiB virtual-memory-limited attempt aborted before logging (exit134),
-which does not establish the earlier termination cause. Rust tests and Clippy,
-101 JS tests and82 Python checks passed, and the subsequent monitored optimized
-build completed successfully (context-debt-join-release-monitored.log). That
-later success supersedes the earlier pending-build status, not the failed
-Android acceptance. The frozen context-debt-join-release-provider was selected
-only in the isolated test service, which was subsequently stopped.
-
-**Request-amplification audit.** Terra session01a17ac4-1331-7ad1-aec8-394ed927a7d9
-records one explicit synchronize at01:14:21.786Z and a separate chats read at
-01:14:51.672Z. The first returned bound_chat_branch_changed, the second
-app_chat_rate_limited. Its service had started at01:11:20Z with automatic source
-observation. No actual HTTP inventory was retained for that renderer window;
-one total Chat retrieval is therefore unproved. Local MCP tools/list is neither
-an inference nor a saved-conversation HTTP request. A different, older captured
-window contains169 saved-read wire calls (86 HTTP200,83 HTTP429 over5761s);
-it establishes earlier repeated retrieval, not this Terra window's exact count.
-See terra-independent-review.json for evidence boundaries.
-
-Code review confirms an additional amplification defect: bound_chat's internal
-200-message pagination called the public paginated source reader repeatedly,
-refetching the complete conversation for every delivery page. The correction
-selects the full bounded branch from one source retrieval, preserving actual
-upstream pagination, account/branch checks and the public cursor contract. A
-453-message source test rejects a second GET and now succeeds. Renderer/account
-saved-read status also distinguishes wire calls/successes/429 replies from local
-cooldown/in-flight rejections. These counters cannot reconstruct historical
-counts and reset with the renderer. The read-only correction passed its full gate
-(read-audit-provider-check-exit.json:0). Its first actual Native sibling run
-failed at bound_chat_reattachment_unsettled after the next original was already
-reserved; that failure is preserved in read-audit-sibling-native.log and is not
-acceptance. The repeated failed-turn observer had used retained_source(), which
-excludes a pending next original, and therefore rejected an already reconciled
-turn. Candidate correction recognizes the exact interrupted turn's idle boundary
-without dropping its next reservation; the interrupted-source unit regression
-now explicitly repeats that observation before next-turn binding.
-
-**Primary-path correction requested by the user, now implemented as a candidate.**
-Whole-Chat polling is not required for ordinary Bridge-native development. The existing direct path already
-uses Native turn/context/tools/report/finish without starting a Provider model.
-The saved-source join instead waits for the observer to admit an input, which
-inverts the desired responsibility for Bridge-origin requests. That dependency is replaced by Bridge-first same-work input/context admission;
-source lookup is retained only as explicit source_sync/source_join recovery. Native
-scope, generation, authorization and duplicate/effect rules remain common.
-
-An offline passive notification prototype was written and tested (84 JS tests,
-including100 unchanged observations and zero saved reads). It was withdrawn from
-the working source after the user corrected the primary-path requirement; the
-private source-signal-experiment-source.patch and disposition record preserve the
-investigation. Its full gate was explicitly cancelled at optimized build; it is
-not accepted, installed or active. No additional websocket/subscription or real
-ChatGPT request was performed. App source still provides useful optional recovery
-notification interfaces, but these are not the primary admission contract.
-
-Current MCP forwarding preserves the request row, but Broker tools/call passes
-only model-supplied params.arguments into controls. No trusted original user
-message/conversation provenance is currently consumed. That is a concrete boundary
-to qualify, not proof that the host never supplies metadata. Caller-supplied
-completion and the Chat final generated after its tool result remain distinct;
-exact final mirroring cannot be claimed without original-host observation. Do
-not substitute a copied/summarized task or supplied finish text and call it the
-unobserved original. The Bridge-first path labels submitted task/completion without inventing original
-host identity. Its Native/TUI qualification is described above; exact host metadata
-and later public-final correspondence still need actual Android/Web proof. Ordinary
-fixed-timer saved retrieval and its startup restoration have been removed. Explicit
-source recovery retains its original-ID protections. The isolated real-Chat service
-and relay remain off.
-The current read-amplification/interrupted-reservation correction passed the
-full Provider gate (read-reconcile-provider-check-exit.json:0):131 library tests,
-2 existing explicit helpers ignored,101 JS tests, integrations, Clippy, optimized
-release and Python checks. Actual Android Core/TUI with synthetic saved Chat
-passed read-reconcile-sibling-observer-native.json and
-read-reconcile-continuity-native.json, including the453+ message branch,
-context-before-effect, exact retry, restart, interruption/next input, Stop and
-live/resumed display. The first guard-corrected sibling attempt encountered
-bound_chat_observation_busy, an existing documented read-contention state. The
-readiness wait now records and retries only that read cause or observation
-superseded; effect assertions and other errors remain strict. Both failed runs
-remain preserved, not counted as passes.
-
-Two disposable source faults were independently rejected: restoring per-page
-refetch produces app_chat_rate_limited in the long-source test; restoring the
-old retained_source condition rejects the next reserved original with
-bound_chat_reattachment_unsettled (read-reconcile-mutations.json). Production
-source was not faulted; disposable files were restored.
-
-Existing Bridge/Direct operator behavior also passed actual Native/Core/TUI
-qualification (read-review-bridge-native.json): input/context/native commands,
-exact retry, same-thread handoff/completion, approvals/questions, Stop/restart
-and failure propagation. Its bridge log contains zero chat_read/chat_page/
-chat_list operations (read-review-bridge-no-source-reads.json), with zero real
-Chat inference. This verifies the reusable Direct foundation; it does not prove
-new same-work automatic join, actual Android host metadata or the later web final.
-The qualified source, immutable runtime/service-test and all original logs are
-retained privately. Operating activation and actual Android/Web Bridge-first qualification are
-still pending; the isolated saved-source service/relay stay off.
-
-Completed-batch cleanup archived only manifest-matched inactive fixture payloads
-through clean_development.py, retaining original source/native records/results and
-restore JSONL. The initialfailed, accepted sibling/continuity and Bridge fixtures
-have separate cleanup records; a guarded fixture with zero eligible payloads was
-preserved. Qualified release/service-test executables and frontend/Core inputs are
-frozen outside mutable targets. Idle Core debug cache was pruned after those
-inputs were retained; no live work, credentials, profiles or unknown target tree
-was removed. The current compiler-cache budget remains around15GiB or below.
-
-After the interruption the existing Linux Chromium profile and tabs were restored
-by the user. A manual browser Network check loaded two existing conversations,
-including the related Codex work, with HTTP 200 on their individual retrievals;
-no inference was submitted. This does not establish the cause of earlier 429s or
-prove all conversations or Android paths have recovered.
-
-Pro discovery remains scoped: original non-Work same-Chat tests observed no public
-host-child events; no universal inability was established. Native-only guidance
-exists on the earlier Provider request; whether any prior instruction persisted
-into the bare Pro request is unverified. The saved Pro ancestry exposes no system
-nodes, so it cannot settle that question. A future Pro probe must first identify
-a discriminating supported host route/catalog or controlled context contrast,
-rather than repeat the configured surface. This review consumed no model request
-(pro-discovery-context-scope-review.json).
-
-**Remaining A1 acceptance.** Actual interrupted client/restart, simultaneous
-entrances, account/model/compaction boundaries, full original public host-tool/
-source-event correlation, large supported context/snapshot bounds, current TUI/event
-recovery remain broader qualification work. Release/activation and matching
-public signed-code/state rollback are complete at the recorded disposable scope.
-
-Owned-source binding is implemented; arbitrary existing-source adoption remains
-explicitly unavailable. A1 is not complete merely because these source/native
-checks pass. A2 common transport refactoring and A3 actual child orchestration
-follow the entrance foundation. Preserve existing sessions and unknown
-`providers/chatgpt/target/`; reread AGENTS.md before continuation.
+**Next: close the actual-client A1 matrix below and fix only demonstrated defects,
+then perform A2 common-responsibility extraction.** Original host identity and
+unjoined requests remain visibility limits to investigate, not facts inferred
+from model arguments. Independent worker/native-child extensions follow A2.
+Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
 ## Operating baseline
 
-| Plane | Verified state and boundary |
+| Plane | Last verified state and boundary |
 | --- | --- |
-| Source | rewrite/rust-core eb0a5be product source; audit started at e4d5400; unknown providers/chatgpt/target/ remains preserved |
-| Selected Core | Signed Full119, local-relay-hosted-0-164-0-eb0a5beb98d8-s119; actual Full117→119 normal stable update |
+| Product source | rewrite/rust-core eb0a5be; later documentation commits do not change admitted product bytes |
+| Core | Full119: local-relay-hosted-0-164-0-eb0a5beb98d8-s119; actual normal Full117→119 update |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
-| Selected TUI | Native source170763e, focused64 and retained-feature/mutation/lint proof40465709544; installed in Full119. Old clients retain their own image until normal restart |
-| Selected Provider | chatgpt-eb0a5beb98d8-s15, sourceeb0a5be, high-water15, previous14; actual signed public install and codec conversion completed |
-| Provider service | Provider21859 is supervised by runit with matching actual PID; host/tunnel restored, same authenticated account ready,35 retained works |
-| Host | Existing provisioned app26.1007.21434; same authenticated identity and ready idle host verified after actual Provider15 activation; no new model request |
-| Tunnel | Previously qualified scoped HTTP/2 recovery buildbb78162; no global tunnel replacement. A running tunnel is not proof of an arbitrary request's delivery |
-| History/project config | Current file now selects Project: ChatGPT, ID g-p-6adf2b7125d88191bf74947acb7f09e6, project mode/MCP. This was changed by the later recorded web investigation, not by this audit |
-| Existing Chat | Seed6adf2ada… retained its original Project: Codex membership. Changing the default project does not move that Chat |
-| Work inventory | Local and actual cloud-MCP reads return35 works; all pre-activation identities/phases preserved. Earlier28/26 inventories retain their original scope |
+| TUI | Frontend source170763e; hosted focused64, retained53 TUI/40 Core/2 protocol, mutation and lint proof40465709544 |
+| Provider | chatgpt-eb0a5beb98d8-s15, sourceeb0a5be, high-water15/previous14; matching offline codec conversion completed |
+| Service/host | At activation: actual Provider PID21859 matched runit's supervised PID; original authenticated identity, ready idle host, tunnel restored |
+| Preserved state |35 work identities/phases,17 protected files and4 existing Native owners;62 converted control records include previous controllers, not62 works |
+| Operating MCP | Same existing connector/tunnel; registered/cloud/local full schemas agree for17 tools including join; actual cloud read returned35 works |
+| Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
+| Tunnel | Existing scoped HTTP/2 recovery buildbb78162; no global replacement. Process/health status alone does not prove request delivery |
+| History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
-Provider15 binary SHA256 from the immutable admitted delivery is
+Provider15 binary SHA256:
 52ff50a3adba647f64abdef47b120d1a0979fb969f02a43b6bc227bf3d5f7e55.
-Current package readback is distinct from host readiness, actual inference,
-native commit and physical screen observation. Documentation follow-up does not
-require repeating the accepted runtime checks or a new software release.
-
-## Confirmed defects and unresolved behavior
-
-| Priority | Finding | Direct evidence / next correction |
-| --- | --- | --- |
-| P0, candidate fix qualified | Source lifetime was coupled to the old reasoning label | Canonical direct/provider routing, explicit persistent binding and automatic CLI reentry pass actual Native/TUI with synthetic source; actual web/Android client qualification pending |
-| P0, candidate fix qualified | A transient CDP error formerly terminated the observer | Source retry/blocked diagnostics and restoration pass source-observer-native-continuity.json; original operating failure remains preserved in log2026-10-26 10:37:56.30936 UTC |
-| P0, candidate fix qualified | An unfinished response formerly ended observation | Exact failed native turn/systemError proof now advances source while preserving partial text. Native/TUI and separate unit/JS reattachment proof passed; actual interrupted Android client and restart proof remain pending |
-| P0, partially qualified | Source observation alone is not native development execution | Actual source join/native effects/context/original final now pass SDK Pro and native tests. Full public host-tool/source-event mapping and CLI-origin UUID retention remain open |
-| P0, candidate replacement qualified | Historical diagnostic starts replaced original inputs | Seed15 user messages versus6 native user items included4 synthetic tasks. New actual SDK source join consumes exact original input once; historical records are preserved, not rewritten |
-| P0, candidate replacement qualified | Legacy codex_finish text need not be the later original Chat final | Source-owned execution rejects legacy finish/takeover and commits the actual original final. Actual Pro final matched byte-for-byte; no finish/final circular wait |
-| P1 | Native commit, active CLI display and source completeness are independent | Same UUID must also have verified execution home/backend/event consumption. New live/reopened TUI tests required |
-| P1 | Current source text-only/size bounds do not establish lossless arbitrary content | bound_chat_text_input_required,16MiB wire/32MiB decoded. Preserve unavailable types and test supported attachments/large output |
-| P1, candidate fix qualified | Qualification catalogs formerly froze14/16 names | Actual candidate/remote/registered full schemas now match17 tools on an isolated ACTIVE MCP link. Final release-specific readback still required |
-| Investigation | A concurrent read was rejected as mcp_rpc_id_in_flight | Original call result retained; sequential read succeeded. Sender RPC ID not captured, origin of ID reuse unconfirmed. Keep same-session ID guard |
-
-The seed work b23e0aa8441c1b03c19d6869edfa456c456bf94817ff545d is completed,
-current/MCP, on thread01a177ab-ad95-77c3-8f3f-5b9d083162f6 in the szob home.
-It is not the current audit thread01a16d35-ed95-78a0-b268-344263df33e5.
-Its111 native public items and final incremental read are retained. Reading,
-copying a report, starting a synthetic task and controlling native tools must not
-be reported as the same action.
-
-The earlier df83c57… / thread01a170ac… incident ended with
-native_context_prefix_changed, not an established network disconnect. Its settings
-changed GPT-6/xhigh→GPT-6-Pro/none before failure. The complete failed outgoing
-input was not captured; the first changed item and causal contribution remain
-unknown. Neither a current default nor an initial-turn snapshot disproves later
-settings changes. Preserve the guard and require correlated input evidence.
-Three earlier failed works remain reconciliation_required; do not relabel or replay them.
+Package selection, generated-profile binding, actual service image, authenticated
+host readiness, Native commit and active/physical UI display are separate facts.
 
 ## Implemented and qualified at recorded scope
 
-| Capability | Current implementation / actual proof limit |
-| --- | --- |
-| CLI Chat model execution | Responses/native tools and MCP or local-function return; Direct uses the active response and Provider starts a response. Neither implies an independent child |
-| Serial bound-Chat continuation | Actual Android input→same native history/TUI→native follow-up passed without reinference. This does not cover interrupted/current-route/concurrent entrances above |
-| Full final and progress display | Physical source identity preserves full final and tools; completed progress may fold locally and expand. No model/effort lowering for display |
-| Saved Chat retrieval | Account/conversation/branch/cursor-bound reading, pagination, explicit hidden/unsupported/redaction; no inference/controller just for reading |
-| Native work controls | Existing source-verified native_catalog discovery can issue the next native token without reviving old execution. Controller/receipt acceptance, scoped owner discovery, durable mutation/result receipts, queue consumption reconciliation, original result retrieval, Stop and handoff |
-| Provider orchestration | Assignment parent/dependency/budget/evaluation and isolated work fixtures exist. They do not create native parent_thread_id membership for external agents |
-| Source format independence | Provider-owned public JSON checkpoint and summary identifier; no active retired adapter/parser/ocx1/template dependency. Native upstream/real third-party notices remain |
-| Project selection | Authenticated list/use creates or reuses an explicit private project; affects new lanes. Existing Chat membership is separately verified |
-| KST/TZif | Core extracts Android TZif for runtime/TUI; Seoul and New York DST plus absolute local picker formatting qualified and Full117 delivered |
-| Native tool-call compatibility |64-byte new Responses IDs; calls/results retain original identities across provider changes at the qualified boundaries |
-| Package/install/update | Signed six-file new Provider inventory, authenticated immutable historical eight-file rollback; actual remote/local8→6 installation/update/rollback regression passed |
-| Optional components | Core remains independent; source/no-Manager composition proof exists. Current signed Full still means Core+Manager+TUI; Provider remains separately selected |
+| Capability | Established result | Qualification limit |
+| --- | --- | --- |
+| Canonical reasoning | Only direct/provider in API and v2 work state; offline conversion and inverse conversion preserve originals | Provider14 requires matching old code/state; no runtime aliases |
+| Bridge-first continuation | join/start share admission, exact retry IDs, generation/Stop fencing and context acceptance | task/progress/finish are Bridge-submitted text, not automatically original host messages |
+| Native/TUI rendezvous | Preserve complete original model-catalog bytes through Config→frontend→Core; both create-before-TUI and TUI-before-create pass | Typed UI serialization is not the catalog authority; argv alone is not actual endpoint proof |
+| Cold continuation | Explicit start/join/claim resumes notLoaded threads with scope/history/context revalidation and one mutation intent | Read-only binding does not load; uncertain previous mutation is reconciled, not redispatched |
+| Compaction continuation | Idle native_summary_offered passes the input barrier; exchange still verifies actual checkpoint acknowledgment | Selected actual Native cold-owner suite, not every real-client compaction scenario |
+| Serial actual Android Direct | One ordinary-model prompt,8 MCP controls, accepted context, real exclusive file create/read, Native history and live TUI final | User confirmed Android final; independently read public input/final match after the known reader work-ID mask |
+| Provider from Chat | Earlier real Android parent→Provider worker→original result return, same parent work and exact worker final | That earlier parent's context acceptance failed; new Bridge-first real-client Provider acceptance remains open |
+| CLI Provider provenance | Actual ordinary GPT-6 after host/service restart: source UUID/fingerprint/model, command, original final and live TUI | Does not prove arbitrary Android/Web tool provenance or concurrent entrances |
+| Source recovery | Explicit owned-source binding, ancestry/branch checks, pending429 handling, interruption/context debt and later-source acceptance | Extensive synthetic-source/actual Native tests; interrupted real Android sibling recheck did not pass |
+| Request amplification | One bounded source retrieval per explicit observation, preserving real upstream pagination;453-message regression and mutation proof | Older169 wire reads/83 HTTP429 window is separate from Terra's incompletely captured renderer window |
+| Public output | Full final/tool flow retained; completed progress folds locally and expands; canonical final rendered once in the actual Android trial | No model/effort reduction; supplied finish is distinct from a later unobserved host final |
+| Source independence | Provider-owned public checkpoint/summary format; retired adapter/parser/ocx1/template dependency removed | Native upstream and actual third-party notices remain; no new claim of external legal review |
+| Native tools/controls | Original call/result identities, scoped owner/context/approval, durable receipts, result recovery, Stop/handoff and queue consumption checks | Queue ACK is separate from actual consumption; uncertain delivery never authorizes replay |
+| Project/TZ | Authenticated explicit project create/reuse for new lanes; Core supplies Android TZif to runtime/TUI, Seoul/New York DST and picker proof | Changing default project does not move an existing Chat; old processes keep launch TZ |
+| Packages/composition | Signed Full119/Provider15, Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
+
+Direct means the active ChatGPT response uses Native tools without Provider
+submitting a new primary inference. Provider means Provider starts/manages a model
+response, including sequential requests in a retained Chat. MCP/local_function
+are tool-return transports, not reasoning modes. Neither mode proves an independent
+worker. Separate assignment/context/result provenance establishes delegation.
+
+## Delivered A1 implementation and remaining qualification boundaries
+
+The corrected frontend carries the original catalog snapshot, rather than
+serializing typed UI metadata (observed5378→5744-byte lossy projection). Its
+assembler now owns one bounded scope check over TUI, the declared Core Config
+module and Cargo.lock, including tracked/staged/renamed/untracked paths. Hosted
+qualification passed; the local Termux protoc adapter is separate build-tool
+evidence and is not substituted for the hosted official dependency recipe.
+
+Additional real Native qualification found two defects and rejected the old
+behavior before fixing it:
+
+- After every client closed, persisted history was readable but live jobs rejected
+  the notLoaded thread with -32600 thread not found. Explicit mutation-owned resume
+  now precedes live queries; history/context remain unchanged. The regression also
+  caught a double-intent first implementation. Removing resume in disposable source
+  fails the strengthened Native/TUI test.
+- After compaction, native_summary_offered blocked the very request needed to
+  acknowledge its checkpoint. The idle barrier correction preserves exchange's
+  acknowledgment check. Restoring only the old predicate reproduces the wait
+  after earlier cold-resume tests pass.
+
+The exact eb0a5be hosted executable passed source, Android composition/package,
+Native cold-owner/compaction, codec rollback and ready copied-host lifecycle
+checks. Signed public delivery, complete readback, disposable update/rollback,
+non-forced promotion and actual device activation are complete at their recorded
+scope.35 works,17 protected files and4 Native owners were preserved; no operating
+work was replayed. The signed consumer preserved three real Native file effects
+across old→new→old code/state with unchanged earlier history and exact retries.
+
+Activation exposed a startup-order collision: prepare started a detached service
+before runit bound the endpoint. Runit then reported provider_already_running.
+Maintenance stopped only the identified idle detached owner and started runit
+alone; actual/supervised PID equality was verified. The guide now prescribes
+serialized startup. Automated lifecycle coordination is a follow-up, not a fix
+already delivered or evidence that concurrent Native work was safe to kill.
+
+The existing operating connector was refreshed once via the authenticated app
+SDK, with its destination unchanged. Full17 registered/cloud/local schemas match;
+remote list returned35 works. This verifies registration and cloud delivery,
+not a new Android physical-UI/model trial. The original helper's premature file
+read was resolved by reading its completed output, without another cloud request.
 
 ### Evidence map and limits
 
-Original earlier evidence root:
-~/.cache/codex/acceptance/independence-review-20261025/.
-These existing results were re-read, not rerun as new product acceptance.
+Primary private root:
+~/.cache/codex/acceptance/entrance-implementation-20261027/.
+Names below identify original result/log files in that root, not new receipts.
+No credentials or private conversation bodies are copied into this repository.
 
-| Record / proof | Established scope |
+| Original proof | Result / boundary |
 | --- | --- |
-| deployment-completed.json | Full117/Provider14 public delivery and device activation, original account/config/work preservation; boundaries included |
-| resumed-actual-android-continuity.json | Actual user Android input, native commit and live TUI, native follow-up,3 canonical turns; no saved-answer reinference |
-| source-settlement-real-continuity.json | Final single-read settlement correction, SDK external input and native follow-up;5 complete originals in same Chat/thread |
-| deployment-real-mcp-initial/followup.json | Hosted Android candidate, real cloud MCP development and second same-work task;14 admitted calls/1000 supplied cap,14 independent tests,0 pending; gpt-6-thinking/extended |
-| deployment-real-mcp-saved-readback.json | Two original complete finals2833/3442 characters;68 public messages at that time, no readback reinference |
-| deployment-operating-web-mcp.json | Registered actions16→17; complete registered/live input schemas including queue/synchronize; actual remote read of then26 works,0 model requests |
-| deployment-legacy-installer-original-fault/fixed-modes/mutation.json | Original eight-file copy defect caught at actual TLS install; corrected Base/Full remote/local install, update and rollback; disposable omission fault failed and restored |
-| Source/native gates |374 workspace Rust tests plus Clippy; separate armed readonly Termux smoke1; native ed1d6b5 focused63 and retained upstream feature tests. Not recompiled in this audit |
-| Source ownership/restart proofs | Retained-chain/Stop/account/300+300 turns and active/admitted-tail boundary at their exact candidate inputs |
-| Native render disclosure/TZif proofs | Real executable renderer and child timezone tests; source inclusion alone is not device/physical UI proof |
+| bridge-final-native.json; catalog-exact-native-created.json; catalog-exact-tui-first.json | Real Native/TUI, synthetic Chat; repeated input/context/effects/results/restart and same-work CLI return; zero saved reads |
+| catalog-source-boundary-mutation.json; hosted170-native-success.log | Raw catalog regression/mutation and hosted focused64 plus selected upstream suites; not all upstream tests |
+| unloaded-join-original-red.log; hosted170-unloaded-native-wire.json; unloaded-join-receipt-native-created.json; unloaded-join-mutation.json | Original cold failure, actual protocol cause, fixed reopened TUI/concurrent exact join once, fault rejected |
+| unloaded-summary-original-failure.json; unloaded-summary-cold-operator.json; unloaded-summary-mutation.json | Compaction deadlock and fixed actual owner/history/Stop/restart/uncertain-driver suite; synthetic Chat |
+| unloaded-summary-final-provider-check-exit.json | Final source gate exit0: Rust/Clippy/release,101 JS and82 Python checks; existing explicit helpers are not counted as passing tests |
+| catalog-real-android-result.json; catalog-android-original-comparison.json | Ordinary Android actual input/context/tools/final and live TUI; independently read229 public messages in2 bounded pages; work-ID masking disclosed |
+| source-wire-join-rate-limit.json; tool-source-final-native-exit.json; context-debt-join-sibling-native.json | Explicit source retry/interruption/branch/context/tool-source mapping on actual Native with synthetic source |
+| read-reconcile-continuity-native.json; read-reconcile-sibling-observer-native.json; read-reconcile-mutations.json |453+ source messages, no internal-page refetch, interrupted reservation retained; disposable faults rejected |
+| actual-sdk-ordinary-restart-source-proof.json | Actual CLI/SDK ordinary GPT-6 after restart; wire user/model/final,52 earlier Native items retained |
+| actual-android-provider-original-result-proof.json | Actual Android Provider worker original return,3 parent effects and2 successful worker commands; parent context acceptance failed |
+| actual-android-sibling-source-failure.json | Actual Android sibling ancestry conflict; no context acceptance/note effect. Session terminated transport cause unconfirmed |
+| actual-sdk-normal-pro-source-proof.json; pro-discovery-context-scope-review.json | One actual Pro original; no advertised/public host-child facility on tested non-Work routes; no universal impossibility claim |
+| eb0a5be-hosted-native-codec.json; eb0a5be-hosted-provider-product.json; eb0a5be-hosted-provider-package.json | Exact hosted bytes: actual Android code/state rollback and three compositions, signed remote/local package lifecycle |
+| eb0a5be-hosted-host-lifecycle.json | Two ready copied-profile app/display start/stop cycles, auth preserved and kernel-confirmed exits; no inference |
+| eb0a5be-public-consumer.json; eb0a5be-provider-promotion.json | Signed public Provider14→15→14, offline matching codec, explicit owner claim, three effects; non-forced stable promotion |
+| full119-device-update.json; provider15-device-activation-completed.json; provider15-service-settlement.json | Normal Full update; Provider activation/state preservation and actual supervised service settlement |
+| provider15-operating-web-mcp.json; provider15-delivery-completed.json | Complete operating cloud schema/read proof and aggregate delivery scope; extra model requests in release/device batch0 |
 
-Public delivery used exact-source/signing/complete immutable readback/disposable
-update and non-forced promotion. The first Full publication attempt was correctly
-fenced when another authorized Provider promotion advanced main; final accepted
-Full117 used the new baseline. No public asset or CAS guard was weakened.
-The legacy8→new6 installer defect was real and fixed: verified inventory rather
-than a new-format constant now determines copied payloads. The initial new fixture's
-mode600 license failure was corrected to the signed0644 expectation, preserving
-strict validation. Those original failures remain evidence.
+Hosted accepted source/Provider/Core runs are40476107531,40476107583 and
+40476175050. Full publication40476429639 and Provider signing/readback40481676037
+succeeded. The duplicate manually dispatched Core workflow was intentionally
+cancelled, not treated as an accepted or failed test.
 
-Earlier activation closed only two inherited-lease native catalogs after actual
-empty loaded-thread lists, no children, exact PID/image/start identity and kernel
-exit confirmation. Existing user clients/jobs/history remained. This bounded
-maintenance is not permission to close current owners during new development.
+Earlier root ~/.cache/codex/acceptance/independence-review-20261025/ retains
+Full117/Provider14 delivery, actual Android serial continuation, the two-work MCP
+trial, original full finals and the actual TLS legacy8→new6 inventory fix.
+Their accepted inputs/scope remain historical evidence, not new Provider15 tests.
+Original audit root ~/.cache/codex/acceptance/independent-architecture-audit-20261026/
+retains10 Chats/2,037 public messages and597 main-work Native items. Hidden,
+unsupported and redacted content remains incomplete. Neither this edit nor
+reading those results reruns the earlier92-JS-test audit.
+
+Failed initial helpers, cancelled prototypes/builds, source mutations and
+unaccepted actual-client trials remain preserved. The passive notification
+prototype was withdrawn; its patch is private historical research, not installed
+architecture. The earlier cold/stale copied profile returned app_target_unavailable;
+later visible composer observation did not establish the initial cause. No
+universal cold-profile readiness is claimed.
+
+## Confirmed defects and unresolved behavior
+
+| Status | Finding / next action |
+| --- | --- |
+| Fixed and delivered | Raw-catalog loss, unloaded-thread join and idle compaction barrier; proofs above |
+| Fixed at recorded scope | Old reasoning-coupled source lifetime, transient source-read termination, partial-response/context-debt handling and per-page refetch; no automatic saved reader remains |
+| Actual-client failure retained | Source-recovery Android sibling conflict and earlier Provider-parent context rejection; exercise current Bridge-first path before attributing either old result to it |
+| Host provenance limit | Ordinary MCP envelope's opaque openai/session stayed stable across8 calls but is not the Chat ID; current controls consume model arguments without trusted original user/branch IDs |
+| Host final limit | Submitted task/report/finish may differ from the original user/progress/later final. One bounded actual comparison passes; arbitrary originals/tool events are unqualified |
+| Lifecycle follow-up | Runit/prepare startup collision settled manually with documented ordering; deterministic concurrent startup is not yet qualified |
+| Investigation | One mcp_rpc_id_in_flight read rejection; sender RPC ID not captured. Sequential read succeeded; do not remove same-session guard or claim producer bug proven |
+| Investigation | Cold copied-profile app_target_unavailable and long-duration/resource behavior remain unconfirmed, separate from resolved Native notLoaded |
+
+The old seed work b23e0aa… had111 Native items and a historical current/MCP label;
+that describes its pre-conversion audit snapshot, not a supported current API.
+The earlier df83c57… incident ended native_context_prefix_changed, with a recorded
+GPT-6/xhigh→GPT-6-Pro/none settings change. Missing outgoing input prevents a
+causal attribution. Preserve3 reconciliation_required works; do not replay them.
+The older Terra renderer's HTTP count is unknown: one explicit tool call does not
+prove one HTTP request. Separate169 captured saved-read wire calls over5761s
+(86 HTTP200/83 HTTP429) prove historical amplification only.429 alone neither
+proves a new code defect nor proves that work failed.
 
 ## Implemented but incompletely qualified
 
-- Uncontrolled simultaneous Android/web and CLI input, edits/regenerations creating
-  competing branches, partial/cancelled response followed by a new user input.
-- Universal live screen equivalence after Direct/Provider transfers, observer
-  failure, connection loss or app model changes. Existing successful serial proof
-  does not establish these cases.
-- Lossless correlation of arbitrary external host tools/unsupported content and
-  attachments, and near-limit full final transfer through CDP.
-- Long-running/request-driven memory behavior. The available short samples do not
-  prove or exclude a leak.
-- All physical Android viewer/noVNC touch/IME behavior. SDK-backed app execution
-  and an HTTP/intent response are not physical screen observations.
+The following is the remaining A1 acceptance matrix. Source, real Native with
+synthetic Chat, SDK/cloud, actual app/web input and physical observation are
+separate proof boundaries. Do not mark a missing boundary green from another.
+
+| Original acceptance scenario | Available proof | Next actual-product proof |
+| --- | --- | --- |
+|1 CLI→Chat→Native | Actual ordinary CLI/SDK UUID/model/final and restart | Current installed frontend/live display and later app follow-up on same work |
+|2 Existing Chat direct input | Actual ordinary Android Bridge-first context/effect/final/TUI | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
+|3 No duplicate inference/effect | Actual Native retries/concurrent identical join, one Android Direct turn | Concurrent distinct entrances, uncertain reply/reconnect; count actual submissions/effects, not just ACKs |
+|4 Complete public provenance | Native task/progress/tool/result/final; Provider-owned wire references | Trusted host input/tool/branch identity or explicit unavailable result; complete original final comparison without inventing provenance |
+|5 Storage versus live display | Separate history/live/reopened TUI checks and Android trial | Display after active connection loss/transfer, including canonical final once and full expandable progress |
+|6 Restart/no omission | Cold Native/service restart and signed code/state rollback | In-flight actual app/web disconnection plus later input and TUI reopen |
+|7 Missing participation | Source recovery can report execution_not_joined; unreceived input is invisible | Identify a supported host notification/explicit verification boundary; demonstrate honest recovery with no silent reinference/polling |
+|8 No unwanted work | Explicit selection/admission/source-reader rules | Ordinary unrelated Chat and task switch/reuse; verify work inventory and no unsolicited inference |
+|9 Control/concurrency | Synthetic-source/actual Native Stop, approvals, context, compaction, owner fencing | Actual app/web Stop/approval, simultaneous entrances, model/account changes and branch edit/regeneration |
+|10 Independent worker | Explicit assignments/result returns; no proven external native-child membership | A3 after A1/A2: parent/child original execution identity, individual histories and result return |
+
+Large supported context/attachments/near-limit final snapshots also require
+lossless or explicit-unavailable behavior at the existing16MiB wire/32MiB decoded
+boundary. Short samples prove neither a leak nor long-term stability. Full physical
+Android viewer/touch/IME qualification remains separate from terminal/SDK tests.
 
 ## Confirmed design, not implemented
 
-The authoritative behavior is [SPEC entrance equivalence](SPEC.md#entrance-equivalence-and-continuous-development-binding).
-[AUDIT](AUDIT.md#7-파일함수-단위-구현-계획) names exact modules/functions and risks.
+[SPEC entrance contract](SPEC.md#entrance-equivalence-and-continuous-development-binding)
+owns the target. These stages distinguish delivered foundations from residual
+implementation; A1.1 is not wholly unimplemented just because broader A1 is open.
 
-| Stage | Next deliverable / completion |
-| --- | --- |
-| A1.1 | Persistent source binding independent of reasoning, account/conversation/user-message identity, shared source/native admission, bind/unbind/join |
-| A1.2 | Recover known transient observations, preserve partial/interrupted originals, detect missing participation, resolve ambiguous branches without inference/effect replay |
-| A1.3 | Native event/TUI recovery plus mandatory actual Android, ordinary web and CLI tests1–9. A1.1/1.2 alone do not finish entrance equivalence |
-| A2 | Shared Provider connection/work logic with transport-specific initialization, readiness, config and lifecycle; remove replaced duplicate paths in the same change |
-| A3 | Explicit independent reasoning/delegation, actual native child lifecycle or accurately labelled external work relation, full child history and original result return; test10 |
-| A4 | Same-Chat independent host runs or mandatory pre-request linking only after actual host APIs/source prove support |
-
-The current host boundary does not allow a claim that ordinary Android/browser
-requests always receive Provider developer instructions/tools before inference.
-Autonomous model participation can use native tools when called; the system owns
-source/control correctness, omission detection and honest recovery. An ended
-unjoined source is not silently reinferred or labelled native tool execution.
-Native /subagents and parent_thread_id are not writable external-agent metadata
-in the inspected thread/start/fork API. Provider parent_work_id remains a logical
-assignment relation until a separately qualified native integration exists.
+| Stage | Delivered foundation | Remaining implementation / completion condition |
+| --- | --- | --- |
+| A1.1 Identity/admission | Owned binding, canonical routing, bind/unbind/join, same-work Native context admission | Trusted external host provenance and explicit adoption policy where supported; no title/path guesses |
+| A1.2 Recovery | Explicit source retry/branch/interruption/context debt; no automatic crawler | Actual-client failure fixes only after reproducing them; unseen-input/ambiguous-source reporting must remain honest |
+| A1.3 Product acceptance | Serial Android, SDK/CLI, Native/TUI and signed delivery | Close scenarios1–9 at their required actual boundaries; document unsupported host guarantees rather than substitute polling |
+| A2 Common responsibilities | Both routes already share AppHost/LimitedBridge; both transport baselines exist | Remove demonstrated duplicate orchestration, preserve distinct discovery/lease/lifecycle and original caller returns |
+| A3 Independent workers | Explicit assignment/budget/result controls | Prove separate reasoning contexts and native child integration or accurately label an external relation; scenario10 |
+| A4 Conditional host capability | Same-Chat sequential requests observed | Distinct-model/same-Chat host children or pre-request linking only if a supported interface is actually demonstrated |
 
 ### Provider entrance and same-Chat model capability qualification
 
-User labels are Direct(direct development) and Provider(model response execution);
-Only direct/provider are canonical API and stored values; old names are not
-accepted as compatibility aliases. Existing state needs an explicit offline
-migration and matching code/state rollback snapshot. Provider execution must work from both
-CLI and a current Chat request, with complete worker native/public records and
-original caller result return. This belongs in A1 entrance acceptance. Independent
-worker provenance is an attribute, not a mandatory third mode or separate screen.
+ChatGPT-origin Provider execution is part of A1, not deferred as an optional
+independent-worker feature: the current Chat must be able to request Provider
+reasoning, receive its original result and keep full Native/public history.
+Independent worker provenance is an attribute, not a third mode or mandatory
+separate user screen. Native /subagents and parent_thread_id are not writable
+external-agent metadata in the inspected start/fork API; parent_work_id alone
+is a logical assignment relation.
 
-Same-Chat sequential GPT-6 requests have original proof. Distinct-model sequential
-requests and same-Chat independent host children remain unqualified. Official API
-Pro mode, API Multi-agent and Work/Codex subagents are separate surfaces; their
-documentation alone does not prove ordinary Chat GPT-6/legacy app gpt-6-pro support.
-The first actual Pro probe and ordinary baseline observed no advertised host child
-facility; public child events were absent. Hidden internal inference remains
-unknown. The user's broader capability report is not disproved by that surface.
-
-A disposable qualification plan/prompts/parent-child effect fixtures and offline
-public-attribution oracle are prepared under
-$TMPDIR/codex-model-run-probe-ah2l4szv/. Both deliberately faulty effect contracts
-fail, both known-good controls pass, and 3 attribution-oracle tests pass. Live host
-metadata must still establish original attribution; missing data means inconclusive.
-The revised proposed probe scope is normal GPT-6 primary at most 3 (baseline,
-mechanism-informed retest, optional continuity check), Pro primary at most 2.
-Pro is used to discover exposed execution mechanisms and guide ordinary-model
-retesting, not to restrict support investigation to Pro. The first Pro probe
-requests at most one child, the second only continues/retrieves existing results. This bounds
-client primary submissions, not unexposed internal Pro computations. Keep the
-installed saved-input Pro exclusion and all operating config unchanged; only an
-explicit isolated qualification client may issue the test after user approval.
-The user approved this plan on 2026-10-27. One Pro original was actually sent
-and its bounded source/native proof is recorded above; one Pro allowance remains
-reserved. Ordinary follow-up trials are counted separately above. Full scope, stop
-conditions and original plan are in AUDIT; this plan text is not another live PASS.
+Ordinary same-Chat sequential GPT-6 requests pass. Distinct-model sequential
+runs and independent same-Chat children are unqualified. One Pro original was
+actually sent; one of the approved2 primary Pro calls remains. No Pro slot was
+used by the release/device batch. Prior tested non-Work routes advertised no
+public host-child facility; Work-labelled app assets do not establish support
+on ordinary GPT-6/Pro. Hidden internal computation is unknown. Inspect a
+supported route/catalog or controlled context contrast before spending the last
+Pro call; retest discovered mechanisms with the ordinary model. Pro discovery
+must not block ordinary A1 qualification or serve as another routine smoke test.
+Prepared prompts/effect fixtures and the calibrated attribution oracle remain
+under $TMPDIR/codex-model-run-probe-ah2l4szv/. They are not themselves live proof.
 
 ### Budget policy
 
-75 and1000 were per-assignment supplied allowances, not global defaults. Current
-native records independently show the exhausted work75 calls and source-editor
-work91 calls; the later release trial's14 calls belong to another work.
-Explicit settled-owner claim extensions are delivered in Provider14, preserving
-original start/used counters and parent/controller bounds. Provider extension
-still requires app-ledger reconciliation. Ordinary unassigned native work does
-not acquire those assignment caps.
+75 and1000 were supplied per-assignment allowances, not global defaults. Original
+works consumed75 and91 calls respectively;14-call release trials are separate.
+Settled-owner claim extensions are delivered, preserving start/used counters and
+parent/controller bounds; Provider extension requires host-ledger reconciliation.
+Unassigned work does not inherit an assignment cap.
 
-The user's model-estimated allowance/progress reassessment proposal remains a
-follow-up policy target. No automatic reviewer model, fixed multiplier or1000
-product default was selected. Separate usage measurement from policy. At a future
-reassessment boundary, return an unexecuted-call reason without replaying the
-blocked call or cancelling the whole model stream, then apply the authorized
-increment or summarize remaining work. Preserve platform/approval/Stop limits.
+Model-estimated initial allowance and progress-based reassessment remain requested
+policy work. After A2, define one authoritative measurement/admission owner, return
+an unexecuted-call exhaustion reason, allow authorized reassessment/extension or
+orderly summary, and preserve elapsed/concurrency/app/parent/Stop/platform limits.
+No automatic reviewer, fixed multiplier or1000 default is selected. A blocked
+call must not execute before grant or be replayed by a new logical call ID.
 
 ## Product completion scope and work order
 
-Earlier A–H describe completed bounded source/integration/delivery/retirement
-batches. They do not close the newly verified A1 failures. Retain their unchanged
-accepted artifacts/results and independently licensed upstream runtime. Do not
-rerun accepted whole builds merely to recreate archived copies.
+Earlier A–H were bounded completed batches, not proof of universal entrance
+parity. Their unchanged accepted artifacts need no rebuild. The Chat-authored
+16-file originality work (including9 inherited edits,91 calls/0 pending) remains
+preserved in its original TMPDIR workspace and Native history; Codex's later
+review/supplements and delivery are distinct from that unbuilt Chat batch.
 
-The recent Chat-first candidate work9c0c3147… was written in
-$TMPDIR/codex-originality-chat-nzbslj9a/source,16 changed files including9 inherited.
-Its original91-call/0-pending batch was not itself built or published by ChatGPT.
-Codex audited/supplemented it before the later4aad4e9 delivery. Preserve the unique
-original workspace/diff and native history; do not overwrite it with this audit.
+Recommended execution order follows dependencies; conditional investigation is
+not a new mandatory platform guarantee or permission gate.
+
+| Order | Work / responsibility and affected paths | Completion / expected result |
+| --- | --- | --- |
+|0 Completed here | Consolidate CURRENT, correct stale SPEC/README/AUDIT status | Delivered versus unqualified versus proposed work no longer conflicts; docs/diff check |
+|1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
+|2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
+|2a Startup coordination follow-up | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
+|3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
+|4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
+|5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |
+|6 Setup/component/tunnel integration | Core mandatory, optional layers individually selectable; use existing signed installation/service authority | Shared minimal setup and user-selected composition, tunnel dependency/version management per actual route, migration/rollback and Android proof |
+|7 Separate product polish | Repository separation, version/update UI, physical viewer and long-duration operation | Own affected-path acceptance; no incidental change to models, discovery defaults or current release pins |
+
+Orders1/2 are iterative: a failure need not wait for every matrix case before its
+fix.2a is newly identified lifecycle work; documented serialization is the current
+operating procedure. Complete it before automating setup, and bring it forward
+only if it obstructs A1. Budget and worker features follow A2 so they do not create
+another admission/usage implementation. Read-only supported-host research can
+proceed while actual-model tests are rate limited; the last Pro call is conditional.
+A2 should not be blocked indefinitely by an upstream provenance capability that
+has been investigated and recorded as unsupported: first settle that A1 boundary,
+then retain the limitation explicitly without claiming universal equivalence.
+
+The release results add one concrete implementation candidate and one bounded
+investigation, rather than reopening every accepted feature:
+
+- **New lifecycle work (2a):** concurrent runit/prepare startup produced the
+  observed detached-owner/supervisor mismatch. First amend the lifecycle contract
+  for the selected ownership mechanism, then reproduce and fix at that owner.
+  The existing Journal exclusivity correctly prevented a second service owner;
+  weakening that lease is not the correction.
+- **Conditional host diagnosis:** reproduce copied-profile app_target_unavailable
+  only if it recurs or blocks qualification/setup. Capture app-target/composer
+  readiness at failure; the later composer alone identifies no cause. This is
+  distinct from the delivered Native notLoaded fix.
+- **Existing A1 scope, now more precise:** qualify Chat-origin Provider context
+  acceptance/result return and external-source attribution before declaring full
+  entrance equivalence. Missing trusted host IDs may require a supported host
+  integration, not another local transcript copier.
+- **No new product rewrite justified:** output-file read timing and test-shell
+  inherited leases were qualification-helper findings. Preserve their evidence;
+  do not infer a Provider leak, tunnel incompatibility or model retry bug from
+  them. Accepted signed delivery/rollback, TZif and catalog fixes remain closed.
 
 ### G product qualification
 
-The selected Full119/Provider15 delivery passes the source/fault checks,
-changed-path Native/TUI and hosted Android package/codec/rollback tests above,
-signed public readback, non-forced promotion, actual device activation and
-operating web-MCP schema/read verification. Broader host-source equivalence
-boundaries remain listed separately; delivery does not close them.
+Full119/Provider15 delivery and actual activation are complete at the evidence
+map's scope. New substantive product changes require applicable checks, Android
+execution, exact-source signing/public readback/disposable update and non-forced
+promotion before activation. Documentation-only consolidation needs no release.
 
 ## Deferred setup and repository work
 
 ### Shared minimum setup and login
 
-No shared setup command exists. Reuse the manual Provider guide, native login,
-app login and connector authentication as separate boundaries. Collect only
-missing required inputs; optional Manager/update discovery cannot block Core.
+No shared setup command exists. Native login, app login and connector authority
+are separate inputs; collect only what the selected route needs. MCP needs its
+reachable tunnel on this deployment. Local-function return is not itself proof
+of a tunnel requirement; qualify actual host/execution dependencies when packaging.
+Core launch must remain usable without optional Manager/update/Provider setup.
 
 ### ChatGPT entry and task management
 
-Existing MCP read/control and current/managed work are available. No universal
-workflow skill/plugin/panel or automatic work selection has shipped. Such packaging
-can guide participation but does not establish guaranteed per-request host context.
-Implement A1 identity/admission before depending on packaging for correctness.
+Direct/Provider read/control paths exist. Automatic arbitrary-Chat adoption,
+universal task selection and a workflow panel/skill/plugin have not shipped.
+Packaging may guide model participation but cannot guarantee host request-start
+context. Do not restore a saved-history crawler to hide missing participation.
 
 ### Repository separation and cleanup
 
-Development/release repository separation and optional-component selection UI
-remain deferred. Do not change Base/Full semantics during entrance repair.
-Core is mandatory in the approved component model; independently optional signed
-composition still needs its own release acceptance. Preserve separate published
-histories and main's exact accepted caller pins.
+Current Base/Full semantics stay unchanged during A1/A2. The approved target is
+mandatory Core with individually selectable optional layers and Full meaning
+all selected layers; signed composition, tunnel install/update ownership and
+migration remain a separate batch. Preserve independent published histories;
+main stays a caller pinned to accepted exact-source reusable release logic.
 
 ### Deferred Core follow-up
 
-Improve installed/target component version/source/date display and bare-launch
-update choices with the next substantive Core change, first amending the existing
-discovery/snooze contract. No incidental update-discovery/default-model change
-belongs in A1.
+Improve installed/target component source/version/date and bare-launch update
+choices with an explicit discovery/snooze contract amendment, separate from A1.
 
 ### Linux ChatGPT app management and deferred viewer work
 
-Reuse Provider host status/ensure/open/stop, saved-Chat controls and the authenticated
-facade. Host lifecycle and optional viewer state remain distinct. Physical viewer,
-mobile touch/IME polish and long-duration host operation are not established by
-backend SDK tests; retain their separate follow-up scope.
+Reuse existing host status/ensure/open/stop and authenticated controls. Preserve
+unknown/unready owners instead of killing them. Cold-profile diagnosis and long
+runs need original boundary evidence, not longer arbitrary waits. Mobile physical
+viewer/touch/IME behavior is independent of SDK/Native acceptance.
 
 ## Development artifact retention
 
-Follow AGENTS.md after recovery before editing/review. Keep temporary work in
-TMPDIR, reusable compiler output in XDG cache at about15GiB or less. Use the
-existing scripts/clean_development.py only for verified owned inactive fixture
-payloads, preserving source/results/manifests/restore records/current/rollback.
-The previous8 explicit fixture roots have deployment-fixture-cleanup-[0..7].jsonl
-records. Unknown providers/chatgpt/target/ remains untouched. This audit creates
-no compiler output or disposable runtime payload needing reclamation.
+Follow AGENTS.md after recovery before editing/reviewing. Use TMPDIR for temporary
+work, XDG cache for compiler output, and clean_development.py only for verified
+owned inactive payloads after preserving source/results/manifests/restore records
+and current/rollback executables. The unknown providers/chatgpt/target remains
+untouched. Frozen Native/Provider proof binaries remain outside mutable targets.
+About11GiB of idle TUI debug cache was reclaimed after the accepted batch
+(unloaded-native-cache-cleanup.jsonl); the earlier14.96GiB figure was a previous
+snapshot, not the post-cleanup current usage. No build output is created here.
 
-Repeated-exit evidence: ADB ApplicationExitInfo for com.termux PID31170,
-2026-10-26 11:21:06.316 KST, reason3 LOW_MEMORY, approximately1.435s after the
-last compiler sample. This supports that particular Android interruption;
-77MB app RSS is not aggregate compiler/TUI memory. Compiler VmHWM3219392KiB was
-a compiler observation, not proof of a3GiB TUI or leak. Later one-job/debug0/
-incremental0 qualification completed. Preserve original shutdown-* and linker/
-UBSan failure evidence; do not silently reclassify other disappeared processes.
+The ADB record for com.termux PID31170 at2026-10-26 11:21:06.316 KST reports
+LOW_MEMORY;77MB app RSS is not total compiler/TUI memory. A separate compiler
+VmHWM3219392KiB/observed process-tree peak is not evidence of a3GiB TUI or leak.
+Other disappearances remain unclassified. User directed development to continue
+without further ADB requests; serial jobs/debug0/incremental0 remain the accepted
+disposable-build settings, not a claimed universal crash fix.
 
 ## Audit verification and remaining acceptance
 
-New private evidence:
-~/.cache/codex/acceptance/independent-architecture-audit-20261026/.
-Original Chat10 conversations/2,037 messages, four main work histories597 items,
-related native rollout inventory and source symbol/file inventories are retained.
-Hidden/unsupported/redacted content remains explicitly incomplete. The original
-seed history after cursor111 returns0 items; unrelated works are not claimed as
-related merely because they use the same repository.
-
-This audit reran92 JavaScript tests across the four existing app/CDP/entry/relay
-files:92 PASS,0 FAIL,767 assertions. Python100 files passed AST parsing. Documents
-receive scripts/check.sh docs, link/terminology/state checks and final diff review.
-The existing pure G readiness checker also reproduces rejection of the actual17
-connected names because its expected list has16. This is a qualification defect,
-not a new live-model trial or failure of the operating17-tool catalog.
-No new model, Rust build, native trial, publication or activation was performed.
-A1 has source/native and actual SDK passes at the scopes listed above. Complete
-AUDIT scenarios1–9, physical-client boundaries and final release activation remain
-unfinished. Actual independent-child scenario10 remains unqualified.
+This consolidation re-read AGENTS, source/callers, contracts, existing result
+summaries and the complete pre-consolidation CURRENT. It corrects status and work
+order only; no new model, build, Native/client trial, publication or activation.
+Run scripts/check.sh docs, local document-link/status consistency review and final
+diff review for this edit. The existing actual test results retain their exact
+inputs, environment and limitations. Remaining acceptance is the matrix above;
+public activation is complete, whereas full A1 and independent-child scenario10
+remain open.

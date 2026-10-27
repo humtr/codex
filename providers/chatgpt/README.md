@@ -24,8 +24,9 @@ a code/config/API label for native-work controls, not another reasoning agent.
 The [retained control contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
 remain in force. Earlier F/G/H qualification and delivery apply at their recorded
 scope; [CURRENT](../../CURRENT.md#evidence-map-and-limits) separates those results
-from confirmed entrance-continuity defects. [AUDIT](../../AUDIT.md) independently
-rechecks original Chats/native work and defines the selected implementation plan.
+from remaining entrance-continuity boundaries. [AUDIT](../../AUDIT.md) preserves
+the original independent Chat/native-work audit; superseded proposals are
+distinguished from the current SPEC and CURRENT plan.
 Provider15 delivers persistent binding and Bridge-native join for an active Chat
 response at the qualification scope in CURRENT. Saved-source recovery is explicit;
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
@@ -424,7 +425,7 @@ be established from real metadata/events. Model-supplied arguments/completion do
 not establish those source facts. No native tools are fabricated for unjoined host
 output. Saved-source verification/recovery is explicit; no whole-Chat timer reader
 runs in ordinary development. The offline notification prototype was withdrawn
-and never activated. CURRENT separates implemented candidate behavior, Native/TUI
+and never activated. CURRENT separates delivered behavior, Native/TUI
 qualification and remaining actual Android/Web boundaries.
 
 The assistant should report the returned work/thread identity with progress and

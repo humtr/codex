@@ -1208,17 +1208,19 @@ saved/native records on 2026-10-26; [AUDIT.md](AUDIT.md) records findings, exact
 inputs, alternatives and the implementation/acceptance plan. Existing E/F/G/H
 labels identify earlier bounded batches, not universal entrance equivalence.
 CURRENT owns implemented, qualified, published and activated status. The following
-approved target changes behavior only after its implementation and qualification;
-bind/unbind/join below are not yet shipped APIs.
+contracts include the delivered bind/unbind/join foundation and the broader
+entrance-equivalence target; API delivery alone does not qualify every target
+scenario. See CURRENT's acceptance matrix and work order for the remaining scope.
 
 #### Entrance equivalence and continuous development binding
 
 **Primary admission correction.** Bridge-native participation is the primary
 execution path. The source-follow admission/queue contracts below describe the
-existing candidate's explicit source verification/recovery consumer; they must
+explicit source verification/recovery consumer; they must
 not force ordinary Bridge requests to wait for saved-Chat crawling. That
-replacement is under implementation; CURRENT records its exact qualification scope. Source history facts,
-identity checks and no-duplicate-inference requirements remain mandatory.
+replacement is delivered at CURRENT's recorded qualification scope. Source history
+facts, identity checks and no-duplicate-inference requirements remain mandatory;
+arbitrary external host provenance is not inferred from Bridge arguments.
 
 For a selected Codex development work, CLI and ChatGPT entrances must identify
 the same original input, actual execution and public record. Native history and
@@ -1379,7 +1381,7 @@ text/IDs; an MCP tools/call argument alone does not establish original identity.
 Source lookup or notification-based observation is a separate, explicit source
 verification/recovery mechanism, not a requirement for ordinary Bridge-native
 development. A passive host notification prototype was examined and withdrawn
-from the implementation pending this primary-path correction. Preserve original
+in favor of this primary path. Preserve original
 records and identify missing source provenance; never relabel caller-supplied
 completion text as a subsequently generated, unobserved ChatGPT public final.
 The Bridge-first path must qualify exact input, context, tool/result,
