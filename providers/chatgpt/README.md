@@ -320,6 +320,13 @@ install never terminates Native work or removes a lock to force selection.
 An unchanged-selection rejection and an uncertain mutation need different
 reconciliation; neither permits replay or killing unrelated runtimes.
 
+An explicit completed-work join/start admits a verified replacement Native
+backend before reserving its new Native turn. It verifies scope, retained calls
+and jobs and rotates the controller/token at that boundary; ordinary status does
+not transfer ownership. This avoids an asynchronous exchange mistaking the already
+recorded new turn for an old request on another owner. Failed or uncertain turns
+remain in history and require explicit reconciliation, not automatic resubmission.
+
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
 config/auth/model defaults remain protected. Retain profile-pinned generations

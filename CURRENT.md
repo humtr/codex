@@ -2,9 +2,11 @@
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
 delivery and remaining work. Latest maintenance record: 2026-10-28 KST, from
-source c5dee9125fd1497d7db8f69e3660c18e2ac878b8 (Provider18), wrapper tunnel
+source2c47f9eaef8399ea4a0097e950153a1259f52e07 (Provider19), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
-batch below includes bounded actual device activation, with zero model requests.
+batch below includes bounded actual device activation with zero Provider-triggered
+model submissions. The separately identified Android user trial did invoke its
+ordinary ChatGPT response; source readback is not another inference.
 
 [AUDIT.md](AUDIT.md) preserves the independent 2026-10-26 original-record audit.
 Its superseded proposals are historical, not the current implementation plan.
@@ -15,12 +17,12 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full121 and Provider18 are signed, publicly delivered and activated on this
+**Full121 and Provider19 are signed, publicly delivered and activated on this
 device. A1 entrance equivalence is partially qualified, not complete.** The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
-authenticated host and36 preserved works at the Provider18 activation boundary.
-That activation preserved16 protected files and8 existing Native owners. These are
+authenticated host and36 preserved works at the Provider19 activation boundary.
+That activation preserved16 protected files and9 existing Native owners. These are
 recorded observations, not a recheck on every documentation edit.
 New TUI launches include the catalog and fresh-home login corrections. Running
 clients retain their launch executable.
@@ -101,15 +103,19 @@ refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
-## Active A1 defect: Bridge start after Native owner replacement
+## Delivered A1 correction: owner replacement; actual recovery pending
 
 The user sent INSTALLED_PROVIDER18_ANDROID once in the ordinary Android app.
 The original Bridge task appears once on the existing work/thread and in the live
 installed Full121 TUI. No file was created: its Native turn failed with
 native_owner_reconciliation_required; work phase reconciliation_required. This
 actual-client trial is a failure, not full entrance acceptance. The Provider did
-not submit an additional model request. A Bridge argument is still not independent
-proof of the host's original message ID. Evidence:
+not submit an additional model request. Explicit two-page original readback checks
+all259 unique messages on the exact branch, with hidden/unsupported content left
+unclaimed. Original user bbb21c7f-dfab-4aa5-a316-1ebc59aa47d1 matches the Native task
+byte-for-byte; ordinary gpt-6-thinking final db1ae994-c99a-40af-be65-405068001e9a
+correctly reports attach failure/no execution. This is source verification after
+the failure, not a recurring observer or an additional model submission. Evidence:
 provider18-actual-android-join-failure.json and the original private work/terminal
 records in codex-a1-installed-54tmdqfl.
 
@@ -132,11 +138,40 @@ resubmitted by this source edit.
 
 The continuity driver now retires only its completed owned Native fixture before
 the second join. Provider18's original service fixture reproduces the same
-reconciliation_required/systemError after exactly one new input. The first source
-correction passes the actual Native/TUI path with unchanged history and one
-execution; qualification of the final source, fault mutation, hosted build,
-publication and real-client recovery/retest remain open. Initial red/green records
-are join-owner-{old,fixed}-provider.log; ordinary source/library tests are separate.
+reconciliation_required/systemError after exactly one new input. Final source2c47f9e passes actual Native/TUI continuation after replacement.
+Removing only its owner assignment in disposable source reproduces exactly the
+Native native_owner_reconciliation_required/systemError failure; restoring source
+passes the same test, with unchanged history and one execution. Source40537974296 and Provider40537974321 pass. Hosted Android bytes also kill
+their completed Native owner before a real join and complete the same work with
+three effects across19→18→19 startup/history. Source-matched Native/TUI owner
+replacement, cold owner/Stop/compaction, three compositions, signed local/TLS
+package lifecycle and two owned host cycles pass. The first copied cold-profile
+host attempt returned app_target_unavailable and is retained; a previously ready
+owned idle profile qualifies the bounded host lifecycle, not universal cold-profile
+readiness. Provider19 signing40539878351, complete ten-asset public readback,
+disposable18→19→18 Native consumer, and non-forced stable promotion pass. Actual
+activation retains36 works/phases,16 protected files and9 Native owners; supervised
+PID15925 and the same authenticated ready host are verified. All17 fixed annotation
+values and per-tool idempotency declarations are retained. Actual Android recovery
+has not passed merely because code/build/Native qualification passes.
+
+The failed turn and its original Chat final are preserved. Provider19 has the same
+existing work open in an ordinary installed TUI; provider19-installed-a1-armed.json
+records the bounded observer with all four original items. The user has been asked
+for a new RECOVER_PROVIDER19_ANDROID instruction: latest history/cursors, explicit
+claim, then one start and context acceptance before the previously unexecuted file
+verification. Neither an unseen retry nor deletion of the failed turn substitutes
+for that actual-client trial. Source deployment did not replay the original input.
+The existing operating cloud route also passes a zero-refresh17-tool schema/
+annotation read and36-work listing under Provider19. It omits all17 idempotentHint
+fields as before; this does not prove host scheduling behavior.
+Evidence: provider19-{release-input,public-consumer,promotion,device-activation,
+operating-web-mcp}.json, join-hosted-*.json,
+join-hosted-fresh-home-continuity.json and the original failure record named above. Evidence:
+join-owner-{old,fixed}-provider.log, join-owner-final.log/json,
+join-owner-mutation.json and independently checked join-owner-mutation-verified.json.
+The initial library gate is131 pass/2 existing ignored; those ignored helpers are
+not accepted live tests.
 
 ## Delivered A1 correction: fresh-home login scope
 
@@ -305,20 +340,20 @@ provider18-operating-web-mcp.json under the service/tunnel root.
 
 | Plane | Last verified state and boundary |
 | --- | --- |
-| Product source | Providerc5dee91; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
+| Product source | Provider2c47f9e; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
 | Core | Full121: local-relay-hosted-0-164-0-e3f6e27f0ca6-s121; actual normal Full119→121 update; prior119 retained |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
 | TUI | Frontend source79b9d66; hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations and lint proof40517442561; installed fresh-home resume passes |
-| Provider | chatgpt-c5dee9125fd1-s18, sourcec5dee91, high-water18/previous17; actual signed update and profile rebinding |
-| Service/host | At latest activation: actual Provider PID27235 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
-| Preserved state | Provider18 activation preserved36 work identities/phases,16 protected files and8 existing Native owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
-| Operating MCP | Provider17 refresh/cache invalidation fixed all17 registered flags; Provider18 zero-refresh cloud read confirms all17 fixed flags/full schemas and36 works. Cloud omits idempotentHint |
+| Provider | chatgpt-2c47f9eaef83-s19, source2c47f9e, high-water19/previous18; actual signed update and profile rebinding |
+| Service/host | At latest activation: actual Provider PID15925 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
+| Preserved state | Provider19 activation preserved36 work identities/phases,16 protected files and9 existing Native owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
+| Operating MCP | Provider17 refresh/cache invalidation fixed all17 registered flags; Provider19 zero-refresh cloud read confirms all17 fixed flags/full schemas and36 works. Cloud omits idempotentHint |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
 | Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, SHA082d7b04…; runit restarts it during Provider maintenance, latest wrapper PID28289. Original activation child PID15754 is historical; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
-Provider18 binary SHA256:
-dd78742145868eb30337e899f2c7d8c8bcf27046a7f7a0742d6d8fe2e9e5a9c8.
+Provider19 binary SHA256:
+9c98e79f4f819555d337b03b28c81e9154f78a82fca56b58804298c4b8639558.
 Wrapper-built tunnel binary SHA256:
 082d7b0485652b73640665e8cd6767f65b6ec88e0bd1c6b8c449085d8965e9ed.
 Package selection, generated-profile binding, actual service image, authenticated
@@ -342,7 +377,7 @@ host readiness, Native commit and active/physical UI display are separate facts.
 | Source independence | Provider-owned public checkpoint/summary format; retired adapter/parser/ocx1/template dependency removed | Native upstream and actual third-party notices remain; no new claim of external legal review |
 | Native tools/controls | Original call/result identities, scoped owner/context/approval, durable receipts, result recovery, Stop/handoff and queue consumption checks | Queue ACK is separate from actual consumption; uncertain delivery never authorizes replay |
 | Project/TZ | Authenticated explicit project create/reuse for new lanes; Core supplies Android TZif to runtime/TUI, Seoul/New York DST and picker proof | Changing default project does not move an existing Chat; old processes keep launch TZ |
-| Packages/composition | Signed Full121/Provider18 (earlier composition proof119/15), Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
+| Packages/composition | Signed Full121/Provider19 (earlier composition proof119/15), Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
 
 Direct means the active ChatGPT response uses Native tools without Provider
 submitting a new primary inference. Provider means Provider starts/manages a model
@@ -655,7 +690,7 @@ client; no tunnel-version cause of the observed startup collision is established
 
 ### G product qualification
 
-Full121/Provider18 delivery and actual activation are complete at their recorded
+Full121/Provider19 delivery and actual activation are complete at their recorded
 scopes. Codex-only tunnel0.0.18 is activated as a qualified local-derived build;
 signed optional/Full tunnel distribution is not yet shipped. New substantive product changes require applicable checks, Android
 execution, exact-source signing/public readback/disposable update and non-forced
@@ -728,6 +763,6 @@ and the complete pre-consolidation CURRENT. Subsequent service/tunnel work inclu
 the actual builds, Native/cloud trials, publication and bounded activation stated
 above. The fresh-home A1 preflight is a reproduced failure; its source correction
 is not yet accepted. Each result retains its actual inputs, environment and
-limitations. Remaining acceptance is the matrix above; Provider18/Full121 public
+limitations. Remaining acceptance is the matrix above; Provider19/Full121 public
 activation is complete, whereas full A1, signed tunnel distribution and independent-
 child scenario10 remain open.
