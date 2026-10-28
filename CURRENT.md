@@ -33,8 +33,9 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: complete the requested next-Core release-information changes below, then
-resume Provider21 promotion/device/cloud and public-commentary qualification.
+**Next: the requested next-Core release-information source work is complete.
+Provider21 is publicly promoted; complete its device/cloud transition and actual
+public-commentary qualification once the separately active work settles.
 Close the actual-client A1 matrix before A2 common-responsibility extraction.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
@@ -207,9 +208,10 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Next-Core candidate: publication times and component notes
 
-The user prioritizes this source work before resuming the Provider21 activation.
-Operating Core remains Full121. The candidate uses the existing official release
-response for upstream publication time/notes, and bounded public GitHub tag reads
+Requested source work is committed/pushed as `0c16656`. Operating Core remains
+Full121; this section describes the next release, not an installed update.
+The candidate uses the existing official release response for upstream publication
+time/notes, and bounded public GitHub tag reads
 for the already-admitted Core package, its authenticated Base identity and selected
 Provider's signed stable index. Publication information never admits executables.
 Custom/private release origins receive no public tag/Provider queries. Unselected
@@ -261,7 +263,11 @@ and update-display-scope-mutation records. Earlier failures are retained.
 These source changes target the next Core release. Operating Full121 does not yet
 contain them. The separate upstream0.165.0 frontend port/Termux UDS qualification
 remains required before a new public Core release; this display change does not
-satisfy or bypass that gate.
+satisfy or bypass that gate. The same guard fails new independent Core
+run40619693191 after its Core/Manager cross-build succeeds. Source acceptance
+40619693075 passes at exact commit `0c16656`, including the Android cross-build and
+full workspace/Android focused checks. Provider source/NDK40619693205 also
+passes; these accepted source gates remain separate from Core runtime adaptation.
 
 Before these builds, inactive compiler outputs and490 manifest-matched fixture
 payloads were reclaimed. The17 unique compressed payload objects and restore
@@ -272,8 +278,13 @@ private.rs reexports), moved into XDG cache and pruned by the standard cleaner;
 no unique source/user records or live references were found. The next Core compiler
 cache and all armed proof executables were retained. Evidence: pre-update-ui-*
 cleanup records and repo-provider-target-{audit,cleanup} under the maintenance root.
+After qualification, the standard cleaner archived60 more manifest-matched
+updater-fixture payloads (9,074,032,640 allocated bytes), retaining source, original
+results and restore records. Available space is about137GiB after the builds; the
+reusable Core/Provider compiler caches together occupy about2.2GiB. Records:
+update-display-cleanup-*.jsonl. The current Chat-linked Android fixture is preserved.
 
-## Source candidate: complete Direct public progress
+## Public Provider21 candidate: complete Direct progress guidance
 
 The original Android comparison shows that admitted reports are preserved, but
 additional Chat commentary is not necessarily submitted as the same text. The
@@ -297,8 +308,15 @@ symlink after green Rust checks; qualified Android Bun1.4.0 completes101 JavaScr
 and83 Python checks without rerunning accepted Rust work. Exact NDK21→20→21,
 compositions, signed package, warm host and fresh-home Native/TUI gates pass.
 Provider21 signing40608603783, ten-asset public readback and disposable public
-consumption pass; stable/device/cloud/actual-commentary qualification is pending
-while the user-prioritized Core information work is completed. Evidence:
+consumption pass. Non-forced promotion `e6eae2d3` changes only the three Provider
+pointers on main; Base/Full remain unchanged. Device activation stops at its
+read-only preflight because a separately owned wrlab Direct work `d41e3287…` is
+actually active in Native, with no pending calls. No service stop, package
+selection change, rollback or second model request is performed. Preserve this
+running work; recheck settlement before the bounded service transition. Operating
+Provider remains20;21 device/cloud/actual-commentary qualification remains pending.
+The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
+Evidence: provider21-{promotion,deferred-active-work-private,device-activation},
 direct-progress-*, public21-hosted-*, provider21-release-input and
 provider21-public-consumer records.
 Actual host compliance requires a later original-commentary comparison and must
@@ -1037,8 +1055,9 @@ uses the operating Full121/0.164.0 Core; its Source acceptance is separate from
 this unaccepted Core candidate. No older qualified frontend pin was assigned to
 the newly discovered upstream merely to obtain a pass.
 
-Improve installed/target component source/version/date and bare-launch update
-choices with an explicit discovery/snooze contract amendment, separate from A1.
+The requested installed/latest component publication times and changelog are now
+implemented in the next-Core candidate above. Further bare-launch update-choice
+changes require an explicit discovery/snooze contract amendment, separate from A1.
 
 ### Linux ChatGPT app management and deferred viewer work
 
