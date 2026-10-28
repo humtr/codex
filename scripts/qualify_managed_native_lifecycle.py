@@ -406,6 +406,21 @@ def probe(args):
         result['mode_only_preserved_settings'] = {'model': settings_after['model'],
                                                 'selected_effort': 'high', 'turn_effort': context_rows[-1]['effort']}
         steps.append('mode-only Plan start retains selected high effort instead of Provider none default')
+        current = record()
+        control('codex_sessions', dict(binding, action='start',
+            controller=current['capability'], call_id='owned-explicit-effort',
+            task='OWNED_EXPLICIT_EFFORT_SELECTION', mode='plan', effort='xhigh'))
+        expected_turns += 1
+        wait(lambda: settled(thread, expected_turns))
+        wait(lambda: record()['phase'] == 'completed')
+        changed_settings = public(thread)
+        context_rows = [json.loads(line)['payload'] for line in Path(changed_settings['path']).read_text().splitlines()
+                        if json.loads(line).get('type') == 'turn_context']
+        assert changed_settings['model'] == selected_settings['model']
+        assert changed_settings['reasoningEffort'] == 'xhigh'
+        assert context_rows[-1]['effort'] == 'xhigh'
+        result['explicit_effort'] = {'selected_effort': 'xhigh', 'turn_effort': context_rows[-1]['effort']}
+        steps.append('explicit Provider start changes the actual native thread and turn effort')
         final = public(thread)
         assert len(final['turns']) == expected_turns and len({turn['id'] for turn in final['turns']}) == expected_turns
         for index, turn in enumerate(final['turns']):
@@ -546,6 +561,38 @@ def probe(args):
             result['fresh_first_failure_return'] = True
             result['fresh_thread_id'] = fresh
             steps.append('fresh first-prompt failure retains readable history and permits native/Chat return without replay')
+        # A fork is a new work, but its model settings must inherit the original
+        # Native thread instead of being reset to the Provider configuration.
+        source_before_fork = public(thread)
+        forked = control('codex_sessions', {'action':'fork', 'thread_id':thread,
+            'call_id':'owned-fork-preserves-settings'})
+        fork_thread = forked['thread_id']
+        assert fork_thread != thread
+        fork_settings = public(fork_thread)
+        result['fork_observed'] = {'source_model':source_before_fork['model'], 'source_effort':source_before_fork['reasoningEffort'],
+                                   'fork_model':fork_settings['model'], 'fork_effort':fork_settings['reasoningEffort']}
+        assert fork_settings['model'] == source_before_fork['model']
+        assert fork_settings['reasoningEffort'] == source_before_fork['reasoningEffort']
+        result['fork_preserved_settings'] = {'model':fork_settings['model'], 'effort':fork_settings['reasoningEffort']}
+        steps.append('fork inherits its Native model and effort without inference')
+        # Create a separate unregistered native thread so explicit Provider
+        # resume exercises admission rather than the existing-work fence.
+        external = native_rpc(home, 'thread/fork', {'threadId':thread,
+            'model':source_before_fork['model'], 'modelProvider':source_before_fork['modelProvider'],
+            'config':{'model_reasoning_effort':source_before_fork['reasoningEffort'],
+                      'model_providers':{'chatgpt_desktop':{'name':'Fixture ChatGPT',
+                          'base_url':f'http://127.0.0.1:{port}/v1','wire_api':'responses',
+                          'requires_openai_auth':False}}}})['thread']['id']
+        before_resume = public(external)
+        resumed = control('codex_sessions', {'action':'resume','thread_id':external,
+            'call_id':'owned-resume-preserves-settings'})
+        assert resumed['thread_id'] == external
+        after_resume = public(external)
+        result['resume_observed'] = {'source_model':before_resume['model'], 'source_effort':before_resume['reasoningEffort'],
+                                     'resumed_model':after_resume['model'], 'resumed_effort':after_resume['reasoningEffort']}
+        assert after_resume['model'] == before_resume['model']
+        assert after_resume['reasoningEffort'] == before_resume['reasoningEffort']
+        steps.append('explicit resume retains an existing Native model and effort without inference')
         steps.append('a genuinely new TUI turn works after confirmed Stop')
         result.update(accepted=True, thread_id=thread, actual_Android_TUI=True,
             native_inputs=expected_turns + additional_inputs, kernel_confirmed_backend_exits=owners,

@@ -59,22 +59,6 @@ impl Inputs {
         if digest(&identity) != cursor["account"].as_str().unwrap_or("") {
             return Err(Error("app_account_changed"));
         }
-        let route = self
-            .config
-            .catalog
-            .route(
-                &self.config.model.default,
-                &self.config.model.reasoning_effort,
-            )
-            .ok_or(Error("unknown_model"))?;
-        let model = self
-            .config
-            .catalog
-            .find(&self.config.model.default)
-            .ok_or(Error("unknown_model"))?;
-        if model.pro || route.host_model.contains("5.6") {
-            return Err(Error("chat_input_model_excluded"));
-        }
         let starts = args["budget"]["max_app_starts"]
             .as_u64()
             .filter(|v| *v > 0 && *v <= 10_000)
@@ -93,8 +77,19 @@ impl Inputs {
             &key[17..20],
             &key[20..32]
         );
-        self.bridge.operation(json!({"op":"chat_adopt","lane":lane,"nativeThread":lane,"limits":{"maxDispatches":starts,"deadlineUnixMs":unix_ms().saturating_add(elapsed.saturating_mul(1000))},"conversation_id":conversation,"identity":identity,"branch":branch,"project":source["project_id"],"returnPath":"mcp","signature":{"name":format!("saved_input_{key}")}})).await?;
-        let mut record = json!({"schema":"termux-codex-saved-chat-input-v1","input_id":key,"fingerprint":fingerprint,"conversation_id":conversation,"source_cursor":cursor,"delivery_source_cursor":delivery_cursor,"identity":identity,"lane":lane,"message_id":message,"phase":"delivery_unknown","admitted_at_unix_ms":unix_ms()});
+        let adopted=self.bridge.operation(json!({"op":"chat_adopt","lane":lane,"nativeThread":lane,"limits":{"maxDispatches":starts,"deadlineUnixMs":unix_ms().saturating_add(elapsed.saturating_mul(1000))},"conversation_id":conversation,"identity":identity,"branch":branch,"project":source["project_id"],"returnPath":"mcp","readSelection":true,"signature":{"name":format!("saved_input_{key}")}})).await?;
+        let selection = match resolve_selection(&self.config.catalog, &adopted["selection"], &args)
+        {
+            Ok(selection) => selection,
+            Err(error) => {
+                let _ = self
+                    .bridge
+                    .operation(json!({"op":"release","lane":lane}))
+                    .await;
+                return Err(error);
+            }
+        };
+        let mut record = json!({"schema":"termux-codex-saved-chat-input-v1","input_id":key,"fingerprint":fingerprint,"conversation_id":conversation,"source_cursor":cursor,"delivery_source_cursor":delivery_cursor,"identity":identity,"lane":lane,"message_id":message,"settings":selection,"phase":"delivery_unknown","admitted_at_unix_ms":unix_ms()});
         // A failed journal admission has made no inference. Once durable, no
         // retry of this call can send a second user message.
         if let Err(error) = self.journal.write(&key, &record) {
@@ -104,9 +99,19 @@ impl Inputs {
                 .await;
             return Err(error);
         }
-        let sent=self.bridge.operation(json!({"op":"submit","lane":lane,"round":key,"messageId":message,"model":route.host_model,"thinkingEffort":route.thinking_effort,"messages":[{"role":"user","text":task,"hidden":false}]})).await;
+        let sent=self.bridge.operation(json!({"op":"submit","lane":lane,"round":key,"messageId":message,"model":selection["host_model"],"thinkingEffort":selection["thinking_effort"],"messages":[{"role":"user","text":task,"hidden":false}]})).await;
         if sent.is_ok() {
             record["phase"] = json!("submitted");
+        } else if let Err(Error(
+            cause @ ("app_model_selection_changed" | "app_chat_source_changed"),
+        )) = sent
+        {
+            record["phase"] = json!("rejected");
+            record["cause"] = json!(cause);
+            let _ = self
+                .bridge
+                .operation(json!({"op":"release","lane":lane}))
+                .await;
         } else {
             record["cause"] = json!("app_delivery_unknown");
         }
@@ -174,6 +179,11 @@ impl Inputs {
         loop {
             if self.identity().await? != record["identity"] {
                 return Err(Error("app_account_changed"));
+            }
+            if record["phase"] == "rejected" {
+                return Ok(
+                    json!({"input":public(&record),"complete":true,"inference_submitted":false}),
+                );
             }
             let pending = self.pending_observation(&record).await;
             let observation = &pending["observation"];
@@ -334,7 +344,96 @@ fn public_completion(graph: &serde_json::Map<String, Value>, leaf: &str) -> Opti
 }
 
 fn public(record: &Value) -> Value {
-    json!({"input_id":record["input_id"],"conversation_id":record["conversation_id"],"message_id":record["message_id"],"phase":record["phase"],"cause":record["cause"],"delivery":"observe_saved_original_message_without_resend","retrieve":"codex_sessions chat_result"})
+    let mut result = json!({"input_id":record["input_id"],"conversation_id":record["conversation_id"],"message_id":record["message_id"],"phase":record["phase"],"cause":record["cause"],"delivery":"observe_saved_original_message_without_resend","retrieve":"codex_sessions chat_result"});
+    if let Some(settings) = record.get("settings") {
+        result["settings"] = settings.clone();
+    }
+    result
+}
+fn resolve_selection(
+    catalog: &crate::models::Catalog,
+    selected: &Value,
+    args: &Value,
+) -> Result<Value, Error> {
+    let slug = selected["slug"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .ok_or(Error("app_model_selection_unavailable"))?;
+    let thinking = match &selected["thinkingEffort"] {
+        Value::Null => None,
+        Value::String(v) if !v.is_empty() => Some(v.as_str()),
+        _ => return Err(Error("app_model_selection_unavailable")),
+    };
+    let host_models: Vec<_> = catalog
+        .models
+        .iter()
+        .flat_map(|m| {
+            m.routes
+                .iter()
+                .filter(move |r| r.host_model == slug)
+                .map(move |r| (m, r))
+        })
+        .collect();
+    let matching: Vec<_> = host_models
+        .iter()
+        .filter(|(_, r)| r.thinking_effort.as_deref() == thinking)
+        .copied()
+        .collect();
+    let inherited_effort = matching.first().and_then(|(_, first)| {
+        matching
+            .iter()
+            .all(|(_, r)| r.effort == first.effort)
+            .then_some(first.effort.as_str())
+    });
+    let model = args
+        .get("model")
+        .map(|_| string(args, "model", 128))
+        .transpose()?;
+    let requested_effort = args
+        .get("effort")
+        .map(|_| string(args, "effort", 128))
+        .transpose()?;
+    if model.is_none() && requested_effort.is_none() {
+        let canonical = matching.first().and_then(|(m, _)| {
+            matching
+                .iter()
+                .all(|(other, _)| other.id == m.id)
+                .then_some(m.id.as_str())
+        });
+        return Ok(
+            json!({"model":canonical,"effort":inherited_effort,"host_model":slug,"thinking_effort":thinking,"model_source":"chat","effort_source":"chat","chat_selection":selected}),
+        );
+    }
+    if model.is_none() && host_models.is_empty() {
+        return Err(Error("chat_input_model_unavailable"));
+    }
+    let effort = requested_effort
+        .or(inherited_effort)
+        .ok_or(Error("chat_input_effort_unavailable"))?;
+    let chosen = if let Some(model) = model {
+        catalog.find(model).ok_or(Error("unknown_model"))?
+    } else {
+        let mut candidates = host_models
+            .iter()
+            .filter(|(m, _)| !m.hidden)
+            .map(|(m, _)| *m);
+        let first = candidates
+            .next()
+            .or_else(|| host_models.first().map(|(m, _)| *m))
+            .ok_or(Error("unknown_model"))?;
+        if candidates.any(|m| m.id != first.id) {
+            return Err(Error("chat_input_model_ambiguous"));
+        }
+        first
+    };
+    let route = chosen
+        .routes
+        .iter()
+        .find(|r| r.effort == effort)
+        .ok_or(Error("chat_input_effort_incompatible"))?;
+    Ok(
+        json!({"model":chosen.id,"effort":route.effort,"host_model":route.host_model,"thinking_effort":route.thinking_effort,"model_source":if model.is_some(){"explicit"}else{"chat"},"effort_source":if args.get("effort").is_some(){"explicit"}else{"chat"},"chat_selection":selected}),
+    )
 }
 fn string<'a>(value: &'a Value, key: &str, max: usize) -> Result<&'a str, Error> {
     value[key]
@@ -361,7 +460,9 @@ mod tests {
         fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
             let mut state = self.state.lock().unwrap();
             let result = match command["op"].as_str().unwrap() {
-                "identity" => Ok(json!({"account":"a","user":"u","structure":"personal"})),
+                "identity" => Ok(
+                    json!({"account":state.get("account").and_then(Value::as_str).unwrap_or("a"),"user":"u","structure":"personal"}),
+                ),
                 "chat_read" => {
                     let count = state["read_count"].as_u64().unwrap_or(0) + 1;
                     state["read_count"] = json!(count);
@@ -386,9 +487,15 @@ mod tests {
                 }
                 "chat_adopt" => {
                     state["adoptions"] = json!(state["adoptions"].as_u64().unwrap() + 1);
-                    Ok(json!({"localId":"chat"}))
+                    Ok(
+                        json!({"localId":"chat","selection":{"slug":"gpt-6-thinking","thinkingEffort":"extended"}}),
+                    )
                 }
                 "submit" => {
+                    if state["selection_changed"] == true {
+                        return Box::pin(async { Err(Error("app_model_selection_changed")) });
+                    }
+                    state["submitted_command"] = command.clone();
                     state["submissions"] = json!(state["submissions"].as_u64().unwrap() + 1);
                     let id = command["messageId"].as_str().unwrap().to_owned();
                     state["snapshot"]["mapping"][&id] = json!({"id":id,"parent":"old","message":{"id":id,"role":"user","content":{"content_type":"text","parts":["task"]},"status":"finished_successfully"}});
@@ -418,6 +525,112 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+    #[tokio::test]
+    async fn saved_chat_uses_prepared_selection_and_keeps_exact_input_on_retry() {
+        let root =
+            Root(std::env::temp_dir().join(format!("fi-{}", crate::journal::random_id().unwrap())));
+        let source = fixture();
+        let cursor = Chats::new(source.clone())
+            .call(json!({"action":"read","conversation_id":"chat"}), &[])
+            .await
+            .unwrap()["cursor"]
+            .clone();
+        let input = Inputs {
+            bridge: source.clone(),
+            journal: Arc::new(Journal::open(&root.0).unwrap()),
+            config: Config::default(),
+        };
+        let task = "  exact input\r\nsecond line  ";
+        let args = json!({"action":"chat_input","call_id":"settings","conversation_id":"chat","task":task,"source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}});
+        let admitted = input.submit(args.clone(), &[]).await.unwrap();
+        assert_eq!(admitted["settings"]["effort"], "high");
+        assert_eq!(admitted["settings"]["thinking_effort"], "extended");
+        {
+            let state = source.state.lock().unwrap();
+            assert_eq!(state["submitted_command"]["model"], "gpt-6-thinking");
+            assert_eq!(state["submitted_command"]["thinkingEffort"], "extended");
+            assert_eq!(state["submitted_command"]["messages"][0]["text"], task);
+        }
+        assert_eq!(input.submit(args, &[]).await.unwrap(), admitted);
+        assert_eq!(source.state.lock().unwrap()["submissions"], 1);
+    }
+    #[test]
+    fn selection_validates_explicit_options_and_inherited_effort() {
+        let catalog = crate::models::Catalog::default();
+        let discovered = json!({"slug":"app-new-model","thinkingEffort":"new-effort"});
+        let retained = resolve_selection(&catalog, &discovered, &json!({})).unwrap();
+        assert_eq!(retained["host_model"], "app-new-model");
+        assert_eq!(retained["thinking_effort"], "new-effort");
+        assert!(retained["model"].is_null() && retained["effort"].is_null());
+        let app_pair = json!({"slug":"gpt-6","thinkingEffort":"extended"});
+        let retained = resolve_selection(&catalog, &app_pair, &json!({})).unwrap();
+        assert_eq!(retained["host_model"], "gpt-6");
+        assert_eq!(retained["thinking_effort"], "extended");
+        assert!(retained["effort"].is_null());
+        assert_eq!(
+            resolve_selection(
+                &catalog,
+                &app_pair,
+                &json!({"model":"chatgpt-desktop/gpt-6"})
+            ),
+            Err(Error("chat_input_effort_unavailable"))
+        );
+        let selected = json!({"slug":"gpt-6-thinking","thinkingEffort":"extended"});
+        let explicit = resolve_selection(&catalog, &selected, &json!({"effort":"xhigh"})).unwrap();
+        assert_eq!(explicit["thinking_effort"], "max");
+        assert_eq!(explicit["effort_source"], "explicit");
+        assert_eq!(
+            resolve_selection(
+                &catalog,
+                &selected,
+                &json!({"model":"chatgpt-desktop/instant"})
+            ),
+            Err(Error("chat_input_effort_incompatible"))
+        );
+        let pro = resolve_selection(
+            &catalog,
+            &selected,
+            &json!({"model":"chatgpt-desktop/gpt-6-pro","effort":"none"}),
+        )
+        .unwrap();
+        assert_eq!(pro["host_model"], "gpt-6-pro");
+    }
+    #[tokio::test]
+    async fn known_selection_change_finishes_without_dispatch_or_replay() {
+        let root =
+            Root(std::env::temp_dir().join(format!("fi-{}", crate::journal::random_id().unwrap())));
+        let source = fixture();
+        let cursor = Chats::new(source.clone())
+            .call(json!({"action":"read","conversation_id":"chat"}), &[])
+            .await
+            .unwrap()["cursor"]
+            .clone();
+        source.state.lock().unwrap()["selection_changed"] = json!(true);
+        let input = Inputs {
+            bridge: source.clone(),
+            journal: Arc::new(Journal::open(&root.0).unwrap()),
+            config: Config::default(),
+        };
+        let args = json!({"action":"chat_input","call_id":"changed-selection","conversation_id":"chat","task":"task","source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}});
+        let rejected = input.submit(args.clone(), &[]).await.unwrap();
+        assert_eq!(rejected["phase"], "rejected");
+        assert_eq!(rejected["cause"], "app_model_selection_changed");
+        assert_eq!(input.submit(args, &[]).await.unwrap(), rejected);
+        let result = input
+            .result(json!({"input_id":rejected["input_id"]}), &[])
+            .await
+            .unwrap();
+        assert_eq!(result["complete"], true);
+        assert_eq!(result["inference_submitted"], false);
+        assert_eq!(source.state.lock().unwrap()["submissions"], 0);
+        source.state.lock().unwrap()["account"] = json!("another-account");
+        assert_eq!(
+            input
+                .result(json!({"input_id":rejected["input_id"]}), &[])
+                .await,
+            Err(Error("app_account_changed"))
+        );
     }
     #[tokio::test]
     async fn lost_reply_and_restart_reconcile_saved_original_without_another_input() {

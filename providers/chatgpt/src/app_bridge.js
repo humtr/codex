@@ -402,9 +402,10 @@ async function termuxCodexBridge(command) {
     const existing=state.lanes.get(command.lane);
     if (existing) {
       if (existing.mode!==mode || JSON.stringify(existing.signature)!==JSON.stringify(command.signature) || existing.project!==(command.project??null) || command.op==='chat_adopt'&&(existing.localId!==command.conversation_id||existing.selectedParent!==command.branch)) fail('app_lane_declaration_changed');
-      return {localId:existing.localId};
+      if(command.readSelection===true&&!existing.selection)fail('app_lane_declaration_changed');
+      return existing.selection?{localId:existing.localId,selection:existing.selection}:{localId:existing.localId};
     }
-    let adopted;
+    let adopted,selection,sourceHead;
     if(command.op==='chat_adopt') {
       const before=identity(),id=command.conversation_id;
       const bound=command.bound_source_anchor!=null;
@@ -433,6 +434,21 @@ async function termuxCodexBridge(command) {
       if([...state.lanes.values()].some(l=>[l.localId,l.serverId,l.uiLocalId].includes(id)))fail('app_chat_owned_work');
       if((command.project??null)!==(raw.gizmo_id??null))fail('project_membership_unconfirmed');
       state.api.uCn(state.scope,raw,{mergeActiveBranch:true,preserveAsyncStatus:true});
+      if(command.readSelection===true) {
+        if(!state.api.nSn||!state.api.uBn||!state.api.Vwn||typeof state.scope.query?.getOrFetch!=='function')fail('app_model_selection_unavailable');
+        await state.scope.query.getOrFetch(state.api.nSn,id);
+        await state.scope.query.getOrFetch(state.api.uBn);
+        if(appScope()!==state.scope)fail('app_model_selection_changed');
+        if(['account','user','structure'].some(key=>identity()[key]!==before[key]))fail('app_account_changed');
+        if([...state.lanes.values()].some(l=>[l.localId,l.serverId,l.uiLocalId].includes(id)))fail('app_chat_owned_work');
+        sourceHead=raw.current_node;
+        const queryHead=state.scope.get(state.api.nSn,id)?.data?.current_node;
+        if(queryHead!=null&&queryHead!==sourceHead)fail('app_chat_source_changed');
+        const selected=state.scope.get(state.api.Vwn,id);
+        if(typeof selected?.slug!=='string'||!selected.slug||selected.thinkingEffort!=null&&typeof selected.thinkingEffort!=='string')fail('app_model_selection_unavailable');
+        if(!state.scope.get(state.api.uBn)?.data?.modelConfigBySlug?.[selected.slug])fail('app_model_selection_unavailable');
+        selection={slug:selected.slug,thinkingEffort:selected.thinkingEffort??null};
+      }
       if(!bound&&state.api.pzn(state.scope.get(state.api.ozn,id)))fail('app_chat_active_unowned');
       adopted={id,parent:command.branch,project:raw.gizmo_id??null};
     }
@@ -464,8 +480,8 @@ async function termuxCodexBridge(command) {
     if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
     state.wire.streamPost = state.hooks.streamPost;
     const localId = adopted?.id??state.api.aCn(state.scope);
-    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,mode,budget,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,previousDispatches:counters?.dispatches??0,userMessages:counters?.userMessages??0,toolMessages:counters?.toolMessages??0,hostReplyMessages:counters?.hostReplyMessages??0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
-    return {localId};
+    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,selection,sourceHead,mode,budget,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,previousDispatches:counters?.dispatches??0,userMessages:counters?.userMessages??0,toolMessages:counters?.toolMessages??0,hostReplyMessages:counters?.hostReplyMessages??0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
+    return selection?{localId,selection}:{localId};
   }
   const lane = state.lanes.get(command.lane);
   if (!lane) {
@@ -690,6 +706,13 @@ async function termuxCodexBridge(command) {
     const selected=appScope();
     if(!selected||['account','user','structure'].some(k=>identity(selected)[k]!==lane.accountIdentity[k]))fail('app_account_changed');
     if (lane.pending||lane.approvalPending||lane.streamActive) fail('app_lane_busy');
+    if(lane.selection) {
+      if(selected!==state.scope)fail('app_model_selection_changed');
+      const queryHead=state.scope.get(state.api.nSn,lane.localId)?.data?.current_node;
+      if(queryHead!=null&&queryHead!==lane.sourceHead)fail('app_chat_source_changed');
+      const current=state.scope.get(state.api.Vwn,lane.localId);
+      if(current?.slug!==lane.selection.slug||(current?.thinkingEffort??null)!==lane.selection.thinkingEffort)fail('app_model_selection_changed');
+    }
     lane.round = command.round;
     lane.externalResponse=false;
     lane.dispatchedInput=null;

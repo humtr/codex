@@ -2836,6 +2836,11 @@ impl Operator {
         args: Value,
         receipt: Option<&(String, String)>,
     ) -> Result<Value, Error> {
+        if (args.get("model").is_some() || args.get("effort").is_some())
+            && !matches!(args["action"].as_str(), Some("chat_input" | "start"))
+        {
+            return Err(Error("operator_arguments_invalid"));
+        }
         let _admission = if matches!(
             args["action"].as_str(),
             Some(
@@ -3249,8 +3254,53 @@ impl Operator {
                 }
                 let native = pool.prepare().await?;
                 let mut config = pool.routing()?;
-                config["model_reasoning_effort"] = json!(self.config.model.reasoning_effort);
-                let mut params = json!({"cwd":pool.workspace,"config":config,"model":self.config.model.default,"modelProvider":crate::registration::PROVIDER});
+                let mut use_configured_route = action == "create";
+                let mut fork_settings = None;
+                if action != "create" {
+                    let thread = text(&args, "thread_id", 256)?;
+                    if action == "fork"
+                        || selection
+                            .as_ref()
+                            .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                    {
+                        let state = native
+                            .call(
+                                "thread/read",
+                                json!({"threadId":thread,"includeTurns":false}),
+                            )
+                            .await?;
+                        let previous = state["thread"]["modelProvider"]
+                            .as_str()
+                            .ok_or(Error("native_model_settings_unavailable"))?;
+                        use_configured_route = selection
+                            .as_ref()
+                            .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                            && previous != crate::registration::PROVIDER;
+                        if action == "fork" && !use_configured_route {
+                            let model = state["thread"]["model"]
+                                .as_str()
+                                .ok_or(Error("native_model_settings_unavailable"))?;
+                            fork_settings = Some((
+                                model.to_owned(),
+                                previous.to_owned(),
+                                state["thread"]["reasoningEffort"].clone(),
+                            ));
+                        }
+                    }
+                }
+                if use_configured_route {
+                    config["model_reasoning_effort"] = json!(self.config.model.reasoning_effort);
+                } else if let Some((_, _, effort)) = &fork_settings {
+                    config["model_reasoning_effort"] = effort.clone();
+                }
+                let mut params = json!({"cwd":pool.workspace,"config":config});
+                if use_configured_route {
+                    params["model"] = json!(self.config.model.default);
+                    params["modelProvider"] = json!(crate::registration::PROVIDER);
+                } else if let Some((model, provider, _)) = fork_settings {
+                    params["model"] = json!(model);
+                    params["modelProvider"] = json!(provider);
+                }
                 if action != "create" {
                     params["threadId"] = json!(text(&args, "thread_id", 256)?);
                 }
@@ -3354,7 +3404,26 @@ impl Operator {
                     }
                 }
                 self.wait_assignment(&record).await?;
-                let collaboration_mode = if let Some(mode) = args.get("mode") {
+                let model_override = args
+                    .get("model")
+                    .map(|_| text(&args, "model", 128))
+                    .transpose()?;
+                let effort_override = args
+                    .get("effort")
+                    .map(|_| text(&args, "effort", 128))
+                    .transpose()?;
+                if (model_override.is_some() || effort_override.is_some())
+                    && record
+                        .selection
+                        .as_ref()
+                        .is_none_or(|selection| selection.reasoning != Reasoning::Provider)
+                {
+                    return Err(Error("native_model_override_requires_provider"));
+                }
+                let settings = if args.get("mode").is_some()
+                    || model_override.is_some()
+                    || effort_override.is_some()
+                {
                     let state = native
                         .call(
                             "thread/read",
@@ -3364,12 +3433,19 @@ impl Operator {
                     let model = state["thread"]["model"]
                         .as_str()
                         .ok_or(Error("native_model_settings_unavailable"))?;
-                    Some(
-                        json!({"mode":mode,"settings":{"model":model,"reasoning_effort":state["thread"]["reasoningEffort"],"developer_instructions":null}}),
-                    )
+                    let effort = effort_override.or(state["thread"]["reasoningEffort"].as_str());
+                    let model = model_override.unwrap_or(model);
+                    if model_override.is_some() || effort_override.is_some() {
+                        let effort = effort.ok_or(Error("native_effort_unavailable"))?;
+                        if self.config.catalog.route(model, effort).is_none() {
+                            return Err(Error("native_model_effort_incompatible"));
+                        }
+                    }
+                    Some(json!({"model":model,"effort":effort}))
                 } else {
                     None
                 };
+                let collaboration_mode = args.get("mode").map(|mode| json!({"mode":mode,"settings":{"model":settings.as_ref().unwrap()["model"],"reasoning_effort":settings.as_ref().unwrap()["effort"],"developer_instructions":null}}));
                 {
                     let mut works = self.works.lock().await;
                     if let Some(assignment) = &record.assignment {
@@ -3457,6 +3533,12 @@ impl Operator {
                     json!({"threadId":record.thread,"input":[{"type":"text","text":task}]});
                 if let Some(mode) = collaboration_mode {
                     params["collaborationMode"] = mode;
+                }
+                if let Some(model) = model_override {
+                    params["model"] = json!(model);
+                }
+                if let Some(effort) = effort_override {
+                    params["effort"] = json!(effort);
                 }
                 let response = native.call("turn/start", params).await?;
                 let mut works = self.works.lock().await;
@@ -5932,7 +6014,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
-        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, reserves Direct reasoning without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. Direct means this response uses Native tools; provider means Native starts Provider model execution (MCP default or explicit local_function). start uses an existing controller and selected route; Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled Direct claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Provider extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept", "action"),
+        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, reserves Direct reasoning without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. Direct means this response uses Native tools; provider means Native starts Provider model execution (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled Direct claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Provider extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),

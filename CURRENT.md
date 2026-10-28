@@ -512,7 +512,7 @@ selected/default/explicit Thinking settings, chosen request options, original
 response and Native/TUI results, invalid settings, independent concurrent choices
 and uncertain-delivery retries. Invocation overrides and production selection
 inheritance remain unimplemented despite the host-boundary proof; current installed
-Pro exclusion is unchanged. This completed audit changes documents only, not the
+Pro exclusion remained unchanged at that audit's installed baseline. That audit changed documents only, not the
 installed input route or model configuration.
 
 The [input design draft and comparison](AUDIT.md#전송-설계-작성안과-기존-구현업스트림-비교)
@@ -521,6 +521,77 @@ The final draft removes the unnecessary public model_settings/source selector:
 existing action/destination determines the owner; only optional model/effort
 choices are added where inference actually starts. Origins remain effective-result
 metadata. Host auto stays an experiment until a real product caller needs it.
+
+**Input implementation in progress:** the working tree introduces prepared Chat
+selection and optional chat_input model/effort overrides, but this is not yet an
+accepted or deployed release. Focused Rust and renderer tests passed; the full
+gate initially stopped on a test-only Clippy lock-lifetime finding, which was
+fixed and is being rechecked. A no-inference isolated real app query returned
+`gpt-6` with `extended`, a host pair absent from the Native conversion catalog.
+The work preserves that app-selected pair and reports unmapped Native effort as
+unknown rather than inventing one. A separate isolated ordinary-model request
+sent that exact host pair once, retained the exact user-only input, and observed
+one final; the original result is under TMPDIR/chat-omitted-68qj6ohv. Its result
+metadata's `prompt` field retained a stale setup value; the dispatch intent and
+wire observations are the authorities for the actual prompt. This is app-boundary
+proof, not Provider-to-Native acceptance. Native resume/start changes are in the
+working tree but require targeted product-path proof; complete acceptance and
+delivery remain unfinished.
+Preserve the existing installed Provider until these gates pass. Deferred
+originality and retired-package cleanup follows input work.
+
+Sol High review of the interrupted implementation covers all nine changed files.
+The original thread records an applied Sol High → Terra High transition at
+2026-10-28 18:37:06 KST and Sol High restoration at19:11:43; the first Terra
+turn context is18:38:49. Applied-settings events contain no initiator identity,
+and no assistant model-change tool call occurs at the transition. The actor is
+unresolved; current selected settings alone are not evidence of the earlier cause.
+Sanitized event/turn evidence is in the acceptance directory's
+`model-settings-review.json`. The review found and fixed a rejected-input result
+return that bypassed account validation, and a stale renderer-scope selection
+after UI context replacement. The account regression passes on the corrected
+source and fails with the targeted bypass in disposable source
+(`review-account-fault.log`); the renderer-scope bypass also fails its regression
+(`review-scope-fault.log`). The reviewed source passed the complete Provider
+source gate, including Rust tests/Clippy/release build,103 JS and83 Python tests
+(`sol-reviewed-provider-gate.log`). Existing explicitly armed device tests remain
+separate. The isolated real app read also passed with zero inference in
+`TMPDIR/chat-omitted-88o67n0z`. App catalog discovery/merge
+and release delivery remain unfinished; prior app/native proofs are scoped
+observations, not a full release qualification.
+
+The isolated Android Native lifecycle passed mode-only high-effort preservation
+and explicit xhigh admission with zero real Chat calls. A subsequent real fork
+test failed: omitting overrides forked the `chatgpt-desktop/gpt-6` / `xhigh`
+source as `gpt-6.1-sol` / `high`. The working tree now reads and supplies the
+source thread's settings for a fork. The repeated Android Core/TUI synthetic-host
+test now preserves the exact source model and xhigh effort without a real Chat
+call (`input-settings-20261028/native-fork-fixed.json`). A separate explicit
+session resume retained the same model and xhigh effort after the fixture supplied
+its actual Provider configuration (`input-settings-20261028/native-resume-retest.json`).
+Null-effort remains unverified. Retain the failed diagnostic and original fixture.
+
+The subsequent user request expands the catalog contract: available app models
+and their actual thinking choices form the selectable baseline; configured
+entries add to or explicitly correct it. Current source still projects only
+`config.catalog` and does not implement app-catalog discovery/merge. Account
+scoping, freshness, unavailable-host behavior, option mapping and Native catalog
+refresh require implementation and product-path proof. The broad new request
+supersedes the previous fixed GPT-5.6 exclusion; no automatic Pro selection or
+Pro test is implied.
+
+The isolated app catalog at `TMPDIR/chat-omitted-kepq44ca/47.json` shows why
+catalog membership and selectable options differ: modelConfigBySlug includes
+internal/work entries while versionOptions contains the actual Chat picker
+options and their isAvailable flags. The original probe initially reported a
+local JSON partial-write read error; its completed 47.json is valid and retained.
+For the observed picker, display Medium/High/Extra High correspond to host
+standard/extended/max, while the current Native route data uses
+medium/high/xhigh. Host `max` is therefore not Native `max`. An unmapped host
+option needs an explicit mapping, not a guessed easier effort. Keep mappings
+model-independent data and derive model choices from the account's actual app
+options; this recorded observation is not a guarantee for other accounts or app
+versions.
 User emulation inherits a ready Chat; existing Native
 work inherits its acknowledged thread; config initializes a new work or an
 explicitly configured transition. Resuming a work must not repeatedly impose the

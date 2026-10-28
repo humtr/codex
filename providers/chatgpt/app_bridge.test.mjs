@@ -116,6 +116,31 @@ test('saved-Chat adoption preserves selected branch and draft without allocating
  expect(f.sent).toHaveLength(1);expect(f.created).toBe(0);
 }));
 
+test('prepared Chat selection is read after queries and fenced before dispatch',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ f.chatGet=async()=>({conversation_id:'old-chat',gizmo_id:null,current_node:'selected',mapping:{selected:{message:{status:'finished_successfully'}}}});
+ const adopt={op:'chat_adopt',owner:'owned',lane:'input',conversation_id:'old-chat',branch:'selected',identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'},readSelection:true};
+ const result=await bridge(adopt);
+ expect(f.queries).toEqual(['conversation','catalog']);
+ expect(result.selection).toEqual({slug:'gpt-6-thinking',thinkingEffort:'extended'});
+ f.selection={slug:'gpt-6-thinking',thinkingEffort:'max'};
+ await expect(bridge({op:'submit',owner:'owned',lane:'input',round:'one',model:'gpt-6-thinking',thinkingEffort:'extended',messages:[{role:'user',text:'Exact input'}]})).rejects.toThrow('app_model_selection_changed');
+ expect(f.sent).toHaveLength(0);
+ f.selection=result.selection;
+ f.scope={...f.scope};
+ await expect(bridge({op:'submit',owner:'owned',lane:'input',round:'one',model:'gpt-6-thinking',thinkingEffort:'extended',messages:[{role:'user',text:'Exact input'}]})).rejects.toThrow('app_model_selection_changed');
+ expect(f.sent).toHaveLength(0);
+}));
+test('a changed observed source head is fenced before dispatch',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ f.chatGet=async()=>({conversation_id:'old-chat',gizmo_id:null,current_node:'selected',mapping:{selected:{message:{status:'finished_successfully'}}}});
+ f.queryHead='selected';
+ await bridge({op:'chat_adopt',owner:'owned',lane:'input',conversation_id:'old-chat',branch:'selected',identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'},readSelection:true});
+ f.queryHead='another-user';
+ await expect(bridge({op:'submit',owner:'owned',lane:'input',round:'one',model:'gpt-6-thinking',messages:[{role:'user',text:'Exact input'}]})).rejects.toThrow('app_chat_source_changed');
+ expect(f.sent).toHaveLength(0);
+}));
+
 for(const outcome of ['bound-active','changed-branch','missing-assignment-ledger'])test('settled bound-source adoption preserves SDK ownership: '+outcome,async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  f.draft='Full unsent draft';f.active=true;
@@ -248,9 +273,10 @@ async function fixture(run){
   options.onComplete?.({reason:'done'});return true;
  }};
  const original={...client,streamPost:wire.streamPost};
- const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[]};
+ const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[],selection:{slug:'gpt-6-thinking',thinkingEffort:'extended'},queries:[]};
  writeFileSync(join(root,'initial.mjs'),`
  export const oMn={kind:'client'},JRn={kind:'messages'},ozn={kind:'status'};
+ export const Vwn={kind:'selection'},nSn={kind:'conversation'},uBn={kind:'catalog'};
  export function pzn(value){return ['streaming','active-async-turn','active-tpp-turn'].includes(value);}
  export function uCn(_scope,raw,options){globalThis.appBridgeFixture.hydrated={raw,options};}
  export function jLn(message){const request=message.metadata?.jit_plugin_data?.from_server;return {allowTargetMessageId:(request?.body?.actions?.find(a=>a.allow_once||a.allow)?.allow_once??request?.body?.actions?.find(a=>a.allow_once||a.allow)?.allow)?.target_message_id,model:"host",recipient:"api_tool.call_tool"};}
@@ -272,7 +298,7 @@ async function fixture(run){
  export function bRt(scope,{callId,conversationId,isTemporaryChat,model,onServerThreadIdChange,result,thinkingEffort,toolName}){return yRt(scope,{conversationId,isTemporaryChat,model,onServerThreadIdChange,thinkingEffort,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:callId,result,tool:toolName})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{}};
+ const scope={get(node){return node.kind==='conversation'?{data:{current_node:f.queryHead}}:node.kind==='catalog'?{data:{modelConfigBySlug:{'gpt-6-thinking':{}}}}:node.kind==='selection'?f.selection:node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{async getOrFetch(node){f.queries.push(node.kind);}}};
  f.scope=scope;
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:f.scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};

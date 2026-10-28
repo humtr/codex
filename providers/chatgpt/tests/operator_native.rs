@@ -108,7 +108,11 @@ impl Bridge for Synthetic {
                     return Box::pin(async { Err(Error("synthetic_app_declaration_invalid")) });
                 }
                 self.released.lock().unwrap().remove(&lane);
-                json!({"localId":lane})
+                if command["readSelection"] == true {
+                    json!({"localId":lane,"selection":{"slug":"gpt-6","thinkingEffort":null}})
+                } else {
+                    json!({"localId":lane})
+                }
             }
             "host_status" => {
                 json!({"saved_read_backoff":if self.path.parent().unwrap().join("source-read-rate-limit").exists(){json!({"cooling_down":true,"retry_after_seconds":3})}else{json!({"cooling_down":false})}})

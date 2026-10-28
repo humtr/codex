@@ -2015,6 +2015,11 @@ it does not choose Native ownership or assemble another development policy.
    input intent. Omission, explicit none, inherited effort and host-default
    routing have different meanings. Validate the model/effort pair; do not clamp,
    guess a missing effort or silently switch to an easier route.
+   For an unmodified Chat selection, the ready app selector and its model
+   catalog own the host pair: the Native conversion catalog need not represent
+   every host pair. Retain that exact pair, and leave the Native effort unknown
+   when it cannot be mapped. An explicit override requiring an unknown inherited
+   Native effort must fail until the caller supplies a compatible effort.
 5. A request override is not necessarily temporary: Native model/effort overrides
    apply to subsequent turns under the upstream API, and Chat submission may
    affect saved conversation settings. Preserve the real destination semantics
@@ -2051,7 +2056,8 @@ The observed host-default/auto path remains an experiment, not a new public inpu
 mode without a production caller. Do not interpret omitted options as requesting
 auto. Where an actual caller requires host defaulting, first specify its distinct
 semantics and model/cost limits rather than adding it as an implicit fallback.
-Existing release/Pro restrictions are not implicitly lifted.
+Pro requires an explicit user or authorized workflow choice; automated
+qualification does not select it without a separately authorized test.
 
 These choices contain execution metadata, not environment-variable or prompt
 injection. For Chat source, use the app selector after identity/branch, conversation
@@ -3435,6 +3441,26 @@ added only with qualified host discovery. Retained history remains the migration
 default; choosing project mode requires a name and defaults creation to enabled.
 Neither saving that choice nor listing models proves a host operation is available.
 
+The effective selectable model catalog combines models and thinking options
+actually offered by the authenticated ChatGPT app with entries the user adds in
+provider configuration. App discovery is account-scoped, observes the app's
+offered model/effort semantics, and submits no inference. An explicit configured
+entry can add a model or a compatible route and can deliberately correct a
+matching mapping; do not make user additions replace the app's whole list.
+Keep the common app-to-Native effort translation as validated data, independent
+of model-name branches. The currently observed app values `standard`,
+`extended`, and `max` correspond to Native `medium`, `high`, and `xhigh` in
+the qualified picker. Explicit configuration can supplement or correct that
+mapping. Unknown or ambiguous choices remain explicit rather than being rounded
+or silently downgraded; retaining an already selected host pair requires no
+invented Native effort.
+Validate conflicts and upstream effort representability instead of inventing a
+mapping or advertising inaccessible options as confirmed available. Preserve the
+existing configured catalog when migrating. Cached discovery must identify its
+account and freshness; an unavailable host is reported as such and must not
+prevent ordinary Core launch. Catalog refresh never changes an active request or
+implicitly selects Pro; new selection is an explicit user/workflow choice.
+
 The model catalog is validated data in the same provider configuration, under
 catalog.models, rather than a Rust list of model families or effort mappings.
 Each entry declares its public ID/display name and effort-to-host-model route,
@@ -3444,8 +3470,10 @@ binary rebuild. The binary owns protocol/schema validation and lifecycle safety,
 not the list of models. Listing a configured route proves neither account
 entitlement nor successful execution. Actual transport acceptance and stable
 package/activation admission are separate; their current results belong in CURRENT.
-Exclude GPT-5.6 per the latest user decision;
-retain GPT-6, manual-only Pro use and the hidden legacy Instant alias. A host API
+The later request to expose the app's available models supersedes the earlier
+fixed GPT-5.6 exclusion; discovery does not imply entitlement to unavailable
+models. Pro remains an explicit choice, never an automatic qualification request.
+Retain existing configured routes and the hidden Instant alias as needed. A host API
 or tool-return protocol change can still require a new binary/bridge version.
 Use the selected model's effective catalog record at an idle boundary; changing
 catalog data must not mutate an active lane or replay a pending request.

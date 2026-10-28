@@ -697,10 +697,19 @@ supervisor. Before an old-code rollback, restore its compatible configuration
 while stopped. This device uses supervised startup with Provider16; CURRENT
 owns exact delivery/activation proof. No shared setup command is implied.
 
-Initial catalog data is in `default-models.toml`, not a Rust model-family list.
-GPT-6 and manual-only Pro are retained; GPT-5.6 is excluded. A hidden Instant alias
-is compatibility data. Model/effort/context entries are editable without rebuilding
-unless the host protocol changes. Listing a route does not prove entitlement.
+Initial catalog data is in `default-models.toml`. This seed includes GPT-6 and
+explicitly selected Pro; the hidden Instant alias retains existing bindings.
+The pending input implementation preserves a prepared Chat's actual host model
+and effort without filtering by model generation. `work chat-input` accepts
+optional `--model` and `--effort`; a Provider `work start` can also change Native
+settings, persisting under the Native API's normal semantics. Existing Native
+resume preserves saved settings and fork copies the source settings explicitly.
+These changes are not yet installed; CURRENT identifies qualified delivery.
+Model/effort/context entries are editable without rebuilding unless the host
+protocol changes. Automatic app-list discovery and configured additions are
+planned; the current `models`/`catalog` commands still read configured data.
+Listing a route does not prove entitlement. Automated qualification uses Pro
+only for a separately authorized test.
 
 Per-model context fields include `window_tokens` and `auto_compact_token_limit`;
 explicit upstream invocation overrides win. The user's1,000,000-token override is
