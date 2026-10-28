@@ -517,9 +517,11 @@ installed input route or model configuration.
 
 The [input design draft and comparison](AUDIT.md#전송-설계-작성안과-기존-구현업스트림-비교)
 now specifies existing-owner settings admission rather than another input engine.
-Draft request field model_settings separates chat/native/config/host_default
-base selection from optional explicit model/effort choices; API defaults follow
-the actual destination. User emulation inherits a ready Chat; existing Native
+The final draft removes the unnecessary public model_settings/source selector:
+existing action/destination determines the owner; only optional model/effort
+choices are added where inference actually starts. Origins remain effective-result
+metadata. Host auto stays an experiment until a real product caller needs it.
+User emulation inherits a ready Chat; existing Native
 work inherits its acknowledged thread; config initializes a new work or an
 explicitly configured transition. Resuming a work must not repeatedly impose the
 current config default. Native override persistence follows upstream semantics:
@@ -581,6 +583,16 @@ See [expanded findings and deferred cleanup](AUDIT.md#확장-점검-완료와-�
 User order: finish the current input implementation and actual acceptance first;
 perform cleanup as a separate subsequent batch. No rename, old-layout removal,
 payload deletion, journal migration or live-service change is made here.
+The user additionally authorizes later deletion of obsolete profile-before copies
+and unnecessary audit artifacts/entries; these are cleanup candidates, not mandatory
+permanent evidence. Inspect exact mixed-journal content/index consumers before
+removing audit entries, preserving unrelated user work and active resume state.
+The27 unreadable entries (24 X11 socket directories,2 fixture bin directories,
+1 fixture Core path) are also candidates after ownership/live-reference checks.
+Unreachable does not imply inactive. Delete confirmed inactive owned artifacts
+under existing authorization; unresolved ownership remains a recorded boundary.
+Do not add a repeated approval or permanent duplicate-archive requirement. This
+authorization changes the later cleanup scope, not the input-first execution order.
 
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native
@@ -1232,7 +1244,7 @@ not a new mandatory platform guarantee or permission gate.
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
 |2a Completed maintenance | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
 |2b Completed source/build/device maintenance; packaging at6 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
-|2c Deferred until current input work is complete | Use the completed originality/name/legacy-consumer audit; retire demonstrated obsolete layout support and decide naming with all real consumers | Input implementation/product acceptance and applicable delivery first. Then separate contract/producer/consumer/test cleanup; preserve current-format rollback, original evidence and user state; revalidate live references and unreadable boundaries before removal |
+|2c Deferred until current input work is complete | Use the completed originality/name/legacy-consumer audit; retire obsolete layout support, decide naming, remove authorized obsolete profile/audit artifacts | Input implementation/product acceptance and applicable delivery first. Then separate contract/producer/consumer/test cleanup; retain current-format rollback and unrelated/active user work. Inspect exact audit entries and ownership/live references, including27 unreadable candidates; remove confirmed unnecessary artifacts under existing authorization |
 |3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
 |4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
 |5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |

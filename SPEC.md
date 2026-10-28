@@ -2028,28 +2028,32 @@ it does not choose Native ownership or assemble another development policy.
    Registering them in Native history does not start a replacement inference or
    change their model. Tool/approval returns retain their original request binding.
 
-Public request draft: add one optional `model_settings` object to the applicable
-existing session actions, rather than a generic new input service:
+Public request draft, simplified after review: keep the existing actions and
+add optional `model`/`effort` choices only where an inference is actually started.
+Example additional arguments:
 
 ```json
-{"source":"chat","model":"chatgpt-desktop/gpt-6","effort":"xhigh"}
+{"model":"chatgpt-desktop/gpt-6","effort":"xhigh"}
 ```
 
-`source` identifies the base settings owner: chat, native, config or host_default.
-`model` and `effort` are optional explicit choices, not required in the example's
-absence. A chat_input with the object omitted inherits its selected Chat; an
-existing Native work inherits its thread; fresh Native creation uses config.
-Action-specific validation rejects a source without its actual owned Chat/thread.
+The action and its existing owned destination already identify the base settings
+source: chat_input uses its selected Chat, an existing Native work uses its
+thread, and fresh Native creation uses config. Do not expose a second chat/native/
+config/host_default selector or duplicate the destination in another object.
+The earlier model_settings/source request proposal is superseded before any
+implementation; it has no compatibility consumer. Settings origins remain
+internal facts returned with the effective request, not another routing decision.
 An agent may choose an explicit option within the authorized workflow and user
 model/cost constraints; no automatic selection agent or fixed test model is added.
 Changing only the model preserves an inherited effort only if the resulting pair
 is valid; otherwise require a suitable explicit choice or return the incompatibility.
-host_default is an explicit request to leave model/effort to the app's defaulting
-semantics and cannot carry conflicting overrides. Where the user requires an
-exact model/cost boundary that cannot be verified under auto, do not claim it is
-enforced by omission. Existing release/Pro restrictions are not implicitly lifted.
+The observed host-default/auto path remains an experiment, not a new public input
+mode without a production caller. Do not interpret omitted options as requesting
+auto. Where an actual caller requires host defaulting, first specify its distinct
+semantics and model/cost limits rather than adding it as an implicit fallback.
+Existing release/Pro restrictions are not implicitly lifted.
 
-This object contains execution metadata, not environment-variable or prompt
+These choices contain execution metadata, not environment-variable or prompt
 injection. For Chat source, use the app selector after identity/branch, conversation
 metadata query, history and catalog admission. Resolve host slug/effort without
 guessing an ambiguous inverse catalog alias; retained canonical route metadata is
@@ -2061,8 +2065,8 @@ not a forwarding-only settings engine or a second renderer policy implementation
 Return/persist the effective model/effort and host mapping with per-field origins
 (explicit, chat, native or config) in the existing intent/result. They are consumed
 by retry reconciliation, route validation and the caller's display/acceptance.
-Host-default requests retain their unresolved defaulting status until the actual
-request/response is observed; an auto label is not a proved final model. Existing
+If future callers admit host-default requests, they retain unresolved defaulting
+status until the actual request/response is observed; auto is not a proved final model. Existing
 account/branch/cursor/owner records already bind provenance: add no duplicate
 signatures, hashes or capability tokens solely for settings traceability.
 

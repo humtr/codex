@@ -240,12 +240,14 @@ Native에서 nullable effort가 실제 wire에 어떻게 표현되는지 확인�
 이 fallback을 근거 없이 지우는 대신 config와 저장 설정이 충돌하는 실제 요청으로
 현재 의미를 확정하고, 책임 owner에서 보존하도록 구현한다.
 
-요청 작성안은 기존 관련 action에 optional `model_settings` 객체 하나다.
-source는 chat/native/config/host_default 중 실제 설정 소유자를 뜻하며,
-model/effort는 선택적인 명시 override다. API별 기본 출처는 chat_input→Chat,
-기존 Native 실행→thread, 새 작업→config다. 의미 없는 source/대상 조합은 거부한다.
+최종 작성안은 앞선 model_settings/source 객체 제안을 더 줄인다. 기존 action과
+대상만으로 설정 소유자를 알 수 있으므로 공개 source 선택기를 추가하지 않는다.
+추론을 시작하는 기존 action에 필요한 optional model/effort만 받는다.
+API별 기본 출처는 chat_input→Chat, 기존 Native 실행→thread, 새 작업→config다.
 모델만 바꿨을 때 기존 effort가 맞지 않으면 조용히 none으로 낮추지 않는다.
-필드 이름은 구현 시 기존 schema/caller 전체와 함께 확정하되 이 의미는 유지한다.
+설정의 출처는 실제 적용 결과에 기록하는 내부 사실이지 또 하나의 mode가 아니다.
+host auto는 생략 비교 실험으로만 남기고, 실제 제품 소비자 없이 새 공개 모드로
+확장하지 않는다. 이전 객체 제안은 구현된 적이 없어 호환 경로를 남길 이유도 없다.
 
 이것은 모든 입력을 같은 action에 넣는 안이 아니다. 사용자 모사 chat_input,
 개발 작업 start/Responses, Native queue, 원래 tool return은 기존 소비자별 의미를
@@ -290,8 +292,9 @@ model/effort는 선택적인 명시 override다. API별 기본 출처는 chat_in
 1. 기존 chat_input의 설정 선택을 준비된 Chat selector로 교체하고 실제 선택과
    출처를 기존 intent/result에 보존한다. 기존 config fallback은 같이 제거한다.
    과거 admitted intent는 그대로 관찰하며 설정을 소급 채우거나 재전송하지 않는다.
-2. 기존 Native 초기화/복원/명시 override를 분리하고 새 model_settings schema와
-   CLI JSON parsing·tool declaration·consumer를 함께 수정한다. protocol.rs의
+2. 기존 Native 초기화/복원/명시 override를 분리하고 기존 action의 optional
+   model/effort 선언·CLI 문자열 인수·consumer를 함께 수정한다. 새 JSON source
+   선택기나 이를 위한 CLI parsing 분기는 추가하지 않는다. protocol.rs의
    model 필수 검증은 유지한다. 양 전송은 admission과 결과 반환 책임을 그대로 쓴다.
 3. 독립된 회귀/변이 시험 뒤 실제 앱 source→Native→TUI 및 역방향을 검증한다.
    ordinary/max 유지, config와 저장값 충돌, fork/resume/mode-only, metadata 준비
@@ -305,6 +308,22 @@ model/effort는 선택적인 명시 override다. API별 기본 출처는 chat_in
 `main.rs`, 기존 schema/tests와 qualification caller다. `app.rs`/`mcp_bridge.rs`는
 기존 immutable request 설정과 continuation 전달의 실제 변경 필요가 있을 때만
 수정한다. 새로운 forwarding module·설정 저장소·상시 controller는 계획하지 않는다.
+
+효율적인 구현의 기본 단위는 '준비된 대상 설정을 기존 요청에 확정해 넣기'다.
+앱 소유 Chat은 기존 입양/준비에서 query/catalog를 정상 로드하고 selector 값을
+반환한다. Native는 기존 thread/read의 확정 값을 사용한다. Rust가 기존 admission에
+명시 override와 유효 조합 검증을 적용하고 기존 intent를 저장한 뒤, 기존 전송으로
+원문 한 건을 보낸다. 준비 결과를 전달하기 위한 별도 controller·새 서비스·
+버전별 helper chain을 만들지 않는다. 입양 때 이미 읽은 snapshot을 정상 query에
+재사용할 수 있는지는 실제 앱 cache 계약을 검증해 결정하며, 그 근거 없이 raw
+hydrate만으로 metadata readiness를 대신하지 않는다.
+
+원래 지침·도구·완전한 공개 진행/최종 답변을 축소하지 않는다. 효율은 명시적
+설정 출처의 자동 판별, 기존 캐시/intent/send 재사용과 불필요한 왕복 제거로 얻는다.
+설정을 알아내려고 모델을 추가 호출하거나 상시 saved-history 조회를 다시 켜지 않는다.
+기존4회 시험의 설정 결과는 재사용하고, 새로 바뀐 원문/준비/복원/실패 경계만
+새 실제 시험으로 검증한다. 수용 시험이 통과한 변경 범위 밖의 개발을 무조건 다시
+빌드·시험하지 않으며, release candidate의 필수 gate는 그대로 완료한다.
 
 ## 독자 구현 재점검: miuuyy 의존과 현재 제품의 범위
 
@@ -400,8 +419,8 @@ run/log script, TMPDIR·일반 config·Manager profile·Core/Provider state의 �
 | --- | --- |
 | TOML7,417개, JSON49,403개, shell708개 참조 검색 | 파일명만이 아니라 옛 설치 generation의 정확한 경로를 검색. 과거 evidence/state 참조113건과 TOML 보존본1건 발견 |
 | 위 검색의 큰 JSON 등59개 | 약1.51GB를 streaming으로 추가 검색. 옛 generation 경로 없음. 크기 때문에 제외했던 검사 범위를 실제로 마침 |
-| TMPDIR TOML1건 | s14 적용 전 device-generated-profile-before.toml. 인접 publication/accepted activation 기록으로 이전 s13 profile 보존본임을 확인. 활성 설정으로 오인하거나 지우지 않음 |
-| 운영 state7개 파일의 참조8건 | 모두 lane의 calls.*.input 또는 result.output에 든 과거 감사 명령·출력. executable 설정/설치 선택이 아님. 원본 작업 기록으로 보존 |
+| TMPDIR TOML1건 | s14 적용 전 device-generated-profile-before.toml. 이전 s13 profile 보존본이며 활성 설정이 아님. 후속 정리에서 사용자 지시에 따른 삭제 후보 |
+| 운영 state7개 파일의 참조8건 | 모두 lane의 calls.*.input 또는 result.output에 든 과거 감사 명령·출력. 실행 설정이 아님. 후속 정리에서 불필요한 감사 기록의 정확한 범위를 확인해 삭제 후보로 취급 |
 | 현재/직전 설치와 관련 서비스 |21/20 모두 새6-file 형식. 세 서비스 run/log script에서 옛 generation 참조 없음. 앞선 프로세스/설정 점검과 함께 사용 |
 | 이름·문구 | tracked code/build의 관련 소비자를 파일·줄 단위로 목록화. 외부 COMPACT_PROMPT/SUMMARY_PREFIX/OPAQUE_COMPACTION_NOTE의 원래 전체 문구는 활성 소스에서 없음. 남은 ocx1은 거부·미전달 검사3곳 |
 | 접근 불가27개 entry | 정확한 경로/사유를 기록하고 보존. 삭제 허가나 소비자 부재의 증거로 쓰지 않음. 실제 정리 직전에 필요 범위를 재검증 |
@@ -424,9 +443,21 @@ source 문자열 비교와 구조 검토의 범위를 넘어 모든 가능한 �
    목록에 따라 처리한다. 이미 발행·저장된 이름은 필요한 마이그레이션을 먼저 정하고
    blind replace하지 않는다. 이번 문서는 새 이름이나 대규모 개명을 확정하지 않는다.
 4. 퇴역 형식 거부 시험은 요구되는 실패 탐지를 유지하며 통합한다. 표준 Responses
-   필드는 바꾸지 않고, 과거 source/diff/evidence와 사용자 작업 기록은 보존한다.
-5. 그 시점의 살아 있는 참조와27개 접근 경계를 다시 확인한 뒤 검증 가능한 불필요
-   생성물만 정리한다. 이번 추가 점검은 삭제 가능 목록이나 자동 cleanup 승인이 아니다.
+   필드는 바꾸지 않는다. 사용자는 불필요한 옛 설정 보존본과 감사 기록의 후속
+   삭제를 허용했으므로 영구 보존 대상으로 고정하지 않는다. 정확히 식별된 해당
+   생성물/감사 항목을 정리하고, 섞여 있는 일반 사용자 작업·대화·현재 재개 데이터까지
+   함께 지우지 않는다. 집계 journal은 필요한 reader/index 정합성을 확인해 처리한다.
+5. 접근 불가27개도 후속 정리의 조사·삭제 후보에 포함한다. 접근 불가를 미사용으로
+   간주하지 않는다:24개는 X11 socket directory,2개는 시험 bin,1개는 시험 Core
+   경로다. 실제 정리 시 해당 소유 프로세스·소켓·mount/서비스 참조를 확인하고,
+   확인된 inactive 생성물은 이미 주어진 정리 권한으로 삭제한다. 확인할 수 없는
+   항목은 원인을 기록하며 임의 chmod·강제 삭제로 진행하지 않는다. 사용자가 허용한
+   정리 범위를 매번 재승인받는 절차나 삭제한 생성물의 영구 복사 의무를 추가하지 않는다.
+
+이번 사용자 지시는 정리의 허용 범위를 확장한 것이며, 실행 순서는 그대로 인풋
+작업 완료 뒤다. 지금은 그 권한·대상·확인 조건을 문서화하며 실제 삭제하지 않는다.
+선택된 current/previous·진행 중 작업·자격 증명·발행 자산/Git 이력은 이 로컬
+감사 생성물 정리의 대상으로 확대하지 않는다.
 
 추가 원본은 같은 evidence root의 all-tracked-name-consumers.json,
 retired-policy-comparison.json, service-legacy-references.json,
