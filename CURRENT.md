@@ -2,7 +2,7 @@
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
 delivery and remaining work. Latest maintenance record: 2026-10-28 KST, from
-sourcee039d093d9054ff8e9b51fe95601ea92bbdcddcc (Provider20), wrapper tunnel
+sourcee78d83a69d3eefddadfbffdbb57807a87fd4ec82 (Provider21), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
 batch below includes bounded actual device activation with zero Provider-triggered
 model submissions. The separately identified Android user trial did invoke its
@@ -17,12 +17,12 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full121 and Provider20 are signed, publicly delivered and activated on this
+**Full121 and Provider21 are signed, publicly delivered and activated on this
 device. A1 entrance equivalence is partially qualified, not complete.** The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
-authenticated host and37 preserved works at the Provider20 activation boundary.
-That activation preserved16 protected files and12 existing Native owners. These are
+authenticated host and37 preserved works at the Provider21 activation boundary.
+That activation preserved16 protected files and13 existing Native owners. These are
 recorded observations, not a recheck on every documentation edit.
 New TUI launches include the catalog and fresh-home login corrections. Running
 clients retain their launch executable.
@@ -34,9 +34,9 @@ Explicit `source_sync`/`source_join` retain original-source verification/recover
 a development binding enables no automatic saved-history polling.
 
 **Next: the requested next-Core release-information source work is complete.
-Provider21 is publicly promoted; complete its device/cloud transition and actual
-public-commentary qualification after the cold-host finding below is resolved
-and the separately active work settles.
+Provider21 device/cloud transition passes; complete its actual Android public-
+commentary comparison. The prior cold-host failure remains a separate unresolved
+lifecycle finding; the successful current activation did not reproduce it.
 Close the actual-client A1 matrix before A2 common-responsibility extraction.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
@@ -285,11 +285,11 @@ results and restore records. Available space is about137GiB after the builds; th
 reusable Core/Provider compiler caches together occupy about2.2GiB. Records:
 update-display-cleanup-*.jsonl. The current Chat-linked Android fixture is preserved.
 
-## Public Provider21 candidate: complete Direct progress guidance
+## Activated Provider21: complete Direct progress guidance
 
 The original Android comparison shows that admitted reports are preserved, but
 additional Chat commentary is not necessarily submitted as the same text. The
-candidate adds one DIRECT_PROGRESS definition consumed by codex_report's
+release adds one DIRECT_PROGRESS definition consumed by codex_report's
 declaration, Direct codex_attach.progress and Provider-driven control instructions.
 It requests every complete public progress message verbatim, including preceding
 same-task progress at join, and reuses a native-call report rather than emitting
@@ -297,9 +297,9 @@ a second copy for the same message. Final, tool, authority and retry paths are
 unchanged; no poller, extra model request, new runtime mode or transcript store is
 added. Source/model-adapter attachment leaves this Direct policy null.
 
-This is a source candidate, not an activated replacement for Provider20. The old
-actual Native fixture fails the updated consumer because its Direct attachment
-has no progress policy. The affected continuity proof compares declaration versus
+The signed release is activated; actual host compliance still needs the Android
+source comparison below. The old actual Native fixture fails the updated
+consumer because its Direct attachment has no progress policy. The affected continuity proof compares declaration versus
 attachment and verifies rich multiline progress as one exact Native item after
 retry. Actual Native/TUI continuity passes two same-work inputs, service restart,
 owned backend replacement and live finals with zero saved-Chat reads or added
@@ -310,10 +310,20 @@ and83 Python checks without rerunning accepted Rust work. Exact NDK21→20→21,
 compositions, signed package, warm host and fresh-home Native/TUI gates pass.
 Provider21 signing40608603783, ten-asset public readback and disposable public
 consumption pass. Non-forced promotion `e6eae2d3` changes only the three Provider
-pointers on main; Base/Full remain unchanged. Operating Provider remains20;
-21 device/cloud/actual-commentary qualification is unfinished.
+pointers on main; Base/Full remain unchanged. A settled-boundary activation now
+passes: supervisor and actual image agree on PID19747, the first host ensure
+completes successfully in about12.9seconds, the same identity is ready and all37
+work identities/phases,16 protected files and13 prior Native owners are preserved.
+No recovery read or raised timeout was used in this successful attempt. Services
+are up and the shared generated profile points to21. One same-connector refresh
+plus client cache invalidation makes all17 registered/live descriptions and full
+schemas agree with the installed21 declaration; fixed annotations agree. The
+cloud still omits idempotentHint on all17 tools. Actual cloud tools/call returns
+37 works. These maintenance operations submit no model inference or saved-Chat
+read. Evidence: provider21-device-activation and provider21-operating-web-mcp.
+This establishes deployment, not universal cold-host readiness or completed A1.
 
-At a verified settled boundary, actual installation selects signed21 and runit
+The earlier unsuccessful settled-boundary installation selects signed21 and runit
 starts its exact process PID17014; generated profile preparation succeeds. The
 first owned-host ensure then returns app_target_unavailable. Client::app could not select
 a matching app://-/index.html target; its unavailable error covers a missing or
@@ -327,28 +337,53 @@ host/lifecycle finding despite the earlier isolated warm-host qualification.
 After runit reports its owned child down and the process image is absent,
 supported signed rollback restores20 with its
 matching environment/generated profile, retaining high-water21. Runit Provider,
-host and tunnel are running; actual Provider PID20654 and its host are ready,
+host and tunnel then ran normally; Provider PID20654 and its host were ready,
 with the original identity. Recheck confirms the same37 work identities and all16
 protected files unchanged. No model inference or saved-Chat read was submitted.
-A later diagnostic activation would observe the same owned host once after the
-specific target-unavailable response, without another acquisition or work replay;
-its actual preflight stops because the separate wrlab workd41e3287… is running
-again. Its latest Native history contains a new user input, commentary and
-completed tool executions without a final for that round. Native is unsettled;
-this alone does not prove that the external ChatGPT model is still reasoning.
-Current Codex thread identity is different. Preserve the work until its actual
-completion is reconciled; do not infer completion from an idle tool queue.
+A diagnostic activation preserves that failure and would observe the same owner
+once after exactly that error; an intermediate attempt is blocked by active work.
+The final actual activation instead succeeds on its initial ensure, so it does
+not prove delayed startup was the earlier cause. No production code or timeout
+was changed to mask the failure. Investigate target availability and delayed
+shutdown at a separate settled boundary if they recur; retain the original error.
 
-Before the next service transition, recheck settlement and investigate the
-cold-host target/readiness and delayed shutdown boundaries. No production code
-or timeout was changed to mask these failures. Cloud declaration refresh and
-actual Android commentary testing must wait for a verified21 operating host.
+The blocked wrlab work `d41e3287…` is origin=chatgpt, reasoning=direct,
+return_path=mcp, with execution_home under the wrlab profile. That names Native
+configuration/history/execution ownership, not Codex-account inference use.
+Direct exchange skips start_driver; Native routing uses the loopback Provider
+with requires_openai_auth=false. The already-running ChatGPT supplies reasoning.
+The maintenance gate checks this Provider's active work/return streams because
+restarting its shared service interrupts those streams; it does not check whether
+an account name/profile is busy.
+Report inference origin, Native execution profile and work completion separately.
+The earlier Native status/history proves an unfinished Native round, not continued
+external-model reasoning. The current Codex thread is different; no unrelated
+account/profile process was stopped. Its later verified completion permits21
+activation. Code: operator.rs app_route/exchange_inner/join,
+operator_native.rs Pool::prepare and registration.rs native_routing.
+
+The installed21 Android trial is armed on the original work98709cad… and
+thread01a17d98… with all25 prior items unchanged and the actual installed TUI
+showing its previous completion. The observer uses only local Native history;
+no saved-Chat timer or extra primary inference is added. The239-character/389-byte
+PROVIDER21_PUBLIC_PROGRESS prompt requests one exclusive file/re-read plus full
+public work reporting on that same task, with no explicit join recipe or Pro.
+Automatic clipboard write succeeds but readback is empty, so content delivery is
+unverified; the foreground command termux-clipboard-set < "$TMPDIR/q" copies the
+prepared file verbatim. The user has been asked for one ordinary Android input.
+Default Python lacks pyte and fails before touching runtime; the existing qualified
+qualification-python environment arms the actual observer successfully. No global
+Python installation or product code was changed. Evidence: provider21-progress-
+{installed-a1-armed,clipboard,prepared-prompt} and the raw trial records.
+Actual input, live final and original-commentary equality remain pending.
+
 The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
 Evidence: provider21-promotion, provider21-activation-recovery and provider21-
 recovered-* records; original failed activation is retained in
 $TMPDIR/activate-provider21-zzu45gpx/result.json (10.stdout holds the cause).
-Latest provider21-device-activation is the subsequent read-only preflight result;
-provider21-wrlab-active-history-private retains the Native observation.
+Current provider21-device-activation retains the successful boundary in
+$TMPDIR/activate-provider21-kklx2tso; provider21-wrlab-active-history-private
+retains the earlier Native observation.
 direct-progress-*, public21-hosted-*, provider21-release-input and
 provider21-public-consumer retain their narrower accepted scope.
 Actual host compliance requires a later original-commentary comparison and must
