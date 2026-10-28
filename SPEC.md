@@ -1954,10 +1954,26 @@ process-wide environment between requests. Invalid or unavailable explicit
 selections fail before dispatch rather than silently downgrading. Requested
 inheritance of an existing app selection requires verified settings; a previous
 response's model label does not establish the currently selected effort. For
-user emulation, investigate the host's ordinary input operation, which may resolve
-its current selection internally. Omitting model/effort on a lower-level send is
-not proof of inheriting that selection: qualify and expose its actual defaulting
-semantics. Caller omission and fields populated by the host SDK are distinct.
+user emulation, resolve the target owned Chat's effective selection only after
+its conversation metadata query, branch history and applicable model catalog are
+ready. Hydrating message nodes alone does not establish that readiness. Retain
+the existing exact-message, stable message-ID and durable admission guarantees;
+an app helper that trims input, adds default hints or omits lifecycle controls is
+not an interchangeable replacement solely because it reads current settings.
+Revalidate identity, branch and selected settings across asynchronous preparation.
+Omitting model/effort on a lower-level send means host defaulting, not inheritance:
+the qualified ordinary Chat without a custom override resolves that omission to
+auto/no explicit effort; applicable host overrides retain their own semantics.
+Caller omission and fields populated by the host SDK are distinct.
+
+User-emulation selection, explicit/configured workflow selection and host-default
+selection have distinct semantics but may share the existing send implementation.
+Do not infer the selection of a different Android/web client from Electron-local
+picker state. Only verified synchronized/persisted settings can be reconstructed;
+an unsubmitted selection on another client remains unknown without evidence.
+Original settings before a new invocation and settings admitted for that invocation
+must remain distinguishable from response model metadata. Returning a tool result
+or approval is a continuation with its own actual caller, not another user input.
 
 Input interfaces follow their actual consumers: chat_input supplies user text to
 Chat; queue supplies input to an explicit Native thread; start invokes Native work

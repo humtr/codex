@@ -449,18 +449,58 @@ was not replayed. The passing independent trial uses a new marker/message ID.
 Original failures and result-2 are preserved, not relabelled as product failures
 or successful model requests. The observer's null-error handling is corrected.
 
-SDK source for the pinned app-initial-ed5807835d97.js explains the distinction:
-export yRt/Mwi passes optional settings to Fwi, whose absent model resolves to
-an applicable override or auto and absent effort to null. Higher-level qNt/pNi
-reads conversation selection Hk (export Vwn), then passes slug/thinkingEffort to
-Mwi. This is a discovered candidate for ordinary user emulation, not yet a live
-qualification of that higher-level operation. Caller omission need not mean
-omission on the wire, and low-level omission need not emulate the picker state.
+The completed [transmission audit](AUDIT.md#2026-10-28-추가-감사-전송-경로와-모델노력도-유지)
+traces the pinned app's actual input owner and all discovered common-send callers.
+qNt is the export of pNi, not a separate layer; yRt exports Mwi and bRt exports
+Nwi. Actual composer stack is LNt/j0→Mwi→Fwi; helper stack is pNi→Mwi→Fwi.
+Tool returns and some regeneration/steering functions call Fwi directly, so not
+every input goes through yRt. These are version-specific app internals, not public
+OpenAI SDK APIs.14,804 app/bundled JS paths are inventoried/searched,42 relevant
+modules extracted and34 directly imported qNt/yRt calls indexed; this is targeted
+transmission coverage, not a line-by-line audit of every bundled library.
+
+Four ordinary-model requests pass on one new isolated trial Chat6ae19363…:
+actual UI Send with Thinking/Standard; qNt without model/effort retaining Standard;
+qNt after the app effort setter selects Extended retaining Extended; and yRt with
+model/effort omitted after restart/selection reconstruction. The last request
+uses auto/no thinking_effort and produces gpt-6/no effort, despite the prepared
+selection being Thinking/Extended. Each dispatch occurs once; all8 public
+user/final messages match the independent11-node saved original, with3 hidden
+placeholders excluded. Pro0; Native tools/work0; no saved-source timer.
+
+Restart qualification exposes a necessary admission condition: uCn raw history
+hydration yields gpt-6/extended while metadata query nSn/mA is pending. Loading
+the real conversation query and model catalog resolves gpt-6-thinking/extended,
+despite the restored general default being Instant. This is settings restoration
+proof, not another post-restart qNt inference. Current qNt is therefore not a
+drop-in replacement: it reads current state, trims ordinary prompt text, uses
+default hints and lacks some stable-ID/lifecycle options used by our exact-message
+path. Reuse the app's prepared selector and existing send/admission responsibility
+rather than duplicating UI logic or blindly replacing the send call.
+
+The existing Android source finals289b6871… and43edad73… both record
+gpt-6-thinking/max. Automated final91048d2d… records gpt-6 with no effort; its
+saved conversation default is gpt-6 at readback. Earlier auto-input success is
+valid for source/Native continuity, not proof of preserving the user's Thinking
+settings. No attribution of unobserved UI changes and no retroactive overwrite.
+Other Android/web clients' unsent picker settings are not established by this
+Electron-local inspection. Approval continuation effort and concurrent/branch
+changes remain actual-product qualification work.
+
+Evidence: maintenance-root chat-transmission-audit.json and
+$TMPDIR/chat-transmission-audit-pyxdbg1v/{verification,inventory,call-sites,
+source-locations}.json, actual stack/wire records, original saved/public messages,
+query-state/query-load and original Android metadata readback. An attached-PTY
+probe has stopped PRoot/CDP timeouts; detached session/pipe probe succeeds. This
+does not establish an operating host defect. phase1 restores observers/default
+and original Codex UI then exits0. phase2 has completed response evidence but is
+interrupted before an exit acknowledgment; resume observes inspector31409 absent
+and profile lease available. Operating Provider PID19747 remains unchanged.
 
 Pending A1 input-setting work: retain chat_input as a specialized user-emulation
-operation, not the default for model-driven development. Qualify the ordinary
-host input operation against its actual selected settings. Development workflow
-input continues through existing execution owners, with user invocation choices
+operation, not the default for model-driven development. Apply the qualified
+prepared-selection rule while preserving exact input and lifecycle controls.
+Development workflow input continues through existing execution owners, with user invocation choices
 over config defaults and authorized model-selected test settings; no hardcoded
 workflow model, shared-config/environment mutation or settings-selection agent.
 Existing chat_input.rs selects config.model and the renderer accepts separate
@@ -470,8 +510,10 @@ and tool returns retain their owners. Introduce another input interface only for
 an actual unmet consumer. Remaining proof covers identical visible prompts with
 selected/default/explicit Thinking settings, chosen request options, original
 response and Native/TUI results, invalid settings, independent concurrent choices
-and uncertain-delivery retries. Invocation overrides and ordinary app-selection
-inheritance remain unimplemented; current installed Pro exclusion is unchanged.
+and uncertain-delivery retries. Invocation overrides and production selection
+inheritance remain unimplemented despite the host-boundary proof; current installed
+Pro exclusion is unchanged. This completed audit changes documents only, not the
+installed input route or model configuration.
 
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native

@@ -24,6 +24,185 @@ Bridge가 받은 요청을 기존 Native 작업에 등록하는 경로를 우선
 | A1 뒤 공통화·독립 작업자 확장 | A1의 실제 Android/Web/CLI 미검증 경계를 먼저 판정하고, A2는 이미 공유된 AppHost 위의 실제 중복만 정리한다. A3는 그 기반 위에서 별도 추론·계보·결과 반환을 실증한다. |
 
 
+## 2026-10-28 추가 감사: 전송 경로와 모델·노력도 유지
+
+이 절은 원본 감사를 보존하면서 후속 전송 조사를 기록한다. 조사 기준 소스는
+`b4567f9`, 실제 운영은 Full121/Provider21이다. 제품 코드·설치·운영 설정을
+변경하지 않고, 공식 앱 26.1007.21434의 소스와 격리된 시험 호스트에서 확인했다.
+
+**판정: 기존 대화의 모델·노력도를 유지하는 전송은 가능하다. 단순 생략으로는
+유지되지 않는다.** 대화의 준비된 선택 상태를 읽어 보내는 앱 보조 함수에서는
+Thinking/Standard와 Extended 유지가 실제 요청·응답으로 통과했다. 반면 같은
+Thinking/Extended 대화에서 공통 전송 함수에 설정을 생략하면 `auto` 요청과
+노력도 없는 `gpt-6` 응답으로 바뀌었다. 현재 우리 `chat_input`도 앱 선택 대신
+Provider 설정을 명시하므로 사용자 설정 유지 기능으로 사용할 수 없다.
+
+### 이름과 실제 호출 관계
+
+`chat_input`은 우리 Rust/MCP/CLI의 기능 이름이다. 앱 공개 SDK의 함수 이름이
+아니다. `qNt`와 `pNi`는 서로 다른 계층이 아니라 **같은 함수**의 export 이름과
+번들 내부 지역 이름이다. 확인한 번들의 `export { pNi as qNt }`에 해당한다.
+마찬가지로 `yRt`는 `Mwi`, `bRt`는 `Nwi`를 가리킨다. 축약된 빌드 산출물 이름이라
+각 글자에 제품상 의미를 부여하거나 다음 앱 버전에서도 같다고 가정하면 안 된다.
+
+```text
+실제 입력창: LNt → j0 → yRt/Mwi → Fwi → prepare/startCompletionStream → /f/conversation
+보조 입력: qNt/pNi ─────────→ yRt/Mwi → Fwi → 같은 전송 계층
+우리 chat_input: Inputs::submit → app_bridge.js → yRt/Mwi → Fwi → 같은 전송 계층
+도구 반환: bRt/Nwi ──────────────────────────→ Fwi → 같은 전송 계층
+일부 재생성·재시도·steering: 별도 함수 ───────→ Fwi → 같은 전송 계층
+```
+
+따라서 일반 입력과 우리 입력은 공통 전송부로 합류하지만 **모두 yRt를 거친다는
+설명은 틀리다.** `bRt/Nwi`, `SRt/Pwi`, `xRt/Iwi`, `_Rt/Lwi`, `hRt/Rwi`는
+확인한 앱에서 Fwi를 직접 사용한다. 음성·별도 패널까지 이 일반 텍스트 경로와
+완전히 같다고 보장하지 않는다. 현재 우리 local_function 결과 경로는 결과를
+구조화해 `yRt`로 전달하고, MCP는 원래 호스트 도구 반환을 사용한다. 호출 후
+결과 반환은 새로운 사용자 입력으로 치환하면 안 된다.
+
+`qNt/pNi`는 입력창 전체 로직이 아니다. 대화 busy/활성 조건을 확인하고, 대화별
+선택 `Vwn/Hk`를 읽고, 기본 또는 전달된 system hints와 프롬프트를 준비해 Mwi를
+호출한다. 소스와 실제 stack 모두 입력창은 `j0 → Mwi → Fwi`, 보조 함수는
+`pNi → Mwi → Fwi`임을 확인했다. qNt 호출자는 본문 follow-up 링크, 소스 패널,
+제안·위젯 등이다. 이를 그냥 '입력창 Enter 함수'라고 부르면 부정확하다.
+
+### 설정의 출처와 복원 조건
+
+앱의 `Vwn/Hk` 선택은 현재 대화의 유효한 선택과 조정 상태를 우선하고, 그 상태가
+없으면 대화 메타데이터의 모델, 해당 branch 이력의 노력도, 모델 카탈로그와
+정책상 기본값을 조합한다. `Bfn`은 공개 assistant의 `thinking_effort` 및 특정
+도구 제어 메타데이터를 따라 역순으로 노력도를 찾는다. 마지막 모델 이름 하나로
+노력도나 현재 선택을 추정하는 구조가 아니다.
+
+일반 선택 함수 `lTn/SSn`, 노력도 함수 `dTn/CSn`은 대화의 선택 상태를 바꾸며,
+일반 Chat에서는 로컬 last-selected 저장소도 갱신한다. Work/tpp의 선택 저장은
+별도 분기다. 따라서 선택 함수를 호출하는 것과 한 요청에 override를 주는 것은
+다르다. 시험 때문에 사용자의 공용 picker/default를 바꾸는 방식은 기본 전송
+설계로 채택하지 않는다. 이번 선택 실험은 별도 시험 프로필에서만 수행했다.
+
+재시작 후 검증은 다음과 같다. 마지막 완료 응답이 Thinking/Extended인 대화와
+일반 기본값 Instant를 의도적으로 함께 두고 시험했다.
+
+| 관찰 단계 | 유효 선택 | 판정 |
+| --- | --- | --- |
+| 재시작 직후, 대화 미로드 | gpt-6 / 노력도 없음 | 대화 선택 유지로 사용할 수 없음 |
+| raw mapping을 uCn으로 hydrate | gpt-6 / extended | 메시지만으로 모델 메타데이터 query가 준비되지 않음 |
+| 정상 nSn/mA 대화 query와 모델 카탈로그 로드 | gpt-6-thinking / extended | 저장된 모델·노력도 복원 확인 |
+
+같은 대화에 raw hydrate만 하고 즉시 qNt를 부르면 잘못 계산된 기본 모델을 쓸 수
+있다. 모델 카탈로그·대화 query·identity·branch가 준비됐는지 확인한 뒤 선택을
+읽어야 한다. 이번에는 메타데이터를 준비한 뒤의 선택 복원을 확인했으며,
+재시작 후 qNt 추가 추론까지 반복하지는 않았다.
+
+입력창 `j0`에는 더 많은 의미가 있다. 첨부·draft·project·system hints·선택 문맥을
+준비하고, quota-aware 경로에서는 현재 가용 모델과 한도를 보고 선택을 다시
+계산할 수 있다. 그러므로 '선택을 보존'에는 현재 화면의 선택을 읽는 것과
+앱의 quota 조정까지 모사하는 것이 다르다. 사용자가 고정한 모델/노력도를 우리
+워크플로우가 임의 하향하면 안 된다. 적용 불가 시 이유를 반환해야 한다.
+
+`yRt/Mwi` 자체는 모델을 생략해도 picker를 찾아주지 않는다. `Fwi`가 모델을
+전달값 → 적용 가능한 custom GPT override → `auto` 순으로 결정하고, 노력도는
+전달값 또는 null로 처리한다. SDK 호출의 생략과 wire의 필드 생략은 다르다.
+일반 Chat/Work 선택도 모델의 Thinking 여부와 별개다. 이번4회는 모두 일반
+Chat, origin/mode 없음, system hints 없음, 사용자 메시지 한 건이었다.
+
+### 실제 시험 결과
+
+새 시험 대화 `6ae19363-ac64-83e8-91ca-f0bb6621a5b2`의 같은 branch에4회만
+전송했다. 각 요청은 도구를 사용하지 않는 고유 문장 반환이며 Pro는0회다.
+
+| 시험 | 호출 전 선택 / 호출 방식 | 실제 요청 | 실제 원본 최종 응답 |
+| --- | --- | --- | --- |
+| A 입력창 | UI에서 Thinking/Standard 선택 후 실제 Send 버튼 | gpt-6-thinking / standard | 같은 모델·노력도, UI_THINKING_STANDARD_A |
+| B 설정 없는 보조 입력 | A의 기존 대화에 qNt, 모델·노력도 인수 없음 | gpt-6-thinking / standard | 같은 모델·노력도, HELPER_KEEP_STANDARD_B |
+| C 기존 노력도 변경 후 보조 입력 | 시험 프로필의 앱 effort setter로 Extended 선택, qNt에 설정 인수 없음 | gpt-6-thinking / extended | 같은 모델·노력도, HELPER_KEEP_EXTENDED_C |
+| D 낮은 수준 생략 | 재시작·메타데이터 로드로 Thinking/Extended 복원 후 yRt에 설정 인수 없음 | auto / thinking_effort 필드 없음 | gpt-6 / 노력도 없음, LOWLEVEL_OMISSION_D |
+
+각각 dispatch1회이며 사용자 원문 한 건과 정확한 공개 최종 답변을 확인했다.
+4회 모두 같은 Chat에서 직전 최종 답변을 다음 입력의 parent로 이어간다.
+독립 saved-source read의11개 노드 중8개 공개 사용자/최종 메시지를 정확히
+대조했으며 숨겨진3개 내용은 읽거나 검증했다고 주장하지 않는다. 실제 모델·노력도는
+모델의 자기소개가 아니라 wire와 공개 응답 메타데이터로 판정했다.
+
+기존 Android 시험 대화의 알려진 최종 메시지 메타데이터도 별도1회 조회했다.
+PUBLIC_PROGRESS의 `289b6871…`와 ROUNDTRIP의 `43edad73…`는 모두
+`gpt-6-thinking / max`, 자동 PLAIN_AUTO의 `91048d2d…`는 `gpt-6 / effort 없음`이다.
+조회 당시 대화 default_model_slug도 gpt-6이었다. 따라서 이전 자동 시험은
+입력·Native 결과 연결을 입증했지만 **사용자 추론 설정을 유지한 입력 모사라는
+합격 근거로 재사용할 수 없다.** 당시 Android의 미전송 UI 상태나 default 변경의
+원인까지 이 조회만으로 사용자에게 귀속하지 않는다. 원본 대화 설정을 소급
+변경하거나 '복구'한다는 명목으로 덮어쓰지 않았다.
+
+### 원문·제어·호환성 및 권장 구현
+
+`qNt → Mwi`의 일반 prompt 생성은 `trim()`과 기본 system hints를 사용할 수 있다.
+우리 현행 경로는 `userCompletionMessages`로 완성된 사용자 메시지를 제공하므로
+공백·CRLF를 포함한 원문 보존과 안정된 메시지 ID를 직접 통제할 수 있다.
+qNt가 모델·노력도를 유지한다는 이유만으로 현행 전송 함수를 qNt로 교체하면
+원문·고정 ID·callback·취소·명시 branch·project·승인 흐름을 잃을 수 있다.
+qNt는 onCompletion/startupSignal 등을 전부 그대로 받는 일반 전송 함수도 아니다.
+원문 trim과 hint 주입은 소스 판정이며, 공백을 달리한 추가 추론 시험은 하지 않았다.
+
+권장안은 **입력 의미와 설정의 출처를 구분하되 전송·중복 방지 구현은 공유**하는 것이다.
+
+1. 사용자 모사: 소유된 앱 대화의 준비된 선택 상태를 읽어 유지한다. 이 특수
+   경로를 일반 개발 작업의 기본으로 삼지 않는다. 필요하면 실제 입력창 모사를
+   별도 qualification에서 수행한다.
+2. 개발 워크플로우: 사용자 명시 선택 → 구성 기본값. 허용된 시험에서 모델이
+   인수를 선택할 수 있지만 공용 환경변수나 설정 파일을 요청마다 고치지 않는다.
+3. 호스트 기본 선택: 설정을 생략해 auto로 맡기는 동작은 명시적으로 구별한다.
+   이를 현재 모델·노력도 유지라고 표시하지 않는다.
+4. 문맥/지침/도구 결과 입력: 현재 model adapter와 원래 도구 결과 경로를 쓴다.
+   모든 의미를 chat_input 하나에 섞거나 새 모드를 위한 별도 전송부를 복제하지 않는다.
+
+현재 exact-message 생성과 durable intent를 유지하고, 설정 선택 책임을 Rust admission과
+앱 상태 읽기 사이에서 명확히 정한다. 앱의 선택 상태 해석은 앱 내부 selector를
+재사용하되 Rust가 identity·branch·요청 소유권·사용자 제약을 검증한다. 실제 적용
+설정은 기존 intent/result에 기록하고 재시도는 같은 intent를 관찰한다. 비동기 query
+동안 account/branch/selection이 바뀌면 재검증하며, active MCP round 중에는 현재
+`mcp_active_route_change` 제한을 유지한다. 승인/결과 반환의 effort 전파도 회귀
+범위에 포함해야 한다. 현재 앱 승인 경로는 offered.model을 넘기지만 effort 인수는
+명시하지 않으므로, 그 복구 의미는 별도 실제 승인 시험이 필요하다.
+
+Android/일반 웹의 선택은 Provider 소유 Electron의 로컬 선택 상태와 동일한 메모리가
+아니다. 저장된 대화 모델과 응답 노력도는 복원 가능하지만, 다른 클라이언트에서
+선택만 하고 아직 보내지 않은 값까지 안다고 보장할 수 없다. 해당 동기화와
+계정·동시 선택·분기·압축·Stop·승인·project 첨부는 아직 실제 합격 범위 밖이다.
+Pro·동일 Chat 독립 자식 모델 능력도 이번 조사의 대상 결과로 승격하지 않는다.
+
+### 조사 범위·원본·운영 경계
+
+현재 app.asar의 webview/.vite JavaScript14,804개(약392MB)를 entry import와
+전송 sink 기준으로 목록화·검색해 관련42모듈을 추출했다. 축약 export의 직접
+호출34곳(qNt8/yRt26), core 내부 함수, 실제 입력창과 반환·재생성·전송 sink를
+추적했다. 이는 전체14,804파일을 줄별 의미 감사했다는 뜻도, 별도 Android 앱의
+비공개 코드를 분석했다는 뜻도 아니다. 기존 추출 core asset은 실제 archive와
+바이트가 일치함을 확인했다. 이 결론은 조사한 앱 버전의 내부 인터페이스에 한한다.
+
+비공개 증거는 `$TMPDIR/chat-transmission-audit-pyxdbg1v`에 보존한다.
+`inventory.json`, `call-sites.json`, `source-locations.json`은 범위와 위치를,
+`phase1-complete-private.json`, `status-omitted-1.json`,
+`saved-final-original-private.json`, `query-load.json`, `verification.json`은 실제
+실행과 독립 대조를 담는다. minified 함수의 위치는 `source-locations.json`의
+문자 offset과 실제 stack의 줄·열로 식별하며 가짜 줄 번호를 붙이지 않는다.
+요약은 기존 maintenance root의 `chat-transmission-audit.json`이다.
+
+초기 시험 호스트의 PTY 실행은 PRoot tracer의 stopped 상태와 CDP timeout을
+보였다. 독립 session의 pipe로 실행한 시험 호스트는 준비됐다. 이를 운영
+Provider 장애의 원인으로 일반화하지 않는다. 선택 UI는 비동기 commit이므로
+표시가 움직였다는 사실만으로 적용됐다고 보지 않고 실제 selector를 재확인했다.
+실패한 사전 조건 검사에서는 요청이0건임을 관찰한 후에만 계속했다.
+phase1은 observer 복원·원래 Instant 기본값/Codex 화면 복원 후 exit0이다.
+phase2는 응답 완료 후 대화 중단으로 종료 기록을 받지 못했다. 재개 시 inspector
+PID31409의 부재와 profile lease 가용성을 별도 확인했으며 정상 종료로 꾸미지 않는다.
+운영 Provider PID19747은 보존됐고 Native 작업·제품 설치·공용 config는 바꾸지 않았다.
+
+이번 산출물은 전송 감사·계약 정리이며 제품 구현/배포가 아니다. 문서·diff 검사와
+보존된 원본의 실행 검증을 수행한다. 후속 구현은 준비된 선택 읽기, durable intent와
+원문 보존, 명시 설정/default 구분, 동시성/실패·실제 Native/TUI 수용 시험 순이다.
+
+---
+
 감사 기준: 2026-10-26 UTC. 저장소 humtr/codex, rewrite/rust-core,
 기준 HEAD e4d5400754e86f0ca68f9e3ac02ff6621df5234c.
 이 보고서는 원본·코드를 다시 대조한 기술 판정이다. 별도 감사 모델이나
