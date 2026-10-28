@@ -38,12 +38,11 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: the user's first plain `codex update` must discover official0.165.0,
-request its real hosted build, and observe download/installation after signed
-publication. The corrected updater is staged while upstream remains0.164.0;
-do not publish0.165 in advance or substitute installation followed by rollback.
-Private source/runtime/Android and isolated update proofs pass; the user's real
-request/publication/install is still outstanding. Preserve running sessions/jobs.**
+**Next: qualify only the user's Base0.165 update from the retained0.164 install.
+The first real user request has now published Base124; Full publication failed.
+Full repair, publication-status improvements and whether CI should own builds
+are deferred at the user's direction. Preserve running sessions/jobs and leave
+the operating version unchanged until the user performs the Base update.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -215,20 +214,49 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Priority0: upstream update build, delivery and user replay
 
-Latest user clarification: replay means starting on upstream0.164, executing plain
-`codex update`, discovering0.165 with no matching public Full artifact, submitting
-the build request, and observing the resulting build/download/installation. An
-already-published0.165 followed by rollback/force does not satisfy this request.
-Do not publish0.165 before the user's request. Keep the actual source/device
-qualification above as preparation, then stage the corrected updater on0.164 and
-gate publication until a fresh real request. Preserve the old request receipt
-when preparing this explicitly authorized replay; do not discard its evidence.
+Latest scope: reproduce the Base update only. The earlier requirement to observe
+upstream discovery and a real build request was exercised by request40772864929
+and publication40772954167. That publication promoted signed Base124 for0.165,
+but Full signing failed because Full's mandatory Android qualification was skipped
+after its optional runtime-source ancestor was skipped. No qualified Full artifact
+was produced. The served Full remains123/0.164. The existing client watches source
+qualification rather than this actual publication failure, explaining its missing
+failure output. Original job logs are failed-user-full-producer.log and
+failed-user-full-sign.log under the evidence root below.
+
+Full/status/artifact-reuse repairs were preserved, not activated or published, in
+Git stash e96912e6a9a53c435e94a1f574ec161a60fbb5d9. Their local full check and actual
+Android publication-failure trial are repair-full.log and
+repair-publication-failed.json; hosted/public qualification of that deferred patch
+was not performed. Do not silently apply it during the Base-only replay. Revisit
+GitHub dependency and local/remote build design after this immediate scope.
+
+The Base-only replay now has an admitted local package at
+$TMPDIR/base165.ahk9d25r. Public Base124's original manifest/signature and descriptor
+were fetched over real HTTPS; matching Core/companion/browser bytes were reused
+from retained qualification output, while its different runtime was fetched from
+the actual public release. Every byte/mode matches the public signed inventory.
+base-local-package.json and base-local-update.json record successful actual Android
+`update --local` from the copied operating0.164 state and subsequent
+`codex-cli 0.165.0`, with production activation unchanged. The package is armed for
+the user's real installation; preserve it until user installation is confirmed
+or the replay is cancelled. Base selection uses the existing explicit local
+admission; no product code or CI repair was deployed for this narrowed scope.
+
+This is installation qualification, not a repaired remote updater. The original
+actual-HTTPS Base-index trial failed after476.96s, following an incomplete transfer
+with local fallback and a misleading frontend-version error. The explicit remote
+trial failed after300.8s with a generic transport error. Original results/logs are
+base-public-replay.json, base-public-direct.json and the recorded disposable root's
+terminal logs. The five-minute payload deadline is implicated, but the exact curl
+exit code was not captured. Remote acquisition/fallback diagnosis remains open;
+do not claim plain remote update was fixed by preparing this local package.
 
 Readback on2026-10-29 KST confirms installed locally derived generation
 `local-1793204956-318-2`, upstream0.164.0, with corrected Core. Its public
 baseline and previous selection are Full123
 `local-relay-hosted-0-164-0-0a8b6e53304d-s123`. Public Full remains123 and public
-Base116, both upstream0.164.0. Older operating numbers below identify their
+Base124/upstream0.165.0. Older operating numbers below identify their
 original observations, not a fresh device read.
 Official latest is rust-v0.165.0, published2026-10-27T20:09:38Z.
 The previous `manual-build-0.165.0` referenced request run40665419861. Its successful advance
@@ -258,7 +286,7 @@ relay/queue with server-held GitHub credentials; scheduled discovery alone canno
 guarantee an immediate request and no such relay is currently shipped. Keep the
 existing credential-free asset redirect independent of dispatch authority.
 
-Implementation order: privately qualify0.165 runtime/frontend and request/result
+Original request-replay preparation order: privately qualify0.165 runtime/frontend and request/result
 handling; stage the corrected Core on0.164 through the existing authenticated
 local-derived construction, retaining the admitted same-version Manager/TUI and
 public update authority. Prepare an accepted exact main caller/product pointer
@@ -386,8 +414,9 @@ The evidence root is ~/.cache/codex/acceptance/update-pipeline-20261028. Exact
 official0.165 source/package preparation, hosted builds and isolated actual Android
 runtime/Full/update proofs pass. Final source7f557c208856 passed Source Acceptance
 40722939098 and Core/runtime qualification40723105605, including Android executable
-smoke. Live preparation retains0.164; actual public0.165 delivery/installation awaits
-the user's request. Anonymous missing-build requests remain unimplemented; request
+smoke. Live preparation retains0.164; Base0.165 is now publicly delivered but
+actual device installation remains for the user. Full0.165 publication is unresolved.
+Anonymous missing-build requests remain unimplemented; request
 submission still uses the existing GitHub-authorized path.
 
 Qualified replay-specific fixes: plain signed-channel lookup
@@ -440,9 +469,9 @@ update authority and baseline123 are retained; no hold or sequence floor was low
 The exact old request40665419861 receipt is preserved as
 live-preparation/manual-build-0.165.0-before-replay; its active deduplication entry
 was removed only after confirming there is no new active request. The live plain
-`codex update` has deliberately not been executed. The user's first real request,
-hosted publication/download/install and physical terminal observation remain the
-next acceptance boundary, not an outcome inferred from these isolated trials.
+`codex update` was deliberately not executed during that preparation. The later
+real request and partial publication are recorded above; actual user installation
+and physical terminal observation remain separate acceptance boundaries.
 Completed hosted-replay fixture payloads were archived/pruned with
 hosted-replay-fixture-cleanup.jsonl, retaining results and restore records for
 about907MB. The current and rollback installations were preserved.
