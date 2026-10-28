@@ -2,7 +2,7 @@
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
 delivery and remaining work. Latest maintenance record: 2026-10-28 KST, from
-source2c47f9eaef8399ea4a0097e950153a1259f52e07 (Provider19), wrapper tunnel
+sourcee039d093d9054ff8e9b51fe95601ea92bbdcddcc (Provider20), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
 batch below includes bounded actual device activation with zero Provider-triggered
 model submissions. The separately identified Android user trial did invoke its
@@ -17,12 +17,12 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full121 and Provider19 are signed, publicly delivered and activated on this
+**Full121 and Provider20 are signed, publicly delivered and activated on this
 device. A1 entrance equivalence is partially qualified, not complete.** The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
-authenticated host and36 preserved works at the Provider19 activation boundary.
-That activation preserved16 protected files and9 existing Native owners. These are
+authenticated host and37 preserved works at the Provider20 activation boundary.
+That activation preserved16 protected files and12 existing Native owners. These are
 recorded observations, not a recheck on every documentation edit.
 New TUI launches include the catalog and fresh-home login corrections. Running
 clients retain their launch executable.
@@ -33,16 +33,16 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: address the observed finish-versus-later-Chat-final fidelity gap and close
-the actual-client A1 matrix below, then perform A2 common-responsibility
-extraction.** The actual Android claim→start recovery now passes file execution,
-Native completion and reopened TUI display; its missed live-final capture and
-ordinary-join coverage remain explicit below. Original host identity and
-unjoined requests remain visibility limits to investigate, not facts inferred
+**Next: address the remaining public-commentary/provenance gap and close the
+actual-client A1 matrix below, then perform A2 common-responsibility extraction.**
+Provider20 actual ordinary Android join after backend replacement, file execution,
+live TUI final and exact original final-text comparison pass at the scope below.
+Original host identity and unjoined requests remain visibility limits to investigate,
+not facts inferred
 from model arguments. Independent worker/native-child extensions follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
-The next source candidate rejects new assistant-authored report/final/native-call
+Provider20 rejects new assistant-authored report/final/native-call
 report/handoff text containing currently known private controls before emission
 or effect admission. It preserves public work IDs, code examples and full text,
 allows correction under the same unreserved call ID and retains admitted exact
@@ -58,10 +58,87 @@ new regression; the corrected fixture passes actual Native/TUI owner replacement
 no saved reads, rejection/correction/retry and exact rich public-final preservation.
 Disabling the exact rejection in disposable source fails both Broker and Native
 tests; the disposable source is restored and live source was never faulted.
-Evidence: public-text-{old-native,fixed-native,mcp-return,mutation} records under
-the maintenance root. Full source qualification, exact hosted-byte qualification,
-signed delivery/activation and an ordinary-model actual later-final comparison
-remain pending for this candidate. Operating versions remain Full121/Provider19.
+Evidence: public-text-{old-native,fixed-native,mcp-return,mutation,final-native,
+final-cold-operator} records under the maintenance root. The local complete Provider
+gate passes Rust/Clippy/optimized build,101 JavaScript and83 Python cases. Final
+Native/TUI continuity verifies the identical finish declaration/attachment policy;
+actual selected-control execution with a one-call Native budget rejects private
+progress, accepts the corrected same ID and completes the one effect. Source
+acceptance40594238624 passes at e039d093d9054ff8e9b51fe95601ea92bbdcddcc;
+Provider source/NDK qualification40594238510 and all eight scoped release gates
+pass. Exact NDK bytes pass same-work owner replacement and20→19→20 Native
+history/effects, three installed compositions, signed local/TLS packages, warm
+owned host cycles and fresh-home Native/TUI continuity. Signing40597062449 and
+complete ten-asset public readback pass. The disposable public19→20→19 consumer
+passes actual installation, three effects/retries, original history and high-water20
+retention. Non-forced stable promotion changes only the Provider pointers; actual
+activation verifies supervised PID27191, the same authenticated identity,37 work
+identities/phases,16 protected files and12 preexisting Native owners. Operating
+versions are Full121/Provider20. No Pro or Provider primary model call was used.
+
+Initial qualification failures are retained: the Native checker assumed unchanged
+finish descriptions, and the public consumer expected the prior release's
+high-water constant. Correct expectations now check the exact descriptions from
+each source, all other metadata unchanged, and sequence from the signed manifest.
+These were stale checker contracts; no production check was weakened. The original
+public readback/installation records remain beside their final accepted trials.
+
+The first operating cloud read exposes cached old finish metadata. One explicit
+same-connector refresh plus client cache invalidation updates registered and live
+finish descriptions to the current local declaration. All17 schemas/fixed hints
+match and37 works are read through the actual cloud route, with no model request
+or destination change. The cloud still omits all17 idempotentHint fields; host
+parallel scheduling is unproven. An older cold inspector profile failed before
+launching its refresh script; the separately qualified ready idle profile performs
+the one confirmed refresh. This does not establish universal cold-profile readiness.
+Evidence: public20-hosted-*.json, provider20-{release-input,promotion,device-activation},
+provider20-public-consumer-final.json and provider20-operating-web-mcp-qualified.json.
+Initial failure records remain under their original names.
+
+Actual Android qualification is armed on the original work98709cad… and
+thread01a17d98… with all10 prior public items unchanged. The unloaded thread's
+background-job API initially rejects the read; ordinary installed TUI resume then
+loads that exact thread and independently confirms idle state/no background jobs.
+Only its verified owned backend PID2115 is retired, with kernel-confirmed exit;
+other operating owners remain untouched. Ordinary installed TUI PID17700 opens
+the fresh backend and displays the original completed baseline. The bounded local
+observer streams raw terminal bytes before parsing, retains the original Native
+prefix and uses no saved-Chat timer or model submission. If observation fails
+while work settlement is unknown, the existing PTY keeper preserves the terminal.
+The user has been asked for one new PROVIDER20_ANDROID_JOIN on the existing Chat,
+using ordinary join, context acceptance, an exclusive test file and full finish.
+The user sent it from Android and reports the final completed. Ordinary join
+admits exactly one original input on the same work after backend replacement,
+without explicit claim/start or another Provider primary request. Context is
+accepted, one Native command exclusively creates/re-reads25 exact bytes, the work
+settles completed/idle with no pending calls, and the final marker appears in the
+actual running installed TUI viewport. All10 prior items remain unchanged; the
+complete history has16 items. The observer then closes only its own settled TUI,
+with no parser failure. This is live-final proof, unlike the earlier19 recovery's
+reopened-only final observation.
+
+One explicit two-page original readback covers313 unique messages on exact branch
+fddd5023-e216-4d0b-952b-d24d92a6217e. Original user
+bbb21c16-ba4f-450b-836a-e84140988b52 matches the Native task byte-for-byte. The
+codex_finish argument, Native final and original visible Chat final all match
+exactly:1,339 characters, ordinary gpt-6-thinking, finished_successfully/end_turn.
+No nonpublic48-hex control value appears in that final. One join, two attaches,
+one catalog, two reports, one execution and one finish are observed; no new work,
+claim/start, additional Provider primary or Pro use. Hidden/unsupported content
+remains incomplete; pixel-level Android observation is the user's report, while
+the terminal evidence is actual PTY/TUI execution.
+
+This closes that scoped ordinary-join/file/live-final/exact-answer trial, not all
+A1 provenance. All three Native progress texts exactly match the submitted two
+reports and one execution report, but the three additional public Chat commentary
+messages do not all match those Native reports. Full arbitrary host-commentary
+capture and trusted original tool/message identity remain open; the final-copy
+instruction is not a deterministic host guarantee. The comparison uses exact
+conversation/branch/message IDs and a unique trial input, not a fixed message
+count: the earlier branch's hidden final suffix is not its new user's ancestor.
+Evidence: provider20-actual-android-final.json, the two original private Chat pages,
+provider20-installed-a1-armed.json and original provider20-* records under
+codex-a1-installed-54tmdqfl. No saved-Chat timer is reintroduced.
 
 Startup ownership and current tunnel maintenance milestones2a/2b are complete
 at the source, actual Android, cloud and operating-activation boundaries below.
@@ -221,15 +298,18 @@ both report the same completion marker, but this is not exact-final equivalence.
 The model also included a private controller capability in its Native finish text;
 the saved-Chat public reader redacts it. Retain the private originals, do not copy
 that capability into documentation, and review the existing public-output boundary
-when addressing final fidelity. Recovery success does not close either finding.
+when addressing final fidelity. That Provider19 recovery closed neither finding.
+Provider20 adds current-value admission for new Native public control text above;
+actual later host-final equivalence was unqualified by that19 recovery. The new20
+ordinary Android trial above qualifies one exact1,339-character final.
 Evidence: provider19-actual-android-recovery.json, provider19-recovery-original-chat*
 private records, provider19-installed-recovery-observer.log,
 provider19-recovery-reopened-tui.json, terminal-wide-cell-regression.json,
 terminal-renderer-{final-native-continuity,python-check,diagnostics-tests} records
 under the maintenance evidence root.
 
-The existing operating cloud route also passes a zero-refresh17-tool schema/
-annotation read and36-work listing under Provider19. It omits all17 idempotentHint
+At Provider19 activation, the existing operating cloud route passed a zero-refresh
+17-tool schema/annotation read and36-work listing. It omits all17 idempotentHint
 fields as before; this does not prove host scheduling behavior.
 Evidence: provider19-{release-input,public-consumer,promotion,device-activation,
 operating-web-mcp}.json, join-hosted-*.json,
@@ -406,20 +486,20 @@ provider18-operating-web-mcp.json under the service/tunnel root.
 
 | Plane | Last verified state and boundary |
 | --- | --- |
-| Product source | Provider2c47f9e; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
+| Product source | Providere039d09; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
 | Core | Full121: local-relay-hosted-0-164-0-e3f6e27f0ca6-s121; actual normal Full119→121 update; prior119 retained |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
 | TUI | Frontend source79b9d66; hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations and lint proof40517442561; installed fresh-home resume passes |
-| Provider | chatgpt-2c47f9eaef83-s19, source2c47f9e, high-water19/previous18; actual signed update and profile rebinding |
-| Service/host | At latest activation: actual Provider PID15925 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
-| Preserved state | Provider19 activation preserved36 work identities/phases,16 protected files and9 existing Native owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
-| Operating MCP | Provider17 refresh/cache invalidation fixed all17 registered flags; Provider19 zero-refresh cloud read confirms all17 fixed flags/full schemas and36 works. Cloud omits idempotentHint |
+| Provider | chatgpt-e039d093d905-s20, sourcee039d09, high-water20/previous19; actual signed update and profile rebinding |
+| Service/host | At latest activation: actual Provider PID27191 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
+| Preserved state | Provider20 activation preserved37 work identities/phases,16 protected files and12 existing Native owners. Provider19 preserved36 works/9 owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
+| Operating MCP | Provider20 one-refresh readback:17 full schemas/fixed flags, current registered/live finish description and37 works; same connector/tunnel. Cloud omits idempotentHint |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
-| Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, SHA082d7b04…; runit restarts it during Provider maintenance, latest wrapper PID28289. Original activation child PID15754 is historical; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
+| Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, SHA082d7b04…; runit restarts it during Provider maintenance, each activation records its actual process identity. Prior child PIDs are historical; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
-Provider19 binary SHA256:
-9c98e79f4f819555d337b03b28c81e9154f78a82fca56b58804298c4b8639558.
+Provider20 binary SHA256:
+1fe2befaf5c480893b7b2135dfa70501f31f1a64bf21451850ebf644d3b63694.
 Wrapper-built tunnel binary SHA256:
 082d7b0485652b73640665e8cd6767f65b6ec88e0bd1c6b8c449085d8965e9ed.
 Package selection, generated-profile binding, actual service image, authenticated
@@ -443,7 +523,7 @@ host readiness, Native commit and active/physical UI display are separate facts.
 | Source independence | Provider-owned public checkpoint/summary format; retired adapter/parser/ocx1/template dependency removed | Native upstream and actual third-party notices remain; no new claim of external legal review |
 | Native tools/controls | Original call/result identities, scoped owner/context/approval, durable receipts, result recovery, Stop/handoff and queue consumption checks | Queue ACK is separate from actual consumption; uncertain delivery never authorizes replay |
 | Project/TZ | Authenticated explicit project create/reuse for new lanes; Core supplies Android TZif to runtime/TUI, Seoul/New York DST and picker proof | Changing default project does not move an existing Chat; old processes keep launch TZ |
-| Packages/composition | Signed Full121/Provider19 (earlier composition proof119/15), Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
+| Packages/composition | Signed Full121/Provider20 (earlier composition proof119/15), Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
 
 Direct means the active ChatGPT response uses Native tools without Provider
 submitting a new primary inference. Provider means Provider starts/manages a model
@@ -602,10 +682,10 @@ separate proof boundaries. Do not mark a missing boundary green from another.
 | Original acceptance scenario | Available proof | Next actual-product proof |
 | --- | --- | --- |
 |1 CLI→Chat→Native | Actual ordinary CLI/SDK UUID/model/final and restart | Current installed frontend/live display and later app follow-up on same work |
-|2 Existing Chat direct input | Actual ordinary Android Bridge-first context/effect/final/TUI; Provider19 same-work claim→start recovery after the retained18 failure | Ordinary web input, actual-client ordinary join after owner replacement and repeated Android/CLI round trips with exact original comparison |
+|2 Existing Chat direct input | Ordinary Android20 join after owned backend replacement; exact original input, context/effect/live final; retained19 recovery/18 failure | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
 |3 No duplicate inference/effect | Actual Native retries/concurrent identical join, one Android Direct turn | Concurrent distinct entrances, uncertain reply/reconnect; count actual submissions/effects, not just ACKs |
-|4 Complete public provenance | Native task/progress/tool/result/final; Provider-owned wire references; actual recovery original input matches once | Trusted host input/tool/branch identity or explicit unavailable result; actual recovery finish differs from later Chat final, so exact-final fidelity remains open |
-|5 Storage versus live display | Separate history/live/reopened TUI checks and Android trial; recovery stored final and ordinary reopened viewport pass | Recovery live final was not captured due to the fixed observer defect; display after active connection loss/transfer, canonical final once and full expandable progress remain required |
+|4 Complete public provenance | Native reports/results retained;20 original input matches once and submitted/Native/Chat finals match exactly1,339 characters | Unreported extra public Chat commentary, trusted host tool/message identity and arbitrary-original coverage remain open; the19 final mismatch is retained as historical failure |
+|5 Storage versus live display | Separate history/live/reopened checks;20 actual Android input/progress/result/final in active TUI, no observer error | Active connection loss/transfer, canonical final once and full expandable progress across further actual paths remain required;19 original missed live-final capture remains historical |
 |6 Restart/no omission | Cold Native/service restart and signed code/state rollback | In-flight actual app/web disconnection plus later input and TUI reopen |
 |7 Missing participation | Source recovery can report execution_not_joined; unreceived input is invisible | Identify a supported host notification/explicit verification boundary; demonstrate honest recovery with no silent reinference/polling |
 |8 No unwanted work | Explicit selection/admission/source-reader rules | Ordinary unrelated Chat and task switch/reuse; verify work inventory and no unsolicited inference |
@@ -616,6 +696,30 @@ Large supported context/attachments/near-limit final snapshots also require
 lossless or explicit-unavailable behavior at the existing16MiB wire/32MiB decoded
 boundary. Short samples prove neither a leak nor long-term stability. Full physical
 Android viewer/touch/IME qualification remains separate from terminal/SDK tests.
+
+The next Android natural follow-up completed on the same existing work without
+an explicit work ID in the actual user input. Original source user
+bbb210cd-70d7-4038-a579-8f63bb3193b5 contains only the27-character marker
+PROVIDER20_NATURAL_FOLLOWUP. The model joined, accepted context, reported and
+finished; the580-character original Chat final3c062a84-afdd-4a60-851e-49d016b0a9ed
+matches the Native final exactly. The original16 Native items remain unchanged,
+with one user, one report and one final appended. No separate Provider inference
+was submitted; the current ChatGPT response itself performed this Direct work.
+This qualifies existing-work follow-up and final recording, not a file task:
+the prepared285-character file instruction was absent from the actual source,
+no command ran and provider20-natural.txt does not exist. See retained private
+provider20-natural-scoped-result.json and original source pages. Full A1 remains
+open, including a substantive natural task on the actual app path.
+
+For future manual tests, the user requests clean one-step prompt transfer.
+Preserve the exact UTF-8 prompt in $TMPDIR/codex-test.txt; do not use hard-wrapped
+Codex terminal selection or ask for manual whitespace cleanup. The command,
+native helper and installed com.termux.api package exist, but this clipboard
+setter exited0 while readback was empty. A prefix-only user confirmation did not
+establish delivery of the complete prepared text. The source comparison corrected
+the initial clipboard-delivery assumption; the original observation is preserved.
+The cause of the missing full prompt is unobserved. Before the next substantive
+trial, verify full prompt delivery, not merely its marker or setter exit code.
 
 ## Confirmed design, not implemented
 
@@ -756,7 +860,7 @@ client; no tunnel-version cause of the observed startup collision is established
 
 ### G product qualification
 
-Full121/Provider19 delivery and actual activation are complete at their recorded
+Full121/Provider20 delivery and actual activation are complete at their recorded
 scopes. Codex-only tunnel0.0.18 is activated as a qualified local-derived build;
 signed optional/Full tunnel distribution is not yet shipped. New substantive product changes require applicable checks, Android
 execution, exact-source signing/public readback/disposable update and non-forced
@@ -789,7 +893,25 @@ repository prerequisite. Signed composition, tunnel install/update ownership and
 migration remain a separate batch. Preserve independent published histories;
 main stays a caller pinned to accepted exact-source reusable release logic.
 
+That setup/update batch must also own MCP declaration-cache reconciliation.
+Provider20 demonstrates that a binary restart and local tools/list do not update
+the Chat host's cached declaration automatically. Compare actual consumer schemas,
+descriptions and fixed annotations against the selected provider; refresh the same
+verified connector once when they change, then read back. Preserve account/link/
+tunnel ownership and report pending verification when that host is unavailable;
+ordinary Core launch must remain independent. Derive public-consumer generation
+and high-water expectations from signed manifests, including intentional tool
+description changes, instead of copying release-specific qualification constants.
+
 ### Deferred Core follow-up
+
+Upstream discovery1c54418 prepares0.165.0 independently; it does not update this
+device or qualify its UDS behavior. Independent Core run40594324500 stops at
+`upstream UDS version requires fresh Termux qualification`. Preserve that guard
+and qualify0.165.0 separately before Core promotion. The Provider maintenance
+uses the operating Full121/0.164.0 Core; its Source acceptance is separate from
+this unaccepted Core candidate. No older qualified frontend pin was assigned to
+the newly discovered upstream merely to obtain a pass.
 
 Improve installed/target component source/version/date and bare-launch update
 choices with an explicit discovery/snooze contract amendment, separate from A1.
@@ -830,8 +952,9 @@ the actual builds, Native/cloud trials, publication and bounded activation state
 above. The original fresh-home login preflight failure is corrected, publicly
 delivered in Full121 and accepted by actual installed credential-free resume.
 Provider19's subsequent Android recovery passes its stated claim→start scope,
-while exact Chat/Native final equivalence remains open. Each result retains its
-actual inputs, environment and limitations. Remaining acceptance is the matrix
-above; Provider19/Full121 public
-activation is complete, whereas full A1, signed tunnel distribution and independent-
-child scenario10 remain open.
+and Provider20 qualifies actual ordinary Android join/live final plus exact
+submitted/Native/original Chat final text in one trial. Full host commentary and
+arbitrary provenance remain open. Each result retains its actual inputs,
+environment and limitations. Remaining acceptance is the matrix above.
+Provider20/Full121 public activation is complete, whereas full A1, signed tunnel
+distribution and independent-child scenario10 remain open.
