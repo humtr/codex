@@ -38,6 +38,13 @@ paths. Saving an answer is separate from live TUI display. The
 [current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
 the remaining gaps; a client restart does not implement their repair.
 
+Installed Provider21 passes scoped Android→CLI→Android same-work continuity and
+plain-prompt automation through `chat_input`. Automated input uses the configured
+Provider model/effort; it does not inherit the Android app's selected settings.
+Original public text and live terminal output are checked separately. Ordinary
+web-client input, broader failure/control cases and original host provenance
+remain distinct qualification work; see [actual trial scope](CURRENT.md#activated-provider21-complete-direct-progress-guidance).
+
 ## Start here
 
 Install **Full** for the usual terminal experience (Core, Manager and TUI).

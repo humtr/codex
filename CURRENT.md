@@ -34,8 +34,11 @@ Explicit `source_sync`/`source_join` retain original-source verification/recover
 a development binding enables no automatic saved-history polling.
 
 **Next: the requested next-Core release-information source work is complete.
-Provider21 device/cloud transition passes; complete its actual Android public-
-commentary comparison. The prior cold-host failure remains a separate unresolved
+Provider21 device/cloud transition and scoped Android→CLI→Android public-text/live
+TUI round trips pass. Plain-input automation through chat_input also passes on
+the original Chat and same Native work. Continue the remaining actual-client A1
+matrix, including Chat-origin Provider result return and control/failure cases.
+The prior cold-host failure remains a separate unresolved
 lifecycle finding; the successful current activation did not reproduce it.
 Close the actual-client A1 matrix before A2 common-responsibility extraction.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
@@ -370,23 +373,70 @@ account/profile process was stopped. Its later verified completion permits21
 activation. Code: operator.rs app_route/exchange_inner/join,
 operator_native.rs Pool::prepare and registration.rs native_routing.
 
-The installed21 Android trial was armed on the original work98709cad… and
-thread01a17d98… with all25 prior items unchanged and the actual installed TUI
-showing its previous completion. The observer uses only local Native history;
-no saved-Chat timer or extra primary inference is added. The239-character/389-byte
-PROVIDER21_PUBLIC_PROGRESS prompt requests one exclusive file/re-read plus full
-public work reporting on that same task, with no explicit join recipe or Pro.
-Automatic clipboard write succeeds but readback is empty, so content delivery is
-unverified; the foreground command termux-clipboard-set < "$TMPDIR/q" copies the
-prepared file verbatim. The user has been asked for one ordinary Android input.
-Default Python lacks pyte and fails before touching runtime; the existing qualified
-qualification-python environment arms the actual observer successfully. No global
-Python installation or product code was changed. Evidence: provider21-progress-
-{installed-a1-armed,clipboard,prepared-prompt} and the raw trial records.
-The bounded30-minute observer window expires without receiving input and closes
-only its idle test TUI (exit-15). No Android pass is claimed; arm a fresh observer
-before the real-client trial. Actual input, live final and original-commentary
-equality remain pending.
+Actual installed21 trials now pass on original work98709cad… and
+thread01a17d98…. The first30-minute observer expired without input; its failed
+qualification is preserved. Rearmed observers use only local Native history and
+actual installed PTY/TUI output: no saved-Chat timer or extra primary inference.
+Each completed observer closes only its settled test TUI (exit-15).
+
+| Actual entrance | Native items | Original public-text comparison and effect |
+| --- | --- | --- |
+| Android PUBLIC_PROGRESS |25→32 |239-character input exact; all3 source commentary texts once/in order; final1,505 characters exact; exclusive21-byte file/re-read |
+| Installed CLI after Direct |32→36 |238-character input exact; final775 characters exact; one command revalidates the prior file; one legitimate Provider dispatch |
+| Original Android Chat after CLI |36→42 |263-character input exact; both source commentary texts once/in order; final1,838 characters exact; exclusive13-byte roundtrip file/re-read |
+| Automated plain input in original Chat |42→48 |228-character input exact; final1,493 characters exact; exclusive17-byte automatic prompt file/re-read; one Direct turn |
+
+All four preserve the complete preceding Native prefix, settle completed with no
+pending calls and show a distinctive final-only line in the running installed TUI.
+This witness cannot be satisfied by the completion marker copied from the user
+prompt. Native retains additional execution reports (respectively4/1/3/3 progress
+items); source-visible commentary counts are3/0/2/0. These reports do not establish
+unavailable host text or trusted original tool provenance. User confirms both
+Android requests and the ROUNDTRIP_COMPLETE final in the app; PTY evidence is not
+a physical screenshot/touch qualification.
+
+The CLI leg uses separate Chat6ae17e52… while retaining the same Native work.
+Android and automated plain input use original Chat6adfba30…. Thus this is same-work
+continuity across Chats, not a1:1 Chat/thread rule. Android source metadata says
+gpt-6-thinking; CLI/automated source says gpt-6. This does not prove identical
+request settings or explain any backend-label difference.
+
+For the automated leg, existing chat_input sends exactly one visible user task,
+no extra developer instructions, no prestarted Native turn and no new work or
+delegation. Stable call_id/source cursor and finite one-start budget remain
+internal delivery controls. Model/effort come from effective Provider configuration,
+not automatic inheritance of Android's UI selection. One chat_result call with
+max_wait_seconds=0 after Native completion returns the saved original suffix and
+releases its settled lane without resending. The captured405-message prefix plus
+20-message suffix cover425 messages. These bounded original reads are distinct
+from automatic saved-history polling. No Pro call was used.
+
+scripts/verify_chat_native_text.py compares original account/conversation/branch,
+complete pagination/ancestry, exact input/public progress/final, one new Native
+turn and the unchanged prefix. It can consume a completed chat_result suffix that
+exactly extends captured source pages; it rejects unmatched delivery prefixes or
+hidden-terminal normalization without its captured delivery prefix. It proves
+available public text, not tool identity or live pixels. The separate observer
+proves running TUI output. The first roundtrip comparison correctly rejects an
+incomplete two-page capture; the accepted capture includes all3 pages/405 messages.
+The historical Provider20 natural-file case remains a negative control: exact
+input/final alone cannot pass when3 original commentary texts are missing.
+The selected Python gate passes151 tests (25 script,114 release/workflow and12
+Manager/TUI cases). Five verifier cases include rich multiline text, original
+pagination/identity, exact saved-input suffix admission and CLI line endings.
+Disposable removal of the progress-match requirement produces4 assertion failures;
+the copy is restored and removed, without faulting live source or runtime.
+All3 manual/CLI originals pass the final checker; the historical negative remains
+rejected and the automatic suffix comparison passes separately. Docs/diff checks
+pass. There is no product source or installed binary change in this batch.
+
+Evidence: provider21-{progress,cli-after-direct,roundtrip,auto}-original-text-
+comparison records at the maintenance root; roundtrip uses the -complete result.
+Raw Native histories, statuses and terminal output remain under
+$TMPDIR/codex-a1-installed-54tmdqfl. provider21-progress-distinct-final-viewport
+retains the stronger final witness. Automatic receipt/result, prepared prompts and
+original paginated readbacks remain private at the maintenance root. Default
+Python lacks pyte; observers reuse qualification-python without installing packages.
 
 The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
 Evidence: provider21-promotion, provider21-activation-recovery and provider21-
@@ -397,8 +447,8 @@ $TMPDIR/activate-provider21-kklx2tso; provider21-wrlab-active-history-private
 retains the earlier Native observation.
 direct-progress-*, public21-hosted-*, provider21-release-input and
 provider21-public-consumer retain their narrower accepted scope.
-Actual host compliance requires a later original-commentary comparison and must
-not be inferred from a policy string. No universal host capture is claimed.
+Actual host compliance passes the bounded original-commentary comparisons above;
+it is not inferred from a policy string. No universal host capture is claimed.
 
 ## Delivered A1 correction: owner replacement and actual Android recovery
 
@@ -877,11 +927,11 @@ separate proof boundaries. Do not mark a missing boundary green from another.
 
 | Original acceptance scenario | Available proof | Next actual-product proof |
 | --- | --- | --- |
-|1 CLI→Chat→Native | Actual ordinary CLI/SDK UUID/model/final and restart | Current installed frontend/live display and later app follow-up on same work |
-|2 Existing Chat direct input | Ordinary Android20 explicit join and full natural file follow-up on the same work; exact source/context/effect/live final; retained19 recovery/18 failure | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
+|1 CLI→Chat→Native | Installed21 CLI after Android: exact input/final, actual command, live final, one Provider dispatch; subsequent original Android follow-up on same work | Chat-origin Provider original-result return and further control/failure paths |
+|2 Existing Chat direct input | Android21 public progress and Android→CLI→Android loop; automated plain input on original Chat; exact source/context/effect/live final | Ordinary web client input and further restart/control/branch cases; SDK injection is not Android-client proof |
 |3 No duplicate inference/effect | Actual Native retries/concurrent identical join, one Android Direct turn | Concurrent distinct entrances, uncertain reply/reconnect; count actual submissions/effects, not just ACKs |
-|4 Complete public provenance | Native reports/results retained;20 original input matches once and submitted/Native/Chat finals match exactly1,339 characters | Unreported extra public Chat commentary, trusted host tool/message identity and arbitrary-original coverage remain open; the19 final mismatch is retained as historical failure |
-|5 Storage versus live display | Separate history/live/reopened checks;20 actual Android input/progress/result/final in active TUI, no observer error | Active connection loss/transfer, canonical final once and full expandable progress across further actual paths remain required;19 original missed live-final capture remains historical |
+|4 Complete public provenance |21 exact original inputs/finals and all available source commentary once/in order in4 trials;20 missing-commentary case rejected by the same checker | Trusted host tool/message identity and arbitrary-original coverage remain open; unavailable/hidden text is not claimed; historical19/20 failures preserved |
+|5 Storage versus live display | Separate history and actual installed PTY/TUI witnesses in all4 current trials; final-only witness excludes user-marker false positives | Active connection loss/transfer and full expandable progress across further paths; physical Android viewer/touch remains separate |
 |6 Restart/no omission | Cold Native/service restart and signed code/state rollback | In-flight actual app/web disconnection plus later input and TUI reopen |
 |7 Missing participation | Source recovery can report execution_not_joined; unreceived input is invisible | Identify a supported host notification/explicit verification boundary; demonstrate honest recovery with no silent reinference/polling |
 |8 No unwanted work | Explicit selection/admission/source-reader rules | Ordinary unrelated Chat and task switch/reuse; verify work inventory and no unsolicited inference |
@@ -1189,9 +1239,9 @@ the actual builds, Native/cloud trials, publication and bounded activation state
 above. The original fresh-home login preflight failure is corrected, publicly
 delivered in Full121 and accepted by actual installed credential-free resume.
 Provider19's subsequent Android recovery passes its stated claim→start scope,
-and Provider20 qualifies actual ordinary Android join/live final plus exact
-submitted/Native/original Chat final text in one trial. Full host commentary and
-arbitrary provenance remain open. Each result retains its actual inputs,
+and Provider21 qualifies Android/CLI round trips plus automated plain input, with
+exact available original public text and separate installed live-TUI proof.
+Arbitrary provenance remains open. Each result retains its actual inputs,
 environment and limitations. Remaining acceptance is the matrix above.
-Provider20/Full121 public activation is complete, whereas full A1, signed tunnel
+Provider21/Full121 public activation is complete, whereas full A1, signed tunnel
 distribution and independent-child scenario10 remain open.
