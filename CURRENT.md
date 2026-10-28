@@ -370,7 +370,7 @@ account/profile process was stopped. Its later verified completion permits21
 activation. Code: operator.rs app_route/exchange_inner/join,
 operator_native.rs Pool::prepare and registration.rs native_routing.
 
-The installed21 Android trial is armed on the original work98709cad… and
+The installed21 Android trial was armed on the original work98709cad… and
 thread01a17d98… with all25 prior items unchanged and the actual installed TUI
 showing its previous completion. The observer uses only local Native history;
 no saved-Chat timer or extra primary inference is added. The239-character/389-byte
@@ -383,7 +383,10 @@ Default Python lacks pyte and fails before touching runtime; the existing qualif
 qualification-python environment arms the actual observer successfully. No global
 Python installation or product code was changed. Evidence: provider21-progress-
 {installed-a1-armed,clipboard,prepared-prompt} and the raw trial records.
-Actual input, live final and original-commentary equality remain pending.
+The bounded30-minute observer window expires without receiving input and closes
+only its idle test TUI (exit-15). No Android pass is claimed; arm a fresh observer
+before the real-client trial. Actual input, live final and original-commentary
+equality remain pending.
 
 The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
 Evidence: provider21-promotion, provider21-activation-recovery and provider21-
