@@ -1388,6 +1388,16 @@ The Bridge-first path must qualify exact input, context, tool/result,
 completion and display semantics before replacing the current source-follow
 path; existing source equivalence is not claimed while that work is unfinished.
 
+For Bridge/Direct progress, record every public progress message for the bound
+task verbatim before publishing it in ChatGPT. On joining, also record any public
+progress already shown for that task. Do not replace a longer public message with
+a shorter Native status or expose hidden reasoning. A native-call report can
+satisfy this requirement for that same message; do not emit an extra copy through
+codex_report. The report declaration, Direct attachment and Provider-driven
+control instructions must share one progress policy. This is model guidance,
+not automatic observation of arbitrary host messages; compare actual original
+commentary with Native records separately.
+
 For Bridge/Direct completion, prepare the full public final answer before calling
 codex_finish, submit that complete text, then return the same text unchanged in
 ChatGPT after successful settlement. This instruction must be available in the

@@ -26,6 +26,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
+const DIRECT_PROGRESS: &str = "Record and display every complete public progress message for this task verbatim in Native before publishing the same message in ChatGPT. On joining, also record public progress already shown for this task. Do not replace full public text with a shorter status, reduce reasoning or tool use, or expose hidden reasoning/private controls. If a native tool call's report already records that exact message, do not record it again with codex_report. Retry the same call_id and text after uncertain delivery. Submitted reports are not independently observed host messages.";
 const DIRECT_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
 const LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v2";
@@ -2589,10 +2590,9 @@ impl Operator {
             }
             self.persist(&work.record)?;
         }
-        let completion = self
+        let direct = self
             .app_route(&record, record.native_turn.as_deref())?
-            .is_none()
-            .then_some(DIRECT_COMPLETION);
+            .is_none();
         let works = self.works.lock().await;
         let work = works.get(&record.thread).unwrap();
         Ok(
@@ -2600,7 +2600,8 @@ impl Operator {
             "summary":summary,"incremental_history":history[count..],"cursor":Self::cursor(&history),"receipt":receipt,
             "incremental_context":context[context_count..],"context_cursor":Self::cursor(&context),
             "accepted":work.record.accepted,"instructions":work.request.as_ref().map(|request|&request.instructions),
-            "completion":completion,
+            "progress":direct.then_some(DIRECT_PROGRESS),
+            "completion":direct.then_some(DIRECT_COMPLETION),
             "native_context":work.record.phase,"return_bound":record.origin=="codex"}),
         )
     }
@@ -4952,7 +4953,7 @@ impl Operator {
                 self.config.transport.connector_name
             )
         };
-        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. {DIRECT_COMPLETION} The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
+        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. {DIRECT_PROGRESS} {DIRECT_COMPLETION} The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
         {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -5937,7 +5938,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
         ("codex_execute", "Execute one advertised native tool under upstream approvals and return its original result. Reuse exact call_id/name/input/report on delivery retries.", "work_id controller call_id name input report", "work_id controller call_id name input report"),
         ("codex_answer", "Forward the user's supplied answer to a pending native question. This cannot answer approval/reviewer requests.", "work_id controller request_id answers", "work_id controller request_id answers"),
-        ("codex_report", "Record and display a public progress report in the bound native CLI. Retry the same call_id and text after uncertain delivery.", "work_id controller call_id text", "work_id controller call_id text"),
+        ("codex_report", DIRECT_PROGRESS, "work_id controller call_id text", "work_id controller call_id text"),
         ("codex_finish", DIRECT_COMPLETION, "work_id controller call_id text", "work_id controller call_id text"),
         ("codex_status", "Observe native execution, unresolved calls, human requests and unknown host progress.", "work_id", "work_id"),
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id"),

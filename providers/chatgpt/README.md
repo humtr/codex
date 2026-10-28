@@ -632,6 +632,12 @@ current context through `codex_attach` before tools; use `codex_report` and
 `codex_finish` for full submitted progress/final. Exact retries reuse their
 receipt. Busy, stopped and unreconciled works are rejected, not taken over.
 Submitted text is not falsely labelled as an unobserved ChatGPT original.
+Record each full public progress message verbatim before showing it in ChatGPT;
+on joining, also record progress already shown for the same task. The Direct
+attachment's `progress` policy and report declaration share one definition.
+A native tool's report can carry that same message without a second report call.
+This preserves public detail and does not request hidden reasoning. Actual host
+commentary still requires independent comparison; the policy is model guidance.
 Prepare the complete public answer before `codex_finish`, then return that same
 text unchanged in ChatGPT after success. The tool declaration and attachment
 provide one common completion instruction; its presence does not prove that a

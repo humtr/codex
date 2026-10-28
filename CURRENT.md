@@ -38,8 +38,8 @@ actual-client A1 matrix below, then perform A2 common-responsibility extraction.
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
-not facts inferred
-from model arguments. Independent worker/native-child extensions follow A2.
+not facts inferred from model arguments. Independent worker/native-child extensions
+follow A2.
 Delivered TZif/KST, canonical names and signed release/activation are not reopened.
 
 Provider20 rejects new assistant-authored report/final/native-call
@@ -203,6 +203,29 @@ returned35 works and17 matching full schemas including join, with zero metadata
 refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
+
+## Source candidate: complete Direct public progress
+
+The original Android comparison shows that admitted reports are preserved, but
+additional Chat commentary is not necessarily submitted as the same text. The
+candidate adds one DIRECT_PROGRESS definition consumed by codex_report's
+declaration, Direct codex_attach.progress and Provider-driven control instructions.
+It requests every complete public progress message verbatim, including preceding
+same-task progress at join, and reuses a native-call report rather than emitting
+a second copy for the same message. Final, tool, authority and retry paths are
+unchanged; no poller, extra model request, new runtime mode or transcript store is
+added. Source/model-adapter attachment leaves this Direct policy null.
+
+This is a source candidate, not an activated replacement for Provider20. The old
+actual Native fixture fails the updated consumer because its Direct attachment
+has no progress policy. The affected continuity proof compares declaration versus
+attachment and verifies rich multiline progress as one exact Native item after
+retry. Actual Native/TUI continuity passes two same-work inputs, service restart,
+owned backend replacement and live finals with zero saved-Chat reads or added
+primary inference. Full Provider checks and a disposable missing-policy mutation
+are in progress. Evidence: direct-progress-{old-native,fixed-native}.log/json.
+Actual host compliance requires a later original-commentary comparison and must
+not be inferred from a policy string. No universal host capture is claimed.
 
 ## Delivered A1 correction: owner replacement and actual Android recovery
 
@@ -682,7 +705,7 @@ separate proof boundaries. Do not mark a missing boundary green from another.
 | Original acceptance scenario | Available proof | Next actual-product proof |
 | --- | --- | --- |
 |1 CLI→Chat→Native | Actual ordinary CLI/SDK UUID/model/final and restart | Current installed frontend/live display and later app follow-up on same work |
-|2 Existing Chat direct input | Ordinary Android20 join after owned backend replacement; exact original input, context/effect/live final; retained19 recovery/18 failure | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
+|2 Existing Chat direct input | Ordinary Android20 explicit join and full natural file follow-up on the same work; exact source/context/effect/live final; retained19 recovery/18 failure | Ordinary web input and repeated Android/CLI round trips with exact original comparison |
 |3 No duplicate inference/effect | Actual Native retries/concurrent identical join, one Android Direct turn | Concurrent distinct entrances, uncertain reply/reconnect; count actual submissions/effects, not just ACKs |
 |4 Complete public provenance | Native reports/results retained;20 original input matches once and submitted/Native/Chat finals match exactly1,339 characters | Unreported extra public Chat commentary, trusted host tool/message identity and arbitrary-original coverage remain open; the19 final mismatch is retained as historical failure |
 |5 Storage versus live display | Separate history/live/reopened checks;20 actual Android input/progress/result/final in active TUI, no observer error | Active connection loss/transfer, canonical final once and full expandable progress across further actual paths remain required;19 original missed live-final capture remains historical |
@@ -707,12 +730,36 @@ with one user, one report and one final appended. No separate Provider inference
 was submitted; the current ChatGPT response itself performed this Direct work.
 This qualifies existing-work follow-up and final recording, not a file task:
 the prepared285-character file instruction was absent from the actual source,
-no command ran and provider20-natural.txt does not exist. See retained private
+no command ran and provider20-natural.txt was absent at that boundary. See retained private
 provider20-natural-scoped-result.json and original source pages. Full A1 remains
-open, including a substantive natural task on the actual app path.
+open; the corrected substantive natural task is qualified separately below.
 
-For future manual tests, the user requests clean one-step prompt transfer.
-Preserve the exact UTF-8 prompt in $TMPDIR/codex-test.txt; do not use hard-wrapped
+The corrected Android trial supplies the full251-character PROVIDER20_NATURAL_FILE
+instruction without an explicit work ID or API recipe. Original user
+bbb213ce-0f88-4d21-b3f2-315c9b9fb1c3 equals the prepared source and admitted Native
+input. One join selects the existing work; two attaches accept its current context,
+then one command creates/re-reads provider20-natural.txt as exactly17 bytes,
+natural followup followed by LF. All19 prior Native items remain unchanged;
+Native has25 items and settles completed/idle without pending calls. The running
+installed TUI shows the final before its owned observer closes without error.
+One explicit two-page readback covers353 original messages on exact branch/final
+9099241e-f136-4075-9a78-f9e8b1475c57; submitted finish, Native and original Chat
+final match all1,359 characters. The ordinary gpt-6-thinking response issues no
+additional Provider primary request. Three submitted Native progress messages
+remain exact, but the three original host commentary messages do not all match;
+that separately reproduced gap motivates the source candidate above. Evidence:
+provider20-natural-file-{native-result,final-result}.json, original source pages
+and retained provider20-natural-file-* Native/PTY records. This closes the file
+trial omitted by the marker-only delivery, not the remaining full A1 matrix.
+
+For future manual tests, the user requests automatic clipboard copying plus a
+clean one-step fallback. Attempt termux-clipboard-set automatically when preparing
+each new prompt, verify full readback when available, and report an unverified
+write honestly. If needed, provide the short foreground fallback command in its
+own code block, separated from explanation; $TMPDIR/q is a verified symlink to
+the canonical prompt. Require the full instruction and final suffix in the app,
+not just the first marker. Preserve the exact UTF-8 prompt in $TMPDIR/codex-test.txt;
+do not use hard-wrapped
 Codex terminal selection or ask for manual whitespace cleanup. The command,
 native helper and installed com.termux.api package exist, but this clipboard
 setter exited0 while readback was empty. A prefix-only user confirmation did not

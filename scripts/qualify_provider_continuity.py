@@ -197,6 +197,7 @@ def probe(args):
             with urllib.request.urlopen(request, timeout=20) as response:
                 controls = json.load(response)['result']['tools']
             completion = next(tool['description'] for tool in controls if tool['name']=='codex_finish')
+            progress = next(tool['description'] for tool in controls if tool['name']=='codex_report')
             # The real CLI just completed Provider-origin execution. The next
             # requests arrive through authenticated MCP, not saved Chat reads.
             def source_reads():
@@ -292,10 +293,17 @@ def probe(args):
                 assert denied['error']=='private_control_in_public_text', denied
                 assert history()==before_public
                 assert accepted['completion']==completion
+                assert accepted['progress']==progress
                 report = {**bound, 'call_id':f'bridge-public-codex_report-{index}',
-                    'text':f'BRIDGE_FULL_PUBLIC_REPORT_{index} — public work {work["work_id"]}'}
-                rpc('codex_report', report)
+                    'text':f'BRIDGE_FULL_PUBLIC_REPORT_{index} — public work {work["work_id"]}\n'
+                        '기존 작업 문맥을 확인했습니다. 다음 도구 결과를 확인한 뒤 실제 변경을 검증합니다.\n'
+                        '```text\npublic example: controller="example"\n```\n'
+                        'Preserve this complete public message, including its final line.\n'}
+                recorded = rpc('codex_report', report)
                 assert rpc('codex_report', report)['reused']
+                public_items = [row['item'] for row in history()
+                    if row['item'].get('id')==recorded['native_item']]
+                assert len(public_items)==1 and public_items[0]['text']==report['text']
                 tools = rpc('codex_tools',bound)['tools']
                 name = next(name for name in tools if name.rsplit('.',1)[-1]=='exec_command')
                 effect = {**bound,'call_id':f'bridge-effect-{index}','name':name,
@@ -368,6 +376,8 @@ def probe(args):
                 'private_native_report_rejected_before_effect':True,
                 'corrected_public_text_same_unreserved_id_then_exact_retry':True,
                 'full_public_final_unicode_examples_and_work_id_unchanged':True,
+                'full_public_progress_multiline_exact_once_after_retry':True,
+                'same_progress_instruction_in_declaration_and_attachment':True,
                 'same_completion_instruction_in_declaration_and_attachment':True,
                 'actual_web_or_android_chat_client':False,'supplied_completion_is_not_observed_chat_final':True,
                 'fresh_native_home_without_openai_credentials':bool(args.fresh_auth_home),
