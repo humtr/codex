@@ -14,6 +14,50 @@ import release_control as control
 
 
 class ReleaseControlTests(unittest.TestCase):
+    def test_nested_runtime_workflow_change_requires_a_new_accepted_caller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def git(*args):
+                return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
+            git('init');git('config','user.name','Owned');git('config','user.email','owned@example.invalid')
+            for name in ['auto-release-termux.yml','qualify-termux-runtime.yml','termux-runtime-source.yml']:
+                path=root/'.github/workflows'/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('accepted '+name+'\n')
+            (root/'scripts').mkdir();(root/'scripts/pin_release.py').write_text('accepted caller\n')
+            git('add','.');git('commit','-qm','accepted implementation');accepted=git('rev-parse','HEAD')
+            caller=('uses: humtr/codex/.github/workflows/auto-release-termux.yml@'+accepted+'\n')*2
+            run=subprocess.run
+            def without_network(command,**kwargs):
+                if 'fetch' in command:return subprocess.CompletedProcess(command,0,b'',b'')
+                return run(command,**kwargs)
+            with patch.object(control,'api',return_value={'content':base64.b64encode(caller.encode()).decode()}),\
+                 patch.object(control.subprocess,'run',side_effect=without_network):
+                self.assertTrue(control.caller_compatible(root,'a'*40))
+                path=root/'.github/workflows/termux-runtime-source.yml';path.write_text('different runtime producer\n')
+                git('add','.');git('commit','-qm','new runtime implementation')
+                self.assertFalse(control.caller_compatible(root,'a'*40))
+
+    def test_exact_failed_proof_is_reported_without_waiting_or_repeating_dispatch(self):
+        sha='a'*40;root=Path(__file__).resolve().parents[2]
+        def api(path,**kwargs):
+            if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
+            if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
+            self.fail('unexpected authority access '+path)
+        failed={'id':42,'path':'.github/workflows/core-runtime-qualification.yml','head_sha':sha,
+                'head_branch':'rewrite/rust-core','event':'push','status':'completed',
+                'conclusion':'failure','repository':{'full_name':'humtr/codex'}}
+        for status in ['completed','in_progress']:
+            with self.subTest(status=status), patch.object(control.subprocess,'check_output',return_value=sha+'\n'),\
+                 patch.object(control,'api',side_effect=api),patch.object(control,'same_product_inputs',return_value=False),\
+                 patch.object(control,'successful_run',side_effect=[({'id':1},[]),(None,[{**failed,'status':status}])]),\
+                 patch.object(control,'dispatch') as dispatch,patch.object(control,'commit_files') as commit:
+                result=control.run(root)
+                self.assertEqual(result['state'],'qualification-failed' if status=='completed' else 'awaiting-exact-proof')
+                if status=='completed':
+                    self.assertEqual(result['run_id'],42)
+                    self.assertEqual(result['url'],'https://github.com/humtr/codex/actions/runs/42')
+                dispatch.assert_not_called();commit.assert_not_called()
+
     def test_only_exact_owned_successful_runs_can_advance(self):
         sha='a'*40
         run={'path':'.github/workflows/rald7-full-acceptance.yml','head_sha':sha,

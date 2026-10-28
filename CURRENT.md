@@ -17,7 +17,7 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full121 and Provider21 are signed, publicly delivered and activated on this
+**Full123 and Provider21 are signed, publicly delivered and activated on this
 device. A1 entrance equivalence is partially qualified, not complete.** The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
@@ -26,6 +26,8 @@ That activation preserved16 protected files and13 existing Native owners. These 
 recorded observations, not a recheck on every documentation edit.
 New TUI launches include the catalog and fresh-home login corrections. Running
 clients retain their launch executable.
+The latest Core readback is recorded in Priority0 below; older numbered proof
+descriptions retain the generation observed during those specific trials.
 
 Ordinary Bridge `join` now registers submitted input on the selected existing
 Native work, returns its controller/context and requires context acceptance before
@@ -286,17 +288,86 @@ The obsolete direct-Full builder witness was replaced by the source-runtime Base
 producer test: Full now consumes an authenticated Base, with its separate actual
 composition and frontend-acquisition tests retained.
 
-Pending qualification: hosted source gates, executable build, actual Android
-runtime/permissions, signing/readback/update and requested installation/rollback.
-The unpublished v7 byte-relocation prototype stays only until those source-runtime
-gates pass, then its product code/branches/tests must be removed together. Its
-derivation evidence stays in the owned temporary/proof workspace.
+Pending qualification: final hosted source gates, enhanced frontend tests,
+signing/readback/update and requested installation/rollback.
+The unpublished v7 byte-relocation prototype is now removed from product code,
+publication branches, version maps and tests after source-runtime device proof.
+Published policies through v6 remain for existing consumers; new source-runtime
+builds take the source policy. The prototype's derivation evidence stays in the
+owned temporary/proof workspace.
+
+Source e335e76 passed hosted source acceptance40704131656 and Provider source
+qualification40704131655. Hosted runtime job122871538712 in run40704131842
+successfully applied the automatic source transformation, compiled0.165 and
+executed its version probe. Run40704131842 then passed candidate construction and
+Android/bionic executable smoke. The unsigned raw runtime digest is
+1beb1def5ab1b7ee9260f0065c0298381e6cf144584d8b0d5a987faf393ed488; after the
+54-byte FD remap it is9fdcb79f566a8f4b69d8a18e9c4e44fc43c5f6c541a30f41078e360862e73a81.
+The real production builder packaged this actual hosted output with the original
+official companion and a disposable signing key. Actual Android shared/named
+permission menus, markers and shortcuts passed with no model turn, preserving
+same-thread native settings events. The lifecycle trial passed3 actual Android
+commands/3 Guardian requests, restoring no-sandbox OnRequest/AutoReview from a
+seeded obsolete workspace profile through resume and side conversation. The model
+was a local deterministic fixture; real-model inference and production changes
+were both false. Evidence: source-runtime-permissions.log, source-runtime-lifecycle.json
+and runtime-source-0.{164,165}.0.patch. Enhanced TUI40704531295 is still running.
+This is hosted/device fixture evidence, not public delivery or live activation.
+
+The next updater independently observes exact-source source/runtime gate failures
+at most every120 seconds during an active manual wait. A terminal failure exits
+with its real run link; unavailable status remains explicitly unavailable. The
+controller also returns qualification-failed rather than awaiting-exact-proof for
+completed failed required runs. An isolated actual Android manual updater trial
+accepted the request ACK, rejected foreign source/repository/branch records,
+reported exact run99 failure and exited1 while preserving installed selection and
+terminal state. Quit, SIGTERM and Ctrl+C waiting trials also passed. The disabled
+controller failure branch was caught by its disposable source mutation test.
+Evidence: manual-qualification-failed.json, manual-{quit,interrupt,ctrl-c}.json,
+controller-status-mutation.log. Local final full checks pass in update-final-full.log
+(27 script,115 release and14 frontend Python cases; workspace Rust tests and
+Clippy). The later nested-workflow caller check passed in the14-case controller
+suite and detects its disposable source fault. The pre-existing ignored real
+Termux resolver/launcher test was separately executed and passed; this is recorded
+in real-termux-smoke.log. No live updater or main caller has changed.
+
+Actual Android Full fixture proof also passed with the real hosted0.165 frontend:
+source-full-lifecycle.json records a single native backend,3 Android commands and
+3 Guardian requests through resume/side conversation, without real-model
+inference. source-full-permissions.log records shared/named menus and shortcuts.
+The first Full fixture used the nonpublic browser-file layout and was rejected
+by the existing manifest parser before execution; source-full-lifecycle.log
+preserves it. The accepted retry uses the actual public R10 helper composition.
+
+The manual-publication-priority.json trial starts an isolated0.164 installation,
+accepts one build request, exposes a signed0.165 publication during the wait and
+verifies real download/activation, file modes/digests and original configuration.
+A later source recipe's failed status must not hide that available signed release.
+Reversing publication/status observation order failed this actual Android trial;
+the mutation used its own update-mutation-target and restored disposable source.
+Original failure: publication-priority-mutation.json/log. This verifies local
+transport integration with actual binaries; public delivery/live activation remain
+separate pending gates.
+
+Verification finding: the first final Rust run reused a deliberately faulted
+builder test executable from a disposable worktree sharing check-target. Its
+failure referred to the mutation's assertion line5346, while the intact live
+source had the assertion at5351; the artifact timestamp also followed the
+mutation. Live source was intact and the isolated native runtime proofs passed.
+Subsequent source removal forces a fresh build; the final gate must pass before
+delivery. Future compiled mutation trials require a separate target cache to
+avoid reusing faulted executables. update-status-full.log retains the original
+failure and update-final-full.log owns the passing replacement check. Completed
+owned fixtures were reclaimed with clean_development.py; six cleanup records
+retain original logs/native records and restore paths for about4.1GiB of payloads.
 
 Current work: exact official0.165 package downloaded to the owned TMPDIR/up165
 workspace and its SHA256 matches release/upstream.json; no activation has occurred.
 The evidence root is ~/.cache/codex/acceptance/update-pipeline-20261028. Actual
-port/build/public delivery, device activation/restoration and anonymous request
-support remain unimplemented/unqualified until their specific proof is recorded.
+source-port/build and isolated Android runtime/Full/update proof are completed as
+specified above. Final-source hosted qualification, public delivery, device
+activation/restoration and anonymous missing-build requests remain pending their
+own proof; request submission still uses the existing GitHub-authorized path.
 
 ## Next-Core candidate: publication times and component notes
 

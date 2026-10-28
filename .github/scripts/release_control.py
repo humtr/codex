@@ -273,7 +273,8 @@ def caller_compatible(source, main):
         pins=re.findall(r'uses: humtr/codex/\.github/workflows/auto-release-termux\.yml@([0-9a-f]{40})',text)
         if len(pins)!=2 or len(set(pins))!=1:return False
         subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',pins[0]],check=True,capture_output=True)
-        for name in ['.github/workflows/auto-release-termux.yml','.github/workflows/qualify-termux-runtime.yml','scripts/pin_release.py']:
+        for name in ['.github/workflows/auto-release-termux.yml','.github/workflows/qualify-termux-runtime.yml',
+                     '.github/workflows/termux-runtime-source.yml','scripts/pin_release.py']:
             identities=[subprocess.check_output(['git','-C',str(source),'rev-parse',revision+':'+name],stderr=subprocess.DEVNULL) for revision in ['HEAD',pins[0]]]
             if identities[0]!=identities[1]:return False
         return True
@@ -298,7 +299,13 @@ def run(source):
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
         passed, runs=successful_run(workflow,current)
         if not passed:
-            if not runs:dispatch(workflow,SOURCE_BRANCH,{'rebuild_current':'true'} if workflow.startswith('core-') else None)
+            owned=[run for run in runs if owned_run(run,workflow,current)]
+            if not owned:dispatch(workflow,SOURCE_BRANCH,{'rebuild_current':'true'} if workflow.startswith('core-') else None)
+            if owned and all(run.get('status')=='completed' for run in owned):
+                failed=owned[0]
+                return {'state':'qualification-failed','workflow':workflow,'source':current,
+                        'run_id':failed['id'],'conclusion':failed.get('conclusion'),
+                        'url':'https://github.com/'+REPO+'/actions/runs/'+str(failed['id'])}
             return {'state':'awaiting-exact-proof','workflow':workflow,'source':current}
     with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
         value=ensure_frontend(source,current,Path(temporary))

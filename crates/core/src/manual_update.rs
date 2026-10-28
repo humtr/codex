@@ -53,6 +53,10 @@ fn gh(program: &Path, args: &[&str]) -> Result<Vec<u8>, LocalProductError> {
         let mut bytes = Vec::new();
         let mut eof = false;
         loop {
+            #[cfg(any(target_os = "android", target_os = "linux"))]
+            if WAIT_SIGNAL.load(std::sync::atomic::Ordering::Relaxed) != 0 {
+                return Err(error("GitHub CLI interrupted"));
+            }
             let mut buffer = [0; 1024];
             match reader.read(&mut buffer) {
                 Ok(0) => eof = true,
@@ -216,6 +220,100 @@ fn official(roots: &LocalCoreRoots) -> Result<OfficialReleaseMetadata, LocalProd
         return Err(error("cannot remove manual update metadata staging"));
     }
     result
+}
+
+struct QualificationFailure {
+    source: String,
+    workflow: &'static str,
+    run: u64,
+    conclusion: String,
+}
+
+// This is diagnostic evidence. Only the signed index can admit an installation.
+fn qualification_failure(
+    roots: &LocalCoreRoots,
+    version: &str,
+) -> Result<Option<QualificationFailure>, LocalProductError> {
+    let program = roots.openssl.with_file_name("gh");
+    let source = gh(
+        &program,
+        &[
+            "api",
+            "repos/humtr/codex/git/ref/heads/rewrite/rust-core",
+            "--jq",
+            ".object.sha",
+        ],
+    )?;
+    let source = std::str::from_utf8(&source)
+        .map_err(|_| error("build source status is not UTF-8"))?
+        .trim();
+    if source.len() != 40
+        || !source
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(error("build source status is malformed"));
+    }
+    let selected = gh(
+        &program,
+        &[
+            "api",
+            &format!("repos/humtr/codex/contents/release/upstream.json?ref={source}"),
+            "--jq",
+            ".content | @base64d | fromjson | .upstream.version",
+        ],
+    )?;
+    let selected = std::str::from_utf8(&selected)
+        .map_err(|_| error("build version status is not UTF-8"))?
+        .trim();
+    if !valid_update_version(selected) {
+        return Err(error("build version status is malformed"));
+    }
+    if selected != version {
+        return Ok(None);
+    }
+    for workflow in [
+        "rald7-full-acceptance.yml",
+        "core-runtime-qualification.yml",
+    ] {
+        let query = format!(
+            "[.workflow_runs[] | select(.head_sha==\"{source}\" and .head_branch==\"rewrite/rust-core\" and .path==\".github/workflows/{workflow}\" and .repository.full_name==\"humtr/codex\" and (.event==\"push\" or .event==\"workflow_dispatch\"))] | if any(.status!=\"completed\") or any(.status==\"completed\" and .conclusion==\"success\") then \"0\\tpending\" else (.[0] // {{}}) | [(.id // 0), (.conclusion // \"pending\")] | @tsv end"
+        );
+        let status = gh(&program, &["api", &format!("repos/humtr/codex/actions/workflows/{workflow}/runs?head_sha={source}&per_page=100"), "--jq", &query])?;
+        let status =
+            std::str::from_utf8(&status).map_err(|_| error("qualification status is not UTF-8"))?;
+        let (run, conclusion) = status
+            .trim_end_matches('\n')
+            .split_once('\t')
+            .ok_or_else(|| error("qualification status is malformed"))?;
+        let run = run
+            .parse::<u64>()
+            .map_err(|_| error("qualification run ID is malformed"))?;
+        if run == 0 && conclusion == "pending" {
+            continue;
+        }
+        if run == 0
+            || !matches!(
+                conclusion,
+                "failure"
+                    | "cancelled"
+                    | "timed_out"
+                    | "action_required"
+                    | "startup_failure"
+                    | "skipped"
+                    | "stale"
+            )
+        {
+            return Err(error("qualification conclusion is unknown"));
+        }
+        return Ok(Some(QualificationFailure {
+            source: source.to_owned(),
+            workflow,
+            run,
+            conclusion: conclusion.to_owned(),
+        }));
+    }
+    Ok(None)
 }
 
 // This input scope is dropped before continuing into the installed TUI.
@@ -389,7 +487,7 @@ pub(super) fn finish(
     request(roots, &latest.version)?;
     let tty = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     if no_wait {
-        println!("Build remains pending. Continue with Codex {installed}.");
+        println!("Build request recorded. Continue with Codex {installed}.");
         return Ok(if tty { launch_current(roots, env) } else { 0 });
     }
     println!(
@@ -398,6 +496,7 @@ pub(super) fn finish(
     let input = WaitInput::new(tty);
     let begin = Instant::now();
     let mut next_poll = Instant::now();
+    let mut next_qualification = Instant::now();
     let mut seen = outcome.generation_id().to_owned();
     while begin.elapsed() < WAIT_LIMIT {
         let key = input.key();
@@ -427,11 +526,43 @@ pub(super) fn finish(
             .map_err(LocalProductError::State)?
             .ok_or(LocalProductError::NoCurrentGeneration)?;
         let index = match fetch_signed_update_index_with_timeout(roots, state.update_key, "5") {
-            Ok(index) => index,
-            Err(LocalProductError::RemoteTransportFailed) => continue,
+            Ok(index) => Some(index),
+            Err(LocalProductError::RemoteTransportFailed) => None,
             Err(error) => return Err(error),
         };
-        if index.generation_id == seen {
+        if index
+            .as_ref()
+            .is_none_or(|index| index.generation_id == seen)
+        {
+            if Instant::now() >= next_qualification {
+                next_qualification = Instant::now() + Duration::from_secs(120);
+                match qualification_failure(roots, &latest.version) {
+                    Ok(Some(failure)) => {
+                        presentation.clear_transient();
+                        println!(
+                            "Termux qualification failed: {} ({}) at source {}.",
+                            failure.workflow, failure.conclusion, failure.source
+                        );
+                        println!(
+                            "https://github.com/humtr/codex/actions/runs/{}",
+                            failure.run
+                        );
+                        println!("Codex {installed} remains installed. Build-request acceptance did not produce a qualified release.");
+                        return Ok(1);
+                    }
+                    Ok(None) => (),
+                    Err(reason) => {
+                        if let Some(signal) = input.pending_signal() {
+                            drop(input);
+                            let _ = unsafe { raise(signal) };
+                            return Ok(128 + signal);
+                        }
+                        eprintln!(
+                            "Build status unavailable: {reason}; signed publication is still checked."
+                        );
+                    }
+                }
+            }
             continue;
         }
         // Only normal signed activation may admit the candidate. This also
@@ -485,6 +616,27 @@ mod tests {
         std::fs::write(&script, format!("#!{}\n{body}\n", sh.to_string_lossy())).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
         (root, roots)
+    }
+
+    #[test]
+    fn request_ack_and_exact_qualification_failure_are_separate() {
+        for (selected, status, failure) in [
+            ("0.165.0", "42\\tfailure", true),
+            ("0.165.0", "0\\tpending", false),
+            ("0.164.0", "42\\tfailure", false),
+        ] {
+            let (root, roots) = fixture(&format!(
+                "case \"$2\" in */git/ref/*) printf '{}\\n';; */contents/release/*) printf '{selected}\\n';; *core-runtime-qualification*) printf '{status}\\n';; *) printf '0\\tpending\\n';; esac", "a".repeat(40)));
+            let observed = qualification_failure(&roots, "0.165.0").unwrap();
+            assert_eq!(observed.is_some(), failure);
+            if let Some(observed) = observed {
+                assert_eq!(observed.run, 42);
+                assert_eq!(observed.workflow, "core-runtime-qualification.yml");
+                assert_eq!(observed.conclusion, "failure");
+            }
+            assert!(!root.join("manual-build-0.165.0").exists());
+            crate::tests::remove_temp_root(root);
+        }
     }
 
     #[test]

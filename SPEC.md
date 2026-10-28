@@ -53,17 +53,6 @@ a defect requires a native approval request that fails to reach its selected
 reviewer. The discarded Untrusted restoration experiment is not a release input.
 Actual Android admission/lifecycle and signed/public acceptance remain required.
 
-The0.165.0 relocation prototype is `termux-fd-remap-v7`, bound to official archive
-c8b2844fdef57498572db960344aee8c836ce9f75c203379da0a9c3a334fc3b7 and raw CLI
-b32ece31af06440da980b733fb8fefdd1f193439595fda84096f1caaceec543f.
-Keep the same protected FD35 root and UI/resume semantics using28 disjoint
-original-byte-guarded blocks (476 changed bytes plus54 common FD remaps).
-Official source/symbol comparison owns the relocation evidence; no unsupported
-version is admitted by a guessed offset, version-only alias or removal of the
-exact digest/byte checks. Retained policies remain for retained consumers.
-Construction support is separate from Android execution, frontend qualification,
-signing/public readback and device activation; CURRENT records those results.
-
 New-release automation must locate and apply the maintained compatibility changes,
 not require a new version/offset table before attempting qualification. The hosted
 producer uses the exact official source identity and discovers the UDS and
@@ -74,9 +63,9 @@ file/function/expression. Line movement and ordinary release-version changes do
 not require a new recipe. Native execution policy, approval eligibility and
 reviewer lifecycle remain unchanged. Compile and actual Android acceptance still
 decide whether the transformed source can be released; successful patch application
-alone never qualifies a release. The unpublished v7 offset prototype is temporary
-until the source-built producer passes the same runtime/permission gates. Retained
-published binary policies remain necessary for their existing consumers.
+alone never qualifies a release. The unpublished0.165 binary-offset prototype is removed after source-runtime
+Android permission/lifecycle acceptance. Retained published binary policies remain
+necessary for their existing consumers.
 The hosted source-built runtime uses `termux-source-v1`: its official package
 identity/digest still binds the unmodified companion, while `source_revision`
 binds the exact official source commit and `raw_runtime_sha256` identifies the
@@ -86,6 +75,15 @@ phone, owns source preparation/build and admission of the corresponding revision
 The public signer requires exact source/build/Android evidence; arbitrary files
 accepted by a local builder do not establish that evidence. Core download and
 activation retain signature, inventory, sequence and rollback checks.
+Build-request acceptance is an orchestration acknowledgement. Manual update must
+observe the exact selected source/version's qualification runs separately from
+signed publication. A terminal required qualification failure reports its actual
+workflow/run and stops waiting with the installed version preserved. Status-read
+failure is reported as unavailable evidence, never success or an excuse to repeat
+an uncertain dispatch. Job-status observation is limited to the active manual
+update wait, at most once every two minutes; it adds no background observer.
+Each wait cycle checks signed publication before diagnostic build status. A newly
+available valid signed release takes precedence over a later failed source recipe.
 
 Qualification permits only the two guarded configuration checks, the Core-bound
 reviewer routing, contributor/prewarming gates and the native policy/reviewer matrix regression outside TUI

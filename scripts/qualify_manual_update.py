@@ -12,6 +12,7 @@ from pathlib import Path
 import pty
 import select
 import signal
+import shutil
 import struct
 import subprocess
 import sys
@@ -110,6 +111,31 @@ def probe(args):
         installed = fields['upstream_package_version']
         major, minor, patch = map(int, installed.split('.'))
         latest = installed if args.mode in ['current', 'display'] else f'{major}.{minor + 1}.{patch}'
+        next_publication = next_identity = None
+        payload_urls = {}
+        if args.mode == 'publication-arrives':
+            from rald3_preflight import parse_descriptor
+            next_fields = parse_descriptor(args.next_generation / 'generation.meta')
+            assert next_fields['upstream_package_version'] == latest
+            next_identity = next_fields['generation_id']
+            current_sequence = int(next(line.split('\t')[1] for line in
+                (root/'local-permission-fixture/release.manifest').read_text().splitlines()
+                if line.startswith('release_sequence\t')))
+            next_publication = root / 'next-publication'
+            next_base = 'https://example.invalid/' + next_identity + '/'
+            completed = subprocess.run([str(args.builder), 'publish', '--generation', str(args.next_generation),
+                '--release-sequence', str(current_sequence + 1), '--release-base', next_base,
+                '--private-key', str(root/'fixture-key.pem'), '--openssl', shutil.which('openssl'),
+                '--output', str(next_publication)], capture_output=True)
+            (root/'next-publication.stdout').write_bytes(completed.stdout)
+            (root/'next-publication.stderr').write_bytes(completed.stderr)
+            assert completed.returncode == 0, completed.stderr.decode(errors='replace')
+            for path in (next_publication/'releases'/next_identity).rglob('*'):
+                if path.is_file():
+                    relative = path.relative_to(next_publication/'releases'/next_identity).as_posix()
+                    payload_urls[next_base + relative] = str(path.relative_to(root))
+        (root/'payload-urls.json').write_text(json.dumps(payload_urls))
+        config_before = (home/'.codex/config.toml').read_bytes()
         (root / 'official.json').write_text(json.dumps({'tag_name': 'rust-v' + latest,
             'draft': False, 'prerelease': False, 'published_at': '2026-10-28T17:04:05Z',
             'body': '## New Features\n- Official fixture update.\n', 'assets': [
@@ -138,6 +164,9 @@ def probe(args):
             'from pathlib import Path\nimport json,sys\nroot=Path(' + repr(str(root)) + ')\n' +
             'url=sys.argv[sys.argv.index("--url")+1]\n' +
             'with (root/"transports.jsonl").open("a") as f:f.write(json.dumps(url)+"\\n")\n' +
+            ('if url.endswith(("/update-index-v1","/update-index-base-v1")):\n'
+             ' reads=sum(json.loads(line).endswith(("/update-index-v1","/update-index-base-v1")) for line in (root/"transports.jsonl").read_text().splitlines())\n'
+             ' if reads>=2:(root/"publication-visible").touch()\n' if args.mode=='publication-arrives' else '') +
             'if url=="https://api.github.com/repos/openai/codex/releases/latest":name="official.json"\n' +
             'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/local-permission-fixture":name="core-publication.json"\n' +
             'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/chatgpt-display-owned-8":name="provider-publication.json"\n' +
@@ -146,19 +175,39 @@ def probe(args):
             'elif url.endswith("/component-input-v1.sig"):name="component-input-v1.sig"\n' +
             'elif url.endswith("/provider-index-v1"):name="provider-index"\n' +
             'elif url.endswith("/provider-index-v1.sig"):name="provider-index.sig"\n' +
-            'elif url.endswith("/update-index-base-v1") or url.endswith("/update-index-v1"):name="index"\n' +
-            'elif url.endswith("/update-index-base-v1.sig") or url.endswith("/update-index-v1.sig"):name="index.sig"\n' +
+            'elif url.endswith("/update-index-base-v1") or url.endswith("/update-index-v1"):name="next-publication/update-index-v1" if (root/"publication-visible").exists() else "index"\n' +
+            'elif url.endswith("/update-index-base-v1.sig") or url.endswith("/update-index-v1.sig"):name="next-publication/update-index-v1.sig" if (root/"publication-visible").exists() else "index.sig"\n' +
+            'elif url in json.loads((root/"payload-urls.json").read_text()):name=json.loads((root/"payload-urls.json").read_text())[url]\n' +
             'else:sys.exit(22)\n' +
             'if not (root/name).is_file():sys.exit(22)\n' +
             'sys.stdout.buffer.write((root/name).read_bytes())\n')
         curl.chmod(0o700)
         gh = prefix / 'bin/gh'
+        status_run={'head_sha':'a'*40,'head_branch':'rewrite/rust-core','event':'push',
+                    'repository':{'full_name':'humtr/codex'},'status':'completed','conclusion':'failure'}
+        core_run={**status_run,'id':99,'path':'.github/workflows/core-runtime-qualification.yml',
+                  'status':'completed' if args.mode in ['qualification-failed','publication-arrives'] else 'in_progress',
+                  'conclusion':'failure' if args.mode in ['qualification-failed','publication-arrives'] else None}
+        (root/'qualification-runs.json').write_text(json.dumps({'workflow_runs':[
+            {**core_run,'id':77,'head_sha':'b'*40},
+            {**core_run,'id':78,'repository':{'full_name':'other/repository'}},
+            {**core_run,'id':79,'head_branch':'other-branch'},
+            {**status_run,'id':98,'path':'.github/workflows/rald7-full-acceptance.yml','conclusion':'success'},
+            core_run,
+        ]}))
+        jq=shutil.which('jq')
+        assert jq is not None,'qualification witness requires jq for the actual Core-supplied query'
         gh.write_text('#!' + sys.executable + '\nfrom pathlib import Path\nimport json,sys\n' +
             'root=Path(' + repr(str(root)) + ')\n' +
             'with (root/"github.jsonl").open("a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n' +
             'if "POST" in sys.argv:\n' +
             (' sys.exit(1)\n' if args.mode == 'uncertain' else ' print("12345")\n') +
             'elif "/actions/runs/12345" in sys.argv[2]:print("in_progress\\tpending")\n' +
+            'elif "/git/ref/heads/" in sys.argv[2]:print("a"*40)\n' +
+            'elif "/contents/release/upstream.json" in sys.argv[2]:print(' + repr(latest) + ')\n' +
+            'elif any(name in sys.argv[2] for name in ["rald7-full-acceptance.yml", "core-runtime-qualification.yml"]):\n' +
+            ' import subprocess\n' +
+            ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/"qualification-runs.json").read_bytes(),check=True)\n' +
             'else:print("0")\n')
         gh.chmod(0o700)
         master, slave = pty.openpty()
@@ -177,6 +226,7 @@ def probe(args):
             if select.select([master], [], [], .1)[0]:
                 receive_terminal()
             if ('Waiting for signed publication.' in transcript and not key_sent
+                    and args.mode != 'qualification-failed'
                     and not termios.tcgetattr(master)[3] & termios.ICANON):
                 if args.mode == 'quit':
                     transports = [json.loads(line) for line in (root / 'transports.jsonl').read_text().splitlines()]
@@ -190,7 +240,9 @@ def probe(args):
                 finally:
                     os.close(lease)
                 result['waitLeaseReleased'] = True
-                if args.mode == 'interrupt':
+                if args.mode == 'publication-arrives':
+                    result['signedPublicationIntroducedDuringWait']=True
+                elif args.mode == 'interrupt':
                     os.kill(process.pid, signal.SIGTERM)
                 else:
                     os.write(master, b'\x03' if args.mode == 'ctrl-c' else b'c' if args.mode == 'continue' else b'q')
@@ -211,13 +263,25 @@ def probe(args):
         dispatches = sum('POST' in call for call in calls)
         expected_dispatches = 0 if args.mode in ['ordinary', 'current', 'display', 'bad-signature'] else 1
         assert dispatches == expected_dispatches, calls
-        if args.mode in ['bad-signature', 'uncertain']:
+        if args.mode in ['bad-signature', 'uncertain', 'qualification-failed']:
             assert process.returncode == 1, transcript[-1200:]
         elif args.mode in ['interrupt', 'ctrl-c']:
             assert process.returncode in ([-15, 143] if args.mode == 'interrupt' else [-2, 130]), transcript[-1200:]
         elif not expected_tui:
             assert process.returncode == 0, transcript[-1200:]
-        assert state.read_bytes() == initial, 'request/wait must preserve current selection'
+        if args.mode == 'publication-arrives':
+            selected = dict(line.split('=',1) for line in state.read_text().splitlines() if '=' in line)
+            assert selected['current'] == next_identity, selected
+            assert selected['previous'] == 'local-permission-fixture', selected
+            generation = home/'.local/lib/codex/core/generations'/next_identity
+            from rald3_preflight import parse_descriptor
+            assert parse_descriptor(generation/'generation.meta')['upstream_package_version'] == latest
+            assert (home/'.codex/config.toml').read_bytes() == config_before
+            result.update(installedVersion=latest,originalConfigurationPreserved=True,
+                          signedWaitDownloadedAndActivated=True,
+                          signedReleasePrecededFailedNewRecipe=True)
+        else:
+            assert state.read_bytes() == initial, 'request/wait must preserve current selection'
         transports = [json.loads(line) for line in (root / 'transports.jsonl').read_text().splitlines()] if (root / 'transports.jsonl').exists() else []
         if args.mode == 'ordinary':
             assert transports == [
@@ -225,14 +289,33 @@ def probe(args):
                 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1.sig',
             ], 'ordinary launch must perform only its existing signed-index discovery'
             result['ordinaryLaunchNoPublicationLookup'] = True
+        elif args.mode == 'publication-arrives':
+            assert next_base+'runtime' in transports, 'changed runtime was not acquired through the updater transport'
+            if (args.next_generation/'helpers/2').is_file():
+                assert next_base+'helpers/2' in transports, 'changed frontend was not acquired through the updater transport'
+            import hashlib
+            for line in (generation/'release.manifest').read_text().splitlines():
+                if line.startswith('file\t'):
+                    _,name,digest,mode=line.split('\t')
+                    path=generation/name
+                    with path.open('rb') as stream:
+                        assert hashlib.file_digest(stream,'sha256').hexdigest()==digest,name
+                    assert path.stat().st_mode & 0o777 == int(mode,8),name
+            result['candidatePayloadRequests']=sum(url in payload_urls for url in transports)
         elif args.mode != 'bad-signature':
             assert sum(url.endswith('/component-input-v1') for url in transports) == 1, 'optional release display was refetched for an unchanged candidate'
         if args.mode == 'quit':
             assert sum(url.endswith(('/update-index-v1', '/update-index-base-v1')) for url in transports) >= 2
             result['sameCandidateMetadataReadOnceAcrossBuildWait'] = True
 
-        if args.mode in ['quit', 'interrupt', 'ctrl-c']:
+        if args.mode in ['quit', 'interrupt', 'ctrl-c', 'qualification-failed']:
             assert termios.tcgetattr(master) == saved, 'terminal mode was not restored'
+        if args.mode == 'qualification-failed':
+            assert 'Termux qualification failed: core-runtime-qualification.yml (failure)' in transcript, transcript[-2000:]
+            assert 'https://github.com/humtr/codex/actions/runs/99' in transcript, transcript[-2000:]
+            assert not any('/actions/runs/'+str(run) in transcript for run in [77,78,79])
+            result['requestAckDidNotHideQualificationFailure']=True
+            result['foreignSourceRepositoryAndBranchRejected']=True
         if args.mode == 'display':
             assert 'Latest upstream Codex: ' + installed in transcript
             assert '2026-10-27 21:30:00 KST (UTC+09:00)' in transcript
@@ -288,7 +371,7 @@ def probe(args):
                 selectedAndLatestProviderDistinct=True, providerNotInstalledByCoreUpdate=True,
                 invalidProviderIndexNonfatalAndSelectionPreserved=True)
         result.update(accepted=True, dispatches=dispatches, enteredInstalledTui=expected_tui,
-                      activationPreserved=True, terminalExit=process.returncode)
+                      activationPreserved=args.mode != 'publication-arrives', terminalExit=process.returncode)
         return result
     except BaseException as error:
         result['error'] = type(error).__name__ + ': ' + str(error)
@@ -325,12 +408,15 @@ if __name__ == '__main__':
     parser.add_argument('--core', type=Path, required=True)
     parser.add_argument('--generation', type=Path, required=True)
     parser.add_argument('--frontend', type=Path)
-    parser.add_argument('--mode', choices=['quit', 'continue', 'no-wait', 'current', 'display', 'ordinary', 'bad-signature', 'uncertain', 'interrupt', 'ctrl-c'], required=True)
+    parser.add_argument('--mode', choices=['quit', 'continue', 'no-wait', 'current', 'display', 'ordinary', 'bad-signature', 'uncertain', 'interrupt', 'ctrl-c', 'qualification-failed', 'publication-arrives'], required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--provider', type=Path)
     parser.add_argument('--builder', type=Path)
+    parser.add_argument('--next-generation', type=Path, help='unsigned qualified next-version generation for the publication-arrives trial')
     parser.add_argument('--official-metadata', type=Path, help='captured official response for the exact version expected by this case')
     args = parser.parse_args()
     if args.mode == 'display' and not all([args.provider, args.builder]):
         parser.error('display qualification requires --provider and --builder')
+    if args.mode == 'publication-arrives' and not all([args.next_generation,args.builder]):
+        parser.error('publication-arrives requires --next-generation and --builder')
     print(json.dumps(probe(args)))

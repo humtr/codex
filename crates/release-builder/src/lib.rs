@@ -4348,7 +4348,6 @@ fi
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
             "termux-fd-remap-v6",
-            "termux-fd-remap-v7",
             "unknown",
         ] {
             for version in [
@@ -4360,8 +4359,7 @@ fi
                         && version == "0.160.0")
                     || (id == "termux-fd-remap-v4" && version == "0.161.0")
                     || (id == "termux-fd-remap-v5" && version == "0.163.0")
-                    || (id == "termux-fd-remap-v6" && version == "0.164.0")
-                    || (id == "termux-fd-remap-v7" && version == "0.165.0");
+                    || (id == "termux-fd-remap-v6" && version == "0.164.0");
                 assert_eq!(
                     runtime_patch::supports_version(id, version),
                     expected,
@@ -4374,7 +4372,6 @@ fi
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
             "termux-fd-remap-v6",
-            "termux-fd-remap-v7",
         ] {
             let policy = runtime_patch::policy(id).unwrap();
             let archive = policy.archive_sha256.unwrap_or(&digest);
@@ -4391,7 +4388,6 @@ fi
                 "termux-fd-remap-v4",
                 "termux-fd-remap-v5",
                 "termux-fd-remap-v6",
-                "termux-fd-remap-v7",
                 "unknown",
             ] {
                 if other != id {

@@ -88,7 +88,10 @@ def qualify(core, generation, parent, mode, prepare_preview=None, public_key=Non
             assert json.loads(auth.read_text()) == {"OPENAI_API_KEY": "owned-inert-fixture", "auth_mode": "apikey"}
             auth.unlink()
         identity = fields["generation_id"]
-        assert ";permission_policy=" in fields["patch_report"]
+        # Source-built runtimes bind the maintained permission adaptation through
+        # their source policy/revision; retained binary policies name it separately.
+        assert (fields["patch_policy_id"] == "termux-source-v1"
+                or ";permission_policy=" in fields["patch_report"])
         runtime = home / ".local/lib/codex/core/generations" / identity
         if not private_base:
             materialize_signed_generation(generation, runtime)

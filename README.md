@@ -437,6 +437,11 @@ explicitly. A missing-build request needs `gh` and repository access (`gh auth
 login`); installing an already prepared public release does not. Ordinary `codex`
 entry uses the installed version without requesting a build. Builds and signing
 run on the server; installation and signature verification run on the device.
+The next updater separately checks exact-source qualification during its active
+wait. A failed required gate shows its workflow/run and exits with the installed
+version preserved. A successful build-request acknowledgement alone never means
+an executable was built. Status-read failures remain visible; they do not repeat
+an uncertain request or admit an unsigned update.
 
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
@@ -681,6 +686,14 @@ baseline; losing an optional binary does not move a full installation onto base.
 Both publication lanes run real Android smoke, signing, public readback,
 disposable update/rollback and non-forced promotion. A scheduled controller
 discovers official upstream stable releases and qualifies base independently.
+The source producer locates the maintained Termux edits by Rust function and
+expected expression, then compiles the exact official source on GitHub. Version
+or line movement alone needs no new byte-offset table. A changed or ambiguous
+expression stops with its file/function before any source file is modified.
+The optional TUI uses Git's original patch blobs to resolve changed context in
+an isolated index. Build/native/device and signed-publication gates still decide
+release admission. CURRENT distinguishes the source/hosted proof from public
+delivery and activation.
 Immutable GitHub Releases store common base files once; full pins those exact
 files plus its additional components. Existing Pages URLs remain valid. If full
 fails after base advances, the previous full stays available while the next
