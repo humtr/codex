@@ -1988,6 +1988,109 @@ requests through chat_input. Model/effort controls alone add no conversational
 instructions; new instruction/context or tool-result messages change the input
 semantics and stay with their appropriate execution interface.
 
+#### Input preparation and execution settings: implementation draft
+
+These are approved design principles and a concrete implementation draft, not
+claims that the installed input API already implements them. Keep one execution
+authority per destination: ChatGPT interprets its conversation/picker/catalog;
+Native Codex interprets its thread settings and turn overrides. Rust admits the
+owned task, validates user constraints and preserves exact input/return identity.
+The renderer reads/prepares app state and invokes its existing send capabilities;
+it does not choose Native ownership or assemble another development policy.
+
+1. Input purpose, settings source, reasoning route and return transport are
+   separate. User emulation is specialized chat_input; development uses existing
+   Native/Provider execution owners. direct/provider and mcp/local_function do
+   not acquire new meanings or parallel orchestrators.
+2. Existing settings survive ordinary continuation, resume and a mode-only
+   change. Explicit user/workflow model selection wins; an existing Native thread
+   otherwise supplies its acknowledged model/effort; config initializes a new
+   task or an explicitly selected configured route. Config is not a recurring
+   override of a resumed thread. Existing Chat inheritance uses that exact Chat's
+   prepared settings, not an unrelated Native thread's or app-global default.
+3. The caller's exact user text remains exact. Context/instruction/tool-result
+   assembly retains its existing owner. Reading app settings adds no message,
+   hidden prompt, summary, tool invocation or inference.
+4. Resolve before dispatch and persist the admitted settings in the existing
+   input intent. Omission, explicit none, inherited effort and host-default
+   routing have different meanings. Validate the model/effort pair; do not clamp,
+   guess a missing effort or silently switch to an easier route.
+5. A request override is not necessarily temporary: Native model/effort overrides
+   apply to subsequent turns under the upstream API, and Chat submission may
+   affect saved conversation settings. Preserve the real destination semantics
+   and report the acknowledged selection. Do not advertise one-turn isolation
+   or restore a previous value without an explicit operation and concurrency proof.
+6. Read-only preparation may await normal metadata/catalog readiness. Revalidate
+   account, branch, selection and control ownership at the existing admission/send
+   boundary. A missing/moved source fails with its cause before dispatch; a sent
+   or uncertain intent is observed, never re-prepared and resent under new settings.
+7. Already-running Direct Chat responses retain their host-selected settings.
+   Registering them in Native history does not start a replacement inference or
+   change their model. Tool/approval returns retain their original request binding.
+
+Public request draft: add one optional `model_settings` object to the applicable
+existing session actions, rather than a generic new input service:
+
+```json
+{"source":"chat","model":"chatgpt-desktop/gpt-6","effort":"xhigh"}
+```
+
+`source` identifies the base settings owner: chat, native, config or host_default.
+`model` and `effort` are optional explicit choices, not required in the example's
+absence. A chat_input with the object omitted inherits its selected Chat; an
+existing Native work inherits its thread; fresh Native creation uses config.
+Action-specific validation rejects a source without its actual owned Chat/thread.
+An agent may choose an explicit option within the authorized workflow and user
+model/cost constraints; no automatic selection agent or fixed test model is added.
+Changing only the model preserves an inherited effort only if the resulting pair
+is valid; otherwise require a suitable explicit choice or return the incompatibility.
+host_default is an explicit request to leave model/effort to the app's defaulting
+semantics and cannot carry conflicting overrides. Where the user requires an
+exact model/cost boundary that cannot be verified under auto, do not claim it is
+enforced by omission. Existing release/Pro restrictions are not implicitly lifted.
+
+This object contains execution metadata, not environment-variable or prompt
+injection. For Chat source, use the app selector after identity/branch, conversation
+metadata query, history and catalog admission. Resolve host slug/effort without
+guessing an ambiguous inverse catalog alias; retained canonical route metadata is
+used only when actually established. For Native source, use thread/read and the
+existing turn/start/settings contracts; keep Responses request model validation.
+The minimal app capability belongs in existing chat_adopt/preparation and submit,
+not a forwarding-only settings engine or a second renderer policy implementation.
+
+Return/persist the effective model/effort and host mapping with per-field origins
+(explicit, chat, native or config) in the existing intent/result. They are consumed
+by retry reconciliation, route validation and the caller's display/acceptance.
+Host-default requests retain their unresolved defaulting status until the actual
+request/response is observed; an auto label is not a proved final model. Existing
+account/branch/cursor/owner records already bind provenance: add no duplicate
+signatures, hashes or capability tokens solely for settings traceability.
+
+Reuse current exact message-ID generation, prefix admission, pending-lane fencing,
+budget ledger, result reconciliation, Stop and original-source reading. Remove
+chat_input's unconditional config selection when replacing it; do not retain a
+silent fallback branch. Native create/resume/fork must distinguish initialization,
+inherited restoration and explicit provider/model transition instead of sending
+config defaults for every action. Inspect existing restoration paths before
+changing them; unchanged valid Native restoration must remain unchanged.
+
+New unsubmitted calls use the new default policy only after implementation and
+versioned delivery. Existing saved intents retain their original fingerprint,
+message ID and phase; do not infer historical settings that were never recorded
+or modify their admitted content. Old unknown/submitted calls remain result-only
+reconciliation. Rollback preserves their journals and must not dispatch them again.
+
+Required implementation proof: exact multiline/CRLF input; Chat selection versus
+conflicting global config; metadata-ready versus unready restoration; Native
+resume/fork/mode-only preservation; explicit supported/unsupported pairs and
+omitted versus none; changed identity/branch/selection during preparation;
+concurrent different inputs; same-call retries across config change/restart and
+unknown delivery; Stop and original tool/approval continuation; same-work
+ChatGPT/Native history and running TUI. Mutate the preparation/default-selection
+fault in disposable source and prove rejection. Use actual app requests plus
+original result readback for model/effort; synthetic/Native unit tests alone do
+not qualify Android UI synchronization or an already-running model change.
+
 Saved-input completion reconciles the exact admitted user UUID and parent,
 then a unique saved descendant branch. The app may remove a hidden final terminal
 when storing a follow-up. Before submission, derive a delivery cursor at the
@@ -3195,6 +3298,9 @@ immutable installation modules are outputs, not additional editable authorities.
 Explicit invocation overrides win, then per-model settings in this file, then
 file-wide settings and declared defaults. Preserve ordinary upstream overrides
 and show their effective origin rather than silently rewriting user configuration.
+This configuration precedence resolves configured values; it does not supersede
+the retained settings of an existing Chat or Native thread on ordinary resume.
+Use the destination-owned preparation/override rules above for those requests.
 Existing --profile chatgpt remains a generated upstream fallback. Provider's
 candidate `prepare --home PATH` projects a native catalog and command-auth profile
 for an explicitly selected existing Codex home. One private shared profile is a

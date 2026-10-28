@@ -515,6 +515,48 @@ inheritance remain unimplemented despite the host-boundary proof; current instal
 Pro exclusion is unchanged. This completed audit changes documents only, not the
 installed input route or model configuration.
 
+The [input design draft and comparison](AUDIT.md#전송-설계-작성안과-기존-구현업스트림-비교)
+now specifies existing-owner settings admission rather than another input engine.
+Draft request field model_settings separates chat/native/config/host_default
+base selection from optional explicit model/effort choices; API defaults follow
+the actual destination. User emulation inherits a ready Chat; existing Native
+work inherits its acknowledged thread; config initializes a new work or an
+explicitly configured transition. Resuming a work must not repeatedly impose the
+current config default. Native override persistence follows upstream semantics:
+it is not described as one-turn isolation. Exact input, durable intent, result
+return, Stop and transport owners remain in place. Old admitted calls remain
+result reconciliation without invented historical settings or resubmission.
+
+Source review finds create/resume/fork's shared config-default arguments near
+operator.rs:3250 differ from resume_unloaded_native's preservation at2761.
+Implementation must distinguish initialization, resume and explicit provider
+transition with actual callers/tests; no universal runtime regression is claimed
+solely from that source difference. The draft's main changes belong to existing
+chat_input/app_bridge/operator/main/schema and affected callers/tests. Existing
+Responses parsing remains Native-request authoritative; actual continuation
+changes alone justify app.rs/mcp_bridge edits. No added forwarding engine.
+
+Upstream comparison uses unchanged exact0.164 protocol/resume-test source and
+official exact0.165 protocol files at360319d8. The drafted change requires0 Codex
+upstream API changes; actual app readiness/selector reuse and Native turn overrides
+fit their owners. App APIs remain private/version-specific. Added cold preparation
+reads and latency are unmeasured; no speed/reuse percentage is claimed. First
+qualify settings admission/intent, then initialization/restoration/explicit override,
+then actual source/Native/TUI continuation and existing release/device gates.
+This is a draft/contract change, not product implementation or delivery.
+
+The [originality recheck](AUDIT.md#독자-구현-재점검-miuuyy-의존과-현재-제품의-범위)
+confirms no active miuuyy runtime/build dependency or license/template in the installed
+six-file Provider21 inventory. Retired adapter removal e0f0927 and summary/license
+removal4aad4e9 are verified against current source and the external exact92a356fa
+source.268 long literal candidates yield0 exact normalized matches across55 current
+Provider source files; this targeted comparison does not establish every algorithm's
+origin. LEGACY_FILES is still consumed by immutable eight-file rollback validation,
+not new package assembly. Native Codex/libraries/PRoot/noVNC remain actual external
+components; the entire product is not claimed as100% original or license-free.
+The original16-file Chat worktree and signed history remain preserved. Evidence:
+$TMPDIR/input-design-audit-ot9uwhn6. No model request/build/install in this draft batch.
+
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native
 turn and the unchanged prefix. It can consume a completed chat_result suffix that

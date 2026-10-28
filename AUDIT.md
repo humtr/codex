@@ -203,6 +203,152 @@ PID31409의 부재와 profile lease 가용성을 별도 확인했으며 정상 �
 
 ---
 
+## 전송 설계 작성안과 기존 구현·업스트림 비교
+
+작성 기준은 `fd04849`이며 아래는 구현 전 작성안이다. 규범 원칙과 요청 작성안은
+[SPEC의 input preparation 절](SPEC.md#input-preparation-and-execution-settings-implementation-draft)에
+반영했다. 별도 입력 엔진·설정 관리자·전송 계층을 추가하는 안은 채택하지 않는다.
+
+### 책임과 변경 범위
+
+앱이 자기 대화 설정의 의미를 해석하고 Native가 자기 thread 설정을 소유한다.
+Rust는 원문·대상·권한·예산·명시 설정을 입장시키고 기존 intent와 반환 경로를
+유지한다. 앱 상태를 읽는 최소 JS 기능은 기존 app_bridge에 둔다. Rust에 앱의
+picker/default/복원 알고리즘을 복제하거나 native 설정을 JS에서 결정하지 않는다.
+
+| 현재 로직 | 작성안에서 바뀌는 부분 | 그대로 사용하는 부분 |
+| --- | --- | --- |
+| chat_input.rs:65–79의 config.model 무조건 선택 | 선택된 Chat의 준비된 설정을 기본 출처로 사용. 명시 선택과 host default는 별도 의미로 입장 | 정확한 task, source cursor, stable call_id/message ID, 예산, 단일 submit |
+| app_bridge.js chat_adopt의 raw conversation hydrate | 대화 query·카탈로그 준비와 selector 조회를 기존 준비 경계에서 수행. 비동기 뒤 identity/branch/설정 재검증 | 기존 lane 소유권·project·active/busy 거부와 account 검사 |
+| app_bridge.js submit의 yRt 호출 | 준비·입장된 실제 모델/노력도를 전달 | userCompletionMessages, 원문/ID, callback·취소·원래 도구 반환 |
+| protocol.rs::Request::parse_with_issuer | Native가 확정한 요청 설정을 계속 권위로 사용. 외부 기본값으로 덮지 않음 | Responses model 필수·catalog 검증, instruction/tool/input 분리 |
+| Operator session_action create/resume/fork 공통 기본값 | 새 작업 초기화와 기존 thread 복원을 구분. 명시 전환만 Native override로 전달 | native_admission, controller/generation fencing, 기존 Native 실행·기록 |
+| resume_unloaded_native·mode-only start | 현재의 저장 설정 보존을 유지하고 회귀 검증 | thread/read→thread/resume, 기존 history/context 일치 확인 |
+| chat_result·public receipt | 기존 intent/result에 유효 설정과 출처를 추가해 호출자와 retry가 사용 | UUID/parent/원본 final 대조, unknown delivery의 재전송 금지 |
+| MCP/local_function·TUI | 새로운 입력 의미와 설정을 기존 실행/표시 계약에 반영 | 전송별 결과 경로·승인·Stop·완전한 공개 기록 |
+
+특히 operator.rs:3250 부근은 현재 create뿐 아니라 resume/fork에도 Provider의
+model/effort 기본값을 인수로 만든다. 반면 `resume_unloaded_native`(:2761)는
+같은 기본값을 넣지 않는 경로다. 이것은 코드에서 확인한 차이다. 모든 명시 resume가
+같은 잘못을 일으킨다고 실증한 것은 아니며, 각 호출의 명시 provider 전환 의도까지
+구분해 시험해야 한다. 작성안은 초기화/복원/명시 전환의 구분을 이 owner에서
+수정하도록 한다. 이미 올바른 복원 함수 위에 별도 '복구' 경로를 더하지 않는다.
+
+protocol.rs:142 부근의 effort 누락 시 config fallback도 별도 의미 검증 대상이다.
+Native에서 nullable effort가 실제 wire에 어떻게 표현되는지 확인해야 하며,
+'입력 인수 생략', 명시 none, 기존 thread의 null을 같은 값으로 취급하면 안 된다.
+이 fallback을 근거 없이 지우는 대신 config와 저장 설정이 충돌하는 실제 요청으로
+현재 의미를 확정하고, 책임 owner에서 보존하도록 구현한다.
+
+요청 작성안은 기존 관련 action에 optional `model_settings` 객체 하나다.
+source는 chat/native/config/host_default 중 실제 설정 소유자를 뜻하며,
+model/effort는 선택적인 명시 override다. API별 기본 출처는 chat_input→Chat,
+기존 Native 실행→thread, 새 작업→config다. 의미 없는 source/대상 조합은 거부한다.
+모델만 바꿨을 때 기존 effort가 맞지 않으면 조용히 none으로 낮추지 않는다.
+필드 이름은 구현 시 기존 schema/caller 전체와 함께 확정하되 이 의미는 유지한다.
+
+이것은 모든 입력을 같은 action에 넣는 안이 아니다. 사용자 모사 chat_input,
+개발 작업 start/Responses, Native queue, 원래 tool return은 기존 소비자별 의미를
+유지한다. 새 base_input 서비스가 필요한 실제 소비자는 아직 확인되지 않았으므로
+그 구현은 추가하지 않는다. 향후 실제 요구가 있으면 같은 admission/send를
+재사용하는 작성안을 검토하며, chat_input에 숨은 문맥을 섞어 해결하지 않는다.
+
+### 업스트림과 얼마나 일관되는가
+
+| 비교 경계 | 확인한 근거 | 일관성 및 한계 |
+| --- | --- | --- |
+| Codex Native 저장·복원 | 운영 baseline source6aaac694의 ThreadResumeParams와 thread_resume_preserves_acknowledged_model_effort_and_approvals_reviewer_update 시험 소스 | 기존 선택을 유지하는 owner/API를 사용. 이 조사에서 upstream 시험을 새로 실행한 것은 아님 |
+| Codex model/effort 변경 |0.164 및 release pin0.165 source360319d8의 TurnStartParams | model/effort override가 현재 및 후속 turn에 적용된다는 upstream 의미 유지. '이번 한 번만'이라고 임의 변경하지 않음 |
+| ChatGPT 앱 설정 | 고정 공식 앱의 Vwn/Hk·nSn/mA·catalog, 실제4회 요청 | selector/query/공통 전송을 재사용. picker 해석을 독자 재현하지 않음 |
+| ChatGPT 입력창 | 실제 j0→Mwi→Fwi stack, source의 attachment/draft/quota 처리 | 동일 공통 전송을 쓰지만 입력창 전체 부수 동작을 복제하지 않음. 이를 완전한 UI 모사라고 부르지 않음 |
+| 연결·원문·중복 방지 | 우리 Inputs::submit·MCP lease·Native controller | 우리 환경에 필요한 책임. upstream에 있는 것처럼 주장하지 않음 |
+| 내부 앱 API의 안정성 | qNt/yRt는 번들 export, Mwi/pNi는 minified 지역 이름 | 현재 버전과는 일치하지만 공개 지원 API는 아님. 버전 변경 시 기능 확인·실제 합격 시험 필요 |
+
+0.164 자료는 기존 checkout의 변경되지 않은 protocol/test 원본과 git object를
+대조했다(TUI에는 별도 작업이 있으므로 그 수정본을 순수 upstream으로 취급하지 않음).
+0.165는 공식 openai/codex의 exact commit에서 두 protocol 파일을 직접 읽었다.
+현재 GitHub 최신 전체 버전을 전수 검증했다는 주장이나 새로운 Core 승인 주장이 아니다.
+이 작성안에 필요한 **Codex upstream API 변경은0건**이며 Core/TUI 신규 기능도
+우선 요구하지 않는다. 앱 쪽은 현재도 내부 인터페이스를 사용하므로 유지보수 위험이
+사라지는 것은 아니다. 다만 우리가 재구현하는 설정 규칙을 줄이는 방향이다.
+
+참조: [공식0.165 turn/start 계약](https://github.com/openai/codex/blob/360319d8dee62d87e2d59fc0c21805d79519cfed/codex-rs/app-server-protocol/schema/typescript/v2/TurnStartParams.ts),
+[공식0.165 resume 계약](https://github.com/openai/codex/blob/360319d8dee62d87e2d59fc0c21805d79519cfed/codex-rs/app-server-protocol/schema/typescript/v2/ThreadResumeParams.ts).
+
+### 개선 효과와 구현 순서
+
+확인된 문제는 과거 자동 입력의 max→노력도 없음, metadata 미준비 시 잘못된
+모델/effort 조합, create와 resume의 기본값 취급 차이다. 작성안은 각 원인 owner를
+바꾸고, 소유자·원문·예산·전송 구현을 유지한다. qNt 단순 교체, config 임시 수정,
+새 입력 전송 엔진보다 기존 기능 훼손과 동시성 오류를 줄이는 안이다.
+
+성능 향상·코드 감소율은 아직 측정하지 않았다. 새 상시 polling·추가 모델 호출은
+설계상 필요 없지만, cold Chat 메타데이터 준비에 명시적인 원격 조회가 필요할 수
+있다. 현재 source 검증/입양과 같은 검증된 snapshot을 실제로 공유할 수 있을 때만
+중복 조회를 제거한다. 준비 실패/429를 retry loop나 기본값으로 숨기지 않는다.
+
+1. 기존 chat_input의 설정 선택을 준비된 Chat selector로 교체하고 실제 선택과
+   출처를 기존 intent/result에 보존한다. 기존 config fallback은 같이 제거한다.
+   과거 admitted intent는 그대로 관찰하며 설정을 소급 채우거나 재전송하지 않는다.
+2. 기존 Native 초기화/복원/명시 override를 분리하고 새 model_settings schema와
+   CLI JSON parsing·tool declaration·consumer를 함께 수정한다. protocol.rs의
+   model 필수 검증은 유지한다. 양 전송은 admission과 결과 반환 책임을 그대로 쓴다.
+3. 독립된 회귀/변이 시험 뒤 실제 앱 source→Native→TUI 및 역방향을 검증한다.
+   ordinary/max 유지, config와 저장값 충돌, fork/resume/mode-only, metadata 준비
+   중 branch/account/selection 변경, 같은 call ID의 restart/unknown delivery,
+   model 변경의 후속 지속, Stop·승인·결과 반환을 포함한다. 시험 수와 모델 요청은
+   구분하며 남은 Pro discovery를 routine qualification에 쓰지 않는다.
+4. applicable Provider gate·서명/공개 readback·disposable update·기기 전환까지
+   완료한 뒤에만 설치 기능으로 보고한다. 그 후 남은 A1과 A2 공통화 순서를 잇는다.
+
+예상 변경의 중심은 `chat_input.rs`, `app_bridge.js`, `operator.rs`,
+`main.rs`, 기존 schema/tests와 qualification caller다. `app.rs`/`mcp_bridge.rs`는
+기존 immutable request 설정과 continuation 전달의 실제 변경 필요가 있을 때만
+수정한다. 새로운 forwarding module·설정 저장소·상시 controller는 계획하지 않는다.
+
+## 독자 구현 재점검: miuuyy 의존과 현재 제품의 범위
+
+사용자가 지적한 저장소의 실제 이름은 역사적 NOTICE 기준
+[miuuyy/codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web/tree/92a356fac2292e3af5a97ab7ba634edd8d38621e)이다.
+이번에는 그 exact source의 전체312개 tree 항목과82개 source/license/package 파일
+(TypeScript80개)을 원본으로 확보했다. 소스는 TMPDIR의 비교 자료로만 두었고
+제품 코드에 옮기지 않았다.
+
+**기술 판정은 '현재 활성 Provider의 실행·빌드·신규 패키지는 그 저장소에
+의존하지 않는다'이다. '저장소 전체와 모든 알고리즘이100% 우리 창작'이라는
+절대 판정은 아니다.** 확인 내용과 범위는 다음과 같다.
+
+| 확인 대상 | 현재 결과 |
+| --- | --- |
+| 퇴역 JS adapter/parser/transport | e0f0927에서 제거. 현재 Rust/앱 JS 실행 경로와 Cargo 의존성에 해당 저장소 로딩 없음 |
+| 복사 summary preamble와 bridge-LICENSE |4aad4e9에서 실제 파일 삭제. native-summary-prefix.txt·bridge-LICENSE·별도 copied upstream-codex-LICENSE는 현재 소스/신규 Provider 패키지에 없음 |
+| 원래 ocx1 checkpoint codec | 현재 일반 경로가 디코딩하지 않음. ocx1 문자열은 거부 시험에 남고, 현재 codec은 public continuation JSON과 소유 journal의 acknowledgment |
+| 현재 실행 이미지 | 설치 Provider21의 manifest source=e78d83a69d3e, file_count6. 해당 저장소 license/template가 inventory에 없음 |
+| 과거 license 이름의 잔존 | release-builder와 publication의 LEGACY_FILES 및 실제8-file rollback 시험 소비자. 새 빌드 의존성이나 새 payload 주입이 아님 |
+| 원본 장문 상수 대조 | 외부 TypeScript의120자·15단어 이상 리터럴268개를 현재 Provider source55개와 공백 정규화 비교. 완전 일치0개. 의미·알고리즘 전체 독립성의 증명으로 과장하지 않음 |
+
+외부 구현은 ocx1/base64·복사 preamble와 browser adapter 중심이며, 현재 Provider는
+Native thread/turn·Rust 제어·issued public checkpoint·앱 내부 capability 경계를
+사용한다. 공통 Responses 필드, summary 요청, 도구 호출/결과 등의 요구는 같은
+upstream 프로토콜을 만족하기 위한 것이며, 그것만으로 코드를 가져왔다고 판정하지
+않는다. 반대로 파일명/언어/상수를 바꿨다는 사실만으로 독립성을 입증하지도 않는다.
+이번 점검은 알려진 복사 대상 제거, 실제 의존 경로, 변경 이력과 현행 패키지를
+대조한 기술 감사이며 모든 가능한 파생 관계에 대한 법적 판정이 아니다.
+
+원래 ChatGPT 수정본의16파일 변경 작업 트리132fc00 기반은 그대로 남아 있고,
+현재에 반영된 후속 Codex 보완과 구분해 보존된다. 옛 서명 자산·Git 이력을
+새로운 독자 구현처럼 고치거나 삭제하지 않는다. 사용자는 소급 수정을 요구하지 않았다.
+Core의 upstream Codex, 실제 Rust 라이브러리, PRoot/noVNC 등은 여전히 외부 구성요소다.
+따라서 '제품 전체가 타 라이선스 불필요'라고 말하면 틀리고, 이들의 정당한 NOTICE를
+없애서 독자 구현처럼 보이게 하지 않는다. 본문에 필요한 특정 저장소의 코드 차용을
+다시 도입하지 않는 것은 이번 입력 설계의 유지 조건이다.
+
+추가 증거: `$TMPDIR/input-design-audit-ot9uwhn6`의 exact external tree/source,
+`originality-comparison.json`, `upstream-protocol-comparison.json`. 이 작성안은
+문서만 변경한다. 제품 재빌드·모델 호출·기기 설치·기존 사용자 설정 변경은 없다.
+
+---
+
 감사 기준: 2026-10-26 UTC. 저장소 humtr/codex, rewrite/rust-core,
 기준 HEAD e4d5400754e86f0ca68f9e3ac02ff6621df5234c.
 이 보고서는 원본·코드를 다시 대조한 기술 판정이다. 별도 감사 모델이나
