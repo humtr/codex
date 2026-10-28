@@ -17,8 +17,11 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**Full123 and Provider21 are signed, publicly delivered and activated on this
-device. A1 entrance equivalence is partially qualified, not complete.** The
+**The device runs upstream0.164.0 with the corrected locally derived updater;
+Full123 remains its authenticated public baseline and Provider21 remains active.
+A1 entrance equivalence is partially qualified, not complete.** Full123 and
+Provider21 were signed and publicly delivered. The updater preparation below has
+not requested or publicly delivered an installable0.165 release. The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
 authenticated host and37 preserved works at the Provider21 activation boundary.
@@ -35,13 +38,12 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: manual-update delivery is now the user's first priority. Investigate and
-repair official0.165.0 Termux preparation, CI result/publication tracking and real
-`codex update` installation before other pending Provider/worker work. The user
-authorizes complete build/public delivery and bounded actual-device installation,
-then restoration to upstream0.164.0 so they can reproduce the update personally.
-Preserve all running sessions/jobs. Do not report readiness from a green request
-controller or remove unsupported-version guards without actual qualification.**
+**Next: the user's first plain `codex update` must discover official0.165.0,
+request its real hosted build, and observe download/installation after signed
+publication. The corrected updater is staged while upstream remains0.164.0;
+do not publish0.165 in advance or substitute installation followed by rollback.
+Private source/runtime/Android and isolated update proofs pass; the user's real
+request/publication/install is still outstanding. Preserve running sessions/jobs.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -222,12 +224,14 @@ qualification above as preparation, then stage the corrected updater on0.164 and
 gate publication until a fresh real request. Preserve the old request receipt
 when preparing this explicitly authorized replay; do not discard its evidence.
 
-Readback on2026-10-28 confirms installed Full123
-`local-relay-hosted-0-164-0-0a8b6e53304d-s123`, previous Full121, both
-upstream0.164.0. Public Full is the same123; public Base is116. Older operating
-numbers below identify their original observations, not a fresh device read.
+Readback on2026-10-29 KST confirms installed locally derived generation
+`local-1793204956-318-2`, upstream0.164.0, with corrected Core. Its public
+baseline and previous selection are Full123
+`local-relay-hosted-0-164-0-0a8b6e53304d-s123`. Public Full remains123 and public
+Base116, both upstream0.164.0. Older operating numbers below identify their
+original observations, not a fresh device read.
 Official latest is rust-v0.165.0, published2026-10-27T20:09:38Z.
-`manual-build-0.165.0` references request run40665419861. Its successful advance
+The previous `manual-build-0.165.0` referenced request run40665419861. Its successful advance
 job returned `upstream-not-newer` because the source input already records0.165.0,
 then `awaiting-exact-proof` for core-runtime-qualification at source498fd4c.
 Request acceptance therefore did not mean a runtime artifact was produced.
@@ -238,7 +242,7 @@ qualification`. `runtime_patch.rs::required` supports0.164.0 but not0.165.0;
 its absolute guarded runtime/permission-UI patches cannot be assumed valid for a
 new binary.0.165 is not a unique upstream prohibition: each unsupported tuple
 requires a compatible transformation and real Android proof. The guard must stay
-until that work passes. The manual wait loop only observes signed indexes, not
+until that work passes. The old manual wait loop only observed signed indexes, not
 this failed downstream pipeline, and its old successful request receipt suppresses
 another request. This is a reporting/orchestration defect in addition to the
 missing version port, not evidence that device download/activation failed.
@@ -378,15 +382,15 @@ failure and update-final-full.log owns the passing replacement check. Completed
 owned fixtures were reclaimed with clean_development.py; six cleanup records
 retain original logs/native records and restore paths for about4.1GiB of payloads.
 
-Current work: exact official0.165 package downloaded to the owned TMPDIR/up165
-workspace and its SHA256 matches release/upstream.json; no activation has occurred.
-The evidence root is ~/.cache/codex/acceptance/update-pipeline-20261028. Actual
-source-port/build and isolated Android runtime/Full/update proof are completed as
-specified above. Final-source hosted qualification, public delivery, device
-activation/restoration and anonymous missing-build requests remain pending their
-own proof; request submission still uses the existing GitHub-authorized path.
+The evidence root is ~/.cache/codex/acceptance/update-pipeline-20261028. Exact
+official0.165 source/package preparation, hosted builds and isolated actual Android
+runtime/Full/update proofs pass. Final source7f557c208856 passed Source Acceptance
+40722939098 and Core/runtime qualification40723105605, including Android executable
+smoke. Live preparation retains0.164; actual public0.165 delivery/installation awaits
+the user's request. Anonymous missing-build requests remain unimplemented; request
+submission still uses the existing GitHub-authorized path.
 
-Replay-specific fixes now under final qualification: plain signed-channel lookup
+Qualified replay-specific fixes: plain signed-channel lookup
 recognizes the exact signed public baseline of a local-derived current as
 unchanged, preserving the refreshed Core/runtime selection for upstream discovery.
 It still rejects a different same-sequence signed release. The existing local-
@@ -405,9 +409,7 @@ the retry uses regular explicit OpenSSL/gzip tools and retains the first failure
 in replay-local-refresh-first-failure.json. replay-current-frontend-refresh.json
 also passes with the actual installed Full123 frontend retained byte-for-byte.
 None of these trials changed production selection or submitted a public request.
-The final local full gate passes in replay-final-full.log; the controller/workflow
-suite passes20 cases in replay-controller-final-tests.log. Live preparation and
-the user's actual build request remain outstanding until explicitly recorded.
+The final local full gate passes in replay-final-full.log.
 The subsequent controller request test also covers documentation-only follow-ups:
 an explicit request uses the existing accepted product's real proofs rather than
 requiring a nonexistent runtime proof for a prose-only HEAD. It refuses missing
@@ -416,10 +418,41 @@ suite now passes21 cases; the dedicated fault test preserves its expected failur
 in replay-documentation-request-mutation.log. This keeps final operating-state
 documentation from preventing the user's plain-command replay.
 
-## Next-Core candidate: publication times and component notes
+Live replay preparation is complete. Non-forced main commitb5544396e8e9 updated
+only the accepted caller, controller workflow and release-source-v1, pinning product
+7f557c208856 without dispatching publication or changing either signed public index.
+Readback is in main-ready.json. Actual no-request controller run40726432825 returned
+already-pinned (main-ready-idle.log), confirming readiness does not itself publish.
 
-Requested source work is committed/pushed as `0c16656`. Operating Core remains
-Full121; this section describes the next release, not an installed update.
+The hosted Android Core from accepted source5bbd3ba360df has the same Core/builder/
+runtime-binding/Cargo inputs as7f557c208856 and matches that source's qualified
+candidate Core digest. replay-hosted-core-refresh.json passes actual Android
+0.164 refresh followed by isolated ordinary update/request/signed0.165 installation,
+retaining the admitted Full123 frontend. On the live device the same Core fetched
+the official0.164 metadata/archive and completed existing `update --build-local`
+with the version override scoped to that command only. This is archive adaptation
+and local signing, not an on-device Rust compilation or an official publication.
+live-preparation/accepted.json verifies the launcher matches that Core, upstream
+remains0.164.0, all six runtime/companion/Manager/helper payloads are byte-identical
+to Full123,21 protected configuration/authentication files are unchanged, and all36
+previously observed processes still have their original process identities. Public
+update authority and baseline123 are retained; no hold or sequence floor was lowered.
+The exact old request40665419861 receipt is preserved as
+live-preparation/manual-build-0.165.0-before-replay; its active deduplication entry
+was removed only after confirming there is no new active request. The live plain
+`codex update` has deliberately not been executed. The user's first real request,
+hosted publication/download/install and physical terminal observation remain the
+next acceptance boundary, not an outcome inferred from these isolated trials.
+Completed hosted-replay fixture payloads were archived/pruned with
+hosted-replay-fixture-cleanup.jsonl, retaining results and restore records for
+about907MB. The current and rollback installations were preserved.
+
+## Update display: publication times and component notes
+
+Requested source work is committed/pushed as `0c16656` and is included in the
+locally derived updater staged above. Public Full123 does not yet contain it.
+The detailed trials below originally qualified this work from a Full121 baseline;
+they do not claim the user's pending live update has already displayed it.
 The candidate uses the existing official release response for upstream publication
 time/notes, and bounded public GitHub tag reads
 for the already-admitted Core package, its authenticated Base identity and selected
