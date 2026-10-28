@@ -333,7 +333,11 @@ protected files unchanged. No model inference or saved-Chat read was submitted.
 A later diagnostic activation would observe the same owned host once after the
 specific target-unavailable response, without another acquisition or work replay;
 its actual preflight stops because the separate wrlab workd41e3287… is running
-again. Current Codex thread identity is different. Preserve that live work.
+again. Its latest Native history contains a new user input, commentary and
+completed tool executions without a final for that round. Native is unsettled;
+this alone does not prove that the external ChatGPT model is still reasoning.
+Current Codex thread identity is different. Preserve the work until its actual
+completion is reconciled; do not infer completion from an idle tool queue.
 
 Before the next service transition, recheck settlement and investigate the
 cold-host target/readiness and delayed shutdown boundaries. No production code
@@ -343,7 +347,8 @@ The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
 Evidence: provider21-promotion, provider21-activation-recovery and provider21-
 recovered-* records; original failed activation is retained in
 $TMPDIR/activate-provider21-zzu45gpx/result.json (10.stdout holds the cause).
-Latest provider21-device-activation is the subsequent read-only preflight result.
+Latest provider21-device-activation is the subsequent read-only preflight result;
+provider21-wrlab-active-history-private retains the Native observation.
 direct-progress-*, public21-hosted-*, provider21-release-input and
 provider21-public-consumer retain their narrower accepted scope.
 Actual host compliance requires a later original-commentary comparison and must
