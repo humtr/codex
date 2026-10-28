@@ -552,8 +552,19 @@ removal4aad4e9 are verified against current source and the external exact92a356f
 source.268 long literal candidates yield0 exact normalized matches across55 current
 Provider source files; this targeted comparison does not establish every algorithm's
 origin. LEGACY_FILES is still consumed by immutable eight-file rollback validation,
-not new package assembly. Native Codex/libraries/PRoot/noVNC remain actual external
-components; the entire product is not claimed as100% original or license-free.
+not new package assembly. The user's originality question concerns that specific
+repository, not unrelated dependencies. Readback confirms current21/previous20
+are both six-file packages.11 installed eight-file generations have no references
+in the scanned same-UID processes or11 bounded config TOMLs; external/offline/
+TMPDIR profile consumers are not fully qualified. Old asset immutability alone
+does not require permanent old-layout support. Retire that reader/export/restore
+path after qualifying remaining consumers; keep current-format rollback and
+historical assets separate. No payload/state is deleted in this audit.
+Our exact executable/checkpoint/schema names are absent from the external pinned
+source, whose package/bin is codex-chatgpt-web. Exact-current-source short-literal
+intersection contains only4 standard Responses events; the old ocx1 fixture is
+negative coverage. Name similarity is not treated as proof of implementation
+copying, nor does renaming establish implementation independence.
 The original16-file Chat worktree and signed history remain preserved. Evidence:
 $TMPDIR/input-design-audit-ot9uwhn6. No model request/build/install in this draft batch.
 

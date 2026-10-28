@@ -338,10 +338,50 @@ upstream 프로토콜을 만족하기 위한 것이며, 그것만으로 코드�
 원래 ChatGPT 수정본의16파일 변경 작업 트리132fc00 기반은 그대로 남아 있고,
 현재에 반영된 후속 Codex 보완과 구분해 보존된다. 옛 서명 자산·Git 이력을
 새로운 독자 구현처럼 고치거나 삭제하지 않는다. 사용자는 소급 수정을 요구하지 않았다.
-Core의 upstream Codex, 실제 Rust 라이브러리, PRoot/noVNC 등은 여전히 외부 구성요소다.
-따라서 '제품 전체가 타 라이선스 불필요'라고 말하면 틀리고, 이들의 정당한 NOTICE를
-없애서 독자 구현처럼 보이게 하지 않는다. 본문에 필요한 특정 저장소의 코드 차용을
-다시 도입하지 않는 것은 이번 입력 설계의 유지 조건이다.
+이 독자성 판정의 대상은 miuuyy 저장소의 코드·라이선스 의존이다. 다른 일반
+의존성까지 사용자의 질문 범위를 넓히지 않는다. 해당 저장소의 코드 차용을 다시
+도입하지 않는 것은 이번 입력 설계의 유지 조건이다.
+
+### 옛 패키지의 실제 필요와 명칭 재점검
+
+현재 선택 파일을 읽어 current=Provider21, previous=Provider20,
+high_water=21을 확인했다. 둘 다 새6-file 형식이다. 기기에는 별도로 옛8-file
+generation11개(s3–s13)가 남아 있지만 현재 프로세스의 exe/argv/maps/fd/cwd 참조와
+정해진 설정 위치의 TOML11개에서는 그 generation 참조가 발견되지 않았다.
+이 범위에서는 **현재 실행이나 직전 롤백 때문에 옛 형식이 필요한 것은 아니다.**
+단, 임의의 외부 경로/오프라인 사용자까지 소비자가 없다고 증명한 것은 아니다.
+
+이전의 '과거 서명 패키지이므로 compatibility가 필요하다'는 설명은 현재 소비자를
+확인하지 않은 채 보존 이유를 의무로 확대했다. 기존 자산을 불변으로 보존하는 일과
+새 코드가 옛 형식을 계속 지원하는 일은 별개다. 권고는 현재/직전의 새 형식 롤백을
+유지하면서8-file 검증/내보내기/restore 지원을 퇴역시키는 것이다. 실제 폐기는
+외부·TMPDIR profile 소비 범위를 확인한 뒤 새 지원 범위에 맞게 계약/reader/test/
+문서를 함께 변경해야 한다. 옛 자산·로컬 디렉터리 삭제와 지원 코드 제거는 다른 작업이며
+이번 읽기 점검에서 어느 것도 실행하지 않았다.
+
+질문의 codex-chafgpt에 대응하는 실제 tracked 문자열은 codex-chatgpt 계열이다.
+외부 exact source의 package/bin은 codex-chatgpt-web이며, 그 exact 명칭은 현재
+Provider/Core 소스에서 발견되지 않았다. 우리 codex-chatgpt-provider는23b7be4의
+Rust crate 도입 때 존재하며, 외부 비교 소스에는 그 exact 문자열이 없다.
+현재 codex-chatgpt-public-continuation은4aad4e9에서 도입한 자체 checkpoint 표식이고,
+codex-chatgpt-source-execution-v1도 외부 exact source에 없다. 이것은 exact 명칭과
+도입 이력의 판정이며, 단어 조합의 영향까지 전혀 없었다는 주장은 아니다.
+
+유사한 명칭의 실제 소비자는 executable/Cargo crate, runit 서비스명,
+generated-profile marker, journal/schema와 checkpoint 표식이다. 따라서 명칭을
+정리한다면 표시 문자열뿐 아니라 installer/profile/service/publication/state
+소비자를 확인해야 한다. 외부 코드 의존의 증거와 명칭의 혼동 가능성은 별개이며,
+이름을 바꾸는 것만으로 독자성을 확보했다고 보고하지 않는다.
+
+120자 장문 비교에 더해24–400자 literal도 전수 추출·대조했다. 현재 Provider
+src와 외부 TypeScript에서 공통인 것은 Responses 이벤트 이름4개뿐이었다:
+response.content_part.added, response.output_item.added,
+response.output_item.done, response.output_text.delta. 이들은 연결 프로토콜의
+필드이며 임의 개명 대상이 아니다. 외부 ocxr1/CODEX_CHATGPT 계열은 현재 소스에
+없고, ocx1은 negative fixture에서만 거부용으로 사용한다. 이 문자 비교는
+다른 구조적 차용의 부재를 완전히 증명하는 대신, 이번 의심 명칭·상수 점검의
+추가 근거다. legacy-current-consumers.json, name-origin-comparison.json,
+shared-short-literals.json에 범위·결과를 보존한다.
 
 추가 증거: `$TMPDIR/input-design-audit-ot9uwhn6`의 exact external tree/source,
 `originality-comparison.json`, `upstream-protocol-comparison.json`. 이 작성안은
