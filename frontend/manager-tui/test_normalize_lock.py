@@ -35,12 +35,20 @@ class LockTests(unittest.TestCase):
         for field in ['release','member','inventory','version']:
             with self.subTest(field=field), tempfile.TemporaryDirectory() as t:
                 p=Path(t);self.fixture(p)
-                if field=='release':(p/'Cargo.toml').write_text((p/'Cargo.toml').read_text().replace('0.163.0','0.165.0'))
+                if field=='release':(p/'Cargo.toml').write_text((p/'Cargo.toml').read_text().replace('0.163.0','0.165.0-preview'))
                 if field=='member':(p/'member/Cargo.toml').unlink()
                 if field=='inventory':(p/'Cargo.lock').write_text((p/'Cargo.lock').read_text().replace('codex-sample','other'))
                 if field=='version':(p/'Cargo.lock').write_text((p/'Cargo.lock').read_text().replace('0.0.0','0.163.0'))
                 before=(p/'Cargo.lock').read_bytes()
                 with self.assertRaises((ValueError,FileNotFoundError)):m.normalize(p)
                 self.assertEqual((p/'Cargo.lock').read_bytes(),before)
+
+    def test_new_stable_release_requires_no_version_registration(self):
+        with tempfile.TemporaryDirectory() as t:
+            p=Path(t);self.fixture(p)
+            (p/'Cargo.toml').write_text((p/'Cargo.toml').read_text().replace('0.163.0','0.999.0'))
+            before=(p/'Cargo.lock').read_text()
+            m.normalize(p)
+            self.assertEqual((p/'Cargo.lock').read_text(),before.replace('version = "0.0.0"','version = "0.999.0"'))
 
 if __name__=='__main__':unittest.main()

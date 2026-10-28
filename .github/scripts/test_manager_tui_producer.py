@@ -60,36 +60,38 @@ class NativeProducerTests(unittest.TestCase):
                 if fault == 'archive': self.assertFalse((root / 'manager-tui-input/artifact').exists())
                 if fault is None: self.assertIn(digest, result.stdout)
 
-    def test_actual_candidate_builder_requires_the_qualified_pair(self):
-        for version,base in (('0.161.0',False),('0.154.0',False),('0.161.0',True),('0.162.0',True)):
-            with self.subTest(version=version,base=base), tempfile.TemporaryDirectory() as tmp:
+    def test_base_builder_consumes_matching_source_runtime_and_refuses_drift(self):
+        for fault in (None, 'version', 'source', 'bytes'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp); binary = root / 'source/target/release/codex-release-builder'; binary.parent.mkdir(parents=True)
                 binary.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\
                     import json,os,sys
                     from pathlib import Path
-                    if sys.argv[1] == 'prepare': pass
-                    elif sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
+                    if sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
                     else: Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))
                 ''')); binary.chmod(0o755)
+                runtime=root/'termux-runtime-source';runtime.mkdir()
+                raw=b'owned compiled runtime';(runtime/'codex').write_bytes(raw)
+                (runtime/'sha256.txt').write_text(hashlib.sha256(raw).hexdigest()+'  codex\n')
+                (runtime/'version.txt').write_text('codex-cli 0.999.0\n')
+                preparation={'source':'b'*40,'version':'0.999.0'}
+                if fault=='version':preparation['version']='0.998.0'
+                if fault=='source':preparation['source']='c'*40
+                if fault=='bytes':(runtime/'codex').write_bytes(b'changed runtime')
+                (runtime/'preparation.json').write_text(json.dumps(preparation))
                 script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]
-                for field, value in [('upstream_version', version), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
+                for field, value in [('upstream_version', '0.999.0'), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
-                env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root), 'MANAGER_TUI_VERSION': '0.161.0', 'CAPTURE': str(root/'args.json'),'BASE_ONLY':str(base).lower()}
-                if base:env.pop('MANAGER_TUI_VERSION')
-                result = subprocess.run(['bash', '-c', script], cwd=root, env=env, capture_output=True, text=True, timeout=15)
-                if version != '0.161.0' and not base:
-                    self.assertNotEqual(result.returncode,0)
-                    self.assertFalse((root/'args.json').exists())
-                    continue
-                self.assertEqual(result.returncode, 0, result.stderr)
-                args = json.loads((root/'args.json').read_text())
-                if base:
-                    for flag in ('--manager','--manager-tui','--manager-tui-version','--defer-manager-probe'):
-                        self.assertNotIn(flag,args)
-                    continue
-                self.assertIn('--manager', args)
-                self.assertEqual(args[args.index('--manager-tui')+1], str(root/'manager-tui-input/artifact/codex'))
-                self.assertEqual(args[args.index('--manager-tui-version')+1], version)
+                env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root),
+                       'CAPTURE': str(root/'args.json'),'BASE_ONLY':'true','UPSTREAM_SHA':'b'*40}
+                result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, fault is None, result.stderr)
+                if fault is None:
+                    args=json.loads((root/'args.json').read_text())
+                    self.assertEqual(args[args.index('--source-runtime')+1],str(runtime/'codex'))
+                    self.assertEqual(args[args.index('--source-revision')+1],'b'*40)
+                    self.assertNotIn('--manager-tui',args)
+                else:self.assertFalse((root/'args.json').exists())
 
     def test_actual_native_smoke_requires_same_version_success_without_stderr(self):
         script = step('Run exact Manager, Core, and runtime smoke natively').split('timeout 20',1)[1].split('\nrm "$candidate/.manager-probe-deferred"',1)[0]

@@ -8,6 +8,33 @@ from apply import apply, check_scope
 
 
 class AssemblyTests(unittest.TestCase):
+    def test_rebase_locates_changed_context_and_conflict_leaves_tree_and_index_unchanged(self):
+        for conflict in [False, True]:
+            with self.subTest(conflict=conflict), tempfile.TemporaryDirectory() as temporary:
+                upstream, package, target = self.fixture(Path(temporary))
+                path = target / 'lib.rs'
+                original = ''.join(f'line {i}\n' for i in range(12))
+                path.write_text(original)
+                def git(*args):
+                    return subprocess.check_output(['git', '-C', str(upstream), *args])
+                git('config', 'user.name', 'Owned'); git('config', 'user.email', 'owned@example.invalid')
+                git('add', '.'); git('commit', '-qm', 'official base')
+                path.write_text(original.replace('line 6', 'integration'))
+                (package / 'native.patch').write_bytes(git('diff', '--binary'))
+                shifted = original.replace('line 6' if conflict else 'line 3', 'upstream change')
+                path.write_text(shifted)
+                git('add', '.'); git('commit', '-qm', 'official next release')
+                before_index = git('write-tree')
+                if conflict:
+                    with self.assertRaisesRegex(ValueError, 'merge failed before mutation'):
+                        apply(upstream, package)
+                    self.assertEqual(path.read_text(), shifted)
+                    self.assertFalse((target / 'app/owned.rs').exists())
+                else:
+                    self.assertEqual(apply(upstream, package), 1)
+                    self.assertEqual(path.read_text(), shifted.replace('line 6', 'integration'))
+                self.assertEqual(git('write-tree'), before_index)
+
     def test_scope_accepts_catalog_config_and_tui_but_rejects_other_source_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
             upstream, package, target = self.fixture(Path(temporary))

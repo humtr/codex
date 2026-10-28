@@ -14,9 +14,9 @@
     "focused_tests": 65,
     "lock_audit": {
       "external_packages_unchanged": 1308,
-      "workspace_versions_changed": 166,
-      "original_lock_sha256": "7ec2bfabf3b967c00409b85489076f8df3849745d3e469473d88288322adeb4a",
-      "normalized_lock_sha256": "bc5f7352658f51deace9dddb4bc404742b06c6402cc825b6d37051c008d989bd"
+      "normalized_lock_sha256": "a646d4b01a0e8c62f6af9b74fb965c1bd6d3cf27a547984de09730d50e0e64da",
+      "original_lock_sha256": "580ce642d0bc924e683c97f269cc2d20b0d74e9037b82cd8cde7a67def764e60",
+      "workspace_versions_changed": 167
     }
   }
 }

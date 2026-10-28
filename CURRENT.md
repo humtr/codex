@@ -33,14 +33,13 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: the requested next-Core release-information source work is complete.
-Provider21 device/cloud transition and scoped Android→CLI→Android public-text/live
-TUI round trips pass. Plain-input automation through chat_input also passes on
-the original Chat and same Native work. Continue the remaining actual-client A1
-matrix, including Chat-origin Provider result return and control/failure cases.
-The prior cold-host failure remains a separate unresolved
-lifecycle finding; the successful current activation did not reproduce it.
-Close the actual-client A1 matrix before A2 common-responsibility extraction.**
+**Next: manual-update delivery is now the user's first priority. Investigate and
+repair official0.165.0 Termux preparation, CI result/publication tracking and real
+`codex update` installation before other pending Provider/worker work. The user
+authorizes complete build/public delivery and bounded actual-device installation,
+then restoration to upstream0.164.0 so they can reproduce the update personally.
+Preserve all running sessions/jobs. Do not report readiness from a green request
+controller or remove unsupported-version guards without actual qualification.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -209,6 +208,95 @@ returned35 works and17 matching full schemas including join, with zero metadata
 refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
+
+## Priority0: upstream update build, delivery and user replay
+
+Readback on2026-10-28 confirms installed Full123
+`local-relay-hosted-0-164-0-0a8b6e53304d-s123`, previous Full121, both
+upstream0.164.0. Public Full is the same123; public Base is116. Older operating
+numbers below identify their original observations, not a fresh device read.
+Official latest is rust-v0.165.0, published2026-10-27T20:09:38Z.
+`manual-build-0.165.0` references request run40665419861. Its successful advance
+job returned `upstream-not-newer` because the source input already records0.165.0,
+then `awaiting-exact-proof` for core-runtime-qualification at source498fd4c.
+Request acceptance therefore did not mean a runtime artifact was produced.
+
+The actual downstream Core run40665037184 cross-built Core/Manager, then stopped
+before fetching the runtime with `upstream UDS version requires fresh Termux
+qualification`. `runtime_patch.rs::required` supports0.164.0 but not0.165.0;
+its absolute guarded runtime/permission-UI patches cannot be assumed valid for a
+new binary.0.165 is not a unique upstream prohibition: each unsupported tuple
+requires a compatible transformation and real Android proof. The guard must stay
+until that work passes. The manual wait loop only observes signed indexes, not
+this failed downstream pipeline, and its old successful request receipt suppresses
+another request. This is a reporting/orchestration defect in addition to the
+missing version port, not evidence that device download/activation failed.
+
+Chosen responsibility: GitHub builds/qualifies/signs an exact supported tuple once;
+Termux downloads/verifies/activates the matching signed composition. Do not race
+an automatic local build against CI. Developers use the same consumer path by
+default, with explicit authorized remote requests and explicit local qualification
+as separate operations. Do not infer authority from a checkout's presence or a
+Codex/ChatGPT login. Consumers must not need repository write access merely to
+update. Immediate anonymous missing-build requests require an owner-controlled
+relay/queue with server-held GitHub credentials; scheduled discovery alone cannot
+guarantee an immediate request and no such relay is currently shipped. Keep the
+existing credential-free asset redirect independent of dispatch authority.
+
+Implementation order: qualify exact0.165 runtime and enhanced frontend; repair
+request/result tracking with actual source/version/lane failures; separate public
+consumer observation from explicit privileged dispatch; preserve published Base
+while Full qualifies; publish only after source/Android/sign/readback/disposable
+update/rollback gates. Then verify actual installation, restore0.164.0 and leave
+an explicitly tested update replay route for the user. A normal public rollback
+creates a hold; do not silently remove it or lower the sequence floor to stage a
+demonstration. Resolve replay with ordinary public sequence/hold rules and report
+the exact command/remaining boundary. Preserve original123 and its records.
+
+The user clarified that locating/applying the needed compatibility edits must
+itself be automated. The old mechanism applied already registered binary offset
+tables; it did not discover new locations. The selected replacement prepares exact
+official source by function/expression, then builds on hosted AArch64 musl and
+feeds `termux-source-v1` into the existing signed-generation pipeline. The official
+archive still supplies the unmodified companion. The source/version/revision and
+resulting executable remain bound; signing and Android acceptance are unchanged.
+`scripts/prepare_runtime_source.py` found and preflighted the same eight-file
+adaptation in official0.164 and0.165 without version-dependent offsets. This is
+source-preparation proof, not executable/device qualification. Dependency audits
+are derived from the new exact source rather than copied from the preceding
+release.0.165 has167 workspace versions/1308 unchanged external records.
+
+The optional frontend assembler now resolves changed patch context through a
+scratch Git index and its recorded `upstream-base`, preserving the real tree/index
+on conflicts. The unchanged maintained0.164 patch automatically assembled18 owned
+source files on official0.165; scope/diff checks passed. No manually rebased
+frontend patch remains in the diff. Source-function scoping and scratch-index
+protection regressions each detected an intentionally introduced fault in
+disposable source. Builder tests exercised the new source-runtime input, the
+54-byte FD remaps, unchanged companion and signed publication, rejecting a bad
+source revision. These are isolated test inputs, not public delivery or physical
+device installation. Evidence: source-preparation-tests.log, producer-tests.log,
+source-builder-test.log and *-mutation.log under the evidence root below.
+
+Local `scripts/check.sh python` and `scripts/check.sh rust` pass (including
+workspace tests and Clippy). The source-revision publication test also detected
+its deliberately disabled revision validation in a disposable worktree; the live
+source was never mutated. Its original failure log is builder-revision-mutation.log.
+The obsolete direct-Full builder witness was replaced by the source-runtime Base
+producer test: Full now consumes an authenticated Base, with its separate actual
+composition and frontend-acquisition tests retained.
+
+Pending qualification: hosted source gates, executable build, actual Android
+runtime/permissions, signing/readback/update and requested installation/rollback.
+The unpublished v7 byte-relocation prototype stays only until those source-runtime
+gates pass, then its product code/branches/tests must be removed together. Its
+derivation evidence stays in the owned temporary/proof workspace.
+
+Current work: exact official0.165 package downloaded to the owned TMPDIR/up165
+workspace and its SHA256 matches release/upstream.json; no activation has occurred.
+The evidence root is ~/.cache/codex/acceptance/update-pipeline-20261028. Actual
+port/build/public delivery, device activation/restoration and anonymous request
+support remain unimplemented/unqualified until their specific proof is recorded.
 
 ## Next-Core candidate: publication times and component notes
 
@@ -1336,6 +1424,7 @@ not a new mandatory platform guarantee or permission gate.
 
 | Order | Work / responsibility and affected paths | Completion / expected result |
 | --- | --- | --- |
+|P0 User override, active | Official0.165 Termux port; GitHub build/result tracking; consumer/developer update boundary; signed delivery and actual device replay | Complete update/install proof, return to0.164.0 and preserve a tested user replay path before remaining Provider work |
 |0 Completed here | Consolidate CURRENT, correct stale SPEC/README/AUDIT status | Delivered versus unqualified versus proposed work no longer conflicts; docs/diff check |
 |1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |

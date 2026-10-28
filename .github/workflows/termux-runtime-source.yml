@@ -1,0 +1,130 @@
+name: Build adapted official runtime source
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
+      CARGO_PROFILE_RELEASE_STRIP: symbols
+      CARGO_PROFILE_RELEASE_DEBUG: '0'
+      CARGO_PROFILE_RELEASE_INCREMENTAL: 'false'
+      CARGO_BUILD_JOBS: '3'
+    steps:
+      - name: Fetch exact wrapper recipe
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component frontend >> "$GITHUB_ENV"
+      - name: Fetch exact official source
+        run: |
+          set -euo pipefail
+          git init upstream
+          git -C upstream remote add origin https://github.com/openai/codex.git
+          git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
+      - name: Locate and apply Termux compatibility expressions
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/runtime-artifact"
+          python3 source/scripts/prepare_runtime_source.py upstream \
+            --version "$UPSTREAM_VERSION" --source-sha "$UPSTREAM_SHA" \
+            > "$RUNNER_TEMP/runtime-artifact/preparation.json"
+          python3 source/frontend/manager-tui/normalize_lock.py upstream/codex-rs \
+            --audit "$RUNNER_TEMP/runtime-artifact/lock-audit.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          expected=json.loads(Path('source/release/upstream.json').read_text())['qualification']['lock_audit']
+          actual=json.loads((Path(os.environ['RUNNER_TEMP'])/'runtime-artifact/lock-audit.json').read_text())
+          if expected != actual:raise SystemExit('source runtime dependency audit differs from exact release input')
+          PY
+          git -C upstream diff --check
+          git -C upstream diff --binary > "$RUNNER_TEMP/runtime-artifact/source.patch"
+      - name: Provision exact official build toolchain
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-unknown-linux-musl
+          archive="$RUNNER_TEMP/zig-linux-aarch64-0.14.0.tar.xz"
+          curl --fail --silent --show-error https://ziglang.org/download/0.14.0/zig-linux-aarch64-0.14.0.tar.xz -o "$archive"
+          echo "ab64e3ea277f6fc5f3d723dcd95d9ce1ab282c8ed0f431b4de880d30df891e4f  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-linux-aarch64-0.14.0" >> "$GITHUB_PATH"
+      - name: Install official musl dependency tooling
+        env:
+          TARGET: aarch64-unknown-linux-musl
+          APT_UPDATE_ARGS: -qq
+          APT_INSTALL_ARGS: --no-install-recommends
+          OPENSSL_BUILD_JOBS: '3'
+        run: |
+          set -euo pipefail
+          bash upstream/.github/scripts/install-musl-build-tools.sh
+          echo 'AWS_LC_SYS_NO_JITTER_ENTROPY=1' >> "$GITHUB_ENV"
+          echo 'AWS_LC_SYS_NO_JITTER_ENTROPY_aarch64_unknown_linux_musl=1' >> "$GITHUB_ENV"
+      - name: Restore reusable compile cache
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            upstream/codex-rs/target
+          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ inputs.source_sha }}
+          restore-keys: |
+            termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
+      - name: Preserve byte-identical source timestamps
+        run: python3 source/scripts/prepare_runtime_source.py upstream --preserve-pristine-times
+      - name: Build adapted upstream executable
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
+          git diff --check
+      - name: Execute and bind source output
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/runtime-artifact"
+          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
+          file "$binary" | grep -F 'ARM aarch64'
+          if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
+          home="$RUNNER_TEMP/runtime-home"
+          mkdir -p "$home"
+          chmod 0700 "$home"
+          env -i HOME="$home" CODEX_HOME="$home/.codex" PATH=/usr/bin:/bin "$binary" --version > "$artifact/version.txt"
+          test "$(cat "$artifact/version.txt")" = "codex-cli $UPSTREAM_VERSION"
+          cp "$binary" "$artifact/codex"
+          (cd "$artifact" && sha256sum codex > sha256.txt)
+      - name: Retain runtime and preparation evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: termux-runtime-source
+          path: ${{ runner.temp }}/runtime-artifact
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain reusable compile cache
+        if: ${{ !cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            upstream/codex-rs/target
+          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ inputs.source_sha }}

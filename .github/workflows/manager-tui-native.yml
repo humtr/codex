@@ -50,6 +50,9 @@ jobs:
           git -C upstream remote add origin https://github.com/openai/codex.git
           git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
           git -C upstream checkout --detach FETCH_HEAD
+          patch_base="$(cat experiment/frontend/manager-tui/upstream-base)"
+          [[ "$patch_base" =~ ^[0-9a-f]{40}$ ]]
+          git -C upstream fetch --no-tags --depth=1 origin "$patch_base"
           test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
           test -z "$(git -C upstream status --porcelain)"
       - name: Provision ephemeral source build tools
@@ -115,17 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd upstream
-          python3 - <<'PYTHON'
-          import os, subprocess
-          epoch = int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD']))
-          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
-          paths = subprocess.check_output(['git', 'ls-files', '-z', '--', 'codex-rs']).decode().split('\0')
-          for path in paths:
-              if path and path not in changed and not path.startswith('codex-rs/tui/'):
-                  os.utime(path, (epoch, epoch), follow_symlinks=False)
-          PYTHON
-          git diff --check
+          python3 experiment/scripts/prepare_runtime_source.py upstream --preserve-pristine-times
+          git -C upstream diff --check
       - name: Provision pinned upstream test and formatting tools
         shell: bash
         run: |

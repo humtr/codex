@@ -1,7 +1,7 @@
 # TUI
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
-/switch to exact official0.164.0 source6aaac694803004a63c6f393d153c96d22521a6b9;
+/switch to exact official source selected by release/upstream.json;
 upstream retains every existing command and owns conversation UI/title composition.
 Manager owns execution profiles and foreground identity. TUI is a separate
 optional upstream-based frontend, not Manager's private screen. The retained
@@ -19,6 +19,11 @@ The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable
 pristine checkout; it preflights collisions and patch applicability before writing.
+`upstream-base` identifies the original integration-patch source. Hosted preparation
+fetches those objects too. When direct context matching fails, the assembler uses
+an isolated Git index for three-way resolution; a conflict leaves the real source
+and index unchanged. A newer release needs no manually rebased patch when that
+merge is clean. Build, scope, native/device and signed acceptance still apply.
 Do not apply the patch alone. Qualification binds the complete owned source tree
 and assembler as well as the patch, and retains the assembled diff as evidence.
 `apply.py --check-scope` supplies the same read-only boundary check after assembly,

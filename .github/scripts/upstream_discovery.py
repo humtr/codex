@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import tomllib
 
@@ -17,13 +19,14 @@ def proposal(current, metadata, resolve):
     version,digest=metadata
     lower_sha256(digest,'official archive')
     if stable_version(version)<=stable_version(current['upstream']['version']):return None
-    source,toolchain=resolve(version)
+    source,toolchain,audit=resolve(version)
     if re.fullmatch('[0-9a-f]{40}',source) is None or re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',toolchain) is None:
         raise ValueError('official source/toolchain identity is invalid')
     result=copy.deepcopy(current)
     result['upstream']={'version':version,'source':source,'archive_sha256':digest}
     result['toolchains']['frontend_rust']=toolchain
     result['frontend']=None
+    result['qualification']['lock_audit']=audit
     return result
 
 
@@ -44,7 +47,22 @@ def discover(source, check_only=False):
         raw=base64.b64decode(content['content'],validate=False)
         if len(raw)>16384:raise ValueError('oversized official toolchain file')
         toolchain=tomllib.loads(raw.decode())['toolchain']['channel']
-        return sha,toolchain
+        # A new release has its own workspace/dependency inventory. Derive the
+        # exact normalization audit instead of copying the preceding release's.
+        with tempfile.TemporaryDirectory(prefix='upstream-lock-') as directory:
+            checkout=Path(directory)/'source'
+            subprocess.run(['git','init','-q',str(checkout)],check=True)
+            subprocess.run(['git','-C',str(checkout),'fetch','--quiet','--no-tags','--depth=1',
+                            'https://github.com/openai/codex.git',sha],check=True)
+            subprocess.run(['git','-C',str(checkout),'checkout','--quiet','--detach','FETCH_HEAD'],check=True)
+            if subprocess.check_output(['git','-C',str(checkout),'rev-parse','HEAD'],text=True).strip()!=sha:
+                raise ValueError('official lock source identity differs')
+            audit_path=Path(directory)/'lock-audit.json'
+            subprocess.run([sys.executable,str(source/'frontend/manager-tui/normalize_lock.py'),
+                            str(checkout/'codex-rs'),'--audit',str(audit_path)],
+                           check=True,stdout=subprocess.DEVNULL)
+            audit=json.loads(audit_path.read_text())
+        return sha,toolchain,audit
     with tempfile.TemporaryDirectory(prefix='upstream-discovery-') as temporary:
         metadata=Path(temporary)/'upstream.json'
         raw=gh('api',LATEST,'--jq','{tag_name,draft,prerelease,assets:[.assets[] | select(.name=="codex-package-aarch64-unknown-linux-musl.tar.gz") | {name,digest}]}')

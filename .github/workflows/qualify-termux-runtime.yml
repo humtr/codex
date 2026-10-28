@@ -63,7 +63,14 @@ env:
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
 
 jobs:
+  runtime-source:
+    if: ${{ inputs.base_only || inputs.release_variant == 'base' }}
+    uses: ./.github/workflows/termux-runtime-source.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
   producer:
+    needs: runtime-source
+    if: ${{ !cancelled() && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped') }}
     name: Build unsigned Android/AArch64 candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -266,6 +273,13 @@ jobs:
           fi
           cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
 
+      - name: Acquire exact source-built runtime
+        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: termux-runtime-source
+          path: ${{ runner.temp }}/termux-runtime-source
+
       - name: Fetch, adapt, and qualify unsigned candidate
         if: steps.decision.outputs.candidate == 'true'
         shell: bash
@@ -283,16 +297,21 @@ jobs:
           # The signed R10 activation bridge signal is required on every public
           # stable candidate until the compatibility floor moves past retained R10.
           transition_args=(--legacy-activation-doctor-unsupported)
-          # Fail before large acquisition when a semantic Termux port is needed.
-          # A selected transform still requires the real Android gates below.
-          "$builder" prepare --version "$upstream_version" --archive-sha256 "$archive_sha256" \
-            | tee "$work/preparation.txt"
           if test '${{ steps.shared_base.outputs.reuse_base }}' = true; then
             python3 source/.github/scripts/release_components.py candidate \
               --base "$RUNNER_TEMP/base-input" --manager "$manager" \
               --frontend "$RUNNER_TEMP/manager-tui-input/artifact/codex" --builder "$builder" \
               --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
           else
+          runtime="$RUNNER_TEMP/termux-runtime-source"
+          (cd "$runtime" && sha256sum -c sha256.txt)
+          test "$(cat "$runtime/version.txt")" = "codex-cli $upstream_version"
+          python3 - "$runtime/preparation.json" "$UPSTREAM_SHA" "$upstream_version" <<'PY'
+          import json,sys
+          value=json.load(open(sys.argv[1]))
+          if value['source'] != sys.argv[2] or value['version'] != sys.argv[3]:
+              raise SystemExit('runtime source identity differs from admitted release input')
+          PY
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \
@@ -315,6 +334,7 @@ jobs:
             --archive-sha256 "$archive_sha256" \
             --generation-id "$generation_id" \
             --core "$core" \
+            --source-runtime "$runtime/codex" --source-revision "$UPSTREAM_SHA" \
             "${manager_args[@]}" \
             "${frontend_args[@]}" \
             "${transition_args[@]}" \

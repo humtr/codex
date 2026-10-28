@@ -45,6 +45,7 @@ const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.ta
 const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
+const SOURCE_RUNTIME_POLICY: &str = "termux-source-v1";
 const RELEASE_INDEX_FORMAT: &str = "codex-update-index-v1";
 const RELEASE_CHANNEL: &str = "stable";
 const RELEASE_URL_MAX_BYTES: usize = 4096;
@@ -164,6 +165,7 @@ const USAGE: &str = concat!(
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
     "[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>] ",
+    "[--source-runtime <ABSOLUTE_FILE> --source-revision <GIT_COMMIT>] ",
     "[--defer-manager-probe] [--legacy-activation-doctor-unsupported] ",
     "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
@@ -231,6 +233,7 @@ struct BuildRequest {
     core: PathBuf,
     manager: Option<PathBuf>,
     manager_tui: Option<ManagerTuiArtifact>,
+    source_runtime: Option<SourceRuntime>,
     defer_manager_probe: bool,
     legacy_activation_doctor_unsupported: bool,
     creation_metadata: String,
@@ -243,6 +246,12 @@ struct BuildRequest {
 struct ManagerTuiArtifact {
     path: PathBuf,
     version: String,
+}
+
+#[derive(Debug)]
+struct SourceRuntime {
+    path: PathBuf,
+    revision: String,
 }
 
 #[derive(Debug)]
@@ -273,6 +282,8 @@ struct RequestFields {
     manager: Option<PathBuf>,
     manager_tui: Option<PathBuf>,
     manager_tui_version: Option<String>,
+    source_runtime: Option<PathBuf>,
+    source_revision: Option<String>,
     defer_manager_probe: bool,
     legacy_activation_doctor_unsupported: bool,
     creation_metadata: Option<String>,
@@ -348,6 +359,8 @@ where
             Some("--manager-tui-version") => {
                 set_once(&mut fields.manager_tui_version, text_value(value)?)?
             }
+            Some("--source-runtime") => set_once(&mut fields.source_runtime, PathBuf::from(value))?,
+            Some("--source-revision") => set_once(&mut fields.source_revision, text_value(value)?)?,
             Some("--creation-metadata") => {
                 set_once(&mut fields.creation_metadata, text_value(value)?)?
             }
@@ -366,6 +379,11 @@ where
         manager: fields.manager,
         manager_tui: match (fields.manager_tui, fields.manager_tui_version) {
             (Some(path), Some(version)) => Some(ManagerTuiArtifact { path, version }),
+            (None, None) => None,
+            _ => return Err(BuilderError::Usage),
+        },
+        source_runtime: match (fields.source_runtime, fields.source_revision) {
+            (Some(path), Some(revision)) => Some(SourceRuntime { path, revision }),
             (None, None) => None,
             _ => return Err(BuilderError::Usage),
         },
@@ -649,6 +667,19 @@ fn ensure_executable(path: &Path, name: &'static str) -> Result<(), BuilderError
 }
 
 fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
+    if let Some(source) = &request.source_runtime {
+        if !canonical_absolute_path(&source.path)
+            || source.revision.len() != 40
+            || !source
+                .revision
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(BuilderError::Invalid(
+                "source runtime requires a canonical path and exact source revision",
+            ));
+        }
+    }
     if request.defer_manager_probe && request.manager.is_none() {
         return Err(BuilderError::Invalid(
             "deferred Manager artifact probe requires a Manager artifact",
@@ -1310,7 +1341,9 @@ fn validate_publish_patch_report(
     let policy = fields.next();
     let adaptation = runtime_patch::policy(expected_policy);
     if policy != Some(expected_policy)
-        || (expected_policy != PATCH_POLICY_ID && adaptation.is_none())
+        || (expected_policy != PATCH_POLICY_ID
+            && expected_policy != SOURCE_RUNTIME_POLICY
+            && adaptation.is_none())
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1330,6 +1363,30 @@ fn validate_publish_patch_report(
         .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
     let source_counts = fields.next();
     let changed_bytes = fields.next();
+    if expected_policy == SOURCE_RUNTIME_POLICY {
+        let revision = fields
+            .next()
+            .and_then(|field| field.strip_prefix("source_revision="));
+        if fields.next().is_some()
+            || archive_digest != Some(source_digest)
+            || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
+            || adapted_runtime_digest != Some(runtime_digest)
+            || host_digest != Some(code_mode_host_digest)
+            || source_counts != Some("source_counts=2,1,1,1")
+            || changed_bytes != Some("changed_bytes=54")
+            || revision.is_none_or(|revision| {
+                revision.len() != 40
+                    || !revision
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            })
+        {
+            return Err(BuilderError::Invalid(
+                "source runtime patch report is invalid",
+            ));
+        }
+        return Ok(());
+    }
     let uds = adaptation
         .and_then(|_| fields.next())
         .and_then(|field| field.strip_prefix("uds_policy="));
@@ -1449,7 +1506,9 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let patch_policy = publish_descriptor_field(&mut lines, "patch_policy_id")?;
-    if !runtime_patch::supports_version(patch_policy, package_version) {
+    if patch_policy != SOURCE_RUNTIME_POLICY
+        && !runtime_patch::supports_version(patch_policy, package_version)
+    {
         return Err(BuilderError::Invalid(
             "publication generation patch policy is invalid",
         ));
@@ -3500,13 +3559,49 @@ fn adapt_selected_runtime(
     staging: &Path,
     selected: ArchiveSelection,
 ) -> Result<AdaptedGeneration, BuilderError> {
-    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
-    let mut runtime = std::fs::read(&selected.raw_runtime)
-        .map_err(|source| io_error("read selected raw runtime", source))?;
+    let raw_path = if let Some(source) = &request.source_runtime {
+        let metadata = ensure_regular_file(
+            &source.path,
+            "inspect source runtime",
+            "source runtime must be a regular file",
+        )?;
+        if metadata.len() == 0 || metadata.len() > ENTRY_MAX_BYTES {
+            return Err(BuilderError::Invalid(
+                "source runtime exceeds its byte bound",
+            ));
+        }
+        let snapshot_path = staging.join(".source-runtime");
+        let mut input =
+            File::open(&source.path).map_err(|source| io_error("open source runtime", source))?;
+        let mut output = create_private_file(&snapshot_path)?;
+        let copied = io::copy(
+            &mut Read::by_ref(&mut input).take(ENTRY_MAX_BYTES + 1),
+            &mut output,
+        )
+        .map_err(|source| io_error("snapshot source runtime", source))?;
+        if copied != metadata.len() {
+            return Err(BuilderError::Invalid(
+                "source runtime changed or exceeds its byte bound",
+            ));
+        }
+        output
+            .sync_all()
+            .map_err(|source| io_error("sync source runtime", source))?;
+        validate_static_aarch64_elf(&snapshot_path)?;
+        snapshot_path
+    } else {
+        selected.raw_runtime.clone()
+    };
+    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &raw_path)?;
+    let mut runtime =
+        std::fs::read(&raw_path).map_err(|source| io_error("read selected raw runtime", source))?;
     let mut changed_bytes = apply_fd_path_remaps(&mut runtime)?;
 
-    let runtime_policy =
-        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
+    let runtime_policy = if request.source_runtime.is_some() {
+        None
+    } else {
+        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?
+    };
     if let Some(policy) = runtime_policy {
         if policy
             .archive_sha256
@@ -3547,6 +3642,10 @@ fn adapt_selected_runtime(
     )?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
+    if request.source_runtime.is_some() {
+        std::fs::remove_file(&raw_path)
+            .map_err(|source| io_error("remove source runtime snapshot", source))?;
+    }
 
     Ok(AdaptedGeneration {
         raw_runtime_sha256,
@@ -3567,9 +3666,13 @@ fn write_generation_descriptor(
     manager_sha256: Option<&str>,
     frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
-    let patch_policy = adapted
-        .runtime_policy
-        .map_or(PATCH_POLICY_ID, |policy| policy.id);
+    let patch_policy = if request.source_runtime.is_some() {
+        SOURCE_RUNTIME_POLICY
+    } else {
+        adapted
+            .runtime_policy
+            .map_or(PATCH_POLICY_ID, |policy| policy.id)
+    };
     let mut patch_report = format!(
         "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
         request.archive_sha256,
@@ -3583,6 +3686,9 @@ fn write_generation_descriptor(
         if let Some(permission) = policy.permission {
             patch_report.push_str(&format!(";permission_policy={permission}"));
         }
+    }
+    if let Some(source) = &request.source_runtime {
+        patch_report.push_str(&format!(";source_revision={}", source.revision));
     }
     let upstream_doctor = if request.legacy_activation_doctor_unsupported {
         "unsupported"
@@ -3871,6 +3977,7 @@ pub fn build_generation_with_manager(
         core: core.to_owned(),
         manager: manager.map(Path::to_owned),
         manager_tui: None,
+        source_runtime: None,
         defer_manager_probe: false,
         legacy_activation_doctor_unsupported: false,
         creation_metadata: creation_metadata.to_owned(),
@@ -4241,18 +4348,20 @@ fi
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
             "termux-fd-remap-v6",
+            "termux-fd-remap-v7",
             "unknown",
         ] {
             for version in [
                 "0.159.2", "0.160.0", "0.160.1", "0.161.0", "0.161.1", "0.163.0", "0.163.1",
-                "0.164.0", "0.164.1",
+                "0.164.0", "0.164.1", "0.165.0", "0.165.1",
             ] {
                 let expected = (id == PATCH_POLICY_ID && ["0.159.2", "0.160.0"].contains(&version))
                     || ([runtime_patch::PREVIOUS_POLICY, runtime_patch::POLICY].contains(&id)
                         && version == "0.160.0")
                     || (id == "termux-fd-remap-v4" && version == "0.161.0")
                     || (id == "termux-fd-remap-v5" && version == "0.163.0")
-                    || (id == "termux-fd-remap-v6" && version == "0.164.0");
+                    || (id == "termux-fd-remap-v6" && version == "0.164.0")
+                    || (id == "termux-fd-remap-v7" && version == "0.165.0");
                 assert_eq!(
                     runtime_patch::supports_version(id, version),
                     expected,
@@ -4265,6 +4374,7 @@ fi
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
             "termux-fd-remap-v6",
+            "termux-fd-remap-v7",
         ] {
             let policy = runtime_patch::policy(id).unwrap();
             let archive = policy.archive_sha256.unwrap_or(&digest);
@@ -4281,6 +4391,7 @@ fi
                 "termux-fd-remap-v4",
                 "termux-fd-remap-v5",
                 "termux-fd-remap-v6",
+                "termux-fd-remap-v7",
                 "unknown",
             ] {
                 if other != id {
@@ -4530,6 +4641,7 @@ fi
                 core,
                 manager: None,
                 manager_tui: None,
+                source_runtime: None,
                 defer_manager_probe: false,
                 legacy_activation_doctor_unsupported: false,
                 creation_metadata: "test-fixture".to_owned(),
@@ -4577,6 +4689,14 @@ fi
                 frontend.path.as_os_str().to_owned(),
                 OsString::from("--manager-tui-version"),
                 frontend.version.clone().into(),
+            ]);
+        }
+        if let Some(source) = &request.source_runtime {
+            args.extend([
+                OsString::from("--source-runtime"),
+                source.path.as_os_str().to_owned(),
+                OsString::from("--source-revision"),
+                source.revision.clone().into(),
             ]);
         }
         if request.defer_manager_probe {
@@ -4804,6 +4924,7 @@ fi
             core: fixture.request.core.clone(),
             manager: None,
             manager_tui: None,
+            source_runtime: None,
             defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,
             creation_metadata: "r5-fetch-test".to_owned(),
@@ -5178,6 +5299,57 @@ fi
             descriptor_before_retry
         );
         assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn source_runtime_is_snapshotted_adapted_and_publish_bound_to_its_revision() {
+        let mut fixture = fixture("source-runtime", happy_entries("0.999.0"), false);
+        fixture.request.version = "0.999.0".into();
+        let source = fixture.root.join("source-runtime");
+        let raw = fake_runtime();
+        std::fs::write(&source, &raw).unwrap();
+        fixture.request.source_runtime = Some(SourceRuntime {
+            path: source.clone(),
+            revision: "a".repeat(40),
+        });
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        assert_eq!(std::fs::read(&source).unwrap(), raw);
+        let mut expected = raw;
+        apply_fd_path_remaps(&mut expected).unwrap();
+        assert_eq!(
+            std::fs::read(fixture.request.output.join("runtime")).unwrap(),
+            expected
+        );
+        let metadata =
+            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+        assert!(metadata.contains("patch_policy_id\ttermux-source-v1\n"));
+        assert!(metadata.contains(&format!(";source_revision={}\n", "a".repeat(40))));
+        assert!(!fixture.request.output.join(".source-runtime").exists());
+        assert_eq!(
+            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap(),
+            fixture.code_mode_host
+        );
+        let private_key = fixture.root.join("private.pem");
+        generate_publish_key(&fixture.request.openssl, &private_key);
+        let mut publication = PublishRequest {
+            generation: fixture.request.output.clone(),
+            release_sequence: "1".into(),
+            release_base: "https://example.invalid/test-generation/".into(),
+            private_key,
+            openssl: fixture.request.openssl.clone(),
+            output: fixture.root.join("publication"),
+        };
+        publish(&publication).unwrap();
+        let path = fixture.request.output.join("generation.meta");
+        std::fs::write(
+            &path,
+            metadata.replace(&"a".repeat(40), "not-a-source-commit"),
+        )
+        .unwrap();
+        publication.output = fixture.root.join("rejected-publication");
+        assert!(publish(&publication).is_err());
+        assert!(!publication.output.exists());
         fixture.remove();
     }
 

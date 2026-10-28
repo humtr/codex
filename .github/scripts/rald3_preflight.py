@@ -213,16 +213,18 @@ def parse_descriptor(path: Path) -> dict[str, str]:
     policy = result["patch_policy_id"]
     versions = {"termux-fd-remap-v2": "0.160.0", "termux-fd-remap-v3": "0.160.0",
                 "termux-fd-remap-v4": "0.161.0", "termux-fd-remap-v5": "0.163.0",
-                "termux-fd-remap-v6": "0.164.0"}
-    if policy not in {"termux-fd-remap-v1", *versions} or result["qualification"] != "qualified":
+                "termux-fd-remap-v6": "0.164.0", "termux-fd-remap-v7": "0.165.0"}
+    if policy not in {"termux-fd-remap-v1", "termux-source-v1", *versions} or result["qualification"] != "qualified":
         fail("generation descriptor qualification binding is invalid")
     version = result["upstream_package_version"]
-    if (policy == "termux-fd-remap-v1" and stable_version(version) > (0, 160, 0)) or (policy in versions and version != versions[policy]):
+    components = stable_version(version)
+    if (policy == "termux-fd-remap-v1" and components > (0, 160, 0)) or (policy in versions and version != versions[policy]):
         fail("generation descriptor policy version binding is invalid")
     archives = {
         "termux-fd-remap-v4": "3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8",
         "termux-fd-remap-v5": "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb",
         "termux-fd-remap-v6": "5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5",
+        "termux-fd-remap-v7": "c8b2844fdef57498572db960344aee8c836ce9f75c203379da0a9c3a334fc3b7",
     }
     if policy in archives and result["source_artifact_digest"] != archives[policy]:
         fail("generation descriptor policy archive binding is invalid")

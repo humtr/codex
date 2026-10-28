@@ -44,11 +44,13 @@ class ComponentsTests(unittest.TestCase):
             (root/'crates/manager/lib.rs').write_text('quota implementation')
             (root/'frontend').mkdir();(root/'frontend/tui.rs').write_text('quota UI')
             recipe=root/'release/upstream.json';value=json.loads(recipe.read_text());value['frontend']=None
-            value['toolchains']['frontend_rust']='1.96.0';recipe.write_text(json.dumps(value))
+            recipe.write_text(json.dumps(value))
             # Manager-only new lock dependencies must not invalidate Core's closure.
             lock=root/'Cargo.lock';lock.write_text(lock.read_text()+'\n[[package]]\nname="owned-manager-only"\nversion="1.0.0"\n')
             self.commit(root)
             self.assertEqual(component.base_fingerprint(root),before)
+            value['toolchains']['frontend_rust']='1.96.0';recipe.write_text(json.dumps(value));self.commit(root)
+            after=component.base_fingerprint(root);self.assertNotEqual(after,before);before=after
             for name in ['crates/core/lib.rs','crates/release-builder/lib.rs','crates/runtime-binding/lib.rs']:
                 (root/name).write_text('changed '+name);self.commit(root)
                 after=component.base_fingerprint(root);self.assertNotEqual(after,before);before=after

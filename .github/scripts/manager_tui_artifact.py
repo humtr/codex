@@ -23,6 +23,8 @@ VERSION = _INPUT['upstream']['version']
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
     "frontend/manager-tui/native.patch",
+    "frontend/manager-tui/upstream-base",
+    "scripts/prepare_runtime_source.py",
     ".github/scripts/upstream_release.py",
     "frontend/manager-tui/src",
     "frontend/manager-tui/apply.py",

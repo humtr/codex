@@ -12,7 +12,7 @@ import tomllib
 def normalize(source: Path) -> dict:
     manifest = tomllib.loads((source / 'Cargo.toml').read_text())
     target = manifest['workspace']['package']['version']
-    if target not in {'0.163.0', '0.164.0'}:
+    if not isinstance(target, str) or re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', target) is None:
         raise ValueError('unexpected upstream release version')
     for member in manifest['workspace']['members']:
         paths = list(source.glob(member))

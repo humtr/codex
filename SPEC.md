@@ -53,6 +53,40 @@ a defect requires a native approval request that fails to reach its selected
 reviewer. The discarded Untrusted restoration experiment is not a release input.
 Actual Android admission/lifecycle and signed/public acceptance remain required.
 
+The0.165.0 relocation prototype is `termux-fd-remap-v7`, bound to official archive
+c8b2844fdef57498572db960344aee8c836ce9f75c203379da0a9c3a334fc3b7 and raw CLI
+b32ece31af06440da980b733fb8fefdd1f193439595fda84096f1caaceec543f.
+Keep the same protected FD35 root and UI/resume semantics using28 disjoint
+original-byte-guarded blocks (476 changed bytes plus54 common FD remaps).
+Official source/symbol comparison owns the relocation evidence; no unsupported
+version is admitted by a guessed offset, version-only alias or removal of the
+exact digest/byte checks. Retained policies remain for retained consumers.
+Construction support is separate from Android execution, frontend qualification,
+signing/public readback and device activation; CURRENT records those results.
+
+New-release automation must locate and apply the maintained compatibility changes,
+not require a new version/offset table before attempting qualification. The hosted
+producer uses the exact official source identity and discovers the UDS and
+permission-presentation edits by their source functions and expected expressions.
+It preflights the complete transformation before writing, retains the original
+diff, and rejects ambiguous or semantically changed inputs with the responsible
+file/function/expression. Line movement and ordinary release-version changes do
+not require a new recipe. Native execution policy, approval eligibility and
+reviewer lifecycle remain unchanged. Compile and actual Android acceptance still
+decide whether the transformed source can be released; successful patch application
+alone never qualifies a release. The unpublished v7 offset prototype is temporary
+until the source-built producer passes the same runtime/permission gates. Retained
+published binary policies remain necessary for their existing consumers.
+The hosted source-built runtime uses `termux-source-v1`: its official package
+identity/digest still binds the unmodified companion, while `source_revision`
+binds the exact official source commit and `raw_runtime_sha256` identifies the
+compiled source runtime before the same54-byte FD33/34 path remaps. The signed
+descriptor binds the resulting executable. The producer, not the consumer's
+phone, owns source preparation/build and admission of the corresponding revision.
+The public signer requires exact source/build/Android evidence; arbitrary files
+accepted by a local builder do not establish that evidence. Core download and
+activation retain signature, inventory, sequence and rollback checks.
+
 Qualification permits only the two guarded configuration checks, the Core-bound
 reviewer routing, contributor/prewarming gates and the native policy/reviewer matrix regression outside TUI
 source, verified against pristine source; it must reject other backend changes. Raw-runtime acceptance guards require their own exact-byte adaptation
@@ -4104,6 +4138,28 @@ mutation. A failure of a development runner's own sandbox is infrastructure
 evidence only and is not a product-path result.
 
 ## 6. Artifact and patch qualification
+
+Upstream freshness, request acceptance, build/port qualification, signed public
+publication and device activation are separate states. A controller run's success
+is not proof that its downstream source/runtime/frontend jobs passed or that the
+requested version is installable. An unsupported adaptation is a blocked port,
+not an indefinitely pending build; preserve the installed release and report the
+failed version/source/stage and original job URL. A failed pipeline is not repaired
+by retrying identical inputs or compiling the same unsupported tuple on a device.
+
+The target default is one hosted build per supported upstream/recipe/composition,
+followed by ordinary signature-verified device installation. CI and an automatic
+on-device build must not race by default. Developer and consumer use the same
+signed update path; explicit maintainer dispatch and explicit local-derived
+qualification have separate authority. Repository presence and model-service
+login do not identify developer authority. Consumers require no repository write
+permission or GitHub CLI merely to update or observe a public build. Immediate
+anonymous dispatch, if offered, must use an owner-hosted bounded/deduplicated
+request service whose GitHub credentials never enter a client; it admits only
+official versions and owner-selected accepted recipes, not arbitrary workflows,
+source revisions or shell input. A request ACK admits no executable. Scheduled
+upstream discovery is useful prebuilding but cannot be described as an immediate
+consumer request. CURRENT records which portions of this target are shipped.
 
 Explicit `codex update` also checks the official stable release. A current wrapper
 channel alone does not mean the installed upstream version is current. Ready

@@ -73,6 +73,8 @@ def base_fingerprint(source, revision='HEAD'):
             pending.append(matches[0])
     roots = ['crates/core','crates/release-builder','crates/runtime-binding',
              '.github/workflows/qualify-termux-runtime.yml',
+             '.github/workflows/termux-runtime-source.yml','scripts/prepare_runtime_source.py',
+             'frontend/manager-tui/normalize_lock.py',
              '.github/scripts/release_components.py','.github/scripts/upstream_release.py']
     for member in workspace['workspace']['members']:
         manifest=tomllib.loads(read(member+'/Cargo.toml').decode())
@@ -90,7 +92,8 @@ def base_fingerprint(source, revision='HEAD'):
         files[path] = [mode,digest]
     value = {'schema':1,'files':files,'workspace':workspace,
              'lock':[selected[key] for key in sorted(selected)],
-             'upstream':recipe['upstream'],'core_rust':recipe['toolchains']['core_rust']}
+             'upstream':recipe['upstream'],'toolchains':recipe['toolchains'],
+             'lock_audit':recipe['qualification']['lock_audit']}
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
