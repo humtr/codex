@@ -568,6 +568,20 @@ copying, nor does renaming establish implementation independence.
 The original16-file Chat worktree and signed history remain preserved. Evidence:
 $TMPDIR/input-design-audit-ot9uwhn6. No model request/build/install in this draft batch.
 
+Additional read-only audit is complete for the documented source/install/service/
+config/state roots:7,417 TOML,49,403 JSON and708 shell files plus59 large files
+(about1.51GB streamed).113 state/evidence references and one s13 profile-before
+backup are historical, not newly discovered active config. Seven operating lane
+files reference old packages only inside prior call inputs/results. Three service
+run/log scripts have no old-generation references. Named foreign compaction
+templates are absent; all tracked name consumers and the three ocx1 negative
+checks are indexed.27 unreadable entries and excluded private/offline paths remain
+explicit preservation boundaries, not proof of absence or permission to prune.
+See [expanded findings and deferred cleanup](AUDIT.md#확장-점검-완료와-정리-실행-순서).
+User order: finish the current input implementation and actual acceptance first;
+perform cleanup as a separate subsequent batch. No rename, old-layout removal,
+payload deletion, journal migration or live-service change is made here.
+
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native
 turn and the unchanged prefix. It can consume a completed chat_result suffix that
@@ -1218,6 +1232,7 @@ not a new mandatory platform guarantee or permission gate.
 |2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
 |2a Completed maintenance | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
 |2b Completed source/build/device maintenance; packaging at6 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
+|2c Deferred until current input work is complete | Use the completed originality/name/legacy-consumer audit; retire demonstrated obsolete layout support and decide naming with all real consumers | Input implementation/product acceptance and applicable delivery first. Then separate contract/producer/consumer/test cleanup; preserve current-format rollback, original evidence and user state; revalidate live references and unreadable boundaries before removal |
 |3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
 |4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
 |5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |

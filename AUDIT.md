@@ -383,6 +383,57 @@ response.output_item.done, response.output_text.delta. 이들은 연결 프로�
 추가 근거다. legacy-current-consumers.json, name-origin-comparison.json,
 shared-short-literals.json에 범위·결과를 보존한다.
 
+### 확장 점검 완료와 정리 실행 순서
+
+사용자 지시에 따라 추가 점검은 지금 수행하고 실제 삭제·개명·호환 코드 제거는
+현재 인풋 관련 구현과 검증을 먼저 끝낸 뒤 별도 순서로 수행한다. 이 점검 결과를
+이유로 인풋 작업 중 새 정리 작업을 끼워 넣지 않는다.
+
+확장 범위는 tracked source/build 전체의 관련 명칭 소비자, 설치 generation의
+manifest, 현재/이전 선택, 같은 UID 프로세스 참조, 세 Codex 관련 runit 서비스의
+run/log script, TMPDIR·일반 config·Manager profile·Core/Provider state의 설정
+형식 참조다. 인증/key/env 파일, 대화 rollout/jsonl, 임의 외부/오프라인 위치와
+별도 source/vendor/binary tree는 소비자 검색에서 제외했다. 그 제외를 '없음'으로
+판정하지 않는다.
+
+| 추가 점검 | 결과와 정리 시 취급 |
+| --- | --- |
+| TOML7,417개, JSON49,403개, shell708개 참조 검색 | 파일명만이 아니라 옛 설치 generation의 정확한 경로를 검색. 과거 evidence/state 참조113건과 TOML 보존본1건 발견 |
+| 위 검색의 큰 JSON 등59개 | 약1.51GB를 streaming으로 추가 검색. 옛 generation 경로 없음. 크기 때문에 제외했던 검사 범위를 실제로 마침 |
+| TMPDIR TOML1건 | s14 적용 전 device-generated-profile-before.toml. 인접 publication/accepted activation 기록으로 이전 s13 profile 보존본임을 확인. 활성 설정으로 오인하거나 지우지 않음 |
+| 운영 state7개 파일의 참조8건 | 모두 lane의 calls.*.input 또는 result.output에 든 과거 감사 명령·출력. executable 설정/설치 선택이 아님. 원본 작업 기록으로 보존 |
+| 현재/직전 설치와 관련 서비스 |21/20 모두 새6-file 형식. 세 서비스 run/log script에서 옛 generation 참조 없음. 앞선 프로세스/설정 점검과 함께 사용 |
+| 이름·문구 | tracked code/build의 관련 소비자를 파일·줄 단위로 목록화. 외부 COMPACT_PROMPT/SUMMARY_PREFIX/OPAQUE_COMPACTION_NOTE의 원래 전체 문구는 활성 소스에서 없음. 남은 ocx1은 거부·미전달 검사3곳 |
+| 접근 불가27개 entry | 정확한 경로/사유를 기록하고 보존. 삭제 허가나 소비자 부재의 증거로 쓰지 않음. 실제 정리 직전에 필요 범위를 재검증 |
+
+파일 참조가 있다는 사실과 실제 실행 소비자는 구분했다. 신규 evidence를 만들기
+위해 과거 입력/출력을 수정하거나 secret·대화 본문을 보고서로 복사하지 않았다.
+이 확인 범위에서 새 활성 의존이나 추가 차용 템플릿은 발견되지 않았다. 기존
+source 문자열 비교와 구조 검토의 범위를 넘어 모든 가능한 의미적 유래를 증명했다고
+주장하지 않는다. 외부 미확인 환경은 남은 경계로 명시한다.
+
+실제 후속 정리 범위는 다음과 같이 문서로만 고정한다.
+
+1. 인풋 설정 선택·원문·intent·복원·반환의 구현과 실제 앱/Native/TUI 검증을 우선
+   완료한다. 해당 배포가 필요한 경우 그 검증/전환까지 완료한 뒤 정리 batch를 연다.
+2. 옛8-file reader/export/restore·명시 legacy fixture 소비자를 검토해 계약과
+   producer/consumer/test를 함께 퇴역시킨다. 새6-file 검증·서명·rollback·high-water
+   보호는 유지한다. 과거 서명 자산을 다시 만들거나 삭제하는 작업과 혼동하지 않는다.
+3. 명칭은 실제 차용 판정과 구분하여 최종 naming을 결정한다. executable/crate/
+   installer/profile/service/publication 소비자와 저장된 marker/schema/checkpoint를
+   목록에 따라 처리한다. 이미 발행·저장된 이름은 필요한 마이그레이션을 먼저 정하고
+   blind replace하지 않는다. 이번 문서는 새 이름이나 대규모 개명을 확정하지 않는다.
+4. 퇴역 형식 거부 시험은 요구되는 실패 탐지를 유지하며 통합한다. 표준 Responses
+   필드는 바꾸지 않고, 과거 source/diff/evidence와 사용자 작업 기록은 보존한다.
+5. 그 시점의 살아 있는 참조와27개 접근 경계를 다시 확인한 뒤 검증 가능한 불필요
+   생성물만 정리한다. 이번 추가 점검은 삭제 가능 목록이나 자동 cleanup 승인이 아니다.
+
+추가 원본은 같은 evidence root의 all-tracked-name-consumers.json,
+retired-policy-comparison.json, service-legacy-references.json,
+legacy-expanded-consumers.json, legacy-production-reference-classification.json,
+legacy-lane-reference-fields.json, legacy-large-files-and-boundaries.json이다.
+제품 코드·운영 state·설치 generation·서비스·설정은 이 batch에서 변경하지 않았다.
+
 추가 증거: `$TMPDIR/input-design-audit-ot9uwhn6`의 exact external tree/source,
 `originality-comparison.json`, `upstream-protocol-comparison.json`. 이 작성안은
 문서만 변경한다. 제품 재빌드·모델 호출·기기 설치·기존 사용자 설정 변경은 없다.
