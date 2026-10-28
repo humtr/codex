@@ -411,6 +411,28 @@ releases its settled lane without resending. The captured405-message prefix plus
 20-message suffix cover425 messages. These bounded original reads are distinct
 from automatic saved-history polling. No Pro call was used.
 
+The plain-input trial used configured chatgpt-desktop/gpt-6 with effort none,
+resolved to host model gpt-6 and thinkingEffort=null. The catalog's hidden Instant
+alias uses that same host route. This proves no explicit Thinking selection in
+that request, not an assertion about hidden internal computation. The preceding
+Android response's gpt-6-thinking label was not inherited.
+
+Pending A1 input-setting work, now specified: preserve chat_input's single exact
+user message and ordinary-Chat mode; accept validated per-invocation model/effort
+selection over config defaults, including model-chosen settings within authorized
+test/user constraints. No workflow-specific fixed model, extra prompt bootstrap,
+global environment change or settings-selection agent is needed. Existing code
+in chat_input.rs selects only config.model; the renderer already accepts separate
+model/thinkingEffort options. Update that admission, existing intent/result and
+actual schema/callers together; keep context assembly and tool returns in their
+existing owners. There is no new generic input interface without an actual unmet
+consumer. Qualification must compare the exact same visible prompt under default
+and explicit Thinking settings, prove the chosen request options and original
+response/Native/TUI result, and cover invalid settings, unchanged shared config,
+independent concurrent selection and uncertain-delivery retries. Do not infer
+effort from a saved model label. Invocation selection and app-setting inheritance
+remain unimplemented; existing Pro exclusion is unchanged by this design work.
+
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native
 turn and the unchanged prefix. It can consume a completed chat_result suffix that
