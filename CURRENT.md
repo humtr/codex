@@ -417,21 +417,61 @@ alias uses that same host route. This proves no explicit Thinking selection in
 that request, not an assertion about hidden internal computation. The preceding
 Android response's gpt-6-thinking label was not inherited.
 
-Pending A1 input-setting work, now specified: preserve chat_input's single exact
-user message and ordinary-Chat mode; accept validated per-invocation model/effort
-selection over config defaults, including model-chosen settings within authorized
-test/user constraints. No workflow-specific fixed model, extra prompt bootstrap,
-global environment change or settings-selection agent is needed. Existing code
-in chat_input.rs selects only config.model; the renderer already accepts separate
-model/thinkingEffort options. Update that admission, existing intent/result and
-actual schema/callers together; keep context assembly and tool returns in their
-existing owners. There is no new generic input interface without an actual unmet
-consumer. Qualification must compare the exact same visible prompt under default
-and explicit Thinking settings, prove the chosen request options and original
-response/Native/TUI result, and cover invalid settings, unchanged shared config,
-independent concurrent selection and uncertain-delivery retries. Do not infer
-effort from a saved model label. Invocation selection and app-setting inheritance
-remain unimplemented; existing Pro exclusion is unchanged by this design work.
+The separate omitted-settings experiment completes on the real official app/SDK
+in an isolated copy of an inactive accepted app profile. At the SDK call boundary,
+model and thinkingEffort properties are both absent; ordinary-Chat Work flag is
+false. One observed dispatch contains model=auto and no thinking_effort field;
+the public original final reports model_slug=gpt-6 and exactly
+OMIT_MODEL_EFFORT_OK_R2. Thus omission works in this one ordinary response, but
+does not prove selected-model/effort inheritance or disabling internal reasoning.
+No tools/Native work were requested, no saved-Chat polling was added and the owned
+inspector exits0 after completion. Operating service/config and the source profile
+are untouched. This is host-boundary proof, not the installed chat_input API,
+Android-client or Native/TUI entrance qualification.
+One explicit saved-source read independently confirms both original messages,
+the exact admitted user UUID, final text and model. Operating Provider PID19747
+is preserved. The failed pre-host partial profile clone is reclaimed only after
+checking it has no process references; its failure/removal record is retained.
+
+Evidence: chat-omitted-settings-result-3.json under the maintenance root and
+$TMPDIR/chat-omitted-ct4_b0m9/{diagnostics-private,snapshot-private,result}.json.
+chat-omitted-settings-{original-private,saved-comparison,cleanup} retain the saved
+source and post-trial boundary checks. Reusable/uncertain experiment profiles stay
+private and preserved; no compiler output or installed image was created.
+The original/experimental bridge and dispatch intent are retained: only this
+disposable invocation omits the SDK options, without replacing installed code.
+Earlier setup failures remain separate: copying unrelated Codex temporary
+sockets fails before host/model start; an incomplete profile copy then cannot
+find an app target. A later harness misclassifies snapshot error=null and closes
+its inspector before successful observation. Its last snapshot has no confirmed
+dispatch/server ID; transmission remains unconfirmed, not asserted absent. It
+was not replayed. The passing independent trial uses a new marker/message ID.
+Original failures and result-2 are preserved, not relabelled as product failures
+or successful model requests. The observer's null-error handling is corrected.
+
+SDK source for the pinned app-initial-ed5807835d97.js explains the distinction:
+export yRt/Mwi passes optional settings to Fwi, whose absent model resolves to
+an applicable override or auto and absent effort to null. Higher-level qNt/pNi
+reads conversation selection Hk (export Vwn), then passes slug/thinkingEffort to
+Mwi. This is a discovered candidate for ordinary user emulation, not yet a live
+qualification of that higher-level operation. Caller omission need not mean
+omission on the wire, and low-level omission need not emulate the picker state.
+
+Pending A1 input-setting work: retain chat_input as a specialized user-emulation
+operation, not the default for model-driven development. Qualify the ordinary
+host input operation against its actual selected settings. Development workflow
+input continues through existing execution owners, with user invocation choices
+over config defaults and authorized model-selected test settings; no hardcoded
+workflow model, shared-config/environment mutation or settings-selection agent.
+Existing chat_input.rs selects config.model and the renderer accepts separate
+model/thinkingEffort options. Keep actual input semantics explicit while updating
+admission, existing intent/result and schemas/callers together; context assembly
+and tool returns retain their owners. Introduce another input interface only for
+an actual unmet consumer. Remaining proof covers identical visible prompts with
+selected/default/explicit Thinking settings, chosen request options, original
+response and Native/TUI results, invalid settings, independent concurrent choices
+and uncertain-delivery retries. Invocation overrides and ordinary app-selection
+inheritance remain unimplemented; current installed Pro exclusion is unchanged.
 
 scripts/verify_chat_native_text.py compares original account/conversation/branch,
 complete pagination/ancestry, exact input/public progress/final, one new Native

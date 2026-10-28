@@ -1937,10 +1937,14 @@ supplied task, without added developer instructions, environment/context bootstr
 tool-result imports or an independently delegated Native task. Existing Chat
 context and ordinary host behavior remain in force. Identity, branch, delivery
 budget and model-selection metadata are request controls, not prompt content.
+This user-emulation operation is a specialized capability, not the default
+entrance for all model-driven development. An agent uses it when the workflow
+actually requires a user-like Chat submission or client-path qualification.
 
 Model and reasoning-effort selection is independent of ordinary-Chat delivery.
-Support explicit invocation selection over configured defaults, using the existing
-validated model catalog. A model acting within an authorized workflow may choose
+For development workflow submissions, support explicit invocation selection over
+configured defaults, using the existing validated model catalog. A model acting
+within an authorized workflow may choose
 an invocation setting when the user has not fixed it, including for a test; this
 must respect user model/cost constraints and does not introduce an automatic
 selection agent. Workflow code must not hardcode a model or disable thinking
@@ -1949,7 +1953,11 @@ selection and its origin without rewriting shared configuration or mutating
 process-wide environment between requests. Invalid or unavailable explicit
 selections fail before dispatch rather than silently downgrading. Requested
 inheritance of an existing app selection requires verified settings; a previous
-response's model label does not establish the currently selected effort.
+response's model label does not establish the currently selected effort. For
+user emulation, investigate the host's ordinary input operation, which may resolve
+its current selection internally. Omitting model/effort on a lower-level send is
+not proof of inheriting that selection: qualify and expose its actual defaulting
+semantics. Caller omission and fields populated by the host SDK are distinct.
 
 Input interfaces follow their actual consumers: chat_input supplies user text to
 Chat; queue supplies input to an explicit Native thread; start invokes Native work
@@ -1958,6 +1966,11 @@ invocation. Context/instruction assembly remains the model adapter's responsibil
 Reuse these interfaces instead of expanding chat_input into a generic message,
 environment or tool-result injection API. A new input type requires a demonstrated
 producer/consumer whose semantics these existing interfaces cannot represent.
+Distinguish user emulation from workflow-configured or structured input at the
+caller contract, without requiring another transport or forcing development
+requests through chat_input. Model/effort controls alone add no conversational
+instructions; new instruction/context or tool-result messages change the input
+semantics and stay with their appropriate execution interface.
 
 Saved-input completion reconciles the exact admitted user UUID and parent,
 then a unique saved descendant branch. The app may remove a hidden final terminal
