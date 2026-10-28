@@ -252,6 +252,12 @@ credentials. This primary path needs neither a Linux app nor an extra native
 Codex subscription login. Separately configured app-backed reviewers retain
 their own prerequisites.
 
+A login-free execution home can hold Native configuration and history. Basic
+Bridge tools do not require Codex login; they still use the installed Native
+runtime and authorized Bridge connection. Chat/project reads and Provider-driven
+reasoning use ChatGPT authentication. Codex usage/automatic account rotation are
+separate optional account features.
+
 ### ChatGPT delegating Provider development
 
 Use the same MCP connection, with a provisioned/authenticated Linux app and
@@ -291,7 +297,7 @@ See the [official project guide](https://learn.chatgpt.com/docs/projects).
 
 | Layer | Exists now | What still needs manual setup |
 | --- | --- | --- |
-| Base/Full bootstrap | Signed online installer and audited local bootstrap | Termux/prerequisite packages; native upstream login |
+| Base/Full bootstrap | Signed online installer and audited local bootstrap | Termux/prerequisite packages; inference authentication belongs to the selected route |
 | Native login | Upstream first-run/login/device-login flow | User completes the official account authentication/consent |
 | Provider installation | `codex provider install/update/status/rollback chatgpt` | Selecting an execution home/workspace and preparing routing/service |
 | App-backed reasoning | Rust host/service/viewer commands | Official app/rootfs and optional viewer assets must already be provisioned; first app login |

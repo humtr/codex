@@ -2347,6 +2347,16 @@ remain distinct even when linked to the same user. Preserve native approvals,
 execution and canonical recording across both entrances; no second transcript
 authority or uncertain mid-task route switch is introduced.
 
+Codex subscription login/auth.json is not a prerequisite for the Bridge's Native
+tool, work-control, history or presentation path. The selected Native runtime and
+its local Provider connection remain required; an execution home selects local
+configuration/history, not an inference account. Direct uses the current ChatGPT
+response, and Provider reasoning uses its configured ChatGPT host authentication.
+Keep local service/MCP authorization and tool-specific external credentials intact.
+Optional Codex account usage/rotation and explicitly selected Codex-hosted inference
+retain their own authentication requirements; their unavailable account state must
+not become a global gate on ordinary Bridge tools.
+
 The optional Provider may expose one authenticated MCP control service with two
 entrances. A Codex-origin native request starts the initial selected Chat model/effort;
 a direct Chat-origin MCP request opens or attaches native work without initiating Chat or

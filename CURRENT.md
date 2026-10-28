@@ -356,6 +356,14 @@ The maintenance gate checks this Provider's active work/return streams because
 restarting its shared service interrupts those streams; it does not check whether
 an account name/profile is busy.
 Report inference origin, Native execution profile and work completion separately.
+The Bridge control surface has no global Codex login gate. Existing accepted
+credential-free Native/TUI continuity (direct-progress-fixed-native) covers actual
+tool effects, history, retry, service restart and backend owner replacement with
+fresh_native_home_without_openai_credentials=true. The original Android trial home
+also currently contains no auth.json; installed Full121 fresh-home resume already
+passes. This does not qualify every optional remote/plugin tool's own credentials.
+Manager quota.rs separately requires account identity for real Codex usage and
+automatic account rotation; local Native work must not inherit that requirement.
 The earlier Native status/history proves an unfinished Native round, not continued
 external-model reasoning. The current Codex thread is different; no unrelated
 account/profile process was stopped. Its later verified completion permits21
@@ -671,20 +679,20 @@ provider18-operating-web-mcp.json under the service/tunnel root.
 
 | Plane | Last verified state and boundary |
 | --- | --- |
-| Product source | Providere039d09; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
+| Product source | Providere78d83a; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
 | Core | Full121: local-relay-hosted-0-164-0-e3f6e27f0ca6-s121; actual normal Full119→121 update; prior119 retained |
 | Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
 | TUI | Frontend source79b9d66; hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations and lint proof40517442561; installed fresh-home resume passes |
-| Provider | chatgpt-e039d093d905-s20, sourcee039d09, high-water20/previous19; actual signed update and profile rebinding |
-| Service/host | At latest activation: actual Provider PID27191 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
-| Preserved state | Provider20 activation preserved37 work identities/phases,16 protected files and12 existing Native owners. Provider19 preserved36 works/9 owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
-| Operating MCP | Provider20 one-refresh readback:17 full schemas/fixed flags, current registered/live finish description and37 works; same connector/tunnel. Cloud omits idempotentHint |
+| Provider | chatgpt-e78d83a69d3e-s21, sourcee78d83a, high-water21/previous20; actual signed update and profile rebinding |
+| Service/host | At latest activation: actual Provider PID19747 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
+| Preserved state | Provider21 activation preserves37 works/phases,16 protected files and13 Native owners. Provider20 activation preserved37 work identities/phases,16 protected files and12 existing Native owners. Provider19 preserved36 works/9 owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
+| Operating MCP | Provider21 one-refresh readback:17 full schemas/fixed flags, all registered/live descriptions current and37 works; same connector/tunnel. Cloud omits idempotentHint |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
 | Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, SHA082d7b04…; runit restarts it during Provider maintenance, each activation records its actual process identity. Prior child PIDs are historical; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
 
-Provider20 binary SHA256:
-1fe2befaf5c480893b7b2135dfa70501f31f1a64bf21451850ebf644d3b63694.
+Provider21 binary SHA256:
+65cbf4ace57c975889125a900a74ad837356ffe144b9ec01a6c1b7ad40efcb36.
 Wrapper-built tunnel binary SHA256:
 082d7b0485652b73640665e8cd6767f65b6ec88e0bd1c6b8c449085d8965e9ed.
 Package selection, generated-profile binding, actual service image, authenticated
