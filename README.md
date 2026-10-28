@@ -419,11 +419,21 @@ run on the server; installation and signature verification run on the device.
 
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
-standalone Core/upstream edition; Full includes Manager/enhanced TUI. The signed
-release date is the UTC date that the immutable release was prepared, not the
-device installation date. Older releases or unavailable optional metadata show
-`unavailable`; valid updates still work. An already-current update also shows
-the installed edition/release information, without installing again.
+standalone Core/upstream edition; Full includes Manager/enhanced TUI. Publication
+timestamps use KST (UTC+09:00), with brief changes and links to the
+complete release notes. Upstream, Termux Core, bundled Manager/enhanced TUI and
+selected Provider information are distinguished. Provider availability is shown
+separately; `codex provider update chatgpt` performs its own update. Core update
+does not select a Provider package or restart its service merely to show information.
+When Full reuses a declared Base, Core shows the Base release's own publication
+time and notes. Manager/TUI dates identify their containing Full package,
+not invented independent module releases. Older signed preparation dates retain their UTC date when a full
+publication timestamp is unavailable. Missing optional information does not block
+a valid update. Ordinary startup performs none of these publication queries.
+An already-current update shows the same release information without reinstalling.
+
+Release authors maintain component sections in [release/notes.md](release/notes.md).
+The publication workflows select only the sections included in that package.
 
 ### Older browser-bridge releases
 

@@ -24,6 +24,9 @@ on:
       - scripts/fixtures/d3/**
       - scripts/check.sh
       - .github/workflows/provider-qualification.yml
+      - .github/workflows/provider-release.yml
+      - .github/scripts/release_notes.py
+      - release/notes.md
 permissions:
   contents: read
 concurrency:

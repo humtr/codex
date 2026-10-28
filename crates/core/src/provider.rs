@@ -469,6 +469,15 @@ fn install_remote(
         if state.as_ref().is_some_and(|v| manifest.sequence < v.floor) {
             return Err("Provider sequence rollback rejected before payload acquisition".into());
         }
+        if let Some(details) = release_display::provider_details(
+            roots,
+            &base.value,
+            &manifest.generation,
+            manifest.sequence,
+            None,
+        ) {
+            println!("{details}");
+        }
         fs::DirBuilder::new()
             .mode(0o700)
             .create(acquisition.join("licenses"))?;
@@ -493,15 +502,17 @@ fn install_remote(
     }
 }
 
-fn install_stable(
+fn with_stable_index<T>(
     roots: &LocalCoreRoots,
     store: &Store,
     key: ReleasePublicKey,
-    state: Option<State>,
-) -> Result<()> {
+    floor: Option<u64>,
+    timeout_seconds: &str,
+    consume: impl FnOnce(Index) -> Result<T>,
+) -> Result<T> {
     let acquisition = store.root.join(format!(".index-{}", std::process::id()));
     fs::DirBuilder::new().mode(0o700).create(&acquisition)?;
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<T> {
         for (name, bound) in [("provider-index-v1", 4096), ("provider-index-v1.sig", 64)] {
             let output = fresh(&acquisition.join(name))?;
             fetch_remote_file_with_timeout(
@@ -509,7 +520,7 @@ fn install_stable(
                 &format!("https://raw.githubusercontent.com/humtr/codex/main/{name}"),
                 &output,
                 bound,
-                "20",
+                timeout_seconds,
             )?;
         }
         if read(&acquisition.join("provider-index-v1.sig"), 64)?.len() != 64 {
@@ -522,24 +533,62 @@ fn install_stable(
             &acquisition.join("provider-index-v1.sig"),
         )?;
         let index = Index::parse(&read(&acquisition.join("provider-index-v1"), 4096)?)?;
-        if state.as_ref().is_some_and(|v| index.sequence < v.floor) {
+        if floor.is_some_and(|floor| index.sequence < floor) {
             return Err("Provider stable index sequence rollback rejected".into());
         }
-        install_remote(
-            roots,
-            store,
-            OsStr::new(&index.release_base()),
-            key,
-            state,
-            Some(&index),
-        )
+        consume(index)
     })();
     let cleanup = fs::remove_dir_all(&acquisition);
     match (result, cleanup) {
         (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) => Err(error.into()),
-        (Ok(()), Ok(())) => Ok(()),
+        (Ok(_), Err(error)) => Err(error.into()),
+        (Ok(value), Ok(())) => Ok(value),
     }
+}
+
+fn install_stable(
+    roots: &LocalCoreRoots,
+    store: &Store,
+    key: ReleasePublicKey,
+    state: Option<State>,
+) -> Result<()> {
+    with_stable_index(
+        roots,
+        store,
+        key,
+        state.as_ref().map(|v| v.floor),
+        "20",
+        |index| {
+            install_remote(
+                roots,
+                store,
+                OsStr::new(&index.release_base()),
+                key,
+                state,
+                Some(&index),
+            )
+        },
+    )
+}
+
+pub(super) fn update_versions(
+    roots: &LocalCoreRoots,
+    key: ReleasePublicKey,
+) -> Result<Option<(Manifest, Index)>> {
+    let store = Store::new(roots)?;
+    match fs::symlink_metadata(&store.root) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(_) => private_directory(&store.root, false)?,
+    }
+    let _lease = store.lease(false)?;
+    let Some(state) = store.state()? else {
+        return Ok(None);
+    };
+    let current = selected(roots, &store, &state.current, state.floor)?;
+    with_stable_index(roots, &store, key, Some(state.floor), "2", |latest| {
+        Ok(Some((current, latest)))
+    })
 }
 
 fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {

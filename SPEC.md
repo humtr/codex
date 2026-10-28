@@ -857,8 +857,43 @@ surface and are not decorated as operational failures.
 One concise ordinary signed-update detail line names Base or Full and its signed
 release number, including the previous number when changing releases. Full also
 shows its exact base release number when authenticated display metadata exists.
-The release date is the publisher-declared UTC date of signing/preparing that
-immutable release, never the device installation time or a filesystem timestamp.
+Explicit update also shows the latest official upstream version, the selected
+Termux edition and selected optional modules, with publication times and a short
+component changelog. Installed and latest/available versions are distinct;
+showing a Provider update does not install it during a Core update. When a Full
+release declares its authenticated Base, Core uses that Base release's own
+publication time and notes. Full package time must not replace the Base time.
+Without a Base identity, Core is explicitly labelled as part of the Full package. Manager and
+enhanced TUI identify the Full package that supplies them, including its package
+publication time, rather than inventing independent module release dates.
+Use full date/time in KST (UTC+09:00) when the source supplies a timestamp.
+Date-only historical metadata retains its actual UTC date and precision; never
+invent midnight, use installation time or infer publication from file timestamps.
+
+Official upstream metadata already acquired by manual update supplies its
+published_at and release body. For the exact admitted Core generation and the
+latest signed Provider index, bounded explicit-update requests may read the
+corresponding public GitHub release tag's published_at/body. These are informational
+publication records, not signature/admission authority or executable instructions.
+They cannot select a version or weaken signature, sequence, rollback or source
+checks. Unselected Provider modules cause no Provider query. Publication failures
+show unavailable information without failing an otherwise valid signed update;
+ordinary launch, offline operations and background services make no such requests.
+Within one explicit command, optional release information is acquired once per
+admitted candidate generation and is reused during CI publication waiting. A
+changed candidate receives a fresh view; this command-local snapshot is never
+update or rollback authority. Custom/private release origins do not trigger public GitHub tag or Provider
+publication queries; they retain their explicitly supplied signed display metadata.
+
+New release producers publish brief component sections from release/notes.md
+(at most16KiB of UTF-8 source text);
+Core, Manager, enhanced TUI and Provider sections describe their actual package
+scope. Display at most three brief entries per component and link the complete
+original release notes. Upstream uses the official release body's public entries.
+Missing notes remain unavailable, not a fabricated claim of no changes.
+
+The historical signed release date is the publisher-declared UTC date of
+signing/preparing that immutable release.
 It is carried as optional `display` fields in the existing signed
 `component-input-v1`, bound to the exact manifest digest/generation. Older sidecars
 without display fields remain valid. Missing/unavailable/invalid optional display

@@ -310,6 +310,9 @@ jobs:
           test "$prerelease" = true
           if test "$draft" = true; then
             test "$target_commitish" = main -o "$target_commitish" = "$expected_main"
+            python3 publication-source/.github/scripts/release_notes.py \
+              --source publication-source --component '${{ inputs.release_variant }}' > "$work/release-notes.md"
+            gh release edit "$generation" --repo "$GITHUB_REPOSITORY" --notes-file "$work/release-notes.md"
           fi
 
           verify_assets() {
@@ -723,27 +726,26 @@ jobs:
           fi
           printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
           printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
-          python3 - "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out" \
-            "$root/display/component-input-v1" "$root/$current/release.manifest" \
-            '${{ needs.producer.outputs.release_sequence }}' '${{ inputs.release_variant }}' <<'PYFIRST'
-          import json
-          from pathlib import Path
-          import sys
-          expected=Path(sys.argv[1]).read_text().splitlines()
-          actual=Path(sys.argv[2]).read_text().splitlines()
-          # A retained pre-display Core prints the three legacy lines. A newer
-          # Core may add exactly one authenticated current -> candidate line.
-          if actual!=expected:
-              prior=Path(sys.argv[4]).read_text().splitlines()
-              sequence=next(line.split('\t')[1] for line in prior if line.startswith('release_sequence\t'))
-              old='Full' if any(line.startswith('file\tmanager\t') for line in prior) else 'Base'
-              new='Base' if sys.argv[6]=='base' else 'Full'
-              info=json.loads(Path(sys.argv[3]).read_text())['display']
-              detail=f'Termux release: {old} #{sequence} -> {new} #{sys.argv[5]}'
-              if new=='Full':detail+=f" · Base #{info['base_sequence']}"
-              detail+=f" · Release date: {info['release_date']} (UTC)"
-              assert actual==[expected[0],detail,*expected[1:]],actual
-          PYFIRST
+          snapshot_publications() {
+            local label="$1" output="$2" display_base_generation
+            publication_args=()
+            if grep -Fq 'Core changes:' "$output"; then
+              GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$candidate" \
+                > "$root/$label-publication.json"
+              publication_args=(--publication "$root/$label-publication.json")
+              display_base_generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["display"].get("base_generation") or "")' "$root/display/component-input-v1")"
+              if test -n "$display_base_generation"; then
+                GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$display_base_generation" \
+                  > "$root/$label-base-publication.json"
+                publication_args+=(--base-publication "$root/$label-base-publication.json")
+              fi
+            fi
+          }
+          snapshot_publications first "$RUNNER_TEMP/rald5-first-update.out"
+          python3 publication-source/.github/scripts/check_update_display.py \
+            --plain "$RUNNER_TEMP/rald5-first-update.expected" --actual "$RUNNER_TEMP/rald5-first-update.out" \
+            --component "$root/display/component-input-v1" --current "$root/$current/release.manifest" \
+            --target "$root/$candidate/release.manifest" --allow-legacy "${publication_args[@]}"
           state="$HOME/.local/share/codex/core/activation-state"
           test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
           test "$(sed -n 's/^previous=//p' "$state")" = "$current"
@@ -836,19 +838,12 @@ jobs:
           }
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
-          python3 - "$root/display/component-input-v1" "$version" \
-            '${{ needs.producer.outputs.release_sequence }}' '${{ inputs.release_variant }}' <<'PYNOOP' > "$RUNNER_TEMP/rald5-second-update.expected"
-          import json
-          from pathlib import Path
-          import sys
-          info=json.loads(Path(sys.argv[1]).read_text())['display']
-          edition='Base' if sys.argv[4]=='base' else 'Full'
-          print(f'Codex {sys.argv[2]} is already up to date.')
-          detail=f'Termux release: {edition} #{sys.argv[3]}'
-          if edition=='Full':detail+=f" · Base #{info['base_sequence']}"
-          print(detail+f" · Release date: {info['release_date']} (UTC)")
-          PYNOOP
-          cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
+          printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
+          snapshot_publications current "$RUNNER_TEMP/rald5-second-update.out"
+          python3 publication-source/.github/scripts/check_update_display.py \
+            --plain "$RUNNER_TEMP/rald5-second-update.expected" --actual "$RUNNER_TEMP/rald5-second-update.out" \
+            --component "$root/display/component-input-v1" --current "$root/$candidate/release.manifest" \
+            --target "$root/$candidate/release.manifest" "${publication_args[@]}"
           python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys

@@ -33,8 +33,9 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: address the remaining public-commentary/provenance gap and close the
-actual-client A1 matrix below, then perform A2 common-responsibility extraction.**
+**Next: complete the requested next-Core release-information changes below, then
+resume Provider21 promotion/device/cloud and public-commentary qualification.
+Close the actual-client A1 matrix before A2 common-responsibility extraction.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -204,6 +205,74 @@ refreshes or inference. This is local-derived bounded device activation, not a
 signed public tunnel component or new Full publication. Original source/fault/
 runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
+## Next-Core candidate: publication times and component notes
+
+The user prioritizes this source work before resuming the Provider21 activation.
+Operating Core remains Full121. The candidate uses the existing official release
+response for upstream publication time/notes, and bounded public GitHub tag reads
+for the already-admitted Core package, its authenticated Base identity and selected
+Provider's signed stable index. Publication information never admits executables.
+Custom/private release origins receive no public tag/Provider queries. Unselected
+Provider causes no Provider query, and Core update only reports Provider
+availability; the independent Provider updater owns its installation.
+
+Full timestamps render in KST (UTC+09:00), including seconds. Date-only legacy
+signed preparation dates retain UTC date precision. Base Core's publication date
+is distinct from a later Full repack; Manager/enhanced TUI identify their containing
+Full package. Missing metadata is unavailable, never a guessed clock or a claim
+of no changes. Brief notes retain three entries per component and full-note links.
+New Core/Provider releases publish their actual component sections from
+release/notes.md through shared release_notes.py. Existing public assets/bodies
+are not rewritten. The release workflow's output oracle uses original signed and
+public metadata for both first-update and exact-current paths.
+
+The existing CI-build wait loop skips an unchanged signed generation before
+release acquisition; optional information is therefore read once for that candidate.
+No second cache/guard is needed. Existing bare-launch signed-index discovery
+remains unchanged and adds no publication or Provider query. Current/legacy transport limits and mandatory freshness/admission errors
+remain distinct from optional publication failures. The complete workspace tests
+pass (Core222 with one preexisting ignored case, Manager52, release-builder67 and
+remaining workspace suites); final affected Core tests pass5/5, workspace Clippy
+passes with warnings denied, and the Python gate passes146 cases. All26 changed
+workflow shell blocks parse and document/diff checks pass. Actual Android
+CLI execution passes component display, the independent original-input output
+oracle, selected/latest Provider distinction, bad Provider-index handling,
+build-wait/terminal restoration and ordinary installed TUI launch. The wait trial
+uses the captured official rust-v0.165.0 response: publication
+2026-10-27T20:09:38Z displays as2026-10-28 05:09:38 KST. HTTP/CI responses in these
+owned trials are witnesses; no public request, workflow dispatch or model inference
+is performed by them. This is actual Android Core execution, not public Core
+release qualification or a physical ChatGPT screen observation.
+
+Initial full checks found three extra private-origin requests; restricting optional
+public information to canonical public origins restored all222 Core tests without
+changing their expected counts. Trial setup originally assumed release sequence1;
+the corrected fixture derives121 from its unchanged signed manifest. A PTY reader
+originally stopped at process exit before consuming queued output; it now drains
+the producer's remaining bytes and decodes UTF-8 incrementally. Ordinary-launch
+expectations now preserve SPEC's existing signed-index pair discovery while
+rejecting any added publication/Provider request. An attempted metadata-cache
+mutation survived because the wait loop already skips identical generations;
+the redundant new cache was removed. A component-scoping mutation in disposable
+source makes actual Android output fail the original-input oracle; source is
+restored and live code was never faulted. Evidence: update-display-reviewed-*
+and update-display-scope-mutation records. Earlier failures are retained.
+
+These source changes target the next Core release. Operating Full121 does not yet
+contain them. The separate upstream0.165.0 frontend port/Termux UDS qualification
+remains required before a new public Core release; this display change does not
+satisfy or bypass that gate.
+
+Before these builds, inactive compiler outputs and490 manifest-matched fixture
+payloads were reclaimed. The17 unique compressed payload objects and restore
+records preserve original sources/native results, current/rollback artifacts and
+live jobs. Available device space increased from about61GiB to138GiB. The old947MiB
+repo-local target was audited as Cargo-only output (including three generated
+private.rs reexports), moved into XDG cache and pruned by the standard cleaner;
+no unique source/user records or live references were found. The next Core compiler
+cache and all armed proof executables were retained. Evidence: pre-update-ui-*
+cleanup records and repo-provider-target-{audit,cleanup} under the maintenance root.
+
 ## Source candidate: complete Direct public progress
 
 The original Android comparison shows that admitted reports are preserved, but
@@ -222,8 +291,16 @@ has no progress policy. The affected continuity proof compares declaration versu
 attachment and verifies rich multiline progress as one exact Native item after
 retry. Actual Native/TUI continuity passes two same-work inputs, service restart,
 owned backend replacement and live finals with zero saved-Chat reads or added
-primary inference. Full Provider checks and a disposable missing-policy mutation
-are in progress. Evidence: direct-progress-{old-native,fixed-native}.log/json.
+primary inference. Full local Provider checks, remote source/NDK qualification and the disposable
+missing-policy mutation pass. The first local gate stopped at a broken system Bun
+symlink after green Rust checks; qualified Android Bun1.4.0 completes101 JavaScript
+and83 Python checks without rerunning accepted Rust work. Exact NDK21→20→21,
+compositions, signed package, warm host and fresh-home Native/TUI gates pass.
+Provider21 signing40608603783, ten-asset public readback and disposable public
+consumption pass; stable/device/cloud/actual-commentary qualification is pending
+while the user-prioritized Core information work is completed. Evidence:
+direct-progress-*, public21-hosted-*, provider21-release-input and
+provider21-public-consumer records.
 Actual host compliance requires a later original-commentary comparison and must
 not be inferred from a policy string. No universal host capture is claimed.
 

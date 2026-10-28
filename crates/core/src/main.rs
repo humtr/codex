@@ -4757,6 +4757,7 @@ fn parse_signed_update_index(bytes: &[u8]) -> Result<SignedUpdateIndex, LocalPro
 struct OfficialReleaseMetadata {
     version: String,
     package_sha256: String,
+    publication: Option<release_display::Publication>,
 }
 
 #[cfg(unix)]
@@ -5349,6 +5350,7 @@ fn parse_official_release_metadata(
     Ok(OfficialReleaseMetadata {
         version: version.to_owned(),
         package_sha256,
+        publication: release_display::publication(bytes, &tag_name),
     })
 }
 
@@ -9260,6 +9262,7 @@ fn acquire_remote_release_source(
             &acquisition_root.join("release.manifest"),
             current_release,
             &manifest,
+            update_key,
         ));
         if updating {
             presentation.begin_update(current_version, &candidate_version);
@@ -10024,6 +10027,7 @@ fn activate_signed_update_channel_with_hold_policy(
                     .join("release.manifest"),
                 &current_release,
                 &current_release,
+                before.update_key,
             ));
         }
         return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
@@ -18430,6 +18434,7 @@ esac
             OfficialReleaseMetadata {
                 version: "1.2.3".to_owned(),
                 package_sha256: digest.to_owned(),
+                publication: Some(release_display::Publication::default()),
             }
         );
         assert!(matches!(
@@ -27314,6 +27319,105 @@ exit 0
             assert!(!text.contains('\u{1b}'));
             assert_eq!(std::fs::read(&state).unwrap(), before);
         }
+        assert!(
+            !std::fs::read_to_string(&fixture.curl_log)
+                .unwrap()
+                .contains("api.github.com/repos/humtr/codex/releases/tags/"),
+            "private release names must not be sent to GitHub"
+        );
+        let public_base = "https://humtr.github.io/codex/display-signed-next/";
+        let index = std::fs::read_to_string(&fixture.index_path)
+            .unwrap()
+            .replace(&fixture.base, public_base);
+        std::fs::write(&fixture.index_path, index).unwrap();
+        b4_sign_update_index(
+            &fixture.index_path,
+            &fixture.signature_path,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        // Inject only the external publication response. Real signed admission,
+        // update presentation and canonical state handling remain in the path.
+        let public_json = fixture.root.join("publication.json");
+        std::fs::write(&public_json, br###"{"tag_name":"display-signed-next","published_at":"2026-10-28T17:04:05Z","draft":false,"body":"## Core\n- Complete update details.\n## Provider\n- A Provider-only change.\n"}"###).unwrap();
+        let curl = fixture.prefix.join("bin/curl");
+        let original_curl = std::fs::read_to_string(&curl)
+            .unwrap()
+            .replace(&fixture.base, public_base);
+        let marker = "case \"$url\" in\n";
+        let injection = format!("{marker}  'https://api.github.com/repos/humtr/codex/releases/tags/display-signed-next') exec \"$cat_path\" {} ;;\n", b5_shell_quote(&public_json));
+        assert_eq!(original_curl.matches(marker).count(), 1);
+        std::fs::write(&curl, original_curl.replacen(marker, &injection, 1)).unwrap();
+        let annotated = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert!(annotated.status.success(), "{:?}", annotated.stderr);
+        let text = String::from_utf8(annotated.stdout).unwrap();
+        assert!(
+            text.contains("Published: 2026-10-29 02:04:05 KST (UTC+09:00)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Core changes:\n  - Complete update details."),
+            "{text}"
+        );
+        assert!(!text.contains("A Provider-only change."));
+        assert!(!std::fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .contains("raw.githubusercontent.com/humtr/codex/main/provider-index-v1"));
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        // Valid publication text cannot authorize a corrupt signed update index.
+        let original_signature = std::fs::read(&fixture.signature_path).unwrap();
+        std::fs::write(&fixture.signature_path, [0; 64]).unwrap();
+        let rejected = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert!(!rejected.status.success());
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        std::fs::write(&fixture.signature_path, original_signature).unwrap();
+        let upstream_json = fixture.root.join("official-publication.json");
+        std::fs::write(&upstream_json, format!(r###"{{"tag_name":"rust-v9.9.9","published_at":"2026-10-28T17:04:05Z","assets":[{{"name":"{UPSTREAM_PACKAGE_ASSET}","digest":"sha256:{}"}}],"body":"## New Features\n- Official first change.\n- Official second change.\n- Official third change.\n- Fourth entry belongs in the full notes.\n"}}"###, "a".repeat(64))).unwrap();
+        let current_curl = std::fs::read_to_string(&curl).unwrap();
+        let injected = format!(
+            "{marker}  '{DEFAULT_UPSTREAM_LATEST_URL}') exec \"$cat_path\" {} ;;\n",
+            b5_shell_quote(&upstream_json)
+        );
+        let public_curl = current_curl
+            .replacen(marker, &injected, 1)
+            .replace(&fixture.index_url, DEFAULT_UPDATE_INDEX_URL);
+        std::fs::write(&curl, public_curl).unwrap();
+        let manual = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["tests::public_update_probe", "--exact", "--nocapture"])
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_INDEX_URL_ENV)
+            .env_remove(UPDATE_VERSION_ENV)
+            .env_remove(UPDATE_PROBE_FORCE)
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env("HOME", &fixture.home)
+            .env("PREFIX", &fixture.prefix)
+            .env("TMPDIR", &fixture.tmp)
+            .output()
+            .unwrap();
+        assert!(manual.status.success(), "{:?}", manual.stderr);
+        let text = String::from_utf8(manual.stdout).unwrap();
+        assert!(
+            text.contains(
+                "Latest upstream Codex: 9.9.9 · Published: 2026-10-29 02:04:05 KST (UTC+09:00)"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("Official third change."));
+        assert!(!text.contains("Fourth entry belongs"));
+        assert!(text.contains("https://github.com/openai/codex/releases/tag/rust-v9.9.9"));
+        assert_eq!(std::fs::read(&state).unwrap(), before);
         remove_temp_root(fixture.root);
     }
 }

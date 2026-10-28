@@ -369,13 +369,19 @@ pub(super) fn finish(
         SignedUpdateOutcome::AlreadyCurrent(v) => &v.version,
     };
     let latest = official(roots)?;
-    if !newer(&latest.version, installed) {
-        if matches!(outcome, SignedUpdateOutcome::AlreadyCurrent(_)) {
-            presentation.finish_current(installed);
-        }
-        return Ok(0);
+    let upstream_is_newer = newer(&latest.version, installed);
+    if !upstream_is_newer && matches!(outcome, SignedUpdateOutcome::AlreadyCurrent(_)) {
+        presentation.finish_current(installed);
     }
     presentation.clear_transient();
+    presentation.show_release_details();
+    println!(
+        "{}",
+        release_display::upstream(&latest.version, latest.publication.as_ref())
+    );
+    if !upstream_is_newer {
+        return Ok(0);
+    }
     println!(
         "Installed Codex {installed}; official {} needs a qualified Termux release.",
         latest.version

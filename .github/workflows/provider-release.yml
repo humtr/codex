@@ -105,7 +105,8 @@ jobs:
             echo 'Provider release already exists; inspect its original result' >&2
             exit 1
           fi
-          printf 'Qualified optional Provider staging. Stable promotion requires complete public readback and disposable Android consumption.\n' > "$RUNNER_TEMP/provider-notes.txt"
+          python3 source/.github/scripts/release_notes.py --source source --component provider \
+            > "$RUNNER_TEMP/provider-notes.txt"
           gh release create "$GENERATION" "$RUNNER_TEMP/provider-assets/"* \
             --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --prerelease \
             --title "$GENERATION" --notes-file "$RUNNER_TEMP/provider-notes.txt"
