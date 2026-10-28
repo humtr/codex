@@ -84,6 +84,16 @@ an uncertain dispatch. Job-status observation is limited to the active manual
 update wait, at most once every two minutes; it adds no background observer.
 Each wait cycle checks signed publication before diagnostic build status. A newly
 available valid signed release takes precedence over a later failed source recipe.
+An authenticated local-derived current may observe its exact public baseline as
+unchanged: preserve the locally selected generation and continue manual upstream
+discovery. This does not admit a different same-sequence public release, lower the
+public sequence floor, or change update authority. Only a newer public sequence
+may replace the local-derived selection through ordinary public activation.
+An explicit missing-build request for the accepted upstream version must start
+the hosted publication build even when that product source is already pinned on
+main. Existing in-flight publication is reused. Automatic completion/discovery
+events remain a no-op when source is already pinned; preparing an accepted source
+does not itself require publishing it before an explicitly staged user replay.
 
 Qualification permits only the two guarded configuration checks, the Core-bound
 reviewer routing, contributor/prewarming gates and the native policy/reviewer matrix regression outside TUI
@@ -585,7 +595,7 @@ installed Core obtains and activates only that signed adapted bundle.
 | `codex` | Core then upstream | on an all-TTY zero-argument launch, perform only the bounded signed-stable advisory check/prompt below, then execute the active upstream runtime; otherwise execute upstream immediately |
 | `codex [UPSTREAM_ARGS...]` | Core | for every non-empty upstream argument vector, execute upstream with original arguments without startup update discovery or prompting |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update` | Core | resolve the signed stable wrapper release channel; only transport-level channel unavailability may fall back to an official-source local-derived build signed by a fresh ephemeral device-local key, activated while preserving the official `update_key`, and never published |
+| `codex update` | Core | resolve the signed stable wrapper release channel, discover newer official upstream metadata, request its missing hosted build and wait for signed publication; explicit source/transport overrides retain the separately qualified unified acquisition behavior |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
 | `codex update --force` | Core | retry exactly the authenticated held public release sequence for this invocation while bypassing only the local rollback-hold comparison; a valid matching hold is required and signature, digest, release-sequence, candidate-probe, and activation checks remain unchanged |
 | `codex update --build-local` | Core | resolve the exact official upstream stable metadata/archive, build and probe one local-derived generation, bind it to the authenticated public baseline with a fresh ephemeral device-local Ed25519 signer, activate it without changing `update_key`, and never invoke official signing or publication |
@@ -4357,10 +4367,11 @@ the public generation that the hold protects. Temporary archive/build material
 is private, bounded, and removed before success is reported. Local-derived work
 never invokes, installs, selects, or repairs `bwrap`.
 
-Core runtime has no official publication path and never invokes
-`$PREFIX/bin/gh`. Any later authorized official producer must keep signing and
-publication authority outside Core; GitHub authentication alone never authorizes
-publication.
+Local-derived construction never invokes `$PREFIX/bin/gh` or official publication.
+The separate manual freshness route may submit an authenticated missing-build
+request to the configured hosted workflow. Signing and public promotion remain
+server-owned operations governed by their source/execution/readback gates; Core
+never receives a release signing key or directly publishes release assets.
 
 The six-hour schedule authorizes a lane's publication only for independently
 authenticated strictly newer qualified upstream inputs. Base does not wait for
@@ -5014,11 +5025,12 @@ is not an update dispatcher and must not bypass the authenticated local
 admission, staging, probe, activation, or rollback path. The local, explicit
 remote, and automatic channel forms use the same forward activation
 transaction, and rollback remains the explicit swap of the one retained
-complete previous generation. A bare `codex update` is never the upstream command: it resolves a
-wrapper-owned signed channel and, only when automatic-channel transport is
-unavailable, may enter the same official-source local-derived construction used
-by `--build-local`. It therefore cannot install an unpatched upstream runtime or
-turn transport failure into official publication.
+complete previous generation. A bare `codex update` resolves the wrapper-owned
+signed channel and public upstream freshness path. A missing newer release is
+built through the hosted request flow. Explicit legacy/custom transport selectors
+retain the unified acquisition path, whose transport-only failure may enter the
+same local-derived construction used by `--build-local`. No path may install an
+unpatched runtime or turn transport failure into official publication.
 
 The automatic stable channel is represented by a bounded signed index. Its
 default control URL is
@@ -5042,16 +5054,19 @@ the signed identity. After index signature verification, Core invokes the
 existing signed remote-generation acquisition path. Index transport failure,
 signature failure, malformed discovery, or release qualification failure is a
 hard failure for that attempt; there is no fallback to upstream, a package
-manager, an alternate mirror, or a raw package. A transport-level absence or unavailability while resolving the automatic
-channel may enter the local-derived construction path below; an index or release
+manager, an alternate mirror, or a raw package. A transport-level absence or
+unavailability in the explicit legacy/custom unified path may enter local-derived
+construction below; an index or release
 that was received but failed signature, format, policy, digest, mode,
 compatibility, probe, or activation validation may not.
 
 The signed index is a pointer to an already-adapted wrapper generation, not an
-upstream source authority. The only upstream source authority is the official
-versioned OpenAI archive acquired by the release-production `fetch` operation
-and consumed by `build` before qualification and signing. In the primary no-argument path, when the wrapper publication is
-transport-unavailable, Core may perform the exact official fetch/build/adapt
+upstream source authority. The admitted upstream identity is the exact official
+source commit and versioned official release archive tuple in release/upstream.json.
+The hosted source producer compiles that source; the archive supplies the original
+companion, and retained binary adaptations bind their original raw CLI. All paths
+require qualification before signing. When the wrapper publication is transport-
+unavailable in the explicit legacy/custom unified path, Core may perform the exact official fetch/build/adapt
 steps locally, sign the immutable candidate with a fresh ephemeral device-local
 key, bind it to the authenticated public baseline, and feed it only to the
 dedicated local-derived admission path. That path performs no official

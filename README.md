@@ -442,6 +442,10 @@ wait. A failed required gate shows its workflow/run and exits with the installed
 version preserved. A successful build-request acknowledgement alone never means
 an executable was built. Status-read failures remain visible; they do not repeat
 an uncertain request or admit an unsigned update.
+A local-derived installation can keep its refreshed Core while the public
+channel still points to its original authenticated baseline. A matching explicit
+build request also works when the server has already pinned the accepted source:
+it starts publication instead of treating source readiness as a completed release.
 
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the

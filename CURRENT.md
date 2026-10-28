@@ -1,7 +1,7 @@
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
-delivery and remaining work. Latest maintenance record: 2026-10-28 KST, from
+delivery and remaining work. Latest maintenance record: 2026-10-29 KST, from
 sourcee78d83a69d3eefddadfbffdbb57807a87fd4ec82 (Provider21), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
 batch below includes bounded actual device activation with zero Provider-triggered
@@ -213,6 +213,15 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Priority0: upstream update build, delivery and user replay
 
+Latest user clarification: replay means starting on upstream0.164, executing plain
+`codex update`, discovering0.165 with no matching public Full artifact, submitting
+the build request, and observing the resulting build/download/installation. An
+already-published0.165 followed by rollback/force does not satisfy this request.
+Do not publish0.165 before the user's request. Keep the actual source/device
+qualification above as preparation, then stage the corrected updater on0.164 and
+gate publication until a fresh real request. Preserve the old request receipt
+when preparing this explicitly authorized replay; do not discard its evidence.
+
 Readback on2026-10-28 confirms installed Full123
 `local-relay-hosted-0-164-0-0a8b6e53304d-s123`, previous Full121, both
 upstream0.164.0. Public Full is the same123; public Base is116. Older operating
@@ -245,15 +254,17 @@ relay/queue with server-held GitHub credentials; scheduled discovery alone canno
 guarantee an immediate request and no such relay is currently shipped. Keep the
 existing credential-free asset redirect independent of dispatch authority.
 
-Implementation order: qualify exact0.165 runtime and enhanced frontend; repair
-request/result tracking with actual source/version/lane failures; separate public
-consumer observation from explicit privileged dispatch; preserve published Base
-while Full qualifies; publish only after source/Android/sign/readback/disposable
-update/rollback gates. Then verify actual installation, restore0.164.0 and leave
-an explicitly tested update replay route for the user. A normal public rollback
-creates a hold; do not silently remove it or lower the sequence floor to stage a
-demonstration. Resolve replay with ordinary public sequence/hold rules and report
-the exact command/remaining boundary. Preserve original123 and its records.
+Implementation order: privately qualify0.165 runtime/frontend and request/result
+handling; stage the corrected Core on0.164 through the existing authenticated
+local-derived construction, retaining the admitted same-version Manager/TUI and
+public update authority. Prepare an accepted exact main caller/product pointer
+without dispatching publication. Its automatic already-pinned path stays idle;
+the user's fresh requested_upstream dispatch must start the real hosted build.
+Archive the previous known failed/pending build receipt for this authorized replay.
+The first ordinary user `codex update` must discover/request0.165 before any
+installable0.165 public Full exists. Publication/install then follow the actual
+source/Android/sign/readback/disposable gates. Do not use rollback/force, erase a
+hold, lower the sequence floor, or publish0.165 early to simulate this test.
 
 The user clarified that locating/applying the needed compatibility edits must
 itself be automated. The old mechanism applied already registered binary offset
@@ -313,6 +324,12 @@ was a local deterministic fixture; real-model inference and production changes
 were both false. Evidence: source-runtime-permissions.log, source-runtime-lifecycle.json
 and runtime-source-0.{164,165}.0.patch. Enhanced TUI40704531295 is still running.
 This is hosted/device fixture evidence, not public delivery or live activation.
+Native workflow40704531295 subsequently completed successfully and the controller
+registered its immutable qualified input in source8dc225a. Run40711873028 initially
+failed on HTTP502 reading Base116's public manifest; the same URL was read back
+as200 before rerunning only its failed jobs, and the runtime run then passed.
+hosted-125-runtime-failure.log preserves that transport failure. No0.165 public
+installable release or stable head was created by these qualification runs.
 
 The next updater independently observes exact-source source/runtime gate failures
 at most every120 seconds during an active manual wait. A terminal failure exits
@@ -368,6 +385,29 @@ source-port/build and isolated Android runtime/Full/update proof are completed a
 specified above. Final-source hosted qualification, public delivery, device
 activation/restoration and anonymous missing-build requests remain pending their
 own proof; request submission still uses the existing GitHub-authorized path.
+
+Replay-specific fixes now under final qualification: plain signed-channel lookup
+recognizes the exact signed public baseline of a local-derived current as
+unchanged, preserving the refreshed Core/runtime selection for upstream discovery.
+It still rejects a different same-sequence signed release. The existing local-
+derived/public-authority test covers both. The controller now consumes the actual
+requested_upstream input: an already-pinned accepted source starts publication
+for an explicit matching request and reuses an in-flight public build, while
+automatic events remain idle. No extra replay mode or publication bypass exists.
+Both faults were independently reintroduced in disposable source and detected;
+compiled mutation outputs used a separate cache.
+
+replay-local-refresh-then-update.json records actual Android construction of a
+locally signed0.164 refresh, preservation of public update authority, then one
+plain manual request and installation of signed0.165 using local HTTP/CI witnesses.
+Its first fixture had symlinked build tools, which the builder correctly refused;
+the retry uses regular explicit OpenSSL/gzip tools and retains the first failure
+in replay-local-refresh-first-failure.json. replay-current-frontend-refresh.json
+also passes with the actual installed Full123 frontend retained byte-for-byte.
+None of these trials changed production selection or submitted a public request.
+The final local full gate passes in replay-final-full.log; the controller/workflow
+suite passes20 cases in replay-controller-final-tests.log. Live preparation and
+the user's actual build request remain outstanding until explicitly recorded.
 
 ## Next-Core candidate: publication times and component notes
 

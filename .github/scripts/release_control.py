@@ -19,6 +19,7 @@ import tempfile
 from manager_tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load, build_recipe
 from release_components import base_fingerprint, verified_published_base
+from rald3_preflight import stable_version
 
 REPO = 'humtr/codex'
 SOURCE_BRANCH = 'rewrite/rust-core'
@@ -286,14 +287,18 @@ def git_head(source):
     return subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
 
 
-def run(source):
+def run(source, requested_upstream=None):
     current=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if api('git/ref/heads/'+SOURCE_BRANCH)['object']['sha']!=current:
         return {'state':'obsolete-source-ignored'}
+    if requested_upstream is not None:
+        stable_version(requested_upstream)
+        if requested_upstream != load(source/'release/upstream.json')['upstream']['version']:
+            raise ValueError('requested upstream differs from the selected exact source; build not started')
     main=api('git/ref/heads/main')['object']['sha']
     pointer=api('contents/release-source-v1?ref='+main)
     previous=base64.b64decode(pointer['content']).decode().strip()
-    if (previous != current and same_product_inputs(source, previous, current)
+    if (requested_upstream is None and previous != current and same_product_inputs(source, previous, current)
             and not frontend_registration_needed(source)):
         return {'state':'no-product-change','source':current,'accepted_source':previous}
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
@@ -317,7 +322,7 @@ def run(source):
         dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
         dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})
         return {'state':'frontend-inputs-bound-awaiting-source-proof','source':updated}
-    if previous==current:
+    if previous==current and requested_upstream is None:
         return {'state':'already-pinned','source':current}
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
     if any(run['status'] != 'completed' for run in public_runs):
@@ -325,6 +330,9 @@ def run(source):
     if not caller_compatible(source,main):
         return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
     variant=release_lane(source,previous,current,main)
+    if previous==current:
+        dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
+        return {'state':'requested-build-started','source':current,'version':requested_upstream,'variant':variant}
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
     dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
@@ -335,5 +343,6 @@ def run(source):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,required=True)
+    parser.add_argument('--requested-upstream')
     args=parser.parse_args()
-    print(json.dumps(run(args.source.resolve())))
+    print(json.dumps(run(args.source.resolve(),args.requested_upstream or None)))

@@ -139,9 +139,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TMPDIR: ${{ runner.temp }}
+          REQUESTED_UPSTREAM: ${{ inputs.requested_upstream }}
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/release_control.py --source "$GITHUB_WORKSPACE/source" > "$RUNNER_TEMP/advance.json"
+          python3 source/.github/scripts/release_control.py --source "$GITHUB_WORKSPACE/source" \
+            --requested-upstream "${REQUESTED_UPSTREAM:-}" > "$RUNNER_TEMP/advance.json"
           cat "$RUNNER_TEMP/advance.json"
           if jq -e '.state=="qualification-failed"' "$RUNNER_TEMP/advance.json"; then
             echo 'Required exact-source qualification failed; request acceptance is not a built release.' >&2

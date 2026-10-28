@@ -6,6 +6,7 @@ fixture signature and installed inventory. No public request or device change.
 import argparse
 import codecs
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -73,7 +74,7 @@ def provider_display_fixture(args, root, home, prefix, env):
     subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', str(authority), '-rawin',
         '-in', str(index), '-out', str(root / 'provider-index.sig')], check=True, capture_output=True)
     for name, tag, timestamp, component in [
-        ('core-publication', 'local-permission-fixture', '2026-10-27T12:30:00Z', 'full' if args.frontend else 'base'),
+        ('core-publication', 'local-permission-fixture', '2026-10-27T12:30:00Z', 'full' if full else 'base'),
         ('provider-publication', 'chatgpt-display-owned-8', '2026-10-28T17:04:05Z', 'provider'),
     ]:
         (root / (name + '.json')).write_text(json.dumps({'tag_name': tag, 'draft': False,
@@ -113,6 +114,19 @@ def probe(args):
         latest = installed if args.mode in ['current', 'display'] else f'{major}.{minor + 1}.{patch}'
         next_publication = next_identity = None
         payload_urls = {}
+        for path in (root/'local-permission-fixture').rglob('*'):
+            if path.is_file():
+                relative=path.relative_to(root/'local-permission-fixture').as_posix()
+                payload_urls['https://example.invalid/local-permission-fixture/'+relative]=str(path.relative_to(root))
+        if args.refresh_current_archive:
+            archive=args.refresh_current_archive.resolve(strict=True)
+            with archive.open('rb') as stream:
+                digest=hashlib.file_digest(stream,'sha256').hexdigest()
+            (root/'current-upstream.json').write_text(json.dumps({'tag_name':'rust-v'+installed,
+                'draft':False,'prerelease':False,'assets':[{'name':'codex-package-aarch64-unknown-linux-musl.tar.gz','digest':'sha256:'+digest}]}))
+            base='https://releases.openai.com/codex/releases/'+installed+'/'
+            payload_urls[base+'release.json']='current-upstream.json'
+            payload_urls[base+'codex-package-aarch64-unknown-linux-musl.tar.gz']=str(archive)
         if args.mode == 'publication-arrives':
             from rald3_preflight import parse_descriptor
             next_fields = parse_descriptor(args.next_generation / 'generation.meta')
@@ -210,6 +224,29 @@ def probe(args):
             ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/"qualification-runs.json").read_bytes(),check=True)\n' +
             'else:print("0")\n')
         gh.chmod(0o700)
+        if args.refresh_current_archive:
+            # The source builder admits regular explicit tool files; ordinary
+            # runtime-only fixtures use an OpenSSL symlink instead.
+            openssl=prefix/'bin/openssl'
+            assert openssl.is_symlink()
+            openssl.unlink()
+            shutil.copy2(shutil.which('openssl'),openssl)
+            shutil.copy2(shutil.which('gzip'),prefix/'bin/gzip')
+            refreshed=subprocess.run([str(prefix/'bin/codex'),'update','--build-local'],
+                env={**env,'CODEX_TERMUX_UPDATE_VERSION':installed},cwd=root/'w',capture_output=True,timeout=300)
+            (root/'local-refresh.stdout').write_bytes(refreshed.stdout)
+            (root/'local-refresh.stderr').write_bytes(refreshed.stderr)
+            assert refreshed.returncode==0,refreshed.stderr.decode(errors='replace')
+            prior=dict(line.split('=',1) for line in initial.decode().splitlines() if '=' in line)
+            initial=state.read_bytes()
+            selected=dict(line.split('=',1) for line in initial.decode().splitlines() if '=' in line)
+            assert selected['update_key']==prior['update_key']
+            assert selected['current_key']!=selected['update_key']
+            current=home/'.local/lib/codex/core/generations'/selected['current']
+            from rald3_preflight import parse_descriptor
+            assert parse_descriptor(current/'generation.meta')['upstream_package_version']==installed
+            result['localRefreshPreservedUpstreamAndPublicAuthority']=True
+        initial_current=dict(line.split('=',1) for line in initial.decode().splitlines() if '=' in line)['current']
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
         saved = termios.tcgetattr(slave)
@@ -272,7 +309,7 @@ def probe(args):
         if args.mode == 'publication-arrives':
             selected = dict(line.split('=',1) for line in state.read_text().splitlines() if '=' in line)
             assert selected['current'] == next_identity, selected
-            assert selected['previous'] == 'local-permission-fixture', selected
+            assert selected['previous'] == initial_current, selected
             generation = home/'.local/lib/codex/core/generations'/next_identity
             from rald3_preflight import parse_descriptor
             assert parse_descriptor(generation/'generation.meta')['upstream_package_version'] == latest
@@ -293,7 +330,6 @@ def probe(args):
             assert next_base+'runtime' in transports, 'changed runtime was not acquired through the updater transport'
             if (args.next_generation/'helpers/2').is_file():
                 assert next_base+'helpers/2' in transports, 'changed frontend was not acquired through the updater transport'
-            import hashlib
             for line in (generation/'release.manifest').read_text().splitlines():
                 if line.startswith('file\t'):
                     _,name,digest,mode=line.split('\t')
@@ -319,7 +355,7 @@ def probe(args):
         if args.mode == 'display':
             assert 'Latest upstream Codex: ' + installed in transcript
             assert '2026-10-27 21:30:00 KST (UTC+09:00)' in transcript
-            if args.frontend:
+            if fields['manager_artifact_digest'] != '-':
                 component = json.loads((root / 'component-input-v1').read_text())['display']
                 assert f"Core (Base #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
             assert 'Provider chatgpt: #7 -> latest #8 (separate Provider update)' in transcript
@@ -413,6 +449,7 @@ if __name__ == '__main__':
     parser.add_argument('--provider', type=Path)
     parser.add_argument('--builder', type=Path)
     parser.add_argument('--next-generation', type=Path, help='unsigned qualified next-version generation for the publication-arrives trial')
+    parser.add_argument('--refresh-current-archive', type=Path, help='official installed-version archive for an isolated local updater refresh before the manual trial')
     parser.add_argument('--official-metadata', type=Path, help='captured official response for the exact version expected by this case')
     args = parser.parse_args()
     if args.mode == 'display' and not all([args.provider, args.builder]):

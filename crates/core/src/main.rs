@@ -10000,9 +10000,26 @@ fn activate_signed_update_channel_with_hold_policy(
         REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
     )?;
 
+    let local_baseline_current = if hold_policy == UpdateHoldPolicy::Enforce
+        && before.current_key != before.update_key
+    {
+        let (release, loaded) = verify_installed_local_release(
+            roots,
+            &before.current,
+            before.current_key,
+            "active generation descriptor id does not match current",
+        )?;
+        parse_local_derived_metadata(&release, &loaded)?
+            .is_some_and(|baseline| {
+                baseline.generation_component == percent_encode_remote_path(&index.generation_id)
+            })
+            .then_some((release, loaded))
+    } else {
+        None
+    };
     if hold_policy == UpdateHoldPolicy::Enforce
-        && index.generation_id == before.current
-        && before.current_key == before.update_key
+        && (local_baseline_current.is_some()
+            || (index.generation_id == before.current && before.current_key == before.update_key))
     {
         let base = RemoteReleaseBase::parse(OsStr::new(&index.release_base.value))?;
         if !base.matches_generation_identity(&index.generation_id)? {
@@ -10011,12 +10028,15 @@ fn activate_signed_update_channel_with_hold_policy(
             ));
         }
         let _ = rollback_guard::effective_update_hold(roots, None)?;
-        let (current_release, current_loaded) = verify_installed_local_release(
-            roots,
-            &before.current,
-            before.current_key,
-            "active generation descriptor id does not match current",
-        )?;
+        let (current_release, current_loaded) = match local_baseline_current {
+            Some(current) => current,
+            None => verify_installed_local_release(
+                roots,
+                &before.current,
+                before.current_key,
+                "active generation descriptor id does not match current",
+            )?,
+        };
         if let Some(presentation) = presentation.as_deref_mut() {
             presentation.release_details = Some(release_display::line(
                 roots,
@@ -19057,6 +19077,42 @@ esac
                 .unwrap()
                 .is_some()
         );
+
+        // Seeing the original signed baseline must preserve the local refresh
+        // so a manual update can continue into upstream discovery. A different
+        // same-sequence release must still fail normal anti-rollback admission.
+        for id in ["r7-current", "r7-other-same-sequence"] {
+            let candidate = if id == "r7-current" {
+                current.clone()
+            } else {
+                let other = b2_write_generation(&source_roots, id, false, "unsupported");
+                b4_write_signed_release(&other, 1, &openssl, &private_key);
+                other
+            };
+            let base = format!("https://updates.example.invalid/codex/{id}/");
+            let index = root.join("observed-baseline-index");
+            let signature = root.join("observed-baseline-index.sig");
+            std::fs::write(&index, format!("codex-update-index-v1\nchannel\tstable\ngeneration_id\t{id}\nrelease_base\t{base}\n")).unwrap();
+            b4_sign_update_index(&index, &signature, &openssl, &private_key);
+            b5_write_channel_curl(
+                &prefix.join("bin/curl"),
+                &root.join("baseline-curl-log"),
+                index_url,
+                &index,
+                &signature,
+                &base,
+                &candidate,
+            );
+            let observed = b5_run_public_channel_update(index_url, &home, &prefix, &tmp);
+            assert_eq!(
+                observed.status.code(),
+                Some(if id == "r7-current" { 0 } else { 1 }),
+                "baseline observation failed: {:?} {:?}",
+                observed.stdout,
+                observed.stderr
+            );
+            assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), explicit_state);
+        }
 
         let public_next =
             b2_write_generation(&source_roots, "r7-public-next", false, "unsupported");

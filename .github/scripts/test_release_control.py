@@ -14,6 +14,37 @@ import release_control as control
 
 
 class ReleaseControlTests(unittest.TestCase):
+    def test_explicit_request_starts_build_for_already_pinned_source_and_reuses_active_publication(self):
+        sha='a'*40;root=Path(__file__).resolve().parents[2]
+        version=control.load(root/'release/upstream.json')['upstream']['version']
+        for requested,active in [(None,False),(version,False),(version,True)]:
+            def api(path,**kwargs):
+                if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
+                if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+                if path.startswith('contents/'):return {'content':base64.b64encode((sha+'\n').encode()).decode()}
+                if path.startswith('actions/workflows/auto-release-termux.yml/runs'):
+                    return {'workflow_runs':[{'status':'in_progress'}] if active else []}
+                self.fail('unexpected authority access '+path)
+            with self.subTest(requested=requested,active=active),\
+                 patch.object(control.subprocess,'check_output',return_value=sha+'\n'),\
+                 patch.object(control,'api',side_effect=api),patch.object(control,'successful_run',return_value=({'id':1},[])),\
+                 patch.object(control,'ensure_frontend',return_value=None),patch.object(control,'caller_compatible',return_value=True),\
+                 patch.object(control,'release_lane',return_value='both'),\
+                 patch.object(control,'dispatch') as dispatch,patch.object(control,'commit_files') as commit:
+                result=control.run(root,requested)
+                expected='already-pinned' if requested is None else 'awaiting-publication' if active else 'requested-build-started'
+                self.assertEqual(result['state'],expected)
+                commit.assert_not_called()
+                if expected=='requested-build-started':
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
+                else:dispatch.assert_not_called()
+        with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),\
+             patch.object(control,'api',return_value={'object':{'sha':sha}}),\
+             patch.object(control,'commit_files') as commit,patch.object(control,'dispatch') as dispatch:
+            with self.assertRaisesRegex(ValueError,'requested upstream differs'):
+                control.run(root,'0.999.0')
+            commit.assert_not_called();dispatch.assert_not_called()
+
     def test_nested_runtime_workflow_change_requires_a_new_accepted_caller(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

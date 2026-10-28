@@ -45,7 +45,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
     fields = parse_descriptor(installed / 'generation.meta')
     # Explicit base fixtures are private signer inputs, not public release admission.
     # The actual Core verifies the resulting signature/inventory before execution.
-    if frontend is None:
+    if frontend is None and fields['helper_count'] == '2' and fields['manager_artifact_digest'] == '-':
         assert generation is not None and fields['helper_count'] == '2'
         records = [line.split('\t') for line in (installed / 'release.manifest').read_text().splitlines() if line.startswith('file\t')]
         expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta',
