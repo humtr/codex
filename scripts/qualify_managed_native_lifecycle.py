@@ -58,6 +58,8 @@ def probe(args):
         home, prefix, env = fixture(root, args.core, args.frontend)
         (root / 'owned-fixture').write_text('owned managed lifecycle; no account access\n')
         (root / 'model-adapter-fixture').touch()
+        if args.app_models:
+            (root / 'app-models-fixture').touch()
         auth = root / 'fixture-auth'
         if args.provider is not None:
             auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\ncase "$1" in\n'
@@ -387,6 +389,20 @@ def probe(args):
             result['admission_fault'] = 'owned PID restored byte-for-byte; no app submission for the failed input'
         # The Provider default is none; a mode-only start must retain a
         # deliberately selected high effort on the actual native thread.
+        if args.app_models:
+            app_model = 'chatgpt-desktop/app/qualification-thinking'
+            submit('/model ' + app_model + ' --reasoning=high')
+            wait(lambda: public(thread)['model'] == app_model)
+            submit('OWNED_APP_DISCOVERED_MODEL')
+            expected_turns += 1
+            wait(lambda: settled(thread, expected_turns))
+            wait(lambda: record()['phase'] == 'completed')
+            routed = [row for row in json.loads((root / 'bridge-commands.json').read_text())
+                      if row['op'] == 'submit'][-1]
+            assert routed['model'] == 'qualification-thinking' and routed['thinkingEffort'] == 'extended', routed
+            result['app_catalog_route'] = {'model':app_model, 'host_model':routed['model'], 'thinking_effort':routed['thinkingEffort']}
+            steps.append('app-discovered model selects in the actual TUI and executes the exact admitted host route')
+
         native_rpc(home, 'thread/settings/update', {'threadId': thread, 'effort': 'high'})
         selected_settings = public(thread)
         assert selected_settings['reasoningEffort'] == 'high'
@@ -577,13 +593,18 @@ def probe(args):
         steps.append('fork inherits its Native model and effort without inference')
         # Create a separate unregistered native thread so explicit Provider
         # resume exercises admission rather than the existing-work fence.
-        external = native_rpc(home, 'thread/fork', {'threadId':thread,
+        external_reply = native_rpc(home, 'thread/fork', {'threadId':thread,
             'model':source_before_fork['model'], 'modelProvider':source_before_fork['modelProvider'],
             'config':{'model_reasoning_effort':source_before_fork['reasoningEffort'],
                       'model_providers':{'chatgpt_desktop':{'name':'Fixture ChatGPT',
                           'base_url':f'http://127.0.0.1:{port}/v1','wire_api':'responses',
-                          'requires_openai_auth':False}}}})['thread']['id']
-        before_resume = public(external)
+                          'requires_openai_auth':False}}}})
+        # The public fork response is the creation result. An external thread
+        # need not remain loaded after its RPC observer closes; resume must
+        # handle that state rather than requiring an unrelated loaded-list hit.
+        before_resume = external_reply['thread']
+        external = before_resume['id']
+        (root / 'external-fork-result.json').write_text(json.dumps(external_reply, indent=2) + '\n')
         resumed = control('codex_sessions', {'action':'resume','thread_id':external,
             'call_id':'owned-resume-preserves-settings'})
         assert resumed['thread_id'] == external
@@ -636,6 +657,7 @@ def probe(args):
 if __name__ == '__main__':
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--app-models', action='store_true', help='discover synthetic app choices through the real Provider and select/execute in Android TUI')
     parser.add_argument('--account-roundtrip', action='store_true',
                         help='different Provider default, two Manager accounts/workspaces, failed-turn model return')
     parser.add_argument('--provider', type=Path,

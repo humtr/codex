@@ -59,6 +59,12 @@ pub struct Service {
     mcp: Option<Arc<crate::mcp::Broker>>,
     operator: Option<Arc<crate::operator::Operator>>,
     handoff_issuer: Option<crate::handoff::Issuer>,
+    app_models: Option<AppModels>,
+}
+struct AppModels {
+    config_path: std::path::PathBuf,
+    bridge: Arc<dyn crate::app::Bridge>,
+    journal: Arc<crate::journal::Journal>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -84,6 +90,7 @@ impl Service {
             mcp: None,
             operator: None,
             handoff_issuer: None,
+            app_models: None,
         }))
     }
     pub fn configured(
@@ -105,6 +112,24 @@ impl Service {
         Arc::get_mut(&mut self)
             .ok_or(Error("shared_service_configuration"))?
             .handoff_issuer = Some(issuer);
+        Ok(self)
+    }
+    /// Enable account-bound app discovery for model listing and request admission.
+    pub fn with_app_models(
+        mut self: Arc<Self>,
+        bridge: Arc<dyn crate::app::Bridge>,
+        journal: Arc<crate::journal::Journal>,
+    ) -> Result<Arc<Self>, Error> {
+        let config_path = self.config_path.clone().map(Ok).unwrap_or_else(|| {
+            crate::store::config_path().map_err(|_| Error("invalid_configuration_path"))
+        })?;
+        Arc::get_mut(&mut self)
+            .ok_or(Error("shared_service_configuration"))?
+            .app_models = Some(AppModels {
+            config_path,
+            bridge,
+            journal,
+        });
         Ok(self)
     }
     fn effective(&self) -> Result<Config, Error> {
@@ -341,11 +366,30 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
             Err(_) => failure(StatusCode::GATEWAY_TIMEOUT, "app_approval_unconfirmed"),
         };
     }
-    let config = match service.effective() {
+    let mut config = match service.effective() {
         Ok(config) => config,
         Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
     };
     if parts.uri.path() == "/v1/models" && parts.method == "GET" {
+        if let Some(source) = &service.app_models {
+            let offered = match crate::control::host(
+                source.bridge.as_ref(),
+                &source.journal,
+                &source.config_path,
+                &json!({"action":"models"}),
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
+            };
+            config.catalog = match serde_json::from_value(offered["catalog"].clone()) {
+                Ok(catalog) => catalog,
+                Err(_) => {
+                    return failure(StatusCode::SERVICE_UNAVAILABLE, "app_model_catalog_invalid")
+                }
+            };
+        }
         return axum::Json(json!({"object":"list","data":config.catalog.models.iter().map(|m| json!({"id":m.id,"object":"model","owned_by":"termux-codex"})).collect::<Vec<_>>()})).into_response();
     }
     if parts.uri.path() != "/v1/responses" || parts.method != "POST" {
@@ -363,11 +407,60 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     };
     let thread = one_header(&parts.headers, "session_id")
         .or_else(|| one_header(&parts.headers, "x-codex-thread-id"));
+    let mut catalog_identity = None;
+    if let Some(source) = &service.app_models {
+        match crate::control::cached_model_catalog(&source.journal, &source.config_path) {
+            Ok(Some((identity, catalog))) => {
+                config.catalog = catalog;
+                catalog_identity = Some(identity);
+            }
+            Ok(None) => (),
+            Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
+        }
+    }
+    if let Some(model) = body["model"].as_str() {
+        let effort = body["reasoning"]["effort"]
+            .as_str()
+            .unwrap_or(&config.model.reasoning_effort);
+        if config.catalog.route(model, effort).is_none() {
+            if let Some(source) = &service.app_models {
+                // Admit the complete catalog before the protocol resolves a
+                // verified Native handoff, whose effective model can differ
+                // from the request's original compaction model.
+                match crate::control::admitted_catalog(
+                    source.bridge.as_ref(),
+                    &source.journal,
+                    &source.config_path,
+                )
+                .await
+                {
+                    Ok(catalog) => config.catalog = catalog,
+                    Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
+                }
+            }
+        }
+    }
     let parsed =
         match Request::parse_with_issuer(body, &config, thread, service.handoff_issuer.as_ref()) {
             Ok(value) => value,
             Err(error) => return failure(StatusCode::BAD_REQUEST, error.0),
         };
+    if crate::models::is_app_model(&parsed.model) {
+        if let (Some(source), Some(expected)) = (&service.app_models, catalog_identity) {
+            let current = match source
+                .bridge
+                .operation(json!({"op":"identity"}))
+                .await
+                .and_then(|value| crate::app::Identity::parse(&value))
+            {
+                Ok(identity) => identity,
+                Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
+            };
+            if !expected.account_matches(&current) {
+                return failure(StatusCode::SERVICE_UNAVAILABLE, "app_account_changed");
+            }
+        }
+    }
     let cancel = service.shutdown.child_token();
     let (events, mut input) = mpsc::channel(64);
     let (output, receiver) = mpsc::channel(64);

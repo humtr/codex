@@ -96,6 +96,19 @@ impl Snapshot {
             None => Ok(Config::default()),
         }
     }
+    pub(crate) fn configured_models(&self) -> Result<Vec<crate::models::Model>, ConfigError> {
+        let doc = document(self.original.as_deref())?;
+        match doc.get("catalog").and_then(|v| v.get("models")) {
+            Some(models) => models
+                .clone()
+                .try_into()
+                .map_err(|_| ConfigError::Invalid("configured models are invalid")),
+            None => Ok(Vec::new()),
+        }
+    }
+    pub fn unchanged(&self) -> Result<bool, ConfigError> {
+        Ok(read(&self.path)? == self.original)
+    }
     pub fn editor_text(&self) -> Result<String, ConfigError> {
         match &self.original {
             Some(b) => String::from_utf8(b.clone())

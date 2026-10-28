@@ -45,6 +45,14 @@ Original public text and live terminal output are checked separately. Ordinary
 web-client input, broader failure/control cases and original host provenance
 remain distinct qualification work; see [actual trial scope](CURRENT.md#activated-provider21-complete-direct-progress-guidance).
 
+The newer source implementation preserves a ready owned Chat's selection and
+accepts explicit model/effort choices. Selectable app models come from the actual
+picker, augmented by configuration; `host models` refreshes them and `prepare`
+publishes retained choices for the next Native startup. This source qualification
+is separate from installed Provider21 and public delivery; see
+[the current input baseline](CURRENT.md#confirmed-defects-and-unresolved-behavior)
+and [Provider configuration](providers/chatgpt/README.md).
+
 ## Start here
 
 Install **Full** for the usual terminal experience (Core, Manager and TUI).

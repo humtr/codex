@@ -178,6 +178,22 @@ fn app_controls_without_native_binding_observe_absent_host_without_acquisition()
     let observed: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(observed["host"]["present"], false);
     assert_eq!(observed["host"]["host_started"], false);
+    let cached = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args(["host", "models", "--refresh", "false", "--state"])
+        .arg(root.0.join("state"))
+        .env("HOME", &root.0)
+        .env("XDG_CONFIG_HOME", root.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(
+        cached.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cached.stderr)
+    );
+    let cached: Value = serde_json::from_slice(&cached.stdout).unwrap();
+    assert_eq!(cached["source"], "configured_only");
+    assert_eq!(cached["account_verified_now"], false);
+    assert_eq!(cached["inference_submitted"], false);
     assert!(!root.0.join("state/desktop").exists());
     assert!(!root.0.join(".codex").exists());
     assert!(!root.0.join("config").exists());

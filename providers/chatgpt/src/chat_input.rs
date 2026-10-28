@@ -10,6 +10,7 @@ pub(crate) struct Inputs {
     pub bridge: Arc<dyn Bridge>,
     pub journal: Arc<Journal>,
     pub config: Config,
+    pub config_path: Option<std::path::PathBuf>,
 }
 impl Inputs {
     async fn identity(&self) -> Result<Value, Error> {
@@ -67,6 +68,32 @@ impl Inputs {
             .as_u64()
             .filter(|v| *v > 0 && *v <= 86_400)
             .ok_or(Error("assignment_budget_invalid"))?;
+        let (config, configured) = match &self.config_path {
+            Some(path) => {
+                let snapshot = crate::store::Snapshot::open(path)
+                    .map_err(|_| Error("invalid_provider_configuration"))?;
+                (
+                    snapshot
+                        .config()
+                        .map_err(|_| Error("invalid_provider_configuration"))?,
+                    snapshot
+                        .configured_models()
+                        .map_err(|_| Error("invalid_provider_configuration"))?,
+                )
+            }
+            None => (self.config.clone(), self.config.catalog.models.clone()),
+        };
+        let catalog = if args.get("model").is_some() || args.get("effort").is_some() {
+            let offered = self.bridge.operation(json!({"op":"model_catalog"})).await?;
+            if offered["identity"] != identity {
+                return Err(Error("app_account_changed"));
+            }
+            config
+                .catalog
+                .with_app_options(&offered["options"], &configured)?
+        } else {
+            config.catalog
+        };
         let lane = format!("saved-input-{key}");
         // The message ID is stable across observers, restart and lost delivery.
         let message = format!(
@@ -78,8 +105,7 @@ impl Inputs {
             &key[20..32]
         );
         let adopted=self.bridge.operation(json!({"op":"chat_adopt","lane":lane,"nativeThread":lane,"limits":{"maxDispatches":starts,"deadlineUnixMs":unix_ms().saturating_add(elapsed.saturating_mul(1000))},"conversation_id":conversation,"identity":identity,"branch":branch,"project":source["project_id"],"returnPath":"mcp","readSelection":true,"signature":{"name":format!("saved_input_{key}")}})).await?;
-        let selection = match resolve_selection(&self.config.catalog, &adopted["selection"], &args)
-        {
+        let selection = match resolve_selection(&catalog, &adopted["selection"], &args) {
             Ok(selection) => selection,
             Err(error) => {
                 let _ = self
@@ -379,12 +405,13 @@ fn resolve_selection(
         .filter(|(_, r)| r.thinking_effort.as_deref() == thinking)
         .copied()
         .collect();
-    let inherited_effort = matching.first().and_then(|(_, first)| {
-        matching
+    let inherited_effort = match matching.first() {
+        Some((_, first)) => matching
             .iter()
             .all(|(_, r)| r.effort == first.effort)
-            .then_some(first.effort.as_str())
-    });
+            .then_some(first.effort.as_str()),
+        None => thinking.and_then(|effort| catalog.effort_map.get(effort).map(String::as_str)),
+    };
     let model = args
         .get("model")
         .map(|_| string(args, "model", 128))
@@ -491,6 +518,12 @@ mod tests {
                         json!({"localId":"chat","selection":{"slug":"gpt-6-thinking","thinkingEffort":"extended"}}),
                     )
                 }
+                "model_catalog" => {
+                    state["model_reads"] = json!(state["model_reads"].as_u64().unwrap_or(0) + 1);
+                    Ok(
+                        json!({"identity":{"account":"a","user":"u","structure":"personal"},"options":state["offered_options"]}),
+                    )
+                }
                 "submit" => {
                     if state["selection_changed"] == true {
                         return Box::pin(async { Err(Error("app_model_selection_changed")) });
@@ -540,6 +573,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let task = "  exact input\r\nsecond line  ";
         let args = json!({"action":"chat_input","call_id":"settings","conversation_id":"chat","task":task,"source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}});
@@ -555,6 +589,37 @@ mod tests {
         assert_eq!(input.submit(args, &[]).await.unwrap(), admitted);
         assert_eq!(source.state.lock().unwrap()["submissions"], 1);
     }
+    #[tokio::test]
+    async fn explicit_app_choice_uses_discovery_once_and_retains_intent_despite_config_changes() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            Root(std::env::temp_dir().join(format!("fi-{}", crate::journal::random_id().unwrap())));
+        let source = fixture();
+        source.state.lock().unwrap()["offered_options"] = json!([{"label":"New app family","defaultModelSlug":"new-auto","options":[{"slug":"new-thinking","lane":"thinking","modelLabel":"Thinking","thinkingEffort":"extended","isAvailable":true}]}]);
+        let cursor = Chats::new(source.clone())
+            .call(json!({"action":"read","conversation_id":"chat"}), &[])
+            .await
+            .unwrap()["cursor"]
+            .clone();
+        let config_path = root.0.join("input.toml");
+        let input = Inputs {
+            bridge: source.clone(),
+            journal: Arc::new(Journal::open(&root.0).unwrap()),
+            config: Config::default(),
+            config_path: Some(config_path.clone()),
+        };
+        let args = json!({"action":"chat_input","call_id":"new-app-choice","conversation_id":"chat","task":"task","source_cursor":cursor,"model":"chatgpt-desktop/app/new-thinking","effort":"high","budget":{"max_app_starts":1,"max_elapsed_seconds":60}});
+        let admitted = input.submit(args.clone(), &[]).await.unwrap();
+        assert_eq!(admitted["settings"]["host_model"], "new-thinking");
+        assert_eq!(admitted["settings"]["thinking_effort"], "extended");
+        std::fs::write(&config_path, b"invalid configuration [").unwrap();
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(input.submit(args, &[]).await.unwrap(), admitted);
+        let state = source.state.lock().unwrap();
+        assert_eq!(state["model_reads"], 1);
+        assert_eq!(state["submissions"], 1);
+        assert_eq!(state["submitted_command"]["model"], "new-thinking");
+    }
     #[test]
     fn selection_validates_explicit_options_and_inherited_effort() {
         let catalog = crate::models::Catalog::default();
@@ -563,19 +628,26 @@ mod tests {
         assert_eq!(retained["host_model"], "app-new-model");
         assert_eq!(retained["thinking_effort"], "new-effort");
         assert!(retained["model"].is_null() && retained["effort"].is_null());
+        let mut corrected = catalog.clone();
+        corrected
+            .effort_map
+            .insert("new-effort".into(), "ultra".into());
+        let mapped = resolve_selection(&corrected, &discovered, &json!({})).unwrap();
+        assert_eq!(mapped["effort"], "ultra");
+        assert_eq!(mapped["host_model"], "app-new-model");
+        assert_eq!(mapped["thinking_effort"], "new-effort");
         let app_pair = json!({"slug":"gpt-6","thinkingEffort":"extended"});
         let retained = resolve_selection(&catalog, &app_pair, &json!({})).unwrap();
         assert_eq!(retained["host_model"], "gpt-6");
         assert_eq!(retained["thinking_effort"], "extended");
-        assert!(retained["effort"].is_null());
-        assert_eq!(
-            resolve_selection(
-                &catalog,
-                &app_pair,
-                &json!({"model":"chatgpt-desktop/gpt-6"})
-            ),
-            Err(Error("chat_input_effort_unavailable"))
-        );
+        assert_eq!(retained["effort"], "high");
+        let selected_model = resolve_selection(
+            &catalog,
+            &app_pair,
+            &json!({"model":"chatgpt-desktop/gpt-6"}),
+        )
+        .unwrap();
+        assert_eq!(selected_model["effort"], "high");
         let selected = json!({"slug":"gpt-6-thinking","thinkingEffort":"extended"});
         let explicit = resolve_selection(&catalog, &selected, &json!({"effort":"xhigh"})).unwrap();
         assert_eq!(explicit["thinking_effort"], "max");
@@ -611,6 +683,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let args = json!({"action":"chat_input","call_id":"changed-selection","conversation_id":"chat","task":"task","source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}});
         let rejected = input.submit(args.clone(), &[]).await.unwrap();
@@ -649,6 +722,7 @@ mod tests {
                 bridge: source.clone(),
                 journal: Arc::new(Journal::open(&root.0).unwrap()),
                 config: Config::default(),
+                config_path: None,
             };
             let first = input.submit(args.clone(), &[]).await.unwrap();
             assert_eq!(first["phase"], "delivery_unknown");
@@ -665,6 +739,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         assert_eq!(
             input.submit(args, &[]).await.unwrap()["phase"],
@@ -696,6 +771,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let admitted = input.submit(json!({"call_id":"read-gap","conversation_id":"chat","task":"task","source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}}), &[]).await.unwrap();
         let args = json!({"input_id":admitted["input_id"]});
@@ -753,6 +829,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let admitted=input.submit(json!({"call_id":"active","conversation_id":"chat","task":"task","source_cursor":cursor,"budget":{"max_app_starts":1,"max_elapsed_seconds":60}}),&[]).await.unwrap();
         let args = json!({"input_id":admitted["input_id"],"max_wait_seconds":0});
@@ -824,6 +901,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let admitted = input
             .submit(
@@ -876,6 +954,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let admitted = input.submit(json!({"call_id":"hidden-source","conversation_id":"chat","task":"task","source_cursor":cursor,
             "budget":{"max_app_starts":1,"max_elapsed_seconds":60}}), &[]).await.unwrap();
@@ -924,6 +1003,7 @@ mod tests {
             bridge: source.clone(),
             journal: Arc::new(Journal::open(&root.0).unwrap()),
             config: Config::default(),
+            config_path: None,
         };
         let result=input.submit(json!({"call_id":"incomplete","conversation_id":"chat","task":"task","source_cursor":cursor}),&[]).await;
         assert_eq!(result, Err(Error("chat_input_source_incomplete")));

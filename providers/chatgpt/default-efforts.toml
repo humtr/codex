@@ -1,0 +1,4 @@
+# Qualified Chat picker tokens and their Native effort equivalents.
+standard = "medium"
+extended = "high"
+max = "xhigh"

@@ -761,6 +761,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         }
         _ => bridge,
     };
+    let model_bridge = bridge.clone();
     let token = random_id()?;
     let host = Arc::new(
         AppHost::new(bridge.clone(), journal.clone())
@@ -785,6 +786,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     } else {
         Service::configured(config, token.clone(), host.clone())?
     };
+    service = service.with_app_models(model_bridge, journal.clone())?;
     service = service.with_handoff_issuer(crate::handoff::Issuer::new(journal.owner.clone()))?;
     if let Some(mcp) = mcp {
         service = service.with_mcp(mcp)?;

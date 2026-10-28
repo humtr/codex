@@ -119,9 +119,12 @@ pub struct ModelConfig {
 }
 impl Default for ModelConfig {
     fn default() -> Self {
+        let selection: std::collections::BTreeMap<String, String> =
+            toml::from_str(include_str!("../default-selection.toml"))
+                .expect("bundled bootstrap selection is tested");
         Self {
-            default: "chatgpt-desktop/gpt-6".into(),
-            reasoning_effort: "none".into(),
+            default: selection["model"].clone(),
+            reasoning_effort: selection["effort"].clone(),
         }
     }
 }
@@ -235,8 +238,13 @@ impl Config {
         }
         let text = std::str::from_utf8(bytes)
             .map_err(|_| ConfigError::Invalid("configuration is not UTF-8"))?;
-        let config: Self = toml::from_str(text)
+        let mut config: Self = toml::from_str(text)
             .map_err(|_| ConfigError::Invalid("configuration syntax or fields are invalid"))?;
+        // Validate the supplied definitions before merging; otherwise duplicate
+        // IDs/efforts could be erased by the overlay operation.
+        config.catalog.validate()?;
+        let additions = std::mem::replace(&mut config.catalog.models, Catalog::default().models);
+        crate::models::merge_models(&mut config.catalog.models, &additions);
         config.validate()?;
         Ok(config)
     }
@@ -282,6 +290,8 @@ impl Config {
             .catalog
             .route(&self.model.default, &self.model.reasoning_effort)
             .is_none()
+            && !(crate::models::is_app_model(&self.model.default)
+                && crate::models::native_effort(&self.model.reasoning_effort))
         {
             return Err(ConfigError::Invalid(
                 "model and reasoning effort have no configured route",
@@ -375,6 +385,30 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn partial_catalog_adds_models_and_mapping_without_erasing_defaults_or_invalid_input() {
+        let mapping = Config::parse(b"[catalog.effort_map]\nextended = 'xhigh'\n").unwrap();
+        assert_eq!(mapping.catalog.effort_map["extended"], "xhigh");
+        assert!(mapping
+            .catalog
+            .route(&mapping.model.default, &mapping.model.reasoning_effort)
+            .is_some());
+        let addition = "[[catalog.models]]\nid = 'chatgpt-desktop/config-added'\nfamily = 'Custom'\ndisplay_name = 'Custom'\n[[catalog.models.routes]]\neffort = 'ultra'\nhost_model = 'arbitrary-route'\nthinking_effort = 'custom-token'\n";
+        let config = Config::parse(addition.as_bytes()).unwrap();
+        assert!(config
+            .catalog
+            .route(&config.model.default, &config.model.reasoning_effort)
+            .is_some());
+        assert_eq!(
+            config
+                .catalog
+                .route("chatgpt-desktop/config-added", "ultra")
+                .unwrap()
+                .host_model,
+            "arbitrary-route"
+        );
+        assert!(Config::parse(format!("{addition}\n{addition}").as_bytes()).is_err());
+    }
     #[test]
     fn defaults_roundtrip_without_claiming_host_capacity() {
         let value = Config::default();

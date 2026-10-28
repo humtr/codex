@@ -773,8 +773,14 @@ impl Operator {
         &self,
         home: &std::path::Path,
         workspace: &std::path::Path,
+        catalog: Option<crate::models::Catalog>,
     ) -> Result<Arc<Pool>, Error> {
-        if home == self.pool.home && workspace == self.pool.workspace {
+        if home == self.pool.home
+            && workspace == self.pool.workspace
+            && catalog
+                .as_ref()
+                .is_none_or(|value| value == &self.config.catalog)
+        {
             return Ok(self.pool.clone());
         }
         for path in [home, workspace] {
@@ -785,12 +791,15 @@ impl Operator {
                 return Err(Error("native_workspace_identity_invalid"));
             }
         }
-        let key = digest(&(home, workspace, &self.config));
+        let mut config = self.config.clone();
+        if let Some(catalog) = catalog {
+            config.catalog = catalog;
+        }
+        let key = digest(&(home, workspace, &config));
         let mut pools = self.pools.lock().await;
         if let Some(pool) = pools.get(&key) {
             return Ok(pool.clone());
         }
-        let mut config = self.config.clone();
         config.execution.home = Some(home.to_owned());
         config.execution.workspace = Some(workspace.to_owned());
         let pool = self.pool.scoped(config)?;
@@ -801,6 +810,7 @@ impl Operator {
         self.scoped_pool(
             &record.execution.home,
             record.workspace.as_deref().unwrap_or(&self.pool.workspace),
+            None,
         )
         .await
     }
@@ -2247,7 +2257,14 @@ impl Operator {
                 {
                     return Err(Error("host_active_work"));
                 }
-                crate::control::host(self.bridge.as_ref(), &args).await
+                crate::control::host(
+                    self.bridge.as_ref(),
+                    &self.journal,
+                    &crate::store::config_path()
+                        .map_err(|_| Error("invalid_configuration_path"))?,
+                    &args,
+                )
+                .await
             }
             "codex_projects" => {
                 let path =
@@ -2624,7 +2641,7 @@ impl Operator {
         // intent never authorizes another add, even when its queue item is absent.
         let native = if let Some(home) = args.get("execution_home") {
             let home = text_value_path(home, "native_workspace_identity_invalid")?;
-            let pool = self.scoped_pool(&home, &self.pool.workspace).await?;
+            let pool = self.scoped_pool(&home, &self.pool.workspace, None).await?;
             match pool.for_thread(thread).await {
                 Ok(native) => native,
                 Err(Error("native_thread_owner_unavailable")) => pool.prepare().await?,
@@ -2872,6 +2889,10 @@ impl Operator {
                     bridge: self.bridge.clone(),
                     journal: self.journal.clone(),
                     config: self.config.clone(),
+                    config_path: Some(
+                        crate::store::config_path()
+                            .map_err(|_| Error("invalid_configuration_path"))?,
+                    ),
                 };
                 let secrets = {
                     let works = self.works.lock().await;
@@ -3205,7 +3226,28 @@ impl Operator {
                     .map(|v| text_value_path(v, "native_workspace_identity_invalid"))
                     .transpose()?
                     .unwrap_or_else(|| self.pool.workspace.clone());
-                let pool = self.scoped_pool(&home, &workspace).await?;
+                let mut catalog = crate::control::cached_model_catalog(
+                    &self.journal,
+                    &crate::store::config_path()
+                        .map_err(|_| Error("invalid_configuration_path"))?,
+                )?
+                .map(|(_, catalog)| catalog);
+                if catalog.is_none() && crate::models::is_app_model(&self.config.model.default) {
+                    crate::control::admitted_catalog(
+                        self.bridge.as_ref(),
+                        &self.journal,
+                        &crate::store::config_path()
+                            .map_err(|_| Error("invalid_configuration_path"))?,
+                    )
+                    .await?;
+                    catalog = crate::control::cached_model_catalog(
+                        &self.journal,
+                        &crate::store::config_path()
+                            .map_err(|_| Error("invalid_configuration_path"))?,
+                    )?
+                    .map(|(_, catalog)| catalog);
+                }
+                let pool = self.scoped_pool(&home, &workspace, catalog).await?;
                 if args.get("workspace").is_some() {
                     let candidates = self
                         .works
@@ -3438,7 +3480,19 @@ impl Operator {
                     if model_override.is_some() || effort_override.is_some() {
                         let effort = effort.ok_or(Error("native_effort_unavailable"))?;
                         if self.config.catalog.route(model, effort).is_none() {
-                            return Err(Error("native_model_effort_incompatible"));
+                            if !crate::models::is_app_model(model) {
+                                return Err(Error("native_model_effort_incompatible"));
+                            }
+                            let catalog = crate::control::admitted_catalog(
+                                self.bridge.as_ref(),
+                                &self.journal,
+                                &crate::store::config_path()
+                                    .map_err(|_| Error("invalid_configuration_path"))?,
+                            )
+                            .await?;
+                            if catalog.route(model, effort).is_none() {
+                                return Err(Error("native_model_effort_incompatible"));
+                            }
                         }
                     }
                     Some(json!({"model":model,"effort":effort}))
@@ -5659,7 +5713,9 @@ impl Host for Operator {
         Box::pin(async move {
             let native = this.pool.discover_thread(&request.thread).await?;
             let workspace = native.workspace(&request.thread).await?;
-            let pool = this.scoped_pool(&native.owner.home, &workspace).await?;
+            let pool = this
+                .scoped_pool(&native.owner.home, &workspace, None)
+                .await?;
             let mut record = this
                 .works
                 .lock()
@@ -6012,7 +6068,7 @@ pub(crate) fn tools() -> Vec<Value> {
     };
     let controls = [
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
-        ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action", "action"),
+        ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
         ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, reserves Direct reasoning without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. Direct means this response uses Native tools; provider means Native starts Provider model execution (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled Direct claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Provider extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
@@ -6035,7 +6091,7 @@ pub(crate) fn tools() -> Vec<Value> {
             properties.insert("action".into(), json!({"type":"string","enum":["list","read"]}));
             properties.insert("after".into(),json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false}));
         }
-        if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop"]})); }
+        if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop","models"]})); properties.insert("refresh".into(),json!({"type":"boolean","description":"models only: false reads retained/configured metadata without acquiring the app; default true queries offered app choices"})); }
         if name=="codex_projects" { properties.insert("action".into(),json!({"type":"string","enum":["list","use"]})); }
         json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,
             "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false},

@@ -127,6 +127,7 @@ impl Bridge for Remote {
                 Some(
                     "identity"
                         | "host_status"
+                        | "model_catalog"
                         | "chat_list"
                         | "chat_read"
                         | "chat_page"
@@ -338,6 +339,11 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_chat_input_unavailable",
         "app_model_selection_unavailable",
         "app_model_selection_changed",
+        "app_model_catalog_unavailable",
+        "app_model_catalog_rate_limited",
+        "app_model_catalog_auth_expired",
+        "app_model_catalog_forbidden",
+        "app_model_catalog_request_failed",
         "app_chat_source_changed",
         "app_chat_owned_work",
         "app_chat_active_unowned",
@@ -387,16 +393,20 @@ impl Identity {
     pub(crate) fn parse(value: &Value) -> Result<Self, Error> {
         let identity: Self =
             serde_json::from_value(value.clone()).map_err(|_| Error("app_identity_unavailable"))?;
-        if [&identity.generation, &identity.account, &identity.user]
+        identity.validate()?;
+        Ok(identity)
+    }
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        if [&self.generation, &self.account, &self.user]
             .iter()
             .any(|v| v.is_empty() || v.len() > 512 || v.chars().any(char::is_control))
-            || !matches!(identity.structure.as_str(), "personal" | "workspace")
+            || !matches!(self.structure.as_str(), "personal" | "workspace")
         {
             return Err(Error("app_identity_unavailable"));
         }
-        Ok(identity)
+        Ok(())
     }
-    fn account_matches(&self, other: &Self) -> bool {
+    pub(crate) fn account_matches(&self, other: &Self) -> bool {
         self.account == other.account
             && self.user == other.user
             && self.structure == other.structure

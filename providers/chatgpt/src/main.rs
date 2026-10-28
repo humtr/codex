@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop> [--state PATH] | migrate-reasoning --state PATH --backup PATH --target direct-provider|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop|models> [--state PATH] | migrate-reasoning --state PATH --backup PATH --target direct-provider|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -191,6 +191,12 @@ fn control_command(args: &[String]) -> Result<(), String> {
                 pair[1]
                     .parse::<u64>()
                     .map_err(|_| "invalid integer control value")?,
+            )
+        } else if field == "refresh" {
+            serde_json::Value::Bool(
+                pair[1]
+                    .parse::<bool>()
+                    .map_err(|_| "refresh requires true or false")?,
             )
         } else {
             serde_json::Value::String(pair[1].clone())
@@ -420,15 +426,39 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 std::path::PathBuf::from(std::env::var_os("HOME").ok_or("HOME required")?)
                     .join(".local/share/codex/core/config/profiles");
             let path = store::config_path().map_err(|e| e.to_string())?;
-            let config = store::Snapshot::open(&path)
-                .and_then(|v| v.config())
-                .map_err(|e| e.to_string())?;
+            let snapshot = store::Snapshot::open(&path).map_err(|e| e.to_string())?;
+            let mut config = snapshot.config().map_err(|e| e.to_string())?;
             let status = executor
                 .block_on(async {
                     runtime::ensure_token(&root).await?;
                     runtime::status(&root).await
                 })
                 .map_err(|e| e.to_string())?;
+            let offered = executor
+                .block_on(runtime::control(
+                    &root,
+                    "codex_host",
+                    serde_json::json!({"action":"models","refresh":false}),
+                ))
+                .map_err(|e| e.to_string())?;
+            if offered["is_error"] == true {
+                return Err(offered["result"]["error"]
+                    .as_str()
+                    .unwrap_or("app_model_catalog_unavailable")
+                    .into());
+            }
+            config.catalog = serde_json::from_value(offered["result"]["catalog"].clone())
+                .map_err(|_| "app_model_catalog_invalid")?;
+            if config
+                .catalog
+                .route(&config.model.default, &config.model.reasoning_effort)
+                .is_none()
+            {
+                return Err("configured_model_effort_not_offered".into());
+            }
+            if !snapshot.unchanged().map_err(|e| e.to_string())? {
+                return Err("provider_configuration_changed".into());
+            }
             let value = codex_chatgpt_provider::registration::prepare(
                 &config,
                 &root,

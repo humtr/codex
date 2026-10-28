@@ -25,6 +25,7 @@ struct Fixture {
     cancelled: Arc<AtomicUsize>,
     reveals: Arc<AtomicUsize>,
     approvals: Arc<AtomicUsize>,
+    selections: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 impl Host for Fixture {
     fn approve(&self, thread: String, ui: bool) -> BoxFuture<'static, Result<Value, Error>> {
@@ -58,6 +59,7 @@ impl Host for Fixture {
         let fixture = self.clone();
         Box::pin(async move {
             fixture.calls.fetch_add(1, Ordering::SeqCst);
+            fixture.selections.lock().unwrap().push(json!({"model":request.model,"effort":request.effort,"host_model":request.host_model,"thinking_effort":request.thinking_effort}));
             if request.thread == "cancellation" {
                 events
                     .send(Event::Text {
@@ -376,5 +378,105 @@ async fn config_file_changes_routes_at_next_request_without_rebuild_or_restart()
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     stop.cancel();
     worker.await.unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+// Inject an offered-options observation at the durable app boundary. Actual app
+// production of that observation is separately qualified on Android.
+#[tokio::test]
+async fn retained_app_catalog_routes_handoff_reloads_config_and_rejects_changed_account() {
+    use codex_chatgpt_provider::{
+        app::Bridge,
+        context::digest,
+        handoff::{Handoff, Issuer},
+        journal::{random_id, Journal},
+    };
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::atomic::AtomicBool;
+    struct App(Arc<AtomicBool>);
+    impl Bridge for App {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            assert_eq!(
+                command["op"], "identity",
+                "retained routes must not fetch catalog or Chat history"
+            );
+            let changed = self.0.load(Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(
+                    json!({"generation":"fixture","account":if changed {"other-account"} else {"owned-account"},"user":"owned-user","structure":"personal"}),
+                )
+            })
+        }
+    }
+    let root = std::env::temp_dir().join(format!("catalog-{}", random_id().unwrap()));
+    let journal = Arc::new(Journal::open(&root.join("state")).unwrap());
+    let config_path = root.join("provider.toml");
+    std::fs::write(&config_path, b"").unwrap();
+    std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    journal.write(&digest(&"app-model-catalog-v1"), &json!({"identity":{"generation":"previous-renderer","account":"owned-account","user":"owned-user","structure":"personal"},"observed_at_unix_ms":1,"options":[{"label":"New family","options":[{"slug":"unseen-thinking","lane":"thinking","modelLabel":"Thinking","thinkingEffort":"extended","isAvailable":true}]}]})).unwrap();
+    let changed = Arc::new(AtomicBool::new(false));
+    let fixture = Arc::new(Fixture::default());
+    let issuer = Issuer::new(journal.owner.clone());
+    let mut target = Config::default();
+    target.catalog.models.push(serde_json::from_value(json!({"id":"chatgpt-desktop/app/unseen-thinking","family":"New family","display_name":"Thinking","routes":[{"effort":"high","host_model":"unseen-thinking","thinking_effort":"extended"}]})).unwrap());
+    let handoff = issuer
+        .issue(
+            Handoff::prepare(
+                &json!({"id":"fixture","status":{"type":"idle"},"turns":[]}),
+                "fixture",
+                "chatgpt-desktop/gpt-6",
+                "chatgpt-desktop/app/unseen-thinking",
+                "high",
+                &target,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let service = Service::configured(config_path.clone(), TOKEN.into(), fixture.clone())
+        .unwrap()
+        .with_handoff_issuer(issuer)
+        .unwrap()
+        .with_app_models(Arc::new(App(changed.clone())), journal.clone())
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = CancellationToken::new();
+    let shutdown = stop.clone();
+    let serving = tokio::spawn(async move {
+        server::serve(listener, service, shutdown).await.unwrap();
+    });
+    let mut request = body();
+    request["input"] =
+        json!([handoff, {"type":"message","role":"user","content":"Summarize the current task"}]);
+    request["client_metadata"]["x-codex-turn-metadata"]["request_kind"] = json!("compaction");
+    let raw = collect(send(address, request.to_string().as_bytes(), "").await).await;
+    assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+    assert_eq!(
+        fixture.selections.lock().unwrap()[0],
+        json!({"model":"chatgpt-desktop/app/unseen-thinking","effort":"high","host_model":"unseen-thinking","thinking_effort":"extended"})
+    );
+    // The observation retains raw options, so a later configuration edit changes
+    // admission immediately without rewriting the app observation or refetching.
+    std::fs::write(&config_path, b"[catalog.effort_map]\nextended='ultra'\n").unwrap();
+    let mut request = body();
+    request["model"] = json!("chatgpt-desktop/app/unseen-thinking");
+    request["reasoning"] = json!({"effort":"ultra"});
+    let raw = collect(send(address, request.to_string().as_bytes(), "").await).await;
+    assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+    assert_eq!(fixture.selections.lock().unwrap()[1]["effort"], "ultra");
+    changed.store(true, Ordering::SeqCst);
+    let raw = collect(send(address, request.to_string().as_bytes(), "").await).await;
+    assert!(
+        raw.starts_with("HTTP/1.1 503") && raw.contains("app_account_changed"),
+        "{raw}"
+    );
+    assert_eq!(
+        fixture.calls.load(Ordering::SeqCst),
+        2,
+        "changed account must fail before model exchange"
+    );
+    stop.cancel();
+    serving.await.unwrap();
+    drop(journal);
     std::fs::remove_dir_all(root).unwrap();
 }

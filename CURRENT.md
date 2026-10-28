@@ -497,126 +497,152 @@ and original Codex UI then exits0. phase2 has completed response evidence but is
 interrupted before an exit acknowledgment; resume observes inspector31409 absent
 and profile lease available. Operating Provider PID19747 remains unchanged.
 
-Pending A1 input-setting work: retain chat_input as a specialized user-emulation
-operation, not the default for model-driven development. Apply the qualified
-prepared-selection rule while preserving exact input and lifecycle controls.
-Development workflow input continues through existing execution owners, with user invocation choices
-over config defaults and authorized model-selected test settings; no hardcoded
-workflow model, shared-config/environment mutation or settings-selection agent.
-Existing chat_input.rs selects config.model and the renderer accepts separate
-model/thinkingEffort options. Keep actual input semantics explicit while updating
-admission, existing intent/result and schemas/callers together; context assembly
-and tool returns retain their owners. Introduce another input interface only for
-an actual unmet consumer. Remaining proof covers identical visible prompts with
-selected/default/explicit Thinking settings, chosen request options, original
-response and Native/TUI results, invalid settings, independent concurrent choices
-and uncertain-delivery retries. Invocation overrides and production selection
-inheritance remain unimplemented despite the host-boundary proof; current installed
-Pro exclusion remained unchanged at that audit's installed baseline. That audit changed documents only, not the
-installed input route or model configuration.
+The [input design and upstream comparison](AUDIT.md#전송-설계-작성안과-기존-구현업스트림-비교)
+selected existing-owner settings admission rather than another input engine.
+At that document-only audit, invocation overrides and production selection
+inheritance were unimplemented; the installed baseline still excluded Pro.
+The source implementation below supersedes that earlier pending status. Input
+purpose stays separate from settings: specialized user emulation is chat_input,
+Native/Provider development retains its execution owners, context assembly and
+tool returns. No public model_settings/source selector, process-wide environment
+mutation or automatic settings-selection agent was added. Host auto remains an
+experiment until an actual consumer needs it.
 
-The [input design draft and comparison](AUDIT.md#전송-설계-작성안과-기존-구현업스트림-비교)
-now specifies existing-owner settings admission rather than another input engine.
-The final draft removes the unnecessary public model_settings/source selector:
-existing action/destination determines the owner; only optional model/effort
-choices are added where inference actually starts. Origins remain effective-result
-metadata. Host auto stays an experiment until a real product caller needs it.
+**Input source baseline and delivery boundary:** commit `c131b1a` preserves a
+ready Chat's selected model/effort, supports explicit invocation choices, retains
+Native settings on resume/mode-only changes and explicitly copies them on fork.
+It passed the complete Provider source gate (`sol-reviewed-provider-gate.log`:
+Rust tests/Clippy/release build,103 JS and83 Python tests). These source changes
+are not yet a signed public release or device activation; the operating Provider21
+is preserved. Deferred originality/retired-package cleanup follows input acceptance.
 
-**Input implementation in progress:** the working tree introduces prepared Chat
-selection and optional chat_input model/effort overrides, but this is not yet an
-accepted or deployed release. Focused Rust and renderer tests passed; the full
-gate initially stopped on a test-only Clippy lock-lifetime finding, which was
-fixed and is being rechecked. A no-inference isolated real app query returned
-`gpt-6` with `extended`, a host pair absent from the Native conversion catalog.
-The work preserves that app-selected pair and reports unmapped Native effort as
-unknown rather than inventing one. A separate isolated ordinary-model request
-sent that exact host pair once, retained the exact user-only input, and observed
-one final; the original result is under TMPDIR/chat-omitted-68qj6ohv. Its result
-metadata's `prompt` field retained a stale setup value; the dispatch intent and
-wire observations are the authorities for the actual prompt. This is app-boundary
-proof, not Provider-to-Native acceptance. Native resume/start changes are in the
-working tree but require targeted product-path proof; complete acceptance and
-delivery remain unfinished.
-Preserve the existing installed Provider until these gates pass. Deferred
-originality and retired-package cleanup follows input work.
+**Model change review:** the complete original thread's actual turn contexts have
+only one non-Sol-High interval: two Terra High turns beginning at2026-10-28
+18:38:49 KST. Applied settings changed Sol High → Terra High at18:37:06 and
+returned to Sol High at19:11:43; the first restored turn is19:11:46. Earlier
+brief selector changes did not produce non-Sol-High turn contexts. Settings events
+record no initiator and no assistant model-change tool call occurs at the
+transition. Do not attribute the change to an unobserved actor. Sanitized full
+settings/turn metadata is in `input-settings-20261028/model-settings-review.json`.
+The Sol High review covered all nine changed files and fixed a rejected-input
+result that bypassed account validation and stale renderer-scope selection after
+UI context replacement. Both regressions pass corrected source and fail their
+targeted disposable-source faults (`review-account-fault.log`,
+`review-scope-fault.log`). The corrected no-inference real app read passed in
+`TMPDIR/chat-omitted-88o67n0z`.
 
-Sol High review of the interrupted implementation covers all nine changed files.
-The original thread records an applied Sol High → Terra High transition at
-2026-10-28 18:37:06 KST and Sol High restoration at19:11:43; the first Terra
-turn context is18:38:49. Applied-settings events contain no initiator identity,
-and no assistant model-change tool call occurs at the transition. The actor is
-unresolved; current selected settings alone are not evidence of the earlier cause.
-Sanitized event/turn evidence is in the acceptance directory's
-`model-settings-review.json`. The review found and fixed a rejected-input result
-return that bypassed account validation, and a stale renderer-scope selection
-after UI context replacement. The account regression passes on the corrected
-source and fails with the targeted bypass in disposable source
-(`review-account-fault.log`); the renderer-scope bypass also fails its regression
-(`review-scope-fault.log`). The reviewed source passed the complete Provider
-source gate, including Rust tests/Clippy/release build,103 JS and83 Python tests
-(`sol-reviewed-provider-gate.log`). Existing explicitly armed device tests remain
-separate. The isolated real app read also passed with zero inference in
-`TMPDIR/chat-omitted-88o67n0z`. App catalog discovery/merge
-and release delivery remain unfinished; prior app/native proofs are scoped
-observations, not a full release qualification.
+**Verified input/settings behavior:** app-selected `gpt-6`/`extended` can be a
+valid host pair even when absent from the Native conversion catalog. Preserve the
+raw pair; common effort data can subsequently map its meaning without changing
+that transmission. An isolated ordinary-model request sent it once, retained the
+exact user-only input and observed one original final (`TMPDIR/chat-omitted-68qj6ohv`).
+That probe's result `prompt` field retained a stale setup value; its dispatch
+intent/wire observations identify the actual input. No Provider-to-Native claim
+is inferred from that app-boundary proof.
+Android Core/TUI with a synthetic app and zero real Chat calls passed mode-only
+high preservation, explicit xhigh, fork inheritance and explicit resume
+(`native-fork-fixed.json`, `native-resume-retest.json`). The original fork defect
+was reproduced before correction: omitted overrides changed the source
+`chatgpt-desktop/gpt-6`/`xhigh` to Native defaults `gpt-6.1-sol`/`high`.
+Retain the failed diagnostics; null Native effort remains unverified.
 
-The isolated Android Native lifecycle passed mode-only high-effort preservation
-and explicit xhigh admission with zero real Chat calls. A subsequent real fork
-test failed: omitting overrides forked the `chatgpt-desktop/gpt-6` / `xhigh`
-source as `gpt-6.1-sol` / `high`. The working tree now reads and supplies the
-source thread's settings for a fork. The repeated Android Core/TUI synthetic-host
-test now preserves the exact source model and xhigh effort without a real Chat
-call (`input-settings-20261028/native-fork-fixed.json`). A separate explicit
-session resume retained the same model and xhigh effort after the fixture supplied
-its actual Provider configuration (`input-settings-20261028/native-resume-retest.json`).
-Null-effort remains unverified. Retain the failed diagnostic and original fixture.
+**App catalog source implementation:** offered picker options, not
+all internal modelConfigBySlug entries, produce selectable model rows. IDs are
+`chatgpt-desktop/app/<actual-host-slug>`; only identical host slugs share effort
+choices. Existing saved family aliases keep their route meaning and are hidden
+unless explicitly configured. Configuration augments/corrects the discovered list.
+The observed Medium/High/Extra High UI labels use host
+standard/extended/max and Native medium/high/xhigh. Qualified correspondence is
+model-independent data in `default-efforts.toml`, supplemented/corrected through
+`catalog.effort_map`; unknown/ambiguous choices fail explicitly. Bootstrap
+selection is data in `default-selection.toml`. No model-generation branch selects
+models or infers effort from their names. Pro is exposed only when offered or
+explicitly configured; no automatic Pro selection or trial is implied.
 
-The subsequent user request expands the catalog contract: available app models
-and their actual thinking choices form the selectable baseline; configured
-entries add to or explicitly correct it. Current source still projects only
-`config.catalog` and does not implement app-catalog discovery/merge. Account
-scoping, freshness, unavailable-host behavior, option mapping and Native catalog
-refresh require implementation and product-path proof. The broad new request
-supersedes the previous fixed GPT-5.6 exclusion; no automatic Pro selection or
-Pro test is implied.
+`host models` refreshes offered options through the app's normal query owner,
+without inference, saved-Chat reads or a background timer. The existing private
+journal retains account-bound raw options and observation time. Consumers reapply
+current configuration instead of caching merged settings. App-model request
+admission verifies the current account; missing metadata allows bounded on-demand
+discovery. `/v1/models` and explicit chat_input model/effort selection consume the
+same catalog. Native preparation uses `host models --refresh false` so profile/auth
+setup remains app-free: retained options are used when present, otherwise the
+result explicitly identifies configured-only data. Refresh explicitly then prepare
+to publish the latest choices in the immutable Native startup catalog; an app-only
+default without an admitted route fails preparation. Existing Native execution
+owners are not silently rebound. Standalone `models`/`catalog` remain offline
+configured-data inspection, distinct from live `host models` discovery.
 
-The isolated app catalog at `TMPDIR/chat-omitted-kepq44ca/47.json` shows why
-catalog membership and selectable options differ: modelConfigBySlug includes
-internal/work entries while versionOptions contains the actual Chat picker
-options and their isAvailable flags. The original probe initially reported a
-local JSON partial-write read error; its completed 47.json is valid and retained.
-For the observed picker, display Medium/High/Extra High correspond to host
-standard/extended/max, while the current Native route data uses
-medium/high/xhigh. Host `max` is therefore not Native `max`. An unmapped host
-option needs an explicit mapping, not a guessed easier effort. Keep mappings
-model-independent data and derive model choices from the account's actual app
-options; this recorded observation is not a guarantee for other accounts or app
-versions.
-User emulation inherits a ready Chat; existing Native
-work inherits its acknowledged thread; config initializes a new work or an
-explicitly configured transition. Resuming a work must not repeatedly impose the
-current config default. Native override persistence follows upstream semantics:
-it is not described as one-turn isolation. Exact input, durable intent, result
-return, Stop and transport owners remain in place. Old admitted calls remain
-result reconciliation without invented historical settings or resubmission.
+**Product-path catalog proof:** the isolated candidate service's actual MCP/CLI
+`host models` path discovered6 offered app models, then retained them all while
+adding a configured seventh (`TMPDIR/catalog-service-c68z6zkx/result.json`).
+No inference was requested; service and stop exited0, original profile/operating
+service remained unchanged. Earlier prototype4-group proofs are retained but do
+not qualify the final per-host-slug identity scheme. The ordinary-model explicit
+chat_input trial (`TMPDIR/catalog-service-r_kdmy_m/result.json`) submitted one
+user-only prompt, selected Thinking/high and received the exact original final,
+with one saved user message and no Pro. It predates the final app IDs; it is not
+final namespace or per-request wire-effort proof.
+The actual Android Core/TUI catalog fixture passed selecting
+`chatgpt-desktop/app/qualification-thinking`, routing to host
+`qualification-thinking`/`extended`, mode-only high, explicit xhigh and exact
+fork/resume (`app-catalog-native-device.json`,8 Native inputs,7 synthetic app
+submissions,zero real Chat requests). This uses the real Provider/Native path
+with a synthetic model, not a physical Android ChatGPT app observation.
 
-Source review finds create/resume/fork's shared config-default arguments near
-operator.rs:3250 differ from resume_unloaded_native's preservation at2761.
-Implementation must distinguish initialization, resume and explicit provider
-transition with actual callers/tests; no universal runtime regression is claimed
-solely from that source difference. The draft's main changes belong to existing
-chat_input/app_bridge/operator/main/schema and affected callers/tests. Existing
-Responses parsing remains Native-request authoritative; actual continuation
-changes alone justify app.rs/mcp_bridge edits. No added forwarding engine.
+**Remaining acceptance:** the first expanded source gate exposed a real regression:
+`prepare` had started the app merely to obtain model metadata, breaking four lazy
+startup/profile tests. Keep that failed result (`app-catalog-provider-gate.log`);
+preparation now explicitly reads retained/configured metadata without acquisition.
+The final full Provider source gate passed (`app-catalog-provider-final.log`):
+139 library tests passed with2 explicitly armed tests ignored, all ordinary
+integration tests passed, Clippy and release build passed,108 JS and83 Python
+tests passed. Device-only ignored gates remain separate, not implied by this
+source gate. The account/duplicate-config fault checks both failed at their intended
+assertions, and both disposable source faults were restored
+(`app-catalog-fault-results.json`). TCP regression coverage also verifies a trusted
+compaction handoff from an already configured family alias to a discovered model,
+current-config reapplication, renderer-generation changes within the same account,
+and changed-account rejection before exchange.
+The final app-ID ordinary-model trial in `TMPDIR/catalog-service-2u2ekprh` passed:
+`chatgpt-desktop/app/gpt-6-thinking`/high admitted host
+`gpt-6-thinking`/extended, one original user message and exact original final;
+retained read reported no current-account verification; actual CLI prepare in an
+isolated HOME published the discovered list and selected default.6 app choices
+became7 after a configured addition. No Pro; service/stop exited0; operating state
+was untouched. This verifies admitted settings/final model, not a new per-request
+wire-effort observation.
+The first final Native trial (`app-catalog-native-final.json`) reached fork but its
+driver incorrectly required the externally forked thread to appear in a loaded
+server before explicit resume. The driver now uses the actual fork response as
+the pre-resume settings evidence, retaining the loaded/unloaded resume requirement.
+The final repeated Android Core/TUI fixture passed all8 inputs/7 synthetic app
+submissions and exact resume (`app-catalog-native-resume-final.json`); one
+`native_socket_unavailable` observation occurred only during intentional cold
+owner replacement and recovered. Preserve the failed diagnostic too.
+Final diff/affected-flow review found no remaining blocker for this source batch.
+Accepted inactive Native fixtures `ml-uvkbylsh` and `ml-mhdebigc` had manifest-matched
+payloads archived/removed with `scripts/clean_development.py`; original records,
+failed fixtures and isolated executable inputs remain. Removal/restore records
+are `app-catalog-first-cleanup.jsonl` and `app-catalog-final-cleanup.jsonl`
+(907,403,264 allocated bytes each). The reusable Provider cache remains below
+its15GiB budget. Signed public delivery, disposable update and separate device
+activation remain unfinished. Do not mark
+these complete from unit tests, synthetic integration or an earlier package's proof.
 
-Upstream comparison uses unchanged exact0.164 protocol/resume-test source and
-official exact0.165 protocol files at360319d8. The drafted change requires0 Codex
-upstream API changes; actual app readiness/selector reuse and Native turn overrides
-fit their owners. App APIs remain private/version-specific. Added cold preparation
-reads and latency are unmeasured; no speed/reuse percentage is claimed. First
-qualify settings admission/intent, then initialization/restoration/explicit override,
-then actual source/Native/TUI continuation and existing release/device gates.
-This is a draft/contract change, not product implementation or delivery.
+Existing owner semantics remain unchanged: user emulation inherits a ready Chat;
+Native continuation inherits acknowledged thread settings; config initializes a
+new task or explicit Provider transition. Overrides persist under the upstream
+Native API rather than claiming one-turn isolation. Exact input, durable intent,
+original result, Stop and transport owners remain in place. Existing admitted
+calls reconcile their original result without inventing settings or resubmitting.
+
+Upstream comparison used exact0.164 protocol/resume tests and official0.165
+protocol files at360319d8; the selected design needs no upstream API change.
+Private app APIs remain version-specific. No unmeasured speed/reuse percentage
+is claimed. Actual app queries use the host catalog's own cache policy (the
+inspected version has a five-minute stale interval); observation time does not
+claim a fresh network fetch, and this implementation adds no periodic query.
 
 The [originality recheck](AUDIT.md#독자-구현-재점검-miuuyy-의존과-현재-제품의-범위)
 confirms no active miuuyy runtime/build dependency or license/template in the installed

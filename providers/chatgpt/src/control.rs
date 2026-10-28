@@ -72,12 +72,25 @@ impl Controls {
                     .call(args, secrets)
                     .await
             }
-            "codex_host" => host(self.bridge.as_ref(), &args).await,
+            "codex_host" => {
+                host(
+                    self.bridge.as_ref(),
+                    &self.journal,
+                    &crate::store::config_path()
+                        .map_err(|_| Error("invalid_configuration_path"))?,
+                    &args,
+                )
+                .await
+            }
             "codex_sessions" => {
                 let inputs = crate::chat_input::Inputs {
                     bridge: self.bridge.clone(),
                     journal: self.journal.clone(),
                     config: self.config.clone(),
+                    config_path: Some(
+                        crate::store::config_path()
+                            .map_err(|_| Error("invalid_configuration_path"))?,
+                    ),
                 };
                 match args["action"].as_str() {
                     Some("chat_input") => {
@@ -92,10 +105,75 @@ impl Controls {
         }
     }
 }
-pub(crate) async fn host(bridge: &dyn Bridge, args: &Value) -> Result<Value, Error> {
+pub(crate) async fn host(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    config_path: &std::path::Path,
+    args: &Value,
+) -> Result<Value, Error> {
     let action = args["action"]
         .as_str()
         .ok_or(Error("host_action_invalid"))?;
+    if action != "models" && args.get("refresh").is_some() {
+        return Err(Error("host_action_invalid"));
+    }
+    if action == "models" {
+        let snapshot = crate::store::Snapshot::open(config_path)
+            .map_err(|_| Error("invalid_provider_configuration"))?;
+        let config = snapshot
+            .config()
+            .map_err(|_| Error("invalid_provider_configuration"))?;
+        let configured = snapshot
+            .configured_models()
+            .map_err(|_| Error("invalid_provider_configuration"))?;
+        if args["refresh"] == false {
+            let cached = crate::models::cached_catalog(journal)?;
+            let (catalog, identity, observed, source) = match cached {
+                Some(cached) => (
+                    config
+                        .catalog
+                        .with_app_options(&cached.options, &configured)?,
+                    serde_json::to_value(cached.identity).unwrap(),
+                    json!(cached.observed_at_unix_ms),
+                    "retained_app_and_config",
+                ),
+                None => (config.catalog, Value::Null, Value::Null, "configured_only"),
+            };
+            return Ok(
+                json!({"catalog":catalog,"identity":identity,"observed_at_unix_ms":observed,"source":source,"account_verified_now":false,"inference_submitted":false}),
+            );
+        }
+        let offered = bridge.operation(json!({"op":"model_catalog"})).await?;
+        let catalog = config
+            .catalog
+            .with_app_options(&offered["options"], &configured)?;
+        let identity = bridge.operation(json!({"op":"identity"})).await?;
+        if ["account", "user", "structure"]
+            .iter()
+            .any(|key| identity[*key] != offered["identity"][*key])
+        {
+            return Err(Error("app_account_changed"));
+        }
+        if !snapshot
+            .unchanged()
+            .map_err(|_| Error("invalid_provider_configuration"))?
+        {
+            return Err(Error("provider_configuration_changed"));
+        }
+        let observed_at_unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let snapshot = crate::models::AppSnapshot {
+            identity: crate::app::Identity::parse(&identity)?,
+            options: offered["options"].clone(),
+            observed_at_unix_ms,
+        };
+        journal.write(&crate::models::snapshot_key(), &snapshot)?;
+        return Ok(
+            json!({"catalog":catalog,"identity":offered["identity"],"observed_at_unix_ms":observed_at_unix_ms,"source":"app_and_config","inference_submitted":false}),
+        );
+    }
     let op = match action {
         "status" => "host_status",
         "ensure" => "host_ensure",
@@ -115,4 +193,45 @@ pub(crate) async fn host(bridge: &dyn Bridge, args: &Value) -> Result<Value, Err
             json!({"service":"authenticated","host":{"ready":false,"state":"unknown","cause":error.0},"connector":"not_queried","inference_submitted":false})
         }
     })
+}
+
+/// Resolve current configuration against account-bound offered options. Discovery
+/// is on demand when no observation exists; this never polls saved Chat history.
+pub(crate) async fn admitted_catalog(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    config_path: &std::path::Path,
+) -> Result<crate::models::Catalog, Error> {
+    if let Some((identity, catalog)) = cached_model_catalog(journal, config_path)? {
+        let current =
+            crate::app::Identity::parse(&bridge.operation(json!({"op":"identity"})).await?)?;
+        if !identity.account_matches(&current) {
+            return Err(Error("app_account_changed"));
+        }
+        return Ok(catalog);
+    }
+    let discovered = host(bridge, journal, config_path, &json!({"action":"models"})).await?;
+    serde_json::from_value(discovered["catalog"].clone())
+        .map_err(|_| Error("app_model_catalog_invalid"))
+}
+
+pub(crate) fn cached_model_catalog(
+    journal: &Journal,
+    config_path: &std::path::Path,
+) -> Result<Option<(crate::app::Identity, crate::models::Catalog)>, Error> {
+    let Some(cached) = crate::models::cached_catalog(journal)? else {
+        return Ok(None);
+    };
+    let snapshot = crate::store::Snapshot::open(config_path)
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    let config = snapshot
+        .config()
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    let configured = snapshot
+        .configured_models()
+        .map_err(|_| Error("invalid_provider_configuration"))?;
+    let catalog = config
+        .catalog
+        .with_app_options(&cached.options, &configured)?;
+    Ok(Some((cached.identity, catalog)))
 }

@@ -8,15 +8,23 @@ use serde_json::{json, Value};
 
 pub fn catalog(config: &Config) -> Result<Value, ConfigError> {
     config.validate()?;
+    if config
+        .catalog
+        .route(&config.model.default, &config.model.reasoning_effort)
+        .is_none()
+    {
+        return Err(ConfigError::Invalid(
+            "selected app model requires discovery before Native preparation",
+        ));
+    }
     let mut models = Vec::new();
     for model in &config.catalog.models {
         let context = config.effective_context(&model.id, &ContextOverride::default())?;
-        if model.routes.iter().any(|r| {
-            !matches!(
-                r.effort.as_str(),
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
-            )
-        }) {
+        if model
+            .routes
+            .iter()
+            .any(|r| !crate::models::native_effort(&r.effort))
+        {
             return Err(ConfigError::Invalid(
                 "configured effort is not supported by this upstream catalog schema",
             ));
@@ -52,6 +60,25 @@ pub fn catalog(config: &Config) -> Result<Value, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn an_app_default_requires_discovery_before_native_catalog_publication() {
+        let mut config = Config::parse(
+            b"[model]\ndefault='chatgpt-desktop/app/unseen-thinking'\nreasoning_effort='high'\n",
+        )
+        .unwrap();
+        assert!(catalog(&config).is_err());
+        let groups = json!([{"label":"Unseen family","options":[{"slug":"unseen-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"extended"}]}]);
+        config.catalog = config.catalog.with_app_options(&groups, &[]).unwrap();
+        let output = catalog(&config).unwrap();
+        let model = output["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["slug"] == config.model.default)
+            .unwrap();
+        assert_eq!(model["supported_reasoning_levels"][0]["effort"], "high");
+        assert_eq!(model["default_reasoning_level"], "high");
+    }
     #[test]
     fn model_context_precedence_and_data_catalog_are_projected_without_family_code() {
         let mut config = Config::default();

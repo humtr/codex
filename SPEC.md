@@ -1988,10 +1988,10 @@ requests through chat_input. Model/effort controls alone add no conversational
 instructions; new instruction/context or tool-result messages change the input
 semantics and stay with their appropriate execution interface.
 
-#### Input preparation and execution settings: implementation draft
+#### Input preparation and execution settings
 
-These are approved design principles and a concrete implementation draft, not
-claims that the installed input API already implements them. Keep one execution
+These are the approved execution contracts. Source qualification and installed
+product state are recorded separately in CURRENT.md. Keep one execution
 authority per destination: ChatGPT interprets its conversation/picker/catalog;
 Native Codex interprets its thread settings and turn overrides. Rust admits the
 owned task, validates user constraints and preserves exact input/return identity.
@@ -3454,12 +3454,47 @@ the qualified picker. Explicit configuration can supplement or correct that
 mapping. Unknown or ambiguous choices remain explicit rather than being rounded
 or silently downgraded; retaining an already selected host pair requires no
 invented Native effort.
+The common mapping lives in `catalog.effort_map`, keyed by the app's exact
+thinking-effort token with a Native effort as its value. Omitted entries inherit
+the bundled qualified mapping; explicitly supplied entries supplement or correct
+it. An existing model route is more specific and retains precedence. A mapping
+table can be configured without copying the bundled model definitions.
+Expose account-bound app model discovery through `codex_host action=models`.
+Its optional `refresh=false` reads retained options plus current config without
+acquiring the app; an absent observation explicitly reports configured-only data.
+Native `prepare` uses that nonacquiring read so authentication/profile setup stays
+lazy. Refresh explicitly before preparation to publish the latest app choices.
+An app-only configured default without admitted options fails preparation.
+The app supplies its offered picker options, not every internal catalog entry;
+Rust merges explicit configured model definitions and the common effort map.
+New app-discovered model IDs are `chatgpt-desktop/app/<actual-host-slug>`.
+Aggregate effort choices only for that exact host slug; family/version labels
+are presentation data. This avoids giving an existing family alias a different
+execution meaning when the app offers separate Instant/Thinking models.
+Retain existing configured IDs for saved bindings, hidden unless explicitly
+configured as selectable. They are not alternative names for new app IDs.
+Configured model entries augment the bootstrap catalog before app discovery and
+the app catalog after discovery. Matching model/effort entries correct the
+existing route; unrelated offered routes remain available. Validate supplied
+definitions before merging so malformed duplicates are not normalized away.
+This operation starts no inference and does not change a selected model. A missing
+app capability or unmapped effort is reported with its specific cause.
 Validate conflicts and upstream effort representability instead of inventing a
 mapping or advertising inaccessible options as confirmed available. Preserve the
 existing configured catalog when migrating. Cached discovery must identify its
 account and freshness; an unavailable host is reported as such and must not
 prevent ordinary Core launch. Catalog refresh never changes an active request or
 implicitly selects Pro; new selection is an explicit user/workflow choice.
+
+The existing Provider journal retains the discovered, account-bound offered options
+for Native preparation and request-route admission. Reapply the current validated
+configuration when consuming that observation; cached merged configuration must
+not override a later configuration edit. Discovery time is the time the
+app state was observed, not a claim about the last upstream network fetch.
+Native app-model requests use that admitted mapping and verify the current app
+account before using it. An absent app-model catalog requires explicit or
+request-driven discovery; known configured/legacy routes retain their existing
+admission path. Reading metadata does not authorize model execution.
 
 The model catalog is validated data in the same provider configuration, under
 catalog.models, rather than a Rust list of model families or effort mappings.

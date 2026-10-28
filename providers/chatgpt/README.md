@@ -699,17 +699,40 @@ owns exact delivery/activation proof. No shared setup command is implied.
 
 Initial catalog data is in `default-models.toml`. This seed includes GPT-6 and
 explicitly selected Pro; the hidden Instant alias retains existing bindings.
-The pending input implementation preserves a prepared Chat's actual host model
+The source input implementation preserves a prepared Chat's actual host model
 and effort without filtering by model generation. `work chat-input` accepts
 optional `--model` and `--effort`; a Provider `work start` can also change Native
 settings, persisting under the Native API's normal semantics. Existing Native
 resume preserves saved settings and fork copies the source settings explicitly.
 These changes are not yet installed; CURRENT identifies qualified delivery.
 Model/effort/context entries are editable without rebuilding unless the host
-protocol changes. Automatic app-list discovery and configured additions are
-planned; the current `models`/`catalog` commands still read configured data.
+protocol changes. The current implementation's `host models` reads the app's
+available picker choices and adds configured models. Discovery and
+Native profile preparation have different purposes: standalone `models`/`catalog`
+inspect offline configured data. Refresh the actual app list with
+`codex provider chatgpt host models`, then run `codex provider chatgpt prepare`
+at an idle startup boundary to publish those choices for Native selection.
+Preparation reads retained metadata without acquiring the app; without an
+observation it uses explicitly identified configured-only data. Use
+`host models --refresh false` to inspect that nonacquiring view. Actual app-model
+execution verifies the current account before admitting the observed route.
 Listing a route does not prove entitlement. Automated qualification uses Pro
 only for a separately authorized test.
+
+The source input implementation keeps common app-to-Native effort names in
+`default-efforts.toml`. Additional/corrected mappings can be supplied through
+`[catalog.effort_map]` in the Provider config, without copying model definitions:
+
+```toml
+[catalog.effort_map]
+custom_app_effort = "ultra"
+```
+
+The exact app token is retained for transmission. An existing model-specific
+route has precedence over this general mapping; unknown mappings remain unknown.
+Only values representable by the Native effort protocol are accepted.
+Bootstrap model/effort defaults are data in `default-selection.toml`; user
+`model.default` and `model.reasoning_effort` settings override them.
 
 Per-model context fields include `window_tokens` and `auto_compact_token_limit`;
 explicit upstream invocation overrides win. The user's1,000,000-token override is

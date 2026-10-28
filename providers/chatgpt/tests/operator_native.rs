@@ -93,6 +93,13 @@ impl Bridge for Synthetic {
                 json!({"generation":"fixture","account":if self.path.parent().unwrap().join("changed-account").exists(){"changed-synthetic-account"}else{"owned-synthetic-account"},"user":"owned-synthetic-user","structure":"personal",
                     "present":self.commands.lock().unwrap().iter().any(|row|matches!(row["op"].as_str(),Some("open"|"chat_adopt")) && row["lane"]==lane)})
             }
+            "model_catalog" => {
+                json!({"identity":{"generation":"fixture","account":"owned-synthetic-account","user":"owned-synthetic-user","structure":"personal"},"options":[{"label":"Qualification family","options":[
+                {"slug":"qualification-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"extended"},
+                {"slug":"qualification-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"max"},
+                {"slug":"qualification-unavailable","lane":"instant","modelLabel":"Unavailable","isAvailable":false}
+            ]}],"inference_submitted":false})
+            }
             "open" | "chat_adopt" => {
                 if command["signature"]["name"]
                     .as_str()
@@ -403,18 +410,6 @@ async fn synthetic_operator_service() {
         root.join("fixture-auth"),
     )
     .unwrap();
-    // This explicit fixture also launches a TUI client below. Managed routing
-    // itself must not publish user profiles; prepare this disposable client's
-    // profile explicitly, just as the installed public prepare command does.
-    codex_chatgpt_provider::registration::prepare(
-        &config,
-        &root.join("provider-state"),
-        &root.join("h/.local/share/codex/core/config/profiles"),
-        &root.join("h/.codex"),
-        &root.join("fixture-auth"),
-        &format!("http://127.0.0.1:{port}/v1"),
-    )
-    .unwrap();
     let bridge = Arc::new(Synthetic {
         path: root.join("bridge-commands.json"),
         commands: Mutex::new(if root.join("bridge-commands.json").exists() {
@@ -432,11 +427,37 @@ async fn synthetic_operator_service() {
         Broker::new(journal.clone()),
         journal.clone(),
         config.clone(),
-        bridge,
+        bridge.clone(),
         "88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42".into(),
     )
     .unwrap();
-    let service = Service::new(
+    let app_models = root.join("app-models-fixture").exists();
+    let mut prepared_config = config.clone();
+    if app_models {
+        let path = codex_chatgpt_provider::store::config_path().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, config.render().unwrap()).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let discovered = operator
+            .call("codex_host", json!({"action":"models"}))
+            .await
+            .unwrap();
+        prepared_config.catalog = serde_json::from_value(discovered["catalog"].clone()).unwrap();
+    }
+    // This explicit fixture also launches a TUI client below. Managed routing
+    // itself must not publish user profiles; prepare this disposable client's
+    // profile explicitly, just as the installed public prepare command does.
+    codex_chatgpt_provider::registration::prepare(
+        &prepared_config,
+        &root.join("provider-state"),
+        &root.join("h/.local/share/codex/core/config/profiles"),
+        &root.join("h/.codex"),
+        &root.join("fixture-auth"),
+        &format!("http://127.0.0.1:{port}/v1"),
+    )
+    .unwrap();
+    let mut service = Service::new(
         config,
         "88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42".into(),
         operator.clone(),
@@ -444,6 +465,9 @@ async fn synthetic_operator_service() {
     .unwrap()
     .with_operator(operator)
     .unwrap();
+    if app_models {
+        service = service.with_app_models(bridge, journal.clone()).unwrap();
+    }
     codex_chatgpt_provider::runtime::publish_listener(
         &journal,
         port,

@@ -45,7 +45,7 @@ async function termuxCodexBridge(command) {
   let state = globalThis[slot];
   const observation=command.readOnlyContext===true;
   if(observation){
-    if(!['identity','host_status','chat_list','chat_read','chat_page','project_list','project_read'].includes(command.op))fail('app_operation_not_read_only');
+    if(!['identity','host_status','model_catalog','chat_list','chat_read','chat_page','project_list','project_read'].includes(command.op))fail('app_operation_not_read_only');
     const context=await appContext();if(!context)fail('app_scope_unavailable');
     const owned=state?.owner===command.owner;
     state={...context,owner:command.owner,revision:globalThis[slot]?.revision??null,lanes:owned?state.lanes:new Map(),observation:true};
@@ -327,6 +327,22 @@ async function termuxCodexBridge(command) {
   if (command.op === 'identity') {
     // Return identifiers only; never tokens, email or the complete auth state.
     return {...identity(),present:state.lanes.has(command.lane)};
+  }
+  if(command.op==='model_catalog') {
+    const before=identity();
+    if(!state.api.uBn||typeof state.scope.query?.getOrFetch!=='function')fail('app_model_catalog_unavailable');
+    try {await state.scope.query.getOrFetch(state.api.uBn);}
+    catch(error) {
+      if(['account','user','structure'].some(key=>identity()[key]!==before[key]))fail('app_account_changed');
+      const code=error?.responseStatus===429?'app_model_catalog_rate_limited':error?.responseStatus===401?'app_model_catalog_auth_expired':error?.responseStatus===403?'app_model_catalog_forbidden':'app_model_catalog_request_failed';
+      fail(code);
+    }
+    if(appScope()!==state.scope)fail('app_model_selection_changed');
+    if(['account','user','structure'].some(key=>identity()[key]!==before[key]))fail('app_account_changed');
+    const groups=state.scope.get(state.api.uBn)?.data?.versionOptions;
+    if(!Array.isArray(groups))fail('app_model_catalog_unavailable');
+    return {identity:before,options:groups.map(group=>({label:group.label,
+      options:group.options?.map(option=>({slug:option.slug,lane:option.lane,modelLabel:option.actionPillShortName??option.title,isAvailable:option.isAvailable,thinkingEffort:option.thinkingEffort??null}))})),inference_submitted:false};
   }
   if(command.op==='host_status') {
     const who=identity();

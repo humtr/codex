@@ -6,6 +6,19 @@ import {pathToFileURL} from 'node:url';
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+test('read-only model discovery uses actual offered picker options without acquiring a lane',async()=>fixture(async({f,bindings})=>{
+ f.catalog.versionOptions=[{label:'An unseen family',defaultModelSlug:'new-auto',options:[{slug:'new-thinking',lane:'thinking',title:'High',actionPillShortName:'Thinking',isAvailable:true,thinkingEffort:'extended',internalOnly:'not exported'}]}];
+ const result=await bridge({op:'model_catalog',owner:'reader',readOnlyContext:true,bindings});
+ expect(result.options).toEqual([{label:'An unseen family',options:[{slug:'new-thinking',lane:'thinking',modelLabel:'Thinking',isAvailable:true,thinkingEffort:'extended'}]}]);
+ expect(result.inference_submitted).toBe(false);
+ expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);expect(globalThis[slot]).toBeUndefined();
+ expect(f.queries).toEqual(['catalog']);
+}));
+for(const [status,code] of [[429,'app_model_catalog_rate_limited'],[401,'app_model_catalog_auth_expired'],[403,'app_model_catalog_forbidden'],[503,'app_model_catalog_request_failed']])test('model discovery reports host query failure without inference: '+status,async()=>fixture(async({f,bindings})=>{
+ f.scope.query.getOrFetch=async()=>{throw {responseStatus:status,message:'private upstream body'};};
+ await expect(bridge({op:'model_catalog',owner:'reader',readOnlyContext:true,bindings})).rejects.toThrow(code);
+ expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);expect(globalThis[slot]).toBeUndefined();
+}));
 test('source references retain actual wire user IDs and clear them for an observed external response',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'source',signature:{name:'unused'}});
@@ -273,7 +286,7 @@ async function fixture(run){
   options.onComplete?.({reason:'done'});return true;
  }};
  const original={...client,streamPost:wire.streamPost};
- const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[],selection:{slug:'gpt-6-thinking',thinkingEffort:'extended'},queries:[]};
+ const f=globalThis.appBridgeFixture={wire,client,sent:[],options:[],created:0,gate:true,projects:[],selection:{slug:'gpt-6-thinking',thinkingEffort:'extended'},queries:[],catalog:{modelConfigBySlug:{'gpt-6-thinking':{}},versionOptions:[]}};
  writeFileSync(join(root,'initial.mjs'),`
  export const oMn={kind:'client'},JRn={kind:'messages'},ozn={kind:'status'};
  export const Vwn={kind:'selection'},nSn={kind:'conversation'},uBn={kind:'catalog'};
@@ -298,7 +311,7 @@ async function fixture(run){
  export function bRt(scope,{callId,conversationId,isTemporaryChat,model,onServerThreadIdChange,result,thinkingEffort,toolName}){return yRt(scope,{conversationId,isTemporaryChat,model,onServerThreadIdChange,thinkingEffort,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:callId,result,tool:toolName})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='conversation'?{data:{current_node:f.queryHead}}:node.kind==='catalog'?{data:{modelConfigBySlug:{'gpt-6-thinking':{}}}}:node.kind==='selection'?f.selection:node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{async getOrFetch(node){f.queries.push(node.kind);}}};
+ const scope={get(node){return node.kind==='conversation'?{data:{current_node:f.queryHead}}:node.kind==='catalog'?{data:f.catalog}:node.kind==='selection'?f.selection:node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{async getOrFetch(node){f.queries.push(node.kind);}}};
  f.scope=scope;
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:f.scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
