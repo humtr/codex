@@ -35,7 +35,8 @@ a development binding enables no automatic saved-history polling.
 
 **Next: the requested next-Core release-information source work is complete.
 Provider21 is publicly promoted; complete its device/cloud transition and actual
-public-commentary qualification once the separately active work settles.
+public-commentary qualification after the cold-host finding below is resolved
+and the separately active work settles.
 Close the actual-client A1 matrix before A2 common-responsibility extraction.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
@@ -309,16 +310,42 @@ and83 Python checks without rerunning accepted Rust work. Exact NDK21→20→21,
 compositions, signed package, warm host and fresh-home Native/TUI gates pass.
 Provider21 signing40608603783, ten-asset public readback and disposable public
 consumption pass. Non-forced promotion `e6eae2d3` changes only the three Provider
-pointers on main; Base/Full remain unchanged. Device activation stops at its
-read-only preflight because a separately owned wrlab Direct work `d41e3287…` is
-actually active in Native, with no pending calls. No service stop, package
-selection change, rollback or second model request is performed. Preserve this
-running work; recheck settlement before the bounded service transition. Operating
-Provider remains20;21 device/cloud/actual-commentary qualification remains pending.
+pointers on main; Base/Full remain unchanged. Operating Provider remains20;
+21 device/cloud/actual-commentary qualification is unfinished.
+
+At a verified settled boundary, actual installation selects signed21 and runit
+starts its exact process PID17014; generated profile preparation succeeds. The
+first owned-host ensure then returns app_target_unavailable. Client::app could not select
+a matching app://-/index.html target; its unavailable error covers a missing or
+invalid target list and a list with no matching page. The original target list
+was not retained, so delayed startup versus another cold-host failure is unproven. A longer timeout
+or another model request is not a fix. Subsequent supervisor teardown exceeds its
+30-second observation bound, then actually exits; the initial rollback abort is
+preserved rather than recorded as a successful stop. This is an operating cold-
+host/lifecycle finding despite the earlier isolated warm-host qualification.
+
+After runit reports its owned child down and the process image is absent,
+supported signed rollback restores20 with its
+matching environment/generated profile, retaining high-water21. Runit Provider,
+host and tunnel are running; actual Provider PID20654 and its host are ready,
+with the original identity. Recheck confirms the same37 work identities and all16
+protected files unchanged. No model inference or saved-Chat read was submitted.
+A later diagnostic activation would observe the same owned host once after the
+specific target-unavailable response, without another acquisition or work replay;
+its actual preflight stops because the separate wrlab workd41e3287… is running
+again. Current Codex thread identity is different. Preserve that live work.
+
+Before the next service transition, recheck settlement and investigate the
+cold-host target/readiness and delayed shutdown boundaries. No production code
+or timeout was changed to mask these failures. Cloud declaration refresh and
+actual Android commentary testing must wait for a verified21 operating host.
 The exact signed21 source is `e78d83a`, independent of the later Core UI commit.
-Evidence: provider21-{promotion,deferred-active-work-private,device-activation},
+Evidence: provider21-promotion, provider21-activation-recovery and provider21-
+recovered-* records; original failed activation is retained in
+$TMPDIR/activate-provider21-zzu45gpx/result.json (10.stdout holds the cause).
+Latest provider21-device-activation is the subsequent read-only preflight result.
 direct-progress-*, public21-hosted-*, provider21-release-input and
-provider21-public-consumer records.
+provider21-public-consumer retain their narrower accepted scope.
 Actual host compliance requires a later original-commentary comparison and must
 not be inferred from a policy string. No universal host capture is claimed.
 
