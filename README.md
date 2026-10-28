@@ -438,6 +438,11 @@ publication timestamp is unavailable. Missing optional information does not bloc
 a valid update. Ordinary startup performs none of these publication queries.
 An already-current update shows the same release information without reinstalling.
 
+Core/TUI updates install a new generation while existing clients retain their
+running executable; later launches use the selected generation. Provider's current
+package selector refuses a live Provider, and replacing its shared service is a
+separate lifecycle action. A running Codex client alone is not a Core-update block.
+
 Release authors maintain component sections in [release/notes.md](release/notes.md).
 The publication workflows select only the sections included in that package.
 

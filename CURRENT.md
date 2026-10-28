@@ -1077,7 +1077,7 @@ client; no tunnel-version cause of the observed startup collision is established
 
 ### G product qualification
 
-Full121/Provider20 delivery and actual activation are complete at their recorded
+Full121/Provider21 delivery and actual activation are complete at their recorded
 scopes. Codex-only tunnel0.0.18 is activated as a qualified local-derived build;
 signed optional/Full tunnel distribution is not yet shipped. New substantive product changes require applicable checks, Android
 execution, exact-source signing/public readback/disposable update and non-forced
@@ -1109,6 +1109,22 @@ Release and optional source-build use the wrapper-owned recipe, without another
 repository prerequisite. Signed composition, tunnel install/update ownership and
 migration remain a separate batch. Preserve independent published histories;
 main stays a caller pinned to accepted exact-source reusable release logic.
+
+Proposed installation/lifecycle refinement: ordinary Core/TUI update already
+installs a new immutable generation while old processes keep their executable;
+full121-device-update.json verifies7 Native owners preserved without restart.
+Provider install/rollback is currently stricter: provider.rs::action takes an
+exclusive package-selection lease and install/no_processes also rejects any live
+Provider generation. This is the deployed SPEC contract, not an OS requirement
+that all Codex processes stop. Separate verified immutable package acquisition/
+installation and next-launch selection from replacement of the active service.
+Do not treat an active account/profile as an update lock. Retain generations used
+by running processes/profiles and keep their client, config and journal protocol
+compatible. A shared Provider restart or state-format migration still needs its
+actual affected-work boundary; installing files must not implicitly interrupt it.
+Changing this behavior needs a SPEC amendment and actual old-process/new-package/
+next-launch/rollback proof; merely deleting the lease/process guard is incomplete.
+This is proposed stage6 work, not an implemented hot-update claim.
 
 That setup/update batch must also own MCP declaration-cache reconciliation.
 Provider20 demonstrates that a binary restart and local tools/list do not update
