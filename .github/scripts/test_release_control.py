@@ -14,6 +14,33 @@ import release_control as control
 
 
 class ReleaseControlTests(unittest.TestCase):
+    def test_documentation_head_requests_the_existing_accepted_product_without_a_rebuild_or_pointer_write(self):
+        root=Path(__file__).resolve().parents[2];head='a'*40;product='c'*40
+        version=control.load(root/'release/upstream.json')['upstream']['version']
+        def api(path,**kwargs):
+            if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':head}}
+            if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/'):return {'content':base64.b64encode((product+'\n').encode()).decode()}
+            if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
+            self.fail('unexpected authority access '+path)
+        for proven in [True,False]:
+            with self.subTest(proven=proven),patch.object(control.subprocess,'check_output',return_value=head+'\n'),\
+                 patch.object(control,'api',side_effect=api),patch.object(control,'same_product_inputs',return_value=True),\
+                 patch.object(control,'frontend_registration_needed',return_value=False),\
+                 patch.object(control,'successful_run',return_value=({'id':1},[]) if proven else (None,[])) as proof,\
+                 patch.object(control,'ensure_frontend') as frontend,patch.object(control,'caller_compatible',return_value=True),\
+                 patch.object(control,'release_lane',return_value='both'),patch.object(control,'commit_files') as commit,\
+                 patch.object(control,'dispatch') as dispatch:
+                if proven:
+                    result=control.run(root,version)
+                    self.assertEqual(result['state'],'requested-build-started');self.assertEqual(result['source'],product)
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
+                else:
+                    with self.assertRaisesRegex(ValueError,'accepted product proof is missing'):control.run(root,version)
+                    dispatch.assert_not_called()
+                self.assertTrue(all(call.args[1]==product for call in proof.call_args_list))
+                frontend.assert_not_called();commit.assert_not_called()
+
     def test_explicit_request_starts_build_for_already_pinned_source_and_reuses_active_publication(self):
         sha='a'*40;root=Path(__file__).resolve().parents[2]
         version=control.load(root/'release/upstream.json')['upstream']['version']

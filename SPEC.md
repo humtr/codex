@@ -94,6 +94,9 @@ the hosted publication build even when that product source is already pinned on
 main. Existing in-flight publication is reused. Automatic completion/discovery
 events remain a no-op when source is already pinned; preparing an accepted source
 does not itself require publishing it before an explicitly staged user replay.
+Documentation-only source follow-ups retain the accepted product identity and
+its real source/runtime proofs when handling an explicit build request. They do
+not require a new runtime build or a product-pointer change merely for prose.
 
 Qualification permits only the two guarded configuration checks, the Core-bound
 reviewer routing, contributor/prewarming gates and the native policy/reviewer matrix regression outside TUI

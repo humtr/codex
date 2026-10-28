@@ -408,6 +408,13 @@ None of these trials changed production selection or submitted a public request.
 The final local full gate passes in replay-final-full.log; the controller/workflow
 suite passes20 cases in replay-controller-final-tests.log. Live preparation and
 the user's actual build request remain outstanding until explicitly recorded.
+The subsequent controller request test also covers documentation-only follow-ups:
+an explicit request uses the existing accepted product's real proofs rather than
+requiring a nonexistent runtime proof for a prose-only HEAD. It refuses missing
+accepted proof and leaves the product pointer unchanged. The controller/workflow
+suite now passes21 cases; the dedicated fault test preserves its expected failure
+in replay-documentation-request-mutation.log. This keeps final operating-state
+documentation from preventing the user's plain-command replay.
 
 ## Next-Core candidate: publication times and component notes
 

@@ -298,12 +298,17 @@ def run(source, requested_upstream=None):
     main=api('git/ref/heads/main')['object']['sha']
     pointer=api('contents/release-source-v1?ref='+main)
     previous=base64.b64decode(pointer['content']).decode().strip()
-    if (requested_upstream is None and previous != current and same_product_inputs(source, previous, current)
+    product=current
+    if (previous != current and same_product_inputs(source, previous, current)
             and not frontend_registration_needed(source)):
-        return {'state':'no-product-change','source':current,'accepted_source':previous}
+        if requested_upstream is None:
+            return {'state':'no-product-change','source':current,'accepted_source':previous}
+        product=previous
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
-        passed, runs=successful_run(workflow,current)
+        passed, runs=successful_run(workflow,product)
         if not passed:
+            if product != current:
+                raise ValueError('accepted product proof is missing; requested build not started')
             owned=[run for run in runs if owned_run(run,workflow,current)]
             if not owned:dispatch(workflow,SOURCE_BRANCH,{'rebuild_current':'true'} if workflow.startswith('core-') else None)
             if owned and all(run.get('status')=='completed' for run in owned):
@@ -312,8 +317,10 @@ def run(source, requested_upstream=None):
                         'run_id':failed['id'],'conclusion':failed.get('conclusion'),
                         'url':'https://github.com/'+REPO+'/actions/runs/'+str(failed['id'])}
             return {'state':'awaiting-exact-proof','workflow':workflow,'source':current}
-    with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
-        value=ensure_frontend(source,current,Path(temporary))
+    value=None
+    if product==current:
+        with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
+            value=ensure_frontend(source,current,Path(temporary))
     before=load(source/'release/upstream.json')
     if value is not None and value!=before:
         updated=commit_files(SOURCE_BRANCH,current,{'release/upstream.json':(json.dumps(value,indent=2)+'\n').encode()},
@@ -322,17 +329,17 @@ def run(source, requested_upstream=None):
         dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
         dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})
         return {'state':'frontend-inputs-bound-awaiting-source-proof','source':updated}
-    if previous==current and requested_upstream is None:
+    if previous==product and requested_upstream is None:
         return {'state':'already-pinned','source':current}
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
     if any(run['status'] != 'completed' for run in public_runs):
         return {'state':'awaiting-publication','source':current}
     if not caller_compatible(source,main):
         return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
-    variant=release_lane(source,previous,current,main)
-    if previous==current:
+    variant=release_lane(source,previous,product,main)
+    if previous==product:
         dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
-        return {'state':'requested-build-started','source':current,'version':requested_upstream,'variant':variant}
+        return {'state':'requested-build-started','source':product,'version':requested_upstream,'variant':variant}
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
     dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
