@@ -659,10 +659,23 @@ executables/results are retained outside mutable output. The two completed,
 inactive qualification worktrees were removed only after their exact diffs and
 absence of untracked/live work were verified;131,350,528 allocated bytes were
 reclaimed. Git bases, patches, logs/results and restore instructions remain in
-`runtime-compiler-preflight-worktree-cleanup.json`. No native build is currently
-armed. The next linker diagnostic must distinguish anonymous/file-backed RSS,
-retain actual linker arguments and recheck available memory before launch; the
-supported single-thread linker option is not yet qualified as product policy.
+`runtime-compiler-preflight-worktree-cleanup.json`.
+
+The next bounded diagnostic is now running against the unchanged prepared0.165
+source/dependency cache. It retains the16-unit/LTO-off final-crate experiment and
+adds the actual linker's supported --threads=1 option; this is not a production
+profile change. The observer records anonymous/file-backed RSS separately and
+captures the actual linker argv. It checked at least3 GiB of available memory
+before starting, limits any one process to3 GiB of anonymous RSS, keeps a1.5-GiB
+system available-memory floor and bounds the experiment to20 minutes. Its
+supervisor/worker process groups are separate. Consult
+`native-linker-observation-v1-handle.json`, kernel process identity and the eventual
+`native-linker-observation-v1-exit.json` before resuming or starting another run;
+the initial live sample is not successful compilation or runtime admission.
+Samples/logs use that same prefix. This temporary runner is never installed and
+can be removed once terminal results, required artifacts and restoration inputs
+are retained and no armed proof uses it. Single-thread linking and the experimental
+profile still require actual artifact qualification before product adoption.
 Earlier failure records and the original eight-file parity remain historical;
 none establishes completion of the pending exact-source runtime acceptance.
 
