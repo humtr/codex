@@ -60,6 +60,13 @@ def provider_display_fixture(args, root, home, prefix, env):
             '--openssl', str(Path(os.environ['PREFIX']) / 'bin/openssl'), '--output', str(package)],
             check=True, capture_output=True, timeout=120)
         packages.append(package)
+    urls_path = root / 'payload-urls.json'
+    urls = json.loads(urls_path.read_text())
+    for path in packages[1].rglob('*'):
+        if path.is_file():
+            name = path.relative_to(packages[1]).as_posix().replace('/', '--')
+            urls['https://github.com/humtr/codex/releases/download/chatgpt-display-owned-8/' + name] = str(path.relative_to(root))
+    urls_path.write_text(json.dumps(urls))
     admitted = subprocess.run([str(prefix / 'bin/codex'), 'provider', 'install', 'chatgpt',
         '--local', str(packages[0])], env=env, cwd=root / 'w', capture_output=True, timeout=45)
     (root / 'provider-install.stdout').write_bytes(admitted.stdout)
@@ -393,13 +400,15 @@ def probe(args):
             if fields['manager_artifact_digest'] != '-':
                 component = json.loads((root / 'component-input-v1').read_text())['display']
                 assert f"Core (Base #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
-            assert 'Provider chatgpt: #7 -> latest #8 (separate Provider update)' in transcript
+            assert 'Provider chatgpt selected: chatgpt-display-owned-8' in transcript
             assert '2026-10-29 02:04:05 KST (UTC+09:00)' in transcript
             assert 'Provider changes:' in transcript and 'Core changes:' in transcript
             assert 'Publish component-scoped update notes' in transcript
-            assert selection.read_bytes() == selected_before
+            assert selection.read_bytes() != selected_before
+            assert b'current\tchatgpt-display-owned-8\n' in selection.read_bytes()
+            selected_after = selection.read_bytes()
             installed_provider = home / '.local/lib/codex/providers/chatgpt/generations/chatgpt-display-owned-8'
-            assert not installed_provider.exists(), 'information query installed a Provider'
+            assert installed_provider.is_dir(), 'manual update did not install the selected Provider release'
             # A second real CLI invocation exercises the release pipeline's
             # Core-only oracle and proves an unselected Provider is not queried.
             backup = root / 'provider-selection-before-core-display'
@@ -434,13 +443,13 @@ def probe(args):
                 cwd=root / 'w', capture_output=True, timeout=45)
             (root / 'provider-unavailable.stdout').write_bytes(unavailable.stdout)
             (root / 'provider-unavailable.stderr').write_bytes(unavailable.stderr)
-            assert unavailable.returncode == 0
-            assert b'Provider chatgpt: latest information unavailable' in unavailable.stdout
-            assert selection.read_bytes() == selected_before and state.read_bytes() == initial
+            assert unavailable.returncode == 1
+            assert b'Provider update failed:' in unavailable.stderr
+            assert selection.read_bytes() == selected_after and state.read_bytes() == initial
             result.update(componentPublicationTimes=True, componentChangelog=True,
                 unselectedProviderNotQueried=True, realReleaseOutputOracle=True,
-                selectedAndLatestProviderDistinct=True, providerNotInstalledByCoreUpdate=True,
-                invalidProviderIndexNonfatalAndSelectionPreserved=True)
+                selectedProviderAdvanced=True, providerInstalledByManualUpdate=True,
+                invalidProviderIndexFailsAndSelectionPreserved=True)
         result.update(accepted=True, dispatches=dispatches, enteredInstalledTui=expected_tui,
                       activationPreserved=args.mode != 'publication-arrives', terminalExit=process.returncode)
         return result

@@ -906,9 +906,14 @@ partial staging on failure. Source integration needs cause-specific failure,
 verified resumable acquisition and observable transfer progress beyond its phase
 label, rather than a longer unexplained timeout or another acquisition route.
 Provider transfer progress/resume is qualified by the subsequent batch below.
-The older manual-update display qualification fixture still assumes an
-informational-only Provider lookup and must be updated to the actual installing
-path before it can serve as new whole-lifecycle evidence.
+The manual-update display qualification now follows actual selected-Provider
+installation rather than an informational-only lookup. Its signed fixture supplies
+the new payload, verifies selection advancement and requires an invalid subsequent
+Provider index to fail without changing either selection. The actual Android PTY
+trial passes publication times in KST, component changelog, the independent release
+output oracle and an unselected Provider's absence of queries
+(`manual-display-current-v1.json`); HTTP responses are local witnesses, not real
+public transport. This does not establish whole-lifecycle acceptance.
 
 Remote Provider payloads now use the same private digest-keyed resumable transfer
 as Core. The signed Provider envelope still owns paths, sizes, modes and digests;
