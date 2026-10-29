@@ -119,7 +119,11 @@ for that run.
 
 These steps are for a **new** Termux installation. On an existing managed
 installation, use `codex update`; fresh bootstrap deliberately refuses existing
-authoritative state or a different existing `codex` executable.
+authoritative state or a different existing `codex` executable. In the development
+candidate, manual update also updates an already selected ChatGPT Provider as a
+separate group, retaining unchanged payloads. It does not install an unselected
+Provider or restart existing services/profiles. Explicit Core source, force and
+rollback commands keep their Core scope. See CURRENT for delivery status.
 
 The Android/AArch64 release needs Termux's shell, curl and OpenSSL. If the latter
 two are missing, install their Termux packages explicitly:

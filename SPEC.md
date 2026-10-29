@@ -905,7 +905,28 @@ shows its exact base release number when authenticated display metadata exists.
 Explicit update also shows the latest official upstream version, the selected
 Termux edition and selected optional modules, with publication times and a short
 component changelog. Installed and latest/available versions are distinct;
-showing a Provider update does not install it during a Core update. When a Full
+a default manual `codex update` updates an already selected Provider as a
+separate dependency group after the Core attempt and before any missing-upstream
+build choice or wait. Each group admits against its own authenticated current
+state: a Core candidate/transport/hold failure retains its failing result while a
+ready Provider may still advance under the valid installed Core authority. An
+invalid installed Core authority cannot authorize Provider effects. Provider
+operations reauthenticate the installed Core envelope/inventory with its admitted
+current key under the activation lock, including Base without an enhanced TUI;
+ordinary-launch assumptions about immutable files are insufficient at this update
+authority boundary. A Provider failure likewise does not suppress Core freshness,
+keep/local/remote choice or publication waiting. The updater retains both group
+results and returns failure for an incomplete update. Manual waiting returns an
+explicit completion/continue decision to the updater; it does not replace the
+process before group errors are reported. An explicit continue/current-client
+transition reports an earlier module failure before launching the admitted client;
+that client's later exit belongs to the requested client run.
+An absent/unselected Provider causes no
+installation, store creation or Provider request. Startup discovery and explicit
+Core source/force/local-build/rollback commands retain their bounded Core scope.
+A Provider group failure returns failure with its actual cause; an independently
+activated Core remains active and is reported as such. Missing Core artifacts do
+not prevent a ready independent Provider update. When a Full
 release declares its authenticated Base, Core uses that Base release's own
 publication time and notes. Full package time must not replace the Base time.
 Without a Base identity, Core is explicitly labelled as part of the Full package. Manager and
@@ -928,8 +949,13 @@ An explicit Provider stable update authenticates its current index first. If its
 generation, manifest digest and sequence match the admitted selection, verify the
 installed payload and return unchanged before fetching package controls, release
 notes or payloads. A matching label alone is insufficient; changed or corrupt
-input must not become an unchanged result. This does not enroll an unselected
-Provider or change the Core update's current informational Provider display.
+input must not become an unchanged result. Default manual update additionally
+shows the authenticated selected Provider's
+publication/changelog even when unchanged; that optional publication read is not
+package acquisition or selection authority. Explicit Provider update retains its
+unchanged fast path without publication requests. The Core release display no
+longer performs a separate informational Provider index lookup: the Provider update
+operation owns its one index admission, payload reuse/acquisition and result.
 Within one explicit command, optional release information is acquired once per
 admitted candidate generation and is reused during CI publication waiting. A
 changed candidate receives a fresh view; this command-local snapshot is never
@@ -3278,7 +3304,9 @@ optional-component discovery),
 `codex provider status chatgpt`, `codex provider rollback chatgpt`, and
 `codex provider chatgpt ARGS...`. These management routes need neither Manager
 nor TUI. Ordinary Core execution never consults or starts an absent Provider.
-Only an explicit Provider route acquires its verified payload.
+Explicit Provider installation may enroll a payload; default manual update may
+acquire only a previously selected Provider. Both consumers use the same verified
+acquisition/selection implementation. Ordinary launches do not enroll or update it.
 Remote installation uses a canonical HTTPS directory URL with a trailing slash.
 Remote asset names flatten the manifest’s fixed `licenses/NAME` paths to
 `licenses--NAME`; all other names stay unchanged. This permits immutable GitHub
@@ -3347,6 +3375,10 @@ profiles/catalogs keep their immutable executable binding until explicit
 generations referenced by existing profiles and running work through H review.
 This preserves the current direct-executable auth/checkpoint contract and does not
 silently replace the installed JS adapter or any user-selected model route.
+A default manual update advances the selected Provider independently of a Core
+rollback hold. Provider rollback retains its previous/high-water contract; a later
+explicit `codex update` checks its forward channel again. No background Provider
+update or service/profile restart follows from that selection.
 Authenticated remote delivery/promotion and actual-device activation require their
 separate G proofs/authorization; local fixture signing does not establish either.
 Once the Core interface work is admitted, Manager/provider-only changes must leave

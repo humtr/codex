@@ -41,8 +41,8 @@ a development binding enables no automatic saved-history polling.
 **In development: the approved complete update lifecycle after actual Base124
 installation. SPEC now requires selective component reuse, two-hour preparation,
 keep/local/remote build choice, dependency preparation and explicit signer authority.
-Source changes below are not yet qualified or deployed; preserve the operating
-Base and complete rollback.**
+The complete lifecycle is not yet qualified or deployed; accepted subscopes below
+do not replace the operating Base and complete rollback.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -565,8 +565,8 @@ Core.
 The existing actual Core lifecycle driver now accepts a compiled source runtime
 and its exact source revision as a pair, passes them to the production builder
 and records the input digest/revision. Missing pairs fail before fixture creation.
-The complete native source lifecycle has not run yet: wait for the current source
-producer's terminal output, then qualify the latest frozen Core/builder with the
+The complete native source lifecycle has not run yet: finish and verify native
+source production, then qualify the latest frozen Core/builder with the
 real official0.165 archive (the retained `up165-5wrp5v0i/upstream.tar.gz` matches
 the selected release digest), candidate signatures, update and rollback.
 Do not substitute the already-adapted installed runtime for raw source output.
@@ -699,8 +699,101 @@ qualify the reported0.165 profile issue. The full gate passes Python25+123+10,
 Core230 plus the existing explicit device exclusion, Manager52, integration67+3,
 builder41, binding2 and workspace Clippy (`provider-unchanged-full.log`). The owned
 inactive fixture's11 payloads were archived/cleaned, reclaiming1,699,606,528
-allocated bytes. This does not yet implement automatic multi-module update
-planning or activate a public/operating release.
+allocated bytes. Those accepted proofs cover the explicit Provider installer;
+they do not establish the subsequent manual all-component updater below.
+
+The development candidate now makes default manual `codex update` update an
+already selected Provider through the existing installer, after the Core attempt
+and before missing-upstream keep/local/remote decisions. A typed
+internal request distinguishes explicit enrollment/dispatch from selected-only
+update; it adds no public flag or second installer. Unselected/empty stores cause
+no Provider query or enrollment. Core/Manager/enhanced TUI retain their current
+paired generation; Provider is the presently independent update group. Broader
+module selection, tunnel grouping and compatible missing-artifact construction
+remain required work. A Provider group error is a failing command and retains its
+actual diagnostic; it does not undo an independently committed Core. A Core
+rollback hold does not block this independent forward Provider update; a later
+explicit manual update also resumes the Provider forward check after Provider
+rollback. Running jobs and explicitly prepared profiles retain their immutable
+bindings; selection never restarts them.
+
+The previous display-only Provider lookup and its separate candidate comparison
+are removed. The Provider operation owns one signed index admission and existing
+payload verification/acquisition. Manual update may read optional publication
+information for an unchanged selected payload; explicit Provider update preserves
+its no-notes/no-payload unchanged path. Core source/force/rollback and startup
+routes retain Core-only scope. The existing public update regression now covers
+absent/empty stores, unchanged selection, authenticated index failure, corrupt
+installed bytes and both directions of independent group failure. Final review
+found two cross-group short circuits and a Base authority gap: Core failure used
+to suppress the Provider attempt, Provider failure suppressed Core freshness/
+build choice, and the prior Base launch loader assumed its Core envelope remained
+admitted instead of reauthenticating it at the Provider authority boundary.
+
+The updater now retains the Core result, independently executes selected Provider
+update against the current Core's admitted key, and preserves both failures.
+Provider operations use the shared installed-release verifier under the activation
+lock for Base as well as Full. An invalid new Core candidate or a valid rollback
+hold does not invalidate the trusted installed Core authority; corrupt installed
+Core signatures deny Provider effects. Unselected groups skip that authority
+lookup entirely. The manual freshness/wait operation returns an explicit exit/
+continue decision; the top-level updater reports group failures before the one
+existing current-client launch. This removes the early exec that could discard a
+group outcome without adding another launch path or public flag. A failed Provider
+does not prevent Core keep/local/remote choice, and a noninteractive partial update
+returns failure. An explicitly requested subsequent client run has its own exit.
+
+Final source acceptance passes Python25+123+10 and Rust/Clippy (Core230 with the
+existing explicit device exclusion, Manager52, integration67+3, builder42, binding2):
+`selected-provider-update-python-final.log` and
+`selected-provider-update-rust-final-v2.log`. Four one-fault disposable variants
+are rejected by the public regression: omitted Provider execution, Core-success-
+only Provider execution, trusting an unverified installed Core, and short-circuiting
+Core after Provider failure. Every source is restored
+(`selected-provider-v4-mutations.json`). Original intermediate outputs remain;
+`selected-provider-update-rust-final.log` records a mismatched Completion consumer
+from an interrupted edit, corrected before accepted final compilation. Debug/test
+symbols and incremental output were disabled. The optimized final Core is frozen
+in `selected-provider-update-bin-v3`; its unchanged builder is reused from the
+accepted compiler-preflight binary.
+
+Actual final Android qualification passes in144.74s across Base88/Full87 steps
+with owned real TLS, signed package admission and actual Provider executables
+(`selected-provider-update-native-v3.json`). Both compositions prove absent
+selection behavior, one Provider index/signature pair per manual invocation, zero
+unchanged package requests, ready Provider advancement while a missing Core build
+is kept, Core failure/rollback hold with independent Provider advancement and
+preserved failing status, Provider failure with Core keep still executed, and
+denial of Provider effects when the installed Core signature is corrupt. Default
+manual update also passes with the fixture's inert model-login file temporarily
+absent and exactly restored. Actual Provider rollback retains its release high-
+water. All three existing live service/foreground paths preserve their kernel
+PID, original immutable executable and prepared profile.
+
+The reference runtime/frontend are the retained0.164 inputs; this does not qualify
+the reported0.165 profile defect or public delivery. Same-binary admitted Core
+fixtures establish a real rollback policy hold; they do not claim a new upstream
+port. The raw frontend was restored from the unchanged installed copy by reversing
+its existing54-byte adaptation and matches the previous accepted raw digest exactly
+(`selected-provider-frontend-restore.json`); it was not rebuilt. The fixture cleaner
+archived/removed11 verified inactive payloads, reclaiming1,699,606,528 allocated
+bytes in the final trial, with restore records retained. Four verified inactive
+source worktrees were removed after exact diff/untracked/ignored/live checks,
+reclaiming30,949,376 bytes; their Git bases, patches and restoration record remain
+(`selected-provider-worktree-cleanup.json`). No public or operating activation
+occurred, and compiler caches remain below the15-GiB budget.
+
+This qualifies selected Provider updates, not the entire module lifecycle. A
+changed Provider generation still downloads its complete declared package, even
+for byte-identical entries; verified per-file reuse and general changed-object
+publication remain required. Before installed source-build integration, verify
+continuation after Core-image replacement/concurrent activation: manual freshness
+still consumes its original Core outcome and the local builder obtains its Core
+artifact from current_exe. The actual handoff/freshness/build-input relationship
+needs producer-to-consumer proof rather than an assumed current image. Broader
+module compatibility/planning, native source/dependency provisioning, configured
+transports, publication/readback and bounded device activation remain required.
+
 The initial exclusive-gate mutation passed because detached startup deliberately
 closes incidental leases; it did not qualify that fault. The added foreground
 kernel/lock boundary rejects that mutation in `provider-live-mutation-v2.json`,
@@ -1074,8 +1167,10 @@ time/notes, and bounded public GitHub tag reads
 for the already-admitted Core package, its authenticated Base identity and selected
 Provider's signed stable index. Publication information never admits executables.
 Custom/private release origins receive no public tag/Provider queries. Unselected
-Provider causes no Provider query, and Core update only reports Provider
-availability; the independent Provider updater owns its installation.
+Provider causes no Provider query. The original display-only implementation
+reported Provider availability; the current manual-update candidate above replaces
+that lookup with selected-only installation through the independent Provider
+updater. Explicit Core source/force/rollback and startup routes keep Core scope.
 
 Full timestamps render in KST (UTC+09:00), including seconds. Date-only legacy
 signed preparation dates retain UTC date precision. Base Core's publication date

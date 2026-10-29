@@ -178,16 +178,68 @@ def qualify(args):
                 cert = case_root / 'remote-cert.pem'
                 remote_key = case_root / 'remote-key.pem'
                 run('create owned localhost TLS certificate', ['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-                    '-keyout', remote_key, '-out', cert, '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1,DNS:raw.githubusercontent.com,DNS:github.com'])
+                    '-keyout', remote_key, '-out', cert, '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1,DNS:raw.githubusercontent.com,DNS:github.com,DNS:api.github.com'])
                 remote_key.chmod(0o600)
                 shutil.copy2(cert, prefix / 'etc/tls/cert.pem')
                 shutil.copy2(shutil.which('curl'), prefix / 'bin/curl')
                 stable = dict(index=None, signature=None)
+                core_index = case_root / 'core-index'
+                core_index_sig = case_root / 'core-index.sig'
+                core_index.write_text('codex-update-index-v1\nchannel\tstable\ngeneration_id\t'
+                    + installed.name + '\nrelease_base\thttps://github.com/humtr/codex/releases/download/'
+                    + installed.name + '/\n')
+                run('sign owned Core current index', ['openssl', 'pkeyutl', '-sign', '-rawin',
+                    '-inkey', key, '-in', core_index, '-out', core_index_sig])
+                installed_version = next(line.split('\t')[1] for line in
+                    (installed / 'generation.meta').read_text().splitlines()
+                    if line.startswith('upstream_package_version\t'))
+                stable['official_version'] = installed_version
                 class Handler(http.server.BaseHTTPRequestHandler):
                     def log_message(self, *_):
                         pass
                     def do_GET(self):
                         remote_requests.append(self.path)
+                        if self.path in ('/humtr/codex/main/update-index-v1',
+                                         '/humtr/codex/main/update-index-base-v1',
+                                         '/humtr/codex/main/update-index-v1.sig',
+                                         '/humtr/codex/main/update-index-base-v1.sig'):
+                            data = (core_index_sig if self.path.endswith('.sig') else core_index).read_bytes()
+                        elif self.path == '/repos/openai/codex/releases/latest':
+                            data = json.dumps(dict(tag_name='rust-v' + stable['official_version'],
+                                published_at='2026-10-28T17:04:05Z', assets=[dict(
+                                    name='codex-package-aarch64-unknown-linux-musl.tar.gz',
+                                    digest='sha256:' + 'a' * 64)])).encode()
+                        elif self.path.startswith('/repos/humtr/codex/releases/tags/'):
+                            data = json.dumps(dict(tag_name=self.path.rsplit('/', 1)[1], draft=False,
+                                published_at='2026-10-28T17:04:05Z',
+                                body='## Core\n- Owned Core fixture.\n## Provider\n- Selected Provider fixture.\n')).encode()
+                        else:
+                            data = None
+                        if data is not None:
+                            self.send_response(200)
+                            self.send_header('Content-Length', str(len(data)))
+                            self.end_headers()
+                            self.wfile.write(data)
+                            return
+                        held = stable.get('held_core')
+                        held_prefix = '/humtr/codex/releases/download/' + held.name + '/' if held else None
+                        if held_prefix and self.path.startswith(held_prefix):
+                            name = urllib.parse.unquote(self.path[len(held_prefix):])
+                            declared = {'release.manifest', 'release.sig', *[
+                                line.split('\t')[1] for line in (held / 'release.manifest').read_text().splitlines()
+                                if line.startswith('file\t')]}
+                            if name not in declared:
+                                self.send_error(404)
+                                return
+                            data = (held / name).read_bytes()
+                            self.send_response(200)
+                            self.send_header('Content-Length', str(len(data)))
+                            self.end_headers()
+                            self.wfile.write(data)
+                            return
+                        if self.path.startswith('/humtr/codex/releases/download/' + installed.name + '/'):
+                            self.send_error(404, 'No optional component display sidecar in fixture')
+                            return
                         if self.path.startswith('/humtr/codex/main/provider-index-v1'):
                             data = stable['signature' if self.path.endswith('.sig') else 'index']
                             self.send_response(200)
@@ -197,12 +249,17 @@ def qualify(args):
                             return
                         if self.path.startswith('/humtr/codex/releases/download/chatgpt-g-test-1/'):
                             route, name = 'one', self.path.rsplit('/', 1)[1]
+                        elif self.path.startswith('/humtr/codex/releases/download/chatgpt-g-test-2/'):
+                            route, name = 'two', self.path.rsplit('/', 1)[1]
                         else:
                             route, name = self.path.strip('/').split('/', 1)
                         if route == 'redirect':
                             self.send_response(302)
                             self.send_header('Location', 'http://127.0.0.1:9/forbidden')
                             self.end_headers()
+                            return
+                        if name not in flat_assets:
+                            self.send_error(404)
                             return
                         file = (one if route == 'one' else two) / name.replace('licenses--', 'licenses/')
                         if route == 'missing' and name == 'NOTICE.md':
@@ -232,7 +289,8 @@ def qualify(args):
                     'import os,sys\n'
                     'os.execv(' + repr(str(prefix / 'bin/owned-curl')) + ',[' + repr(str(prefix / 'bin/owned-curl')) + ',\n'
                     + repr('--connect-to') + ',' + repr(f'raw.githubusercontent.com:443:127.0.0.1:{server.server_port}') + ',\n'
-                    + repr('--connect-to') + ',' + repr(f'github.com:443:127.0.0.1:{server.server_port}') + ']+sys.argv[1:])\n')
+                    + repr('--connect-to') + ',' + repr(f'github.com:443:127.0.0.1:{server.server_port}') + ',\n'
+                    + repr('--connect-to') + ',' + repr(f'api.github.com:443:127.0.0.1:{server.server_port}') + ']+sys.argv[1:])\n')
                 wrapper.chmod(0o755)
                 index = case_root / 'provider-index-v1'
                 index_sig = case_root / 'provider-index-v1.sig'
@@ -240,6 +298,10 @@ def qualify(args):
                 run('sign owned stable index', ['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', key, '-in', index, '-out', index_sig])
                 stable.update(index=index.read_bytes(), signature=index_sig.read_bytes())
                 try:
+                    run('default manual update does not enroll absent Provider', [launcher, 'update'])
+                    assert not (home / '.local/share/codex/core/providers/chatgpt').exists()
+                    assert not any(path in remote_requests for path in stable_paths)
+                    remote_requests.clear()
                     for bad in ('http://127.0.0.1/not-https/', url + 'one', url + 'one/?query=x', url + '../one/'):
                         public('reject remote URL syntax', 'install', 'chatgpt', '--remote', bad, expected=1)
                     assert not remote_requests
@@ -263,6 +325,19 @@ def qualify(args):
                         public(label, action, 'chatgpt')
                         assert remote_requests == stable_paths, remote_requests
                         assert selection_path.read_bytes() == unchanged_selection
+                    remote_requests.clear()
+                    no_login = case_root / 'saved-inert-auth.json'
+                    (home / '.codex/auth.json').rename(no_login)
+                    try:
+                        unchanged = run('default manual update reuses selected Provider without model login',
+                                        [launcher, 'update'])
+                    finally:
+                        no_login.rename(home / '.codex/auth.json')
+                    assert b'Provider chatgpt unchanged:' in unchanged.stdout
+                    assert b'Selected Provider fixture.' in unchanged.stdout
+                    assert all(remote_requests.count(path) == 1 for path in stable_paths)
+                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert selection_path.read_bytes() == unchanged_selection
                     saved_signature = stable['signature']
                     stable['signature'] = b'x' * 64
                     before = (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes()
@@ -270,10 +345,116 @@ def qualify(args):
                     public('reject unverified stable index before payload', 'update', 'chatgpt', expected=1)
                     assert remote_requests == stable_paths
                     assert (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes() == before
+                    remote_requests.clear()
+                    stable['official_version'] = '9.999.0'
+                    env['CODEX_TERMUX_UPDATE_BUILD_POLICY'] = 'keep'
+                    rejected = run('default manual update rejects unauthenticated Provider index',
+                                   [launcher, 'update'], expected=1)
+                    assert all(remote_requests.count(path) == 1 for path in stable_paths)
+                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert selection_path.read_bytes() == before and sha(core_state) == core_before
+                    assert b'Keeping Codex' in rejected.stdout and b'9.999.0' in rejected.stdout
+                    stable['official_version'] = installed_version
+                    del env['CODEX_TERMUX_UPDATE_BUILD_POLICY']
                     stable['signature'] = saved_signature
+                    index.write_text(index.read_text().replace('chatgpt-g-test-1', 'chatgpt-g-test-2')
+                        .replace('release_sequence\t1\n', 'release_sequence\t2\n')
+                        .replace(sha(one / 'payload.manifest'), sha(two / 'payload.manifest')))
+                    run('sign next owned Provider index', ['openssl', 'pkeyutl', '-sign', '-rawin',
+                        '-inkey', key, '-in', index, '-out', index_sig])
+                    stable.update(index=index.read_bytes(), signature=index_sig.read_bytes(),
+                                  official_version='9.999.0')
+                    env['CODEX_TERMUX_UPDATE_BUILD_POLICY'] = 'keep'
+                    remote_requests.clear()
+                    advanced = run('manual update advances Provider while missing Core build is kept',
+                                   [launcher, 'update'])
+                    assert b'Keeping Codex' in advanced.stdout and b'9.999.0' in advanced.stdout
+                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert all(remote_requests.count(path) == 1 for path in stable_paths)
+                    expected_payload = ['/humtr/codex/releases/download/chatgpt-g-test-2/'
+                        + name.replace('/', '--') for name in ['payload.manifest', 'payload.sig',
+                            *[line.split('\t')[1] for line in (two / 'payload.manifest').read_text().splitlines()
+                              if line.startswith('file\t')]]]
+                    assert [path for path in remote_requests if '/releases/download/chatgpt-g-test-' in path] == expected_payload
+                    assert sha(core_state) == core_before
+                    del env['CODEX_TERMUX_UPDATE_BUILD_POLICY']
+                    stable['official_version'] = installed_version
+                    public('restore previous Provider with actual rollback', 'rollback', 'chatgpt')
+                    status = public('manual update rollback retains high water', 'status', 'chatgpt').stdout
+                    assert b'release_sequence: 1' in status and b'high_water: 2' in status
+                    core_signature = core_index_sig.read_bytes()
+                    core_index_sig.write_bytes(b'x' * 64)
+                    failed_core = run('failed Core candidate still permits independent Provider forward update',
+                                      [launcher, 'update'], expected=1)
+                    assert b'Provider chatgpt selected:' in failed_core.stdout
+                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert sha(core_state) == core_before
+                    core_index_sig.write_bytes(core_signature)
+                    public('restore Provider after independently failed Core check', 'rollback', 'chatgpt')
+
+                    installed_signature = installed / 'release.sig'
+                    current_signature = installed_signature.read_bytes()
+                    installed_signature.write_bytes(b'x' * 64)
+                    remote_requests.clear()
+                    selected_before_bad_core = selection_path.read_bytes()
+                    run('invalid installed Core cannot authorize Provider updates',
+                        [launcher, 'update'], expected=1)
+                    assert not any(path in remote_requests for path in stable_paths)
+                    assert selection_path.read_bytes() == selected_before_bad_core
+                    assert sha(core_state) == core_before
+                    installed_signature.write_bytes(current_signature)
+
+                    # Establish two already-admitted same-binary Core fixtures,
+                    # then use real Core rollback to create its policy hold.
+                    held = installed.with_name(installed.name + '-held')
+                    shutil.copytree(installed, held)
+                    descriptor = held / 'generation.meta'
+                    descriptor.write_text(descriptor.read_text().replace(installed.name, held.name))
+                    held_manifest = held / 'release.manifest'
+                    sequence = int(next(line.split('\t')[1] for line in
+                        held_manifest.read_text().splitlines() if line.startswith('release_sequence\t')))
+                    held_manifest.write_text('\n'.join(
+                        'generation_id\t' + held.name if line.startswith('generation_id\t') else
+                        'release_sequence\t' + str(sequence + 1) if line.startswith('release_sequence\t') else
+                        '\t'.join(['file', 'generation.meta', sha(descriptor), '0644'])
+                        if line.startswith('file\tgeneration.meta\t') else line
+                        for line in held_manifest.read_text().splitlines()) + '\n')
+                    run('sign already-admitted Core fixture', ['openssl', 'pkeyutl', '-sign', '-rawin',
+                        '-inkey', key, '-in', held_manifest, '-out', held / 'release.sig'])
+                    values = dict(line.split('=', 1) for line in core_state.read_text().splitlines())
+                    values.update(current=held.name, previous_present='1', previous=installed.name,
+                                  previous_key=values['current_key'])
+                    core_state.write_text('\n'.join(k + '=' + v for k, v in values.items()) + '\n')
+                    run('actual Core rollback establishes update hold', [launcher, 'update', '--rollback'])
+                    held_state = core_state.read_bytes()
+                    hold_path = home / '.local/share/codex/core/update-hold'
+                    assert hold_path.exists()
+                    stable['held_core'] = held
+                    core_index.write_text(core_index.read_text().replace(installed.name, held.name))
+                    run('sign held Core candidate index', ['openssl', 'pkeyutl', '-sign', '-rawin',
+                        '-inkey', key, '-in', core_index, '-out', core_index_sig])
+                    remote_requests.clear()
+                    policy = run('Core rollback hold still permits independent Provider forward update',
+                                 [launcher, 'update'], expected=1)
+                    assert b'locally held after rollback' in policy.stderr
+                    assert b'Provider chatgpt selected:' in policy.stdout
+                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert core_state.read_bytes() == held_state and hold_path.exists()
+                    assert all(remote_requests.count(path) == 1 for path in stable_paths)
+                    public('restore Provider while preserving Core hold', 'rollback', 'chatgpt')
+                    core_before = sha(core_state)
                     case['remote'] = dict(real_TLS=True, requests_per_complete_install=len(flat_assets), signature_before_payload=True,
                                           no_implicit_retry=True, local_certificate_only=True,
-                                          unchanged_stable_package_requests=0, unchanged_selection_preserved=True)
+                                          unchanged_stable_package_requests=0, unchanged_selection_preserved=True,
+                                          manual_selected_update=True, unselected_not_enrolled=True,
+                                          one_provider_index_per_manual_invocation=True,
+                                          missing_core_keep_allows_independent_provider_update=True,
+                                          manual_signature_failure_preserves_both_groups=True,
+                                          independent_provider_update_after_core_failure=True,
+                                          actual_core_rollback_hold_preserved=True,
+                                          invalid_installed_core_cannot_authorize_provider=True,
+                                          provider_failure_does_not_block_core_keep=True,
+                                          no_model_login_required=True)
                 finally:
                     case['remote_requests'] = list(remote_requests)
                     server.shutdown()

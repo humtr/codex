@@ -4194,6 +4194,7 @@ enum LocalProductError {
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
     Builder(codex_release_builder::BuilderError),
+    Provider(Box<dyn std::error::Error>),
     SignatureRejected,
     ReleasePolicy(&'static str),
     ReleaseDigestMismatch,
@@ -4273,6 +4274,7 @@ impl std::fmt::Display for LocalProductError {
             }
             LocalProductError::LocalUpdate(message) => f.write_str(message),
             LocalProductError::Builder(source) => write!(f, "local release construction failed: {source}"),
+            LocalProductError::Provider(source) => write!(f, "Provider update failed: {source}"),
             LocalProductError::SignatureRejected => {
                 f.write_str("release signature verification failed")
             }
@@ -4314,6 +4316,7 @@ impl std::error::Error for LocalProductError {
             LocalProductError::State(err) => Some(err),
             LocalProductError::Io { source, .. } => Some(source),
             LocalProductError::Builder(source) => Some(source),
+            LocalProductError::Provider(source) => Some(source.as_ref()),
             LocalProductError::Manifest(err) => Some(err),
             LocalProductError::Runtime(err) => Some(err),
             LocalProductError::Manager(err) => Some(err),
@@ -9269,7 +9272,6 @@ fn acquire_remote_release_source(
             &acquisition_root.join("release.manifest"),
             current_release,
             &manifest,
-            update_key,
         ));
         if updating {
             presentation.begin_update(current_version, &candidate_version);
@@ -10054,7 +10056,6 @@ fn activate_signed_update_channel_with_hold_policy(
                     .join("release.manifest"),
                 &current_release,
                 &current_release,
-                before.update_key,
             ));
         }
         return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
@@ -12049,6 +12050,17 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
         );
         drop(lease);
         if public_freshness {
+            if let Ok(SignedUpdateOutcome::Activated(active)) = &result {
+                presentation.finish_signed_activation(&active.current_version);
+            }
+            presentation.clear_transient();
+            let provider_failed =
+                if let Err(error) = provider::execute(&roots, provider::Request::UpdateSelected) {
+                    presentation.fail(&LocalProductError::Provider(error));
+                    true
+                } else {
+                    false
+                };
             return match result.and_then(|outcome| {
                 manual_update::finish(
                     &roots,
@@ -12059,7 +12071,17 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
                     &mut presentation,
                 )
             }) {
-                Ok(code) => code,
+                Ok(manual_update::Completion::Exit(0)) if provider_failed => {
+                    println!("Provider update remains incomplete.");
+                    1
+                }
+                Ok(manual_update::Completion::Exit(code)) => code,
+                Ok(manual_update::Completion::ContinueCurrent) => {
+                    if provider_failed {
+                        println!("Starting the installed Codex after the reported Provider update failure.");
+                    }
+                    manual_update::launch_current(&roots, &process_env)
+                }
                 Err(error) => {
                     presentation.fail(&error);
                     1
@@ -12221,7 +12243,7 @@ where
         }
     };
     if let PublicDispatchRoute::Provider(args) = route {
-        return provider::run(&roots, &args);
+        return provider::run(&roots, provider::Request::Command(&args));
     }
     let process_env = capture_termux_process_env();
     if bare && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none() {
@@ -27534,7 +27556,7 @@ exit 0
         );
         assert!(!rejected.status.success());
         assert_eq!(std::fs::read(&state).unwrap(), before);
-        std::fs::write(&fixture.signature_path, original_signature).unwrap();
+        std::fs::write(&fixture.signature_path, &original_signature).unwrap();
         let upstream_json = fixture.root.join("official-publication.json");
         std::fs::write(&upstream_json, format!(r###"{{"tag_name":"rust-v9.9.9","published_at":"2026-10-28T17:04:05Z","assets":[{{"name":"{UPSTREAM_PACKAGE_ASSET}","digest":"sha256:{}"}}],"body":"## New Features\n- Official first change.\n- Official second change.\n- Official third change.\n- Fourth entry belongs in the full notes.\n"}}"###, "a".repeat(64))).unwrap();
         let current_curl = std::fs::read_to_string(&curl).unwrap();
@@ -27546,20 +27568,23 @@ exit 0
             .replacen(marker, &injected, 1)
             .replace(&fixture.index_url, DEFAULT_UPDATE_INDEX_URL);
         std::fs::write(&curl, public_curl).unwrap();
-        let manual = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["tests::public_update_probe", "--exact", "--nocapture"])
-            .env(UPDATE_PROBE_ROLE, "1")
-            .env(UPDATE_PROBE_CHANNEL, "1")
-            .env_remove(UPDATE_INDEX_URL_ENV)
-            .env_remove(UPDATE_VERSION_ENV)
-            .env_remove(UPDATE_PROBE_FORCE)
-            .env_remove(UPDATE_PROBE_SOURCE)
-            .env_remove(UPDATE_PROBE_REMOTE)
-            .env("HOME", &fixture.home)
-            .env("PREFIX", &fixture.prefix)
-            .env("TMPDIR", &fixture.tmp)
-            .output()
-            .unwrap();
+        let run_manual = || {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["tests::public_update_probe", "--exact", "--nocapture"])
+                .env(UPDATE_PROBE_ROLE, "1")
+                .env(UPDATE_PROBE_CHANNEL, "1")
+                .env_remove(UPDATE_INDEX_URL_ENV)
+                .env_remove(UPDATE_VERSION_ENV)
+                .env_remove(UPDATE_PROBE_FORCE)
+                .env_remove(UPDATE_PROBE_SOURCE)
+                .env_remove(UPDATE_PROBE_REMOTE)
+                .env("HOME", &fixture.home)
+                .env("PREFIX", &fixture.prefix)
+                .env("TMPDIR", &fixture.tmp)
+                .output()
+                .unwrap()
+        };
+        let manual = run_manual();
         assert!(manual.status.success(), "{:?}", manual.stderr);
         let text = String::from_utf8(manual.stdout).unwrap();
         assert!(
@@ -27572,6 +27597,206 @@ exit 0
         assert!(!text.contains("Fourth entry belongs"));
         assert!(text.contains("https://github.com/openai/codex/releases/tag/rust-v9.9.9"));
         assert_eq!(std::fs::read(&state).unwrap(), before);
+        // The same manual entrypoint owns selected optional updates. Unselected
+        // stores, including an existing empty store, must never enroll a payload.
+        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+        let provider_store = fixture
+            .home
+            .join(".local/share/codex/core/providers/chatgpt");
+        assert!(!provider_store.exists());
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&provider_store)
+            .unwrap();
+        std::fs::write(&fixture.curl_log, "").unwrap();
+        let empty = run_manual();
+        assert!(empty.status.success(), "{:?}", empty.stderr);
+        assert!(!provider_store.join("selection").exists());
+        assert!(!std::fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .contains("provider-index-v1"));
+
+        // A pre-admitted envelope is sufficient for the unchanged path. Its
+        // non-executable fixture bytes must not be probed or reacquired.
+        let id = "chatgpt-manual-fixture";
+        let package = fixture
+            .home
+            .join(".local/lib/codex/providers/chatgpt/generations")
+            .join(id);
+        let binary = fixture.root.join("provider-fixture-elf");
+        let mut header = [0u8; 64];
+        header[..6].copy_from_slice(b"\x7fELF\x02\x01");
+        header[18] = 0xb7;
+        std::fs::write(&binary, header).unwrap();
+        let source_inputs = fixture.root.join("provider-source-inputs.json");
+        std::fs::write(&source_inputs, "{\"fixture\":true}\n").unwrap();
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../providers/chatgpt")
+            .canonicalize()
+            .unwrap();
+        let args: Vec<OsString> = vec![
+            "provider-package".into(),
+            "--binary".into(),
+            binary.into_os_string(),
+            "--assets".into(),
+            assets.into_os_string(),
+            "--source-inputs".into(),
+            source_inputs.into_os_string(),
+            "--source-sha".into(),
+            "a".repeat(40).into(),
+            "--generation-id".into(),
+            id.into(),
+            "--release-sequence".into(),
+            "1".into(),
+            "--private-key".into(),
+            fixture.private_key.as_os_str().into(),
+            "--openssl".into(),
+            fixture.openssl.as_os_str().into(),
+            "--output".into(),
+            package.as_os_str().into(),
+        ];
+        std::fs::create_dir_all(package.parent().unwrap()).unwrap();
+        assert_eq!(codex_release_builder::run_from_args(args), 0);
+        std::fs::set_permissions(&package, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let digest = openssl_sha256(&fixture.openssl, &package.join("payload.manifest")).unwrap();
+        let authority = read_local_release_manifest(&fixture.release)
+            .unwrap()
+            .1
+            .release_public_key;
+        let selection = provider_store.join("selection");
+        let provider_state = format!("codex-provider-state-v1\ncurrent\t{id}\ncurrent_key\t{}\ncurrent_digest\t{digest}\nprevious\t-\nprevious_key\t-\nprevious_digest\t-\nhigh_water\t1\n", authority.to_hex());
+        std::fs::write(&selection, &provider_state).unwrap();
+        let provider_index = fixture.root.join("provider-index-v1");
+        let provider_sig = fixture.root.join("provider-index-v1.sig");
+        std::fs::write(
+            &provider_index,
+            codex_release_builder::provider::Index {
+                generation: id.into(),
+                sequence: 1,
+                manifest_digest: digest,
+            }
+            .render()
+            .unwrap(),
+        )
+        .unwrap();
+        b4_sign_update_index(
+            &provider_index,
+            &provider_sig,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        let provider_publication = fixture.root.join("provider-publication.json");
+        std::fs::write(&provider_publication, format!(r###"{{"tag_name":"{id}","published_at":"2026-10-28T17:04:05Z","draft":false,"body":"## Provider\n- Selected component update.\n"}}"###)).unwrap();
+        let script = std::fs::read_to_string(&curl).unwrap();
+        let routes = format!("{marker}  'https://raw.githubusercontent.com/humtr/codex/main/provider-index-v1') exec \"$cat_path\" {} ;;\n  'https://raw.githubusercontent.com/humtr/codex/main/provider-index-v1.sig') exec \"$cat_path\" {} ;;\n  'https://api.github.com/repos/humtr/codex/releases/tags/{id}') exec \"$cat_path\" {} ;;\n", b5_shell_quote(&provider_index), b5_shell_quote(&provider_sig), b5_shell_quote(&provider_publication));
+        std::fs::write(&curl, script.replacen(marker, &routes, 1)).unwrap();
+        let index_signature = std::fs::read(&provider_sig).unwrap();
+        let notice = std::fs::read(package.join("NOTICE.md")).unwrap();
+        for fault in ["none", "index-signature", "local-bytes"] {
+            std::fs::write(&provider_sig, &index_signature).unwrap();
+            std::fs::write(package.join("NOTICE.md"), &notice).unwrap();
+            if fault == "index-signature" {
+                std::fs::write(&provider_sig, [0; 64]).unwrap();
+            }
+            if fault == "local-bytes" {
+                std::fs::write(package.join("NOTICE.md"), "corrupt installed input").unwrap();
+            }
+            std::fs::write(&fixture.curl_log, "").unwrap();
+            let result = run_manual();
+            assert_eq!(
+                result.status.code(),
+                Some(if fault == "none" { 0 } else { 1 }),
+                "{fault}: {:?}",
+                result.stderr
+            );
+            let requests = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            assert!(
+                requests.contains("/provider-index-v1"),
+                "{fault}: {requests}"
+            );
+            assert!(
+                requests.contains(DEFAULT_UPSTREAM_LATEST_URL),
+                "Provider failure blocked Core freshness: {fault}: {requests}"
+            );
+            assert!(
+                !requests.contains(&format!("/releases/download/{id}/")),
+                "{fault}: {requests}"
+            );
+            if fault == "none" {
+                let text = String::from_utf8(result.stdout).unwrap();
+                assert!(text.contains("Provider chatgpt unchanged:"), "{text}");
+                assert!(text.contains("Selected component update."), "{text}");
+            }
+            assert_eq!(
+                std::fs::read(&selection).unwrap(),
+                provider_state.as_bytes()
+            );
+            assert_eq!(std::fs::read(&state).unwrap(), before);
+        }
+        std::fs::write(&provider_sig, &index_signature).unwrap();
+        std::fs::write(package.join("NOTICE.md"), &notice).unwrap();
+        // Failed Core admission remains a failure while the independent,
+        // authenticated Provider group still gets its explicit update attempt.
+        std::fs::write(&fixture.signature_path, [0; 64]).unwrap();
+        std::fs::write(&fixture.curl_log, "").unwrap();
+        let rejected_core = run_manual();
+        assert_eq!(
+            rejected_core.status.code(),
+            Some(1),
+            "{:?}",
+            rejected_core.stderr
+        );
+        assert!(
+            String::from_utf8_lossy(&rejected_core.stdout).contains("Provider chatgpt unchanged:")
+        );
+        assert!(std::fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .contains("/provider-index-v1"));
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        assert_eq!(
+            std::fs::read(&selection).unwrap(),
+            provider_state.as_bytes()
+        );
+        std::fs::write(&fixture.signature_path, &original_signature).unwrap();
+        let installed_signature = fixture
+            .home
+            .join(".local/lib/codex/core/generations/display-signed-next/release.sig");
+        let signed_current = std::fs::read(&installed_signature).unwrap();
+        std::fs::write(&installed_signature, [0; 64]).unwrap();
+        std::fs::write(&fixture.curl_log, "").unwrap();
+        let invalid_current = run_manual();
+        assert_eq!(
+            invalid_current.status.code(),
+            Some(1),
+            "{:?}",
+            invalid_current.stderr
+        );
+        assert!(!std::fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .contains("/provider-index-v1"));
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        assert_eq!(
+            std::fs::read(&selection).unwrap(),
+            provider_state.as_bytes()
+        );
+        std::fs::write(&installed_signature, signed_current).unwrap();
+        let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert!(rollback.status.success(), "{:?}", rollback.stderr);
+        let held_state = std::fs::read(&state).unwrap();
+        std::fs::write(&fixture.curl_log, "").unwrap();
+        let held = run_manual();
+        assert_eq!(held.status.code(), Some(1), "{:?}", held.stderr);
+        assert_human_update_error_contains(&held.stderr, b"locally held after rollback");
+        assert!(String::from_utf8_lossy(&held.stdout).contains("Provider chatgpt unchanged:"));
+        assert!(std::fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .contains("/provider-index-v1"));
+        assert_eq!(std::fs::read(&state).unwrap(), held_state);
+        assert_eq!(
+            std::fs::read(&selection).unwrap(),
+            provider_state.as_bytes()
+        );
         remove_temp_root(fixture.root);
     }
 }

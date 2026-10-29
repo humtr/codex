@@ -12,6 +12,13 @@ use std::time::{Duration, Instant};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const USAGE: &str = "usage: codex provider install chatgpt [--local ABSOLUTE_DIRECTORY|--remote HTTPS_DIRECTORY_URL] | update chatgpt | status chatgpt | rollback chatgpt | chatgpt ARGS...";
 
+// Manual all-component update may advance an existing selection; explicit
+// Provider commands additionally own enrollment and direct dispatch.
+pub(super) enum Request<'a> {
+    Command(&'a [OsString]),
+    UpdateSelected,
+}
+
 fn owned_directory(path: &Path, create: bool) -> Result<()> {
     // Reject aliases even in parents; never chmod an existing user directory.
     if let Some(parent) = path.parent() {
@@ -442,7 +449,6 @@ fn install_remote(
             &base.value,
             &manifest.generation,
             manifest.sequence,
-            None,
         ) {
             println!("{details}");
         }
@@ -519,6 +525,7 @@ fn install_stable(
     store: &Store,
     key: ReleasePublicKey,
     state: Option<State>,
+    show_current_details: bool,
 ) -> Result<()> {
     with_stable_index(
         roots,
@@ -534,6 +541,16 @@ fn install_stable(
                 let installed = selected(roots, store, &current.current, current.floor)?;
                 if installed.sequence != index.sequence {
                     return Err("Provider stable index/package binding mismatch".into());
+                }
+                if show_current_details {
+                    if let Some(details) = release_display::provider_details(
+                        roots,
+                        &index.release_base(),
+                        &index.generation,
+                        index.sequence,
+                    ) {
+                        println!("{details}");
+                    }
                 }
                 println!(
                     "Provider chatgpt unchanged: {} (selection only)",
@@ -553,27 +570,12 @@ fn install_stable(
     )
 }
 
-pub(super) fn update_versions(
-    roots: &LocalCoreRoots,
-    key: ReleasePublicKey,
-) -> Result<Option<(Manifest, Index)>> {
-    let store = Store::new(roots)?;
-    match fs::symlink_metadata(&store.root) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-        Ok(_) => private_directory(&store.root, false)?,
-    }
-    let _lease = store.lease()?;
-    let Some(state) = store.state()? else {
-        return Ok(None);
+pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()> {
+    let update_args = [OsString::from("update"), OsString::from("chatgpt")];
+    let (args, update_selected) = match request {
+        Request::Command(args) => (args, false),
+        Request::UpdateSelected => (update_args.as_slice(), true),
     };
-    let current = selected(roots, &store, &state.current, state.floor)?;
-    with_stable_index(roots, &store, key, Some(state.floor), "2", |latest| {
-        Ok(Some((current, latest)))
-    })
-}
-
-fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {
     let management = matches!(
         args.first().and_then(|v| v.to_str()),
         Some("install" | "update" | "rollback" | "status")
@@ -594,32 +596,51 @@ fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {
     if !valid {
         return Err(USAGE.into());
     }
+    let store = Store::new(roots)?;
+    if update_selected
+        && fs::symlink_metadata(store.root.join("selection"))
+            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(());
+    }
     let paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)?;
     let _core_lock = m2_generation_state::acquire_activation_lock(&paths)?;
     let authority =
         m2_generation_state::read_pointer_state(&paths)?.ok_or("Core is not admitted")?;
-    let loaded = load_activated_generation(roots)?;
+    let (_, loaded) = verify_installed_local_release(
+        roots,
+        &authority.current,
+        authority.current_key,
+        "Provider authority generation does not match current Core",
+    )?;
     verify_active_core_entrypoint_pair_with_state(roots, &loaded, &authority)?;
-    let store = Store::new(roots)?;
     let install_requested = args[0] == "install" || args[0] == "update";
     if fs::symlink_metadata(&store.root).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-        && !install_requested
+        && (!install_requested || update_selected)
     {
+        if update_selected {
+            return Ok(());
+        }
         if args[0] == "status" {
             println!("Provider chatgpt not installed");
             return Ok(());
         }
         return Err("Provider chatgpt not installed".into());
     }
-    private_directory(&store.root, install_requested)?;
+    private_directory(&store.root, install_requested && !update_selected)?;
     // Core's activation lock serializes selection writes. Shared store leases
     // coexist with old running payloads and still exclude legacy Core writers.
     let lease = store.lease()?;
     let state = store.state()?;
+    if update_selected && state.is_none() {
+        return Ok(());
+    }
     match args[0].to_str() {
-        Some("update") => install_stable(roots, &store, authority.update_key, state),
+        Some("update") => {
+            install_stable(roots, &store, authority.update_key, state, update_selected)
+        }
         Some("install") if args.len() == 2 => {
-            install_stable(roots, &store, authority.update_key, state)
+            install_stable(roots, &store, authority.update_key, state, false)
         }
         Some("install") if args[2] == "--remote" => {
             install_remote(roots, &store, &args[3], authority.update_key, state, None)
@@ -688,8 +709,8 @@ fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {
         }
     }
 }
-pub(super) fn run(roots: &LocalCoreRoots, args: &[OsString]) -> i32 {
-    match action(roots, args) {
+pub(super) fn run(roots: &LocalCoreRoots, request: Request<'_>) -> i32 {
+    match execute(roots, request) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("codex provider: {e}");
@@ -927,7 +948,7 @@ mod tests {
             let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
             fs::write(&roots.curl,format!("#!{}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --url ]; then shift; url=$1; fi; shift; done\nprintf '%s\\n' \"$url\" >> {}\ncase \"$url\" in\n*/provider-index-v1) cat {} ;;\n*/provider-index-v1.sig) cat {} ;;\n*) exit 22 ;;\nesac\n",prefix.join("bin/sh").display(),quote(&log),quote(&index_file),quote(&index_sig))).unwrap();
             fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o755)).unwrap();
-            let result = install_stable(&roots, &store, authority, Some(state));
+            let result = install_stable(&roots, &store, authority, Some(state), false);
             assert_eq!(result.is_ok(), defect == "none", "{defect}: {result:?}");
             let requests = fs::read_to_string(log).unwrap();
             assert_eq!(

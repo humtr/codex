@@ -612,7 +612,7 @@ impl Drop for WaitInput {
     }
 }
 
-fn launch_current(roots: &LocalCoreRoots, env: &TermuxProcessEnvSnapshot) -> i32 {
+pub(super) fn launch_current(roots: &LocalCoreRoots, env: &TermuxProcessEnvSnapshot) -> i32 {
     match execute_activated_route(PublicDispatchRoute::Upstream(Vec::new()), roots, env) {
         Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
             eprintln!("{message}");
@@ -626,6 +626,11 @@ fn launch_current(roots: &LocalCoreRoots, env: &TermuxProcessEnvSnapshot) -> i32
     }
 }
 
+pub(super) enum Completion {
+    Exit(i32),
+    ContinueCurrent,
+}
+
 pub(super) fn finish(
     roots: &LocalCoreRoots,
     env: &TermuxProcessEnvSnapshot,
@@ -633,19 +638,16 @@ pub(super) fn finish(
     policy: BuildPolicy,
     no_wait: bool,
     presentation: &mut UpdatePresentation,
-) -> Result<i32, LocalProductError> {
+) -> Result<Completion, LocalProductError> {
     if rollback_guard::effective_update_hold(roots, None)?.is_some() {
         presentation.clear_transient();
         println!(
             "Rollback hold is active; keeping the installed release without requesting a build."
         );
-        return Ok(0);
+        return Ok(Completion::Exit(0));
     }
     let installed = match &outcome {
-        SignedUpdateOutcome::Activated(v) => {
-            presentation.finish_signed_activation(&v.current_version);
-            &v.current_version
-        }
+        SignedUpdateOutcome::Activated(v) => &v.current_version,
         SignedUpdateOutcome::AlreadyCurrent(v) => &v.version,
     };
     let latest = official(roots)?;
@@ -660,7 +662,7 @@ pub(super) fn finish(
         release_display::upstream(&latest.version, latest.publication.as_ref())
     );
     if !upstream_is_newer {
-        return Ok(0);
+        return Ok(Completion::Exit(0));
     }
     println!(
         "Installed Codex {installed}; official {} needs a qualified Termux release.",
@@ -673,13 +675,13 @@ pub(super) fn finish(
                 "Keeping Codex {installed}; qualified {} is still missing. No build requested.",
                 latest.version
             );
-            return Ok(0);
+            return Ok(Completion::Exit(0));
         }
         BuildPolicy::Local => {
             let _lease = maintenance::UpdateLease::acquire(roots)?;
             let result = activate_local_built_update(roots, env, Some(presentation), Some(latest))?;
             presentation.finish_local_activation(&result.current_version);
-            return Ok(0);
+            return Ok(Completion::Exit(0));
         }
         BuildPolicy::Remote => (),
         BuildPolicy::Ask => unreachable!("choice resolves ask"),
@@ -687,7 +689,11 @@ pub(super) fn finish(
     let requested = request(roots, &latest.version)?;
     if no_wait {
         println!("Build request recorded. Continue with Codex {installed}.");
-        return Ok(if tty { launch_current(roots, env) } else { 0 });
+        return Ok(if tty {
+            Completion::ContinueCurrent
+        } else {
+            Completion::Exit(0)
+        });
     }
     let since = requested.map(|run| request_time(roots, run)).transpose()?;
     println!(
@@ -706,14 +712,14 @@ pub(super) fn finish(
         {
             drop(input);
             let _ = unsafe { raise(signal) };
-            return Ok(128 + signal);
+            return Ok(Completion::Exit(128 + signal));
         }
         match key.map(|b| b.to_ascii_lowercase()) {
             Some(b'c') => {
                 drop(input);
-                return Ok(launch_current(roots, env));
+                return Ok(Completion::ContinueCurrent);
             }
-            Some(b'q') => return Ok(0),
+            Some(b'q') => return Ok(Completion::Exit(0)),
             _ => (),
         }
         if Instant::now() < next_poll {
@@ -746,7 +752,7 @@ pub(super) fn finish(
                             println!("https://github.com/humtr/codex/actions/runs/{}", build.run);
                             if build.failed() {
                                 println!("Publication failed. Codex {installed} remains installed; the next explicit update may request a corrected build.");
-                                return Ok(1);
+                                return Ok(Completion::Exit(1));
                             }
                             continue;
                         }
@@ -766,14 +772,14 @@ pub(super) fn finish(
                             failure.run
                         );
                         println!("Codex {installed} remains installed. Build-request acceptance did not produce a qualified release.");
-                        return Ok(1);
+                        return Ok(Completion::Exit(1));
                     }
                     Ok(None) => (),
                     Err(reason) => {
                         if let Some(signal) = input.pending_signal() {
                             drop(input);
                             let _ = unsafe { raise(signal) };
-                            return Ok(128 + signal);
+                            return Ok(Completion::Exit(128 + signal));
                         }
                         eprintln!(
                             "Build status unavailable: {reason}; signed publication is still checked."
@@ -806,7 +812,7 @@ pub(super) fn finish(
                 }
                 SignedUpdateOutcome::AlreadyCurrent(v) => presentation.finish_current(&v.version),
             }
-            return Ok(0);
+            return Ok(Completion::Exit(0));
         }
     }
     Err(error("build is still pending after two hours; the request is preserved; codex starts the installed version"))

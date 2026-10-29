@@ -227,19 +227,13 @@ pub(super) fn provider_details(
     base: &str,
     generation: &str,
     sequence: u64,
-    current: Option<u64>,
 ) -> Option<String> {
     if !public_origin(base, generation) {
         return None;
     }
     let info = public_release(roots, generation);
-    let versions = match current {
-        Some(selected) if selected == sequence => format!("#{sequence} (latest)"),
-        Some(selected) => format!("#{selected} -> latest #{sequence} (separate Provider update)"),
-        None => format!("release #{sequence}"),
-    };
     let mut text = format!(
-        "Provider chatgpt: {versions} · Published: {}",
+        "Provider chatgpt: release #{sequence} · Published: {}",
         info.as_ref()
             .and_then(|v| v.at.as_deref())
             .unwrap_or("unavailable")
@@ -471,7 +465,6 @@ pub(super) fn line(
     manifest_path: &std::path::Path,
     current: &LocalReleaseManifest,
     target: &LocalReleaseManifest,
-    provider_key: ReleasePublicKey,
 ) -> String {
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
@@ -533,26 +526,7 @@ pub(super) fn line(
     } else {
         info.as_ref()
     };
-    let mut text = render(current, target, display.as_ref(), info.as_ref(), core_info);
-    match provider::update_versions(roots, provider_key) {
-        Ok(Some((selected, latest))) => {
-            if let Some(details) = provider_details(
-                roots,
-                &latest.release_base(),
-                &latest.generation,
-                latest.sequence,
-                Some(selected.sequence),
-            ) {
-                text.push('\n');
-                text.push_str(&details);
-            }
-        }
-        Ok(None) => (),
-        Err(error) => text.push_str(&format!(
-            "\nProvider chatgpt: latest information unavailable: {error}"
-        )),
-    }
-    text
+    render(current, target, display.as_ref(), info.as_ref(), core_info)
 }
 
 #[cfg(test)]
