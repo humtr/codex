@@ -36,8 +36,10 @@ Provider18 retains inherited handles, including Core's payload selection lease,
 in its own process and marks non-stdio handles close-on-exec before starting
 children. Native/app children receive only explicitly exported descriptors; they
 must not keep an incidental Provider selection lock alive. Running Provider
-processes still block selection. CURRENT distinguishes this source correction
-from the already delivered annotation fix.
+processes retain their pinned immutable bytes. The development Core now allows
+selection changes during execution under its existing activation lock; older
+installed Cores retain their prior selection-blocking behavior until upgraded.
+CURRENT distinguishes source qualification from operating activation.
 
 All tool declarations share one Rust annotation policy: readOnlyHint=true,
 destructiveHint=false and openWorldHint=false, including codex_projects. These
@@ -301,8 +303,8 @@ readiness. Explicit stable install/update authenticate the independent signed
 Provider index before package acquisition; remote installation also accepts an
 explicit immutable HTTPS directory. Downloads are bounded, do not retry effects
 and never start during ordinary Core launch/update. Flat remote license assets
-map back to the signed inventory. Failed admission preserves the selected generation. A running payload
-lease or immutable executable blocks selection changes; the installer never stops
+map back to the signed inventory. Failed admission preserves the selected generation. A running payload's
+immutable executable remains pinned across selection changes; the installer never stops
 jobs. Rollback retains the sequence high water and the previous admitted verifier
 key, including across later authority changes. Neither command deletes older
 payloads, downloads a desktop/rootfs, logs in or submits model work.

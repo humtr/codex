@@ -160,10 +160,10 @@ impl Store {
             )?)?)),
         }
     }
-    fn lease(&self, exclusive: bool) -> Result<File> {
+    fn lease(&self) -> Result<File> {
         let file = File::open(&self.root)?;
-        if unsafe { flock(file.as_raw_fd(), if exclusive { 2 | 4 } else { 1 | 4 }) } != 0 {
-            return Err("Provider is busy; selection unchanged".into());
+        if unsafe { flock(file.as_raw_fd(), 1 | 4) } != 0 {
+            return Err("legacy Provider selection writer is busy; selection unchanged".into());
         }
         Ok(file)
     }
@@ -236,37 +236,6 @@ fn selected(
     }
     Ok(manifest)
 }
-fn no_processes(root: &Path) -> Result<()> {
-    let uid = fs::metadata("/proc/self")?.uid();
-    for entry in fs::read_dir("/proc")? {
-        let entry = entry?;
-        if !entry
-            .file_name()
-            .as_encoded_bytes()
-            .iter()
-            .all(u8::is_ascii_digit)
-        {
-            continue;
-        }
-        let m = match fs::metadata(entry.path()) {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e.into()),
-        };
-        if m.uid() != uid {
-            continue;
-        }
-        match fs::read_link(entry.path().join("exe")) {
-            Ok(exe) if exe.starts_with(root) => {
-                return Err("Provider process is running; selection unchanged".into())
-            }
-            Ok(_) => (),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(())
-}
 fn probe(path: &Path, store: &Store) -> Result<()> {
     let output = store.root.join(format!(".probe-{}", std::process::id()));
     let file = fresh(&output)?;
@@ -336,7 +305,6 @@ fn install(
             return Err("Provider sequence rollback/reuse rejected".into());
         }
     }
-    no_processes(&store.generations)?;
     private_directory(&store.generations, true)?;
     if exists {
         private_directory(&destination, false)?;
@@ -581,7 +549,7 @@ pub(super) fn update_versions(
         Err(error) => return Err(error.into()),
         Ok(_) => private_directory(&store.root, false)?,
     }
-    let _lease = store.lease(false)?;
+    let _lease = store.lease()?;
     let Some(state) = store.state()? else {
         return Ok(None);
     };
@@ -630,8 +598,9 @@ fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {
         return Err("Provider chatgpt not installed".into());
     }
     private_directory(&store.root, install_requested)?;
-    let exclusive = install_requested || args[0] == "rollback";
-    let lease = store.lease(exclusive)?;
+    // Core's activation lock serializes selection writes. Shared store leases
+    // coexist with old running payloads and still exclude legacy Core writers.
+    let lease = store.lease()?;
     let state = store.state()?;
     match args[0].to_str() {
         Some("update") => install_stable(roots, &store, authority.update_key, state),
@@ -662,7 +631,6 @@ fn action(roots: &LocalCoreRoots, args: &[OsString]) -> Result<()> {
             selected(roots, &store, &state.current, state.floor)?;
             let previous = state.previous.ok_or("no previous Provider generation")?;
             selected(roots, &store, &previous, state.floor)?;
-            no_processes(&store.generations)?;
             probe(
                 &store
                     .generations
@@ -786,15 +754,16 @@ mod tests {
             root: private.clone(),
             generations: root.join("payloads"),
         };
-        let shared = store.lease(false).unwrap();
-        assert!(store.lease(true).is_err());
-        let peer = store.lease(false).unwrap();
+        let shared = store.lease().unwrap();
+        let peer = store.lease().unwrap();
+        let legacy_writer = File::open(&private).unwrap();
+        assert_ne!(unsafe { flock(legacy_writer.as_raw_fd(), 2 | 4) }, 0);
         drop(shared);
-        assert!(store.lease(true).is_err());
+        assert_ne!(unsafe { flock(legacy_writer.as_raw_fd(), 2 | 4) }, 0);
         drop(peer);
-        let exclusive = store.lease(true).unwrap();
-        assert!(store.lease(false).is_err());
-        drop(exclusive);
+        assert_eq!(unsafe { flock(legacy_writer.as_raw_fd(), 2 | 4) }, 0);
+        assert!(store.lease().is_err());
+        drop(legacy_writer);
         fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(private_directory(&private, false).is_err());
         let alias = root.join("alias");

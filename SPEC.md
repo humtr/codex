@@ -3311,15 +3311,26 @@ Selection retains current/previous identities, their admitted verifier keys and
 a high-water release sequence. Rollback revalidates the admitted previous payload
 and never lowers that high-water sequence. Equal identity/content is observable
 without replacement; changed bytes under an existing identity are rejected.
-Unknown/malformed state fails before mutation. Running payload leases or processes
-block selection changes; install/rollback never stop services, replay work, delete
-older generations or overwrite user data. Launch revalidates signature/inventory
-under a shared lease before executing the selected immutable binary. The Provider
-keeps inherited non-stdio descriptors, including that lease, in its own process
+Unknown/malformed state fails before mutation. Install/rollback serialize selection
+writes through the existing Core activation lock and change only the atomic
+selection record and absent immutable payload directories. Running services and
+pinned profiles retain their original immutable generation; install/rollback never
+stop services, replay work, rewrite profiles, delete older generations or overwrite
+user data. New ordinary launches use the newly selected generation. Service restart
+or explicit profile preparation is a separate user/configured lifecycle decision.
+
+The shared store lease is retained for installed older Core consumers whose writers
+still use that directory exclusively. New selection writers take the same shared
+lease under the Core activation lock, so old running readers do not block them,
+while an in-progress old exclusive writer is still excluded. This compatibility
+exists while installed old Cores remain supported; it introduces no new lock/state
+file. Launch revalidates signature/inventory under that shared lease before exec.
+The Provider keeps inherited non-stdio descriptors, including the store lease, in
+its own process
 but marks them close-on-exec before any runtime or child startup. Only descriptors
 explicitly exported by a child launch cross that boundary. Native backends, app
 children and detached service children must not retain an incidental parent lease;
-a live Provider still blocks selection by its own lease or verified process.
+a live Provider keeps its immutable executable and does not block new selection.
 Stopping an idle Provider must not require terminating an independent Native
 backend solely to release such an inherited lock. This adds no environment/FD ABI
 and does not change existing Core dispatch, payload verification or work authority.

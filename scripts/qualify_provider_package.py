@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real Android signed optional-package lifecycle, without inference/activation."""
 import argparse
+import fcntl
 import datetime
 import hashlib
 import http.server
@@ -292,24 +293,86 @@ def qualify(args):
             profile_before = sha(profile)
             profile_binary = home / '.local/lib/codex/providers/chatgpt/generations/chatgpt-g-test-1/codex-chatgpt-provider'
             assert str(profile_binary) in profile.read_text()
+            def running_owner(label):
+                observed = json.loads(run(label, [profile_binary, 'status', '--state', service]).stdout)
+                assert observed['live'] is True
+                process = observed['process']
+                assert Path('/proc/' + str(process['pid']) + '/exe').resolve(strict=True) == profile_binary
+                return process
+
+            def selection_during_execution(label):
+                before_owner = running_owner(label + ' owner before')
+                public(label + ' install generation 2 while generation 1 runs',
+                       'install', 'chatgpt', '--local', two)
+                assert b'current\tchatgpt-g-test-2\n' in selection.read_bytes()
+                assert running_owner(label + ' owner after install') == before_owner
+                assert sha(profile) == profile_before, 'selection rewrote the pinned profile'
+                public(label + ' rollback selection while generation 1 runs', 'rollback', 'chatgpt')
+                status = public(label + ' high water after rollback', 'status', 'chatgpt').stdout
+                assert b'release_sequence: 1' in status and b'high_water: 2' in status
+                assert running_owner(label + ' owner after rollback') == before_owner
+                assert sha(profile) == profile_before
+                assert profile_binary.exists()
+                case.setdefault('live_selection', []).append(dict(route=label,
+                    kernel_pid_preserved=True, immutable_executable_preserved=True,
+                    original_profile_preserved=True, rollback_high_water_preserved=True))
+
             try:
-                public('live lease blocks update', 'install', 'chatgpt', '--local', two, expected=1)
-                assert selection.read_bytes() == original_selection
-                public('read status during live service', 'status', 'chatgpt')
-                public('confirmed owned service stop', 'chatgpt', 'stop', '--state', service)
+                selection_during_execution('Core-prepared detached service')
             finally:
                 # Stop only the isolated service through its original immutable owner.
                 status = subprocess.run([str(profile_binary), 'status', '--state', str(service)], env=env, capture_output=True, timeout=15)
                 if status.returncode == 0 and json.loads(status.stdout).get('process'):
                     subprocess.run([str(profile_binary), 'stop', '--state', str(service)], env=env, capture_output=True, timeout=15, check=True)
-            # Pinned profile executables bypass Core dispatch; /proc must still fence them.
+            # A pinned profile bypasses Core dispatch. Its immutable bytes and
+            # kernel identity must survive the same independent selection changes.
             run('direct pinned executable prepare', [profile_binary, 'prepare', '--home', home / '.codex', '--state', service])
             try:
-                rejected = public('direct immutable process blocks update', 'install', 'chatgpt', '--local', two, expected=1)
-                assert b'process is running' in rejected.stderr
-                assert selection.read_bytes() == original_selection
+                selection_during_execution('direct pinned service')
             finally:
                 run('stop directly bound owner', [profile_binary, 'stop', '--state', service])
+            # Foreground Core exec retains the actual store lease. Detached
+            # prepare intentionally closes incidental handles, so it alone
+            # cannot exercise the former shared-reader/exclusive-writer defect.
+            with (case_root / 'foreground-service.log').open('wb') as log:
+                foreground = subprocess.Popen([str(launcher), 'provider', 'chatgpt',
+                    'serve', '--state', str(service)], env=env, cwd=case_root / 'w',
+                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                    start_new_session=True)
+                try:
+                    deadline = time.monotonic() + 20
+                    while True:
+                        observed = subprocess.run([str(profile_binary), 'status', '--state', str(service)],
+                            env=env, capture_output=True, timeout=5)
+                        if observed.returncode == 0 and json.loads(observed.stdout).get('live'):
+                            break
+                        assert foreground.poll() is None, 'foreground owner exited before readiness'
+                        assert time.monotonic() < deadline, 'foreground owner never became ready'
+                        time.sleep(.05)
+                    assert json.loads(observed.stdout)['process']['pid'] == foreground.pid
+                    store_root = home / '.local/share/codex/core/providers/chatgpt'
+                    guard = os.open(store_root, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        try:
+                            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            pass
+                        else:
+                            raise AssertionError('foreground Core did not retain the actual shared store lease')
+                    finally:
+                        os.close(guard)
+                    selection_during_execution('Core foreground store lease')
+                finally:
+                    stopped = subprocess.run([str(profile_binary), 'stop', '--state', str(service)],
+                        env=env, capture_output=True, timeout=15)
+                    if foreground.poll() is None:
+                        foreground.terminate()
+                    try:
+                        foreground.wait(timeout=8)
+                    except subprocess.TimeoutExpired:
+                        foreground.kill()
+                        foreground.wait(timeout=5)
+                    assert stopped.returncode == 0, stopped.stderr
             public('update generation 2', 'install', 'chatgpt', '--local', two)
             assert sha(profile) == profile_before, 'selection silently rewrote pinned profile'
             assert profile_binary.exists()

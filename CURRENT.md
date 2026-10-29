@@ -324,7 +324,11 @@ changed in this batch. The local compiler investigation verified native Zig0.14.
 but official musl std rejects the Termux compiler's different build identity;
 rebuilding std then exposes an unsupported Zig linker argument. Those experiments
 are not a supported local recipe. A dedicated Linux musl build environment is the
-next qualification candidate; existing operating app hosts will not be reused.
+qualified toolchain route; existing operating app hosts are not reused. The exact
+verified official GNU Rust1.99.1/compiler/host-std/musl-std components, matching the
+selected source recipe, build a static musl probe inside the isolated Debian
+container and execute it directly on Android (`local-linux-musl-{probe,native}.log`).
+This establishes toolchain feasibility, not complete Codex source-build support.
 Only the missing `proot-distro` dependency was installed (5.10.3), after an apt
 plan confirmed zero upgrades/removals. A dedicated named Debian build container
 is being prepared, with its ownership/image record retained in the evidence root.
@@ -334,10 +338,26 @@ portable per-component build inputs and exact-output reuse; real local source
 build/tool dependencies and configured developer signing; compatible installed
 module planning including Provider/tunnel; optional executor/mirror adapters;
 complete publication/readback/disposable update and bounded device activation.
-Provider selection currently holds a store-wide payload lease and rejects live
-processes; that existing contract must be revised and proven separately to allow
-new installation while old immutable jobs continue. Removing the process check
-alone would leave the lease blockage and is not a complete fix. Full smoke source
+Provider selection source is qualified: keep a shared store lease for installed
+legacy writers, serialize new selection changes through the existing Core activation
+lock, and retain old immutable processes/profiles across installation and rollback.
+The process scan and exclusive store-writer gate are removed together. The complete
+`provider-live-full.log` gate passes Python27+119+14 and all Rust/Clippy gates
+(Core229 plus the existing explicit device-test exclusion, Manager52, integration67+3,
+builder31, binding2). This is source proof, not hosted or operating activation.
+`provider-live-packages.json` passes actual Android Base/Full signed local/TLS
+install, rollback, high-water/authority/negative admission and unchanged live owner/
+profile at both detached Core prepare and direct pinned executable entrypoints.
+`provider-live-foreground.json` additionally proves a real Core-dispatched foreground
+Provider keeps the actual shared directory lease while install/rollback preserve its
+kernel PID/image and original profile, in both compositions. No model request or
+operating service/profile change occurred.
+The initial exclusive-gate mutation passed because detached startup deliberately
+closes incidental leases; it did not qualify that fault. The added foreground
+kernel/lock boundary rejects that mutation in `provider-live-mutation-v2.json`,
+at the intended live selection step. Its copied source is restored and the fault
+patch retained. This finding strengthens the regression instead of weakening an
+assertion. Exact accepted executables remain outside mutable compiler output. Full smoke source
 repair has no hosted execution proof yet. Public production remains Base124/Full123.
 
 Core should own detection, composition selection, acquisition choice, progress,
