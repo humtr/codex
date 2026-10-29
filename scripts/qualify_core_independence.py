@@ -31,8 +31,10 @@ def qualify(args, report):
     tools = {name: shutil.which(name) for name in ('openssl', 'gzip')}
     assert all(tools.values()), 'OpenSSL and gzip are required'
     report['inputs'] = {name: sha(getattr(args, name))
-                        for name in ('core', 'builder', 'archive', 'manager', 'frontend')
+                        for name in ('core', 'builder', 'archive', 'manager', 'frontend', 'source_runtime')
                         if getattr(args, name) is not None}
+    if args.source_runtime is not None:
+        report['sourceRevision'] = args.source_revision
     report['driverSha256'] = sha(Path(__file__).resolve())
     assert report['inputs']['archive'] == args.archive_sha256
     report['version'] = args.version
@@ -75,6 +77,9 @@ def qualify(args, report):
                 command += ['--manager', manager]
             if frontend:
                 command += ['--manager-tui', frontend, '--manager-tui-version', args.version]
+            if args.source_runtime is not None:
+                command += ['--source-runtime', args.source_runtime,
+                            '--source-revision', args.source_revision]
             run(f'build {identity}', command)
             run(f'sign {identity}', [args.builder, 'publish', '--generation', unsigned,
                 '--release-sequence', str(sequence), '--release-base', f'https://humtr.github.io/codex/{identity}/',
@@ -354,9 +359,14 @@ def main():
                         help='Also prove unchanged Manager reuse and optional-asset failure boundaries')
     parser.add_argument('--frontend', type=lambda value: Path(value).resolve(),
                         help='Qualified raw frontend for actual TUI-without-Manager execution')
+    parser.add_argument('--source-runtime', type=lambda value: Path(value).resolve(),
+                        help='Compiled runtime passed through the production source-runtime admission path')
+    parser.add_argument('--source-revision', help='Exact official revision of --source-runtime')
     parser.add_argument('--archive-sha256', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
+    if (args.source_runtime is None) != (args.source_revision is None):
+        parser.error('--source-runtime and --source-revision are required together')
     report = {'accepted': False, 'steps': [], 'realChatSubmissions': 0,
               'publicPublication': False, 'deviceActivation': False}
     try:

@@ -483,6 +483,40 @@ with actual output in `native-runtime-rust-build-v4.log` and a terminal exit rec
 only when that worker returns. Revalidate the exact handle before continuation.
 Do not infer completed Codex build or installation from SDK/jemalloc preparation.
 
+Independent native dependency qualification now also builds official libcap2.75
+from the archive digest pinned by the selected upstream build script, using
+native Zig for the target objects and Termux clang for its build-time generator.
+The static library links into an actual Android executable; reading/freeing its
+own process capabilities succeeds, with no ELF interpreter or PRoot
+(`native-libcap-{build,execution}.json`). This does not change any process
+capability. A frozen library/headers and native probe are retained before cleaning
+that owned completed build's generated files. The source Makefile also attempts
+unused Go discovery when Go is present; its `/usr/bin/env` helper does not run on
+this host. That diagnostic does not qualify Go support. The consumed target is
+only `libcap.a`, and its C build/runtime proof succeeds.
+
+OpenSSL3.6.4 also passes its independent native build from the same hash-verified
+official archive and feature options used by the upstream recipe, with objects
+in the XDG cache and an isolated prefix. The actual static Android probe matches
+the known SHA-256 of `abc`, creates/frees a TLS context and reports the expected
+OpenSSL version with no stderr or ELF interpreter
+(`native-openssl-{inputs,build-exit,execution}.json`). Its source and libraries
+remain separate from those used by the still-running complete Codex trial; that
+worker's build inputs were not changed mid-run. The completed dependency outputs
+are frozen before owned intermediate cleanup
+(`native-{libcap,openssl}-cleanup.json`). These are temporary qualification
+commands, not installed Python executors or completed dependency provisioning in
+Core.
+
+The existing actual Core lifecycle driver now accepts a compiled source runtime
+and its exact source revision as a pair, passes them to the production builder
+and records the input digest/revision. Missing pairs fail before fixture creation.
+The complete native source lifecycle has not run yet: wait for the current source
+producer's terminal output, then qualify the latest frozen Core/builder with the
+real official0.165 archive (the retained `up165-5wrp5v0i/upstream.tar.gz` matches
+the selected release digest), candidate signatures, update and rollback.
+Do not substitute the already-adapted installed runtime for raw source output.
+
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source
 build/tool dependencies and configured developer signing; compatible installed
