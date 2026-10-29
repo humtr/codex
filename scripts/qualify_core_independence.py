@@ -373,9 +373,22 @@ def qualify(args, report):
             curl = shutil.which('curl')
             assert curl, 'Native curl is required for local-build qualification'
             requests = root / 'local-build-curl-requests'
+            archive_url = ('https://releases.openai.com/codex/releases/'
+                           f'{args.version}/codex-package-aarch64-unknown-linux-musl.tar.gz')
+            replacement = root / 'replacement-core'
+            replaced_image = root / 'replaced-updater-image'
+            # Inject an atomic pathname replacement during real acquisition.
+            # Preserve the admitted bytes; only the kernel process-image lifetime
+            # changes. An input selected through current_exe now names a deleted
+            # inode, while the immutable signed generation stays available.
             (prefix / 'bin/curl').write_text(
                 f'#!{host_prefix}/bin/sh\n'
                 f'printf \'%s\\n\' "$@" >> {shlex.quote(str(requests))}\n'
+                f'for arg do if [ "$arg" = {shlex.quote(archive_url)} ]; then\n'
+                f'  {shlex.quote(shutil.which("cp"))} -p {shlex.quote(str(launcher))} {shlex.quote(str(replacement))} &&\n'
+                f'  {shlex.quote(shutil.which("mv"))} {shlex.quote(str(replacement))} {shlex.quote(str(launcher))} || exit 96\n'
+                f'  {shlex.quote(shutil.which("readlink"))} /proc/$PPID/exe > {shlex.quote(str(replaced_image))} || exit 97\n'
+                'fi; done\n'
                 f'exec {shlex.quote(curl)} "$@"\n')
             (prefix / 'bin/curl').chmod(0o755)
             # Core accepts this earlier fixture symlink, while the builder's
@@ -391,8 +404,6 @@ def qualify(args, report):
             unapproved.chmod(0o600)
             before = state()
             selected = dict(env, CODEX_TERMUX_UPDATE_VERSION=args.version)
-            archive_url = ('https://releases.openai.com/codex/releases/'
-                           f'{args.version}/codex-package-aarch64-unknown-linux-musl.tar.gz')
             reference.write_text(f'file:{unapproved}\n')
             rejected = run('unapproved configured signer refuses before archive',
                 [launcher, 'update', '--build-local'], selected=selected, expected=1)
@@ -400,6 +411,7 @@ def qualify(args, report):
                 rejected.stdout[-2048:], rejected.stderr[-2048:])
             assert state() == before
             assert archive_url not in requests.read_text().splitlines()
+            assert not replaced_image.exists()
             key_digest = sha(key)
             reference_text = f'file:{key}\n'
             reference.write_text(reference_text)
@@ -409,6 +421,7 @@ def qualify(args, report):
                 #180s construction/probe allowance after observing that result.
                 timeout=300 + 180)
             assert b'Local build signing: configured release authority' in result.stdout, result.stdout[-2048:]
+            assert replaced_image.read_text().strip() == str(launcher) + ' (deleted)'
             after = state()
             assert after['current'].startswith('local-')
             assert after['previous'] == before['current']
@@ -429,6 +442,9 @@ def qualify(args, report):
                 'configuredAuthorityMatchesAdmittedUpdateKey': True,
                 'externalKeyAndReferencePreserved': True,
                 'rollbackAndRetainedForwardPassed': True, 'publicUpload': False,
+                'atomicEntrypointReplacementDuringAcquisition': True,
+                'runningImageObservedDeleted': True,
+                'admittedImmutableCoreReused': True,
             }
         assert sha(sentinel) == sentinel_hash
         report['userStatePreserved'] = True

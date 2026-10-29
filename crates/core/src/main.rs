@@ -8120,6 +8120,14 @@ fn prepare_local_derived_release(
             "local-derived release verifier does not match its selected signing authority",
         ));
     }
+    if current_loaded.core_path.is_some()
+        && source_loaded.manifest.core_artifact_digest
+            != current_loaded.manifest.core_artifact_digest
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local-built Core differs from the authenticated current generation",
+        ));
+    }
     let provenance = parse_local_derived_metadata(&source_release, &source_loaded)?.ok_or(
         LocalProductError::LocalUpdate("local-derived release is missing bound provenance"),
     )?;
@@ -8475,7 +8483,10 @@ fn activate_local_built_update(
                 "official upstream archive digest does not match release metadata",
             ));
         }
-        let core = running_core_artifact_for_local_build()?;
+        let core = match current_loaded.core_path.as_ref() {
+            Some(path) => path.clone(),
+            None => running_core_artifact_for_local_build()?,
+        };
         let gzip = roots
             .curl
             .parent()
@@ -18653,6 +18664,8 @@ esac
 
         for defect in [
             "healthy",
+            "installed-core",
+            "core-changed-during-build",
             "newer",
             "missing-manager",
             "missing-frontend",
@@ -18700,6 +18713,24 @@ esac
                 "helper\ttermux-manager-tui-v1:0.150.1\t{digest}\n"
             ));
             std::fs::write(descriptor_path, descriptor).unwrap();
+            let installed_core_digest =
+                if matches!(defect, "installed-core" | "core-changed-during-build") {
+                    use std::io::Write as _;
+                    let core = root.join("selected-core");
+                    let running = b10_release_core_from_env()
+                        .unwrap_or_else(|| std::env::current_exe().unwrap());
+                    std::fs::copy(running, &core).unwrap();
+                    std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(&core)
+                        .unwrap()
+                        .write_all(b"selected immutable Core fixture\n")
+                        .unwrap();
+                    b2_attach_core(&current, &openssl, &core);
+                    Some(openssl_sha256(&openssl, &core).unwrap())
+                } else {
+                    None
+                };
             b4_write_signed_release(&current, 1, &openssl, &private_key);
             b7_seed_initial_release(
                 &current,
@@ -18707,7 +18738,14 @@ esac
                 &prefix,
                 &home.join(".local/lib/codex/core/release-public-key.pem"),
             );
-            std::fs::copy(std::env::current_exe().unwrap(), prefix.join("bin/codex")).unwrap();
+            std::fs::copy(
+                installed_core_digest
+                    .as_ref()
+                    .map(|_| current.join("core"))
+                    .unwrap_or_else(|| std::env::current_exe().unwrap()),
+                prefix.join("bin/codex"),
+            )
+            .unwrap();
             std::fs::set_permissions(
                 prefix.join("bin/codex"),
                 std::fs::Permissions::from_mode(0o755),
@@ -18766,8 +18804,41 @@ esac
                 );
                 std::fs::write(curl_path, script).unwrap();
             }
+            if defect == "core-changed-during-build" {
+                let installed_core = installed.join("core");
+                let saved_core = root.join("saved-admitted-core");
+                std::fs::copy(&installed_core, &saved_core).unwrap();
+                let curl_path = prefix.join("bin/curl");
+                let script = std::fs::read_to_string(&curl_path).unwrap().replace(
+                    "\"$archive_url\") exec",
+                    &format!(
+                        "\"$archive_url\") printf changed >> {}; exec",
+                        b5_shell_quote(&installed_core)
+                    ),
+                );
+                std::fs::write(curl_path, script).unwrap();
+                // The builder snapshots Core before extracting the archive.
+                // Restore the signed source at that later external-tool boundary
+                // so ordinary final revalidation alone cannot detect poisoned
+                // construction input. The candidate must preserve Core identity.
+                let real_gzip = prefix.join("bin/real-gzip");
+                std::fs::rename(&gzip, &real_gzip).unwrap();
+                std::fs::write(
+                    &gzip,
+                    format!(
+                        "#!{}\n{} {} {} || exit 96\nexec {} \"$@\"\n",
+                        resolve_test_shell().display(),
+                        b5_shell_quote(&live_prefix.join("bin/cp")),
+                        b5_shell_quote(&saved_core),
+                        b5_shell_quote(&installed_core),
+                        b5_shell_quote(&real_gzip)
+                    ),
+                )
+                .unwrap();
+                std::fs::set_permissions(&gzip, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
             let output = b7_run_public_build_local(None, None, &home, &prefix, &tmp);
-            if matches!(defect, "healthy" | "missing-manager") {
+            if matches!(defect, "healthy" | "installed-core" | "missing-manager") {
                 assert_eq!(
                     output.status.code(),
                     Some(0),
@@ -18786,8 +18857,15 @@ esac
                     "local pair",
                 )
                 .unwrap();
+                if let Some(expected) = installed_core_digest.as_ref() {
+                    assert_eq!(&loaded.manifest.core_artifact_digest, expected);
+                    assert_eq!(
+                        openssl_sha256(&openssl, loaded.core_path.as_ref().unwrap()).unwrap(),
+                        *expected
+                    );
+                }
                 assert!(loaded.manager_tui_available);
-                assert_eq!(loaded.manager_path.is_some(), defect == "healthy");
+                assert_eq!(loaded.manager_path.is_some(), defect != "missing-manager");
                 assert_eq!(loaded.manifest.helper_digests[2].digest, digest);
                 assert_eq!(
                     std::fs::read(&loaded.helper_paths[2]).unwrap(),
@@ -18823,7 +18901,7 @@ esac
                 )
                 .unwrap();
                 assert!(loaded.manager_tui_available);
-                assert_eq!(loaded.manager_path.is_some(), defect == "healthy");
+                assert_eq!(loaded.manager_path.is_some(), defect != "missing-manager");
                 assert_eq!(
                     std::fs::read(&loaded.helper_paths[2]).unwrap(),
                     frontend_bytes
@@ -18850,6 +18928,8 @@ esac
                     String::from_utf8_lossy(&output.stderr).contains(
                         if defect == "changed-during-build" {
                             "Admitted frontend changed during local construction."
+                        } else if defect == "core-changed-during-build" {
+                            "Local-built Core differs from the authenticated current generation."
                         } else {
                             "admitted same-version Manager frontend"
                         }
@@ -18866,7 +18946,7 @@ esac
                     std::fs::read_to_string(&curl_log)
                         .unwrap()
                         .contains(&archive_url)
-                        == (defect == "changed-during-build"),
+                        == matches!(defect, "changed-during-build" | "core-changed-during-build"),
                     "{defect}"
                 );
             }

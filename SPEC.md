@@ -5231,8 +5231,9 @@ source commit and versioned official release archive tuple in release/upstream.j
 The hosted source producer compiles that source; the archive supplies the original
 companion, and retained binary adaptations bind their original raw CLI. All paths
 require qualification before signing. When the user selects local build, Core performs the exact official fetch/build/adapt
-steps locally, sign the immutable candidate with a fresh ephemeral device-local
-key, bind it to the authenticated public baseline, and feed it only to the
+steps locally, signs the immutable candidate with the explicitly configured
+authorized key or a fresh ephemeral device-local key, binds it to the
+authenticated public baseline, and feeds it only to the
 dedicated local-derived admission path. That path performs no official
 publish/signing action. Core never downloads a raw upstream archive directly
 into the active generation and never runs an upstream self-updater.
@@ -5240,10 +5241,21 @@ into the active generation and never runs an upstream self-updater.
 `codex update --build-local` is an explicit selector owned by Core. It is valid
 only by itself. It resolves the same exact official stable metadata and versioned
 archive used by the qualified release builder, verifies the metadata-bound
-archive digest, builds/adapts in private staging, signs with a fresh ephemeral
-Ed25519 key, runs the normal candidate probes, and atomically activates the
-result. The presence or absence of an official release private key has no effect
-on this route. No transport failure selects this route automatically.
+archive digest, builds/adapts in private staging, signs with the configured
+authorized key or the default fresh ephemeral Ed25519 key, runs the normal
+candidate probes, and atomically activates the result. A private-key environment
+variable alone grants no signing authority; configured signing follows the
+`config/build-signing-key` contract. No transport failure selects this route
+automatically.
+
+Local construction reuses the authenticated current generation's immutable Core
+artifact when that generation declares one. The running updater may be an older
+image whose stable pathname was atomically replaced; its process image is not
+the selected build input. Historical generations without a bundled Core retain
+their existing running-Core input until a coordinated generation is admitted.
+Admission compares the constructed Core digest with the reauthenticated current
+generation's declared Core; a file changed during construction cannot silently
+be admitted as a new Core under the local-build authority.
 
 A local-derived candidate records the authenticated public baseline generation
 and sequence in its signed provenance and uses that same sequence in its signed

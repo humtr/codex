@@ -783,16 +783,58 @@ reclaiming30,949,376 bytes; their Git bases, patches and restoration record rema
 (`selected-provider-worktree-cleanup.json`). No public or operating activation
 occurred, and compiler caches remain below the15-GiB budget.
 
-This qualifies selected Provider updates, not the entire module lifecycle. A
-changed Provider generation still downloads its complete declared package, even
-for byte-identical entries; verified per-file reuse and general changed-object
-publication remain required. Before installed source-build integration, verify
-continuation after Core-image replacement/concurrent activation: manual freshness
-still consumes its original Core outcome and the local builder obtains its Core
-artifact from current_exe. The actual handoff/freshness/build-input relationship
-needs producer-to-consumer proof rather than an assumed current image. Broader
-module compatibility/planning, native source/dependency provisioning, configured
-transports, publication/readback and bounded device activation remain required.
+Local construction now obtains its Core input from the authenticated current
+generation's immutable artifact. The prior current_exe/canonicalize route can
+fail after an atomic pathname replacement: an owned Android probe observes the
+running image as `(deleted)` and canonicalization fails with ENOENT
+(`core-image-replacement-observation.json`). That old input route remains only
+for supported historical generations without a bundled Core; admitting a
+coordinated generation switches to its declared artifact. Local-derived admission
+also compares the constructed Core digest with the reauthenticated current Core,
+so construction-time substitution cannot be accepted as a new local Core. This
+is an admission check, not a claim that the signer never saw temporary output.
+
+The existing public local-build regression now distinguishes the installed and
+running images and injects a temporary Core modification before the builder
+snapshot, restoring the signed source at the later gzip boundary. Both normal
+construction and rejection of that substituted output pass. The two disposable
+faults (running-image selection and omitted Core identity binding) each execute
+and fail that regression (`core-build-input-mutations-v2.json`); sources were
+restored, patches retained and the two inactive worktrees removed after exact
+diff/untracked/ignored/live checks (`core-build-input-worktree-cleanup.json`).
+Final Rust/Clippy passes Core230 with the existing device exclusion, Manager52,
+integration67+3, builder42 and binding2 (`core-build-input-rust-final-v2.log`),
+and Python25+123+10 passes (`core-build-input-python-final.log`). Debug/test
+symbols and incremental output remain disabled. The optimized Core is frozen in
+`core-build-input-bin`; the unchanged accepted builder is reused.
+
+Actual Android release-executable qualification passes32 steps against the real
+official0.164.0 archive/HTTPS endpoints (`core-build-input-native-v2.json`). The
+owned transport hook atomically replaces the fixture launcher during acquisition,
+preserving its admitted bytes/mode, and observes the actual updater's process
+image as `(deleted)`. Local construction, configured authorized signing, exact
+Core reuse, activation and both rollback directions still complete. This injects
+the pathname-lifetime fault at the real external acquisition boundary; it does
+not claim a new0.165 port or a simultaneous second signed Core update. The first
+trial's hook copied without preserving mode under umask077, producing0700 instead
+of0755; Core correctly rejected it before activation. Its failed report/log remain
+(`core-build-input-native.json`), and the corrected hook uses cp -p. Both owned
+fixtures were removed; operating state, external credentials and public delivery
+were unchanged. This0.164 binary-adaptation proof is distinct from the still
+unfinished0.165 native source producer and device activation.
+
+This qualifies selected Provider updates and the tested local Core input scope,
+not the entire module lifecycle. A changed Provider generation still downloads
+its complete declared package, even for byte-identical entries; verified per-file
+reuse and general changed-object publication remain required. Manual freshness
+still consumes its original Core outcome after releasing the update lease;
+concurrent activation and the actual current-client handoff need separate proof.
+Broader module compatibility/planning, native source/dependency provisioning,
+configured transports, publication/readback and bounded device activation remain
+required. The local archive fetch still suppresses curl stderr and removes its
+partial staging on failure. Source integration needs cause-specific failure,
+verified resumable acquisition and observable transfer progress beyond its phase
+label, rather than a longer unexplained timeout or another acquisition route.
 
 The initial exclusive-gate mutation passed because detached startup deliberately
 closes incidental leases; it did not qualify that fault. The added foreground
