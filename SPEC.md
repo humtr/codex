@@ -834,13 +834,13 @@ a TTY, output remains plain; when it is a TTY, Core removes only the inherited
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts exactly no arguments, `--help`, `--force`,
-`--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
+The Core-owned update surface accepts exactly no arguments, `--wait`, `--no-wait`,
+`--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
 after `update`. No top-level `codex rollback` command is introduced. A malformed
 invocation beginning with one of those Core selectors is a Core usage error. The no-argument
 form is the primary product path: it first tries the signed stable wrapper channel
-and may then run the local release-production path defined in Section 8 when the
-automatic channel is unavailable at the transport boundary. An already-current
+and offers an explicit build-policy choice only when official freshness proves
+a required artifact is missing. Transport failure remains a transport failure. An already-current
 signed release remains a no-op; an authenticated rollback hold never triggers a
 local build. `--build-local` is explicit and also refuses an active rollback hold. A
 verified index with an invalid signature, malformed fields, an incompatible
@@ -4158,29 +4158,62 @@ not an indefinitely pending build; preserve the installed release and report the
 failed version/source/stage and original job URL. A failed pipeline is not repaired
 by retrying identical inputs or compiling the same unsupported tuple on a device.
 
-The target default is one hosted build per supported upstream/recipe/composition,
-followed by ordinary signature-verified device installation. CI and an automatic
-on-device build must not race by default. Developer and consumer use the same
-signed update path; explicit maintainer dispatch and explicit local-derived
-qualification have separate authority. Repository presence and model-service
-login do not identify developer authority. Consumers require no repository write
-permission or GitHub CLI merely to update or observe a public build. Immediate
-anonymous dispatch, if offered, must use an owner-hosted bounded/deduplicated
-request service whose GitHub credentials never enter a client; it admits only
-official versions and owner-selected accepted recipes, not arbitrary workflows,
-source revisions or shell input. A request ACK admits no executable. Scheduled
-upstream discovery is useful prebuilding but cannot be described as an immediate
-consumer request. CURRENT records which portions of this target are shipped.
+Core owns the complete update lifecycle: discover installed-component updates,
+resolve compatible dependency groups, reuse unchanged artifacts, acquire or build
+missing artifacts, verify and atomically activate each inseparable group. Manager,
+TUI, Provider and tunnel remain selected only when the user selected them. Full is
+the complete selected composition, not a reason to rebuild unchanged components.
+Existing Base/Full generations and independent Provider selections migrate without
+losing credentials, profiles, conversations, rollback artifacts or live jobs.
+
+Remote preparation checks official upstream metadata every two hours and responds
+to owned component-source changes. Only changed build inputs trigger preparation;
+equivalent pending work is reused. Consumers first use authenticated cached or
+published artifacts, without a model login or repository write permission. Local
+and remote executors use the same versioned build/qualification contract. GitHub
+CI is an optional executor/publication adapter, not the update state authority.
+Published artifact authority remains the admitted signing key regardless of
+transport or executor. A request ACK admits no executable.
 
 Explicit `codex update` also checks the official stable release. A current wrapper
 channel alone does not mean the installed upstream version is current. Ready
 signed releases install through ordinary admission. If the official release is
-newer and the matching Full/Base release is not yet ready, manual update requests
-the existing owner CI discovery/qualification pipeline once through authenticated
-GitHub CLI, reuses a matching pending request, then waits for signed publication.
-It never replaces Full with Base or locally compiles a missing frontend. Build
-failures remain failures; signature/digest/admission errors never become build
-requests. CI remains the only signing/publication authority.
+newer and a required compatible artifact is unavailable, interactive update offers
+one grouped choice: keep those items, build locally including missing dependency
+installation, or request an immediate remote build. Compatible ready independent
+updates may still proceed; the displayed plan states that scope. Configured build
+policy provides the noninteractive/default choice. No transport error silently
+starts a build; signature/digest/compatibility failures remain failures. A selected
+frontend is not silently removed. Remote requests reuse the same target job and
+report its actual build/qualification/publication state and terminal failures.
+
+The local executor checks the recipe's required tool versions, storage and target,
+installs only missing required tools through the appropriate package manager, and
+builds only the affected artifacts. Selecting local build authorizes those stated
+dependency operations, not an unrelated system-wide upgrade. Source adaptation
+preflights its known semantic transformations and reports unsupported upstream
+changes explicitly. Actual Termux and Android execution qualification is required
+before declaring a local recipe supported.
+
+Ordinary local results use the existing device-local derived signing authority and
+retain the admitted public update key/baseline. A configured signer whose public
+key is authorized for the release may sign qualified developer output locally.
+Model login, GitHub login and checkout presence are not signing authority. Signing
+does not imply public upload; publication follows its configured permission and
+non-forced promotion policy. Public upload reuses already admitted identical
+objects and transfers only absent changed objects plus metadata/signatures.
+Unchanged binaries are never rebuilt merely to resign a composition. Public
+sequence conflicts require renewed metadata admission, not forced overwrite.
+
+Missing-artifact policy is `ask` by default. The owner may configure one value
+(`ask`, `keep`, `local`, or `remote`) in Core's `config/update-policy`; an explicit
+`CODEX_TERMUX_UPDATE_BUILD_POLICY` overrides it. Invalid policy fails before update
+activation. `ask` requires an interactive terminal when a missing artifact is
+actually found; noninteractive callers must select a policy rather than dispatch
+implicitly. `--wait` and `--no-wait` explicitly select remote request with their
+existing waiting semantics. A keep decision reports the missing target, preserves
+that dependency group and performs no dispatch or tool installation. Local builds
+pin the official version/digest already presented to the user.
 
 Normal `codex` entry never requests a build. During manual waiting, `c` continues
 with the installed version while the CI request remains pending; `q` leaves the
@@ -4206,12 +4239,12 @@ Acquisition and adaptation are release-production work. The wrapper release
 pipeline retrieves the exact official package, supplies its pinned digest to
 the real non-installed workspace executable named `codex-release-builder`,
 and signs the resulting adapted generation for delivery. The installed Core
-does not compile itself, install a Rust toolchain, or execute an upstream
-self-updater. It contains the same bounded release-production routines needed
-by the no-argument local fallback; those routines may fetch the official
+never executes an upstream self-updater. Explicit local build prepares only
+recipe-required tools and invokes the bounded release-production routines.
+Those routines fetch the official
 archive, adapt the raw runtime, qualify the result and sign only that local
 candidate with a fresh ephemeral device-local key while preserving the official
-forward update_key. The fallback never accepts a raw archive as an activation
+forward update_key. Local build never accepts a raw archive as an activation
 candidate and never bypasses signed local admission. The builder's
 `fetch` operation
 accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
@@ -4227,7 +4260,7 @@ the Manager is copied into the generation root and bound by
 `manager_artifact_digest`; when omitted, the descriptor uses `-` and no
 Manager file is emitted. It performs no discovery, signing, activation, or
 live-state mutation and emits an unsigned Core-bearing generation source for
-the `codex-release-v4` signing and delivery path. Core's local fallback carries
+the `codex-release-v4` signing and delivery path. Core's explicit local build carries
 forward the currently authenticated Manager artifact, when one is present,
 so a qualified Manager is not silently lost on an upstream update.
 `codex-release-v2` remains implementation history and is not retained as a
@@ -4309,22 +4342,25 @@ an authenticated `$PREFIX/bin/gh` account is inert to Core update semantics.
 Signed-channel exact-current and rollback-held results therefore remain consumer
 outcomes; they do not trigger ambient upstream discovery or release production.
 
-Official source production remains an explicit, non-installed tooling boundary.
+Official source production remains an explicitly selected build responsibility.
 The repository's `codex-release-builder` `fetch`, `build`, and `publish` commands
 may be orchestrated by an authorized producer: `fetch` selects and verifies the
 exact official upstream metadata/archive, `build` performs the required Termux
 adaptation and qualification, and `publish` constructs the signed immutable
 release/index publication tree using an explicitly supplied signing authority.
-Those commands do not make `codex update` a producer and do not themselves grant
-network publication authority. GitHub-hosted scheduling, secret-backed signing,
-and Release/Pages promotion require the complete publication gate.
+Local update executes the same qualified recipe through its optional build tools;
+ordinary launch/download does not. The non-installed builder CLI is also available
+to developers and remote executors. Neither build selection nor signing grants
+network publication authority. Any public promotion requires the complete
+source/execution/readback gate, independent of the executor.
 
 The maintained release workflow runs from one exact accepted source selected by
 the main publication caller. Candidate construction and Android/AArch64 smoke
 are read-only and have no signing secret or public mutation authority. Signing,
 immutable Release/Pages staging, public consumer proof and stable CAS are separate
-jobs on the same admitted payload. Normal scheduling is six-hour; manual dispatch
-is available for non-publishing qualification or explicitly authorized publication.
+jobs on the same admitted payload. Upstream preparation is scheduled every two
+hours; manual dispatch remains available for non-publishing qualification or
+explicitly authorized publication. Unchanged preparation inputs cause no build.
 
 All candidate/component transformations and corrective bindings must complete
 before the unsigned transfer archive is created. Package the final admitted
@@ -4347,8 +4383,7 @@ before adaptation. Missing, malformed, non-stable, mismatched, or unavailable
 metadata fails closed; no mirror, package manager, mutable raw runtime, or
 upstream self-updater is accepted.
 
-By contrast, `codex update --build-local` and a transport-unavailable bare-update
-fallback never read that key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
+Ordinary device-local `codex update --build-local` never reads that key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
 repository release secret. They generate one fresh Ed25519 key in private
 owner-only temporary storage, derive its public verifier, sign only the local
 immutable candidate, delete the private key before activation can succeed, and
@@ -4372,11 +4407,14 @@ never invokes, installs, selects, or repairs `bwrap`.
 
 Local-derived construction never invokes `$PREFIX/bin/gh` or official publication.
 The separate manual freshness route may submit an authenticated missing-build
-request to the configured hosted workflow. Signing and public promotion remain
-server-owned operations governed by their source/execution/readback gates; Core
-never receives a release signing key or directly publishes release assets.
+request to the configured remote executor. Remote signing remains the default;
+an explicitly configured authorized developer signer may sign qualified local
+output. Keys stay in the configured local signer boundary and never enter model
+prompts, downloaded artifacts or request receipts. Signing and installation do not
+imply public upload or promotion; publication needs its separate configured
+permission and the complete source/execution/readback gates.
 
-The six-hour schedule authorizes a lane's publication only for independently
+Periodic preparation authorizes a lane's publication only for independently
 authenticated strictly newer qualified upstream inputs. Base does not wait for
 enhanced-TUI qualification; Full still requires its admitted frontend/backend pair.
 Equality is a no-op; older/malformed/unavailable or unqualified inputs
@@ -4687,6 +4725,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/lib/codex/core/publications/<id>/             retained old Core publication cache; no official producer authority
 ~/.local/lib/codex/core/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
 ~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
+~/.local/share/codex/core/downloads-v1/<sha256>.part    private bounded untrusted/verified payload cache
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
 ~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
 ~/.local/share/codex/core/core-entrypoint-rollback    one retained prior Core launcher
@@ -5018,10 +5057,9 @@ migration input nor copied into Core state. Qualification compares protected-
 state identities before and after the handoff rather than adopting a legacy
 schema.
 
-Normal installation and update must not require on-device Rust, Cargo, or
-Clang compilation. The no-argument update fallback is a bounded execution of
-the prebuilt release-builder routines already contained in Core; it is not a
-Core self-recompile or a package-manager installation.
+Installation from ready signed artifacts requires no on-device compiler. Only
+explicit local-build selection may prepare missing compiler dependencies;
+ordinary launch and download failures never start compilation or install tools.
 
 After bootstrap, the Core owns every top-level `codex update` form. `install.sh`
 is not an update dispatcher and must not bypass the authenticated local
@@ -5029,10 +5067,9 @@ admission, staging, probe, activation, or rollback path. The local, explicit
 remote, and automatic channel forms use the same forward activation
 transaction, and rollback remains the explicit swap of the one retained
 complete previous generation. A bare `codex update` resolves the wrapper-owned
-signed channel and public upstream freshness path. A missing newer release is
-built through the hosted request flow. Explicit legacy/custom transport selectors
-retain the unified acquisition path, whose transport-only failure may enter the
-same local-derived construction used by `--build-local`. No path may install an
+signed channel and public upstream freshness path. A missing newer release uses the
+selected keep/local-build/remote-request policy. All channel and explicit transport
+selectors preserve acquisition failures without starting a different operation. No path may install an
 unpatched runtime or turn transport failure into official publication.
 
 The automatic stable channel is represented by a bounded signed index. Its
@@ -5057,19 +5094,14 @@ the signed identity. After index signature verification, Core invokes the
 existing signed remote-generation acquisition path. Index transport failure,
 signature failure, malformed discovery, or release qualification failure is a
 hard failure for that attempt; there is no fallback to upstream, a package
-manager, an alternate mirror, or a raw package. A transport-level absence or
-unavailability in the explicit legacy/custom unified path may enter local-derived
-construction below; an index or release
-that was received but failed signature, format, policy, digest, mode,
-compatibility, probe, or activation validation may not.
+manager, an alternate mirror, or a raw package.
 
 The signed index is a pointer to an already-adapted wrapper generation, not an
 upstream source authority. The admitted upstream identity is the exact official
 source commit and versioned official release archive tuple in release/upstream.json.
 The hosted source producer compiles that source; the archive supplies the original
 companion, and retained binary adaptations bind their original raw CLI. All paths
-require qualification before signing. When the wrapper publication is transport-
-unavailable in the explicit legacy/custom unified path, Core may perform the exact official fetch/build/adapt
+require qualification before signing. When the user selects local build, Core performs the exact official fetch/build/adapt
 steps locally, sign the immutable candidate with a fresh ephemeral device-local
 key, bind it to the authenticated public baseline, and feed it only to the
 dedicated local-derived admission path. That path performs no official
@@ -5082,8 +5114,7 @@ archive used by the qualified release builder, verifies the metadata-bound
 archive digest, builds/adapts in private staging, signs with a fresh ephemeral
 Ed25519 key, runs the normal candidate probes, and atomically activates the
 result. The presence or absence of an official release private key has no effect
-on this route. The same route is used by the allowed automatic-channel transport
-fallback.
+on this route. No transport failure selects this route automatically.
 
 A local-derived candidate records the authenticated public baseline generation
 and sequence in its signed provenance and uses that same sequence in its signed
@@ -5101,9 +5132,8 @@ admission keep the equal-sequence/different-release rejection rule.
 1. recover the authoritative v3 state and resolve one immutable signed wrapper
    release against its `update_key` (automatic update first verifies the signed
    channel index, while explicit remote update starts from its supplied base;
-   transport-level automatic-channel absence enters the local build path,
-   which resolves and digest-binds one exact official upstream version before
-   building);
+   explicit local build instead resolves and digest-binds one exact official
+   upstream version before building);
 2. enforce architecture, API, channel, and the release-sequence anti-rollback
    policy: a lower sequence is rejected; an equal sequence is a no-op success
    only when the authenticated candidate generation identity and signed release
@@ -5116,7 +5146,7 @@ admission keep the equal-sequence/different-release rejection rule.
    digest/mode inventory, archive safety where applicable, and compatibility
    metadata;
 5. resolve the exact official upstream version and package digest, then build,
-   sign, and probe a complete candidate generation when the local fallback is
+   sign, and probe a complete candidate generation when local build is
    selected;
 6. atomically publish the new trust-and-generation state;
 7. retain one complete previous generation with its exact verifier key as
@@ -5279,13 +5309,24 @@ requires curl, `$PREFIX/bin/openssl`, and a valid recovered v3 trust state; Core
 remote update never falls back to the bootstrap key file. The curl child loads no
 user config, inherits no environment/proxy settings, permits HTTPS only, uses
 the Termux certificate file/directory, applies a 15-second connect timeout and a
-300-second transfer timeout, follows redirects only with `--location` and
+30-second control transfer deadline; payload transfers have a 60-second low-throughput
+window (less than 1 KiB/s) and a 30-minute overall deadline, follows redirects only with `--location` and
 `--proto-redir =https`, and writes response bytes only to a caller-created
 regular file. The manifest limit remains 128 KiB and each signature file is
 limited to 1 KiB; each generation-file response is limited to 512 MiB and the
 sum of all response bytes is limited to 1 GiB. Curl and Core both enforce the
 applicable remaining byte bound. A transport or bound failure is terminal for
-that explicit attempt.
+that explicit attempt and reports curl exit status, HTTP status when available, elapsed time and observed bytes.
+There is no automatic build or retry. Authenticated payload identities permit
+a private `state_root/downloads-v1` content-addressed cache outside activation
+staging. It reserves the selected object's authenticated size (or file limit),
+evicts only recognized inactive private objects under its directory lease and
+retains at most the protocol's 1 GiB total bound. Unknown files are preserved.
+Verified objects are reused and partial objects resume on the next explicit attempt.
+Partial bytes never authorize execution: final authenticated size/digest checks
+precede staging. Control documents are always freshly acquired and authenticated.
+A server rejecting Range produces an explicit error; corrupt completed objects
+are discarded and never admitted. Cache contention never permits concurrent writes.
 
 Acquisition uses one create-new `.acquire-<pid>-<counter>` directory beneath the
 generation root and create-new output files beneath that directory. Core attempts

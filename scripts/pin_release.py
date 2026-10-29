@@ -7,9 +7,14 @@ import sys
 def caller(sha):
     if not re.fullmatch('[0-9a-f]{40}',sha):raise ValueError('expected immutable source SHA')
     header = """name: Termux Hosted Release Preflight
+run-name: ${{ inputs.upstream_version && format('Codex publication {0}', inputs.upstream_version) || 'Termux Hosted Release Preflight' }}
 on:
   workflow_dispatch:
     inputs:
+      upstream_version:
+        description: Publication status label; accepted source remains authoritative
+        type: string
+        default: ''
       publish:
         description: Publish after all real execution/readback gates
         type: boolean

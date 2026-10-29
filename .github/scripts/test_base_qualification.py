@@ -11,6 +11,15 @@ from test_manager_tui_producer import step
 
 
 class BaseQualificationTests(unittest.TestCase):
+    def test_candidate_cannot_pass_with_skipped_or_failed_execution_qualification(self):
+        script = step('Reject a candidate without successful execution proof')
+        for candidate, status, expected in [('true','success',0),('false','skipped',0),
+                                             ('true','skipped',1),('true','failure',1),
+                                             ('true','cancelled',1)]:
+            result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
+                env={**os.environ,'CANDIDATE':candidate,'SMOKE_RESULT':status})
+            self.assertEqual(result.returncode,expected,(candidate,status,result.stderr))
+
     def fixture(self, root):
         (root / 'helpers').mkdir()
         assets = {'core': b'core', 'runtime': b'runtime',

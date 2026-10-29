@@ -428,20 +428,31 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
-Manual update also checks the official stable version. If its qualified release
-is missing, it requests the repository's build pipeline once and waits for the
-signed result. During the wait, press `c` to enter the installed version or `q`
-to leave the updater; the build request remains recorded. `codex update --no-wait`
-requests/reuses a build and continues immediately on a terminal. `--wait` waits
-explicitly. A missing-build request needs `gh` and repository access (`gh auth
-login`); installing an already prepared public release does not. Ordinary `codex`
-entry uses the installed version without requesting a build. Builds and signing
-run on the server; installation and signature verification run on the device.
-The next updater separately checks exact-source qualification during its active
-wait. A failed required gate shows its workflow/run and exits with the installed
-version preserved. A successful build-request acknowledgement alone never means
-an executable was built. Status-read failures remain visible; they do not repeat
-an uncertain request or admit an unsigned update.
+Manual update also checks the official stable version. In the development updater,
+a missing qualified release offers one choice: keep the installed version, build
+locally, or request a remote build. Set `CODEX_TERMUX_UPDATE_BUILD_POLICY` to
+`keep`, `local`, `remote` or `ask`, or put that value in
+`~/.local/share/codex/core/config/update-policy`. Without an explicit policy,
+noninteractive missing-artifact updates stop instead of dispatching a build.
+The operating Base124 still has the earlier request behavior until this candidate
+passes qualification and is released.
+
+`codex update --wait` explicitly requests/reuses a remote build and waits;
+`--no-wait` requests/reuses it and continues immediately on a terminal. During
+waiting, `c` enters the installed version and `q` leaves the updater. The existing
+remote adapter needs `gh` and repository access (`gh auth login`); installing a
+ready public release requires neither GitHub access nor a model login. Normal
+`codex` launch never requests a build.
+
+The candidate reports the actual publication job/stage and terminal failures,
+separately from request acknowledgement. HTTPS failures retain their curl cause,
+byte count and elapsed time; they never start a local build. A bounded private
+payload cache resumes interrupted downloads on the next explicit attempt and
+reuses complete verified objects. Fresh control signatures and final inventory
+checks still authorize installation. Server Range refusal or changed content
+fails explicitly and discards invalid partial bytes. Local source compilation,
+automatic dependency preparation and developer signing remain under development;
+the existing local builder supports only its qualified adaptation recipes.
 A local-derived installation can keep its refreshed Core while the public
 channel still points to its original authenticated baseline. A matching explicit
 build request also works when the server has already pinned the accepted source:

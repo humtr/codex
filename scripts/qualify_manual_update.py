@@ -106,6 +106,7 @@ def probe(args):
     try:
         home, prefix, env = fixture(root, args.core, args.frontend, generation=args.generation)
         state = home / '.local/share/codex/core/activation-state'
+        env["CODEX_TERMUX_UPDATE_BUILD_POLICY"] = ("ask" if args.mode.startswith("choose-") else "keep" if args.mode == "keep" else "remote")
         initial = state.read_bytes()
         fields = dict(line.split('\t', 1) for line in
                       (root / 'local-permission-fixture/generation.meta').read_text().splitlines()[1:])
@@ -209,6 +210,18 @@ def probe(args):
             {**status_run,'id':98,'path':'.github/workflows/rald7-full-acceptance.yml','conclusion':'success'},
             core_run,
         ]}))
+        (root/'request-run.json').write_text(json.dumps({'repository':{'full_name':'humtr/codex'},
+            'head_branch':'main','event':'workflow_dispatch','path':'.github/workflows/accepted-release-inputs.yml',
+            'created_at':'2026-10-29T00:00:00Z','status':'completed','conclusion':'success'}))
+        publication={'id':199,'repository':{'full_name':'humtr/codex'},'head_branch':'main',
+            'event':'workflow_dispatch','path':'.github/workflows/auto-release-termux.yml',
+            'display_title':'Codex publication '+latest,'created_at':'2026-10-29T01:00:00Z',
+            'status':'completed','conclusion':'failure'}
+        (root/'publication-runs.json').write_text(json.dumps({'workflow_runs':
+            [publication] if args.mode=='publication-failed' else []}))
+        (root/'publication-jobs.json').write_text(json.dumps({'jobs':[
+            {'name':'Full signing','status':'completed','conclusion':'failure',
+             'steps':[{'name':'Download qualified candidate','conclusion':'failure'}]}]}))
         jq=shutil.which('jq')
         assert jq is not None,'qualification witness requires jq for the actual Core-supplied query'
         gh.write_text('#!' + sys.executable + '\nfrom pathlib import Path\nimport json,sys\n' +
@@ -216,7 +229,13 @@ def probe(args):
             'with (root/"github.jsonl").open("a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n' +
             'if "POST" in sys.argv:\n' +
             (' sys.exit(1)\n' if args.mode == 'uncertain' else ' print("12345")\n') +
-            'elif "/actions/runs/12345" in sys.argv[2]:print("in_progress\\tpending")\n' +
+            'elif "/actions/runs/12345" in sys.argv[2]:\n' +
+            ' import subprocess\n' +
+            ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/"request-run.json").read_bytes(),check=True)\n' +
+            'elif "auto-release-termux.yml/runs" in sys.argv[2] or "/actions/runs/199/jobs" in sys.argv[2]:\n' +
+            ' import subprocess\n' +
+            ' name="publication-runs.json" if "auto-release-termux" in sys.argv[2] else "publication-jobs.json"\n' +
+            ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/name).read_bytes(),check=True)\n' +
             'elif "/git/ref/heads/" in sys.argv[2]:print("a"*40)\n' +
             'elif "/contents/release/upstream.json" in sys.argv[2]:print(' + repr(latest) + ')\n' +
             'elif any(name in sys.argv[2] for name in ["rald7-full-acceptance.yml", "core-runtime-qualification.yml"]):\n' +
@@ -258,12 +277,17 @@ def probe(args):
         os.close(slave)
         deadline = time.monotonic() + 60
         key_sent = False
+        choice_sent = False
         expected_tui = args.mode in ['continue', 'no-wait', 'ordinary']
         while time.monotonic() < deadline:
             if select.select([master], [], [], .1)[0]:
                 receive_terminal()
+            if (not choice_sent and args.mode.startswith('choose-')
+                    and terminal_contains(transcript, 'Missing qualified artifacts:')):
+                os.write(master, b'1' if args.mode == 'choose-keep' else b'3')
+                choice_sent = True
             if ('Waiting for signed publication.' in transcript and not key_sent
-                    and args.mode != 'qualification-failed'
+                    and args.mode not in ['qualification-failed','publication-failed']
                     and not termios.tcgetattr(master)[3] & termios.ICANON):
                 if args.mode == 'quit':
                     transports = [json.loads(line) for line in (root / 'transports.jsonl').read_text().splitlines()]
@@ -298,9 +322,14 @@ def probe(args):
             raise AssertionError('manual updater did not settle within its fixture bound')
         calls = [json.loads(line) for line in (root / 'github.jsonl').read_text().splitlines()] if (root / 'github.jsonl').exists() else []
         dispatches = sum('POST' in call for call in calls)
-        expected_dispatches = 0 if args.mode in ['ordinary', 'current', 'display', 'bad-signature'] else 1
+        expected_dispatches = 0 if args.mode in ['ordinary', 'current', 'display', 'bad-signature', 'keep', 'choose-keep'] else 1
         assert dispatches == expected_dispatches, calls
-        if args.mode in ['bad-signature', 'uncertain', 'qualification-failed']:
+        if args.mode.startswith('choose-'):
+            assert choice_sent, 'interactive missing-artifact choice was never displayed'
+            result['interactiveChoice'] = args.mode.removeprefix('choose-')
+        if args.mode in ['keep', 'choose-keep']:
+            assert terminal_contains(transcript, 'No build requested.'), transcript[-1500:]
+        if args.mode in ['bad-signature', 'uncertain', 'qualification-failed','publication-failed']:
             assert process.returncode == 1, transcript[-1200:]
         elif args.mode in ['interrupt', 'ctrl-c']:
             assert process.returncode in ([-15, 143] if args.mode == 'interrupt' else [-2, 130]), transcript[-1200:]
@@ -344,7 +373,7 @@ def probe(args):
             assert sum(url.endswith(('/update-index-v1', '/update-index-base-v1')) for url in transports) >= 2
             result['sameCandidateMetadataReadOnceAcrossBuildWait'] = True
 
-        if args.mode in ['quit', 'interrupt', 'ctrl-c', 'qualification-failed']:
+        if args.mode in ['quit', 'interrupt', 'ctrl-c', 'qualification-failed','publication-failed']:
             assert termios.tcgetattr(master) == saved, 'terminal mode was not restored'
         if args.mode == 'qualification-failed':
             assert 'Termux qualification failed: core-runtime-qualification.yml (failure)' in transcript, transcript[-2000:]
@@ -352,6 +381,12 @@ def probe(args):
             assert not any('/actions/runs/'+str(run) in transcript for run in [77,78,79])
             result['requestAckDidNotHideQualificationFailure']=True
             result['foreignSourceRepositoryAndBranchRejected']=True
+        if args.mode == 'publication-failed':
+            assert 'Remote publication: Full signing / Download qualified candidate' in transcript,transcript[-2000:]
+            assert 'Publication failed. Codex '+installed+' remains installed' in transcript,transcript[-2000:]
+            assert '/actions/runs/199' in transcript
+            result.update(actualPublicationFailureVisible=True,failedStageVisible=True,
+                          requestAckDidNotHidePublicationFailure=True)
         if args.mode == 'display':
             assert 'Latest upstream Codex: ' + installed in transcript
             assert '2026-10-27 21:30:00 KST (UTC+09:00)' in transcript
@@ -444,7 +479,7 @@ if __name__ == '__main__':
     parser.add_argument('--core', type=Path, required=True)
     parser.add_argument('--generation', type=Path, required=True)
     parser.add_argument('--frontend', type=Path)
-    parser.add_argument('--mode', choices=['quit', 'continue', 'no-wait', 'current', 'display', 'ordinary', 'bad-signature', 'uncertain', 'interrupt', 'ctrl-c', 'qualification-failed', 'publication-arrives'], required=True)
+    parser.add_argument('--mode', choices=['quit', 'continue', 'no-wait', 'keep', 'choose-keep', 'choose-remote', 'current', 'display', 'ordinary', 'bad-signature', 'uncertain', 'interrupt', 'ctrl-c', 'qualification-failed', 'publication-failed', 'publication-arrives'], required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--provider', type=Path)
     parser.add_argument('--builder', type=Path)

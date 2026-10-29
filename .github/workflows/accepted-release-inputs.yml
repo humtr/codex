@@ -2,7 +2,7 @@ name: Advance accepted release inputs
 run-name: ${{ inputs.requested_upstream && format('Codex build request {0}', inputs.requested_upstream) || 'Advance accepted release inputs' }}
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '17 */2 * * *'
   workflow_dispatch:
     inputs:
       discover_upstream:

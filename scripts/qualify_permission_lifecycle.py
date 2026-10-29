@@ -48,8 +48,12 @@ def fixture(root, core, frontend, manager=None, generation=None):
     if frontend is None and fields['helper_count'] == '2' and fields['manager_artifact_digest'] == '-':
         assert generation is not None and fields['helper_count'] == '2'
         records = [line.split('\t') for line in (installed / 'release.manifest').read_text().splitlines() if line.startswith('file\t')]
-        expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta',
-                    'browser/open/curl', 'browser/manual/curl'}
+        # The installed R10 transition layout is still a supported signed Base,
+        # with the same two identities stored at helpers/0 and helpers/1.
+        bridge = fields['creation_metadata'] == 'r10-browser-helper-bridge-v1'
+        browser_paths = {'helpers/0', 'helpers/1'} if bridge else {
+            'browser/open/curl', 'browser/manual/curl'}
+        expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta'} | browser_paths
         assert len(records) == len(expected) and {row[1] for row in records} == expected
         inventory = [(row[1], row[2], row[3]) for row in records]
     else:

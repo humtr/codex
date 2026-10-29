@@ -19,7 +19,12 @@ WORKFLOW = ROOT / '.github/workflows/qualify-termux-runtime.yml'
 
 def step(name):
     block = WORKFLOW.read_text().split('      - name: ' + name + '\n', 1)[1].split('\n      - name:', 1)[0]
-    return textwrap.dedent(block.split('        run: |\n', 1)[1])
+    lines = []
+    for line in block.split('        run: |\n', 1)[1].splitlines():
+        if line.strip() and not line.startswith('          '):
+            break
+        lines.append(line)
+    return textwrap.dedent('\n'.join(lines))
 
 
 class NativeProducerTests(unittest.TestCase):

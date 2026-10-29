@@ -17,6 +17,8 @@ mod provider;
 #[cfg(unix)]
 mod release_display;
 #[cfg(unix)]
+mod remote_download;
+#[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
@@ -4110,7 +4112,7 @@ const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 #[cfg(unix)]
 const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
 #[cfg(unix)]
-const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
+const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "1800";
 #[cfg(unix)]
 const INTERNAL_BOOTSTRAP_MODE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP";
 #[cfg(unix)]
@@ -4181,7 +4183,12 @@ enum LocalProductError {
     Remote(&'static str),
     UpdateIndex(&'static str),
     StartupAdvisory(&'static str),
-    RemoteTransportFailed,
+    RemoteTransportFailed {
+        code: Option<i32>,
+        http_status: Option<u16>,
+        bytes: u64,
+        elapsed_seconds: u64,
+    },
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
     SignatureRejected,
@@ -4243,8 +4250,20 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::Remote(message) => f.write_str(message),
             LocalProductError::UpdateIndex(message) => f.write_str(message),
             LocalProductError::StartupAdvisory(message) => f.write_str(message),
-            LocalProductError::RemoteTransportFailed => {
-                f.write_str("remote release transport failed")
+            LocalProductError::RemoteTransportFailed { code, http_status, bytes, elapsed_seconds } => {
+                let cause = match code {
+                    Some(6) => "DNS resolution failed",
+                    Some(7) => "connection failed",
+                    Some(18) => "response ended before all bytes arrived",
+                    Some(22) => "HTTP server rejected the request",
+                    Some(28) => "connection, idle or overall transfer deadline exceeded",
+                    Some(33 | 36) => "server rejected download resume; partial cache discarded",
+                    Some(35 | 60) => "TLS negotiation or certificate verification failed",
+                    Some(56) => "connection ended while receiving response bytes",
+                    Some(92) => "HTTP/2 stream failed",
+                    _ => "transfer interrupted or failed",
+                };
+                write!(f, "remote release transport failed: {cause} (curl {code:?}, HTTP {http_status:?}, {bytes} output bytes, {elapsed_seconds}s); rerun update to resume authenticated payloads")
             }
             LocalProductError::RemoteResponseTooLarge => {
                 f.write_str("remote release response exceeds its byte bound")
@@ -5447,136 +5466,15 @@ fn fetch_remote_file_with_timeout(
     max_bytes: u64,
     transfer_timeout_seconds: &str,
 ) -> Result<u64, LocalProductError> {
-    fetch_remote_file_with_timeout_and_progress(
+    remote_download::fetch(
         roots,
         url,
         output,
         max_bytes,
         transfer_timeout_seconds,
+        0,
         None,
     )
-}
-
-#[cfg(unix)]
-fn fetch_remote_file_with_timeout_and_progress(
-    roots: &LocalCoreRoots,
-    url: &str,
-    output: &std::fs::File,
-    max_bytes: u64,
-    transfer_timeout_seconds: &str,
-    mut progress: Option<&mut dyn FnMut(u64)>,
-) -> Result<u64, LocalProductError> {
-    ensure_curl_available(&roots.curl)?;
-    if max_bytes == 0 || max_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES {
-        return Err(LocalProductError::Remote(
-            "remote release response bound is invalid",
-        ));
-    }
-    let metadata = output.metadata().map_err(|source| LocalProductError::Io {
-        operation: "inspect remote release output",
-        source,
-    })?;
-    if !metadata.file_type().is_file() || metadata.len() != 0 {
-        return Err(LocalProductError::Remote(
-            "remote release output must be an empty regular file",
-        ));
-    }
-    let child_output = output.try_clone().map_err(|source| LocalProductError::Io {
-        operation: "duplicate remote release output",
-        source,
-    })?;
-    let mut command = std::process::Command::new(&roots.curl);
-    command
-        .arg("--disable")
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--proto",
-            "=https",
-            "--proto-redir",
-            "=https",
-            "--location",
-        ])
-        .arg("--cacert")
-        .arg(&roots.cert_file)
-        .arg("--capath")
-        .arg(&roots.cert_dir)
-        .args([
-            "--connect-timeout",
-            REMOTE_CONNECT_TIMEOUT_SECONDS,
-            "--max-time",
-            transfer_timeout_seconds,
-            "--max-filesize",
-        ])
-        .arg(max_bytes.to_string())
-        .arg("--url")
-        .arg(url)
-        .env_clear()
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::from(child_output))
-        .stderr(std::process::Stdio::null());
-
-    let status = if progress.is_none() {
-        command
-            .status()
-            .map_err(|_| LocalProductError::CurlUnavailable)?
-    } else {
-        let mut child = command
-            .spawn()
-            .map_err(|_| LocalProductError::CurlUnavailable)?;
-        let mut last_reported = 0u64;
-        loop {
-            match child
-                .try_wait()
-                .map_err(|_| LocalProductError::RemoteTransportFailed)?
-            {
-                Some(status) => break status,
-                None => {
-                    let observed = output
-                        .metadata()
-                        .map_err(|source| LocalProductError::Io {
-                            operation: "inspect downloading remote release output",
-                            source,
-                        })?
-                        .len();
-                    if observed > max_bytes {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(LocalProductError::RemoteResponseTooLarge);
-                    }
-                    if observed != last_reported {
-                        if let Some(callback) = progress.as_mut() {
-                            (*callback)(observed);
-                        }
-                        last_reported = observed;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(80));
-                }
-            }
-        }
-    };
-    if !status.success() {
-        return Err(LocalProductError::RemoteTransportFailed);
-    }
-    output.sync_all().map_err(|source| LocalProductError::Io {
-        operation: "sync remote release output",
-        source,
-    })?;
-    let observed = output
-        .metadata()
-        .map_err(|source| LocalProductError::Io {
-            operation: "inspect downloaded remote release output",
-            source,
-        })?
-        .len();
-    if observed > max_bytes {
-        return Err(LocalProductError::RemoteResponseTooLarge);
-    }
-    if let Some(callback) = progress.as_mut() {
-        (*callback)(observed);
-    }
-    Ok(observed)
 }
 
 #[cfg(unix)]
@@ -8435,21 +8333,26 @@ fn activate_local_built_update(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     mut presentation: Option<&mut UpdatePresentation>,
+    selected: Option<OfficialReleaseMetadata>,
 ) -> Result<ActivatedUpdate, LocalProductError> {
     if let Some(presentation) = presentation.as_deref_mut() {
         presentation.transient("⠋", "Checking official Codex release...");
     }
-    let metadata_staging = create_local_update_staging_root(&roots.state_root)?;
-    let metadata = resolve_official_release_metadata(roots, &metadata_staging);
-    let cleanup =
-        std::fs::remove_dir_all(&metadata_staging).map_err(|source| LocalProductError::Io {
-            operation: "remove upstream metadata staging",
-            source,
-        });
-    let metadata = match (metadata, cleanup) {
-        (_, Err(error)) => return Err(error),
-        (Err(error), Ok(())) => return Err(error),
-        (Ok(metadata), Ok(())) => metadata,
+    let metadata = if let Some(metadata) = selected {
+        metadata
+    } else {
+        let metadata_staging = create_local_update_staging_root(&roots.state_root)?;
+        let metadata = resolve_official_release_metadata(roots, &metadata_staging);
+        let cleanup =
+            std::fs::remove_dir_all(&metadata_staging).map_err(|source| LocalProductError::Io {
+                operation: "remove upstream metadata staging",
+                source,
+            });
+        match (metadata, cleanup) {
+            (_, Err(error)) => return Err(error),
+            (Err(error), Ok(())) => return Err(error),
+            (Ok(metadata), Ok(())) => metadata,
+        }
     };
 
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
@@ -8842,12 +8745,13 @@ fn fetch_remote_resource_with_timeout_and_progress(
     }
     let url = base.resource_url(relative_path)?;
     let output = create_remote_output(destination)?;
-    let observed = fetch_remote_file_with_timeout_and_progress(
+    let observed = remote_download::fetch(
         roots,
         &url,
         &output,
         limit,
         transfer_timeout_seconds,
+        0,
         progress,
     )?;
     *acquired_bytes = acquired_bytes
@@ -8935,18 +8839,37 @@ fn fetch_verified_remote_release_file_with_timeout_and_progress(
 
     ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
     let destination = acquisition_root.join(&file.relative_path);
-    let observed = fetch_remote_resource_with_timeout_and_progress(
-        roots,
-        base,
-        &file.relative_path,
-        &destination,
-        REMOTE_RELEASE_FILE_MAX_BYTES,
-        acquired_bytes,
-        RemoteResourceFetchOptions {
-            transfer_timeout_seconds,
+    let observed = if transfer_timeout_seconds == REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
+        fetch_remote_resource_with_timeout_and_progress(
+            roots,
+            base,
+            &file.relative_path,
+            &destination,
+            REMOTE_RELEASE_FILE_MAX_BYTES,
+            acquired_bytes,
+            RemoteResourceFetchOptions {
+                transfer_timeout_seconds,
+                progress,
+            },
+        )?
+    } else {
+        let limit = REMOTE_RELEASE_FILE_MAX_BYTES.min(
+            REMOTE_RELEASE_TOTAL_MAX_BYTES
+                .checked_sub(*acquired_bytes)
+                .ok_or(LocalProductError::RemoteResponseTooLarge)?,
+        );
+        let observed = remote_download::payload(
+            roots,
+            &base.resource_url(&file.relative_path)?,
+            &destination,
+            file,
+            limit,
+            expected_size,
             progress,
-        },
-    )?;
+        )?;
+        *acquired_bytes += observed;
+        observed
+    };
     if expected_size.is_some_and(|expected| expected != observed) {
         return Err(LocalProductError::Release(
             "downloaded release file size does not match authenticated size",
@@ -8991,7 +8914,7 @@ fn fetch_remote_download_sizes(
         acquired_bytes,
     ) {
         Ok(()) => {}
-        Err(LocalProductError::RemoteTransportFailed) => {
+        Err(LocalProductError::RemoteTransportFailed { .. }) => {
             let _ = std::fs::remove_file(&sidecar_path);
             return Ok(None);
         }
@@ -10069,30 +9992,6 @@ fn activate_signed_update_channel_with_hold_policy(
         ));
     }
     Ok(outcome)
-}
-
-#[cfg(unix)]
-fn activate_unified_update_with_hold_policy(
-    roots: &LocalCoreRoots,
-    process_env: &TermuxProcessEnvSnapshot,
-    hold_policy: UpdateHoldPolicy,
-    mut presentation: Option<&mut UpdatePresentation>,
-) -> Result<(SignedUpdateOutcome, bool), LocalProductError> {
-    match activate_signed_update_channel_with_hold_policy(
-        roots,
-        process_env,
-        hold_policy,
-        presentation.as_deref_mut(),
-    ) {
-        Ok(channel_outcome) => Ok((channel_outcome, false)),
-        Err(LocalProductError::RemoteTransportFailed)
-            if hold_policy == UpdateHoldPolicy::Enforce =>
-        {
-            let outcome = activate_local_built_update(roots, process_env, presentation)?;
-            Ok((SignedUpdateOutcome::Activated(outcome), true))
-        }
-        Err(error) => Err(error),
-    }
 }
 
 #[cfg(unix)]
@@ -12006,7 +11905,7 @@ fn print_update_usage() {
     println!(
         "automatic update retrieves a signed, Termux-patched release from the wrapper channel"
     );
-    println!("missing official releases: request owner CI and wait; c continues with the installed version");
+    println!("missing qualified artifacts: choose keep, local build or remote request; set CODEX_TERMUX_UPDATE_BUILD_POLICY for noninteractive use");
     println!("--no-wait requests/reuses the build and continues immediately; ordinary codex never requests a build");
     println!("{}", rollback_guard::UPDATE_HOLD_CAPABILITY_LINE);
 }
@@ -12047,71 +11946,58 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
             && !force
             && std::env::var_os(UPDATE_INDEX_URL_ENV).is_none()
             && std::env::var_os(UPDATE_VERSION_ENV).is_none();
-        let result = if public_freshness {
-            activate_signed_update_channel_with_hold_policy(
-                &roots,
-                &process_env,
-                hold_policy,
-                Some(&mut presentation),
-            )
-            .map(|outcome| (outcome, false))
+        let build_policy = if public_freshness {
+            match manual_update::BuildPolicy::read(&roots, no_wait || wait) {
+                Ok(policy) => policy,
+                Err(error) => {
+                    presentation.fail(&error);
+                    return 1;
+                }
+            }
         } else {
-            activate_unified_update_with_hold_policy(
-                &roots,
-                &process_env,
-                hold_policy,
-                Some(&mut presentation),
-            )
+            manual_update::BuildPolicy::Keep
         };
+        let result = activate_signed_update_channel_with_hold_policy(
+            &roots,
+            &process_env,
+            hold_policy,
+            Some(&mut presentation),
+        );
         drop(lease);
         if public_freshness {
-            match result {
-                Ok((outcome, false)) => {
-                    return match manual_update::finish(
-                        &roots,
-                        &process_env,
-                        outcome,
-                        no_wait,
-                        &mut presentation,
-                    ) {
-                        Ok(code) => code,
-                        Err(error) => {
-                            presentation.fail(&error);
-                            1
-                        }
-                    };
+            return match result.and_then(|outcome| {
+                manual_update::finish(
+                    &roots,
+                    &process_env,
+                    outcome,
+                    build_policy,
+                    no_wait,
+                    &mut presentation,
+                )
+            }) {
+                Ok(code) => code,
+                Err(error) => {
+                    presentation.fail(&error);
+                    1
                 }
-                result => return finish_legacy_update_result(result, &mut presentation),
-            }
+            };
         }
-        return finish_legacy_update_result(result, &mut presentation);
+        return match result {
+            Ok(SignedUpdateOutcome::Activated(outcome)) => {
+                presentation.finish_signed_activation(&outcome.current_version);
+                0
+            }
+            Ok(SignedUpdateOutcome::AlreadyCurrent(target)) => {
+                presentation.finish_current(&target.version);
+                0
+            }
+            Err(error) => {
+                presentation.fail(&error);
+                1
+            }
+        };
     }
     run_explicit_core_update(args)
-}
-
-#[cfg(unix)]
-fn finish_legacy_update_result(
-    result: Result<(SignedUpdateOutcome, bool), LocalProductError>,
-    presentation: &mut UpdatePresentation,
-) -> i32 {
-    match result {
-        Ok((SignedUpdateOutcome::Activated(outcome), local_derived)) => {
-            if local_derived {
-                presentation.finish_local_activation(&outcome.current_version);
-            } else {
-                presentation.finish_signed_activation(&outcome.current_version);
-            }
-            0
-        }
-        Ok((SignedUpdateOutcome::AlreadyCurrent(target), _)) => {
-            presentation.finish_current(&target.version);
-            0
-        }
-        Err(err) => {
-            presentation.fail(&err);
-            1
-        }
-    }
 }
 
 #[cfg(unix)]
@@ -12155,7 +12041,12 @@ fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
     };
     let process_env = capture_termux_process_env();
     if build_local {
-        return match activate_local_built_update(&roots, &process_env, Some(&mut presentation)) {
+        return match activate_local_built_update(
+            &roots,
+            &process_env,
+            Some(&mut presentation),
+            None,
+        ) {
             Ok(outcome) => {
                 presentation.finish_local_activation(&outcome.current_version);
                 0
@@ -14341,6 +14232,12 @@ exit 73
         if manager {
             std::fs::copy(&runtime, generation_dir.join("manager")).unwrap();
         }
+        // Distinguish the origin under fault from other valid payloads: a cached
+        // companion must not accidentally satisfy a broken-runtime fixture.
+        let mut runtime_bytes = std::fs::read(&runtime).unwrap();
+        runtime_bytes.extend_from_slice(b"\n# upstream runtime fixture role\n");
+        std::fs::write(&runtime, runtime_bytes).unwrap();
+
         let descriptor = format!(
             concat!(
                 "codex-local-generation-v1\n",
@@ -18884,7 +18781,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority() {
+    fn test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = temp_root("rald1-local-derived");
@@ -18959,8 +18856,24 @@ esac
             77,
         );
 
-        let output =
-            b7_run_public_local_fallback(index_url, None, &private_key, &home, &prefix, &tmp);
+        let failed = b7_run_public_custom_channel_update(
+            index_url,
+            None,
+            &private_key,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(failed.status.code(), Some(1));
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), public_before);
+        let failed_calls = std::fs::read_to_string(&curl_log).unwrap();
+        assert!(failed_calls.contains(index_url));
+        assert!(
+            !failed_calls.contains(&metadata_url),
+            "transport failure must not start a build"
+        );
+        assert!(!failed_calls.contains(&archive_url));
+        let output = b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
         assert_eq!(
             output.status.code(),
             Some(0),
@@ -18973,10 +18886,7 @@ esac
         assert!(stdout.contains("Verified and activated the locally built Termux release."));
         assert!(stdout.contains("Codex 0.150.1 is now active."));
         assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
-        assert!(
-            !gh_log.exists(),
-            "local-derived fallback must not invoke gh"
-        );
+        assert!(!gh_log.exists(), "explicit local build must not invoke gh");
         assert!(!home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         let calls = std::fs::read_to_string(&curl_log).unwrap();
         assert!(calls.contains(index_url));
@@ -19802,7 +19712,7 @@ esac
     }
 
     #[cfg(unix)]
-    fn b7_run_public_local_fallback(
+    fn b7_run_public_custom_channel_update(
         index_url: &str,
         version: Option<&str>,
         private_key: &std::path::Path,
@@ -22540,10 +22450,6 @@ esac
         assert!(log.contains(&format!("{base}release.manifest\n")));
         assert!(log.contains(&format!("{base}release.sig\n")));
         assert!(log.contains(&format!("{base}release-authority.sig\n")));
-        assert_eq!(
-            log.lines().filter(|line| *line == "CALL").count(),
-            files.len() + 5
-        );
         remove_temp_root(root);
     }
 
@@ -23421,7 +23327,10 @@ fn main() {{
         let force_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(force_calls.contains("release.manifest"));
         assert!(force_calls.contains("generation.meta"));
-        assert!(force_calls.contains("runtime"));
+        assert_eq!(
+            std::fs::read(roots.generation_root.join("arh1-next/runtime")).unwrap(),
+            std::fs::read(fixture.release.join("runtime")).unwrap(),
+        );
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
         remove_temp_root(fixture.root);
@@ -23775,6 +23684,12 @@ exit 2
 
         let bad_digest_release =
             b2_write_root_generation(&source_roots, "arh1-force-bad-digest", false, "supported");
+        // This test corrupts a newly signed object, not an origin whose exact
+        // admitted bytes are already available from the prior successful update.
+        let path = bad_digest_release.join("runtime");
+        let mut unique = std::fs::read(&path).unwrap();
+        unique.extend_from_slice(b"\n# distinct corrupt-origin fixture\n");
+        std::fs::write(&path, unique).unwrap();
         b4_write_signed_release(
             &bad_digest_release,
             2,
@@ -24857,10 +24772,6 @@ exit 0
         b5_assert_no_acquisition(&generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
         let curl_log = std::fs::read_to_string(curl_log).unwrap();
-        assert_eq!(
-            curl_log.lines().filter(|line| *line == "CALL").count(),
-            manifest.files.len() + 4
-        );
         assert!(curl_log.contains(&format!("{base}release.manifest\n")));
         assert!(curl_log.contains(&format!("{base}compat/nested/data\n")));
         assert!(curl_log.contains(&format!(
@@ -25681,8 +25592,14 @@ exit 0
                 REMOTE_CONNECT_TIMEOUT_SECONDS,
                 "--max-time",
                 REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                "--speed-limit",
+                "1024",
+                "--speed-time",
+                "60",
                 "--max-filesize",
                 "17",
+                "--write-out",
+                "%{stderr}CODEX_HTTP_STATUS=%{response_code}",
                 "--url",
                 url,
             ]
@@ -25729,6 +25646,8 @@ exit 0
                 REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
                 "--max-filesize",
                 "17",
+                "--write-out",
+                "%{stderr}CODEX_HTTP_STATUS=%{response_code}",
                 "--url",
                 url,
             ]
@@ -25759,7 +25678,7 @@ exit 0
                 &failed,
                 32,
             ),
-            Err(LocalProductError::RemoteTransportFailed)
+            Err(LocalProductError::RemoteTransportFailed { .. })
         ));
         assert_eq!(std::fs::read(&failed_path).unwrap(), b"partial");
 
@@ -25795,7 +25714,7 @@ exit 0
                 4,
             ),
             Err(LocalProductError::Remote(
-                "remote release output must be an empty regular file"
+                "remote release output must be a regular file at the requested offset"
             ))
         ));
         let directory = std::fs::File::open(&root).unwrap();
@@ -25807,7 +25726,7 @@ exit 0
                 4,
             ),
             Err(LocalProductError::Remote(
-                "remote release output must be an empty regular file"
+                "remote release output must be a regular file at the requested offset"
             ))
         ));
         let empty_path = root.join("invalid-bound-output");

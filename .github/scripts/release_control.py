@@ -338,11 +338,13 @@ def run(source, requested_upstream=None):
         return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
     variant=release_lane(source,previous,product,main)
     if previous==product:
-        dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
+        dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
+                                                'upstream_version':before['upstream']['version']})
         return {'state':'requested-build-started','source':product,'version':requested_upstream,'variant':variant}
     promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
                           'Pin accepted base/full product source '+current[:12])
-    dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant})
+    dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
+                                            'upstream_version':before['upstream']['version']})
     return {'state':'accepted-product-pinned-public-proof-started','source':current,'main':promoted}
 
 

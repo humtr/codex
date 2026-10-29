@@ -46,6 +46,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: termux-qualification-${{ inputs.base_only }}-${{ inputs.release_variant }}
@@ -404,10 +405,27 @@ jobs:
             '${{ steps.decision.outputs.upstream_version }}' \
             '${{ steps.decision.outputs.decision_reason }}'
 
+  qualification:
+    name: Require completed execution qualification
+    needs: [producer, smoke]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject a candidate without successful execution proof
+        env:
+          CANDIDATE: ${{ needs.producer.outputs.candidate }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        run: |
+          set -euo pipefail
+          if test "$CANDIDATE" = true && test "$SMOKE_RESULT" != success; then
+            echo "Required Android execution proof did not succeed: $SMOKE_RESULT" >&2
+            exit 1
+          fi
+
   smoke:
     name: Android/AArch64 executable smoke
     needs: producer
-    if: needs.producer.outputs.candidate == 'true'
+    if: ${{ !cancelled() && needs.producer.result == 'success' && needs.producer.outputs.candidate == 'true' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:

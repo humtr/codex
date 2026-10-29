@@ -34,7 +34,7 @@ class ReleaseControlTests(unittest.TestCase):
                 if proven:
                     result=control.run(root,version)
                     self.assertEqual(result['state'],'requested-build-started');self.assertEqual(result['source'],product)
-                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both','upstream_version':version})
                 else:
                     with self.assertRaisesRegex(ValueError,'accepted product proof is missing'):control.run(root,version)
                     dispatch.assert_not_called()
@@ -63,7 +63,7 @@ class ReleaseControlTests(unittest.TestCase):
                 self.assertEqual(result['state'],expected)
                 commit.assert_not_called()
                 if expected=='requested-build-started':
-                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both'})
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both','upstream_version':version})
                 else:dispatch.assert_not_called()
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),\
              patch.object(control,'api',return_value={'object':{'sha':sha}}),\

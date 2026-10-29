@@ -15,6 +15,91 @@ fn error(message: &'static str) -> LocalProductError {
     LocalProductError::LocalUpdate(message)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BuildPolicy {
+    Ask,
+    Keep,
+    Local,
+    Remote,
+}
+impl BuildPolicy {
+    fn parse(value: &str) -> Result<Self, LocalProductError> {
+        match value.trim() {
+            "ask" => Ok(Self::Ask),
+            "keep" => Ok(Self::Keep),
+            "local" => Ok(Self::Local),
+            "remote" => Ok(Self::Remote),
+            _ => Err(error(
+                "update build policy must be ask, keep, local or remote",
+            )),
+        }
+    }
+    pub(super) fn read(
+        roots: &LocalCoreRoots,
+        remote_requested: bool,
+    ) -> Result<Self, LocalProductError> {
+        if remote_requested {
+            return Ok(Self::Remote);
+        }
+        if let Some(value) = std::env::var_os("CODEX_TERMUX_UPDATE_BUILD_POLICY") {
+            return Self::parse(
+                value
+                    .to_str()
+                    .ok_or_else(|| error("update build policy is not UTF-8"))?,
+            );
+        }
+        let path = roots.config_dir.join("update-policy");
+        match std::fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::Ask),
+            Err(source) => Err(LocalProductError::Io {
+                operation: "inspect update policy",
+                source,
+            }),
+            Ok(_) => {
+                let bytes = read_bounded_regular_file(
+                    &path,
+                    16,
+                    "read update policy",
+                    error("update policy exceeds its bound"),
+                    error("update policy must be a regular file"),
+                )?;
+                Self::parse(
+                    std::str::from_utf8(&bytes).map_err(|_| error("update policy is not UTF-8"))?,
+                )
+            }
+        }
+    }
+    fn choose(self, tty: bool) -> Result<Self, LocalProductError> {
+        if self != Self::Ask {
+            return Ok(self);
+        }
+        if !tty {
+            return Err(error("missing release needs a build policy; set CODEX_TERMUX_UPDATE_BUILD_POLICY=keep, local or remote (or use --wait/--no-wait)"));
+        }
+        eprintln!("Missing qualified artifacts: [1] Keep current  [2] Build locally (prepare required tools)  [3] Request remote build  [q] Keep current");
+        let input = WaitInput::new(true);
+        loop {
+            let key = input.key();
+            if let Some(signal) = input
+                .pending_signal()
+                .or_else(|| key.and_then(|k| input.signal(k)))
+            {
+                drop(input);
+                let _ = unsafe { raise(signal) };
+                return Err(error(
+                    "update choice interrupted; installed release preserved",
+                ));
+            }
+            match key {
+                Some(b'1' | b'q' | b'Q' | 4) => return Ok(Self::Keep),
+                Some(b'2') => return Ok(Self::Local),
+                Some(b'3') => return Ok(Self::Remote),
+                _ => (),
+            }
+        }
+    }
+}
+
 fn newer(candidate: &str, installed: &str) -> bool {
     fn parts(value: &str) -> Option<Vec<u64>> {
         valid_update_version(value)
@@ -87,7 +172,7 @@ fn gh(program: &Path, args: &[&str]) -> Result<Vec<u8>, LocalProductError> {
     result
 }
 
-fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductError> {
+fn request(roots: &LocalCoreRoots, version: &str) -> Result<Option<u64>, LocalProductError> {
     if !valid_update_version(version) {
         return Err(error("invalid official build request version"));
     }
@@ -110,7 +195,7 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
         .ok_or_else(|| error("GitHub build status is malformed; request not sent"))?;
     if id != 0 {
         println!("Reusing pending build: https://github.com/humtr/codex/actions/runs/{id}");
-        return Ok(());
+        return Ok(Some(id));
     }
     // The receipt precedes the mutation. Only a returned, subsequently observed
     // failed run permits a later explicit update invocation to request again.
@@ -129,7 +214,7 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
             };
             if tail.is_empty() {
                 println!("A build request for {version} is recorded but its result is uncertain; checking publication without resending it.");
-                return Ok(());
+                return Ok(None);
             }
             let run = std::str::from_utf8(tail)
                 .ok()
@@ -147,7 +232,7 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
                     "[.status, (.conclusion // \"pending\")] | @tsv",
                 ],
             )?;
-            let failed = matches!(
+            let request_failed = matches!(
                 status.as_slice(),
                 b"completed\tfailure\n"
                     | b"completed\tcancelled\n"
@@ -155,9 +240,12 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
                     | b"completed\taction_required\n"
                     | b"completed\tstartup_failure\n"
             );
-            if !failed {
+            let publication_failed = !request_failed
+                && publication_status(roots, version, &request_time(roots, run)?)?
+                    .is_some_and(|build| build.failed());
+            if !request_failed && !publication_failed {
                 println!("Build request: https://github.com/humtr/codex/actions/runs/{run}; checking qualification/publication without resending it.");
-                return Ok(());
+                return Ok(Some(run));
             }
             // Preserve the failed receipt and refuse a concurrent rotation rather
             // than overwriting another updater's newer intent.
@@ -168,7 +256,7 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
                 .map_err(|_| error("cannot preserve failed build receipt; request not sent"))?;
             sync_directory(&roots.state_root)?;
             println!(
-                "Previous request {run} failed; this explicit update starts a new build request."
+                "Previous request {run} or its publication failed; this explicit update starts a new build request."
             );
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -205,7 +293,100 @@ fn request(roots: &LocalCoreRoots, version: &str) -> Result<(), LocalProductErro
     writeln!(file, "run\t{run}").and_then(|()| file.sync_all())
         .map_err(|_| error("build was requested but its run receipt could not be saved; request will not be resent"))?;
     println!("Requested Codex {version}: https://github.com/humtr/codex/actions/runs/{run}");
-    Ok(())
+    Ok(Some(run))
+}
+
+fn request_time(roots: &LocalCoreRoots, run: u64) -> Result<String, LocalProductError> {
+    let bytes = gh(&roots.openssl.with_file_name("gh"), &[
+        "api", &format!("repos/humtr/codex/actions/runs/{run}"), "--jq",
+        "if .repository.full_name==\"humtr/codex\" and .head_branch==\"main\" and .event==\"workflow_dispatch\" and .path==\".github/workflows/accepted-release-inputs.yml\" then .created_at else error(\"foreign build request\") end",
+    ])?;
+    let value = std::str::from_utf8(&bytes)
+        .map_err(|_| error("build request time is not UTF-8"))?
+        .trim();
+    if value.len() != 20
+        || !value.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 => b == b'-',
+            10 => b == b'T',
+            13 | 16 => b == b':',
+            19 => b == b'Z',
+            _ => b.is_ascii_digit(),
+        })
+    {
+        return Err(error("build request time is malformed"));
+    }
+    Ok(value.to_owned())
+}
+
+struct PublicationStatus {
+    run: u64,
+    status: String,
+    conclusion: String,
+    phase: String,
+}
+
+impl PublicationStatus {
+    fn failed(&self) -> bool {
+        self.status == "completed" && self.conclusion != "success"
+    }
+}
+
+fn publication_status(
+    roots: &LocalCoreRoots,
+    version: &str,
+    since: &str,
+) -> Result<Option<PublicationStatus>, LocalProductError> {
+    let program = roots.openssl.with_file_name("gh");
+    let query = format!(
+        "[.workflow_runs[] | select(.display_title==\"Codex publication {version}\" and .created_at>=\"{since}\" and .head_branch==\"main\" and .event==\"workflow_dispatch\" and .path==\".github/workflows/auto-release-termux.yml\" and .repository.full_name==\"humtr/codex\")] | first // {{id:0,status:\"pending\"}} | [.id,.status,(.conclusion // \"pending\")] | @tsv"
+    );
+    let bytes = gh(&program, &["api", "repos/humtr/codex/actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100", "--jq", &query])?;
+    let line = std::str::from_utf8(&bytes)
+        .map_err(|_| error("publication status is not UTF-8"))?
+        .trim_end_matches('\n');
+    let fields: Vec<_> = line.split('\t').collect();
+    if fields.len() != 3 {
+        return Err(error("publication status is malformed"));
+    }
+    let run: u64 = fields[0]
+        .parse()
+        .map_err(|_| error("publication run ID is malformed"))?;
+    if run == 0 {
+        return Ok(None);
+    }
+    if !matches!(
+        fields[1],
+        "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending"
+    ) || !matches!(
+        fields[2],
+        "pending"
+            | "success"
+            | "failure"
+            | "cancelled"
+            | "timed_out"
+            | "action_required"
+            | "startup_failure"
+            | "neutral"
+            | "skipped"
+            | "stale"
+    ) {
+        return Err(error("publication state is unknown"));
+    }
+    let phase = gh(&program, &["api", &format!("repos/humtr/codex/actions/runs/{run}/jobs?per_page=100"), "--jq",
+        "((.jobs | map(select(.conclusion==\"failure\" or .conclusion==\"timed_out\" or .conclusion==\"cancelled\")) | first) // (.jobs | map(select(.status==\"in_progress\")) | first) // (.jobs | map(select(.status==\"queued\")) | first) // {name:\"Awaiting signed publication\"}) | [.name, ((.steps // [] | map(select(.status==\"in_progress\" or .conclusion==\"failure\")) | first | .name) // \"\")] | map(select(length>0)) | join(\" / \")",
+    ])?;
+    let phase = std::str::from_utf8(&phase)
+        .map_err(|_| error("publication phase is not UTF-8"))?
+        .trim_end_matches('\n');
+    if phase.is_empty() || phase.len() > 1024 || phase.chars().any(char::is_control) {
+        return Err(error("publication phase is malformed"));
+    }
+    Ok(Some(PublicationStatus {
+        run,
+        status: fields[1].to_owned(),
+        conclusion: fields[2].to_owned(),
+        phase: phase.to_owned(),
+    }))
 }
 
 fn official(roots: &LocalCoreRoots) -> Result<OfficialReleaseMetadata, LocalProductError> {
@@ -449,6 +630,7 @@ pub(super) fn finish(
     roots: &LocalCoreRoots,
     env: &TermuxProcessEnvSnapshot,
     outcome: SignedUpdateOutcome,
+    policy: BuildPolicy,
     no_wait: bool,
     presentation: &mut UpdatePresentation,
 ) -> Result<i32, LocalProductError> {
@@ -484,12 +666,30 @@ pub(super) fn finish(
         "Installed Codex {installed}; official {} needs a qualified Termux release.",
         latest.version
     );
-    request(roots, &latest.version)?;
     let tty = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    match policy.choose(tty)? {
+        BuildPolicy::Keep => {
+            println!(
+                "Keeping Codex {installed}; qualified {} is still missing. No build requested.",
+                latest.version
+            );
+            return Ok(0);
+        }
+        BuildPolicy::Local => {
+            let _lease = maintenance::UpdateLease::acquire(roots)?;
+            let result = activate_local_built_update(roots, env, Some(presentation), Some(latest))?;
+            presentation.finish_local_activation(&result.current_version);
+            return Ok(0);
+        }
+        BuildPolicy::Remote => (),
+        BuildPolicy::Ask => unreachable!("choice resolves ask"),
+    }
+    let requested = request(roots, &latest.version)?;
     if no_wait {
         println!("Build request recorded. Continue with Codex {installed}.");
         return Ok(if tty { launch_current(roots, env) } else { 0 });
     }
+    let since = requested.map(|run| request_time(roots, run)).transpose()?;
     println!(
         "Waiting for signed publication. [c] Continue with current version  [q] Leave updater"
     );
@@ -527,7 +727,7 @@ pub(super) fn finish(
             .ok_or(LocalProductError::NoCurrentGeneration)?;
         let index = match fetch_signed_update_index_with_timeout(roots, state.update_key, "5") {
             Ok(index) => Some(index),
-            Err(LocalProductError::RemoteTransportFailed) => None,
+            Err(LocalProductError::RemoteTransportFailed { .. }) => None,
             Err(error) => return Err(error),
         };
         if index
@@ -535,7 +735,25 @@ pub(super) fn finish(
             .is_none_or(|index| index.generation_id == seen)
         {
             if Instant::now() >= next_qualification {
-                next_qualification = Instant::now() + Duration::from_secs(120);
+                next_qualification = Instant::now() + Duration::from_secs(60);
+                if let Some(since) = since.as_deref() {
+                    match publication_status(roots, &latest.version, since) {
+                        Ok(Some(build)) => {
+                            presentation.clear_transient();
+                            println!("Remote publication: {} [{} / {}; waited {}m {}s]",
+                                build.phase, build.status, build.conclusion,
+                                begin.elapsed().as_secs() / 60, begin.elapsed().as_secs() % 60);
+                            println!("https://github.com/humtr/codex/actions/runs/{}", build.run);
+                            if build.failed() {
+                                println!("Publication failed. Codex {installed} remains installed; the next explicit update may request a corrected build.");
+                                return Ok(1);
+                            }
+                            continue;
+                        }
+                        Ok(None) => println!("Waiting for publication to start; waited {}s.", begin.elapsed().as_secs()),
+                        Err(reason) => eprintln!("Publication status unavailable: {reason}; signed publication is still checked."),
+                    }
+                }
                 match qualification_failure(roots, &latest.version) {
                     Ok(Some(failure)) => {
                         presentation.clear_transient();
@@ -619,6 +837,37 @@ mod tests {
     }
 
     #[test]
+    fn missing_artifact_policy_is_explicit_and_has_no_silent_noninteractive_default() {
+        for (text, expected) in [
+            ("ask", BuildPolicy::Ask),
+            ("keep\n", BuildPolicy::Keep),
+            ("local", BuildPolicy::Local),
+            ("remote", BuildPolicy::Remote),
+        ] {
+            assert_eq!(BuildPolicy::parse(text).unwrap(), expected);
+            if expected != BuildPolicy::Ask {
+                assert_eq!(expected.choose(false).unwrap(), expected);
+            }
+        }
+        assert!(BuildPolicy::parse("automatic").is_err());
+        assert!(BuildPolicy::Ask.choose(false).is_err());
+        let (root, mut roots) = fixture("exit 97");
+        roots.config_dir = root.join("config");
+        std::fs::create_dir(&roots.config_dir).unwrap();
+        assert_eq!(BuildPolicy::read(&roots, false).unwrap(), BuildPolicy::Ask);
+        std::fs::write(roots.config_dir.join("update-policy"), "keep\n").unwrap();
+        assert_eq!(BuildPolicy::read(&roots, false).unwrap(), BuildPolicy::Keep);
+        assert_eq!(
+            BuildPolicy::read(&roots, true).unwrap(),
+            BuildPolicy::Remote
+        );
+        std::fs::write(roots.config_dir.join("update-policy"), "invalid").unwrap();
+        assert!(BuildPolicy::read(&roots, false).is_err());
+        assert!(!root.join("gh.effects").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn request_ack_and_exact_qualification_failure_are_separate() {
         for (selected, status, failure) in [
             ("0.165.0", "42\\tfailure", true),
@@ -640,10 +889,59 @@ mod tests {
     }
 
     #[test]
+    fn actual_publication_failure_is_reported_and_allows_one_explicit_retry() {
+        let jq = crate::tests::resolve_test_tool("jq").unwrap();
+        let (root, roots) = fixture(&format!(
+            r#"
+case "$2" in
+  --method) printf 'effect\n' >> "$0.effects"; printf '12345\n';;
+  *accepted-release-inputs.yml/runs*) printf '0\n';;
+  *auto-release-termux.yml/runs*) exec {jq} -r "$4" "$0.publications";;
+  */jobs*) exec {jq} -r "$4" "$0.jobs";;
+  */actions/runs/41) exec {jq} -r "$4" "$0.request";;
+  */actions/runs/12345) exec {jq} -r "$4" "$0.new-request";;
+  *) exit 1;;
+esac"#,
+            jq = jq.display()
+        ));
+        std::fs::write(root.join("gh.request"), br#"{"repository":{"full_name":"humtr/codex"},"head_branch":"main","event":"workflow_dispatch","path":".github/workflows/accepted-release-inputs.yml","created_at":"2026-10-29T00:00:00Z","status":"completed","conclusion":"success"}"#).unwrap();
+        let fresh = std::fs::read_to_string(root.join("gh.request"))
+            .unwrap()
+            .replace("00:00:00Z", "03:00:00Z");
+        std::fs::write(root.join("gh.new-request"), fresh).unwrap();
+        std::fs::write(root.join("gh.publications"), br#"{"workflow_runs":[
+{"id":97,"repository":{"full_name":"other/repo"},"path":".github/workflows/auto-release-termux.yml","head_branch":"main","event":"workflow_dispatch","display_title":"Codex publication 0.165.0","created_at":"2026-10-29T02:00:00Z","status":"completed","conclusion":"failure"},
+{"id":98,"repository":{"full_name":"humtr/codex"},"path":".github/workflows/auto-release-termux.yml","head_branch":"main","event":"workflow_dispatch","display_title":"Codex publication 0.165.0","created_at":"2026-10-28T23:00:00Z","status":"completed","conclusion":"failure"},
+{"id":99,"repository":{"full_name":"humtr/codex"},"path":".github/workflows/auto-release-termux.yml","head_branch":"main","event":"workflow_dispatch","display_title":"Codex publication 0.165.0","created_at":"2026-10-29T01:00:00Z","status":"completed","conclusion":"failure"}]}"#).unwrap();
+        std::fs::write(root.join("gh.jobs"), br#"{"jobs":[{"name":"Full signing","status":"completed","conclusion":"failure","steps":[{"name":"Download qualified candidate","conclusion":"failure"}]}]}"#).unwrap();
+        let since = request_time(&roots, 41).unwrap();
+        let build = publication_status(&roots, "0.165.0", &since)
+            .unwrap()
+            .unwrap();
+        assert_eq!(build.run, 99);
+        assert!(build.failed());
+        assert_eq!(build.phase, "Full signing / Download qualified candidate");
+        assert!(publication_status(&roots, "0.164.0", &since)
+            .unwrap()
+            .is_none());
+        let mut previous = RECEIPT.to_vec();
+        previous.extend_from_slice(b"run\t41\n");
+        std::fs::write(root.join("manual-build-0.165.0"), &previous).unwrap();
+        assert_eq!(request(&roots, "0.165.0").unwrap(), Some(12345));
+        assert_eq!(request(&roots, "0.165.0").unwrap(), Some(12345));
+        assert_eq!(std::fs::read(root.join("gh.effects")).unwrap(), b"effect\n");
+        assert_eq!(
+            std::fs::read(root.join("manual-build-0.165.0-failed-41")).unwrap(),
+            previous
+        );
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
     fn build_requests_are_once_and_uncertain_mutations_are_not_resent() {
         for exit in [0, 1] {
             let (root, roots) = fixture(&format!(
-                "case \"$2\" in --method) printf 'effect\\n' >> \"$0.effects\"; printf '12345\\n'; exit {exit};; */actions/runs/*) printf 'completed\\tsuccess\\n';; *) printf '0\\n';; esac"));
+                "case \"$2:$4\" in */actions/runs/*created_at*) printf '2026-10-29T00:00:00Z\\n'; exit 0;; esac; case \"$2\" in *auto-release-termux.yml/runs*) printf '0\\tpending\\tpending\\n'; exit 0;; esac; case \"$2\" in --method) printf 'effect\\n' >> \"$0.effects\"; printf '12345\\n'; exit {exit};; */actions/runs/*) printf 'completed\\tsuccess\\n';; *) printf '0\\n';; esac"));
             assert_eq!(request(&roots, "0.164.0").is_ok(), exit == 0);
             assert!(request(&roots, "0.164.0").is_ok());
             assert_eq!(std::fs::read(root.join("gh.effects")).unwrap(), b"effect\n");
@@ -662,7 +960,7 @@ mod tests {
     #[test]
     fn only_a_confirmed_failed_request_permits_a_new_explicit_attempt() {
         let (root, roots) = fixture(
-            "case \"$2\" in --method) printf 'effect\\n' >> \"$0.effects\"; printf '88\\n';; */actions/runs/77) printf 'completed\\tfailure\\n';; */actions/runs/88) printf 'in_progress\\tpending\\n';; *) printf '0\\n';; esac");
+            "case \"$2:$4\" in */actions/runs/*created_at*) printf '2026-10-29T00:00:00Z\\n'; exit 0;; esac; case \"$2\" in *auto-release-termux.yml/runs*) printf '0\\tpending\\tpending\\n'; exit 0;; esac; case \"$2\" in --method) printf 'effect\\n' >> \"$0.effects\"; printf '88\\n';; */actions/runs/77) printf 'completed\\tfailure\\n';; */actions/runs/88) printf 'in_progress\\tpending\\n';; *) printf '0\\n';; esac");
         let mut previous = RECEIPT.to_vec();
         previous.extend_from_slice(b"run\t77\n");
         std::fs::write(root.join("manual-build-0.164.0"), &previous).unwrap();

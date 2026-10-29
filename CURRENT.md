@@ -38,10 +38,11 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: review update automation after the successful actual Base installation.
-The recommendation below is a proposal, not deployed behavior or an amended SPEC.
-Full repair and CI restructuring remain unimplemented; preserve running jobs,
-the current Base and its retained rollback while selecting the next change.**
+**In development: the approved complete update lifecycle after actual Base124
+installation. SPEC now requires selective component reuse, two-hour preparation,
+keep/local/remote build choice, dependency preparation and explicit signer authority.
+Source changes below are not yet qualified or deployed; preserve the operating
+Base and complete rollback.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -217,7 +218,8 @@ The Base-only reproduction is complete: actual device readback now selects
 `local-base-relay-hosted-0-165-0-7f557c208856-s124`, and actual `codex --version`
 returns `codex-cli 0.165.0`. Previous is `local-1793204956-318-2`. This confirms
 installation and executable version, not migration of already running processes.
-Latest scope is review of update automation; no new update/build policy is active.
+Latest scope is complete development of the approved update lifecycle. New source
+policy is under qualification; operating Base124 has not been replaced.
 The earlier requirement to observe
 upstream discovery and a real build request was exercised by request40772864929
 and publication40772954167. That publication promoted signed Base124 for0.165,
@@ -256,7 +258,87 @@ terminal logs. The five-minute payload deadline is implicated, but the exact cur
 exit code was not captured. Remote acquisition/fallback diagnosis remains open;
 do not claim plain remote update was fixed by preparing this local package.
 
-### Update automation review: recommendation, not implementation
+### Approved update lifecycle: implementation and qualification
+
+The current batch removes transport-to-build fallback and the obsolete boolean
+result wrapper. Core now selects a missing-artifact policy (`ask`, `keep`, `local`,
+`remote`) before activation; explicit wait flags retain remote-request semantics.
+A local selection carries the exact official version/digest shown in that choice.
+This policy does not yet supply the missing native source compiler/dependency
+executor. The old qualified binary adaptation remains, with unsupported recipes
+reported as failures.
+
+`remote_download.rs` owns bounded HTTPS execution and a private 1 GiB content
+cache outside activation staging. It preserves partial bytes across failed
+attempts, resumes with Range only on the next explicit attempt, verifies signed
+size/hash before staging, rejects changed content and discards rejected Range
+partials. Complete cache files are rehashed before reuse. A directory lease
+prevents competing writers/eviction; aliases, hard links and nonprivate entries
+are rejected. Controls remain freshly authenticated. Connect, low-throughput and
+overall deadlines are separate, and errors expose curl/HTTP status, output bytes
+and elapsed time without exposing raw curl diagnostics or redirected URLs.
+
+The selective deferred fixes are now in source: actual publication stage/failure
+observation, explicit retry only after a proven terminal failure, and mandatory
+Android smoke even after skipped optional producer dependencies. Two-hour
+preparation is source cron `17 */2 * * *`, not yet activated remotely. Stash
+runtime-artifact/GitHub cache reuse was not imported as the final build architecture.
+
+Qualification evidence is under `~/.cache/codex/acceptance/update-lifecycle-20261029`.
+`full-third.log` passed Python27+119+14 cases and all workspace Rust/Clippy gates.
+The final source passes `rust-final-v3.log`: Core229 plus one existing explicit
+real-device test, Manager52, integration67+3, release builder31 and binding2;
+Clippy succeeds. Four real-TLS/cache tests cover truncated body, exact Range
+resume, Range refusal, changed response, corrupt complete cache, empty signed
+payloads, aliases, competing lease and verified reuse with the origin stopped.
+A prior HTTP-detail gate failed only because its line-based argument witness
+split a multiline write-out argument; the final control marker is one bounded
+argument and the strict argv regression passes. No acceptance assertion was
+weakened. Original failures remain preserved.
+
+`native-download-v2.json` passes the actual Android signed remote updater:
+1 MiB truncation exits1 without activation/residue, the next explicit native
+update sends Range from1048576, verifies/installs and executes upstream0.165.0,
+then rolls back while preserving fixture auth, config and resolver bytes. It uses
+real native curl and a real TLS origin, with no public request/model/service
+mutation. The original trial rejected the checker's stale browser-only Base
+layout; the shared fixture now recognizes the exact existing R10 two-helper
+layout instead of weakening its inventory. `native-{keep,choose-keep,choose-remote,
+publication-failed}.json` pass native Android CLI policy/menu and actual publication
+failure display. Keep dispatches0; remote choice dispatches once through a local
+GitHub response witness, releases its wait lease, and request ACK does not hide
+publication failure. These are local response fixtures, not hosted execution proof.
+
+Intentional lost-resume and disabled-final-digest mutations are both rejected by
+the real-TLS regression (`mutation-download.json`). The missing-Android-smoke
+mutation also fails its targeted test. All disposable sources are restored;
+live source was never faulted. The first smoke mutation lacked imported frontend
+helpers and is not an accepted fault result. An intermediate Core run was invalidated
+by rebuilding its executing test path; sequential accepted gates supersede it.
+
+Completed owned native fixtures have manifest-matched payloads archived/pruned
+through the existing cleaner, with per-trial cleanup/restore records. The accepted
+release executable is retained outside mutable Cargo output. Current compiler
+caches remain below15 GiB. No public asset, production launcher, service or profile
+changed in this batch. The local compiler investigation verified native Zig0.14.0,
+but official musl std rejects the Termux compiler's different build identity;
+rebuilding std then exposes an unsupported Zig linker argument. Those experiments
+are not a supported local recipe. A dedicated Linux musl build environment is the
+next qualification candidate; existing operating app hosts will not be reused.
+Only the missing `proot-distro` dependency was installed (5.10.3), after an apt
+plan confirmed zero upgrades/removals. A dedicated named Debian build container
+is being prepared, with its ownership/image record retained in the evidence root.
+
+Remaining approved scope, in dependency order: finish transport/native proofs;
+portable per-component build inputs and exact-output reuse; real local source
+build/tool dependencies and configured developer signing; compatible installed
+module planning including Provider/tunnel; optional executor/mirror adapters;
+complete publication/readback/disposable update and bounded device activation.
+Provider selection currently holds a store-wide payload lease and rejects live
+processes; that existing contract must be revised and proven separately to allow
+new installation while old immutable jobs continue. Removing the process check
+alone would leave the lease blockage and is not a complete fix. Full smoke source
+repair has no hosted execution proof yet. Public production remains Base124/Full123.
 
 Core should own detection, composition selection, acquisition choice, progress,
 verification and atomic activation. Keep one portable artifact preparation/build
@@ -286,8 +368,7 @@ may advance separately; inseparable dependency groups must advance together.
 Do not silently drop a selected module because its new companion is unavailable.
 
 Remote preparation should inspect upstream stable metadata every two hours,
-while owned module source changes may trigger preparation immediately. The current
-six-hour cron exists but is not this proposed interval. The periodic check is
+while owned module source changes may trigger preparation immediately. The source cron is now `17 */2 * * *`; hosted activation is not yet verified. The periodic check is
 lightweight; unchanged inputs cause no build, and identical pending requests reuse
 one job. Build supported individual components, not all combinations of modules.
 Scheduling is best effort and does not replace an immediate user request.
@@ -316,8 +397,8 @@ A maintainer with an explicitly configured, authorized release signer may perfor
 build, qualification and release signing together; Codex/GitHub login or a checkout
 does not establish that signing capability. Public upload/promotion requires its
 own configured authority/policy and is not implied by signing for personal use.
-This local release-signing proposal changes the current CI-owned publication
-contract and needs SPEC/qualification work before activation.
+The approved local release-signing target changes the earlier CI-owned publication
+contract; SPEC is amended, implementation and qualification are still required.
 
 Signing a file inventory does not change the binaries and requires no upload by
 itself. A later public release should upload only absent changed artifact objects,
@@ -380,8 +461,13 @@ after a successful request ACK; missing mandatory execution proof; rollback with
 config/auth/session preservation; and unchanged running-job ownership. Local and
 remote producers require the same artifact/compatibility contract; running an
 entire repository test suite is release development work, not every consumer update.
-SPEC changes and implementation follow selection of this proposal; this review
-changed neither runtime, installation, services nor remote workflows.
+The user approved complete development and qualification. SPEC has been amended;
+implementation is ongoing. This batch has not activated installation or services.
+Transport fallback is removed in source; cause-specific curl diagnostics and a
+private, bounded payload cache with explicit-attempt resume are being qualified.
+The cache is outside activation staging and never supplies executable authority.
+Publication monitoring, component reuse, local build/dependency/signing, and
+optional tunnel installation remain unfinished until their product proofs pass.
 
 Before the user's Base installation, readback on2026-10-29 KST recorded locally derived generation
 `local-1793204956-318-2`, upstream0.164.0, with corrected Core. Its public
