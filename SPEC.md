@@ -4227,6 +4227,12 @@ configuration. SDK library search must remain scoped to its compiler/linker;
 it must not shadow Termux's runtime when Cargo invokes native child tools.
 Experimental SDK execution alone does not qualify a complete
 component build or make that environment an installed dependency.
+Build-time protocol generation honors an explicitly prepared `PROTOC` compiler;
+without that selection it retains upstream's vendored default. Cargo tracks the
+selection so changing the compiler reruns generation. Native executor preparation
+must qualify that compiler against the actual protocol inputs; a Linux executable
+that fails Android's syscall policy cannot be treated as an available build tool.
+The override changes build-tool selection, not the protocol or its runtime behavior.
 
 Remote preparation checks official upstream metadata every two hours and responds
 to owned component-source changes. Only changed build inputs trigger preparation;

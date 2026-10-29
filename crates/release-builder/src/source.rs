@@ -142,6 +142,14 @@ fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
         source,
         changes: BTreeMap::new(),
     };
+    plan.edit("code-mode-protocol/build.rs", "main", |text, where_| {
+        replace(
+            text,
+            "    config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);",
+            "    config.protoc_executable(match std::env::var_os(\"PROTOC\") {\n        Some(path) => PathBuf::from(path),\n        None => protoc_bin_vendored::protoc_bin_path()?,\n    });\n    println!(\"cargo:rerun-if-env-changed=PROTOC\");",
+            where_,
+        )
+    })?;
     plan.edit(
         "uds/src/daemon_directory.rs",
         "shared_daemon_socket_directory",

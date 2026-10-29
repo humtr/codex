@@ -477,11 +477,28 @@ search only through its linker adapter. The proc-macro/C probe passes this setup
 no target flags were weakened. The otherwise-idle Rust gate has passed. The
 first direct full-source runs were interrupted without exit records; their exact
 logs remain incomplete, not successful or diagnosed as compiler failures. A
-separate detached runner now preserves observation independently of the tool
-transport: `native-runtime-rust-build-v4-handle.json` identifies owner PID19618,
-with actual output in `native-runtime-rust-build-v4.log` and a terminal exit record
-only when that worker returns. Revalidate the exact handle before continuation.
-Do not infer completed Codex build or installation from SDK/jemalloc preparation.
+separate detached runner preserves observation independently of the tool
+transport. Its v4 trial is terminal with exit1
+(`native-runtime-rust-build-v4-exit.json`); Cargo reports failure in
+codex-code-mode-protocol's build script. The vendored Linux protoc also fails
+standalone with signal31. Actual syscall tracing identifies Android seccomp's
+rejection of `set_robust_list`, not a missing dynamic loader
+(`vendored-protoc-strace.log`). Termux protobuf36.2 was the only newly installed
+package; no existing packages were upgraded. Its protoc generates the actual
+protocol descriptor successfully (`native-protoc-descriptor.json`). The isolated
+upstream build-script experiment honors standard `PROTOC` selection, retaining
+the vendored default when absent. The common Rust preparation now emits that
+change; its exact nine-file patch matches the actual crate preflight, with the
+same167 workspace/1308 external lock audit (`protoc-source-parity.json`). Actual
+Android release compilation of codex-code-mode-protocol passes in15m37s
+(`native-protoc-crate.json`). Removing the override in disposable upstream source
+reproduces the original Cargo101/protoc failure in5.7s; the source is restored
+(`native-protoc-mutation.json`). Six source tests, three CI input/reuse tests and
+workspace Clippy pass (`protoc-source-tests.log`, `protoc-runtime-input-tests.log`,
+`protoc-source-clippy.log`). The preceding complete gate belongs to the Provider
+batch before this new build-tool change; complete source-runtime and release
+acceptance are still pending. Do not infer completed Codex build or installation
+from SDK/jemalloc/protoc preparation.
 
 Independent native dependency qualification now also builds official libcap2.75
 from the archive digest pinned by the selected upstream build script, using
@@ -501,7 +518,7 @@ in the XDG cache and an isolated prefix. The actual static Android probe matches
 the known SHA-256 of `abc`, creates/frees a TLS context and reports the expected
 OpenSSL version with no stderr or ELF interpreter
 (`native-openssl-{inputs,build-exit,execution}.json`). Its source and libraries
-remain separate from those used by the still-running complete Codex trial; that
+remain separate from those used by the terminal v4 Codex trial; that
 worker's build inputs were not changed mid-run. The completed dependency outputs
 are frozen before owned intermediate cleanup
 (`native-{libcap,openssl}-cleanup.json`). These are temporary qualification
@@ -516,6 +533,14 @@ producer's terminal output, then qualify the latest frozen Core/builder with the
 real official0.165 archive (the retained `up165-5wrp5v0i/upstream.tar.gz` matches
 the selected release digest), candidate signatures, update and rollback.
 Do not substitute the already-adapted installed runtime for raw source output.
+A new detached v5 producer uses the qualified direct SDK plus the independently
+native-built OpenSSL/libcap prefixes and selected Termux protoc; it does not use
+PRoot. Revalidate `native-runtime-rust-build-v5-handle.json` against its live PID/
+start identity and actual output before continuing; the handle alone is not proof
+of liveness or completion. The new input set is in `native-runtime-v5-dependencies.json`;
+the terminal result is `native-runtime-rust-build-v5-exit.json` when the worker
+returns. Earlier failure records and the original eight-file parity are retained;
+they do not describe this new exact-source trial.
 
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source
