@@ -577,7 +577,7 @@ or completed executable (`native-runtime-rust-build-v5-observation.json`). Its
 termination cause is not established; do not call this an observed compiler failure
 or memory kill. Inputs, source/diff and completed compiler cache are retained.
 
-The v6 diagnostic runs the same frozen shared Rust producer and compiler policy.
+The v6 diagnostic ran the same frozen shared Rust producer and compiler policy.
 Its supervisor and worker have distinct kernel process groups, so a worker-group
 termination need not also destroy its observer. One-second kernel RSS/thread and
 system-memory samples are in `native-runtime-rust-build-v6-resources.jsonl`; these
@@ -585,8 +585,8 @@ are sampled process RSS, not exact physical-memory peaks or an OS kill reason.
 An explicitly temporary Cargo wrapper restores previous timestamps only after
 the complete prepared diff matches the previous exact Git base/diff. This reuses
 completed dependency compilation without modifying source bytes or disabling
-source/build/admission checks. The new run proceeds directly to codex-cli; it is
-not a fresh full dependency rebuild. No compiler optimization, LTO or job policy
+source/build/admission checks. It proceeded directly to codex-cli without a fresh
+full dependency rebuild. No compiler optimization, LTO or job policy
 was changed. The wrapper is qualification-only, is never installed, and may be
 removed after this proof's final artifacts/results are retained and no armed
 proof consumes it. The supervisor's isolated worker-group SIGKILL injection
@@ -655,7 +655,14 @@ unfinished. Final diff/affected-flow review preserves the existing six-file raw
 artifact, compiler profile, dirty-source protection and cause-specific failures;
 no new installed Python, API flag, compatibility route or operating activation
 was added. Compiler caches remain below the15-GiB budget; required accepted
-executables/results are retained outside mutable output.
+executables/results are retained outside mutable output. The two completed,
+inactive qualification worktrees were removed only after their exact diffs and
+absence of untracked/live work were verified;131,350,528 allocated bytes were
+reclaimed. Git bases, patches, logs/results and restore instructions remain in
+`runtime-compiler-preflight-worktree-cleanup.json`. No native build is currently
+armed. The next linker diagnostic must distinguish anonymous/file-backed RSS,
+retain actual linker arguments and recheck available memory before launch; the
+supported single-thread linker option is not yet qualified as product policy.
 Earlier failure records and the original eight-file parity remain historical;
 none establishes completion of the pending exact-source runtime acceptance.
 
