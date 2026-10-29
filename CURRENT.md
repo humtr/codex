@@ -425,6 +425,43 @@ interface; it does not yet implement native tool provisioning or source-build
 selection in the installed updater. Whole release/device acceptance remains
 pending; the preceding full Rust gate applies to the earlier producer batch.
 
+The next-Core candidate also implements explicit developer local-build signing.
+`config/build-signing-key` accepts one bounded `file:/absolute/path` reference;
+the existing private-key verifier must derive the admitted `update_key`. Malformed
+references or missing, insecure or unauthorized referenced keys fail before archive acquisition
+without falling back to another signer. The default still creates/deletes its
+temporary key, and legacy key environment variables remain inert. The external
+configured key is never removed. Fetch and publication APIs now preserve
+`BuilderError` instead of flattening/discarding the original cause. Baseline reuse
+uses signed local-derived provenance rather than assuming that local and public
+signers differ. The existing public update regression was extended, retaining its
+default-key checks and adding external-key preservation, invalid-reference/key
+refusals, acquisition/construction cause propagation and same-key baseline reuse.
+It passes `local-signer-public-path-v4.log`. All three targeted mutations fail at
+their intended assertions (`local-signer-mutations-v3.json`); disposable source is
+restored. The final full gate passes Python25+123+10, Core230 with the existing one
+device exclusion, Manager52, integration67+3, builder41, binding2 and workspace
+Clippy (`local-signer-full-final.log`).
+
+Actual release-executable qualification on Android passes32 steps against the real
+official0.164.0 archive/HTTPS endpoints: fresh signed installation, exact version,
+configured signer refusal before archive download, authorized local build/sign/
+activation, external key/reference preservation and both rollback directions
+(`local-signer-native-official-v5.json`). This is isolated Base/registered binary
+adaptation proof, not0.165 source-build orchestration, Full acceptance, public
+publication or operating activation. Earlier fixture failures remain recorded:
+rollback trials left a legitimate hold, which the corrected fixture resolves by
+admitting a newer signed baseline; an OpenSSL fixture symlink violated the
+builder's real-file tool contract. A180s qualification deadline also killed the
+parent before its300s archive deadline on a measured slow transfer. The corrected
+test permits that existing archive budget plus its normal construction/probe
+allowance, and kills/reaps its owned process group on a test timeout. An actual
+hung parent/child injection proves both disappear and fixture cleanup completes
+(`qualification-timeout-tree.json`). No product deadline was increased.
+The accepted executables are frozen in `local-signer-native-bin-v2` before
+pruning idle debug output; `local-signer-cache-cleanup.json` records2,621,966,336
+allocated bytes reclaimed without touching the active native source compiler.
+
 The actual local Codex build did not finish. Its original tool-bound process
 vanished without an exit record; do not attribute that to memory. The jemalloc
 failure is now narrowed to the second, normally hidden compiler command: its
@@ -544,7 +581,7 @@ they do not describe this new exact-source trial.
 
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source
-build/tool dependencies and configured developer signing; compatible installed
+build/tool dependencies and broader local-build composition acceptance; compatible installed
 module planning including Provider/tunnel; optional executor/mirror adapters;
 complete publication/readback/disposable update and bounded device activation.
 Provider selection source is qualified: keep a shared store lease for installed
@@ -642,8 +679,9 @@ A maintainer with an explicitly configured, authorized release signer may perfor
 build, qualification and release signing together; Codex/GitHub login or a checkout
 does not establish that signing capability. Public upload/promotion requires its
 own configured authority/policy and is not implied by signing for personal use.
-The approved local release-signing target changes the earlier CI-owned publication
-contract; SPEC is amended, implementation and qualification are still required.
+The candidate implements the configured signer and qualifies the isolated actual
+Base0.164 local path above. Source-build/Full composition and public delivery still
+require their remaining gates; local signing does not implement publication.
 
 Signing a file inventory does not change the binaries and requires no upload by
 itself. A later public release should upload only absent changed artifact objects,

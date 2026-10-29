@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import time
 import subprocess
@@ -52,9 +53,22 @@ def qualify(args, report):
                    PATH=f'{prefix / "bin"}:{host_prefix / "bin"}',
                    SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'), TERM='dumb')
 
-        def run(label, command, *, selected=env, expected=0):
-            result = subprocess.run([str(value) for value in command], env=selected,
-                                    cwd=root / 'work', capture_output=True, timeout=180)
+        def run(label, command, *, selected=env, expected=0, timeout=180):
+            with subprocess.Popen([str(value) for value in command], env=selected,
+                    cwd=root / 'work', stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    start_new_session=True) as child:
+                try:
+                    stdout, stderr = child.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    stdout, stderr = child.communicate()
+                    report['steps'].append({'name': label, 'exitCode': child.returncode,
+                        'expectedExit': expected, 'qualificationTimeoutSeconds': timeout})
+                    raise subprocess.TimeoutExpired(child.args, timeout, output=stdout, stderr=stderr)
+                result = subprocess.CompletedProcess(child.args, child.returncode, stdout, stderr)
             report['steps'].append({'name': label, 'exitCode': result.returncode,
                                     'expectedExit': expected})
             assert result.returncode == expected, (
@@ -342,6 +356,80 @@ def qualify(args, report):
                         process.kill(); process.wait()
                     os.close(master)
                 live('TUI-only Core server settings', env, False)
+        if args.qualify_local_signing:
+            # The earlier rollback trials may leave a legitimate hold. Admit a
+            # newer signed baseline through Core instead of editing that state.
+            sequence = 1 + max(
+                int(line.split('\t')[1])
+                for manifest in generations.glob('*/release.manifest')
+                for line in manifest.read_text().splitlines()
+                if line.startswith('release_sequence\t'))
+            baseline = generation('local-core-independent-signing', sequence)
+            run('admit newer signed baseline for local signing',
+                [launcher, 'update', '--local', baseline])
+            current(baseline.name)
+            # Exercise the release executable and real official HTTPS acquisition;
+            # the wrapper only records argv before execing the native curl.
+            curl = shutil.which('curl')
+            assert curl, 'Native curl is required for local-build qualification'
+            requests = root / 'local-build-curl-requests'
+            (prefix / 'bin/curl').write_text(
+                f'#!{host_prefix}/bin/sh\n'
+                f'printf \'%s\\n\' "$@" >> {shlex.quote(str(requests))}\n'
+                f'exec {shlex.quote(curl)} "$@"\n')
+            (prefix / 'bin/curl').chmod(0o755)
+            # Core accepts this earlier fixture symlink, while the builder's
+            # external-tool admission requires the regular executable itself.
+            (prefix / 'bin/openssl').unlink()
+            shutil.copy2(tools['openssl'], prefix / 'bin/openssl')
+            shutil.copy2(tools['gzip'], prefix / 'bin/gzip')
+            reference = home / '.local/share/codex/core/config/build-signing-key'
+            reference.parent.mkdir(parents=True, exist_ok=True)
+            unapproved = root / 'unapproved-local-key.pem'
+            run('create unapproved owned signer', [tools['openssl'], 'genpkey',
+                '-algorithm', 'Ed25519', '-out', unapproved])
+            unapproved.chmod(0o600)
+            before = state()
+            selected = dict(env, CODEX_TERMUX_UPDATE_VERSION=args.version)
+            archive_url = ('https://releases.openai.com/codex/releases/'
+                           f'{args.version}/codex-package-aarch64-unknown-linux-musl.tar.gz')
+            reference.write_text(f'file:{unapproved}\n')
+            rejected = run('unapproved configured signer refuses before archive',
+                [launcher, 'update', '--build-local'], selected=selected, expected=1)
+            assert b'not authorized by the installed update key' in rejected.stderr, (
+                rejected.stdout[-2048:], rejected.stderr[-2048:])
+            assert state() == before
+            assert archive_url not in requests.read_text().splitlines()
+            key_digest = sha(key)
+            reference_text = f'file:{key}\n'
+            reference.write_text(reference_text)
+            result = run('real official acquisition and configured local signing',
+                [launcher, 'update', '--build-local'], selected=selected,
+                # Product archive acquisition has a300s bound; retain the usual
+                #180s construction/probe allowance after observing that result.
+                timeout=300 + 180)
+            assert b'Local build signing: configured release authority' in result.stdout, result.stdout[-2048:]
+            after = state()
+            assert after['current'].startswith('local-')
+            assert after['previous'] == before['current']
+            assert after['current_key'] == after['update_key'] == before['update_key']
+            assert sha(key) == key_digest and reference.read_text() == reference_text
+            assert requests.read_text().splitlines().count(archive_url) == 1
+            current(after['current'])
+            run('configured local signing rollback', [launcher, 'update', '--rollback'])
+            current(before['current'])
+            run('configured local signing retained forward rollback',
+                [launcher, 'update', '--rollback'])
+            current(after['current'])
+            assert sha(key) == key_digest and reference.read_text() == reference_text
+            report['configuredLocalSigning'] = {
+                'actualReleaseExecutable': True, 'realOfficialHttpsAcquisition': True,
+                'archiveUrl': archive_url, 'archiveDigest': args.archive_sha256,
+                'unapprovedSignerRefusedBeforeArchive': True,
+                'configuredAuthorityMatchesAdmittedUpdateKey': True,
+                'externalKeyAndReferencePreserved': True,
+                'rollbackAndRetainedForwardPassed': True, 'publicUpload': False,
+            }
         assert sha(sentinel) == sentinel_hash
         report['userStatePreserved'] = True
         report['accepted'] = True
@@ -362,6 +450,8 @@ def main():
     parser.add_argument('--source-runtime', type=lambda value: Path(value).resolve(),
                         help='Compiled runtime passed through the production source-runtime admission path')
     parser.add_argument('--source-revision', help='Exact official revision of --source-runtime')
+    parser.add_argument('--qualify-local-signing', action='store_true',
+                        help='Also exercise configured signing through --build-local and real official HTTPS')
     parser.add_argument('--archive-sha256', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()

@@ -4083,6 +4083,8 @@ const UPSTREAM_PACKAGE_ASSET: &str = "codex-package-aarch64-unknown-linux-musl.t
 const UPSTREAM_RELEASE_METADATA_MAX_BYTES: usize = 1024 * 1024;
 #[cfg(unix)]
 const UPDATE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
+#[cfg(unix)]
+const BUILD_SIGNER_REFERENCE_MAX_BYTES: usize = 4096;
 #[cfg(test)]
 const LOCAL_PUBLICATION_ROOT_RELATIVE: &str = ".local/lib/codex/core/publications";
 #[cfg(unix)]
@@ -4960,6 +4962,72 @@ fn generate_ephemeral_local_derived_key(
     }
     let key = release_public_key_from_private_pem(openssl, &private_key)?;
     Ok((private_key, key))
+}
+
+#[cfg(unix)]
+struct LocalBuildSigner {
+    private_key: std::path::PathBuf,
+    public_key: ReleasePublicKey,
+    temporary: bool,
+}
+
+#[cfg(unix)]
+fn prepare_local_build_signer(
+    roots: &LocalCoreRoots,
+    staging_root: &std::path::Path,
+    authorized: ReleasePublicKey,
+) -> Result<LocalBuildSigner, LocalProductError> {
+    let reference = roots.config_dir.join("build-signing-key");
+    match std::fs::symlink_metadata(&reference) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let (private_key, public_key) =
+                generate_ephemeral_local_derived_key(&roots.openssl, staging_root)?;
+            return Ok(LocalBuildSigner {
+                private_key,
+                public_key,
+                temporary: true,
+            });
+        }
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect local-build signer reference",
+                source,
+            });
+        }
+        Ok(_) => {}
+    }
+    let reference = read_bounded_regular_file(
+        &reference,
+        BUILD_SIGNER_REFERENCE_MAX_BYTES,
+        "read local-build signer reference",
+        LocalProductError::LocalUpdate("local-build signer reference exceeds its bound"),
+        LocalProductError::LocalUpdate("local-build signer reference must be a regular file"),
+    )?;
+    let reference = std::str::from_utf8(&reference)
+        .map_err(|_| LocalProductError::LocalUpdate("local-build signer reference is not UTF-8"))?;
+    let reference = reference.strip_suffix('\n').unwrap_or(reference);
+    let path = reference
+        .strip_prefix("file:")
+        .ok_or(LocalProductError::LocalUpdate(
+            "local-build signer requires one file:/absolute/path reference",
+        ))?;
+    let private_key = std::path::PathBuf::from(path);
+    if !private_key.is_absolute() || path.contains(['\n', '\r', '\0']) {
+        return Err(LocalProductError::LocalUpdate(
+            "local-build signer requires one file:/absolute/path reference",
+        ));
+    }
+    let public_key = release_public_key_from_private_pem(&roots.openssl, &private_key)?;
+    if public_key != authorized {
+        return Err(LocalProductError::LocalUpdate(
+            "configured local-build signing key is not authorized by the installed update key",
+        ));
+    }
+    Ok(LocalBuildSigner {
+        private_key,
+        public_key,
+        temporary: false,
+    })
 }
 
 #[cfg(unix)]
@@ -8046,7 +8114,7 @@ fn prepare_local_derived_release(
         verify_local_release_bundle_with_key(source_dir, &roots.openssl, local_key)?;
     if source_release.release_public_key != local_key {
         return Err(LocalProductError::LocalUpdate(
-            "local-derived release verifier does not match its ephemeral authority",
+            "local-derived release verifier does not match its selected signing authority",
         ));
     }
     let provenance = parse_local_derived_metadata(&source_release, &source_loaded)?.ok_or(
@@ -8380,8 +8448,13 @@ fn activate_local_built_update(
     }
     let staging_root = create_local_update_staging_root(&roots.state_root)?;
     let result = (|| {
-        let (private_key, local_key) =
-            generate_ephemeral_local_derived_key(&roots.openssl, &staging_root)?;
+        let signer = prepare_local_build_signer(roots, &staging_root, before.update_key)?;
+        if !signer.temporary {
+            if let Some(presentation) = presentation.as_deref_mut() {
+                presentation.clear_transient();
+            }
+            println!("Local build signing: configured release authority; no public upload.");
+        }
         let generation_id = local_update_generation_id();
         let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
         if let Some(presentation) = presentation.as_deref_mut() {
@@ -8393,9 +8466,7 @@ fn activate_local_built_update(
             &roots.openssl,
             &archive,
         )
-        .map_err(|_| {
-            LocalProductError::LocalUpdate("official upstream archive acquisition failed")
-        })?;
+        .map_err(LocalProductError::Builder)?;
         if archive_digest != metadata.package_sha256 {
             return Err(LocalProductError::LocalUpdate(
                 "official upstream archive digest does not match release metadata",
@@ -8507,22 +8578,28 @@ fn activate_local_built_update(
             &unsigned_generation,
             &baseline.release_sequence.to_string(),
             &release_base,
-            &private_key,
+            &signer.private_key,
             &roots.openssl,
             &publication,
         )
-        .map_err(|_| LocalProductError::LocalUpdate("local-derived signing failed"))?;
-        std::fs::remove_file(&private_key).map_err(|source| LocalProductError::Io {
-            operation: "remove ephemeral local-derived signing key",
-            source,
-        })?;
+        .map_err(LocalProductError::Builder)?;
+        if signer.temporary {
+            std::fs::remove_file(&signer.private_key).map_err(|source| LocalProductError::Io {
+                operation: "remove ephemeral local-derived signing key",
+                source,
+            })?;
+        }
         sync_directory(&staging_root)?;
         let published_generation = publication.join("releases").join(&generation_id);
         if let Some(presentation) = presentation.as_deref_mut() {
             presentation.transient("⠼", "Verifying locally built Termux release...");
         }
-        let prepared =
-            prepare_local_derived_release(&published_generation, roots, local_key, &baseline)?;
+        let prepared = prepare_local_derived_release(
+            &published_generation,
+            roots,
+            signer.public_key,
+            &baseline,
+        )?;
         activate_prepared_local_release(prepared, roots, process_env, presentation.as_deref_mut())
     })();
     let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
@@ -9931,7 +10008,7 @@ fn activate_signed_update_channel_with_hold_policy(
     )?;
 
     let local_baseline_current = if hold_policy == UpdateHoldPolicy::Enforce
-        && before.current_key != before.update_key
+        && index.generation_id != before.current
     {
         let (release, loaded) = verify_installed_local_release(
             roots,
@@ -18880,8 +18957,24 @@ esac
             "transport failure must not start a build"
         );
         assert!(!failed_calls.contains(&archive_url));
-        // Inject a builder-owned tool failure after official acquisition. The
-        // public updater must preserve its specific cause and existing state.
+        // Fail external-tool admission during acquisition and construction.
+        // The public updater must preserve each specific cause and existing state.
+        let saved_openssl = prefix.join("bin/openssl.saved");
+        std::fs::rename(&prefix_openssl, &saved_openssl).unwrap();
+        std::os::unix::fs::symlink(&openssl, &prefix_openssl).unwrap();
+        let failed_fetch =
+            b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
+        std::fs::remove_file(&prefix_openssl).unwrap();
+        std::fs::rename(&saved_openssl, &prefix_openssl).unwrap();
+        assert_eq!(failed_fetch.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&failed_fetch.stderr).contains(
+                "Local release construction failed: OpenSSL is not an executable regular file"
+            ),
+            "fetch cause must stay visible: {:?}",
+            failed_fetch.stderr
+        );
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), public_before);
         let gzip_permissions = std::fs::metadata(&fixture_gzip).unwrap().permissions();
         std::fs::set_permissions(&fixture_gzip, std::fs::Permissions::from_mode(0o644)).unwrap();
         let failed_build =
@@ -18977,6 +19070,61 @@ esac
         assert_eq!(read_update_hold(&roots).unwrap(), None);
         assert_eq!(rollback_guard::read_guard(&roots).unwrap(), None);
 
+        // An ambient legacy key stays inert above. Only an explicit configured
+        // signer can select release authority, and invalid configuration must
+        // stop before archive acquisition instead of falling back to a new key.
+        let signer_reference = roots.config_dir.join("build-signing-key");
+        let unauthorized_key = root.join("keys/unapproved.pem");
+        b4_generate_release_keypair(
+            &openssl,
+            &unauthorized_key,
+            &root.join("keys/unapproved-public.pem"),
+        );
+        let insecure_key = root.join("keys/insecure.pem");
+        std::fs::copy(&private_key, &insecure_key).unwrap();
+        std::fs::set_permissions(&insecure_key, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let private_before = std::fs::read(&private_key).unwrap();
+        for (reference, expected) in [
+            (
+                "env:CODEX_TERMUX_UPDATE_PRIVATE_KEY\n".to_owned(),
+                "requires one file:/absolute/path",
+            ),
+            (
+                format!("file:{}\n", root.join("missing-key.pem").display()),
+                "signing key is unavailable",
+            ),
+            (
+                format!("file:{}\n", insecure_key.display()),
+                "unavailable or insecure",
+            ),
+            (
+                format!("file:{}\n", unauthorized_key.display()),
+                "not authorized by the installed update key",
+            ),
+        ] {
+            std::fs::write(&signer_reference, reference).unwrap();
+            let calls_before = std::fs::read_to_string(&curl_log).unwrap();
+            let failed = b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
+            assert_eq!(
+                failed.status.code(),
+                Some(1),
+                "{expected}: {:?}",
+                failed.stdout
+            );
+            assert!(
+                String::from_utf8_lossy(&failed.stderr).contains(expected),
+                "{:?}",
+                failed.stderr
+            );
+            assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), rolled_back);
+            let calls_after = std::fs::read_to_string(&curl_log).unwrap();
+            assert!(calls_after.starts_with(&calls_before));
+            assert!(!calls_after[calls_before.len()..].contains(&archive_url));
+            assert!(std::fs::read(&private_key).unwrap() == private_before);
+            assert!(!gh_log.exists());
+        }
+        let configured_reference = format!("file:{}\n", private_key.display());
+        std::fs::write(&signer_reference, &configured_reference).unwrap();
         let explicit = b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
         assert_eq!(
             explicit.status.code(),
@@ -18991,13 +19139,19 @@ esac
             explicit_stdout.contains("Verified and activated the locally built Termux release.")
         );
         assert!(explicit_stdout.contains("Codex 0.150.1 is now active."));
+        assert!(explicit_stdout.contains("Local build signing: configured release authority"));
         assert!(explicit.stderr.is_empty(), "stderr={:?}", explicit.stderr);
         assert!(!gh_log.exists(), "--build-local must not invoke gh");
         let explicit_state = read_pointer_state(&paths).unwrap().unwrap();
         assert!(explicit_state.current.starts_with("local-"));
         assert_eq!(explicit_state.previous.as_deref(), Some("r7-current"));
         assert_eq!(explicit_state.update_key, public_before.update_key);
-        assert_ne!(explicit_state.current_key, public_before.update_key);
+        assert_eq!(explicit_state.current_key, public_before.update_key);
+        assert!(std::fs::read(&private_key).unwrap() == private_before);
+        assert_eq!(
+            std::fs::read_to_string(&signer_reference).unwrap(),
+            configured_reference
+        );
         let explicit_local_generation = explicit_state.current.clone();
         let (explicit_release, explicit_loaded) = verify_installed_local_release(
             &roots,

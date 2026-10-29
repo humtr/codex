@@ -450,9 +450,18 @@ byte count and elapsed time; they never start a local build. A bounded private
 payload cache resumes interrupted downloads on the next explicit attempt and
 reuses complete verified objects. Fresh control signatures and final inventory
 checks still authorize installation. Server Range refusal or changed content
-fails explicitly and discards invalid partial bytes. Local source compilation,
-automatic dependency preparation and developer signing remain under development;
+fails explicitly and discards invalid partial bytes. Local source compilation and
+automatic dependency preparation remain under development;
 the existing local builder supports only its qualified adaptation recipes.
+The next-Core candidate supports an explicitly configured local-build signer:
+put one `file:/absolute/path/to/key.pem` reference in
+`~/.local/share/codex/core/config/build-signing-key`. The owner-only Ed25519 key
+must match the installation's admitted public update key. Invalid configuration
+stops the build before archive download; it does not choose another signer.
+Core preserves the external key. Without this configuration it generates and
+removes a temporary local key as before. Both paths preserve public update authority
+and rollback; neither uploads or promotes a public release. Legacy key environment
+variables and a model/GitHub login do not select this signing authority.
 A local-derived installation can keep its refreshed Core while the public
 channel still points to its original authenticated baseline. A matching explicit
 build request also works when the server has already pinned the accepted source:

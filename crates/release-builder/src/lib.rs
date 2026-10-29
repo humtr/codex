@@ -3934,14 +3934,13 @@ pub fn fetch_archive(
     curl: &Path,
     openssl: &Path,
     output: &Path,
-) -> Result<String, String> {
+) -> Result<String, BuilderError> {
     fetch(&FetchRequest {
         version: version.to_owned(),
         curl: curl.to_owned(),
         openssl: openssl.to_owned(),
         output: output.to_owned(),
     })
-    .map_err(|error| error.to_string())
 }
 
 /// Signs one qualified generation into a complete local publication tree.
@@ -3952,7 +3951,7 @@ pub fn publish_generation(
     private_key: &Path,
     openssl: &Path,
     output: &Path,
-) -> Result<String, String> {
+) -> Result<String, BuilderError> {
     publish(&PublishRequest {
         generation: generation.to_owned(),
         release_sequence: release_sequence.to_owned(),
@@ -3961,7 +3960,6 @@ pub fn publish_generation(
         openssl: openssl.to_owned(),
         output: output.to_owned(),
     })
-    .map_err(|error| error.to_string())
 }
 
 fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
