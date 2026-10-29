@@ -85,7 +85,7 @@ jobs:
       - name: Resolve portable runtime recipe
         if: steps.base.outputs.reuse_runtime != 'true'
         id: recipe
-        run: echo "fingerprint=$(python3 source/scripts/build_runtime.py --fingerprint)" >> "$GITHUB_OUTPUT"
+        run: echo "fingerprint=$(python3 source/.github/scripts/runtime_inputs.py)" >> "$GITHUB_OUTPUT"
       - name: Build shared Rust source preparation
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
@@ -109,8 +109,11 @@ jobs:
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
           set -euo pipefail
-          python3 source/scripts/build_runtime.py \
+          "$CODEX_RELEASE_BUILDER" build-runtime \
             --source "$GITHUB_WORKSPACE/upstream" \
+            --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" \
+            --target-dir "$CARGO_TARGET_DIR" \
+            --rustc "$(command -v rustc)" --cargo "$(command -v cargo)" --openssl /usr/bin/openssl \
             --output "$RUNNER_TEMP/runtime-artifact"
       - name: Retain runtime and preparation evidence
         if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' }}

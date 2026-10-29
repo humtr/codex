@@ -65,34 +65,32 @@ class NativeProducerTests(unittest.TestCase):
                 if fault == 'archive': self.assertFalse((root / 'manager-tui-input/artifact').exists())
                 if fault is None: self.assertIn(digest, result.stdout)
 
-    def test_base_builder_consumes_matching_source_runtime_and_refuses_drift(self):
-        for fault in (None, 'version', 'source', 'bytes'):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
+    def test_base_builder_uses_verified_runtime_and_propagates_verification_failure(self):
+        # Payload/source/version rejection is exercised by the real Rust
+        # verifier. This workflow boundary must propagate its failed status,
+        # rather than using a double that silently accepts verification.
+        for rejected in (False, True):
+            with self.subTest(rejected=rejected), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp); binary = root / 'source/target/release/codex-release-builder'; binary.parent.mkdir(parents=True)
                 binary.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\
                     import json,os,sys
                     from pathlib import Path
-                    if sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
+                    if sys.argv[1] == 'verify-runtime':
+                        if os.environ['REJECT_RUNTIME'] == '1': sys.exit(7)
+                    elif sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
                     else: Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))
                 ''')); binary.chmod(0o755)
                 runtime=root/'termux-runtime-source';runtime.mkdir()
-                raw=b'owned compiled runtime';(runtime/'codex').write_bytes(raw)
-                (runtime/'sha256.txt').write_text(hashlib.sha256(raw).hexdigest()+'  codex\n')
-                (runtime/'version.txt').write_text('codex-cli 0.999.0\n')
-                preparation={'source':'b'*40,'version':'0.999.0'}
-                if fault=='version':preparation['version']='0.998.0'
-                if fault=='source':preparation['source']='c'*40
-                if fault=='bytes':(runtime/'codex').write_bytes(b'changed runtime')
-                (runtime/'preparation.json').write_text(json.dumps(preparation))
                 script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]
                 for field, value in [('upstream_version', '0.999.0'), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
                 script = script.replace('${{ needs.runtime-source.outputs.base_generation }}', '')
                 env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root),
-                       'CAPTURE': str(root/'args.json'),'BASE_ONLY':'true','UPSTREAM_SHA':'b'*40}
+                       'CAPTURE': str(root/'args.json'),'BASE_ONLY':'true','UPSTREAM_SHA':'b'*40,
+                       'REJECT_RUNTIME':str(int(rejected))}
                 result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
-                self.assertEqual(result.returncode == 0, fault is None, result.stderr)
-                if fault is None:
+                self.assertEqual(result.returncode, 7 if rejected else 0, result.stderr)
+                if not rejected:
                     args=json.loads((root/'args.json').read_text())
                     self.assertEqual(args[args.index('--source-runtime')+1],str(runtime/'codex'))
                     self.assertEqual(args[args.index('--source-revision')+1],'b'*40)

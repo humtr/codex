@@ -7,7 +7,7 @@ on:
       - '.github/workflows/core-runtime-qualification.yml'
       - '.github/workflows/qualify-termux-runtime.yml'
       - '.github/workflows/termux-runtime-source.yml'
-      - 'scripts/build_runtime.py'
+      - '.github/scripts/runtime_inputs.py'
       - 'release/runtime-build-inputs-v1'
       - '.github/scripts/rald3_preflight.py'
       - '.github/scripts/release_decision.py'

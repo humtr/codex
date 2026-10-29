@@ -337,9 +337,14 @@ Source producer migration: release-builder's Rust `source` module owns
 source adaptation, lock normalization/audit and pristine timestamps. Its
 `prepare-source`, `normalize-lock`, `preserve-source-times` commands replace the
 Python preparation/normalization implementations, their tests and all real
-callers, including upstream discovery and Manager TUI CI. `build_runtime.py` still
-wires CI compilation/artifact checks during the remaining Rust producer migration;
-it is not a shipped device executor. Signed `runtime_inputs_sha256` lets Core-only
+callers, including upstream discovery and Manager TUI CI. The Rust `runtime`
+module now owns preparation, dependency audit, release compilation, freezing the
+executable, static ELF/version checks and the six-file raw transfer contract.
+`build-runtime` runs this implementation; `verify-runtime` validates a transferred
+raw artifact in the downstream CI consumer. The former Python build/artifact
+implementation was removed, including its duplicate build settings. CI-only
+`.github/scripts/runtime_inputs.py` retains input/dependency fingerprints and
+provides no build executor. Signed `runtime_inputs_sha256` lets Core-only
 candidates reuse the adapted runtime/companion/helpers from a qualified Base,
 without fetching/recompiling its old Core. Executor-transferred controls are
 reauthenticated before composition. The runtime input identity binds the source
@@ -364,8 +369,8 @@ The installed update/build implementation is Rust-owned. The unconsumed Python
 device executor, host-preparation prototype and Core embedding build script were
 removed without deployment. `release/runtime-build-inputs-v1` is a CI recipe input
 inventory, not a Python installation bundle. Product source preparation and
-dependency normalization now live in release-builder; build control integration
-into Core remains unfinished. Existing CI Python scripts have
+dependency normalization and raw runtime production now live in release-builder;
+installed Core source-build orchestration remains unfinished. Existing CI Python scripts have
 real callers during this migration, but are not a reason to ship Python as the
 wrapper's installed implementation. Remove each replaced Python rule and update
 all actual callers in the same completed batch; do not call a Rust outer launcher
@@ -379,7 +384,25 @@ and workspace Clippy pass after that fix; both targeted expression-guard and
 audit-overwrite mutations fail their intended regressions. Full workspace tests
 passed before these local source-only corrections; the original combined gate's
 Clippy failure and corrected focused/Clippy evidence are retained separately.
-This is preparation proof, not a completed Codex build or installed local-build
+The subsequent Rust runtime producer passes `runtime-rust-final-gate.log`:
+Core229, Manager52, integration67+3, builder41 and runtime-binding2, with the
+existing one explicit device exclusion; workspace Clippy also passes. The earlier
+concurrent gate's two process-reference PermissionDenied failures and the formatting
+failure remain recorded. The accepted gate ran without competing compilers and
+retained the original assertions. The four Rust runtime regressions cover strict
+recipe inputs, preservation of dirty source, transfer inventory/digests/provenance
+and actual version-child status/streams. A disposable digest-check mutation fails
+the intended regression (`runtime-producer-digest-mutation.json`).
+
+The CI producer test no longer pretends to implement the removed shell-side
+identity checks: those matrices now execute the actual Rust verifier. Its tool
+boundary injects verification failure and requires candidate assembly to stop;
+removing the real CI verification call fails that regression
+(`runtime-ci-propagation-mutation.json`). The initial three failures caused by a
+legacy double accepting every new command are retained. The final Python gate
+passes25+123+10 (`runtime-python-accepted-gate.log`), including that corrected
+workflow boundary and current producer-input inventory. These are preparation
+and producer-boundary proofs, not completed Codex build or installed local-build
 acceptance.
 
 The actual local Codex build did not finish. Its original tool-bound process
@@ -410,17 +433,35 @@ target std and bundled LLD compile a static executable directly on Android.
 Termux Cargo1.99.1 also builds and executes a real Rust build script plus a C
 dependency through native Zig, without PRoot; the executable returns the expected
 value and has no ELF interpreter. Zig's required header dependency generation
-also passes directly. Evidence: `native-musl-sdk-{stable-linker,cargo,dependency}.json`.
+also passes directly. A further actual probe combines a serde proc macro, Rust
+build script and C dependency, executes successfully and retains normal Termux
+child-tool loading (`native-musl-sdk-proc-macro-c.json`). Evidence also includes
+`native-musl-sdk-{stable-linker,cargo,dependency}.json`.
 Only the SDK's interpreter/library locations were adapted inside its disposable
 private directory. The small musl/libgcc runtime was fetched from Alpine's
 official repository; exact inputs are recorded, but APK signature admission has
 not been qualified and these files are not shipped product dependencies. Full
-Codex and native jemalloc qualification, reproducible SDK acquisition/admission
-and Core integration are still required. This probe is not a completed local
-update and does not change the operating installation. The native jemalloc trial
-first stopped on an absent cached crate under explicit offline mode; its original
-failure remains recorded. A separate online trial uses Termux Cargo's networking
-and the same selected compiler inputs; it has not yet passed.
+Codex qualification, reproducible SDK acquisition/admission and Core integration
+are still required. This probe is not a completed local
+update and does not change the operating installation. Native jemalloc passes
+its actual release build in3m45s, including the dependency-generation phase that
+failed in PRoot (`native-musl-jemalloc-network-exit.json`); the earlier absent-cache
+failure under explicit offline mode is retained. The actual Rust full producer's
+first trial stops on missing private musl/libgcc linker aliases for host proc
+macros, reports the compiler's101 failure and emits no completed runtime. The
+second trial exposed a wrong placement of those aliases: Cargo also exports its
+target-library directory to native child tools, causing Bionic bash to find the
+SDK's musl libc. Both failures are retained with actual exit records. The SDK
+now leaves that directory free of libc aliases and supplies private library
+search only through its linker adapter. The proc-macro/C probe passes this setup;
+no target flags were weakened. The otherwise-idle Rust gate has passed. The
+first direct full-source runs were interrupted without exit records; their exact
+logs remain incomplete, not successful or diagnosed as compiler failures. A
+separate detached runner now preserves observation independently of the tool
+transport: `native-runtime-rust-build-v4-handle.json` identifies owner PID19618,
+with actual output in `native-runtime-rust-build-v4.log` and a terminal exit record
+only when that worker returns. Revalidate the exact handle before continuation.
+Do not infer completed Codex build or installation from SDK/jemalloc preparation.
 
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source

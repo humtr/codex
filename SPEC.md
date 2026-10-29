@@ -4188,7 +4188,12 @@ Runtime source production consumes the exact release input plus a disposable
 pristine official checkout, applies the maintained semantic source transformations,
 audits lock normalization,
 builds with the selected official toolchain and emits the existing six-file raw
-runtime artifact contract. Executor setup owns OS packages and compiler acquisition;
+runtime artifact contract. `build-runtime` and Core's in-process consumer use the
+same Rust implementation. Release/control JSON inputs retain the16-KiB bound;
+raw transfer verification checks inventory, regular files, digests and source/audit
+identity. Final output is snapshotted before the existing static AArch64 ELF check
+and an isolated, bounded version probe. A failed compiler cannot admit an older
+cached executable. Executor setup owns OS packages and compiler acquisition;
 local execution and remote runners call the same Rust producer. Recipe fingerprints
 bind its source/preparation/normalization code, exact upstream tuple, lock audit,
 toolchain and build settings; a Core-only commit cannot invalidate that raw
@@ -4207,7 +4212,9 @@ requiring a Linux distribution as the build interface. Prefer a qualified direct
 Termux toolchain over a separate PRoot environment when both provide the required
 build behavior. A private SDK's loader/library adaptation must be explicit and
 bound to its original inputs; it must not alter system libraries or resolver
-configuration. Experimental SDK execution alone does not qualify a complete
+configuration. SDK library search must remain scoped to its compiler/linker;
+it must not shadow Termux's runtime when Cargo invokes native child tools.
+Experimental SDK execution alone does not qualify a complete
 component build or make that environment an installed dependency.
 
 Remote preparation checks official upstream metadata every two hours and responds

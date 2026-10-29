@@ -730,9 +730,11 @@ The shared Rust release-builder now owns source adaptation, release lock
 normalization and pristine input timestamps (`prepare-source`, `normalize-lock`,
 `preserve-source-times`). CI builds this tool once and supplies its absolute path
 as `CODEX_RELEASE_BUILDER`; these rules no longer have Python implementations.
-Python still runs development tests and CI wiring. Installed update/local-build
-control is Rust-owned; source-build integration is not complete merely because
-these preparation commands pass.
+The same Rust library also owns `build-runtime` and `verify-runtime`, used by
+CI for source compilation and transferred artifact checks. Python remains for
+independent development tests and CI input metadata/wiring. Installed Core
+source-build integration is still unfinished; passing producer checks alone does
+not establish a complete on-device update.
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 

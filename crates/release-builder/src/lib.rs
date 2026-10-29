@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 pub mod provider;
+pub mod runtime;
 mod runtime_patch;
 pub mod source;
 
@@ -162,6 +163,11 @@ const USAGE: &str = concat!(
     "       codex-release-builder normalize-lock --source <CARGO_WORKSPACE> ",
     "--openssl <ABSOLUTE_EXECUTABLE> --audit <ABSENT_FILE>\n",
     "       codex-release-builder preserve-source-times --source <DISPOSABLE_CHECKOUT>\n",
+    "       codex-release-builder build-runtime --source <DISPOSABLE_CHECKOUT> ",
+    "--recipe <RELEASE_INPUT> --output <ABSENT_DIRECTORY> --target-dir <COMPILER_CACHE> ",
+    "--rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO> --openssl <ABSOLUTE_EXECUTABLE>\n",
+    "       codex-release-builder verify-runtime --artifact <RAW_DIRECTORY> ",
+    "--recipe <RELEASE_INPUT> --openssl <ABSOLUTE_EXECUTABLE>\n",
     "       codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
     "--archive-sha256 <LOWERCASE_SHA256>\n",
     "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
@@ -806,15 +812,16 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn spawn_bounded_probe_reader<R>(reader: R) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
+fn spawn_bounded_probe_reader<R>(
+    reader: R,
+    limit: usize,
+) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
 {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        reader
-            .take((MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)?;
+        reader.take((limit + 1) as u64).read_to_end(&mut bytes)?;
         Ok(bytes)
     })
 }
@@ -836,8 +843,8 @@ fn qualify_manager_artifact(path: &Path, staging: &Path) -> Result<(), BuilderEr
     let stderr = child.stderr.take().ok_or(BuilderError::Tool(
         "Manager artifact probe stderr is unavailable",
     ))?;
-    let stdout_reader = spawn_bounded_probe_reader(stdout);
-    let stderr_reader = spawn_bounded_probe_reader(stderr);
+    let stdout_reader = spawn_bounded_probe_reader(stdout, MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES);
+    let stderr_reader = spawn_bounded_probe_reader(stderr, MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES);
     let deadline = std::time::Instant::now()
         + std::time::Duration::from_secs(MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS);
     let mut timed_out = false;
@@ -4056,6 +4063,7 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
+        Some("build-runtime" | "verify-runtime") => runtime::command(&args),
         Some("prepare-source" | "normalize-lock" | "preserve-source-times") => {
             source::command(&args)
         }

@@ -9,15 +9,13 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import tomllib
 
 from rald5_publication import (BASE_FILES, FLAT_ASSETS, canonical_release_base,
                                parse_manifest, sha256, verify_signature)
 from release_heads import download
-sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
-from build_runtime import fingerprint as runtime_fingerprint, cargo_dependencies, locked_packages
+from runtime_inputs import fingerprint as runtime_fingerprint, cargo_dependencies, locked_packages
 
 COMPONENT = 'component-input-v1'
 MAP = 'asset-map-v1.json'
@@ -62,14 +60,14 @@ def base_fingerprint(source, revision='HEAD'):
     roots = ['crates/core','crates/release-builder','crates/runtime-binding',
              '.github/workflows/qualify-termux-runtime.yml',
              '.github/workflows/termux-runtime-source.yml',
-             'scripts/build_runtime.py',
+             '.github/scripts/runtime_inputs.py',
              '.github/scripts/release_components.py','.github/scripts/upstream_release.py']
     try:
         inventory = read('release/runtime-build-inputs-v1').decode()
     except subprocess.CalledProcessError:
         pass  # Historical releases predate the shared producer inventory.
     else:
-        from build_runtime import assets
+        from runtime_inputs import assets
         roots.extend(assets(inventory))
     for member in workspace['workspace']['members']:
         manifest=tomllib.loads(read(member+'/Cargo.toml').decode())
@@ -100,7 +98,7 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
                'source_sha':source_sha,'base_inputs_sha256':base_fingerprint(source),
                'manifest_sha256':sha256(output/'releases'/generation/'release.manifest')}
     try:
-        git(source,'cat-file','-e','HEAD:scripts/build_runtime.py')
+        git(source,'cat-file','-e','HEAD:.github/scripts/runtime_inputs.py')
     except subprocess.CalledProcessError:
         pass  # Retained historical sources have no shared runtime recipe.
     else:

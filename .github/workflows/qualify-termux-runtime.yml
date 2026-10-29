@@ -317,14 +317,8 @@ jobs:
               --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
           else
           runtime="$RUNNER_TEMP/termux-runtime-source"
-          (cd "$runtime" && sha256sum -c sha256.txt)
-          test "$(cat "$runtime/version.txt")" = "codex-cli $upstream_version"
-          python3 - "$runtime/preparation.json" "$UPSTREAM_SHA" "$upstream_version" <<'PY'
-          import json,sys
-          value=json.load(open(sys.argv[1]))
-          if value['source'] != sys.argv[2] or value['version'] != sys.argv[3]:
-              raise SystemExit('runtime source identity differs from admitted release input')
-          PY
+          "$builder" verify-runtime --artifact "$runtime" \
+            --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \

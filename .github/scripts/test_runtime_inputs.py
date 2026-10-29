@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -7,12 +6,12 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts import build_runtime as runtime
+import runtime_inputs as runtime
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 # These are independently required by the actual producer/loader/normalizer flow.
-PRODUCER_FILES = ('release/runtime-build-inputs-v1', 'scripts/build_runtime.py',
-                  'crates/release-builder/src/source.rs', 'crates/release-builder/Cargo.toml',
+PRODUCER_FILES = ('release/runtime-build-inputs-v1', '.github/scripts/runtime_inputs.py',
+                  'crates/release-builder/src/source.rs', 'crates/release-builder/src/lib.rs', 'crates/release-builder/src/runtime.rs', 'crates/release-builder/Cargo.toml',
                   '.github/scripts/upstream_release.py',
                   '.github/workflows/termux-runtime-source.yml')
 
@@ -106,60 +105,6 @@ source="git+https://example.invalid/other#012345"
             self.assertEqual(runtime.fingerprint(root,'HEAD'), raw)
             self.assertNotEqual(runtime.fingerprint(root,'HEAD',adapted=True), adapted)
 
-    def artifact(self, root):
-        recipe = json.loads((ROOT / 'release/upstream.json').read_text())
-        data = b'owned raw runtime bytes'
-        (root / 'codex').write_bytes(data)
-        digest = hashlib.sha256(data).hexdigest()
-        (root / 'sha256.txt').write_text(digest + '  codex\n')
-        (root / 'version.txt').write_text('codex-cli ' + recipe['upstream']['version'] + '\n')
-        (root / 'preparation.json').write_text(json.dumps({**recipe['upstream']}))
-        (root / 'lock-audit.json').write_text(json.dumps(recipe['qualification']['lock_audit']))
-        (root / 'source.patch').write_text('owned source adaptation')
-        return recipe, digest
-
-    def test_raw_artifact_preserves_exact_existing_contract_and_rejects_wrong_provenance(self):
-        for fault in ('none', 'binary', 'source', 'version', 'audit', 'extra', 'alias'):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                recipe, digest = self.artifact(root)
-                if fault == 'binary':
-                    (root / 'codex').write_bytes(b'changed')
-                elif fault == 'source':
-                    (root / 'preparation.json').write_text(json.dumps({'source': 'b'*40,
-                        'version': recipe['upstream']['version']}))
-                elif fault == 'version':
-                    (root / 'version.txt').write_text('codex-cli other\n')
-                elif fault == 'audit':
-                    (root / 'lock-audit.json').write_text('{}')
-                elif fault == 'extra':
-                    (root / 'undeclared').write_text('extra')
-                elif fault == 'alias':
-                    (root / 'source.patch').unlink()
-                    (root / 'source.patch').symlink_to(root / 'version.txt')
-                if fault == 'none':
-                    self.assertEqual(runtime.verify_artifact(root, recipe), digest)
-                else:
-                    with self.assertRaises(ValueError):
-                        runtime.verify_artifact(root, recipe)
-
-    def test_changed_checkout_is_rejected_before_tool_execution_or_source_edits(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = self.source(root / 'upstream')
-            recipe = json.loads((ROOT / 'release/upstream.json').read_text())
-            recipe['upstream']['source'] = subprocess.check_output(
-                ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-            recipe_path = root / 'recipe.json'
-            recipe_path.write_text(json.dumps(recipe))
-            protected = source / 'crates/release-builder/src/source.rs'
-            original = protected.read_bytes() + b'\n# existing user change\n'
-            protected.write_bytes(original)
-            output = root / 'output'
-            with self.assertRaisesRegex(ValueError, 'not pristine'):
-                runtime.build(source, output, recipe_path)
-            self.assertFalse(output.exists())
-            self.assertEqual(protected.read_bytes(), original)
 
 
 if __name__ == '__main__':

@@ -168,8 +168,8 @@ class ComponentsTests(unittest.TestCase):
         from rald3_preflight import parse_descriptor, verify_base_candidate
         fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'runtime-source')
-        for name in ['release/runtime-build-inputs-v1','scripts/build_runtime.py',
-                     'crates/release-builder/src/source.rs','crates/release-builder/Cargo.toml','.github/scripts/upstream_release.py',
+        for name in ['release/runtime-build-inputs-v1','.github/scripts/runtime_inputs.py',
+                     'crates/release-builder/src/source.rs', 'crates/release-builder/src/lib.rs','crates/release-builder/src/runtime.rs','crates/release-builder/Cargo.toml','.github/scripts/upstream_release.py',
                      '.github/workflows/termux-runtime-source.yml']:
             target=repo/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,target)
         published=fixture.root/'runtime-publication';base=published/'releases'/BASE;base.mkdir(parents=True)

@@ -25,6 +25,7 @@ INPUTS = (
     "frontend/manager-tui/native.patch",
     "frontend/manager-tui/upstream-base",
     "crates/release-builder/src/source.rs",
+    "crates/release-builder/src/lib.rs",
     "crates/release-builder/Cargo.toml",
     "Cargo.lock",
     ".github/scripts/upstream_release.py",
