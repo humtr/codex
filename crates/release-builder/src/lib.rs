@@ -196,7 +196,7 @@ const USAGE: &str = concat!(
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
-enum BuilderError {
+pub enum BuilderError {
     Usage,
     Invalid(&'static str),
     Io {
@@ -237,33 +237,33 @@ fn io_error(operation: &'static str, source: io::Error) -> BuilderError {
 }
 
 #[derive(Debug)]
-struct BuildRequest {
-    version: String,
-    archive: PathBuf,
-    archive_sha256: String,
-    generation_id: String,
-    core: PathBuf,
-    manager: Option<PathBuf>,
-    manager_tui: Option<ManagerTuiArtifact>,
-    source_runtime: Option<SourceRuntime>,
-    defer_manager_probe: bool,
-    legacy_activation_doctor_unsupported: bool,
-    creation_metadata: String,
-    gzip: PathBuf,
-    openssl: PathBuf,
-    output: PathBuf,
+pub struct GenerationRequest {
+    pub version: String,
+    pub archive: PathBuf,
+    pub archive_sha256: String,
+    pub generation_id: String,
+    pub core: PathBuf,
+    pub manager: Option<PathBuf>,
+    pub manager_tui: Option<ManagerTuiArtifact>,
+    pub source_runtime: Option<SourceRuntime>,
+    pub defer_manager_probe: bool,
+    pub legacy_activation_doctor_unsupported: bool,
+    pub creation_metadata: String,
+    pub gzip: PathBuf,
+    pub openssl: PathBuf,
+    pub output: PathBuf,
 }
 
 #[derive(Debug)]
-struct ManagerTuiArtifact {
-    path: PathBuf,
-    version: String,
+pub struct ManagerTuiArtifact {
+    pub path: PathBuf,
+    pub version: String,
 }
 
 #[derive(Debug)]
-struct SourceRuntime {
-    path: PathBuf,
-    revision: String,
+pub struct SourceRuntime {
+    pub path: PathBuf,
+    pub revision: String,
 }
 
 #[derive(Debug)]
@@ -334,7 +334,7 @@ fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), BuilderError> {
     }
 }
 
-fn parse_request<I, S>(args: I) -> Result<BuildRequest, BuilderError>
+fn parse_request<I, S>(args: I) -> Result<GenerationRequest, BuilderError>
 where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
@@ -382,7 +382,7 @@ where
             _ => return Err(BuilderError::Usage),
         }
     }
-    Ok(BuildRequest {
+    Ok(GenerationRequest {
         version: fields.version.ok_or(BuilderError::Usage)?,
         archive: fields.archive.ok_or(BuilderError::Usage)?,
         archive_sha256: fields.archive_sha256.ok_or(BuilderError::Usage)?,
@@ -678,7 +678,7 @@ fn ensure_executable(path: &Path, name: &'static str) -> Result<(), BuilderError
     Ok(())
 }
 
-fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
+fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
     if let Some(source) = &request.source_runtime {
         if !canonical_absolute_path(&source.path)
             || source.revision.len() != 40
@@ -2069,7 +2069,10 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
     }
 }
 
-fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<String, BuilderError> {
+fn snapshot_core_artifact(
+    request: &GenerationRequest,
+    staging: &Path,
+) -> Result<String, BuilderError> {
     let source =
         File::open(&request.core).map_err(|source| io_error("open Core artifact", source))?;
     let metadata = source
@@ -2107,7 +2110,7 @@ fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<Stri
 }
 
 fn snapshot_manager_artifact(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     staging: &Path,
 ) -> Result<Option<String>, BuilderError> {
     let Some(source_path) = request.manager.as_ref() else {
@@ -2150,7 +2153,7 @@ fn snapshot_manager_artifact(
 }
 
 fn snapshot_manager_tui_artifact(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     staging: &Path,
 ) -> Result<Option<String>, BuilderError> {
     let Some(frontend) = request.manager_tui.as_ref() else {
@@ -2248,7 +2251,7 @@ fn create_private_file(path: &Path) -> Result<File, BuilderError> {
         .map_err(|source| io_error("create private selected file", source))
 }
 
-fn snapshot_archive(request: &BuildRequest, staging: &Path) -> Result<PathBuf, BuilderError> {
+fn snapshot_archive(request: &GenerationRequest, staging: &Path) -> Result<PathBuf, BuilderError> {
     let mut source =
         File::open(&request.archive).map_err(|source| io_error("open upstream archive", source))?;
     let source_metadata = source
@@ -3378,7 +3381,7 @@ fn parse_archive<R: Read>(
 }
 
 fn select_archive(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     archive: &Path,
     staging: &Path,
 ) -> Result<ArchiveSelection, BuilderError> {
@@ -3568,7 +3571,7 @@ fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
 }
 
 fn adapt_selected_runtime(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
 ) -> Result<AdaptedGeneration, BuilderError> {
@@ -3672,7 +3675,7 @@ fn adapt_selected_runtime(
 }
 
 fn write_generation_descriptor(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     staging: &Path,
     adapted: &AdaptedGeneration,
     core_sha256: &str,
@@ -3828,7 +3831,7 @@ fn rename_noreplace(source: &Path, destination: &Path) -> Result<(), BuilderErro
 }
 
 fn complete_and_publish(
-    request: &BuildRequest,
+    request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
     core_sha256: &str,
@@ -3887,7 +3890,8 @@ fn cleanup_staging(staging: &Path) -> Result<(), BuilderError> {
     }
 }
 
-fn build(request: &BuildRequest) -> Result<(), BuilderError> {
+/// Assemble one unsigned generation using the same admission path as the CLI.
+pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError> {
     validate_request(request)?;
     let staging = create_staging(&request.output)?;
     let result = (|| {
@@ -3934,67 +3938,6 @@ pub fn fetch_archive(
     fetch(&FetchRequest {
         version: version.to_owned(),
         curl: curl.to_owned(),
-        openssl: openssl.to_owned(),
-        output: output.to_owned(),
-    })
-    .map_err(|error| error.to_string())
-}
-
-/// Runs the bounded upstream adaptation into one absent unsigned generation.
-#[allow(clippy::too_many_arguments)]
-pub fn build_generation(
-    version: &str,
-    archive: &Path,
-    archive_sha256: &str,
-    generation_id: &str,
-    core: &Path,
-    creation_metadata: &str,
-    gzip: &Path,
-    openssl: &Path,
-    output: &Path,
-) -> Result<(), String> {
-    build_generation_with_manager(
-        version,
-        archive,
-        archive_sha256,
-        generation_id,
-        core,
-        None,
-        creation_metadata,
-        gzip,
-        openssl,
-        output,
-    )
-}
-
-/// Runs the bounded upstream adaptation with an optional qualified Manager
-/// artifact carried into the new generation.
-#[allow(clippy::too_many_arguments)]
-pub fn build_generation_with_manager(
-    version: &str,
-    archive: &Path,
-    archive_sha256: &str,
-    generation_id: &str,
-    core: &Path,
-    manager: Option<&Path>,
-    creation_metadata: &str,
-    gzip: &Path,
-    openssl: &Path,
-    output: &Path,
-) -> Result<(), String> {
-    build(&BuildRequest {
-        version: version.to_owned(),
-        archive: archive.to_owned(),
-        archive_sha256: archive_sha256.to_owned(),
-        generation_id: generation_id.to_owned(),
-        core: core.to_owned(),
-        manager: manager.map(Path::to_owned),
-        manager_tui: None,
-        source_runtime: None,
-        defer_manager_probe: false,
-        legacy_activation_doctor_unsupported: false,
-        creation_metadata: creation_metadata.to_owned(),
-        gzip: gzip.to_owned(),
         openssl: openssl.to_owned(),
         output: output.to_owned(),
     })
@@ -4113,7 +4056,7 @@ where
                     return 2;
                 }
             };
-            match build(&request) {
+            match build_generation(&request) {
                 Ok(()) => 0,
                 Err(error) => {
                     eprintln!("codex-release-builder: {error}");
@@ -4238,7 +4181,7 @@ mod tests {
 
     struct Fixture {
         root: PathBuf,
-        request: BuildRequest,
+        request: GenerationRequest,
         raw_runtime: Vec<u8>,
         code_mode_host: Vec<u8>,
     }
@@ -4646,7 +4589,7 @@ fi
             .data
             .clone();
         Fixture {
-            request: BuildRequest {
+            request: GenerationRequest {
                 version: "0.150.1".to_owned(),
                 archive,
                 archive_sha256,
@@ -4668,7 +4611,7 @@ fi
         }
     }
 
-    fn request_args(request: &BuildRequest) -> Vec<OsString> {
+    fn request_args(request: &GenerationRequest) -> Vec<OsString> {
         let mut args = vec![
             "build".into(),
             "--version".into(),
@@ -4929,7 +4872,7 @@ fi
             expected_digest
         );
         let generated = fixture.root.join("generation-from-official");
-        let build_request = BuildRequest {
+        let build_request = GenerationRequest {
             version: request.version.clone(),
             archive: output.clone(),
             archive_sha256: expected_digest.clone(),
@@ -5153,7 +5096,7 @@ fi
             if case == "digest" {
                 fixture.request.archive_sha256 = "0".repeat(64);
             }
-            let error = build(&fixture.request).unwrap_err();
+            let error = build_generation(&fixture.request).unwrap_err();
             assert!(!error.to_string().is_empty(), "case {case} had no error");
             assert!(
                 !fixture.request.output.exists(),
@@ -5876,7 +5819,7 @@ fi
     fn test_rald3_deferred_manager_probe_requires_manager_and_android_elf() {
         let mut missing = fixture("rald3-deferred-missing", happy_entries("0.150.1"), false);
         missing.request.defer_manager_probe = true;
-        let error = build(&missing.request).unwrap_err();
+        let error = build_generation(&missing.request).unwrap_err();
         assert_eq!(
             error.to_string(),
             "deferred Manager artifact probe requires a Manager artifact"
@@ -5889,7 +5832,7 @@ fi
         write_valid_manager_probe(&manager);
         invalid.request.manager = Some(manager);
         invalid.request.defer_manager_probe = true;
-        let error = build(&invalid.request).unwrap_err();
+        let error = build_generation(&invalid.request).unwrap_err();
         assert!(
             error
                 .to_string()
@@ -5926,7 +5869,7 @@ fi
             let manager = fixture.root.join("manager-source");
             write_manager_probe(&manager, body);
             fixture.request.manager = Some(manager);
-            let error = build(&fixture.request).unwrap_err();
+            let error = build_generation(&fixture.request).unwrap_err();
             assert!(
                 error.to_string().contains("Manager artifact probe"),
                 "unexpected {label} error: {error}"
@@ -5940,7 +5883,7 @@ fi
         let manager = fixture.root.join("manager-source");
         write_manager_probe(&manager, "while :; do :; done\n");
         fixture.request.manager = Some(manager);
-        let error = build(&fixture.request).unwrap_err();
+        let error = build_generation(&fixture.request).unwrap_err();
         assert!(error.to_string().contains("probe timed out"));
         assert!(!fixture.request.output.exists());
         assert!(no_builder_staging(&fixture.root));
@@ -6038,7 +5981,10 @@ fi
             if case != "not-executable" {
                 set_mode(&fixture.request.core, 0o700, "set mutated test Core mode").unwrap();
             }
-            assert!(build(&fixture.request).is_err(), "case {case} succeeded");
+            assert!(
+                build_generation(&fixture.request).is_err(),
+                "case {case} succeeded"
+            );
             assert!(
                 !fixture.request.output.exists(),
                 "case {case} published output"
@@ -6323,7 +6269,10 @@ fi
                 _ => unreachable!(),
             }
             let fixture = fixture(case, entries, false);
-            assert!(build(&fixture.request).is_err(), "case {case} succeeded");
+            assert!(
+                build_generation(&fixture.request).is_err(),
+                "case {case} succeeded"
+            );
             assert!(
                 !fixture.request.output.exists(),
                 "case {case} published output"
@@ -6336,7 +6285,7 @@ fi
         std::fs::create_dir(&fixture.request.output).unwrap();
         let sentinel = fixture.request.output.join("sentinel");
         std::fs::write(&sentinel, b"preserve").unwrap();
-        assert!(build(&fixture.request).is_err());
+        assert!(build_generation(&fixture.request).is_err());
         assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();

@@ -4194,6 +4194,11 @@ raw transfer verification checks inventory, regular files, digests and source/au
 identity. Final output is snapshotted before the existing static AArch64 ELF check
 and an isolated, bounded version probe. A failed compiler cannot admit an older
 cached executable. Executor setup owns OS packages and compiler acquisition;
+Generation assembly also has one typed request shared by CLI and Core, covering
+the official companion archive, optional source runtime/revision and selected
+Manager/TUI artifacts. Core preserves the builder's cause-specific error through
+its public error chain instead of replacing every failure with a generic local
+adaptation error. The same existing admission checks apply to every caller.
 local execution and remote runners call the same Rust producer. Recipe fingerprints
 bind its source/preparation/normalization code, exact upstream tuple, lock audit,
 toolchain and build settings; a Core-only commit cannot invalidate that raw

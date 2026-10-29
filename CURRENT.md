@@ -405,6 +405,26 @@ workflow boundary and current producer-input inventory. These are preparation
 and producer-boundary proofs, not completed Codex build or installed local-build
 acceptance.
 
+Generation assembly now exposes the existing single `GenerationRequest` and
+`build_generation` admission path to both CLI and Core. The unused no-Manager
+function and Manager-specific positional-argument wrapper were removed; optional
+Manager/TUI and source-runtime/revision inputs remain in that same request.
+Core's actual local-build caller now preserves `BuilderError` as its public
+error/source instead of discarding the cause. The actual public update regression
+injects a non-executable fixture gzip after official acquisition, observes the
+specific cause and unchanged activation, then restores the tool and completes the
+normal build/sign/install/rollback flow (`generation-api-core-path-final.log`).
+The existing41 builder tests pass through the consolidated API
+(`generation-api-builder-path.log`); workspace Clippy passes
+`generation-api-clippy-final.log`. A disposable Core cause-discarding mutation
+fails the intended public regression (`generation-api-cause-mutation.json`).
+The initial assertion expected lower-case text while the existing presentation
+capitalizes its first sentence; its failed result is retained, and no production
+assertion was weakened. This batch prepares Core's source-runtime composition
+interface; it does not yet implement native tool provisioning or source-build
+selection in the installed updater. Whole release/device acceptance remains
+pending; the preceding full Rust gate applies to the earlier producer batch.
+
 The actual local Codex build did not finish. Its original tool-bound process
 vanished without an exit record; do not attribute that to memory. The jemalloc
 failure is now narrowed to the second, normally hidden compiler command: its

@@ -4191,6 +4191,7 @@ enum LocalProductError {
     },
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
+    Builder(codex_release_builder::BuilderError),
     SignatureRejected,
     ReleasePolicy(&'static str),
     ReleaseDigestMismatch,
@@ -4269,6 +4270,7 @@ impl std::fmt::Display for LocalProductError {
                 f.write_str("remote release response exceeds its byte bound")
             }
             LocalProductError::LocalUpdate(message) => f.write_str(message),
+            LocalProductError::Builder(source) => write!(f, "local release construction failed: {source}"),
             LocalProductError::SignatureRejected => {
                 f.write_str("release signature verification failed")
             }
@@ -4309,6 +4311,7 @@ impl std::error::Error for LocalProductError {
             LocalProductError::StateFormat(err) => Some(err),
             LocalProductError::State(err) => Some(err),
             LocalProductError::Io { source, .. } => Some(source),
+            LocalProductError::Builder(source) => Some(source),
             LocalProductError::Manifest(err) => Some(err),
             LocalProductError::Runtime(err) => Some(err),
             LocalProductError::Manager(err) => Some(err),
@@ -8411,19 +8414,23 @@ fn activate_local_built_update(
         if let Some(presentation) = presentation.as_deref_mut() {
             presentation.transient("⠹", "Building Termux release...");
         }
-        codex_release_builder::build_generation_with_manager(
-            &metadata.version,
-            &archive,
-            &archive_digest,
-            &generation_id,
-            &core,
-            current_loaded.manager_path.as_deref(),
-            &creation_metadata,
-            &gzip,
-            &roots.openssl,
-            &unsigned_generation,
-        )
-        .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
+        codex_release_builder::build_generation(&codex_release_builder::GenerationRequest {
+            version: metadata.version.clone(),
+            archive,
+            archive_sha256: archive_digest,
+            generation_id: generation_id.clone(),
+            core,
+            manager: current_loaded.manager_path.clone(),
+            manager_tui: None,
+            source_runtime: None,
+            defer_manager_probe: false,
+            legacy_activation_doctor_unsupported: false,
+            creation_metadata,
+            gzip,
+            openssl: roots.openssl.clone(),
+            output: unsigned_generation.clone(),
+        })
+        .map_err(LocalProductError::Builder)?;
         if let Some(index) = frontend_index {
             use std::io::Write as _;
             use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
@@ -18873,6 +18880,24 @@ esac
             "transport failure must not start a build"
         );
         assert!(!failed_calls.contains(&archive_url));
+        // Inject a builder-owned tool failure after official acquisition. The
+        // public updater must preserve its specific cause and existing state.
+        let gzip_permissions = std::fs::metadata(&fixture_gzip).unwrap().permissions();
+        std::fs::set_permissions(&fixture_gzip, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let failed_build =
+            b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
+        std::fs::set_permissions(&fixture_gzip, gzip_permissions).unwrap();
+        assert_eq!(failed_build.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&failed_build.stderr).contains(
+                "Local release construction failed: gzip is not an executable regular file"
+            ),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&failed_build.stdout),
+            String::from_utf8_lossy(&failed_build.stderr)
+        );
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), public_before);
+        assert!(!gh_log.exists(), "a failed local build must not request CI");
         let output = b7_run_public_build_local(None, Some(&private_key), &home, &prefix, &tmp);
         assert_eq!(
             output.status.code(),
