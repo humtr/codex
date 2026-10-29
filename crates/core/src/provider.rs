@@ -420,12 +420,12 @@ fn install_remote(
     let result = (|| -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(240);
         let mut total = 0u64;
-        let mut fetch = |name: &str, bound: u64, control: bool| -> Result<()> {
+        let mut fetch_control = |name: &str, bound: u64| -> Result<()> {
             let remaining = deadline.saturating_duration_since(Instant::now()).as_secs();
             if remaining == 0 {
                 return Err("Provider acquisition deadline exceeded".into());
             }
-            let timeout = remaining.min(if control { 20 } else { 120 }).to_string();
+            let timeout = remaining.min(20).to_string();
             let output = fresh(&acquisition.join(name))?;
             let bytes = fetch_remote_file_with_timeout(
                 roots,
@@ -442,8 +442,8 @@ fn install_remote(
             fs::set_permissions(acquisition.join(name), fs::Permissions::from_mode(0o644))?;
             Ok(())
         };
-        fetch("payload.manifest", 8192, true)?;
-        fetch("payload.sig", 64, true)?;
+        fetch_control("payload.manifest", 8192)?;
+        fetch_control("payload.sig", 64)?;
         let manifest = Manifest::parse(&read(&acquisition.join("payload.manifest"), 8192)?)?;
         if read(&acquisition.join("payload.sig"), 64)?.len() != 64 {
             return Err("Provider signature length invalid".into());
@@ -488,6 +488,7 @@ fn install_remote(
         fs::DirBuilder::new()
             .mode(0o700)
             .create(acquisition.join("licenses"))?;
+        let mut presentation = UpdatePresentation::new();
         for file in &manifest.files {
             #[cfg(all(
                 any(target_os = "android", target_os = "linux"),
@@ -510,15 +511,43 @@ fn install_remote(
                     continue;
                 }
             }
-            fetch(&file.name, file.bytes, false)?;
-            let path = acquisition.join(&file.name);
-            if fs::metadata(&path)?.len() != file.bytes
-                || openssl_sha256(&roots.openssl, &path)? != file.digest
-            {
-                return Err("Provider downloaded file mismatch".into());
+            let remaining = deadline.saturating_duration_since(Instant::now()).as_secs();
+            if remaining == 0 {
+                return Err("Provider acquisition deadline exceeded".into());
             }
+            let timeout = remaining.min(120).to_string();
+            let path = acquisition.join(&file.name);
+            let entry = ReleaseFileEntry {
+                relative_path: file.name.clone(),
+                sha256: file.digest.clone(),
+                mode: file.mode,
+            };
+            let label = format!("Downloading Provider {}...", file.name);
+            let mut progress = |bytes| {
+                presentation.transient(
+                    "⠙",
+                    &render_update_download_progress(&label, bytes, file.bytes),
+                );
+            };
+            let bytes = remote_download::payload(
+                roots,
+                &format!("{}{}", base.value, file.name.replace('/', "--")),
+                &path,
+                &entry,
+                remote_download::PayloadOptions {
+                    limit: file.bytes,
+                    expected_size: Some(file.bytes),
+                    timeout: &timeout,
+                    progress: Some(&mut progress),
+                },
+            )?;
+            total = total
+                .checked_add(bytes)
+                .filter(|n| *n <= 136 * 1024 * 1024)
+                .ok_or("Provider acquisition aggregate bound exceeded")?;
             fs::set_permissions(path, fs::Permissions::from_mode(file.mode))?;
         }
+        presentation.clear_transient();
         install(roots, store, &acquisition, key, state, expected)
     })();
     // Creation succeeded above; this is solely our acquisition, never user data.
@@ -904,6 +933,7 @@ mod tests {
             };
             private_directory(&store.root, true).unwrap();
             private_directory(&store.generations, true).unwrap();
+            private_directory(&roots.state_root, true).unwrap();
             let generation = "chatgpt-unchanged-fixture";
             let package = store.generations.join(generation);
             private_directory(&package, true).unwrap();

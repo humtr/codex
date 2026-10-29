@@ -7670,7 +7670,7 @@ fn render_update_transient(frame_index: usize, message: &str) {
 }
 
 #[cfg(unix)]
-fn render_update_download_progress(downloaded: u64, total: u64) -> String {
+fn render_update_download_progress(label: &str, downloaded: u64, total: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = 1024 * 1024;
 
@@ -7683,16 +7683,16 @@ fn render_update_download_progress(downloaded: u64, total: u64) -> String {
         let (downloaded_whole, downloaded_fraction) = tenths(downloaded, MIB);
         let (total_whole, total_fraction) = tenths(total, MIB);
         format!(
-            "Downloading signed Termux release... {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} MiB"
+            "{label} {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} MiB"
         )
     } else if total >= KIB {
         let (downloaded_whole, downloaded_fraction) = tenths(downloaded, KIB);
         let (total_whole, total_fraction) = tenths(total, KIB);
         format!(
-            "Downloading signed Termux release... {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} KiB"
+            "{label} {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} KiB"
         )
     } else {
-        format!("Downloading signed Termux release... {downloaded} / {total} bytes")
+        format!("{label} {downloaded} / {total} bytes")
     }
 }
 
@@ -7808,7 +7808,11 @@ impl UpdatePresentation {
     }
 
     fn download_progress(&mut self, downloaded: u64, total: u64) {
-        let message = render_update_download_progress(downloaded, total);
+        let message = render_update_download_progress(
+            "Downloading signed Termux release...",
+            downloaded,
+            total,
+        );
         self.transient("â ", &message);
     }
 
@@ -8961,9 +8965,12 @@ fn fetch_verified_remote_release_file_with_timeout_and_progress(
             &base.resource_url(&file.relative_path)?,
             &destination,
             file,
-            limit,
-            expected_size,
-            progress,
+            remote_download::PayloadOptions {
+                limit,
+                expected_size,
+                timeout: transfer_timeout_seconds,
+                progress,
+            },
         )?;
         *acquired_bytes += observed;
         observed
@@ -24242,11 +24249,15 @@ exit 2
     #[test]
     fn test_download_progress_uses_bounded_human_units() {
         assert_eq!(
-            render_update_download_progress(1024 * 1024, 284 * 1024 * 1024),
+            render_update_download_progress(
+                "Downloading signed Termux release...",
+                1024 * 1024,
+                284 * 1024 * 1024
+            ),
             "Downloading signed Termux release... 1.0 / 284.0 MiB"
         );
         assert_eq!(
-            render_update_download_progress(512, 1000),
+            render_update_download_progress("Downloading signed Termux release...", 512, 1000),
             "Downloading signed Termux release... 512 / 1000 bytes"
         );
     }
@@ -24357,7 +24368,11 @@ exit 2
         );
         let terminal = String::from_utf8(output.stdout).unwrap();
         assert!(
-            terminal.contains(&render_update_download_progress(total_bytes, total_bytes)),
+            terminal.contains(&render_update_download_progress(
+                "Downloading signed Termux release...",
+                total_bytes,
+                total_bytes
+            )),
             "terminal={terminal:?}"
         );
         let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();

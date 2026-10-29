@@ -968,8 +968,17 @@ installed files. Changed entries or rejected reuse candidates are downloaded and
 verified against the new signed inventory. The final installed/current payload
 checks and artifact probe remain required. Corrupt admitted selection is still
 an error, not an implicit repair or unchanged success. Explicit --remote
-installation/reinstallation retains full acquisition; local installation retains
-its existing path. No new cache state, public switch or release format is added.
+installation/reinstallation retains acquisition of every entry; local installation
+retains its existing path. All remote Provider payloads use Core's existing private,
+digest-keyed download cache. Interrupted bytes remain untrusted and may resume only
+on the next explicit request after the new signed envelope is admitted. A complete
+cached entry is rehashed before staging; invalid complete bytes or rejected ranges
+are discarded with an error, without an automatic restart. The existing Provider
+240-second acquisition deadline and per-transfer bounds also apply to cache misses
+and resumes. Terminal progress identifies the Provider file and authenticated byte
+total; redirects, signatures, sequence floors and final installation admission keep
+their existing authority. No new cache format, public switch or release format is
+added.
 Within one explicit command, optional release information is acquired once per
 admitted candidate generation and is reused during CI publication waiting. A
 changed candidate receives a fresh view; this command-local snapshot is never

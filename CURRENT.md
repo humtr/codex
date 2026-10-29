@@ -676,9 +676,19 @@ Its actual linker argv uses a response file. That response was retained before
 cleanup (`native-linker-observation-v1-linker-response`), and all928 explicit
 object/archive inputs still exist. The recorded command and inputs permit a
 link-only comparison without recompiling CLI. The installed native LLD21.1.8
-accepts GNU flavor; a separate prepared replay will test that linker against the
-same machine-code inputs instead of the musl-host LLD23.1.1. No successful replay
-or profile adoption is claimed yet. Temporary runners are never installed and
+accepts GNU flavor, but the actual replay exits1 in1.04s: LLVM21 cannot read
+LLVM23 bitcode still present in a dependency archive
+(`native-linker-native-lld-v2-exit.json` and its original log). This is an observed
+format incompatibility, not a resource stop. A real two-crate Cargo probe confirms
+that final-crate-only LTO off retains bitcode dependencies and fails with that
+older linker; whole-profile LTO off produces ELF dependency objects and executes
+successfully. Ordinary thin LTO also succeeds in the small probe because rustc
+lowers its inputs before native linking; the initial expectation that it would
+fail was incorrect and is retained separately
+(`native-lto-profile-probe{,-v2}.json`). None of these probes qualifies full Codex.
+A bounded full-source experiment now uses whole-profile LTO off,16 code-generation
+units and native LLD21 with one linking thread; production profile remains unchanged.
+Temporary runners are never installed and
 can be removed after terminal results, required artifacts and restoration inputs
 are retained and no armed proof consumes them. Actual artifact qualification is
 still required before adopting any linker/profile in product policy.
@@ -857,7 +867,7 @@ The installer retains the expected index through final package admission; one
 binding check serves fresh, unchanged and cached paths. Stable changed-release
 publication information is displayed at that admission, after acquisition or
 cached verification. Unchanged explicit update retains its no-package/no-notes
-path; explicit remote reinstall still downloads the complete package. The
+path; explicit remote reinstall still admits every declared entry. The
 existing unit matrix retains all earlier cases and now requires changed-only
 acquisition or zero-package cached admission to reach the actual artifact probe.
 Its deliberately incomplete ELF may fail exec with ENOEXEC or exit unsuccessfully;
@@ -895,10 +905,39 @@ required. The local archive fetch still suppresses curl stderr and removes its
 partial staging on failure. Source integration needs cause-specific failure,
 verified resumable acquisition and observable transfer progress beyond its phase
 label, rather than a longer unexplained timeout or another acquisition route.
-Provider transfer progress/resume also remains separate from this file-reuse
-proof. The older manual-update display qualification fixture still assumes an
+Provider transfer progress/resume is qualified by the subsequent batch below.
+The older manual-update display qualification fixture still assumes an
 informational-only Provider lookup and must be updated to the actual installing
 path before it can serve as new whole-lifecycle evidence.
+
+Remote Provider payloads now use the same private digest-keyed resumable transfer
+as Core. The signed Provider envelope still owns paths, sizes, modes and digests;
+Core's transfer owns the cache lease, Range acquisition, bounded copy and rehash.
+The previous nonresumable payload fetch/hash branch is removed. Control-file
+acquisition and final installation admission remain distinct. Transfer options now
+carry the caller's existing timeout, preserving Provider's120-second per-file and
+240-second command acquisition bounds. The shared byte formatter accepts its
+consumer's label; Provider uses the existing terminal presentation and identifies
+the current file. Explicit reinstall may reuse verified content cache objects.
+
+Source Rust/Clippy passes Core230 with the existing explicit device exclusion,
+Manager52, integration67+3, builder42 and binding2
+(`provider-resume-rust-v1.log`); Python25+123+10 passes
+(`provider-resume-python-v1.log`). Actual Android owned-TLS qualification passes
+Base92/Full91 steps in293.32s (`provider-resume-native-v2.json`): interruption at
+4096 bytes fails without changing either selection, the next explicit update
+requests bytes=4096-, verified bytes match the signed file and real PTY output
+contains Provider progress. Original authority, rollback, live-process and
+independent-group cases remain exercised. A disposable fault that deletes the
+partial file makes that actual test fail with ranges[None,None], rather than the
+required[None,bytes=4096-]; copied source is restored
+(`provider-resume-mutation.json`). The initial native fixture incorrectly expected
+separate downloads for distinct paths with identical signed content; its original
+failure is retained. The corrected assertion checks the independently declared
+missing content set, without weakening exact bytes or installation checks.
+The complete native run archived11 inactive manifest-matched payloads and reclaimed
+1,699,606,528 bytes. This is qualified source/Android behavior, not public delivery,
+operating activation or completion of the full update lifecycle.
 
 The initial exclusive-gate mutation passed because detached startup deliberately
 closes incidental leases; it did not qualify that fault. The added foreground

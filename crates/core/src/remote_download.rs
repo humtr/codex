@@ -211,15 +211,26 @@ fn cache_file(path: &Path) -> Result<File, LocalProductError> {
 
 /// Cache is private and disposable; its name/digest is never executable authority.
 /// A directory lease serializes downloads and eviction independently of activation.
+pub(super) struct PayloadOptions<'a> {
+    pub limit: u64,
+    pub expected_size: Option<u64>,
+    pub timeout: &'a str,
+    pub progress: Option<&'a mut dyn FnMut(u64)>,
+}
+
 pub(super) fn payload(
     roots: &LocalCoreRoots,
     url: &str,
     destination: &Path,
     entry: &ReleaseFileEntry,
-    limit: u64,
-    expected_size: Option<u64>,
-    progress: Option<&mut dyn FnMut(u64)>,
+    options: PayloadOptions<'_>,
 ) -> Result<u64, LocalProductError> {
+    let PayloadOptions {
+        limit,
+        expected_size,
+        timeout,
+        progress,
+    } = options;
     if (limit == 0 && expected_size != Some(0)) || expected_size.is_some_and(|n| n > limit) {
         return Err(LocalProductError::RemoteResponseTooLarge);
     }
@@ -290,15 +301,7 @@ pub(super) fn payload(
             fs::remove_file(&path).map_err(io)?;
             return Err(LocalProductError::ReleaseDigestMismatch);
         }
-        match fetch(
-            roots,
-            url,
-            &file,
-            reserve,
-            REMOTE_TRANSFER_TIMEOUT_SECONDS,
-            size,
-            progress,
-        ) {
+        match fetch(roots, url, &file, reserve, timeout, size, progress) {
             Ok(n) => size = n,
             Err(error) => {
                 if matches!(
@@ -477,9 +480,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &url,
             &dest,
             &entry,
-            512 * 1024,
-            Some(data.len() as u64),
-            None,
+            PayloadOptions {
+                limit: 512 * 1024,
+                expected_size: Some(data.len() as u64),
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
         )
         .unwrap_err();
         assert!(
@@ -493,9 +499,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &url,
                 &dest,
                 &entry,
-                512 * 1024,
-                Some(data.len() as u64),
-                None
+                PayloadOptions {
+                    limit: 512 * 1024,
+                    expected_size: Some(data.len() as u64),
+                    timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    progress: None,
+                },
             )
             .unwrap(),
             data.len() as u64
@@ -516,9 +525,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &url,
                 &dest,
                 &entry,
-                512 * 1024,
-                Some(data.len() as u64),
-                None,
+                PayloadOptions {
+                    limit: 512 * 1024,
+                    expected_size: Some(data.len() as u64),
+                    timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    progress: None,
+                },
             )
             .unwrap_err();
             if mode == "ignore-range" {
@@ -560,9 +572,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &url,
             &dest,
             &entry,
-            512 * 1024,
-            Some(data.len() as u64),
-            None,
+            PayloadOptions {
+                limit: 512 * 1024,
+                expected_size: Some(data.len() as u64),
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
         )
         .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), data);
@@ -580,9 +595,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                     "https://unused.invalid/",
                     &dest,
                     &entry,
-                    512,
-                    size,
-                    None
+                    PayloadOptions {
+                        limit: 512,
+                        expected_size: size,
+                        timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                        progress: None,
+                    },
                 )
                 .unwrap(),
                 0
@@ -609,9 +627,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 "https://unused.invalid/",
                 &dest,
                 &entry,
-                7,
-                Some(7),
-                None
+                PayloadOptions {
+                    limit: 7,
+                    expected_size: Some(7),
+                    timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    progress: None,
+                },
             ),
             Err(LocalProductError::ReleaseDigestMismatch)
         ));
@@ -625,9 +646,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             "https://unused.invalid/",
             &dest,
             &entry,
-            7,
-            Some(7),
-            None
+            PayloadOptions {
+                limit: 7,
+                expected_size: Some(7),
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
         )
         .is_err());
         assert_eq!(fs::read(&protected).unwrap(), b"private");
@@ -639,9 +663,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             "https://unused.invalid/",
             &dest,
             &entry,
-            7,
-            Some(7),
-            None
+            PayloadOptions {
+                limit: 7,
+                expected_size: Some(7),
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
         )
         .is_err());
         assert!(!dest.exists());
@@ -661,9 +688,12 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 "https://unused.invalid/",
                 &dest,
                 &entry,
-                7,
-                Some(7),
-                None
+                PayloadOptions {
+                    limit: 7,
+                    expected_size: Some(7),
+                    timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    progress: None,
+                },
             ),
             Err(LocalProductError::Remote(_))
         ));

@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
+import socket
 import subprocess
 import tempfile
 import time
@@ -87,11 +89,14 @@ def qualify(args):
             key = case_root / 'fixture-key.pem'
             installed = home / '.local/lib/codex/core/generations/local-permission-fixture'
 
-            def run(label, command, expected=0):
+            def run(label, command, expected=0, terminal=False):
                 entry = dict(name=label, started_UTC=utc())
                 case['steps'].append(entry)
                 begin = time.monotonic()
-                result = subprocess.run([str(v) for v in command], env=env, cwd=case_root / 'w',
+                command = [str(v) for v in command]
+                if terminal:
+                    command = ['script', '-q', '-e', '-c', shlex.join(command), '/dev/null']
+                result = subprocess.run(command, env=env, cwd=case_root / 'w',
                                         capture_output=True, timeout=65)
                 entry.update(exit=result.returncode, expected_exit=expected, seconds=time.monotonic() - begin,
                              ended_UTC=utc())
@@ -164,7 +169,7 @@ def qualify(args):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source / 'providers/chatgpt' / name, destination)
             notice = changed_assets / 'NOTICE.md'
-            notice.write_bytes(notice.read_bytes() + b'\nOwned changed-release fixture notice.\n')
+            notice.write_bytes(notice.read_bytes() + b'\nOwned changed-release fixture notice.\n' * 8192)
             two = package('signed package 2', 'chatgpt-g-test-2', 2, assets=changed_assets)
             package('refuse package output replacement', 'chatgpt-g-test-1', 1, expected=1)
             public('absent Provider inventory', 'status', 'chatgpt')
@@ -176,12 +181,14 @@ def qualify(args):
                 flat_assets = ['payload.manifest', 'payload.sig', *[name.replace('/', '--') for name in declared]]
                 stable_paths = ['/humtr/codex/main/provider-index-v1', '/humtr/codex/main/provider-index-v1.sig']
 
-                def complete_download(base):
-                    expected = [base + name for name in flat_assets]
-                    # Authentication precedes payload. Remaining assets may be
-                    # fetched in any order, but every signed asset is read once.
-                    assert remote_requests[:2] == expected[:2]
-                    assert len(remote_requests) == len(expected) and set(remote_requests) == set(expected), remote_requests
+                def complete_download(base, cached):
+                    assert remote_requests[:2] == [base + name for name in ('payload.manifest', 'payload.sig')]
+                    digests = {base + name.replace('/', '--'): sha(one / name) for name in declared}
+                    # Distinct paths may declare identical bytes. Each missing
+                    # content object is acquired once, in any valid file order.
+                    received = [digests[path] for path in remote_requests[2:]]
+                    expected = set(digests.values()) - cached
+                    assert len(received) == len(expected) and set(received) == expected, remote_requests
                 cert = case_root / 'remote-cert.pem'
                 remote_key = case_root / 'remote-key.pem'
                 run('create owned localhost TLS certificate', ['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -277,6 +284,26 @@ def qualify(args):
                             data = b'x' * 64
                         if route == 'tampered' and name == 'NOTICE.md':
                             data = b'x' * len(data)
+                        if route == 'two' and name == 'NOTICE.md':
+                            resume = self.headers.get('Range')
+                            stable.setdefault('notice_ranges', []).append(resume)
+                            if stable.pop('truncate_notice', False):
+                                self.send_response(200)
+                                self.send_header('Content-Length', str(len(data)))
+                                self.end_headers()
+                                self.wfile.write(data[:4096])
+                                self.wfile.flush()
+                                self.connection.shutdown(socket.SHUT_RDWR)
+                                self.close_connection = True
+                                return
+                            if resume:
+                                assert resume == 'bytes=4096-', resume
+                                self.send_response(206)
+                                self.send_header('Content-Range', f'bytes 4096-{len(data)-1}/{len(data)}')
+                                self.send_header('Content-Length', str(len(data)-4096))
+                                self.end_headers()
+                                self.wfile.write(data[4096:])
+                                return
                         self.send_response(200)
                         self.send_header('Content-Length', str(len(data)))
                         self.end_headers()
@@ -320,10 +347,12 @@ def qualify(args):
                             assert remote_requests == ['/bad-signature/payload.manifest', '/bad-signature/payload.sig']
                     remote_requests.clear()
                     public('real TLS remote installation', 'install', 'chatgpt', '--remote', url + 'one/')
-                    complete_download('/one/')
+                    # The earlier rejected tamper/missing attempts already
+                    # authenticated and cached Cargo.lock, without activation.
+                    complete_download('/one/', {sha(one / 'Cargo.lock')})
                     remote_requests.clear()
                     public('real TLS remote exact reinstall', 'install', 'chatgpt', '--remote', url + 'one/')
-                    complete_download('/one/')
+                    complete_download('/one/', {sha(one / name) for name in declared})
                     selection_path = home / '.local/share/codex/core/providers/chatgpt/selection'
                     unchanged_selection = selection_path.read_bytes()
                     for label, action in [('stable index authenticated update over real TLS', 'update'),
@@ -373,15 +402,29 @@ def qualify(args):
                                   official_version='9.999.0')
                     env['CODEX_TERMUX_UPDATE_BUILD_POLICY'] = 'keep'
                     remote_requests.clear()
+                    stable['truncate_notice'] = True
+                    selection_before_interrupt = selection_path.read_bytes()
+                    interrupted = run('manual Provider update preserves interrupted untrusted bytes',
+                                      [launcher, 'update'], expected=1)
+                    assert b'4096 output bytes' in interrupted.stderr, interrupted.stderr
+                    assert selection_path.read_bytes() == selection_before_interrupt
+                    assert sha(core_state) == core_before
+                    cached_part = home / '.local/share/codex/core/downloads-v1' / (sha(two / 'NOTICE.md') + '.part')
+                    assert cached_part.read_bytes() == (two / 'NOTICE.md').read_bytes()[:4096]
+                    assert not any((home / '.local/share/codex/core/providers/chatgpt').glob('.download-*'))
+                    remote_requests.clear()
                     advanced = run('manual update advances Provider while missing Core build is kept',
-                                   [launcher, 'update'])
+                                   [launcher, 'update'], terminal=True)
                     assert b'Keeping Codex' in advanced.stdout and b'9.999.0' in advanced.stdout
+                    assert b'Downloading Provider NOTICE.md...' in advanced.stdout
                     assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
                     expected_payload = ['/humtr/codex/releases/download/chatgpt-g-test-2/'
                         + name for name in ['payload.manifest', 'payload.sig', 'NOTICE.md']]
                     assert [path for path in remote_requests if '/releases/download/chatgpt-g-test-' in path] == expected_payload
                     assert sha(core_state) == core_before
+                    assert stable['notice_ranges'] == [None, 'bytes=4096-'], stable['notice_ranges']
+                    assert cached_part.read_bytes() == (two / 'NOTICE.md').read_bytes()
                     del env['CODEX_TERMUX_UPDATE_BUILD_POLICY']
                     stable['official_version'] = installed_version
                     public('restore previous Provider with actual rollback', 'rollback', 'chatgpt')
@@ -462,8 +505,13 @@ def qualify(args):
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
                     public('restore Provider while preserving Core hold', 'rollback', 'chatgpt')
                     core_before = sha(core_state)
-                    case['remote'] = dict(real_TLS=True, requests_per_complete_install=len(flat_assets), signature_before_payload=True,
+                    case['remote'] = dict(real_TLS=True, signature_before_payload=True,
                                           no_implicit_retry=True, local_certificate_only=True,
+                                          interrupted_payload_bytes=4096,
+                                          resumed_range='bytes=4096-',
+                                          failed_transfer_preserves_both_selections=True,
+                                          verified_cache_skips_repeat_payload_requests=True,
+                                          actual_terminal_provider_progress=True,
                                           unchanged_stable_package_requests=0, unchanged_selection_preserved=True,
                                           manual_selected_update=True, unselected_not_enrolled=True,
                                           one_provider_index_per_manual_invocation=True,
