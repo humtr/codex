@@ -276,6 +276,67 @@ never becomes another acquisition mode. No simultaneous automatic local/remote
 build race. Initial build policy can authorize subsequent automatic decisions;
 do not infer developer status or authority from login or a repository checkout.
 
+The user's refined requirement is selective updating of every installed component:
+detect each newer compatible release, acquire/build only its changed artifacts,
+and retain every unchanged module. Existing current-file reuse and Full-to-Base
+transport sharing are only partial implementation of that previously requested
+behavior. Required build inputs and compatibility relationships, not a wrapper
+commit alone, decide which artifacts need rebuilding. Independent module groups
+may advance separately; inseparable dependency groups must advance together.
+Do not silently drop a selected module because its new companion is unavailable.
+
+Remote preparation should inspect upstream stable metadata every two hours,
+while owned module source changes may trigger preparation immediately. The current
+six-hour cron exists but is not this proposed interval. The periodic check is
+lightweight; unchanged inputs cause no build, and identical pending requests reuse
+one job. Build supported individual components, not all combinations of modules.
+Scheduling is best effort and does not replace an immediate user request.
+
+Only when a required compatible artifact is unavailable, present one grouped
+choice: keep that group's current version; build locally including required tool
+installation; or request an immediate remote build. Three choices are reasonable
+without a second normal/developer menu. Show the missing items and local-build
+requirements first. Proposed keep semantics permit other ready, independent,
+compatible updates to proceed; make this explicit in the displayed plan rather
+than treating keep as cancellation of every update. Noninteractive execution uses
+configured policy instead of blocking for input; users may configure a future
+default without being asked again on every invocation.
+
+Local build owns detection of required tools/versions, storage checks, installation
+of missing build dependencies and reuse of qualified toolchains/caches. Selecting
+this option should expressly include those dependency operations, not imply an
+unrelated system-wide package upgrade. The local producer must first be qualified
+for Termux; the existing binary-adaptation route does not establish native source
+build support for arbitrary new versions. Report an unsupported recipe rather than
+claiming that any upstream semantic change can be patched automatically.
+
+Signing is separate from public distribution. Ordinary local builds can use the
+existing device-local derived signer while retaining their public update authority.
+A maintainer with an explicitly configured, authorized release signer may perform
+build, qualification and release signing together; Codex/GitHub login or a checkout
+does not establish that signing capability. Public upload/promotion requires its
+own configured authority/policy and is not implied by signing for personal use.
+This local release-signing proposal changes the current CI-owned publication
+contract and needs SPEC/qualification work before activation.
+
+Signing a file inventory does not change the binaries and requires no upload by
+itself. A later public release should upload only absent changed artifact objects,
+new module/composition metadata and their signatures, referencing previously
+published immutable objects for unchanged content. The current Base publication
+still lacks this general reuse; Full's verified Base references are reusable
+implementation evidence. A locally rebuilt binary that differs must be uploaded
+if that exact binary is to be distributed, even when its version/source labels
+match. Reuse by digest avoids assuming reproducible builds. Binary delta delivery
+is a separate feature, not a consequence of module-selective updating.
+
+When local maintainers and periodic remote builds publish concurrently, retain the
+existing non-forced compare-and-swap promotion property and allocate/finalize the
+public sequence at publication. Losing a promotion race must not overwrite public
+objects or require recompiling unchanged binaries; only the publication metadata
+may need rebinding/signing. Neither automatic dependency installation nor signing
+should add recurring confirmation menus beyond the user's configured authority
+and the missing-artifact choice.
+
 Separate incomplete downloads from verified cache and installed generations.
 Resume only a consistent byte range for the selected immutable artifact; a server
 returning a whole response cannot be appended to a partial file. Verify final
