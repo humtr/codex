@@ -169,12 +169,11 @@ def qualify(args):
                 flat_assets = ['payload.manifest', 'payload.sig', *[name.replace('/', '--') for name in declared]]
                 stable_paths = ['/humtr/codex/main/provider-index-v1', '/humtr/codex/main/provider-index-v1.sig']
 
-                def complete_download(base, through_index=False):
-                    prefix = stable_paths if through_index else []
-                    expected = prefix + [base + name for name in flat_assets]
+                def complete_download(base):
+                    expected = [base + name for name in flat_assets]
                     # Authentication precedes payload. Remaining assets may be
                     # fetched in any order, but every signed asset is read once.
-                    assert remote_requests[:len(prefix) + 2] == expected[:len(prefix) + 2]
+                    assert remote_requests[:2] == expected[:2]
                     assert len(remote_requests) == len(expected) and set(remote_requests) == set(expected), remote_requests
                 cert = case_root / 'remote-cert.pem'
                 remote_key = case_root / 'remote-key.pem'
@@ -256,12 +255,14 @@ def qualify(args):
                     remote_requests.clear()
                     public('real TLS remote exact reinstall', 'install', 'chatgpt', '--remote', url + 'one/')
                     complete_download('/one/')
-                    remote_requests.clear()
-                    public('stable index authenticated update over real TLS', 'update', 'chatgpt')
-                    complete_download('/humtr/codex/releases/download/chatgpt-g-test-1/', through_index=True)
-                    remote_requests.clear()
-                    public('stable index default install over real TLS', 'install', 'chatgpt')
-                    complete_download('/humtr/codex/releases/download/chatgpt-g-test-1/', through_index=True)
+                    selection_path = home / '.local/share/codex/core/providers/chatgpt/selection'
+                    unchanged_selection = selection_path.read_bytes()
+                    for label, action in [('stable index authenticated update over real TLS', 'update'),
+                                          ('stable index default install over real TLS', 'install')]:
+                        remote_requests.clear()
+                        public(label, action, 'chatgpt')
+                        assert remote_requests == stable_paths, remote_requests
+                        assert selection_path.read_bytes() == unchanged_selection
                     saved_signature = stable['signature']
                     stable['signature'] = b'x' * 64
                     before = (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes()
@@ -271,7 +272,8 @@ def qualify(args):
                     assert (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes() == before
                     stable['signature'] = saved_signature
                     case['remote'] = dict(real_TLS=True, requests_per_complete_install=len(flat_assets), signature_before_payload=True,
-                                          no_implicit_retry=True, local_certificate_only=True)
+                                          no_implicit_retry=True, local_certificate_only=True,
+                                          unchanged_stable_package_requests=0, unchanged_selection_preserved=True)
                 finally:
                     case['remote_requests'] = list(remote_requests)
                     server.shutdown()

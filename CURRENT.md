@@ -536,6 +536,22 @@ profile at both detached Core prepare and direct pinned executable entrypoints.
 Provider keeps the actual shared directory lease while install/rollback preserve its
 kernel PID/image and original profile, in both compositions. No model request or
 operating service/profile change occurred.
+An explicit Provider stable update/default install now authenticates the index
+and verifies the admitted local payload before returning unchanged, with no
+package-control, notes or payload download. Different generation/digest inputs
+still enter acquisition; wrong signatures, inconsistent sequence and altered local
+bytes fail. Explicit remote-package reinstall retains its full acquisition path.
+The production regression and cause-targeted mutation pass
+(`provider-unchanged-final.log`, `provider-unchanged-mutation.json`). Actual Android
+Base/Full TLS qualification proves zero unchanged package requests, preserved
+selection and all three live service/foreground lease paths
+(`provider-unchanged-native.json`); it uses the retained0.164 fixture and does not
+qualify the reported0.165 profile issue. The full gate passes Python25+123+10,
+Core230 plus the existing explicit device exclusion, Manager52, integration67+3,
+builder41, binding2 and workspace Clippy (`provider-unchanged-full.log`). The owned
+inactive fixture's11 payloads were archived/cleaned, reclaiming1,699,606,528
+allocated bytes. This does not yet implement automatic multi-module update
+planning or activate a public/operating release.
 The initial exclusive-gate mutation passed because detached startup deliberately
 closes incidental leases; it did not qualify that fault. The added foreground
 kernel/lock boundary rejects that mutation in `provider-live-mutation-v2.json`,

@@ -527,6 +527,20 @@ fn install_stable(
         state.as_ref().map(|v| v.floor),
         "20",
         |index| {
+            if let Some(current) = state.as_ref().filter(|current| {
+                current.current.id == index.generation
+                    && current.current.digest == index.manifest_digest
+            }) {
+                let installed = selected(roots, store, &current.current, current.floor)?;
+                if installed.sequence != index.sequence {
+                    return Err("Provider stable index/package binding mismatch".into());
+                }
+                println!(
+                    "Provider chatgpt unchanged: {} (selection only)",
+                    installed.generation
+                );
+                return Ok(());
+            }
             install_remote(
                 roots,
                 store,
@@ -772,5 +786,159 @@ mod tests {
         let before = fs::metadata(&private).unwrap().mode();
         assert_eq!(before & 0o777, 0o755);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn authenticated_unchanged_update_verifies_local_payload_without_package_fetch() {
+        use codex_release_builder::provider::{Entry, FILES};
+        // This is a signed, pre-admitted selection fixture. The actual index
+        // and installed-envelope verifiers run; no new artifact is executed.
+        for defect in [
+            "none",
+            "index-signature",
+            "sequence",
+            "local-bytes",
+            "new-generation",
+            "manifest-digest",
+        ] {
+            let root = super::super::tests::temp_root("provider-unchanged");
+            let prefix = std::env::var_os("PREFIX")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| "/usr".into());
+            let roots = LocalCoreRoots {
+                generation_root: root.join("core/generations"),
+                state_root: root.join("state"),
+                config_dir: root.join("config"),
+                resolver_path: root.join("unused-resolver"),
+                cert_file: root.join("unused-ca"),
+                cert_dir: root.join("unused-certs"),
+                openssl: prefix.join("bin/openssl"),
+                curl: root.join("curl"),
+            };
+            let store = Store {
+                root: root.join("provider-state"),
+                generations: root.join("provider-generations"),
+            };
+            private_directory(&store.root, true).unwrap();
+            private_directory(&store.generations, true).unwrap();
+            let generation = "chatgpt-unchanged-fixture";
+            let package = store.generations.join(generation);
+            private_directory(&package, true).unwrap();
+            private_directory(&package.join("licenses"), true).unwrap();
+            let key = root.join("key.pem");
+            assert!(std::process::Command::new(&roots.openssl)
+                .args(["genpkey", "-algorithm", "ED25519", "-out"])
+                .arg(&key)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success());
+            let authority = release_public_key_from_private_pem(&roots.openssl, &key).unwrap();
+            let sign = |input: &Path, signature: &Path| {
+                assert!(std::process::Command::new(&roots.openssl)
+                    .args(["pkeyutl", "-sign", "-inkey"])
+                    .arg(&key)
+                    .args(["-rawin", "-in"])
+                    .arg(input)
+                    .arg("-out")
+                    .arg(signature)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success());
+            };
+            let mut files = Vec::new();
+            for name in FILES {
+                let path = package.join(name);
+                if name == "codex-chatgpt-provider" {
+                    let mut header = vec![0; 64];
+                    header[..6].copy_from_slice(b"\x7fELF\x02\x01");
+                    header[18] = 0xb7;
+                    fs::write(&path, header).unwrap();
+                } else {
+                    fs::write(&path, b"owned signed fixture input\n").unwrap();
+                }
+                let mode = if name == "codex-chatgpt-provider" {
+                    0o755
+                } else {
+                    0o644
+                };
+                fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+                files.push(Entry {
+                    name: name.into(),
+                    digest: openssl_sha256(&roots.openssl, &path).unwrap(),
+                    bytes: fs::metadata(&path).unwrap().len(),
+                    mode,
+                });
+            }
+            let manifest = Manifest {
+                generation: generation.into(),
+                sequence: 7,
+                source: "a".repeat(40),
+                source_inputs: files.last().unwrap().digest.clone(),
+                files,
+            };
+            fs::write(package.join("payload.manifest"), manifest.render().unwrap()).unwrap();
+            sign(
+                &package.join("payload.manifest"),
+                &package.join("payload.sig"),
+            );
+            for name in ["payload.manifest", "payload.sig"] {
+                fs::set_permissions(package.join(name), fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            let digest = openssl_sha256(&roots.openssl, &package.join("payload.manifest")).unwrap();
+            let state = State {
+                current: Selected {
+                    id: generation.into(),
+                    key: authority,
+                    digest: digest.clone(),
+                },
+                previous: None,
+                floor: 7,
+            };
+            store.commit(&state).unwrap();
+            let before = read(&store.root.join("selection"), 4096).unwrap();
+            let index = Index {
+                generation: if defect == "new-generation" {
+                    "chatgpt-new-fixture".into()
+                } else {
+                    generation.into()
+                },
+                sequence: if defect == "sequence" { 8 } else { 7 },
+                manifest_digest: if defect == "manifest-digest" {
+                    "b".repeat(64)
+                } else {
+                    digest
+                },
+            };
+            let index_file = root.join("index");
+            let index_sig = root.join("index.sig");
+            fs::write(&index_file, index.render().unwrap()).unwrap();
+            sign(&index_file, &index_sig);
+            if defect == "index-signature" {
+                fs::write(&index_sig, [0; 64]).unwrap();
+            }
+            if defect == "local-bytes" {
+                fs::write(package.join("NOTICE.md"), b"changed local input").unwrap();
+            }
+            let log = root.join("requests");
+            let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
+            fs::write(&roots.curl,format!("#!{}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --url ]; then shift; url=$1; fi; shift; done\nprintf '%s\\n' \"$url\" >> {}\ncase \"$url\" in\n*/provider-index-v1) cat {} ;;\n*/provider-index-v1.sig) cat {} ;;\n*) exit 22 ;;\nesac\n",prefix.join("bin/sh").display(),quote(&log),quote(&index_file),quote(&index_sig))).unwrap();
+            fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o755)).unwrap();
+            let result = install_stable(&roots, &store, authority, Some(state));
+            assert_eq!(result.is_ok(), defect == "none", "{defect}: {result:?}");
+            let requests = fs::read_to_string(log).unwrap();
+            assert_eq!(
+                requests
+                    .lines()
+                    .any(|url| url.contains("/releases/download/")),
+                matches!(defect, "new-generation" | "manifest-digest"),
+                "{defect}: {requests}"
+            );
+            assert_eq!(read(&store.root.join("selection"), 4096).unwrap(), before);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

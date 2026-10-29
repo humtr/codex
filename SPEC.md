@@ -924,6 +924,12 @@ They cannot select a version or weaken signature, sequence, rollback or source
 checks. Unselected Provider modules cause no Provider query. Publication failures
 show unavailable information without failing an otherwise valid signed update;
 ordinary launch, offline operations and background services make no such requests.
+An explicit Provider stable update authenticates its current index first. If its
+generation, manifest digest and sequence match the admitted selection, verify the
+installed payload and return unchanged before fetching package controls, release
+notes or payloads. A matching label alone is insufficient; changed or corrupt
+input must not become an unchanged result. This does not enroll an unselected
+Provider or change the Core update's current informational Provider display.
 Within one explicit command, optional release information is acquired once per
 admitted candidate generation and is reused during CI publication waiting. A
 changed candidate receives a fresh view; this command-local snapshot is never
