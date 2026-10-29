@@ -277,12 +277,23 @@ fn probe(path: &Path, store: &Store) -> Result<()> {
     let _ = fs::remove_file(output);
     result
 }
+fn verify_index_binding(index: &Index, manifest: &Manifest, digest: &str) -> Result<()> {
+    if index.generation != manifest.generation
+        || index.sequence != manifest.sequence
+        || index.manifest_digest != digest
+    {
+        return Err("Provider stable index/package binding mismatch".into());
+    }
+    Ok(())
+}
+
 fn install(
     roots: &LocalCoreRoots,
     store: &Store,
     source: &Path,
     key: ReleasePublicKey,
     state: Option<State>,
+    expected: Option<&Index>,
 ) -> Result<()> {
     if !source.is_absolute() {
         return Err("absolute Provider package path required".into());
@@ -290,6 +301,17 @@ fn install(
     owned_directory(source, false)?;
     let manifest = verify(roots, source, key)?;
     let digest = openssl_sha256(&roots.openssl, &source.join("payload.manifest"))?;
+    if let Some(index) = expected {
+        verify_index_binding(index, &manifest, &digest)?;
+        if let Some(details) = release_display::provider_details(
+            roots,
+            &index.release_base(),
+            &manifest.generation,
+            manifest.sequence,
+        ) {
+            println!("{details}");
+        }
+    }
     let value = Selected {
         id: manifest.generation.clone(),
         key,
@@ -433,29 +455,61 @@ fn install_remote(
             &acquisition.join("payload.sig"),
         )?;
         if let Some(index) = expected {
-            if index.generation != manifest.generation
-                || index.sequence != manifest.sequence
-                || index.manifest_digest
-                    != openssl_sha256(&roots.openssl, &acquisition.join("payload.manifest"))?
-            {
-                return Err("Provider stable index/package binding mismatch".into());
-            }
+            verify_index_binding(
+                index,
+                &manifest,
+                &openssl_sha256(&roots.openssl, &acquisition.join("payload.manifest"))?,
+            )?;
         }
         if state.as_ref().is_some_and(|v| manifest.sequence < v.floor) {
             return Err("Provider sequence rollback rejected before payload acquisition".into());
         }
-        if let Some(details) = release_display::provider_details(
-            roots,
-            &base.value,
-            &manifest.generation,
-            manifest.sequence,
-        ) {
-            println!("{details}");
+        #[cfg(all(
+            any(target_os = "android", target_os = "linux"),
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        ))]
+        let retained = match (expected, state.as_ref()) {
+            (Some(_), Some(current)) => Some((
+                store.generations.join(&current.current.id),
+                selected(roots, store, &current.current, current.floor)?,
+            )),
+            _ => None,
+        };
+        if expected.is_none() {
+            if let Some(details) = release_display::provider_details(
+                roots,
+                &base.value,
+                &manifest.generation,
+                manifest.sequence,
+            ) {
+                println!("{details}");
+            }
         }
         fs::DirBuilder::new()
             .mode(0o700)
             .create(acquisition.join("licenses"))?;
         for file in &manifest.files {
+            #[cfg(all(
+                any(target_os = "android", target_os = "linux"),
+                any(target_arch = "aarch64", target_arch = "x86_64")
+            ))]
+            if let Some((path, _)) = retained
+                .as_ref()
+                .filter(|(_, current)| current.files.contains(file))
+            {
+                // Adapt the Provider's signed inventory to Core's existing
+                // target-bound copier; no second filesystem reuse policy.
+                let entry = ReleaseFileEntry {
+                    relative_path: file.name.clone(),
+                    sha256: file.digest.clone(),
+                    mode: file.mode,
+                };
+                if reuse_remote_release_file(roots, &acquisition, path, &entry, file.bytes)?
+                    .is_some()
+                {
+                    continue;
+                }
+            }
             fetch(&file.name, file.bytes, false)?;
             let path = acquisition.join(&file.name);
             if fs::metadata(&path)?.len() != file.bytes
@@ -465,7 +519,7 @@ fn install_remote(
             }
             fs::set_permissions(path, fs::Permissions::from_mode(file.mode))?;
         }
-        install(roots, store, &acquisition, key, state)
+        install(roots, store, &acquisition, key, state, expected)
     })();
     // Creation succeeded above; this is solely our acquisition, never user data.
     let cleanup = fs::remove_dir_all(&acquisition);
@@ -539,9 +593,7 @@ fn install_stable(
                     && current.current.digest == index.manifest_digest
             }) {
                 let installed = selected(roots, store, &current.current, current.floor)?;
-                if installed.sequence != index.sequence {
-                    return Err("Provider stable index/package binding mismatch".into());
-                }
+                verify_index_binding(&index, &installed, &current.current.digest)?;
                 if show_current_details {
                     if let Some(details) = release_display::provider_details(
                         roots,
@@ -557,6 +609,12 @@ fn install_stable(
                     installed.generation
                 );
                 return Ok(());
+            }
+            let cached = store.generations.join(&index.generation);
+            match fs::symlink_metadata(&cached) {
+                Ok(_) => return install(roots, store, &cached, key, state, Some(&index)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error.into()),
             }
             install_remote(
                 roots,
@@ -651,6 +709,7 @@ pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()
             Path::new(&args[3]),
             authority.update_key,
             state,
+            None,
         ),
         Some("status") => {
             if let Some(state) = state {
@@ -810,10 +869,11 @@ mod tests {
     }
 
     #[test]
-    fn authenticated_unchanged_update_verifies_local_payload_without_package_fetch() {
+    fn stable_update_verifies_selection_and_reuses_only_matching_payloads() {
         use codex_release_builder::provider::{Entry, FILES};
         // This is a signed, pre-admitted selection fixture. The actual index
-        // and installed-envelope verifiers run; no new artifact is executed.
+        // and installed-envelope verifiers run. A changed package must reach
+        // the real kernel probe, which rejects this deliberately incomplete ELF.
         for defect in [
             "none",
             "index-signature",
@@ -821,6 +881,8 @@ mod tests {
             "local-bytes",
             "new-generation",
             "manifest-digest",
+            "changed-file",
+            "cached-target",
         ] {
             let root = super::super::tests::temp_root("provider-unchanged");
             let prefix = std::env::var_os("PREFIX")
@@ -921,15 +983,56 @@ mod tests {
             };
             store.commit(&state).unwrap();
             let before = read(&store.root.join("selection"), 4096).unwrap();
+            let changed = if defect == "cached-target" {
+                store.generations.join("chatgpt-changed-fixture")
+            } else {
+                root.join("changed-package")
+            };
+            let mut next = manifest.clone();
+            if matches!(defect, "changed-file" | "cached-target") {
+                private_directory(&changed, true).unwrap();
+                if defect == "cached-target" {
+                    private_directory(&changed.join("licenses"), true).unwrap();
+                    for entry in &manifest.files {
+                        fs::copy(package.join(&entry.name), changed.join(&entry.name)).unwrap();
+                    }
+                }
+                next.generation = "chatgpt-changed-fixture".into();
+                next.sequence = 8;
+                let notice = changed.join("NOTICE.md");
+                fs::write(&notice, b"changed signed fixture notice\n").unwrap();
+                let entry = next
+                    .files
+                    .iter_mut()
+                    .find(|f| f.name == "NOTICE.md")
+                    .unwrap();
+                entry.digest = openssl_sha256(&roots.openssl, &notice).unwrap();
+                entry.bytes = fs::metadata(&notice).unwrap().len();
+                fs::write(changed.join("payload.manifest"), next.render().unwrap()).unwrap();
+                sign(
+                    &changed.join("payload.manifest"),
+                    &changed.join("payload.sig"),
+                );
+                for name in ["payload.manifest", "payload.sig"] {
+                    fs::set_permissions(changed.join(name), fs::Permissions::from_mode(0o644))
+                        .unwrap();
+                }
+            }
             let index = Index {
                 generation: if defect == "new-generation" {
                     "chatgpt-new-fixture".into()
                 } else {
-                    generation.into()
+                    next.generation.clone()
                 },
-                sequence: if defect == "sequence" { 8 } else { 7 },
+                sequence: if defect == "sequence" {
+                    8
+                } else {
+                    next.sequence
+                },
                 manifest_digest: if defect == "manifest-digest" {
                     "b".repeat(64)
+                } else if matches!(defect, "changed-file" | "cached-target") {
+                    openssl_sha256(&roots.openssl, &changed.join("payload.manifest")).unwrap()
                 } else {
                     digest
                 },
@@ -946,18 +1049,56 @@ mod tests {
             }
             let log = root.join("requests");
             let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
-            fs::write(&roots.curl,format!("#!{}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --url ]; then shift; url=$1; fi; shift; done\nprintf '%s\\n' \"$url\" >> {}\ncase \"$url\" in\n*/provider-index-v1) cat {} ;;\n*/provider-index-v1.sig) cat {} ;;\n*) exit 22 ;;\nesac\n",prefix.join("bin/sh").display(),quote(&log),quote(&index_file),quote(&index_sig))).unwrap();
+            let package_routes = ["payload.manifest", "payload.sig", "NOTICE.md"]
+                .into_iter()
+                .map(|name| {
+                    format!(
+                        "*/releases/download/chatgpt-changed-fixture/{name}) cat {} ;;\n",
+                        quote(&changed.join(name))
+                    )
+                })
+                .collect::<String>();
+            fs::write(&roots.curl,format!("#!{}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --url ]; then shift; url=$1; fi; shift; done\nprintf '%s\\n' \"$url\" >> {}\ncase \"$url\" in\n*/provider-index-v1) cat {} ;;\n*/provider-index-v1.sig) cat {} ;;\n{package_routes}*) exit 22 ;;\nesac\n",prefix.join("bin/sh").display(),quote(&log),quote(&index_file),quote(&index_sig))).unwrap();
             fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o755)).unwrap();
             let result = install_stable(&roots, &store, authority, Some(state), false);
             assert_eq!(result.is_ok(), defect == "none", "{defect}: {result:?}");
+            if matches!(defect, "changed-file" | "cached-target") {
+                let rejected = result.unwrap_err();
+                // Hosts may reject exec with ENOEXEC or start a child that exits
+                // unsuccessfully. Both are the artifact-probe boundary;
+                // acquisition, signature or inventory failures are not accepted.
+                assert!(
+                    rejected.to_string() == "Provider artifact probe rejected"
+                        || rejected
+                            .downcast_ref::<std::io::Error>()
+                            .and_then(std::io::Error::raw_os_error)
+                            == Some(8),
+                    "changed input must reach the kernel ELF probe: {rejected}"
+                );
+            }
             let requests = fs::read_to_string(log).unwrap();
             assert_eq!(
                 requests
                     .lines()
                     .any(|url| url.contains("/releases/download/")),
-                matches!(defect, "new-generation" | "manifest-digest"),
+                matches!(defect, "new-generation" | "changed-file"),
                 "{defect}: {requests}"
             );
+            if defect == "changed-file" {
+                let payload: Vec<_> = requests
+                    .lines()
+                    .filter(|url| url.contains("/releases/download/"))
+                    .collect();
+                assert_eq!(payload.len(), 3, "{requests}");
+                assert!(
+                    payload
+                        .iter()
+                        .all(|url| ["/payload.manifest", "/payload.sig", "/NOTICE.md"]
+                            .iter()
+                            .any(|name| url.ends_with(name))),
+                    "{requests}"
+                );
+            }
             assert_eq!(read(&store.root.join("selection"), 4096).unwrap(), before);
             fs::remove_dir_all(root).unwrap();
         }

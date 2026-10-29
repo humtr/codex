@@ -158,7 +158,14 @@ def qualify(args):
             run('sign retained eight-file fixture', ['openssl', 'pkeyutl', '-sign',
                 '-inkey', key, '-rawin', '-in', one / 'payload.manifest',
                 '-out', one / 'payload.sig'])
-            two = package('signed package 2', 'chatgpt-g-test-2', 2)
+            changed_assets = case_root / 'changed-provider-assets'
+            for name in ('Cargo.lock', 'NOTICE.md', 'licenses/novnc-LICENSE.txt', 'licenses/proot-LICENSE'):
+                destination = changed_assets / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / 'providers/chatgpt' / name, destination)
+            notice = changed_assets / 'NOTICE.md'
+            notice.write_bytes(notice.read_bytes() + b'\nOwned changed-release fixture notice.\n')
+            two = package('signed package 2', 'chatgpt-g-test-2', 2, assets=changed_assets)
             package('refuse package output replacement', 'chatgpt-g-test-1', 1, expected=1)
             public('absent Provider inventory', 'status', 'chatgpt')
             public('absent Provider dispatch', 'chatgpt', 'models', expected=1)
@@ -372,9 +379,7 @@ def qualify(args):
                     assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
                     expected_payload = ['/humtr/codex/releases/download/chatgpt-g-test-2/'
-                        + name.replace('/', '--') for name in ['payload.manifest', 'payload.sig',
-                            *[line.split('\t')[1] for line in (two / 'payload.manifest').read_text().splitlines()
-                              if line.startswith('file\t')]]]
+                        + name for name in ['payload.manifest', 'payload.sig', 'NOTICE.md']]
                     assert [path for path in remote_requests if '/releases/download/chatgpt-g-test-' in path] == expected_payload
                     assert sha(core_state) == core_before
                     del env['CODEX_TERMUX_UPDATE_BUILD_POLICY']
@@ -382,6 +387,20 @@ def qualify(args):
                     public('restore previous Provider with actual rollback', 'rollback', 'chatgpt')
                     status = public('manual update rollback retains high water', 'status', 'chatgpt').stdout
                     assert b'release_sequence: 1' in status and b'high_water: 2' in status
+                    cached_notice = home / '.local/lib/codex/providers/chatgpt/generations/chatgpt-g-test-2/NOTICE.md'
+                    saved_notice = cached_notice.read_bytes()
+                    saved_selection = selection_path.read_bytes()
+                    cached_notice.write_bytes(b'owned corrupt retained payload\n')
+                    remote_requests.clear()
+                    public('corrupt retained target rejects without reacquisition', 'update', 'chatgpt', expected=1)
+                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert selection_path.read_bytes() == saved_selection and sha(core_state) == core_before
+                    cached_notice.write_bytes(saved_notice)
+                    remote_requests.clear()
+                    public('verified retained target reselected without package requests', 'update', 'chatgpt')
+                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    public('restore Provider before independent Core failures', 'rollback', 'chatgpt')
                     core_signature = core_index_sig.read_bytes()
                     core_index_sig.write_bytes(b'x' * 64)
                     failed_core = run('failed Core candidate still permits independent Provider forward update',
@@ -454,7 +473,11 @@ def qualify(args):
                                           actual_core_rollback_hold_preserved=True,
                                           invalid_installed_core_cannot_authorize_provider=True,
                                           provider_failure_does_not_block_core_keep=True,
-                                          no_model_login_required=True)
+                                          no_model_login_required=True,
+                                          changed_stable_payload_files=['NOTICE.md'],
+                                          reused_stable_payload_files=5,
+                                          verified_retained_target_without_package_requests=True,
+                                          corrupt_retained_target_rejected_without_effect=True)
                 finally:
                     case['remote_requests'] = list(remote_requests)
                     server.shutdown()

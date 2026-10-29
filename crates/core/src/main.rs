@@ -9101,21 +9101,20 @@ fn authenticated_remote_generation_version(
 fn reuse_remote_release_file(
     roots: &LocalCoreRoots,
     acquisition_root: &std::path::Path,
-    current: &LocalReleaseManifest,
+    source_root: &std::path::Path,
     file: &ReleaseFileEntry,
     expected_size: u64,
 ) -> Result<Option<u64>, LocalProductError> {
+    // Each protocol admits its signed relative path and prepares the private
+    // destination parent. This copier owns only bounded, target-verified I/O.
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
     unsafe extern "C" {
         fn geteuid() -> u32;
     }
-    if !current.files.iter().any(|entry| entry == file)
-        || expected_size > REMOTE_RELEASE_FILE_MAX_BYTES
-    {
+    if expected_size > REMOTE_RELEASE_FILE_MAX_BYTES {
         return Ok(None);
     }
-    let source_root = roots.generation_root.join(&current.generation_id);
-    let mut parent = source_root.clone();
+    let mut parent = source_root.to_path_buf();
     if !std::fs::symlink_metadata(&parent)
         .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
     {
@@ -9156,7 +9155,6 @@ fn reuse_remote_release_file(
     {
         return Ok(None);
     }
-    ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
     let destination = acquisition_root.join(&file.relative_path);
     let mut output = create_remote_output(&destination)?;
     let result = copy_bounded_file_contents(
@@ -9304,13 +9302,18 @@ fn acquire_remote_release_source(
                 any(target_os = "android", target_os = "linux"),
                 any(target_arch = "aarch64", target_arch = "x86_64")
             ))]
-            if let Some(reused) = reuse_remote_release_file(
-                roots,
-                acquisition_root,
-                current_release,
-                file,
-                expected_size,
-            )? {
+            if let Some(reused) = if current_release.files.contains(file) {
+                ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
+                reuse_remote_release_file(
+                    roots,
+                    acquisition_root,
+                    &roots.generation_root.join(&current_release.generation_id),
+                    file,
+                    expected_size,
+                )?
+            } else {
+                None
+            } {
                 payload_downloaded = payload_downloaded
                     .checked_add(reused)
                     .ok_or(LocalProductError::RemoteResponseTooLarge)?;

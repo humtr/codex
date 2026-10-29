@@ -661,21 +661,27 @@ absence of untracked/live work were verified;131,350,528 allocated bytes were
 reclaimed. Git bases, patches, logs/results and restore instructions remain in
 `runtime-compiler-preflight-worktree-cleanup.json`.
 
-The next bounded diagnostic is now running against the unchanged prepared0.165
-source/dependency cache. It retains the16-unit/LTO-off final-crate experiment and
-adds the actual linker's supported --threads=1 option; this is not a production
-profile change. The observer records anonymous/file-backed RSS separately and
-captures the actual linker argv. It checked at least3 GiB of available memory
-before starting, limits any one process to3 GiB of anonymous RSS, keeps a1.5-GiB
-system available-memory floor and bounds the experiment to20 minutes. Its
-supervisor/worker process groups are separate. Consult
-`native-linker-observation-v1-handle.json`, kernel process identity and the eventual
-`native-linker-observation-v1-exit.json` before resuming or starting another run;
-the initial live sample is not successful compilation or runtime admission.
-Samples/logs use that same prefix. This temporary runner is never installed and
-can be removed once terminal results, required artifacts and restoration inputs
-are retained and no armed proof uses it. Single-thread linking and the experimental
-profile still require actual artifact qualification before product adoption.
+The next bounded diagnostic retained the16-unit/LTO-off final-crate experiment
+and added the actual linker's supported --threads=1 option, without changing
+production policy. It is terminal: its own observer sent SIGTERM after633.19s
+when system available memory reached the explicit1.5-GiB experiment floor. The
+maximum sampled process RSS was2,792,886,272 bytes; the maximum sampled anonymous
+RSS was1,956,478,976 bytes. These are separate measurements, not an OS kill reason
+or evidence of completed compilation (`native-linker-observation-v1-exit.json`).
+The worker status is-15, the exact prepared source remains unchanged and no
+qualified raw artifact was produced. Process-group separation, a3-GiB anonymous
+RSS budget and20-minute deadline remained experiment controls.
+
+Its actual linker argv uses a response file. That response was retained before
+cleanup (`native-linker-observation-v1-linker-response`), and all928 explicit
+object/archive inputs still exist. The recorded command and inputs permit a
+link-only comparison without recompiling CLI. The installed native LLD21.1.8
+accepts GNU flavor; a separate prepared replay will test that linker against the
+same machine-code inputs instead of the musl-host LLD23.1.1. No successful replay
+or profile adoption is claimed yet. Temporary runners are never installed and
+can be removed after terminal results, required artifacts and restoration inputs
+are retained and no armed proof consumes them. Actual artifact qualification is
+still required before adopting any linker/profile in product policy.
 Earlier failure records and the original eight-file parity remain historical;
 none establishes completion of the pending exact-source runtime acceptance.
 
@@ -836,10 +842,51 @@ fixtures were removed; operating state, external credentials and public delivery
 were unchanged. This0.164 binary-adaptation proof is distinct from the still
 unfinished0.165 native source producer and device activation.
 
+The selected Provider updater now reuses an already retained complete generation
+through the existing installer after matching its authenticated envelope to the
+new signed index. Otherwise it copies matching current entries through the same
+bounded target-digest copier as Core and downloads changed entries. Signed-entry
+eligibility and destination-parent policy belong to the protocol caller; the
+copier handles regular-file/owner/mode/size checks, bounded copying and the new
+target digest. The initial regression exposed a Core-only path whitelist inside
+that copier. Its caller now owns that policy, while Provider's fixed inventory
+and private licenses directory remain Provider-owned. No path whitelist was
+broadened and no second filesystem reuse implementation was added.
+
+The installer retains the expected index through final package admission; one
+binding check serves fresh, unchanged and cached paths. Stable changed-release
+publication information is displayed at that admission, after acquisition or
+cached verification. Unchanged explicit update retains its no-package/no-notes
+path; explicit remote reinstall still downloads the complete package. The
+existing unit matrix retains all earlier cases and now requires changed-only
+acquisition or zero-package cached admission to reach the actual artifact probe.
+Its deliberately incomplete ELF may fail exec with ENOEXEC or exit unsuccessfully;
+neither an acquisition nor an inventory failure satisfies that probe assertion.
+The initial over-specific ENOEXEC assertion and the path-whitelist failure remain
+in the original targeted logs. Omitting file reuse, generation reuse or index
+binding each fails the regression (`provider-file-reuse-mutations.json`). Exact
+restored source/patches remain; the verified inactive worktree was removed,
+reclaiming7,622,656 bytes (`provider-file-reuse-worktree-cleanup.json`).
+
+Final Rust/Clippy passes Core230 with the existing device exclusion, Manager52,
+integration67+3, builder42 and binding2 (`provider-file-reuse-rust-final.log`);
+Python25+123+10 passes (`provider-file-reuse-python-final.log`). The optimized Core
+is frozen in `provider-file-reuse-bin`; the accepted unchanged builder is reused.
+Actual Android owned-TLS qualification passes Base91/Full90 steps in135.74s
+(`provider-file-reuse-native.json`). For a six-file new package with one changed
+NOTICE.md, only payload.manifest, payload.sig and NOTICE.md are requested; the
+other five payload files are copied/verified. A retained previous generation
+needs no package request, while corrupt retained data fails without changing
+selection/Core state. Signed index/publication queries remain separate. All
+earlier independent-group, rollback, authority and live service/foreground lease
+proofs remain exercised. The cleaner archived/removed11 verified inactive
+payloads, reclaiming1,699,606,528 bytes with restore records. These still use the
+retained0.164 runtime/frontend, not a new0.165 port, public delivery or operating
+activation; reusable compiler caches remain below15 GiB.
+
 This qualifies selected Provider updates and the tested local Core input scope,
-not the entire module lifecycle. A changed Provider generation still downloads
-its complete declared package, even for byte-identical entries; verified per-file
-reuse and general changed-object publication remain required. Manual freshness
+not the entire module lifecycle. General changed-object publication and broader
+module planning remain required. Manual freshness
 still consumes its original Core outcome after releasing the update lease;
 concurrent activation and the actual current-client handoff need separate proof.
 Broader module compatibility/planning, native source/dependency provisioning,
@@ -848,6 +895,10 @@ required. The local archive fetch still suppresses curl stderr and removes its
 partial staging on failure. Source integration needs cause-specific failure,
 verified resumable acquisition and observable transfer progress beyond its phase
 label, rather than a longer unexplained timeout or another acquisition route.
+Provider transfer progress/resume also remains separate from this file-reuse
+proof. The older manual-update display qualification fixture still assumes an
+informational-only Provider lookup and must be updated to the actual installing
+path before it can serve as new whole-lifecycle evidence.
 
 The initial exclusive-gate mutation passed because detached startup deliberately
 closes incidental leases; it did not qualify that fault. The added foreground

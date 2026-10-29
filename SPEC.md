@@ -956,6 +956,20 @@ package acquisition or selection authority. Explicit Provider update retains its
 unchanged fast path without publication requests. The Core release display no
 longer performs a separate informational Provider index lookup: the Provider update
 operation owns its one index admission, payload reuse/acquisition and result.
+A changed stable Provider release authenticates its new envelope before reusing
+payloads. A retained complete generation is admitted directly through the same
+installer if its signed envelope, inventory and sequence match the new index;
+corrupt or conflicting retained generations fail without overwriting them.
+Otherwise an entry with the same signed path, digest, byte count and mode in the
+verified current selection may be copied into private acquisition through the
+same target-bound file copier as Core. The copier rejects aliases/special files,
+checks actual ownership/size/mode and rehashes the private copy; it never hardlinks
+installed files. Changed entries or rejected reuse candidates are downloaded and
+verified against the new signed inventory. The final installed/current payload
+checks and artifact probe remain required. Corrupt admitted selection is still
+an error, not an implicit repair or unchanged success. Explicit --remote
+installation/reinstallation retains full acquisition; local installation retains
+its existing path. No new cache state, public switch or release format is added.
 Within one explicit command, optional release information is acquired once per
 admitted candidate generation and is reused during CI publication waiting. A
 changed candidate receives a fresh view; this command-local snapshot is never
