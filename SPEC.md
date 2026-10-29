@@ -4263,7 +4263,13 @@ preflights its known semantic transformations and reports unsupported upstream
 changes explicitly. Actual Termux and Android execution qualification is required
 before declaring a local recipe supported.
 Compiler preparation verifies both object compilation and required dependency
-generation before a long source build. The selected C/C++ compiler configuration
+generation before a long source build. Before adapting source or starting Cargo,
+the shared runtime producer compiles a small standard-library consumer to an
+object for the exact runtime target. Matching Rust version/commit strings and an
+existing target-library directory alone do not establish compiler/stdlib
+compatibility. A failed probe preserves the compiler's actual diagnostic, leaves
+the checkout unchanged and removes its temporary probe inputs/output.
+The selected C/C++ compiler configuration
 is a build input; a different compiler variant cannot inherit another variant's
 raw-cache identity. An executor launcher's zero status is insufficient when its
 worker died or the required output is absent. Preserve the actual compiler/worker

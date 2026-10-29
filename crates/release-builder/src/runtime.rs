@@ -215,6 +215,57 @@ pub struct BuildRequest<'a> {
     pub openssl: &'a Path,
 }
 
+fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<()> {
+    let source = request.output.join(".compiler-probe.rs");
+    let object = request.output.join(".compiler-probe.o");
+    let result = (|| {
+        fs::write(
+            &source,
+            "pub fn target_std_probe() -> Vec<u8> { vec![1, 2, 3] }\n",
+        )
+        .map_err(|e| format!("write runtime compiler probe: {e}"))?;
+        output(
+            Command::new(request.rustc)
+                .args([
+                    "--crate-name",
+                    "codex_runtime_compiler_probe",
+                    "--crate-type",
+                    "lib",
+                    "--edition",
+                    "2021",
+                    "--target",
+                    TARGET,
+                    "--emit=obj",
+                ])
+                .arg(&source)
+                .arg("-o")
+                .arg(&object)
+                .env("RUSTUP_TOOLCHAIN", toolchain),
+            "prepared Rust target compilation",
+        )?;
+        let metadata = fs::symlink_metadata(&object)
+            .map_err(|e| format!("read runtime compiler probe object: {e}"))?;
+        if !metadata.is_file() || metadata.len() == 0 {
+            return Err("runtime compiler probe did not emit a regular nonempty object".into());
+        }
+        Ok(())
+    })();
+    let cleanup = [&source, &object]
+        .into_iter()
+        .try_for_each(|path| match fs::remove_file(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            result => result,
+        });
+    match (result, cleanup) {
+        (Err(error), Err(cleanup)) => {
+            Err(format!("{error}; remove runtime compiler probe: {cleanup}"))
+        }
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(format!("remove runtime compiler probe: {error}")),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
 fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<Vec<u8>> {
     let home = directory.join(".smoke-home");
     fs::DirBuilder::new()
@@ -356,6 +407,8 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         .mode(0o700)
         .create(request.output)
         .map_err(|e| format!("reserve runtime output: {e}"))?;
+    println!("[runtime] compile prepared Rust/target standard-library probe");
+    compile_target_probe(request, &recipe.toolchains.frontend_rust)?;
     println!("[runtime] adapt exact official source");
     let preparation = super::source::prepare(
         request.source,
@@ -624,8 +677,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn dirty_official_source_is_preserved_without_starting_tools() {
+    fn checkout() -> (PathBuf, PathBuf, PathBuf) {
         let root = root();
         let source = root.join("source");
         fs::create_dir(&source).unwrap();
@@ -650,6 +702,12 @@ mod tests {
         value["upstream"]["source"] = json!(revision.trim());
         let path = root.join("recipe.json");
         report(&path, &value).unwrap();
+        (root, source, path)
+    }
+
+    #[test]
+    fn dirty_official_source_is_preserved_without_starting_tools() {
+        let (root, source, path) = checkout();
         fs::write(source.join("protected"), "existing user change").unwrap();
         let output = root.join("output");
         let cache = root.join("cache");
@@ -670,6 +728,44 @@ mod tests {
             fs::read(source.join("protected")).unwrap(),
             b"existing user change"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unusable_target_std_fails_before_source_preparation_or_cargo() {
+        let (root, source, path) = checkout();
+        let shell = std::env::var_os("PREFIX")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr"))
+            .join("bin/sh");
+        fs::create_dir_all(root.join("sysroot/lib/rustlib").join(TARGET).join("lib")).unwrap();
+        let rustc = root.join("prepared-rustc");
+        // Exercise real rustc with an incomplete prepared target, while the
+        // prepared tool's version/sysroot queries satisfy the initial checks.
+        fs::write(&rustc, format!("#!{}\ncase \"$1\" in\n--version) printf 'rustc 1.99.1\\n';;\n--print) printf '%s\\n' \"${{0%/*}}/sysroot\";;\n*) exec rustc --sysroot \"${{0%/*}}/sysroot\" \"$@\";;\nesac\n", shell.display())).unwrap();
+        fs::set_permissions(&rustc, fs::Permissions::from_mode(0o700)).unwrap();
+        let output = root.join("output");
+        let error = build(&BuildRequest {
+            source: &source,
+            output: &output,
+            recipe: &path,
+            target_dir: &root.join("cache"),
+            rustc: &rustc,
+            cargo: &root.join("must-not-run-cargo"),
+            openssl: &openssl(),
+        })
+        .unwrap_err();
+        assert!(
+            error.contains("prepared Rust target compilation"),
+            "{error}"
+        );
+        assert!(
+            error.contains("E0463"),
+            "original rustc cause lost: {error}"
+        );
+        assert!(git(&source, &["status", "--porcelain"]).unwrap().is_empty());
+        assert_eq!(fs::read_dir(output).unwrap().count(), 0);
+        assert!(!root.join("cache").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

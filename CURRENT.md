@@ -570,14 +570,94 @@ producer's terminal output, then qualify the latest frozen Core/builder with the
 real official0.165 archive (the retained `up165-5wrp5v0i/upstream.tar.gz` matches
 the selected release digest), candidate signatures, update and rollback.
 Do not substitute the already-adapted installed runtime for raw source output.
-A new detached v5 producer uses the qualified direct SDK plus the independently
-native-built OpenSSL/libcap prefixes and selected Termux protoc; it does not use
-PRoot. Revalidate `native-runtime-rust-build-v5-handle.json` against its live PID/
-start identity and actual output before continuing; the handle alone is not proof
-of liveness or completion. The new input set is in `native-runtime-v5-dependencies.json`;
-the terminal result is `native-runtime-rust-build-v5-exit.json` when the worker
-returns. Earlier failure records and the original eight-file parity are retained;
-they do not describe this new exact-source trial.
+The detached v5 producer used the direct SDK plus independently native-built
+OpenSSL/libcap prefixes and Termux protoc, without PRoot. It reached the final CLI
+compilation, but its owner and build processes are now absent, with no exit record
+or completed executable (`native-runtime-rust-build-v5-observation.json`). Its
+termination cause is not established; do not call this an observed compiler failure
+or memory kill. Inputs, source/diff and completed compiler cache are retained.
+
+The v6 diagnostic runs the same frozen shared Rust producer and compiler policy.
+Its supervisor and worker have distinct kernel process groups, so a worker-group
+termination need not also destroy its observer. One-second kernel RSS/thread and
+system-memory samples are in `native-runtime-rust-build-v6-resources.jsonl`; these
+are sampled process RSS, not exact physical-memory peaks or an OS kill reason.
+An explicitly temporary Cargo wrapper restores previous timestamps only after
+the complete prepared diff matches the previous exact Git base/diff. This reuses
+completed dependency compilation without modifying source bytes or disabling
+source/build/admission checks. The new run proceeds directly to codex-cli; it is
+not a fresh full dependency rebuild. No compiler optimization, LTO or job policy
+was changed. The wrapper is qualification-only, is never installed, and may be
+removed after this proof's final artifacts/results are retained and no armed
+proof consumes it. The supervisor's isolated worker-group SIGKILL injection
+passed: the separate supervisor survived and recorded the actual worker status
+(`native-supervisor-group-fault.json`). That proves observation across a worker
+group kill, not survival when the entire Android application is terminated.
+
+The v6 supervisor, worker, Cargo and rustc identities are now absent, with no
+terminal result or completed executable (`native-runtime-rust-build-v6-observation.json`).
+Its last sample recorded rustc RSS3,429,093,376 bytes and system available memory
+1,137,782,784 bytes. Neither those samples nor the observer's disappearance
+establish the original termination cause. There is no v6 successful build or
+observed compiler failure; the partial artifacts and exact prepared diff remain.
+
+A separate bounded final-crate experiment reuses the exact prepared source and
+completed dependency cache, with final-crate LTO off and four code-generation
+units. It reached the explicit2-GiB sampled RSS budget in95.15s; its own supervisor
+sent SIGTERM and recorded status-15/peak2,154,602,496 bytes
+(`native-cli-link-experiment-v1-{exit,resource-stop}.json`). This is a known
+experiment stop, not an OS memory-kill diagnosis or a complete raw artifact.
+The16-unit variant also reached that explicit budget in107.34s
+(`native-cli-partition-experiment-v1-{exit,resource-stop}.json`). With independently
+observed3.65-GiB initial headroom, the same16-unit command was then bounded by
+3-GiB process RSS and a1.5-GiB system available-memory floor. It reached rust-lld
+before its own RSS guard stopped it in349.92s, with sampled linker RSS3,287,298,048
+bytes and system available memory2,308,931,584 bytes. The maximum sampled rustc RSS
+before linking was2,650,361,856 bytes
+(`native-cli-resource-experiment-v1-{exit,resource-stop,resources}.json*`). RSS
+includes file-backed mappings; this linker's RSS is not evidence that it exhausted
+physical memory. These controlled stops establish neither the original v6 cause
+nor a successful alternative profile. Do not adopt a profile change or retry the
+full build without examining the remaining linker/resource boundary. Original
+commands/environment, samples and results remain. No production profile or
+operating installation changed.
+
+A separate native probe rejects the apparently simpler mixed SDK: Termux Rust
+and official musl Rust report the same1.99.1 release/commit, but Termux rustc
+rejects the official target std with E0514 (`termux-rustc-musl-probe.json`). Their
+reported LLVM versions differ21.1.8/23.1.1; that observation alone does not prove
+the exact metadata incompatibility cause. The candidate shared Rust producer now
+compiles a tiny std consumer to an actual target object before source adaptation
+or Cargo. Its probe inputs/output are removed and the actual compiler diagnostic
+is preserved on failure. This closes the directory/version-only readiness gap;
+it does not provision a usable SDK or replace full source/runtime acceptance.
+The new regression exercises real rustc with an incomplete prepared target and
+preserves E0463. Omitting only the preflight call in disposable source makes that
+regression fail at its required early-error assertion; the copied source is
+restored (`compiler-preflight-mutation.json`). The first observation parser
+misclassified interleaved nocapture output; its original result/log are retained,
+and the corrected record uses the same actual assertion failure, without rerunning
+or weakening the test.
+
+The complete source gate passes (`runtime-compiler-preflight-full.log`): Python
+25+123+10, Core230 with the existing explicit device-test exclusion, Manager52,
+integration67+3, builder42, binding2 and workspace Clippy. Debug/test symbols and
+incremental output were disabled for this disposable gate. The new release builder
+is frozen in `runtime-compiler-preflight-bin`. Its actual Android CLI rejects the
+mixed compiler/std with E0514 in0.61s, before changing official source or starting
+Cargo, with an empty reserved output. The official musl SDK passes the actual
+target object compile, emits the exact nine-file source adaptation and lock audit,
+removes both probe files and reaches the intentionally stopped Cargo boundary in
+3.56s (`native-compiler-preflight.json`). Exit37 there is an injected qualification
+stop, not a successful full build. Probe admission is qualified; native full-runtime
+production, automatic tool provisioning and installed Core orchestration remain
+unfinished. Final diff/affected-flow review preserves the existing six-file raw
+artifact, compiler profile, dirty-source protection and cause-specific failures;
+no new installed Python, API flag, compatibility route or operating activation
+was added. Compiler caches remain below the15-GiB budget; required accepted
+executables/results are retained outside mutable output.
+Earlier failure records and the original eight-file parity remain historical;
+none establishes completion of the pending exact-source runtime acceptance.
 
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source
