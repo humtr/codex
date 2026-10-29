@@ -2108,13 +2108,35 @@ description changes, instead of copying release-specific qualification constants
 
 ### Deferred Core follow-up
 
-Upstream discovery1c54418 prepares0.165.0 independently; it does not update this
-device or qualify its UDS behavior. Independent Core run40594324500 stops at
-`upstream UDS version requires fresh Termux qualification`. Preserve that guard
-and qualify0.165.0 separately before Core promotion. The Provider maintenance
-uses the operating Full121/0.164.0 Core; its Source acceptance is separate from
-this unaccepted Core candidate. No older qualified frontend pin was assigned to
-the newly discovered upstream merely to obtain a pass.
+Priority0 records the delivered Base124/upstream0.165.0 baseline. The earlier
+discovery1c54418/run40594324500 qualification rejection is historical, not a claim
+that this device still runs0.164 or that the delivered Base is unqualified.
+
+The user requested the following two follow-ups after the current update-lifecycle
+work. They are investigation items, not approved changes to existing ownership
+contracts or completed diagnosis:
+
+1. **Profile behavior on0.165.0.** The user reports that profiles appear not to
+   work normally; whether the cause is Manager, the selected TUI, Core launch
+   environment or upstream behavior is not established. Reproduce the actual
+   profile selection/launch path on the installed0.165 baseline and distinguish
+   account-profile selection, upstream configuration profiles and TUI display.
+   Compare the effective execution home/configuration and inherited launch
+   settings, including Base's upstream TUI versus the enhanced Full frontend where
+   applicable. Preserve credentials, user configuration and running jobs. Identify
+   the owning defect before fixing it; acceptance must exercise actual selection,
+   resulting configuration and restart/resume behavior, not just a displayed name.
+
+2. **Upstream notification integration and Manager boundary.** The user reports
+   that notifications are now an official upstream feature. First verify the
+   exact installed/upstream API, event coverage and actual behavior. Compare those
+   capabilities with Manager's current policy, hook rendering, Termux delivery and
+   window/focus return. Assess whether some or all responsibilities can move to
+   upstream, and retain only the device/account-specific work that remains
+   necessary. Present the supported boundary and migration plan before changing
+   SPEC or implementation. Preserve existing notification preferences and return
+   behavior, prevent duplicate delivery when both mechanisms coexist, and qualify
+   the actual upstream-event-to-Android delivery path and rollback.
 
 The requested installed/latest component publication times and changelog are now
 implemented in the next-Core candidate above. Further bare-launch update-choice
