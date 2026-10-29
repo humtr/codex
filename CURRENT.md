@@ -320,18 +320,107 @@ Completed owned native fixtures have manifest-matched payloads archived/pruned
 through the existing cleaner, with per-trial cleanup/restore records. The accepted
 release executable is retained outside mutable Cargo output. Current compiler
 caches remain below15 GiB. No public asset, production launcher, service or profile
-changed in this batch. The local compiler investigation verified native Zig0.14.0,
-but official musl std rejects the Termux compiler's different build identity;
-rebuilding std then exposes an unsupported Zig linker argument. Those experiments
-are not a supported local recipe. A dedicated Linux musl build environment is the
-qualified toolchain route; existing operating app hosts are not reused. The exact
-verified official GNU Rust1.99.1/compiler/host-std/musl-std components, matching the
-selected source recipe, build a static musl probe inside the isolated Debian
-container and execute it directly on Android (`local-linux-musl-{probe,native}.log`).
-This establishes toolchain feasibility, not complete Codex source-build support.
-Only the missing `proot-distro` dependency was installed (5.10.3), after an apt
-plan confirmed zero upgrades/removals. A dedicated named Debian build container
-is being prepared, with its ownership/image record retained in the evidence root.
+changed in this batch. The local compiler investigation verified native Zig0.14.0.
+Official musl std rejects the installed Termux compiler's different build identity;
+rebuilding std then exposes an unsupported Zig linker argument. These failures do
+not prove that an official musl-host compiler cannot run directly on Termux.
+The isolated official GNU Rust1.99.1 toolchain builds a static musl probe in a
+separate Debian container and that probe executes directly on Android
+(`local-linux-musl-{probe,native}.log`). This proves that experimental toolchain
+path, not complete Codex source-build support or a requirement for PRoot. Only the
+missing `proot-distro` dependency was installed (5.10.3), after an apt plan
+confirmed zero upgrades/removals. Its container/tool records are retained; no
+operating AppHost was reused. A native official musl-host SDK is now the simpler
+candidate under qualification before selecting a product host setup.
+
+Source producer migration: release-builder's Rust `source` module owns
+source adaptation, lock normalization/audit and pristine timestamps. Its
+`prepare-source`, `normalize-lock`, `preserve-source-times` commands replace the
+Python preparation/normalization implementations, their tests and all real
+callers, including upstream discovery and Manager TUI CI. `build_runtime.py` still
+wires CI compilation/artifact checks during the remaining Rust producer migration;
+it is not a shipped device executor. Signed `runtime_inputs_sha256` lets Core-only
+candidates reuse the adapted runtime/companion/helpers from a qualified Base,
+without fetching/recompiling its old Core. Executor-transferred controls are
+reauthenticated before composition. The runtime input identity binds the source
+producer, its locked dependency closure, CI compiler recipe and Rust adapter
+closure; changing an adapter cannot silently reuse the former patched runtime.
+`shared-runtime-final-python.log`
+passed31+120+14 before the subsequent local-source packaging draft.
+`rust-source-python-final.log` passes30+120+10 after the Rust preparation migration
+and dependency-source correction.
+The removed Python preparation2/normalization4 cases are replaced/merged into
+six Rust source tests and actual native exact-source parity/failure-boundary
+proofs. Explicit Cargo dependency sources remain distinct even when package name
+and version match; ambiguous unqualified references fail. The targeted source
+selection mutation is rejected (`runtime-closure-mutation.json`).
+`native-core-only-reuse.json` proves the earlier candidate composition, actual
+Android remote admission/resume/version/rollback and unchanged public Base
+runtime/companions. It predates the latest producer identity/dependency changes,
+so it is not acceptance of the current exact-source producer. The reused public
+Base signature and exact unchanged bytes were independently checked.
+
+The installed update/build implementation is Rust-owned. The unconsumed Python
+device executor, host-preparation prototype and Core embedding build script were
+removed without deployment. `release/runtime-build-inputs-v1` is a CI recipe input
+inventory, not a Python installation bundle. Product source preparation and
+dependency normalization now live in release-builder; build control integration
+into Core remains unfinished. Existing CI Python scripts have
+real callers during this migration, but are not a reason to ship Python as the
+wrapper's installed implementation. Remove each replaced Python rule and update
+all actual callers in the same completed batch; do not call a Rust outer launcher
+of Python product scripts a Python-free implementation. Independent development
+and qualification scripts may remain Python. `rust-source-parity-v3.json` proves the
+Rust helper, executed natively on Android against pristine official0.165.0 source,
+produces the exact same full patch bytes and lock audit (167 workspace changes,
+1308 external packages unchanged) as the original producer. An occupied audit
+file is rejected before lock mutation or file overwrite. The six source tests
+and workspace Clippy pass after that fix; both targeted expression-guard and
+audit-overwrite mutations fail their intended regressions. Full workspace tests
+passed before these local source-only corrections; the original combined gate's
+Clippy failure and corrected focused/Clippy evidence are retained separately.
+This is preparation proof, not a completed Codex build or installed local-build
+acceptance.
+
+The actual local Codex build did not finish. Its original tool-bound process
+vanished without an exit record; do not attribute that to memory. The jemalloc
+failure is now narrowed to the second, normally hidden compiler command: its
+object compile succeeds, but Zig `-MM` dependency generation exits with SIGSEGV
+inside PRoot. The same Zig binary generates the same small header dependency
+successfully directly on Android. GNU Make serial/jobserver, alternate spawn/
+vfork/true-fork configurations, signal reset and fresh Zig caches did not correct
+it. `jemalloc-dependency-proof.json`, `zig-dependency-native.json` and the negative
+PRoot comparisons preserve those boundaries. The exact internal PRoot/Zig cause
+is not established. A launcher can even return zero after its guest worker dies;
+worker/output checks must not accept that as successful compilation.
+
+GNU musl GCC dependency generation succeeds in the guest. Its first Codex variant
+fails because a Clang-only warning flag was retained; the recorded second variant
+uses the applicable C flags and keeps dependency generation. The latter progressed
+to codex-core, but its tracked PRoot PID29342 and compiler processes are now absent,
+with no EXIT record or completed runtime. Its log/cache are retained; it is not a
+passed build and has not been blindly restarted. Neither this mixed-compiler
+experiment nor PRoot is an accepted product default. Investigate native official
+musl Rust before adding a permanent distro/tool layer. No production runtime,
+service, model request or signing authority changed in these experiments.
+
+Native SDK feasibility is stronger than the earlier container assumption:
+the SHA256-verified official Rust1.99.1 aarch64-musl host compiler, its official
+target std and bundled LLD compile a static executable directly on Android.
+Termux Cargo1.99.1 also builds and executes a real Rust build script plus a C
+dependency through native Zig, without PRoot; the executable returns the expected
+value and has no ELF interpreter. Zig's required header dependency generation
+also passes directly. Evidence: `native-musl-sdk-{stable-linker,cargo,dependency}.json`.
+Only the SDK's interpreter/library locations were adapted inside its disposable
+private directory. The small musl/libgcc runtime was fetched from Alpine's
+official repository; exact inputs are recorded, but APK signature admission has
+not been qualified and these files are not shipped product dependencies. Full
+Codex and native jemalloc qualification, reproducible SDK acquisition/admission
+and Core integration are still required. This probe is not a completed local
+update and does not change the operating installation. The native jemalloc trial
+first stopped on an absent cached crate under explicit offline mode; its original
+failure remains recorded. A separate online trial uses Termux Cargo's networking
+and the same selected compiler inputs; it has not yet passed.
 
 Remaining approved scope, in dependency order: finish transport/native proofs;
 portable per-component build inputs and exact-output reuse; real local source

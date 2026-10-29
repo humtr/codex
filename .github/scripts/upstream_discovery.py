@@ -2,10 +2,10 @@
 import base64
 import copy
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import tempfile
 import tomllib
 
@@ -58,8 +58,10 @@ def discover(source, check_only=False):
             if subprocess.check_output(['git','-C',str(checkout),'rev-parse','HEAD'],text=True).strip()!=sha:
                 raise ValueError('official lock source identity differs')
             audit_path=Path(directory)/'lock-audit.json'
-            subprocess.run([sys.executable,str(source/'frontend/manager-tui/normalize_lock.py'),
-                            str(checkout/'codex-rs'),'--audit',str(audit_path)],
+            builder=os.environ.get('CODEX_RELEASE_BUILDER')
+            if not builder:raise ValueError('prepared Rust release-builder is required for upstream lock admission')
+            subprocess.run([builder,'normalize-lock','--source',str(checkout/'codex-rs'),
+                            '--openssl','/usr/bin/openssl','--audit',str(audit_path)],
                            check=True,stdout=subprocess.DEVNULL)
             audit=json.loads(audit_path.read_text())
         return sha,toolchain,audit

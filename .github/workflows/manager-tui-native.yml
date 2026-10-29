@@ -96,12 +96,16 @@ jobs:
           restore-keys: |
             profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
             profile-tui-display-aarch64-musl-1.95.0-97901140-
-      - name: Normalize release workspace versions only
+      - name: Build shared Rust source preparation and normalize release versions
         shell: bash
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/frontend/manager-tui -p 'test_*.py'
-          python3 experiment/frontend/manager-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
+            --manifest-path experiment/Cargo.toml --release --locked -p codex-release-builder
+          builder="$RUNNER_TEMP/source-tools/release/codex-release-builder"
+          "$builder" normalize-lock --source "$GITHUB_WORKSPACE/upstream/codex-rs" \
+            --openssl /usr/bin/openssl --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
       - name: Apply bounded native profile patch
         shell: bash
         run: |
@@ -118,7 +122,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiment/scripts/prepare_runtime_source.py upstream --preserve-pristine-times
+          "$RUNNER_TEMP/source-tools/release/codex-release-builder" preserve-source-times \
+            --source "$GITHUB_WORKSPACE/upstream"
           git -C upstream diff --check
       - name: Provision pinned upstream test and formatting tools
         shell: bash

@@ -163,6 +163,85 @@ class ComponentsTests(unittest.TestCase):
         (repo/'crates/core/lib.rs').write_text('new incompatible Core');self.commit(repo)
         self.assertIsNone(component.acquire_base(repo,heads,fixture.public_key,fixture.root/'incompatible',fetch))
 
+    def test_core_only_change_reuses_signed_runtime_without_fetching_old_core(self):
+        from test_base_qualification import BaseQualificationTests
+        from rald3_preflight import parse_descriptor, verify_base_candidate
+        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        repo=self.repository(fixture.root/'runtime-source')
+        for name in ['release/runtime-build-inputs-v1','scripts/build_runtime.py',
+                     'crates/release-builder/src/source.rs','crates/release-builder/Cargo.toml','.github/scripts/upstream_release.py',
+                     '.github/workflows/termux-runtime-source.yml']:
+            target=repo/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,target)
+        published=fixture.root/'runtime-publication';base=published/'releases'/BASE;base.mkdir(parents=True)
+        BaseQualificationTests().fixture(base)
+        descriptor=base/'generation.meta'
+        descriptor.write_text(descriptor.read_text().replace('base-qualification-owned',BASE))
+        fields=parse_descriptor(descriptor)
+        recipe_path=repo/'release/upstream.json';recipe=json.loads(recipe_path.read_text())
+        recipe['upstream'].update(version=fields['upstream_package_version'],
+                                  archive_sha256=fields['source_artifact_digest'])
+        recipe_path.write_text(json.dumps(recipe));self.commit(repo)
+        original=fixture.signed/'releases'/fixtures.GENERATION/'release.manifest'
+        header=original.read_text().split('file_count\t',1)[0].replace(fixtures.GENERATION,BASE)
+        (base/'release.manifest').write_text(header+'file_count\t'+str(len(publication.BASE_FILES))+'\n'+''.join(
+            'file\t'+name+'\t'+component.sha256(base/name)+'\t'+mode+'\n'
+            for name,mode in sorted(publication.BASE_FILES.items())))
+        fixtures.openssl('pkeyutl','-sign','-rawin','-inkey',str(fixture.private_key),
+                         '-in',str(base/'release.manifest'),'-out',str(base/'release.sig'))
+        component.sign_component(repo,published,BASE,fixture.private_key,Path(shutil.which('openssl')))
+        heads=fixture.root/'runtime-heads';heads.mkdir()
+        (heads/'heads.json').write_text(json.dumps({'heads':{'base':{'generation':BASE}}}))
+        requested=[]
+        def fetch(url,target,limit):
+            name=url.removeprefix(publication.canonical_release_base(BASE))
+            self.assertNotEqual(name,url)
+            requested.append(name)
+            source=published/name if name.startswith('component-input-') else base/name
+            self.assertLessEqual(source.stat().st_size,limit)
+            target.parent.mkdir(exist_ok=True,parents=True);shutil.copyfile(source,target)
+        (repo/'crates/core/lib.rs').write_text('changed Core, same runtime');self.commit(repo)
+        reused=fixture.root/'runtime-reused'
+        self.assertEqual(component.acquire_runtime_base(repo,heads,fixture.public_key,reused,fetch),BASE)
+        self.assertNotIn('core',requested)
+        self.assertFalse((reused/'core').exists())
+        replacement=fixture.root/'new-core';replacement.write_bytes(b'new executable Core');replacement.chmod(0o755)
+        output=fixture.root/'runtime-composed'
+        component.candidate_from_base(reused,None,None,None,'base-qualification-reused',
+            fields['upstream_package_version'],output,core=replacement)
+        actual=verify_base_candidate(output,fields['upstream_package_version'])
+        self.assertEqual(actual['core_artifact_digest'],component.sha256(replacement))
+        for name in set(publication.BASE_FILES)-{'core','generation.meta'}:
+            self.assertEqual((output/name).read_bytes(),(base/name).read_bytes(),name)
+        # The real executor CLI reauthenticates the transferred subset with its
+        # own authority/source context, rather than trusting the prior job's flag.
+        cli_output=fixture.root/'runtime-cli-composed'
+        command=['python3',str(ROOT/'.github/scripts/release_components.py'),'candidate-base',
+            '--base',str(reused),'--core',str(replacement),'--source',str(repo),
+            '--authority',str(fixture.public_key),'--base-generation',BASE,
+            '--generation','base-qualification-cli','--version',fields['upstream_package_version'],
+            '--output',str(cli_output)]
+        result=subprocess.run(command,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr.decode())
+        self.assertEqual(verify_base_candidate(cli_output,fields['upstream_package_version'])['runtime_digest'],fields['runtime_digest'])
+        signature=(reused/'release.sig').read_bytes();(reused/'release.sig').write_bytes(bytes(64))
+        rejected=fixture.root/'runtime-rejected-after-transfer'
+        command[-1]=str(rejected)
+        result=subprocess.run(command,capture_output=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse(rejected.exists())
+        (reused/'release.sig').write_bytes(signature)
+        # A semantic preparation change is a real runtime cache miss: fetch only
+        # authenticated controls and never download/execute a mismatching runtime.
+        path=repo/'crates/release-builder/src/source.rs';path.write_text(path.read_text()+'\n// new policy\n');self.commit(repo)
+        requested.clear()
+        self.assertIsNone(component.acquire_runtime_base(repo,heads,fixture.public_key,fixture.root/'runtime-miss',fetch))
+        self.assertNotIn('runtime',requested)
+        # Failed authentication is an error, not a cache miss or permission to build.
+        (base/'release.sig').write_bytes(bytes(64));requested.clear()
+        with self.assertRaises(publication.ValidationError):
+            component.acquire_runtime_base(repo,heads,fixture.public_key,fixture.root/'runtime-invalid',fetch)
+        self.assertNotIn('runtime',requested)
+
     def test_worker_executes_positive_and_negative_redirects_without_proxying_payloads(self):
         node=shutil.which('node')
         self.assertIsNotNone(node,'Node is required for actual redirect module qualification')

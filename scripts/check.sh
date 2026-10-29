@@ -12,7 +12,7 @@ if [ "$scope" = rust ] || [ "$scope" = full ]; then
   cargo fmt --all -- --check
 fi
 if [ "$scope" = python ] || [ "$scope" = full ]; then
-  python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py scripts/test_check.py scripts/test_ci_scope.py scripts/test_build_tunnel_client.py scripts/test_verify_chat_native_text.py scripts/test_prepare_runtime_source.py
+  python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py scripts/test_check.py scripts/test_ci_scope.py scripts/test_build_tunnel_client.py scripts/test_verify_chat_native_text.py scripts/test_build_runtime.py
   python3 -m unittest discover -s .github/scripts -p 'test_*.py'
   python3 -m unittest discover -s frontend/manager-tui -p 'test_*.py'
 fi

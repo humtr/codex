@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+glob = "=0.3.3"
+libc = "=0.2.186"
+serde_json = "=1.0.149"
+toml = "=0.8.23"

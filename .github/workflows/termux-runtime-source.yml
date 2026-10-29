@@ -5,18 +5,20 @@ on:
       source_sha:
         required: true
         type: string
+    outputs:
+      base_generation:
+        description: Authenticated runtime-equivalent Base, empty for a source build
+        value: ${{ jobs.runtime.outputs.base_generation }}
 permissions:
   contents: read
 jobs:
   runtime:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
+    outputs:
+      base_generation: ${{ steps.base.outputs.base_generation }}
     env:
-      CARGO_PROFILE_RELEASE_OPT_LEVEL: z
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
-      CARGO_PROFILE_RELEASE_STRIP: symbols
-      CARGO_PROFILE_RELEASE_DEBUG: '0'
-      CARGO_PROFILE_RELEASE_INCREMENTAL: 'false'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/upstream/codex-rs/target
       CARGO_BUILD_JOBS: '3'
     steps:
       - name: Fetch exact wrapper recipe
@@ -31,7 +33,25 @@ jobs:
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
           python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component frontend >> "$GITHUB_ENV"
+      - name: Reuse an admitted runtime when only wrapper components changed
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main="$(gh api repos/humtr/codex/git/ref/heads/main --jq '.object.sha')"
+          python3 source/.github/scripts/release_components.py acquire-published-runtime-base \
+            --source source --main "$main" --output "$RUNNER_TEMP/runtime-base" >> "$GITHUB_OUTPUT"
+      - name: Retain runtime subset from signed Base
+        if: steps.base.outputs.reuse_runtime == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: termux-runtime-base
+          path: ${{ runner.temp }}/runtime-base
+          if-no-files-found: error
+          retention-days: 7
       - name: Fetch exact official source
+        if: steps.base.outputs.reuse_runtime != 'true'
         run: |
           set -euo pipefail
           git init upstream
@@ -39,25 +59,8 @@ jobs:
           git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
-      - name: Locate and apply Termux compatibility expressions
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/runtime-artifact"
-          python3 source/scripts/prepare_runtime_source.py upstream \
-            --version "$UPSTREAM_VERSION" --source-sha "$UPSTREAM_SHA" \
-            > "$RUNNER_TEMP/runtime-artifact/preparation.json"
-          python3 source/frontend/manager-tui/normalize_lock.py upstream/codex-rs \
-            --audit "$RUNNER_TEMP/runtime-artifact/lock-audit.json"
-          python3 - <<'PY'
-          import json,os
-          from pathlib import Path
-          expected=json.loads(Path('source/release/upstream.json').read_text())['qualification']['lock_audit']
-          actual=json.loads((Path(os.environ['RUNNER_TEMP'])/'runtime-artifact/lock-audit.json').read_text())
-          if expected != actual:raise SystemExit('source runtime dependency audit differs from exact release input')
-          PY
-          git -C upstream diff --check
-          git -C upstream diff --binary > "$RUNNER_TEMP/runtime-artifact/source.patch"
       - name: Provision exact official build toolchain
+        if: steps.base.outputs.reuse_runtime != 'true'
         run: |
           set -euo pipefail
           test "$(uname -m)" = aarch64
@@ -68,6 +71,7 @@ jobs:
           tar -xJf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/zig-linux-aarch64-0.14.0" >> "$GITHUB_PATH"
       - name: Install official musl dependency tooling
+        if: steps.base.outputs.reuse_runtime != 'true'
         env:
           TARGET: aarch64-unknown-linux-musl
           APT_UPDATE_ARGS: -qq
@@ -78,7 +82,19 @@ jobs:
           bash upstream/.github/scripts/install-musl-build-tools.sh
           echo 'AWS_LC_SYS_NO_JITTER_ENTROPY=1' >> "$GITHUB_ENV"
           echo 'AWS_LC_SYS_NO_JITTER_ENTROPY_aarch64_unknown_linux_musl=1' >> "$GITHUB_ENV"
+      - name: Resolve portable runtime recipe
+        if: steps.base.outputs.reuse_runtime != 'true'
+        id: recipe
+        run: echo "fingerprint=$(python3 source/scripts/build_runtime.py --fingerprint)" >> "$GITHUB_OUTPUT"
+      - name: Build shared Rust source preparation
+        if: steps.base.outputs.reuse_runtime != 'true'
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
+            --manifest-path source/Cargo.toml --release --locked -p codex-release-builder
+          echo "CODEX_RELEASE_BUILDER=$RUNNER_TEMP/source-tools/release/codex-release-builder" >> "$GITHUB_ENV"
       - name: Restore reusable compile cache
+        if: steps.base.outputs.reuse_runtime != 'true'
         id: cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -86,33 +102,18 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ inputs.source_sha }}
+          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ steps.recipe.outputs.fingerprint }}
           restore-keys: |
             termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
-      - name: Preserve byte-identical source timestamps
-        run: python3 source/scripts/prepare_runtime_source.py upstream --preserve-pristine-times
-      - name: Build adapted upstream executable
+      - name: Build and verify through the shared runtime producer
+        if: steps.base.outputs.reuse_runtime != 'true'
         run: |
           set -euo pipefail
-          cd upstream/codex-rs
-          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
-          git diff --check
-      - name: Execute and bind source output
-        run: |
-          set -euo pipefail
-          artifact="$RUNNER_TEMP/runtime-artifact"
-          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
-          file "$binary" | grep -F 'ARM aarch64'
-          if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
-          home="$RUNNER_TEMP/runtime-home"
-          mkdir -p "$home"
-          chmod 0700 "$home"
-          env -i HOME="$home" CODEX_HOME="$home/.codex" PATH=/usr/bin:/bin "$binary" --version > "$artifact/version.txt"
-          test "$(cat "$artifact/version.txt")" = "codex-cli $UPSTREAM_VERSION"
-          cp "$binary" "$artifact/codex"
-          (cd "$artifact" && sha256sum codex > sha256.txt)
+          python3 source/scripts/build_runtime.py \
+            --source "$GITHUB_WORKSPACE/upstream" \
+            --output "$RUNNER_TEMP/runtime-artifact"
       - name: Retain runtime and preparation evidence
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: termux-runtime-source
@@ -120,11 +121,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain reusable compile cache
-        if: ${{ !cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ inputs.source_sha }}
+          key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ steps.recipe.outputs.fingerprint }}

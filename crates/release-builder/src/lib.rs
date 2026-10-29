@@ -2,6 +2,7 @@
 
 pub mod provider;
 mod runtime_patch;
+pub mod source;
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
@@ -156,7 +157,12 @@ const REQUIRED_ARCHIVE_FILES: [&str; 3] = [
 ];
 
 const USAGE: &str = concat!(
-    "usage: codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
+    "usage: codex-release-builder prepare-source --source <DISPOSABLE_CHECKOUT> ",
+    "--version <MAJOR.MINOR.PATCH> --source-sha <GIT_COMMIT>\n",
+    "       codex-release-builder normalize-lock --source <CARGO_WORKSPACE> ",
+    "--openssl <ABSOLUTE_EXECUTABLE> --audit <ABSENT_FILE>\n",
+    "       codex-release-builder preserve-source-times --source <DISPOSABLE_CHECKOUT>\n",
+    "       codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
     "--archive-sha256 <LOWERCASE_SHA256>\n",
     "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
     "--curl <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
@@ -4050,6 +4056,9 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
+        Some("prepare-source" | "normalize-lock" | "preserve-source-times") => {
+            source::command(&args)
+        }
         Some("provider-package") => provider::command(&args),
         Some("adapt-manager-tui") => match adapt_frontend(&args) {
             Ok(()) => 0,

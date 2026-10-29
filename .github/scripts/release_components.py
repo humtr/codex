@@ -1,5 +1,6 @@
 """Input-bound base reuse and immutable full-release transport composition."""
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone, date
 import hashlib
 import json
@@ -8,12 +9,15 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 
 from rald5_publication import (BASE_FILES, FLAT_ASSETS, canonical_release_base,
                                parse_manifest, sha256, verify_signature)
 from release_heads import download
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
+from build_runtime import fingerprint as runtime_fingerprint, cargo_dependencies, locked_packages
 
 COMPONENT = 'component-input-v1'
 MAP = 'asset-map-v1.json'
@@ -54,31 +58,22 @@ def base_fingerprint(source, revision='HEAD'):
     recipe = json.loads(read('release/upstream.json'))
     workspace = tomllib.loads(read('Cargo.toml').decode())
     workspace['workspace']['members'] = [name for name in workspace['workspace']['members'] if name != 'crates/manager']
-    lock = tomllib.loads(read('Cargo.lock').decode())
-    packages = {(p['name'],p['version']):p for p in lock['package']}
-    core_manifest=tomllib.loads(read('crates/core/Cargo.toml').decode())
-    pending = [('codex',core_manifest['package']['version'])]
-    selected = {}
-    while pending:
-        key = pending.pop()
-        if key in selected:
-            continue
-        package = packages[key]
-        selected[key] = package
-        for dependency in package.get('dependencies', []):
-            parts = dependency.split()
-            matches = [k for k in packages if k[0] == parts[0] and (len(parts) == 1 or k[1] == parts[1])]
-            if len(matches) != 1:
-                raise ValueError('ambiguous base dependency closure')
-            pending.append(matches[0])
+    selected = cargo_dependencies(read, 'crates/core/Cargo.toml')
     roots = ['crates/core','crates/release-builder','crates/runtime-binding',
              '.github/workflows/qualify-termux-runtime.yml',
-             '.github/workflows/termux-runtime-source.yml','scripts/prepare_runtime_source.py',
-             'frontend/manager-tui/normalize_lock.py',
+             '.github/workflows/termux-runtime-source.yml',
+             'scripts/build_runtime.py',
              '.github/scripts/release_components.py','.github/scripts/upstream_release.py']
+    try:
+        inventory = read('release/runtime-build-inputs-v1').decode()
+    except subprocess.CalledProcessError:
+        pass  # Historical releases predate the shared producer inventory.
+    else:
+        from build_runtime import assets
+        roots.extend(assets(inventory))
     for member in workspace['workspace']['members']:
         manifest=tomllib.loads(read(member+'/Cargo.toml').decode())
-        if (manifest['package']['name'],manifest['package']['version']) in selected and member not in roots:
+        if (manifest['package']['name'],manifest['package']['version'],None) in selected and member not in roots:
             roots.append(member)
     blobs = git(source,'ls-tree','-r',revision,'--',*roots).decode().splitlines()
     if not blobs:
@@ -91,7 +86,7 @@ def base_fingerprint(source, revision='HEAD'):
             raise ValueError('unexpected base build input')
         files[path] = [mode,digest]
     value = {'schema':1,'files':files,'workspace':workspace,
-             'lock':[selected[key] for key in sorted(selected)],
+             'lock':locked_packages(selected),
              'upstream':recipe['upstream'],'toolchains':recipe['toolchains'],
              'lock_audit':recipe['qualification']['lock_audit']}
     return hashlib.sha256(canonical(value)).hexdigest()
@@ -104,6 +99,12 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
     payload = {'schema':'codex-component-input-v1','generation_id':generation,
                'source_sha':source_sha,'base_inputs_sha256':base_fingerprint(source),
                'manifest_sha256':sha256(output/'releases'/generation/'release.manifest')}
+    try:
+        git(source,'cat-file','-e','HEAD:scripts/build_runtime.py')
+    except subprocess.CalledProcessError:
+        pass  # Retained historical sources have no shared runtime recipe.
+    else:
+        payload['runtime_inputs_sha256'] = runtime_fingerprint(source,'HEAD',adapted=True)
     if generation.startswith('local-base-') or base is not None:
         base_generation = base_sequence = None
         if base is not None:
@@ -129,12 +130,14 @@ def component(directory, generation, authority, openssl='openssl'):
     data = path.read_bytes()
     value = json.loads(data,object_pairs_hook=unique)
     required={'schema','generation_id','source_sha','base_inputs_sha256','manifest_sha256'}
-    if (set(value) not in (required,required|{'display'})
+    if (not required.issubset(value) or set(value)-required-{'display','runtime_inputs_sha256'}
         or value['schema'] != 'codex-component-input-v1' or value['generation_id'] != generation
         or data != canonical(value) or not re.fullmatch('[0-9a-f]{40}',value['source_sha'])
         or any(not re.fullmatch('[0-9a-f]{64}',value[key]) for key in ['base_inputs_sha256','manifest_sha256'])
         or value['manifest_sha256'] != sha256(directory/'release.manifest')):
         raise ValueError('component metadata identity differs')
+    if 'runtime_inputs_sha256' in value and not re.fullmatch('[0-9a-f]{64}',value['runtime_inputs_sha256']):
+        raise ValueError('invalid runtime input identity')
     if 'display' in value:
         display=value['display']
         if (not isinstance(display,dict) or set(display)!={'release_date','base_generation','base_sequence'}
@@ -152,8 +155,8 @@ def component(directory, generation, authority, openssl='openssl'):
     return value
 
 
-def matching_base(source, heads, authority, destination, fetch=download):
-    """Small authenticated capability check. Does not launch a runtime or infer."""
+def base_controls(heads, authority, destination, fetch=download):
+    """Authenticate the selected immutable Base once, before applying reuse policy."""
     state = json.loads((heads/'heads.json').read_text())
     base = state['heads'].get('base')
     if base is None or not base['generation'].startswith('local-base-relay-hosted-'):
@@ -166,32 +169,74 @@ def matching_base(source, heads, authority, destination, fetch=download):
     manifest, _ = parse_manifest(destination/'release.manifest')
     if manifest['generation_id'] != generation:
         raise ValueError('base generation differs')
-    value = component(destination,generation,authority)
-    if value['base_inputs_sha256'] != base_fingerprint(source):
+    return generation, component(destination,generation,authority)
+
+
+def matching_base(source, heads, authority, destination, fetch=download):
+    """Complete Base input equivalence, required by the existing Full composition."""
+    admitted = base_controls(heads,authority,destination,fetch)
+    if admitted is None:
         return None
+    generation, value = admitted
+    return generation if value['base_inputs_sha256'] == base_fingerprint(source) else None
+
+
+def acquire_runtime_base(source, heads, authority, destination, fetch=download):
+    """Reuse signed runtime bytes when Core changed but the runtime recipe did not."""
+    admitted = base_controls(heads,authority,destination,fetch)
+    if admitted is None:
+        return None
+    generation, provenance = admitted
+    if provenance.get('runtime_inputs_sha256') != runtime_fingerprint(source,'HEAD',adapted=True):
+        return None  # Historical metadata or genuinely changed runtime inputs.
+    acquire_base_files(generation,destination,fetch,exclude={'core'})
+    from rald3_preflight import parse_descriptor
+    descriptor = parse_descriptor(destination/'generation.meta')
+    recipe = json.loads(git(source,'show','HEAD:release/upstream.json'))['upstream']
+    if (descriptor['upstream_package_version'] != recipe['version']
+            or descriptor['source_artifact_digest'] != recipe['archive_sha256']):
+        raise ValueError('signed runtime Base differs from the selected upstream tuple')
     return generation
 
 
-def verified_published_base(source, main_sha):
+def acquire_base_files(generation, destination, fetch=download, exclude=frozenset()):
+    _, files = parse_manifest(destination/'release.manifest')
+    for name,digest,mode in files:
+        if name in exclude:
+            continue
+        fetch(canonical_release_base(generation)+name,destination/name,1073741824)
+        if sha256(destination/name) != digest:
+            raise ValueError('base payload digest differs')
+        (destination/name).chmod(int(mode,8))
+
+
+@contextmanager
+def published_heads(main_sha):
+    """One authority/download lifetime for public Base inspection and acquisition."""
     from release_heads import authenticate
     with tempfile.TemporaryDirectory(prefix='verified-base-',dir=os.environ.get('TMPDIR')) as temp:
         root=Path(temp);key=root/'public.pem'
         download('https://github.com/humtr/codex/releases/download/local-20260914-update-channel-bridge-1/update-public-key.pem',key,16384)
         if sha256(key) != PUBLIC_KEY_SHA:raise ValueError('unexpected public authority')
         authenticate(main_sha,'base',key,root/'heads')
-        return matching_base(source,root/'heads',key,root/'base')
+        yield root/'heads',key
+
+
+def acquire_published_runtime_base(source, main_sha, destination):
+    with published_heads(main_sha) as (heads,key):
+        return acquire_runtime_base(source,heads,key,destination)
+
+
+def verified_published_base(source, main_sha):
+    with published_heads(main_sha) as (heads,key):
+        return matching_base(source,heads,key,heads.parent/'base')
 
 
 def acquire_base(source, heads, authority, destination, fetch=download):
     generation = matching_base(source,heads,authority,destination,fetch)
     if generation is None:
         return None
-    _, files = parse_manifest(destination/'release.manifest')
-    for name,digest,mode in files:
-        fetch(canonical_release_base(generation)+name,destination/name,1073741824)
-        if sha256(destination/name) != digest:
-            raise ValueError('base payload digest differs')
-        (destination/name).chmod(int(mode,8))
+    acquire_base_files(generation,destination,fetch)
     return generation
 
 
@@ -270,10 +315,14 @@ def validate_map(value, generation):
     return value
 
 
-def candidate_from_base(base, manager, frontend, builder, generation, version, output):
-    """Assemble private full output from an already authenticated base snapshot."""
-    if output.exists() or output.is_symlink() or not generation.startswith('local-relay-hosted-'):
+def candidate_from_base(base, manager, frontend, builder, generation, version, output, core=None):
+    """Assemble Base/Core replacement or Full add-ons from an authenticated subset."""
+    base_only = core is not None
+    prefix = ('local-base-relay-hosted-', 'base-qualification-') if base_only else 'local-relay-hosted-'
+    if output.exists() or output.is_symlink() or not generation.startswith(prefix):
         raise ValueError('invalid candidate output or identity')
+    if base_only and any(value is not None for value in (manager,frontend,builder)):
+        raise ValueError('Base assembly replaces Core only; add-ons require the complete Base')
     manifest, files = parse_manifest(base/'release.manifest')
     if not manifest['generation_id'].startswith('local-base-relay-hosted-') or set(name for name,_,_ in files) != set(BASE_FILES):
         raise ValueError('candidate base inventory differs')
@@ -281,12 +330,14 @@ def candidate_from_base(base, manager, frontend, builder, generation, version, o
     fields = dict(line.split('\t') for line in descriptor[1:] if line.count('\t') == 1)
     if fields.get('upstream_package_version') != version or fields.get('manager_artifact_digest') != '-':
         raise ValueError('candidate base version or variant differs')
-    for path in [manager, frontend, builder]:
+    for path in ([core] if base_only else [manager, frontend, builder]):
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 536870912 or path.stat().st_mode & 0o111 == 0:
             raise ValueError('candidate add-on is not an executable regular file')
     output.mkdir(mode=0o700)
     try:
         for name,digest,mode in files:
+            if base_only and name == 'core':
+                continue
             source=base/name
             if source.is_symlink() or not source.is_file() or sha256(source) != digest:
                 raise ValueError('candidate base digest differs')
@@ -294,16 +345,22 @@ def candidate_from_base(base, manager, frontend, builder, generation, version, o
                 continue
             target=output/name;target.parent.mkdir(exist_ok=True,parents=True)
             shutil.copyfile(source,target);target.chmod(int(mode,8))
-        shutil.copyfile(manager,output/'manager');(output/'manager').chmod(0o755)
-        subprocess.run([str(builder),'adapt-manager-tui','--artifact',str(frontend),'--openssl',shutil.which('openssl'),
-                        '--output',str(output/'helpers/2')],check=True)
-        replacement={'generation_id':generation,'manager_artifact_digest':sha256(output/'manager'),'helper_count':'3'}
+        if base_only:
+            shutil.copyfile(core,output/'core');(output/'core').chmod(0o755)
+            replacement={'generation_id':generation,'core_artifact_digest':sha256(output/'core')}
+        else:
+            shutil.copyfile(manager,output/'manager');(output/'manager').chmod(0o755)
+            subprocess.run([str(builder),'adapt-manager-tui','--artifact',str(frontend),'--openssl',shutil.which('openssl'),
+                            '--output',str(output/'helpers/2')],check=True)
+            replacement={'generation_id':generation,'manager_artifact_digest':sha256(output/'manager'),'helper_count':'3'}
         lines=[descriptor[0]]+[key+'\t'+replacement.get(key,value) if line.count('\t') == 1
                               else line for line in descriptor[1:] for key,value in [line.split('\t',1)]]
-        lines.append('helper\ttermux-manager-tui-v1:'+version+'\t'+sha256(output/'helpers/2'))
+        if not base_only:
+            lines.append('helper\ttermux-manager-tui-v1:'+version+'\t'+sha256(output/'helpers/2'))
         (output/'generation.meta').write_text('\n'.join(lines)+'\n');(output/'generation.meta').chmod(0o644)
-        (output/'.manager-probe-deferred').write_bytes(b'codex-manager-probe-deferred-v1\n')
-        (output/'.manager-probe-deferred').chmod(0o644)
+        if not base_only:
+            (output/'.manager-probe-deferred').write_bytes(b'codex-manager-probe-deferred-v1\n')
+            (output/'.manager-probe-deferred').chmod(0o644)
     except BaseException:
         shutil.rmtree(output)
         raise
@@ -319,6 +376,14 @@ def main():
     match=sub.add_parser('match-base')
     for name in ['source','heads','authority','output']:
         match.add_argument('--'+name,type=Path,required=True)
+    runtime=sub.add_parser('acquire-published-runtime-base')
+    runtime.add_argument('--source',type=Path,required=True)
+    runtime.add_argument('--main',required=True);runtime.add_argument('--output',type=Path,required=True)
+    base_candidate=sub.add_parser('candidate-base')
+    for name in ['base','core','output','authority','source']:
+        base_candidate.add_argument('--'+name,type=Path,required=True)
+    base_candidate.add_argument('--base-generation',required=True)
+    base_candidate.add_argument('--generation',required=True);base_candidate.add_argument('--version',required=True)
     composition=sub.add_parser('compose')
     for name in ['assets','authority']:
         composition.add_argument('--'+name,type=Path,required=True)
@@ -337,6 +402,16 @@ def main():
         generation=action(args.source,args.heads,args.authority,args.output)
         print('base_generation='+str(generation or ''))
         print('reuse_base='+str(generation is not None).lower())
+    elif args.command=='acquire-published-runtime-base':
+        generation=acquire_published_runtime_base(args.source,args.main,args.output)
+        print('base_generation='+str(generation or ''))
+        print('reuse_runtime='+str(generation is not None).lower())
+    elif args.command=='candidate-base':
+        verify_signature('openssl',args.authority,args.base/'release.manifest',args.base/'release.sig')
+        provenance=component(args.base,args.base_generation,args.authority)
+        if provenance.get('runtime_inputs_sha256') != runtime_fingerprint(args.source,'HEAD',adapted=True):
+            raise ValueError('runtime subset no longer matches the selected source recipe')
+        candidate_from_base(args.base,None,None,None,args.generation,args.version,args.output,core=args.core)
     elif args.command=='target':
         if args.map.stat().st_size > 16384:raise ValueError('oversized transport map')
         value=validate_map(json.loads(args.map.read_bytes(),object_pairs_hook=unique),args.generation)

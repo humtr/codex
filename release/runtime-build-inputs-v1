@@ -1,0 +1,8 @@
+codex-runtime-build-inputs-v1
+recipe	release/runtime-build-inputs-v1
+recipe	scripts/build_runtime.py
+recipe	crates/release-builder/src/source.rs
+recipe	crates/release-builder/Cargo.toml
+recipe	.github/scripts/upstream_release.py
+recipe	.github/workflows/termux-runtime-source.yml
+input	release/upstream.json

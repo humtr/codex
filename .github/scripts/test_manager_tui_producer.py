@@ -87,6 +87,7 @@ class NativeProducerTests(unittest.TestCase):
                 script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]
                 for field, value in [('upstream_version', '0.999.0'), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
+                script = script.replace('${{ needs.runtime-source.outputs.base_generation }}', '')
                 env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root),
                        'CAPTURE': str(root/'args.json'),'BASE_ONLY':'true','UPSTREAM_SHA':'b'*40}
                 result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)

@@ -4177,6 +4177,39 @@ the complete selected composition, not a reason to rebuild unchanged components.
 Existing Base/Full generations and independent Provider selections migrate without
 losing credentials, profiles, conversations, rollback artifacts or live jobs.
 
+Installed update and local-build policy, source preparation, build orchestration
+and result admission are Rust responsibilities. Selecting local build must not
+install Python merely to execute wrapper-owned lifecycle code. The release-builder
+library owns the common implementation; Core calls it in-process and remote
+executors call its CLI. CI environment wiring and independent qualification may
+use Python, but must not maintain a second implementation of these product rules.
+
+Runtime source production consumes the exact release input plus a disposable
+pristine official checkout, applies the maintained semantic source transformations,
+audits lock normalization,
+builds with the selected official toolchain and emits the existing six-file raw
+runtime artifact contract. Executor setup owns OS packages and compiler acquisition;
+local execution and remote runners call the same Rust producer. Recipe fingerprints
+bind its source/preparation/normalization code, exact upstream tuple, lock audit,
+toolchain and build settings; a Core-only commit cannot invalidate that raw
+runtime recipe. Signed component metadata's `runtime_inputs_sha256` additionally
+binds the Rust release-builder/runtime-binding adaptation sources and builder
+Rust toolchain when reusing already-adapted published runtime bytes. Legacy metadata
+without that field remains admissible for installation but does not authorize
+this producer reuse. Cached subsets are reauthenticated after executor transfer
+before candidate composition. No previous Core is fetched as a runtime dependency.
+Qualified output identity is still its admitted content digest, never the recipe
+hash or a claim of reproducible compilation. Host preparation, source/build
+success and Android execution proof remain separate completion boundaries.
+
+Compiler preparation selects the tools required for the target rather than
+requiring a Linux distribution as the build interface. Prefer a qualified direct
+Termux toolchain over a separate PRoot environment when both provide the required
+build behavior. A private SDK's loader/library adaptation must be explicit and
+bound to its original inputs; it must not alter system libraries or resolver
+configuration. Experimental SDK execution alone does not qualify a complete
+component build or make that environment an installed dependency.
+
 Remote preparation checks official upstream metadata every two hours and responds
 to owned component-source changes. Only changed build inputs trigger preparation;
 equivalent pending work is reused. Consumers first use authenticated cached or
@@ -4205,6 +4238,12 @@ dependency operations, not an unrelated system-wide upgrade. Source adaptation
 preflights its known semantic transformations and reports unsupported upstream
 changes explicitly. Actual Termux and Android execution qualification is required
 before declaring a local recipe supported.
+Compiler preparation verifies both object compilation and required dependency
+generation before a long source build. The selected C/C++ compiler configuration
+is a build input; a different compiler variant cannot inherit another variant's
+raw-cache identity. An executor launcher's zero status is insufficient when its
+worker died or the required output is absent. Preserve the actual compiler/worker
+failure and admit only the complete verified artifact from the selected inputs.
 
 Ordinary local results use the existing device-local derived signing authority and
 retain the admitted public update key/baseline. A configured signer whose public

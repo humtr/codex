@@ -274,8 +274,14 @@ jobs:
           fi
           cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
 
+      - name: Acquire runtime-equivalent signed Base
+        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true' && needs.runtime-source.outputs.base_generation != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: termux-runtime-base
+          path: ${{ runner.temp }}/runtime-base
       - name: Acquire exact source-built runtime
-        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true'
+        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true' && needs.runtime-source.outputs.base_generation == ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: termux-runtime-source
@@ -302,6 +308,12 @@ jobs:
             python3 source/.github/scripts/release_components.py candidate \
               --base "$RUNNER_TEMP/base-input" --manager "$manager" \
               --frontend "$RUNNER_TEMP/manager-tui-input/artifact/codex" --builder "$builder" \
+              --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
+          elif test -n '${{ needs.runtime-source.outputs.base_generation }}'; then
+            python3 source/.github/scripts/release_components.py candidate-base \
+              --base "$RUNNER_TEMP/runtime-base" --core "$core" --source source \
+              --authority "$RUNNER_TEMP/rald3-stable/update-public-key.pem" \
+              --base-generation '${{ needs.runtime-source.outputs.base_generation }}' \
               --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
           else
           runtime="$RUNNER_TEMP/termux-runtime-source"
