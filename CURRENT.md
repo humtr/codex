@@ -17,18 +17,18 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
-**The device runs upstream0.164.0 with the corrected locally derived updater;
-Full123 remains its authenticated public baseline and Provider21 remains active.
-A1 entrance equivalence is partially qualified, not complete.** Full123 and
-Provider21 were signed and publicly delivered. The updater preparation below has
-not requested or publicly delivered an installable0.165 release. The
+**The device now runs signed Base124/upstream0.165.0. The preceding locally
+derived Full0.164 installation is retained for rollback. A1 entrance equivalence
+is partially qualified, not complete.** Full123 and Provider21 have their separate
+signed delivery records; this Base update does not qualify Full0.165 or replace
+running services. The
 startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
 authenticated host and37 preserved works at the Provider21 activation boundary.
 That activation preserved16 protected files and13 existing Native owners. These are
 recorded observations, not a recheck on every documentation edit.
-New TUI launches include the catalog and fresh-home login corrections. Running
-clients retain their launch executable.
+The retained Full123 TUI includes the catalog and fresh-home login corrections;
+selected Base uses upstream TUI. Running clients retain their launch executable.
 The latest Core readback is recorded in Priority0 below; older numbered proof
 descriptions retain the generation observed during those specific trials.
 
@@ -38,11 +38,10 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Next: qualify only the user's Base0.165 update from the retained0.164 install.
-The first real user request has now published Base124; Full publication failed.
-Full repair, publication-status improvements and whether CI should own builds
-are deferred at the user's direction. Preserve running sessions/jobs and leave
-the operating version unchanged until the user performs the Base update.**
+**Next: review update automation after the successful actual Base installation.
+The recommendation below is a proposal, not deployed behavior or an amended SPEC.
+Full repair and CI restructuring remain unimplemented; preserve running jobs,
+the current Base and its retained rollback while selecting the next change.**
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -214,7 +213,12 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Priority0: upstream update build, delivery and user replay
 
-Latest scope: reproduce the Base update only. The earlier requirement to observe
+The Base-only reproduction is complete: actual device readback now selects
+`local-base-relay-hosted-0-165-0-7f557c208856-s124`, and actual `codex --version`
+returns `codex-cli 0.165.0`. Previous is `local-1793204956-318-2`. This confirms
+installation and executable version, not migration of already running processes.
+Latest scope is review of update automation; no new update/build policy is active.
+The earlier requirement to observe
 upstream discovery and a real build request was exercised by request40772864929
 and publication40772954167. That publication promoted signed Base124 for0.165,
 but Full signing failed because Full's mandatory Android qualification was skipped
@@ -238,9 +242,9 @@ from retained qualification output, while its different runtime was fetched from
 the actual public release. Every byte/mode matches the public signed inventory.
 base-local-package.json and base-local-update.json record successful actual Android
 `update --local` from the copied operating0.164 state and subsequent
-`codex-cli 0.165.0`, with production activation unchanged. The package is armed for
-the user's real installation; preserve it until user installation is confirmed
-or the replay is cancelled. Base selection uses the existing explicit local
+`codex-cli 0.165.0`, with production activation unchanged during that isolated trial.
+The later actual-device readback above confirms the user has now installed Base.
+Base selection uses the existing explicit local
 admission; no product code or CI repair was deployed for this narrowed scope.
 
 This is installation qualification, not a repaired remote updater. The original
@@ -252,7 +256,73 @@ terminal logs. The five-minute payload deadline is implicated, but the exact cur
 exit code was not captured. Remote acquisition/fallback diagnosis remains open;
 do not claim plain remote update was fixed by preparing this local package.
 
-Readback on2026-10-29 KST confirms installed locally derived generation
+### Update automation review: recommendation, not implementation
+
+Core should own detection, composition selection, acquisition choice, progress,
+verification and atomic activation. Keep one portable artifact preparation/build
+implementation; local execution and remote runners, including optional GitHub CI,
+consume it. Publishing remains a separate owner-controlled signed operation.
+Ordinary consumers install authenticated prebuilts without repository write access,
+GitHub CLI or a Codex/ChatGPT login. GitHub storage and GitHub job execution are
+separate dependencies: the existing Worker redirect still ultimately uses GitHub
+Release assets. Independent configured mirrors must serve the same signed bytes;
+adding another mandatory request broker would merely move the dependency.
+
+Recommended acquisition order is exact verified cache, compatible signed prebuilt,
+then a build permitted by explicit user policy. A transport failure is not evidence
+that a build is missing. Preserve its cause and partial data instead of silently
+switching to local construction. Failed signature/digest/compatibility admission
+never becomes another acquisition mode. No simultaneous automatic local/remote
+build race. Initial build policy can authorize subsequent automatic decisions;
+do not infer developer status or authority from login or a repository checkout.
+
+Separate incomplete downloads from verified cache and installed generations.
+Resume only a consistent byte range for the selected immutable artifact; a server
+returning a whole response cannot be appended to a partial file. Verify final
+signed digest/size before caching and normal installation. A bounded cache may
+discard inactive reacquirable objects, never the current/rollback installation,
+an active transfer or an armed user package without its explicit removal condition.
+Split connection, no-progress and overall transfer budgets; first capture actual
+curl exit/HTTP status, bytes and elapsed time. Do not call the five-minute deadline
+the proven sole cause or merely raise it without an idle/failure contract.
+
+Keep runtime, Core, companion and optional-module build inputs distinct. Recipe
+identity selects reusable qualified build output; the signed content digest decides
+whether particular bytes can satisfy a published release. The retained0.165 runtime
+differed from the later public Base124 runtime despite matching version/source
+labels, so those bytes could not replace the signed public payload. Unchanged
+Core/companion/helpers were actually reused. Do not assume reproducible binaries
+or rebuild all modules merely because a wrapper commit changed. Full means the
+selected complete composition, not a mandatory second pipeline for Base. Retain
+exact TUI/backend pairing until actual protocol/behavior qualification supports a
+broader compatibility range; never silently remove selected modules.
+
+The existing local path adapts registered official binaries; it is not a qualified
+native Termux source compiler for arbitrary new releases. Source-function matching
+removes version-specific offsets within recognized semantics, not the need to
+handle real upstream semantic changes. Qualify local toolchains, resource cost and
+the same Android acceptance before enabling automatic local source builds. Keep
+source-building explicit/previously authorized rather than imposing it on every
+consumer. Source recipes should remain independent of CI workflow credentials.
+
+Suggested order: (1) actual publication/failure observation and cause-preserving
+transport, (2) verified cache/resume and observable transfer budgets, (3) reusable
+component output and one local/remote build contract, (4) optional runner/mirror
+selection and Full qualification repair. Re-review stash e96912e before selective
+reuse; it contains GitHub-specific status/artifact code and is not this final
+architecture. Do not blindly restore it as accepted product code.
+
+Acceptance must include real Android remote Base update; interruption/resume;
+server range refusal and changed content; invalid signature/digest; offline cached
+install; no GitHub CLI/model login; unchanged-module reuse; actual remote job failure
+after a successful request ACK; missing mandatory execution proof; rollback with
+config/auth/session preservation; and unchanged running-job ownership. Local and
+remote producers require the same artifact/compatibility contract; running an
+entire repository test suite is release development work, not every consumer update.
+SPEC changes and implementation follow selection of this proposal; this review
+changed neither runtime, installation, services nor remote workflows.
+
+Before the user's Base installation, readback on2026-10-29 KST recorded locally derived generation
 `local-1793204956-318-2`, upstream0.164.0, with corrected Core. Its public
 baseline and previous selection are Full123
 `local-relay-hosted-0-164-0-0a8b6e53304d-s123`. Public Full remains123 and public
@@ -275,7 +345,7 @@ this failed downstream pipeline, and its old successful request receipt suppress
 another request. This is a reporting/orchestration defect in addition to the
 missing version port, not evidence that device download/activation failed.
 
-Chosen responsibility: GitHub builds/qualifies/signs an exact supported tuple once;
+Existing published design, now under review: GitHub builds/qualifies/signs an exact supported tuple once;
 Termux downloads/verifies/activates the matching signed composition. Do not race
 an automatic local build against CI. Developers use the same consumer path by
 default, with explicit authorized remote requests and explicit local qualification
