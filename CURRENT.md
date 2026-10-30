@@ -2603,6 +2603,58 @@ must not block ordinary A1 qualification or serve as another routine smoke test.
 Prepared prompts/effect fixtures and the calibrated attribution oracle remain
 under $TMPDIR/codex-model-run-probe-ah2l4szv/. They are not themselves live proof.
 
+### Deferred exploration: BTW, ChatGPT and ephemeral orchestration
+
+User-requested development idea, after the current update end-to-end acceptance;
+this is neither an implemented feature nor a confirmed host/API guarantee.
+Explore connecting BTW temporary tasks to ChatGPT through the existing Bridge/
+Provider/native execution boundary. Candidate uses are ChatGPT assigning a bounded
+independent task to a native BTW worker, a BTW worker explicitly requesting a
+ChatGPT Provider assignment, and bidirectional clarification/progress/result return
+to the original parent. Compare reusing the existing native child/task lifecycle
+with a separate external assignment; do not infer ancestry from labels or IDs.
+
+Concrete investigation seed: BTW thread01a18ac9-4f81-7f72-bc2c-46404d87fe66.
+The actual send_message_to_thread attempt failed at thread/resume with
+“no rollout found”; read_thread then returned “ephemeral threads do not support
+includeTurns”. A local shell snapshot/reference capability exists, while the
+queried canonical persisted threads table contains no row. These observations
+identify a temporary-thread/API-path mismatch, not an invalid ID or proof that
+the task never existed. Existing generic read/resume helpers do not establish
+whether the underlying live thread can receive a message through another
+supported operation. No direct BTW reply was delivered by these attempts.
+
+Investigate the actual loaded-thread metadata path with includeTurns=false,
+live agent follow-up facilities, and supported turn/start/turn/steer or injection
+operations. Establish which caller owns the thread and whether its context remains
+resident before attempting delivery; never replace resume failure with creation
+of a different task. The inspected official source360319d8dee62d87e2d59fc0c21805d79519cfed
+rejects queued submissions for ephemeral threads
+(codex-rs/app-server/src/request_processors/thread_queue_processor.rs::require_thread),
+while message_processor_thread_lifecycle_tests.rs exercises a real followup_task
+to an ephemeral child retaining its earlier context. This is a useful lead, not
+proof that BTW exposes the same facility or that the installed wrapper supports it.
+
+Define identity and lifetime separately: parent development work/ChatGPT conversation
+and branch, temporary native thread ID, actual model request, controller and
+tool/result origin. Determine how to address an idle/running BTW, exchange original
+task/context/public messages and return a result to ChatGPT without resubmitting
+the same user request for duplicate inference. New independent reasoning must be
+an explicit delegation with its own model/cost; a tool result returning to the
+original model is a different operation. Reuse Direct/Provider and the existing
+assignment/control policy instead of introducing another mode or orchestration bus.
+
+Required bounded proofs: live temporary-thread discovery without history access;
+one task and one follow-up preserving context; original result returned and consumed
+by its parent/ChatGPT; separate registration ACK versus actual receipt/consumption;
+repeated delivery, concurrent input, cancellation/Stop and controller replacement;
+idle unload, host restart and expired ID. Preserve temporary lifetime semantics:
+return required public results/references to the authorized parent or explicitly
+hand off to a persistent work item; do not pretend an expired thread is resumable.
+Prefer native events/callbacks to periodic ChatGPT conversation crawling. Decide
+whether BTW is suitable for short bounded workers, operator side conversations or
+both only after these actual product-path probes, including ordinary ChatGPT input.
+
 ### Budget policy
 
 75 and1000 were supplied per-assignment allowances, not global defaults. Original
