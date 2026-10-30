@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+pub mod native_dependencies;
 pub mod native_sdk;
 pub mod provider;
 pub mod runtime;
@@ -17,6 +18,10 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+pub fn binary_adaptation_available(version: &str) -> bool {
+    runtime_patch::required(version).is_ok()
+}
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -166,6 +171,10 @@ const USAGE: &str = concat!(
     "       codex-release-builder preserve-source-times --source <DISPOSABLE_CHECKOUT>\n",
     "       codex-release-builder prepare-native-sdk --archives <ADMITTED_ARCHIVES> ",
     "--output <ABSENT_DIRECTORY> --tools <NATIVE_TOOL_DIRECTORY>\n",
+    "       codex-release-builder native-dependency-inputs --source <OFFICIAL_CHECKOUT> --source-sha <GIT_COMMIT>\n",
+    "       codex-release-builder prepare-native-dependencies --source <OFFICIAL_CHECKOUT> --source-sha <GIT_COMMIT> ",
+    "--archives <ADMITTED_ARCHIVES> --output <ABSENT_PREFIX> --build-dir <ABSENT_BUILD_ROOT> ",
+    "--sdk <PREPARED_SDK> --tools <NATIVE_TOOL_DIRECTORY>\n",
     "       codex-release-builder build-runtime --source <DISPOSABLE_CHECKOUT> ",
     "--recipe <RELEASE_INPUT> --output <ABSENT_DIRECTORY> --target-dir <COMPILER_CACHE> ",
     "--rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO> --openssl <ABSOLUTE_EXECUTABLE>\n",
@@ -3993,6 +4002,9 @@ where
     match args.first().and_then(|argument| argument.to_str()) {
         Some("build-runtime" | "verify-runtime") => runtime::command(&args),
         Some("prepare-native-sdk") => native_sdk::command(&args),
+        Some("native-dependency-inputs" | "prepare-native-dependencies") => {
+            native_dependencies::command(&args)
+        }
         Some("prepare-source" | "normalize-lock" | "preserve-source-times") => {
             source::command(&args)
         }

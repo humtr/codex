@@ -12,13 +12,38 @@ use std::process::Command;
 
 type Result<T> = std::result::Result<T, String>;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Archive {
     pub name: String,
     pub url: String,
     pub sha256: String,
     pub max_bytes: u64,
+}
+
+impl Archive {
+    pub(super) fn snapshot(
+        &self,
+        inputs: &Path,
+        output_dir: &Path,
+        openssl: &Path,
+    ) -> Result<PathBuf> {
+        let input = inputs.join(&self.name);
+        regular(&input, self.max_bytes)?;
+        let snapshot = output_dir.join(&self.name);
+        let source = fs::File::open(&input).map_err(|e| format!("open native archive: {e}"))?;
+        let mut destination = super::create_private_file(&snapshot).map_err(|e| e.to_string())?;
+        let bytes = std::io::copy(&mut source.take(self.max_bytes + 1), &mut destination)
+            .map_err(|e| format!("snapshot native archive: {e}"))?;
+        if bytes > self.max_bytes {
+            return Err(format!("native archive exceeds bound: {}", self.name));
+        }
+        regular(&snapshot, self.max_bytes)?;
+        if super::openssl_sha256(openssl, &snapshot).map_err(|e| e.to_string())? != self.sha256 {
+            return Err(format!("native archive digest differs: {}", self.name));
+        }
+        Ok(snapshot)
+    }
 }
 
 #[derive(Deserialize)]
@@ -47,6 +72,18 @@ pub struct Tools {
     pub zig: PathBuf,
     pub cc: PathBuf,
     pub cxx: PathBuf,
+}
+
+impl Tools {
+    pub fn at(root: &Path) -> Self {
+        Self {
+            rustc: root.join("rust/bin/rustc"),
+            linker: root.join("linker/ld.lld"),
+            zig: root.join("zig/zig"),
+            cc: root.join("cc"),
+            cxx: root.join("cxx"),
+        }
+    }
 }
 
 fn c_adapter(zig: &Path, bash: &Path) -> String {
@@ -80,14 +117,20 @@ fn regular(path: &Path, limit: u64) -> Result<()> {
     let info = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if !info.is_file() || info.len() == 0 || info.len() > limit {
         return Err(format!(
-            "{}: SDK archive must be a bounded regular file",
+            "{}: native archive must be a bounded regular file",
             path.display()
         ));
     }
     Ok(())
 }
 
-fn unpack(tar: &Path, archive: &Path, target: &Path, strip: &str, member: &str) -> Result<()> {
+pub(super) fn unpack(
+    tar: &Path,
+    archive: &Path,
+    target: &Path,
+    strip: &str,
+    member: &str,
+) -> Result<()> {
     output(
         Command::new(tar)
             .args(["--extract", "--file"])
@@ -146,30 +189,7 @@ pub fn prepare(request: &Request<'_>) -> Result<Tools> {
         let snapshots = request.output.join(".inputs");
         fs::create_dir(&snapshots).map_err(|e| e.to_string())?;
         for archive in &catalog.archives {
-            let input = request.archives.join(&archive.name);
-            regular(&input, archive.max_bytes)?;
-            let snapshot = snapshots.join(&archive.name);
-            let source = fs::File::open(&input).map_err(|e| format!("open SDK archive: {e}"))?;
-            let mut destination =
-                super::create_private_file(&snapshot).map_err(|e| e.to_string())?;
-            let bytes = std::io::copy(&mut source.take(archive.max_bytes + 1), &mut destination)
-                .map_err(|e| format!("snapshot SDK archive: {e}"))?;
-            if bytes > archive.max_bytes {
-                return Err(format!(
-                    "native SDK archive exceeds bound: {}",
-                    archive.name
-                ));
-            }
-            regular(&snapshot, archive.max_bytes)?;
-            if super::openssl_sha256(&request.tools.join("openssl"), &snapshot)
-                .map_err(|e| e.to_string())?
-                != archive.sha256
-            {
-                return Err(format!(
-                    "native SDK archive digest differs: {}",
-                    archive.name
-                ));
-            }
+            archive.snapshot(request.archives, &snapshots, &request.tools.join("openssl"))?;
         }
         let tar = request.tools.join("tar");
         let rust = request.output.join("rust");
@@ -265,13 +285,7 @@ pub fn prepare(request: &Request<'_>) -> Result<Tools> {
         .map_err(|e| e.to_string())?;
         fs::set_permissions(&linker, fs::Permissions::from_mode(0o700))
             .map_err(|e| e.to_string())?;
-        let tools = Tools {
-            rustc: rust.join("bin/rustc"),
-            linker,
-            zig: zig.join("zig"),
-            cc: request.output.join("cc"),
-            cxx: request.output.join("cxx"),
-        };
+        let tools = Tools::at(request.output);
         fs::write(
             &tools.cc,
             c_adapter(&tools.zig, &request.tools.join("bash")),

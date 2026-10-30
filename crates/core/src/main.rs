@@ -3,6 +3,8 @@ use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 mod execution_lease;
 #[cfg(unix)]
+mod local_source;
+#[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
 mod manager_config;
@@ -4193,6 +4195,7 @@ enum LocalProductError {
     },
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
+    SourceBuild(String),
     Builder(codex_release_builder::BuilderError),
     Provider(Box<dyn std::error::Error>),
     SignatureRejected,
@@ -4274,6 +4277,7 @@ impl std::fmt::Display for LocalProductError {
             }
             LocalProductError::LocalUpdate(message) => f.write_str(message),
             LocalProductError::Builder(source) => write!(f, "local release construction failed: {source}"),
+            LocalProductError::SourceBuild(source) => write!(f, "local source construction failed: {source}"),
             LocalProductError::Provider(source) => write!(f, "Provider update failed: {source}"),
             LocalProductError::SignatureRejected => {
                 f.write_str("release signature verification failed")
@@ -8463,6 +8467,18 @@ fn activate_local_built_update(
     }
     let staging_root = create_local_update_staging_root(&roots.state_root)?;
     let result = (|| {
+        let source_recipe = if codex_release_builder::binary_adaptation_available(&metadata.version)
+        {
+            None
+        } else {
+            Some(
+                codex_release_builder::runtime::local_recipe(
+                    &metadata.version,
+                    &metadata.package_sha256,
+                )
+                .map_err(LocalProductError::SourceBuild)?,
+            )
+        };
         let signer = prepare_local_build_signer(roots, &staging_root, before.update_key)?;
         if !signer.temporary {
             if let Some(presentation) = presentation.as_deref_mut() {
@@ -8516,6 +8532,13 @@ fn activate_local_built_update(
             ))?
             .join("gzip");
         let unsigned_generation = staging_root.join("unsigned-generation");
+        if source_recipe.is_some() {
+            if let Some(presentation) = presentation.as_deref_mut() {
+                presentation.clear_transient();
+            }
+        }
+        let source_runtime = local_source::prepare(roots, source_recipe, &staging_root)
+            .map_err(LocalProductError::SourceBuild)?;
         let creation_metadata = render_local_derived_metadata(&metadata, &baseline);
         if let Some(presentation) = presentation.as_deref_mut() {
             presentation.transient("⠹", "Building Termux release...");
@@ -8528,7 +8551,7 @@ fn activate_local_built_update(
             core,
             manager: current_loaded.manager_path.clone(),
             manager_tui: None,
-            source_runtime: None,
+            source_runtime,
             defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,
             creation_metadata,

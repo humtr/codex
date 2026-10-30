@@ -53,9 +53,9 @@ mirrors, performance refinements and agent/BTW extensions remain approved follow
 scope below; their absence must not conceal a missing step in the minimum path.
 Signed delivery/device activation/user replay remain distinct completion evidence;
 the first producer/consumer trial must not silently replace their quality gates.
-The complete broader lifecycle is not yet qualified or deployed. The available
-goal API exposes status changes but no active-objective text edit; its previous
-stored wording is not evidence that the user's revised completion scope was ignored.
+The complete broader lifecycle is not yet qualified or deployed. After the user
+cleared the old goal, the revised minimum-path objective was registered as the
+new active goal; its actual completion requires the product-path evidence above.
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -820,7 +820,7 @@ fixture launcher failed to translate cc-rs's target spelling; the production
 shared C/C++ adapter fixes that at its compiler boundary. Initial Python gate
 fixtures omitted the newly required input files; the actual fixture inventories
 are corrected rather than relaxing input fingerprints. Actual archive acquisition,
-remaining dependency preparation and Core source-build orchestration remain unimplemented.
+remaining dependency preparation and Core source-build orchestration were pending at that SDK-only boundary; the current minimum-path implementation/proof is below.
 Inactive v2/v3 SDKs were inventoried/pruned only after their processes ended;
 original archives, builders, source and reconstruction instructions remain
 (`native-sdk-v{2,3}-cleanup.json`). sdk-final remains for the next dependency proof;
@@ -849,8 +849,107 @@ PRoot or an installed Python runner. Reuse the shared Rust producer and native
 Core download cache; bind the actual tool/compiler variant in reusable build
 inputs, not just Rust's version label. Keep musl aliases outside Cargo's exported
 target-library directory so ordinary Bionic child tools retain their own loader.
-Core's current activate_local_built_update still passes source_runtime=None to
-GenerationRequest: the successful standalone producer is not yet that public path.
+Core now selects a known binary policy or a matching bundled source recipe and
+passes admitted SourceRuntime into the same GenerationRequest/signing/activation
+path. Its first supported source target is the bundled qualified0.165 recipe;
+this is not a claim of arbitrary future-version support. See the minimum-path
+actual update trials below rather than the older standalone-only proof.
+### Minimum update path: implementation and actual trials
+
+Core connects manual local choice to native tool checks/missing-package installation,
+exact official Git source, digest-cached SDK/library archives, private preparation
+and the shared Rust source producer. Core supplies the child environment; the
+existing generation builder, signing, atomic activation and rollback consume its
+admitted output. The source target is the bundled qualified0.165 recipe, not every
+future upstream. Missing source qualification fails before the upstream archive
+or package provisioning. Official latest readback now identifies0.166, published
+2026-10-29T19:47:53Z (`minimum-update-official-latest-readback.json`); first0.165
+acceptance must not be presented as support for that newer target.
+
+The embedded producer inventory, Core environment construction and selected recipe
+identify local output caches. The complete wrapper lock conservatively binds its
+compiler-side dependencies; unrelated lock changes can over-invalidate local output.
+Private SDK/library records recheck every file's bytes/mode and each link target
+before reuse. An exclusive nonblocking directory lease prevents concurrent cache
+construction/reuse; a separate process check preserves incomplete output still used
+by children after their original owner exits. Explicit CARGO_HOME/CARGO_TARGET_DIR
+remain reusable developer inputs, with output under XDG cache. The minimum native
+path requires no separate project checkout, PRoot or installed Python runner.
+
+The final Core passes the real owned Base0.164 codex update path in53.60s
+(`minimum-update-final-v2.json`): discovery→interactive local choice→official package
+acquisition→admitted source-output cache→generation build/sign/install→actual0.165
+execution→rollback and actual0.164 execution. Auth/config/history/resolver sentinels
+survive. That exact installed generation passes3 actual Android commands,3 guardian
+approvals, original tool results, named permissions, cold resume/side thread and one
+backend (`minimum-update-final-native-actions.json`). Its model is a deterministic
+local HTTP fixture; no real account inference is claimed.
+
+This positive trial reuses the accepted5a1d75b6... raw runtime with its original
+source/version/lock-audit/profile records. The earlier complete shared-producer
+build and Native execution are above; imported bytes pass verify-runtime and Core
+admission. Final lease/identity/early-target-selection changes do not change those
+producer/compiler inputs. This is qualified cache reuse, not a fresh compile time.
+Transport is actual native curl and owned hostname-verified TLS carrying original
+retained archives and controlled metadata. Warm reuse performs no Git source fetch;
+the separate cold trial does. Public delivery and operating activation remain
+unperformed for this candidate.
+
+Unsupported0.166 selection fails in2.38s with the precise missing-qualified-recipe
+reason, zero archive requests and unchanged activation/protected state
+(`minimum-update-unsupported-v1.json`). That report's inherited cache-used/Git
+transport labels are inapplicable: the negative trial does neither. Moving recipe
+selection after acquisition in disposable source triggers an actual unwanted
+archive request and fails the same regression (`minimum-update-preflight-mutation.json`).
+The restored owned mutation worktree was removed; the production tree was not faulted.
+
+Cold-path evidence remains separate. The initial actual command completed SDK/
+C-library preparation and adaptation before rejecting a fixture OpenSSL executable
+alias (`minimum-update-e2e-v1.json`). Core resolves that reference for the strict
+shared audit API. The failed nine-file preparation was preserved, compared with the
+qualified reference using full Git object IDs and restored only in that inactive
+owned checkout (`minimum-update-v1-source-recovery.json`). Completed libraries/SDK
+were retained. A later test-prefix gzip alias was replaced by byte-identical real
+native files, matching the existing regular-file tool contract
+(`minimum-update-fixture-tool-correction.json`); no production validation was relaxed.
+
+The second cold command reached755/1411 before its supervisor/Core/compiler exited
+without a terminal result. Cause remains unknown; neither OOM nor a compiler error
+was established (`minimum-update-e2e-interruption-v2.json`). Original logs/cache remain.
+The same frozen Core was explicitly retried from that owned fixture: completed
+SDK/library tree admission, exact recorded source recovery, compiler probe, lock
+audit and incremental compilation resume, without another full preparation.
+Root is $TMPDIR/minimum-update-e2e-nffz1i54; current terminal-v3.log/resources-v3.jsonl
+and live-process.json must be revalidated before acting. Its terminal report is
+minimum-update-e2e-v3.json. This frozen Core predates later lease/identity refinements;
+final Core cache/installation behavior is independently proved above. A live cold
+trial is unfinished, never success inferred from an observation timeout.
+
+Python acceptance passes25+124+10 (`minimum-update-python-v1.log`). The interrupted
+Rust run completed Core232 plus the existing explicit real-device test exclusion,
+Manager52; resumed integration passes67+3, builder46 and binding2. Final targeted
+Core2 and workspace Clippy pass (`minimum-update-rust-v1.log`, continuation-v2/v3
+and minimum-update-final-core-gate-v3.log). The first continuation command named a
+nonexistent test target after the67-test pass; the remaining actual target was run.
+Clippy's constant-chunk warning was fixed with as_chunks; its failed original log
+remains. No skip/xfail or weaker assertion was added. Missing-package tests simulate
+pkg install, check requested protobuf and reject an absent post-install tool; an
+actual missing-package install on this device was not needed or claimed.
+
+Three additional disposable faults are detected: shared instead of exclusive cache
+ownership, omitted byte hashes and accepting upstream shared-OpenSSL options
+(`minimum-update-mutations-v1.json`). Original source/diffs/logs remain; restored
+owned mutation worktrees were removed. Source and final diff review cover the Core
+caller, source cache ownership/retry and the unchanged signing/activation consumer.
+No new test duplicates the existing full SDK/archive/permission matrices.
+
+Remaining for the minimum goal: terminal fresh-source result or a precisely
+justified reuse disposition; signed exact-source delivery/readback and disposable
+public update; bounded operating activation and user replay from0.164. Qualification
+of a new source recipe remains necessary for0.166. Preserve broader module planning,
+remote preparation, BTW and workspace concurrency as follow-up rather than reopening
+independent foundation batches before the minimum product path completes.
+
 Provider selection source is qualified: keep a shared store lease for installed
 legacy writers, serialize new selection changes through the existing Core activation
 lock, and retain old immutable processes/profiles across installation and rollback.

@@ -4359,6 +4359,40 @@ beside its compiler libraries, never in Cargo's exported target-library director
 Readiness requires the same real compile/link/static-ELF/execution probe used by
 runtime construction. SDK assembly alone does not qualify the remaining C library
 dependencies, source build, installation or public release.
+Native C-library preparation reads the selected immutable upstream commit's musl
+build scripts rather than copying dependency versions/hashes/options into another
+catalog. It accepts their supported literal assignment/Configure contract, reports
+changed or ambiguous syntax before acquisition/build, and never executes their host
+apt/sudo setup. The Rust producer snapshots and verifies the selected OpenSSL/libcap
+archives before extraction, builds static target libraries with the prepared SDK,
+and uses a native host compiler only for libcap's build-time generator. Configuration,
+headers, pkg-config files and libraries stay in new private output/build roots;
+existing roots are preserved. A failed build removes its new incomplete library
+prefix while retaining the explicit build directory/console diagnostics for analysis.
+Only libcap's C static library is requested; unrelated Go discovery is disabled.
+The resulting libraries must link and execute a static target probe that checks
+OpenSSL's selected version/SHA-256/TLS-context operations and reads/frees this
+process's capabilities. No network connection or capability modification is needed.
+Core's selected local build uses binary adaptation when its known policy is
+available, otherwise the bundled qualified source recipe matching the selected
+official version/archive. An unavailable source recipe is an explicit unsupported
+target, not permission to run an unverified binary policy. Resolve that selection
+before acquiring its upstream archive or provisioning build tools. Core owns required
+Termux package preparation, official source acquisition, SDK/dependency caches,
+progress and the existing signing/activation transaction. Source construction uses
+the shared Rust producer with an explicit child environment; it never mutates the
+parent process environment. Private cached SDK/libraries are rechecked against
+their recorded complete tree before execution/reuse. A cached raw runtime must
+pass the same source/version/digest/dependency artifact admission as a new build.
+The local cache identity binds both the shared producer and Core's build-environment
+construction. Hold an exclusive nonblocking lease on that cache for reuse or
+construction; an independently active cache owner is a cause-specific failure.
+Before recovering incomplete output, also detect surviving native children whose
+owner exited and released its lease. Preserve their source and outputs.
+Only fully admitted source output enters the ordinary generation builder/signing
+and rollback path. Current minimum acceptance prioritizes the Base0.164→0.165
+product path; future source recipes and broader module combinations retain their
+separate qualification requirements.
 
 Ordinary local results use the existing device-local derived signing authority and
 retain the admitted public update key/baseline. A configured signer whose public

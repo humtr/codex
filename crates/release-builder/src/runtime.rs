@@ -214,6 +214,42 @@ pub struct BuildRequest<'a> {
     pub rustc: &'a Path,
     pub cargo: &'a Path,
     pub openssl: &'a Path,
+    pub environment: Option<&'a BTreeMap<OsString, OsString>>,
+}
+
+/// Installed Core has no source checkout of this wrapper. Bind its local cache
+/// to the shipped producer inputs without requiring Git or Python for identity.
+pub fn input_bytes() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/runtime-inputs"))
+}
+
+/// The bundled owner-qualified source recipe; version/digest are checked before
+/// a local source build. A new recipe is an updateable wrapper build input.
+pub struct LocalRecipe {
+    pub bytes: &'static [u8],
+    pub revision: String,
+    pub identity: Vec<u8>,
+}
+
+pub fn local_recipe(version: &str, archive_sha256: &str) -> Result<LocalRecipe> {
+    const BYTES: &[u8] = include_bytes!("../../../release/upstream.json");
+    let value: Recipe = serde_json::from_slice(BYTES).map_err(|e| e.to_string())?;
+    if value.upstream.version != version || value.upstream.archive_sha256 != archive_sha256 {
+        return Err("no bundled qualified source recipe for the selected official release".into());
+    }
+    let identity = serde_json::to_vec(&(
+        &value.upstream.version,
+        &value.upstream.source,
+        &value.upstream.archive_sha256,
+        &value.toolchains.frontend_rust,
+        &value.qualification.lock_audit,
+    ))
+    .map_err(|e| e.to_string())?;
+    Ok(LocalRecipe {
+        bytes: BYTES,
+        revision: value.upstream.source,
+        identity,
+    })
 }
 
 pub(super) fn compile_target_probe(
@@ -274,7 +310,7 @@ pub(super) fn compile_target_probe(
     }
 }
 
-fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<Vec<u8>> {
+pub(super) fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<Vec<u8>> {
     let home = directory.join(".smoke-home");
     let codex_home = home.join(".codex");
     fs::DirBuilder::new()
@@ -349,6 +385,10 @@ fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<Vec<u8>> {
 /// Build only the source runtime. This grants no signing or installation authority.
 pub fn build(request: &BuildRequest<'_>) -> Result<String> {
     let recipe = recipe(request.recipe)?;
+    let environment = request
+        .environment
+        .cloned()
+        .unwrap_or_else(|| std::env::vars_os().collect());
     if !request.source.is_absolute()
         || request.source.is_symlink()
         || !request.source.is_dir()
@@ -366,7 +406,7 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
             "official runtime source differs or is not pristine; existing changes preserved".into(),
         );
     }
-    for (key, value) in std::env::vars_os() {
+    for (key, value) in &environment {
         let name = key.to_string_lossy();
         if !value.is_empty()
             && (matches!(
@@ -389,6 +429,8 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         output(
             Command::new(request.rustc)
                 .args(args)
+                .env_clear()
+                .envs(&environment)
                 .env("RUSTUP_TOOLCHAIN", &recipe.toolchains.frontend_rust),
             "prepared Rust compiler",
         )
@@ -425,7 +467,11 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         request.rustc,
         request.output,
         &recipe.toolchains.frontend_rust,
-        std::env::var_os("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER").as_deref(),
+        environment
+            .get(std::ffi::OsStr::new(
+                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
+            ))
+            .map(OsString::as_os_str),
     )?;
     println!("[runtime] adapt exact official source");
     let preparation = super::source::prepare(
@@ -462,11 +508,13 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
             "codex",
         ])
         .current_dir(request.source.join("codex-rs"))
+        .env_clear()
+        .envs(&environment)
         .envs(BUILD)
         .env("RUSTC", request.rustc)
         .env("RUSTUP_TOOLCHAIN", &recipe.toolchains.frontend_rust)
         .env("CARGO_TARGET_DIR", request.target_dir);
-    if std::env::var_os("CARGO_BUILD_JOBS").is_none() {
+    if !environment.contains_key(std::ffi::OsStr::new("CARGO_BUILD_JOBS")) {
         cargo.env("CARGO_BUILD_JOBS", "3");
     }
     let status = cargo
@@ -552,6 +600,7 @@ pub(super) fn command(args: &[OsString]) -> i32 {
             rustc: fields["--rustc"],
             cargo: fields["--cargo"],
             openssl: fields["--openssl"],
+            environment: None,
         })
     })();
     match result {
@@ -738,6 +787,7 @@ mod tests {
             rustc: &absent,
             cargo: &absent,
             openssl: &absent,
+            environment: None,
         })
         .unwrap_err();
         assert!(error.contains("not pristine"), "{error}");
@@ -771,6 +821,7 @@ mod tests {
             rustc: &rustc,
             cargo: &root.join("must-not-run-cargo"),
             openssl: &openssl(),
+            environment: None,
         })
         .unwrap_err();
         assert!(
@@ -814,6 +865,7 @@ mod tests {
             rustc: &rustc,
             cargo: &root.join("must-not-run-cargo"),
             openssl: &openssl(),
+            environment: None,
         })
         .unwrap_err();
         assert!(
