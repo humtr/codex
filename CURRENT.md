@@ -38,11 +38,24 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**In development: the approved complete update lifecycle after actual Base124
-installation. SPEC now requires selective component reuse, two-hour preparation,
-keep/local/remote build choice, dependency preparation and explicit signer authority.
-The complete lifecycle is not yet qualified or deployed; accepted subscopes below
-do not replace the operating Base and complete rollback.**
+**Current user-revised goal: secure a quality-qualified minimum end-to-end update
+path, rather than finish every lifecycle extension before users can update.**
+Priority is a real Base0.164→codex update→official release discovery/choice→automatic
+required tool/source preparation/build→authorized signing/install→actual execution
+and rollback, followed by a user-reproducible operating installation. Preserve
+profiles/auth/conversations, unchanged installed modules, current/rollback artifacts,
+admission/compatibility and observable failures throughout. Reuse accepted proof
+when inputs/environment/contracts match; combine remaining implementation and
+qualification around that complete product path instead of another foundation-only
+batch. Independent local source/cache proofs alone do not satisfy this goal.
+Broader selective-module planning, two-hour remote preparation, optional executors/
+mirrors, performance refinements and agent/BTW extensions remain approved follow-up
+scope below; their absence must not conceal a missing step in the minimum path.
+Signed delivery/device activation/user replay remain distinct completion evidence;
+the first producer/consumer trial must not silently replace their quality gates.
+The complete broader lifecycle is not yet qualified or deployed. The available
+goal API exposes status changes but no active-objective text edit; its previous
+stored wording is not evidence that the user's revised completion scope was ignored.
 Provider20 actual ordinary Android join after backend replacement, file execution,
 live TUI final and exact original final-text comparison pass at the scope below.
 Original host identity and unjoined requests remain visibility limits to investigate,
@@ -2654,6 +2667,34 @@ hand off to a persistent work item; do not pretend an expired thread is resumabl
 Prefer native events/callbacks to periodic ChatGPT conversation crawling. Decide
 whether BTW is suitable for short bounded workers, operator side conversations or
 both only after these actual product-path probes, including ordinary ChatGPT input.
+
+### Follow-up: workspace execution ownership and parallel work
+
+native_workspace_writer_busy is not a one-process limit. The current Provider
+create/resume/fork admission in src/operator.rs rejects an explicitly supplied
+workspace when a tracked work is neither completed nor stopped and its workspace
+overlaps by ancestor/descendant. Before that check, native observation refreshes
+only running Provider works. Reconciliation-required or waiting Direct work can
+therefore prevent admission without this check proving an active workspace writer.
+Readonly journal inspection of the canonical38-work index found3 reconciliation-
+required Provider records and1 waiting_native Direct record overlapping prj/codex;
+historical duplicate records were excluded. No record/controller/process was
+stopped or rewritten. These states explain a reachable rejection but do not prove
+which caller/request failed or whether each native owner is currently writing.
+
+Recommended improvement: reuse/join the same development work for the same task;
+put independent parallel writers in separate disposable Git worktrees with reviewed
+integration. Separate conversation/work lifetime from actual mutation ownership.
+Reconcile actual native owners and cancellation/completion before granting a new
+writer; report the blocking work/phase and an actionable join/handoff or isolation
+choice. Investigate read-only work admission and a bounded mutation lease with
+change-precondition checks, preserving requested write capability and existing MCP
+annotation policy. The present work-record check is also not proof that an external
+CLI writer was discovered. Do not infer exclusivity from a Provider phase alone.
+Required proof includes no current native owner, a truly busy owner, abandoned/
+reconciliation state, Direct/Provider completion, readonly activity, overlapping
+paths and separate worktrees. Keep this concurrency improvement separate from the
+minimum update path unless it actually blocks that path.
 
 ### Budget policy
 
