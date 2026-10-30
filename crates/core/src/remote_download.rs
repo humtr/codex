@@ -531,7 +531,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
     #[test]
     fn slow_https_progress_extends_payload_timeout_but_stalls_fail() {
         let mut f = fixture();
-        let data = vec![42; 1024];
+        let data = vec![42; 2048];
         let entry = entry(&f, &data);
         let url = serve(&mut f);
         fs::write(f.root.join("mode"), "stall").unwrap();
