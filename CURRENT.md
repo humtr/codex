@@ -964,6 +964,29 @@ ownership, omitted byte hashes and accepting upstream shared-OpenSSL options
 owned mutation worktrees were removed. Source and final diff review cover the Core
 caller, source cache ownership/retry and the unchanged signing/activation consumer.
 No new test duplicates the existing full SDK/archive/permission matrices.
+
+Hosted source acceptance41007247967 at e96bb49 fails at two portable boundaries;
+its original complete failed log is minimum-update-hosted-source-failed.log.
+On curl8.5 an ignored Range can be rejected by its remaining-byte filesize check
+before its Range check, returning63/HTTP200 with the original prefix intact. Core
+now discards that unusable prefix while preserving the real cause and unchanged
+byte limit/no-automatic-retry policy. The existing real-TLS regression still checks
+successful resume, ignored Range, corruption, offline reuse and removal; it accepts
+the independently established filesize/200 rejection as well as Range rejection.
+An injected old-curl process result specifically verifies prefix cleanup and the
+unchanged raw cause (minimum-update-range-gate-v1.log). Relevant primary implementation:
+[curl8.5 HTTP size check](https://github.com/curl/curl/blob/curl-8_5_0/lib/http.c#L3675)
+and [Range check](https://github.com/curl/curl/blob/curl-8_5_0/lib/http.c#L2880).
+
+The other failure is a renamed test's stale workflow filter: it ran with the host
+ELF instead of the existing special Android Core artifact. The same existing
+special-test exclusion/rerun is renamed to its real Core declaration; its strict
+one-test acceptance remains. No additional test is skipped. Source-workflow tests
+now resolve each named target against actual Core declarations and pass3 cases.
+Disabling63-prefix cleanup or removing the workflow's named Core declaration fails
+the respective regression in disposable source (minimum-update-hosted-mutations.json).
+The copied source was restored/removed. These local five download tests, Clippy and
+source-workflow proof do not replace the pending hosted old-curl/NDK rerun.
 The final candidate is frozen outside mutable compiler output and bound in
 minimum-update-accepted-candidate.json; its source implementation is4f7540c.
 After successful Native proofs, inactive fixture cleanup archived12 manifest-matched

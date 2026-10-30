@@ -5573,6 +5573,10 @@ Partial bytes never authorize execution: final authenticated size/digest checks
 precede staging. Control documents are always freshly acquired and authenticated.
 A server rejecting Range produces an explicit error; corrupt completed objects
 are discarded and never admitted. Cache contention never permits concurrent writes.
+An ignored resume can fail as curl's Range error or, when its full200 response
+exceeds the remaining-byte limit first, as filesize-exceeded. Both invalidate the
+partial object for the next explicit attempt. Preserve the actual curl/HTTP cause;
+do not relax byte limits or retry automatically to hide it.
 
 Acquisition uses one create-new `.acquire-<pid>-<counter>` directory beneath the
 generation root and create-new output files beneath that directory. Core attempts

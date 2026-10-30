@@ -304,18 +304,32 @@ pub(super) fn payload(
         match fetch(roots, url, &file, reserve, timeout, size, progress) {
             Ok(n) => size = n,
             Err(error) => {
-                if matches!(
-                    error,
-                    LocalProductError::RemoteResponseTooLarge
-                        | LocalProductError::RemoteTransportFailed {
-                            code: Some(33 | 36),
+                // Some curl versions reject the full200 response against the
+                // remaining-byte bound before reporting ignored Range. Keeping
+                // that prefix would repeat the same unusable resume forever.
+                let ignored_range_size = size != 0
+                    && matches!(
+                        error,
+                        LocalProductError::RemoteTransportFailed {
+                            code: Some(63),
+                            http_status: Some(200),
                             ..
                         }
-                        | LocalProductError::RemoteTransportFailed {
-                            http_status: Some(416),
-                            ..
-                        }
-                ) {
+                    );
+                if ignored_range_size
+                    || matches!(
+                        error,
+                        LocalProductError::RemoteResponseTooLarge
+                            | LocalProductError::RemoteTransportFailed {
+                                code: Some(33 | 36),
+                                ..
+                            }
+                            | LocalProductError::RemoteTransportFailed {
+                                http_status: Some(416),
+                                ..
+                            }
+                    )
+                {
                     fs::remove_file(&path).map_err(io)?;
                 }
                 return Err(error);
@@ -543,6 +557,10 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                         } | LocalProductError::RemoteTransportFailed {
                             http_status: Some(416),
                             ..
+                        } | LocalProductError::RemoteTransportFailed {
+                            code: Some(63),
+                            http_status: Some(200),
+                            ..
                         }
                     ),
                     "{error}"
@@ -581,6 +599,59 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
         )
         .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), data);
+    }
+
+    #[test]
+    fn ignored_resume_filesize_error_discards_partial_without_masking_cause() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = fixture();
+        let entry = entry(&f, b"12345678");
+        let cache = f.root.join("downloads-v1");
+        drop(private_directory(&cache).unwrap());
+        let part = cache.join(format!("{}.part", entry.sha256));
+        let mut file = cache_file(&part).unwrap();
+        std::io::Write::write_all(&mut file, b"1234").unwrap();
+        // Inject the old-curl error at its process boundary. The real TLS test
+        // above independently covers actual socket/Range/body handling.
+        let shell = f.roots.openssl.parent().unwrap().join("sh");
+        f.roots.curl = f.root.join("curl");
+        fs::write(
+            &f.roots.curl,
+            format!(
+                "#!{}\nprintf '%s' 'CODEX_HTTP_STATUS=200' >&2\nexit 63\n",
+                shell.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&f.roots.curl, fs::Permissions::from_mode(0o700)).unwrap();
+        let dest = f.root.join("download");
+        let error = payload(
+            &f.roots,
+            "https://unused.invalid/",
+            &dest,
+            &entry,
+            PayloadOptions {
+                limit: 8,
+                expected_size: Some(8),
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            LocalProductError::RemoteTransportFailed {
+                code: Some(63),
+                http_status: Some(200),
+                bytes: 4,
+                ..
+            }
+        ));
+        assert!(!dest.exists());
+        assert!(
+            !part.exists(),
+            "unusable prefix must not force another resume"
+        );
     }
 
     #[test]

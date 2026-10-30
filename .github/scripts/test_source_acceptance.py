@@ -37,13 +37,16 @@ class SourceAcceptanceTests(unittest.TestCase):
         self.assertEqual(isolated.count('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test'), 3)
         android_artifact_tests = {
             'test_r6_builder_publish_output_enters_existing_signed_release_admission',
-            'test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority',
+            'test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority',
             'test_tui_public_local_build_preserves_optional_components_and_matching_version',
         }
         self.assertEqual(set(re.findall(r'--skip ([a-z0-9_]+)', isolated)), android_artifact_tests)
         self.assertEqual(set(re.findall(
             r'CODEX_B10_RELEASE_CORE="\$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::([a-z0-9_]+) -- --exact --nocapture --test-threads=1',
             isolated)), android_artifact_tests)
+        core = (ROOT / 'crates/core/src/main.rs').read_text()
+        for test in android_artifact_tests:
+            self.assertRegex(core, rf'\bfn {test}\s*\(')
         self.assertNotIn('sudo cargo', isolated)
         self.assertIn('--bounding-set=-all --inh-caps=-all --ambient-caps=-all', isolated)
         self.assertEqual(workflow.count('git -C source fetch --no-tags --depth=2'), 2)
