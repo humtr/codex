@@ -4395,8 +4395,12 @@ construction; an independently active cache owner is a cause-specific failure.
 Before recovering incomplete output, also detect surviving native children whose
 owner exited and released its lease. Preserve their source and outputs.
 Only fully admitted source output enters the ordinary generation builder/signing
-and rollback path. Current minimum acceptance prioritizes the Base0.164→0.165
-product path; future source recipes and broader module combinations retain their
+and rollback path. The admitted bundled native tuple is now0.166.0 with Rust1.99.1,
+following actual Termux source compilation, local signing, execution and rollback.
+The preceding0.165 tuple remains recorded in Git and retained Core packages;
+the bundled native target advances independently of installed/rollback runtimes.
+Current minimum acceptance prioritizes the Base0.164→0.166 product path;
+future source recipes and broader module combinations retain their
 separate qualification requirements.
 
 Ordinary local results use the existing device-local derived signing authority and
