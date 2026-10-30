@@ -434,14 +434,18 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
-Manual update also checks the official stable version. In the development updater,
-a missing qualified release offers one choice: keep the installed version, build
+The new Core resolves the public release's logical paths to immutable GitHub
+Release assets, including helpers retained from older releases. Signatures and
+the complete inventory still authorize installation. Custom HTTPS origins keep
+their configured routes. The legacy Worker remains available for older Core
+clients; new-Core payload acquisition does not require it.
+
+Manual update also checks the official stable version. When no qualified release
+is available, Core offers one choice: keep the installed version, build
 locally, or request a remote build. Set `CODEX_TERMUX_UPDATE_BUILD_POLICY` to
 `keep`, `local`, `remote` or `ask`, or put that value in
 `~/.local/share/codex/core/config/update-policy`. Without an explicit policy,
 noninteractive missing-artifact updates stop instead of dispatching a build.
-The operating Base124 still has the earlier request behavior until this candidate
-passes qualification and is released.
 
 `codex update --wait` explicitly requests/reuses a remote build and waits;
 `--no-wait` requests/reuses it and continues immediately on a terminal. During
@@ -450,16 +454,23 @@ remote adapter needs `gh` and repository access (`gh auth login`); installing a
 ready public release requires neither GitHub access nor a model login. Normal
 `codex` launch never requests a build.
 
-The candidate reports the actual publication job/stage and terminal failures,
+Core reports the actual publication job/stage and terminal failures,
 separately from request acknowledgement. HTTPS failures retain their curl cause,
 byte count and elapsed time; they never start a local build. A bounded private
 payload cache resumes interrupted downloads on the next explicit attempt and
 reuses complete verified objects. Fresh control signatures and final inventory
 checks still authorize installation. Server Range refusal or changed content
-fails explicitly and discards invalid partial bytes. Local source compilation and
-automatic dependency preparation remain under development;
-the existing local builder supports only its qualified adaptation recipes.
-The next-Core candidate supports an explicitly configured local-build signer:
+fails explicitly and discards invalid partial bytes. Payload timeouts measure
+time without receiving additional bytes, so a progressing slow download can
+finish; connection and control-request deadlines remain bounded. Already retained
+target/current payloads are verified and reused before downloading them again.
+Local source construction prepares the qualified toolchain/dependencies and
+builds the bundled qualified source tuple (currently0.166 with Rust1.99.1).
+Recognized older binary-adaptation recipes remain available. Unknown source or
+patch patterns stop with a specific reason; arbitrary future-version builds are
+not promised. Ready signed releases need no local compiler.
+
+An explicitly configured local-build signer is supported:
 put one `file:/absolute/path/to/key.pem` reference in
 `~/.local/share/codex/core/config/build-signing-key`. The owner-only Ed25519 key
 must match the installation's admitted public update key. Invalid configuration
@@ -747,11 +758,14 @@ normalization and pristine input timestamps (`prepare-source`, `normalize-lock`,
 as `CODEX_RELEASE_BUILDER`; these rules no longer have Python implementations.
 The same Rust library also owns `build-runtime` and `verify-runtime`, used by
 CI for source compilation and transferred artifact checks. Python remains for
-independent development tests and CI input metadata/wiring. Candidate Core now
-connects native source preparation/build to ordinary signing/installation for its
-qualified native recipe. Cache-backed actual update/rollback passes; cold source
-construction, complete final acceptance and delivery remain separate proof
-boundaries in [CURRENT](CURRENT.md#minimum-update-path-implementation-and-actual-trials).
+independent development tests and CI input metadata/wiring. Core connects native
+source preparation/build to ordinary signing/installation for its qualified tuple.
+Actual Android0.166 source compilation, signing, installation, execution and
+0.164 rollback pass through a resumed owned compiler cache. The final Core also
+verifies/reuses that completed artifact without recompiling. This is distinct
+from an uninterrupted empty-cache build. Exact source, public delivery, device
+activation and remaining work are recorded in
+[CURRENT](CURRENT.md#product-completion-scope-and-work-order).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 

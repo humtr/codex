@@ -232,12 +232,20 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 ## Priority0: upstream update build, delivery and user replay
 
-The Base-only reproduction is complete: actual device readback now selects
-`local-base-relay-hosted-0-165-0-7f557c208856-s124`, and actual `codex --version`
-returns `codex-cli 0.165.0`. Previous is `local-1793204956-318-2`. This confirms
-installation and executable version, not migration of already running processes.
-Latest scope is complete development of the approved update lifecycle. New source
-policy is under qualification; operating Base124 has not been replaced.
+The latest implementation, delivery and device evidence are authoritative in
+[Product completion scope and work order](#product-completion-scope-and-work-order).
+The device intentionally selects0.164 for the user's plain `codex update` replay,
+after actual signed Base128/0.166 update/rollback passed. Final source00e0ed1
+has source/runtime acceptance, signed public delivery and actual device proof;
+existing process images and optional modules remain separate selections.
+The sections below retain the earlier Base124 investigation and scoped proofs.
+
+### Earlier Base124 reproduction and failure evidence
+
+The earlier actual device selected
+`local-base-relay-hosted-0-165-0-7f557c208856-s124` and executed0.165.0,
+with previous local-1793204956-318-2. This established that historical activation,
+not the current selection or migration of existing running processes.
 The earlier requirement to observe
 upstream discovery and a real build request was exercised by request40772864929
 and publication40772954167. That publication promoted signed Base124 for0.165,
@@ -267,24 +275,27 @@ The later actual-device readback above confirms the user has now installed Base.
 Base selection uses the existing explicit local
 admission; no product code or CI repair was deployed for this narrowed scope.
 
-This is installation qualification, not a repaired remote updater. The original
-actual-HTTPS Base-index trial failed after476.96s, following an incomplete transfer
+That Base124 local-package result was installation qualification, not evidence
+of a repaired remote updater. The original actual-HTTPS Base-index trial failed
+after476.96s, following an incomplete transfer
 with local fallback and a misleading frontend-version error. The explicit remote
 trial failed after300.8s with a generic transport error. Original results/logs are
 base-public-replay.json, base-public-direct.json and the recorded disposable root's
 terminal logs. The five-minute payload deadline is implicated, but the exact curl
-exit code was not captured. Remote acquisition/fallback diagnosis remains open;
-do not claim plain remote update was fixed by preparing this local package.
+exit code was not captured. Its local package did not repair remote acquisition;
+the later actual plain-update/rollback proof is recorded in the authoritative
+completion section.
 
 ### Approved update lifecycle: implementation and qualification
 
-The current batch removes transport-to-build fallback and the obsolete boolean
-result wrapper. Core now selects a missing-artifact policy (`ask`, `keep`, `local`,
+The qualified implementation removes transport-to-build fallback and the
+obsolete boolean result wrapper. Core now selects a missing-artifact policy
+(`ask`, `keep`, `local`,
 `remote`) before activation; explicit wait flags retain remote-request semantics.
 A local selection carries the exact official version/digest shown in that choice.
-This policy does not yet supply the missing native source compiler/dependency
-executor. The old qualified binary adaptation remains, with unsupported recipes
-reported as failures.
+The later shared Rust source producer/dependency executor supplies the qualified
+native tuple; old binary adaptation remains available. Unsupported recipes fail
+explicitly. Its actual-source proof is recorded in the completion section.
 
 `remote_download.rs` owns bounded HTTPS execution and a private 1 GiB content
 cache outside activation staging. It preserves partial bytes across failed
@@ -292,14 +303,16 @@ attempts, resumes with Range only on the next explicit attempt, verifies signed
 size/hash before staging, rejects changed content and discards rejected Range
 partials. Complete cache files are rehashed before reuse. A directory lease
 prevents competing writers/eviction; aliases, hard links and nonprivate entries
-are rejected. Controls remain freshly authenticated. Connect, low-throughput and
-overall deadlines are separate, and errors expose curl/HTTP status, output bytes
+are rejected. Controls remain freshly authenticated. Payloads now use progress/
+idle deadlines; connect and control deadlines remain bounded. Errors expose
+curl/HTTP status, output bytes
 and elapsed time without exposing raw curl diagnostics or redirected URLs.
 
 The selective deferred fixes are now in source: actual publication stage/failure
 observation, explicit retry only after a proven terminal failure, and mandatory
 Android smoke even after skipped optional producer dependencies. Two-hour
-preparation is source cron `17 */2 * * *`, not yet activated remotely. Stash
+preparation uses the published controller cron `17 */2 * * *`.
+Exact-source/publication results are recorded in the completion section. Stash
 runtime-artifact/GitHub cache reuse was not imported as the final build architecture.
 
 Qualification evidence is under `~/.cache/codex/acceptance/update-lifecycle-20261029`.
@@ -2481,14 +2494,14 @@ provider18-operating-web-mcp.json under the service/tunnel root.
 
 | Plane | Last verified state and boundary |
 | --- | --- |
-| Product source | Providere78d83a; CoreFull121 e3f6e27; wrapper tunnel recipe3236692; sources and selections are independently recorded |
-| Core | Full121: local-relay-hosted-0-164-0-e3f6e27f0ca6-s121; actual normal Full119→121 update; prior119 retained |
-| Native runtime | Upstream0.164.0, source6aaac694803004a63c6f393d153c96d22521a6b9 |
-| TUI | Frontend source79b9d66; hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations and lint proof40517442561; installed fresh-home resume passes |
+| Product source | Core00e0ed1: source/runtime gates41062254814/41063039044; signed Base128 publication41066370680 attempt3 passes after bounded draft recovery. Stable promotion main675c38209068ee828e692962b63773024d9147cd; Provider/tunnel selections are independent |
+| Core | Intentionally restored replay local-1793363754-4266-2/0.164 after actual plain update to signed Base128/0.166 and rollback; previous Base128 retained. Replay keeps the original older Core; next plain update installs signed Core128. The newly created rollback hold alone was backed up/reset for the requested ordinary-command replay |
+| Native runtime | Current replay0.164; actual Base1280.166 execution and local-source0.166 compilation/install/rollback pass. Eleven existing Native process images survived both operating update and rollback unchanged; they need not match the current selection |
+| TUI | Selected Base uses its ordinary upstream TUI. Optional enhanced frontend79b9d66 has historical hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations/lint40517442561 and fresh-home resume proof; no qualified0.166 enhanced Full is claimed |
 | Provider | chatgpt-e78d83a69d3e-s21, sourcee78d83a, high-water21/previous20; actual signed update and profile rebinding |
-| Service/host | At latest activation: actual Provider PID19747 matched runit's supervised PID, startup=supervised; original authenticated identity, ready idle host |
+| Service/host | Historical Provider21 activation had matching process/runit PID19747, startup=supervised and authenticated ready idle host. Repeated Termux exits mean this is not current process-health readback |
 | Preserved state | Provider21 activation preserves37 works/phases,16 protected files and13 Native owners. Provider20 activation preserved37 work identities/phases,16 protected files and12 existing Native owners. Provider19 preserved36 works/9 owners. Prior Provider18 preserved8 owners. Provider16 maintenance preserved35 works/6 owners. Prior Provider15 migration preserved17 files/4 owners and converted62 control records, including previous controllers |
-| Operating MCP | Provider21 one-refresh readback:17 full schemas/fixed flags, all registered/live descriptions current and37 works; same connector/tunnel. Cloud omits idempotentHint |
+| Operating MCP | At Provider21 activation: one-refresh readback of17 full schemas/fixed flags, matching registered/live descriptions and37 works on the same connector/tunnel. Cloud omits idempotentHint; no fresh post-termination MCP health claim |
 | Host version | Existing app26.1007.21434; activation itself made no model request or physical-screen observation |
 | Tunnel | Codex-only v0.0.18-termux-0ad5d2db16a9, SHA082d7b04…; runit restarts it during Provider maintenance, each activation records its actual process identity. Prior child PIDs are historical; old scoped image retained. Global0.0.14 and2 unrelated consumers unchanged; automatic optional/Full distribution unshipped |
 | History/project | Default Project: ChatGPT (g-p-6adf2b7125d88191bf74947acb7f09e6), project/MCP mode; seed Chat6adf2ada… retains Project: Codex membership |
@@ -2876,23 +2889,97 @@ call must not execute before grant or be replayed by a new logical call ID.
 
 This section is the authoritative execution order for unfinished work. Older
 suggested orders and numbered batches elsewhere retain their evidence, not a
-competing queue. Implementation of phases0–2 is now authorized and underway;
-later phases are preserved work, not additional prerequisites for the current
-quality-qualified minimum update goal. Existing owned builds keep their identity.
+competing queue. Phases0–2 are complete at the recorded scopes: exact-source
+acceptance, signed Base128 delivery, actual operating update/rollback and the
+requested0.164 replay state. Phases3–10 remain unfinished and were not additional
+prerequisites for this quality-qualified minimum update batch. Earlier interrupted
+builds retain their identities and failure/unknown outcomes.
 
-### Reviewed starting point and design decisions
+### Reviewed implementation and qualified results
 
-- The implementation baseline is c31b11b82dc06beaa546c403b5a30d06d7a4161f;
-  bf5dd73 contains the plan only, and 57f0d80 repairs source-CI Bash provisioning.
-  The current GitHub-native transport remains an unqualified working-tree candidate.
-  Last device state readback selected
-  Base124/0.165; previous is local-1793204956-318-2. Authenticated public heads are
-  Base125/0.166 and Full123/0.164 at main2734c121. Recheck before activation;
-  operating, public and candidate versions are different facts.
-- The native0.165 producer/SDK, cache-backed manual update/rollback and actual
-  Native commands have scoped proof. The latest separated-recipe trial also fetched
-  the original archive from actual official HTTPS and passes in68.18s. This does
-  not complete the cold automatic build, final candidate delivery or user replay.
+- Reviewed implementation source is00e0ed11a04b15764cce408483afc0e615a3e364.
+  Terra's native GitHub acquisition, bounded map, signed logical inventory,
+  idle-based payload timeout and ordinary admission/rollback are retained.
+  There is one updater and no replacement runtime layout. Custom HTTPS origins
+  retain their routes. Older clients and publishing head/composition discovery
+  still use the deployed Worker; new-Core payload acquisition does not need it.
+  Exact source acceptance41062254814 and independent Core/runtime qualification
+  41063039044 both pass. The latter includes Android/AArch64 execution.
+  Final Base128/0.166 (source00e0ed1, publication41066370680 attempt3) passed
+  build/Android smoke/signing, complete public readback/disposable update and
+  non-forced stable promotion. Actual ordinary operating update/rollback also
+  passed. Base127/84991f9 and its separate publication41054563556 remain the
+  predecessor's original proof, not the final native-recipe integration.
+  Publication attempts1/2 passed compilation, Android execution and signing but
+  stopped at draft metadata editing with GitHub API HTTP500; the completion
+  notification also returned500. Original attempt/job logs remain preserved.
+  Owner API recovery reuses the exact signed producer artifact and existing
+  prepare-assets/compose verifiers, verifies all13 uploaded draft assets by actual
+  byte readback, then publishes the same immutable candidate. No public asset was
+  replaced and no stable pointer was moved by that recovery. The draft's body-only
+  PATCH unexpectedly changed its tag to untagged-...; the identity guard stopped
+  publication, and an explicit tag/target/body/draft/prerelease payload restored
+  the expected identity before upload/publish. This does not establish a global
+  GitHub outage or prove a repository-code cause of the Actions HTTP500. Attempt3
+  passed normal public readback/disposable proof/CAS from that exact published
+  candidate; its completion notification also passed. Automatic initial-draft
+  registration is not claimed to have passed in this final run.
+  Recovery source/results: minimum-update-publication128-recovery-root.txt and
+  its manual-stage-result.json; phase7 must investigate the actual Actions request
+  and make draft recovery reliable without overwriting published assets.
+  Full remains the separately qualified Full123/0.164 combination; no0.166 Full
+  is claimed when its frontend qualification is unavailable.
+- Takeover found a real acquisition defect: force-update after rollback downloaded
+  the target runtime again when that exact signed generation was retained but its
+  private download cache was absent. Earlier actual attempts preserved curl56 at
+  72,500,352 and95,302,976 bytes; a206 response confirmed the correct resume offset,
+  not a completed real-public download. Source84991f9 reuses the exact retained
+  target through the existing owned regular-file/size/mode/SHA-checked copier,
+  then the matching current generation, then normal download. Fresh signed
+  controls/sizes and complete candidate admission remain mandatory. It neither
+  scans arbitrary generations nor repairs corrupt immutable packages.
+  The strengthened Base/Full regression removes both runtime origin and cached
+  bytes: original code fails, fixed code passes, and a disposable fault removing
+  target reuse fails (minimum-update-retained-target-{before-v2,after,mutation}.log;
+  minimum-update-retained-target-validation.json). On actual Android the
+  exact-source Core installs/executes retained signed Base126 in18.53s with both
+  Worker and runtime network denied and protected fixture state unchanged
+  (minimum-update-retained-target-android-v1.json). Runtime-source reuse also
+  passes41053807998; Base127 complete public proof is41054563556.
+- Final actual operating plain `codex update` from the original installed Core
+  with0.164 runtime selected signed Base128/0.166 in44.15s, then actual rollback
+  executed0.164. All51 recorded auth/config/resolver files and11 original Native
+  images (PID/start tick/executable identity) remained unchanged after both actions.
+  There was no version/index override or product-model inference. `command -v`
+  resolves the tested ordinary entrypoint $PREFIX/bin/codex.
+  The user explicitly requested ordinary-command replay: only this new local
+  rollback hold was backed up/reset; public keys/sequence policy, immutable
+  packages and user settings were preserved. Current is the authorized replay
+  local-1793363754-4266-2/0.164, previous signed Base128. A normal `codex update`
+  now has a ready signed0.166 artifact to install; it should not request another
+  build just to reproduce the earlier missing-artifact path. Final records are
+  minimum-update-live-replay-final/{admission,result}.json, plain-update.pty and
+  before/after-native-images records. Earlier Base127's42.44s update/rollback proof
+  remains separately in minimum-update-live-replay; it was not overwritten.
+- The native0.166 source producer completed on this Android device with the
+  qualified Rust1.99.1 SDK. Actual source compilation, local signing, installation,
+  0.166 execution and0.164 rollback all pass, preserving fixture auth/config/
+  history/resolver (minimum-update-native166-e2e-v6.json). This resumes the exact
+  owned compiler cache after interrupted attempts; it is not an uninterrupted
+  empty-cache cold-build claim. Source00e0ed1 ships that exact tested tuple.
+  Its final-source Android Core independently verifies/reuses the completed raw
+  artifact, signs/installs it in15.94s, executes0.166 and rolls back0.164 with
+  protected state unchanged (minimum-update-native166-final-consumer-v1.json).
+  This consumer uses the source-qualified unsigned Core in a private fixture.
+  The separate signed Base128 delivery and operating update/rollback above prove
+  public/device activation; they are not inferred from that fixture.
+  Native recipe qualification.focused_tests=65 is inherited shared-schema
+  metadata, range-checked by runtime::recipe; it is not evidence that65 upstream
+  focused tests ran on this native166 build. Native admission here rests on exact
+  preparation/audit, compiled artifact verification and actual execution/rollback.
+  Phase7 should remove or separate that unused native count at the shared schema's
+  producers/consumers, with cache/release-input migration; do not manufacture a
+  native test claim from its value.
 - Source acceptance41008373030 at c31b11b fails in two builder tests: the C/C++
   adapter and unusable-linker fixtures execute PREFIX/bin/bash, while that CI
   provisioning step installed sh and other tools but no bash. Original log:
@@ -2900,7 +2987,15 @@ quality-qualified minimum update goal. Existing owned builds keep their identity
   provisioning boundary. On Android, the original and corrected workflow steps
   were exercised in disposable prefixes: both specific tests failed before and
   passed afterward; minimum-update-ci-bash-local-v1.{json,log} records the runs.
-  Final candidate hosted source acceptance remains required.
+  Once Bash was present, fa6's hosted run exposed the analogous missing cp used by
+  the gzip wrapper in the Core identity fault fixture. Its original failure is
+  minimum-update-hosted-source-fa6-failed.log. The unchanged fixture test body
+  ran with the recorded earlier Android test harness and exact fa6 hosted Core:
+  the original CI tool block failed with the same tar error, while adding cp
+  passed all its cases (minimum-update-ci-cp-local-v2.json). Commit6d5aa84 fixes
+  that provisioning boundary; final exact-source acceptance41062254814 passes.
+  The earlier independent fa6 runtime producer completed before pushing this fix,
+  avoiding simultaneous duplicate hosted producers of the same inputs.
 - Independent Core/runtime qualification41008373121 completed successfully at
   c31b11b, including Android/AArch64 executable smoke; original source
   acceptance41007247967 failed, and its obsolete
@@ -2924,23 +3019,48 @@ quality-qualified minimum update goal. Existing owned builds keep their identity
   that the entire publishing pipeline is Worker-independent. A disposable fault
   routing helpers/0 to helper-1 failed the update regression as intended; its source
   was restored and faulted compiler output reclaimed (`minimum-update-github-mutation-v1.json`).
-  Full acceptance, signing and delivery remain to be proved.
-- The native0.166 recipe experiment prepared exact official source and reproduced
-  its dependency audit with Rust1.99.1, but this is not yet a qualified build.
-  An actual missing-artifact local-build selection used the real official archive;
-  it timed out at 152,243,571 of 187,370,368 bytes after300s, retaining the private
-  download prefix (`minimum-update-native166-e2e-v3.json`). The origin confirmed
-  HTTP206 for that offset; a new actual update resumed the same owned prefix,
-  admitted the archive and reached official Git source fetch under
-  $TMPDIR/minimum-native166-retry-z57tzj14/resume-v4.py. Check its supervisor,
-  exact process descendants, terminal-v4.log and result before starting another build.
+  That early result did not prove final-source delivery; the later exact-source
+  gates/publication and device proofs above own those outcomes.
+- Original native0.166 trial failures remain preserved. The real official archive
+  download first stopped at152,243,571/187,370,368 bytes after300s
+  (minimum-update-native166-e2e-v3.json). A206 response confirmed that resume
+  offset. Resume-v4 admitted the archive and prepared/audited exact source, but
+  its supervisor explicitly cancelled the still-running compile at its three-hour
+  proof deadline (v4.json); this was not a compiler error. Resume-v5 reached
+  codex-core1249/1415 before supervisor/updater/compiler all disappeared during
+  the reported Termux termination, without an exit status (v5-interruption.json).
+  Its last available-memory sample was about1.42GB; system termination cause
+  remains unknown. Resume-v6 subsequently completed successfully as above.
+  Actual Cargo already had CARGO_BUILD_JOBS=1 in local_source.rs, so our outer
+  override did not reduce concurrency. The preserved v6 report's original
+  "reduce execution concurrency" scope text is inaccurate; do not reuse it as
+  evidence of a mitigation. V6 process samples show a rustc peak3,151,376KiB
+  (~3.01GiB), updater peak194,196KiB and minimum available1,247,988KiB. Those are
+  compiler/updater observations, not proof that TUI leaked3GiB or a diagnosis of
+  the earlier Android kill. Completed compile evidence does not close that cause.
 - The authenticated public Base125 component record predates
   `runtime_inputs_sha256` (`minimum-update-runtime-reuse-preflight-v1`). Its source
   used the earlier Python preparation and Cargo release profile; the current Rust
   producer and recorded profile changed. Version equality alone cannot establish
   the input equivalence required to reuse Base125 as a current-producer result.
+  Hosted6d's runtime job restored the matching compiler-cache key but compiled57
+  upstream crates, so this is not a no-compile cache hit
+  (`minimum-update-hosted-runtime-6d.log`). The producer preserves timestamps only
+  for pristine files; the identical adapted files are rewritten on each run. A
+  small real Cargo experiment confirmed that a rewrite can cause recompilation,
+  but also that backdating changed bytes can silently reuse the wrong executable
+  (`minimum-update-cargo-mtime-v1.json`). Establish an exact producer-input/cache
+  authority before optimizing that separate reuse path; do not normalize mutated
+  files unconditionally or weaken admission for this minimum delivery. Prefer
+  admitting and retaining an already prepared exact checkout using its existing
+  preparation/diff/lock records, instead of resetting and reapplying unchanged
+  edits on every retry. Preserve real Cargo input times only across proved
+  equivalent preparation, compiler and recipe inputs. The
+  disposable minimum-mtime-target contains a deliberately stale test executable;
+  preserve it: the cleaner rejected this standalone target because it has no
+  CACHEDIR.TAG; no marker was fabricated and it is never an install candidate.
 - The user requested progress-aware timeouts after the real slow-network archive
-  failure. The working-tree Core candidate changes cached payload acquisition,
+  failure. The Core candidate changes cached payload acquisition,
   including Provider, to reset the existing per-payload deadline when bytes advance;
   control and connection deadlines remain bounded. The unchanged local-source
   caller retains its previous producer/cache identity instead of recompiling solely
@@ -2953,15 +3073,39 @@ quality-qualified minimum update goal. Existing owned builds keep their identity
   observation confirmed the cause (`minimum-update-slow-buffer-diagnosis-v1.json`);
   payload curl now disables output buffering. All6 module tests pass, including
   stalled-prefix retention and a Range resume below1 KiB/s
-  (`minimum-update-slow-module-positive-v4.log`). Disabling timer renewal in a
-  disposable copy fails the resumed transfer at896 bytes as expected, and the
-  source copy is restored (`minimum-update-slow-mutation-v3.json`).
-  The harness stubs parent helpers, so final whole-Core tests and acceptance remain
-  required. The in-flight native trial uses its earlier frozen Core, not this change.
+  (`minimum-update-slow-module-positive-v5.log`). The first shortened speed-floor
+  mutation escaped the shorter test (`minimum-update-slow-speed-mutation-v1.log`),
+  so the response was extended to2.8s. With that change, disabling timer renewal
+  fails at1408 bytes and restoring a1 KiB/s curl floor with a one-second test
+  window fails at1536 bytes (`minimum-update-slow-mutation-v4.json`,
+  `minimum-update-slow-speed-mutation-v2.json`). The disposable source is restored.
+  The harness stubs parent helpers; the final whole-Core/source gates above
+  supersede that limited scope. Its owned faulted compiler target was reclaimed
+  after the native compiler exited (minimum-update-inherited-slow-cache-clean.jsonl).
+  Original source/logs remain. The native trial used its frozen experimental
+  Core; the final consumer independently proves the shipped recipe's cache reuse.
+- The explicitly ignored real-Termux resolver/launcher read-only smoke was run
+  separately with the recorded earlier Android test harness and passed
+  (`minimum-update-real-resolver-smoke-v1.log`). It exercises the unchanged exec
+  boundary, not the final candidate's full signed/public activation.
+- Source-acceptance run41025749547 produced an unsigned Android Core for exact
+  source fa6eaa2. Its separate device consumer fetched actual Full123 helper-2
+  completely, then failed on a DNS error before fetching Manager; the original
+  result is minimum-update-github-hosted-android-e2e-v1.json. A real HTTPS probe
+  subsequently reached Manager. The explicit same-fixture resume reverified and
+  reused the115,084,600-byte helper, installed public Full123 with Worker denied,
+  executed0.164 and rolled back (minimum-update-github-hosted-android-e2e-v2.json).
+  Fa6 to6d changes only the CI provisioning workflow, so the Core input is unchanged;
+  this test Core is not signed final delivery or old-Core migration. Fixture config,
+  authentication, resolver copy and history sentinel were preserved during resume.
+  Four inactive fixture payloads were archived/read back and reclaimed with restore
+  records (`minimum-update-github-hosted-fixture-clean-v1.jsonl`); source and logs remain.
 - Worker source932b97eb... was actually deployed/read back. Credentials were copied
   under the user's authorization to ~/.config/cloudflare/credentials.env with0700
-  directory/0600 file; the original remains. Public positive/negative verification
-  is still a distinct boundary. Do not deploy it again merely to continue this plan.
+  directory/0600 file; the original remains. Actual public HTTPS GET/HEAD redirect
+  Full123 helpers/0 to the older Base116 helper-0, and control, invalid path, query
+  and method responses match their contracts (`minimum-update-worker-public-v1.json`).
+  Do not deploy it again merely to continue this plan.
 - native_workspace_writer_busy is a work-phase/overlapping-path guard, not a
   one-process architecture. The recorded3 reconciliation and1 waiting Direct works
   establish a reachable rejection, not the identity/cause of the user's exact
@@ -2977,9 +3121,9 @@ hierarchy or external repository dependency is not a prerequisite for this plan.
 
 | Phase | Work and principal locations | Required result / exit condition |
 | --- | --- | --- |
-|0 Settle existing qualification | Existing cold trial and failure records; rald7-full-acceptance.yml tool provisioning; native_sdk.rs/runtime.rs fixture consumers | Preserve/reconcile existing jobs; repair and verify the known Bash preparation boundary. Collect existing gates without launching another foundation-only full batch before phase1; the final combined candidate receives complete acceptance in2. Record cold build/install/rollback separately from warm reuse. |
-|1 Native GitHub transport | Core RemoteReleaseBase/acquire_remote_release_source/fetch_verified_remote_release_file_with_timeout_and_progress; existing remote_download.rs; publication map/target consumers and readback tools | GitHub hosts signed controls, maps and flat immutable assets. Core resolves physical routes while staging original logical paths. A real update succeeds with all Worker access denied, including nested helpers and old-asset reuse. |
-|2 Close the minimum goal | Same producer/sign/install/rollback; existing release qualification, signing/readback/disposable consumer and non-forced promotion; selected device entrypoint | Exact candidate is delivered, activated and exercised, protected state/live jobs survive, rollback works and a genuine0.164 user replay is prepared/proved. Report ready-artifact installation and missing-artifact local/remote construction as distinct cases. |
+|0 Complete: settle existing qualification | Existing cold trial and failure records; rald7-full-acceptance.yml tool provisioning; native_sdk.rs/runtime.rs fixture consumers | Preserve/reconcile existing jobs; repair and verify the known Bash preparation boundary. Collect existing gates without launching another foundation-only full batch before phase1; the final combined candidate receives complete acceptance in2. Record cold build/install/rollback separately from warm reuse. |
+|1 Complete: native GitHub transport | Core RemoteReleaseBase/acquire_remote_release_source/fetch_verified_remote_release_file_with_timeout_and_progress; existing remote_download.rs; publication map/target consumers and readback tools | GitHub hosts signed controls, maps and flat immutable assets. Core resolves physical routes while staging original logical paths. A real update succeeds with all Worker access denied, including nested helpers and old-asset reuse. |
+|2 Complete: minimum update path | Same producer/sign/install/rollback; existing release qualification, signing/readback/disposable consumer and non-forced promotion; selected device entrypoint | Exact candidate is delivered, activated and exercised, protected state/live jobs survive, rollback works and a genuine0.164 user replay is prepared/proved. Report ready-artifact installation and missing-artifact local/remote construction as distinct cases. |
 |3 Remove current operational blockers | Provider operator.rs::create/resume/fork admission, operator_native.rs and existing Core/Manager profile routes; notification investigation | Reproduce the exact workspace rejection and reported profile fault; fix verified ownership/selection causes. Same task joins its existing work; independent simultaneous writers use isolated worktrees. Verify blocking owner, completion/recovery and actual profile selection/resume. Produce an evidence-based upstream-notification boundary proposal. |
 |4 Deliver input/catalog and finish bounded A1 | Existing chat_input.rs/app_bridge.js/app.rs/catalog.rs/operator.rs, Native/TUI and registration/continuity qualifiers | Deliver the already implemented input/catalog candidate after applicable acceptance. Prove Direct and Chat-origin Provider flows, exact settings/source/public output, one intended inference/effect and separate stored/live display. Close the actual-client matrix or explicitly settle missing host capabilities. |
 |5 Authorized originality/retired-path cleanup | Existing AUDIT findings, actual package/config/process consumers, obsolete reader/export/restore paths | After input product acceptance, remove confirmed obsolete artifacts and source/tests together, retaining current-format rollback and live/unique user content. Inspect the27 unresolved entries and exact consumers; unknown ownership is recorded, not treated as dead or made a permanent blocker to unrelated cleanup. |
@@ -3044,6 +3188,21 @@ only changes must not require unrelated source recompilation merely because they
 share a large file or the complete wrapper lock. Narrow demonstrated false inputs
 at their actual owner, preserving required compiler/dependency admission and exact
 source proof; do not invent a general build platform to do so.
+Current declared runtime inputs include native-runtime.json in the hosted
+producer fingerprint. Advancing only the qualified native tuple therefore caused
+another hosted0.166 compile in41063039044 and publication41066370680. Phase7
+should separate genuinely consumed native/hosted inputs and qualify reuse of an
+already accepted exact-source producer artifact. This is a measured dependency
+boundary to improve, not permission to reuse by version text, omit admitted inputs
+or rewrite the final candidate's proved fingerprint during delivery.
+The retained Actions cache API snapshot contains the approximately5.23GB matching
+runtime cache only under refs/heads/rewrite/rust-core, while publication executes
+on main (minimum-update-hosted-cache-scope-v1.json). GitHub explicitly prevents
+main from restoring a child/sibling branch's cache; see the
+[official cache access boundary](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
+Do not treat a source-branch cache hit as proof of publisher reuse. Qualify an
+exact-source artifact transfer at the existing producer/consumer boundary instead
+of merging independent histories or relying on a branch-inaccessible cache.
 
 GitHub Release storage and GitHub Actions execution are separate decisions.
 Consumers of ready signed artifacts need no gh login or model account. Keep local
@@ -3059,9 +3218,13 @@ and remaining unproved path explicitly; a cache hit is not a fresh-source proof.
 Repair at the missing producer/consumer boundary rather than patching over failures
 with extra retries, longer waits or new orchestration. Reuse unchanged green proof.
 
-The on-device recipe currently qualifies0.165; remote publication targets0.166.
-Qualify the next native source/toolchain combination from real upstream inputs,
-reusing a compatible supported SDK only when demonstrated. Recognized source
+The current bundled on-device recipe qualifies0.166 with Rust1.99.1; hosted
+publication uses its independently qualified toolchain. The earlier0.165 tuple
+remains in Git and immutable Core packages, including Base127. Installed older
+runtimes/rollback remain supported; the single bundled source tuple rolls forward
+rather than promising a catalog for every historical or future source version.
+Qualify later combinations from real upstream inputs and reuse an SDK only when
+demonstrated. Recognized source
 patterns permit deterministic automatic patching and lock audit. An ambiguous or
 new semantic change yields an exact function/file reason for review, not guessed
 patching or a claim of arbitrary future-version support. Installing a ready public
@@ -3189,43 +3352,49 @@ Use exact digests for admission, never version labels or assumed reproducibility
   span several Chats or distinguish several works in one Chat; do not make titles,
   paths or a universal Chat/thread1:1 rule identity authority.
 
-### Next-model handoff
+### Continuation context
 
-Read AGENTS.md in full after recovery/handoff, then this section, the current
-SPEC contract, current branch/HEAD/diff and each affected implementation/caller.
-The plan is a user-requested document, not authority to assume every old safety/
-completion claim is correct. Follow the order and finish each observable outcome;
-reorder only for actual dependencies/new evidence and explain a material change.
-Do not expand the current goal to all phases or end at source checks when delivery
-and device proof remain. The current implementation has not completed that goal.
+Reread AGENTS.md after recovery/handoff, then the current SPEC, branch/HEAD/diff
+and affected implementations/callers. Existing source or newly added paths are
+not design authority. Reuse green proof only for its actual inputs and scope.
+Source00e0ed1 is accepted and signed/public as Base128. Actual operating
+plain update0.164→0.166, rollback,51 protected files and11 unchanged Native
+images pass. Current selection intentionally remains0.164 for the user's
+`codex update` replay; previous128 remains immutable, with only this new local
+rollback preference reset under the existing explicit authorization. Do not
+mistake this requested replay state for a failure to deliver128 or silently
+advance it again. Do not repeat accepted compile/gates merely because a session
+was compacted or a handle expired. Phases0–2 have finished; phase3 is next.
+The Actions draft HTTP500/partial-metadata observations are preserved findings
+for phase7, not a proven global outage or a claim of unattended draft recovery.
 
-Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. Cold fixture:
-$TMPDIR/minimum-update-e2e-nffz1i54, qualify-retry.py, live-process.json,
-terminal-v3.log/resources-v3.jsonl. The original supervisor disappeared before
-writing minimum-update-e2e-v3.json. Its exact Core executable and Cargo/rustc
-descendants remained live afterward and were observed until all disappeared at
-06:47:51 UTC in minimum-update-e2e-v3-observer.jsonl. The fixture still selected
-the initial generation; no exit status or completion/rollback result was captured.
-The last supervisor log showed1396/1411, not a completed compile. Cause and exit
-are unknown: neither an expired handle nor the observed termination diagnoses OOM
-or proves success. Preserve the job's original data and reconcile any reuse by
-actual inputs; a fresh compile/install/rollback claim remains unproved.
+Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. The early
+minimum-update-e2e-v3 supervisor/update/compiler disappeared without an exit
+result; its observed1396/1411 was not success. Preserve those original records.
+Native166-v4 cancelled at its explicit supervisor deadline; v5 ended without a
+captured exit; v6 completed through the matching owned cache. Native166 final
+consumer separately proves the final source tuple and cache/sign/install/rollback.
+These outcomes do not diagnose Android's earlier termination cause.
 
-The separated-native-recipe trial root is pointed to by
-minimum-update-native-recipe-root.txt; its accepted result is
-minimum-update-native-recipe-e2e-v1.json. Earlier accepted raw/Native artifacts,
-failed logs and mutable target binaries have distinct identities. The disposable
-fault runs can leave the shared debug executable with faulted bytes even though
-source is restored: use a frozen verified candidate or rebuild from current source,
-never install a debug path on filename alone. Reuse proofs by matching actual
-inputs/environment/contracts, not by identical version text or timestamps.
+Final Base128 operating proof/rollback records are in
+minimum-update-live-replay-final; Base127's original proof is retained separately
+in minimum-update-live-replay. Final-source local consumer proof is
+minimum-update-native166-final-consumer-v1.json. Faulted executables are never
+installation inputs. The new raw source-built artifact remains admitted outside
+the mutable compiler target. Owned mutation/Provider debug outputs were reclaimed;
+eight manifest-matched fixture payloads across the completed native trial/final
+consumer (1,354,006,528 allocated bytes) were archived/read back/pruned with restore
+records minimum-update-final-native166-completed-trial-clean-v2.jsonl and
+minimum-update-final-native166-final-consumer-clean.jsonl. No live/unknown tree
+or installed current/rollback package was pruned. The measured named compiler
+cache roots total14.229GiB, including native10.662GiB, Provider1.609GiB and
+Core checks0.858GiB. This is a batch measurement, not a permanent capacity claim.
 
-Continue the in-progress phase1 candidate and final phase2 qualification. Before any public
-promotion or bounded activation, re-admit actual heads/authority/source, complete
-required readback and disposable acceptance. The copied common credential reference
-is available for a justified legacy-Worker operation; it is not a dependency for
-new GitHub-native clients. Preserve original/current/rollback state and leave a
-concise CURRENT update with exact results and the next real operation.
+After minimum-path completion, continue phase3 ownership/profile/notification
+investigation, then phase4 input/catalog/A1, phase5 requested originality cleanup,
+phase6 MCP/local-function separation and phases7–10 in the table. Preserve
+credentials, sessions, source/diffs and original evidence. Legacy Worker
+credentials are not a prerequisite for new-Core payload delivery.
 
 ### G product qualification
 
@@ -3293,9 +3462,10 @@ description changes, instead of copying release-specific qualification constants
 
 ### Deferred Core follow-up
 
-Priority0 records the delivered Base124/upstream0.165.0 baseline. The earlier
-discovery1c54418/run40594324500 qualification rejection is historical, not a claim
-that this device still runs0.164 or that the delivered Base is unqualified.
+Priority0 retains the historical Base124/upstream0.165.0 proof. The current
+operating/replay state and latest delivered source belong to Operating baseline
+and Product completion scope. Discovery1c54418/run40594324500 remains a historical
+qualification rejection; it does not invalidate later signed releases.
 
 The user requested the following two follow-ups after the current update-lifecycle
 work. They are investigation items, not approved changes to existing ownership
@@ -3304,7 +3474,7 @@ contracts or completed diagnosis:
 1. **Profile behavior on0.165.0.** The user reports that profiles appear not to
    work normally; whether the cause is Manager, the selected TUI, Core launch
    environment or upstream behavior is not established. Reproduce the actual
-   profile selection/launch path on the installed0.165 baseline and distinguish
+   profile selection/launch path with a retained0.165 baseline and distinguish
    account-profile selection, upstream configuration profiles and TUI display.
    Compare the effective execution home/configuration and inherited launch
    settings, including Base's upstream TUI versus the enhanced Full frontend where
