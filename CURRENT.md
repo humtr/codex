@@ -3124,28 +3124,111 @@ hierarchy or external repository dependency is not a prerequisite for this plan.
 
 ### Execution order and observable completion
 
-| Phase | Work and principal locations | Required result / exit condition |
-| --- | --- | --- |
-|0 Complete: settle existing qualification | Existing cold trial and failure records; rald7-full-acceptance.yml tool provisioning; native_sdk.rs/runtime.rs fixture consumers | Preserve/reconcile existing jobs; repair and verify the known Bash preparation boundary. Collect existing gates without launching another foundation-only full batch before phase1; the final combined candidate receives complete acceptance in2. Record cold build/install/rollback separately from warm reuse. |
-|1 Complete: native GitHub transport | Core RemoteReleaseBase/acquire_remote_release_source/fetch_verified_remote_release_file_with_timeout_and_progress; existing remote_download.rs; publication map/target consumers and readback tools | GitHub hosts signed controls, maps and flat immutable assets. Core resolves physical routes while staging original logical paths. A real update succeeds with all Worker access denied, including nested helpers and old-asset reuse. |
-|2 Complete: minimum update path | Same producer/sign/install/rollback; existing release qualification, signing/readback/disposable consumer and non-forced promotion; selected device entrypoint | Exact candidate is delivered, activated and exercised, protected state/live jobs survive, rollback works and a genuine0.164 user replay is prepared/proved. Report ready-artifact installation and missing-artifact local/remote construction as distinct cases. |
-|3 Remove current operational blockers | Provider operator.rs::create/resume/fork admission, operator_native.rs and existing Core/Manager profile routes; notification investigation | Reproduce the exact workspace rejection and reported profile fault; fix verified ownership/selection causes. Same task joins its existing work; independent simultaneous writers use isolated worktrees. Verify blocking owner, completion/recovery and actual profile selection/resume. Produce an evidence-based upstream-notification boundary proposal. |
-|4 Deliver input/catalog and finish bounded A1 | Existing chat_input.rs/app_bridge.js/app.rs/catalog.rs/operator.rs, Native/TUI and registration/continuity qualifiers | Deliver the already implemented input/catalog candidate after applicable acceptance. Prove Direct and Chat-origin Provider flows, exact settings/source/public output, one intended inference/effect and separate stored/live display. Close the actual-client matrix or explicitly settle missing host capabilities. |
-|5 Authorized originality/retired-path cleanup | Existing AUDIT findings, actual package/config/process consumers, obsolete reader/export/restore paths | After input product acceptance, remove confirmed obsolete artifacts and source/tests together, retaining current-format rollback and live/unique user content. Inspect the27 unresolved entries and exact consumers; unknown ownership is recorded, not treated as dead or made a permanent blocker to unrelated cleanup. |
-|6 Targeted A2 responsibility extraction | Operator::new/app_route/start_driver, AppHost/Transport, McpBridge and their actual callers | One shared work/context/intent/usage/Stop policy, distinct MCP/local_function discovery/transport/result returns. Preserve both full tool surfaces and permissions; delete replaced paths and forwarding-only layers. |
-|7 Complete selective lifecycle and composition | Core update planner, release inputs/fingerprints/heads, optional installer/service selection, wrapper tunnel recipe and setup | Mandatory Core, individually selected Manager/TUI/Provider/patched tunnel, Full as all optional layers. Only changed compatible components are acquired/built; unchanged modules and old running images remain. Prebuilt tunnel is separately selectable and included in Full. Local/remote producers share contracts; actual mixed-composition update/rollback passes. |
-|8 Budget reassessment | Shared A2 assignment admission/ledger, existing controller and parent limits | Model proposes an initial allowance and re-evaluates measured progress at exhaustion; configured authority grants extension or work is settled.75/1000 are not universal defaults. No ungranted call executes/replays; restart/Stop/parent/platform limits remain effective. |
-|9 Independent workers, Pro discovery and BTW | Qualified Direct/Provider assignment/control, native child APIs and ephemeral-thread capabilities | Prove a separate reasoning context before labelling a child worker. Parent keeps delegation/status/result references; child keeps its full public execution. Establish live temporary-thread exchange and lifecycle before building orchestration. Spend the one recorded remaining Pro call only on a discriminating host-capability test, then apply discoveries to ordinary models. |
-|10 Remaining product work | Notification implementation after the supported boundary is decided, Linux app setup, mobile viewer/IME, longevity, repository/bootstrap separation | Remove redundant Manager responsibilities only where actual upstream coverage suffices. Preserve Android delivery/focus preferences. Verify first-run/account/project setup, physical UI and long-duration behavior at their actual boundaries; keep independent published histories. |
+This order combines current user impact with actual prerequisites. Phase numbers
+below remain scope references, not a competing execution order. Phases0–2 retain
+their accepted Base128 source/public/device proof; do not rerun them to restart
+this plan. No product implementation or live maintenance setting is changed by
+this planning update.
 
-Phase3 profile work moves into phases0–2 only if it actually blocks update/replay.
-Other independent investigation can fill rate-limited A1 time; no concurrent writes
-in this shared worktree or simultaneous heavy Android builds. Phases3/4 iterate:
-a reproduced admission/context defect is fixed and retested before repeating the
-rest of the matrix. A2 can proceed once an unavailable host guarantee has been
-investigated and explicitly bounded; it does not wait for impossible universal
-host provenance. The notification proposal in3 is investigation, not automatic
-approval to replace Manager's existing contract in10.
+| Order | Scope / priority | Prerequisites | Observable result |
+| --- | --- | --- | --- |
+|1 | P0: restore existing /switch, profiles and work ownership (phase3, necessary release slice of7) | Accepted Core128 is the baseline; qualify the matching0.166 enhanced frontend/Manager and reproduce actual Native ownership | Restore the user's chosen Manager/TUI capabilities and same-conversation profile transitions. Identify the actual native_workspace_writer_busy owner, join the same work or isolate independent writers. Preserve unknown/in-flight effects, other processes and existing auth/history. Diagnose the publication HTTP500/draft identity/partial-stage boundary needed by this release; complete signed readback/update/rollback before declaring recovery. |
+|2 | P0/P1: input/catalog delivery and entrance consistency (phase4/A1) |1's ownership/selection boundaries; reuse implemented source | Deliver app-offered/configured models and efforts with inheritance/explicit selection. Prove Direct and Chat-origin Provider execution, full original result/progress/tool records, intended inference/effect counts and separate durable/live displays across Android/web/CLI. Settle real host limits explicitly. |
+|3 | P1: automatic five-hour window start (new Manager slice of phase3) |1's account identity, quota view and isolated Native execution; no dependency on Provider A2 or independent-agent orchestration | For enabled accounts, rearm the real window at each applicable reset with the least additional work. Existing account activity or a qualified non-inference operation wins; use one isolated minimal native request only if needed. Verify the actual window, duplicate-profile/concurrent-request deduplication and restart recovery. The setting is independent of rotation and works with the picker closed. |
+|4 | P1: originality / retired-path cleanup (phase5) |2's accepted input path identifies the real consumers;3 is not a prerequisite | Inspect the27 unresolved entries and exact package/config/process consumers. Remove confirmed obsolete formats, names, packages, source and corresponding tests together. Preserve current-format rollback and unique/live user data; unknown ownership does not block unrelated confirmed cleanup. |
+|5 | P1: MCP/local_function common responsibilities (phase6/A2) |2's stable assignment/context contract and4's relevant retired-path removal | One shared work/context/intent/usage/Stop policy with distinct discovery, transport, lease/lifecycle and original caller returns. Preserve full tool capabilities/permissions and remove replaced orchestration/forwarding-only layers. |
+|6 | P1: complete selective lifecycle/composition and build reuse (rest of phase7) |1's feature-preserving activation and5's affected Provider boundaries; independent tunnel preparation need not wait | Mandatory Core plus individually selected Manager/TUI/Provider/patched tunnel; Full means selecting all optional layers. Acquire/build only changed compatible inputs. Deliver prebuilt optional/Full tunnel, qualified producer-artifact transfer/reuse, dependency preparation, service selection/readiness and mixed-composition rollback. Retain the explicit keep/local/remote missing-artifact choice and exact signing authority. |
+|7 | P2: model-directed budget reassessment (phase8) |5's common assignment/usage/Stop ownership | Model proposes initial allowance and reassesses measured progress at exhaustion; configured authority grants an extension or the work is settled.75/1000 are not universal defaults; preserve parent/platform/concurrency limits and unexecuted-call accounting. |
+|8 | P2: independent workers, Pro capability discovery and BTW (phase9/A3) |2/5 for actual execution identity and7 for worker control; bounded capability research may precede implementation | Prove separate reasoning contexts, real child/temporary-thread lifecycle and original result return. Parent records delegation/status/results; children retain public execution. Spend only the remaining approved Pro allowance on discriminating discovery, then test findings on ordinary models. No fake native lineage or universal Chat/thread1:1 rule. |
+|9 | P2: remaining product experience/setup (phase10) | Respective runtime/ownership boundaries above; notification implementation follows the upstream/Manager boundary investigation in1 | Complete notification delivery/focus, first-run/account/project setup, mobile viewer/IME, independent repository/bootstrap separation and actual long-duration acceptance. |
+
+Order1 includes only the release/lifecycle work needed to restore existing
+capabilities; it does not wait for all of order6. The optional window-start feature
+must not hold the urgent restoration release while real reset-cycle experiments
+are still running. Its implementation can use order2's host-rate-limited waiting
+time once order1's required boundaries pass; one shared worktree still has one
+writer and only one heavy Android build. It need not wait for BTW/subagent work.
+Input delivery precedes related originality cleanup, and that cleanup precedes
+extracting its remaining common Provider responsibilities. An unverified host
+capability cannot become an indefinite prerequisite for unrelated useful work.
+
+Termux termination/resource observation and preservation of chosen capabilities
+are cross-cutting acceptance throughout, not deferred exclusively to order9. The
+known rustc memory peak does not prove a TUI leak or a system-kill cause. Existing
+notification support is investigated with order1; replacing its ownership is a
+separate justified implementation, not an automatic consequence of an upstream
+feature name. Each substantive batch owns appropriate actual execution, signing,
+public readback, disposable update and rollback proof before activation.
+
+### Immediate restoration evidence and scope
+
+The retained Full121/0.164 descriptor includes Manager and the enhanced TUI.
+Base124/0.165, the later0.164 replay and current Base128/0.166 have no Manager and
+only the two browser helpers. The source /switch command and picker still live
+in frontend/manager-tui/native.patch and src/app/profile_manager.rs, with Manager
+owning profile state; Core only validates/selects/launches components. This
+explains the missing command in the Base UI, not deletion from Core or proof
+that0.166 first introduced the absence. release/upstream.json currently has
+frontend=null, so a qualified matching0.166 enhanced frontend is missing.
+Restoration must qualify that actual pair rather than borrowing an old helper,
+rolling back the user's newly installed Core silently, or moving the UI/policy
+into Core. Update success must report actual selected capabilities; ordinary
+updates preserve the selected optional composition or retain the last working
+combination when its compatible replacement is unavailable. Explicit Base-only
+trials remain a separate owner-selected action, not a silent substitute for Full.
+
+### Planned Manager window-start slice
+
+Requested outcome: keep enabled accounts' applicable five-hour allowance windows
+started after reset, using the most efficient demonstrated mechanism. The user
+explicitly removed any requirement for an ephemeral chat or a fixed short prompt.
+This is design/qualification work, not implemented or enabled runtime behavior.
+
+Current reusable owners are Manager quota.rs (identity, windows, buckets,
+settings/eligibility/private state), quota_rpc.rs (bounded read-only Native
+account/model client), profile lifecycle and the TUI's app/quota_switch.rs.
+Keep usage refresh inference-free. Add maintenance at the explicit Manager
+execution/lifecycle boundary; the read client's method allowlist must not be
+broadened so merely opening /switch can submit a turn. Preserve Core/Base purity
+and keep Provider account/model inference distinct from Codex metered usage.
+
+1. On one explicitly selected account/window, compare normal activity, account/
+   rate-limit reads, thread-only initialization and a minimal isolated Native
+   request. Inspect actual bucket/account/reset changes and whether the reset
+   anchor really advances/stabilizes. Official read/update interfaces do not
+   establish an inference-free start operation or guarantee that `hi` starts it.
+   The installed0.166 CLI advertises exec --ephemeral and --ignore-user-config;
+   no live model request was sent during this planning work.
+2. Choose the cheapest path that actually satisfies the goal. If the server or
+   existing work has already started the window, make no extra model request.
+   Otherwise use a documented, qualified non-inference operation if available;
+   failing that, one minimal eligible Native model request with isolated context,
+   no project tools/instructions and no change to the user's active session.
+3. Expose a separate enable/account selection in /switch. Reuse account bindings
+   and bucket identities; deduplicate profiles of one allowance pool. A single
+   optional Manager worker uses server reset deadlines and supported events,
+   integrated with the existing selected supervisor/start/stop/update/rollback
+   lifecycle. No per-account daemon, two-second crawl or message loop is needed.
+4. Confirm the actual window after an action; a submitted/completed request or a
+   full remaining percentage is insufficient alone. Serialize and persist the
+   account/bucket/cycle attempt needed for restart recovery. Coalesce simultaneous
+   foreground activity; reconcile unknown submission outcomes before another
+   effect. Offline/terminated/auth-unavailable states remain pending with reasons
+   and catch up after service/network recovery. Only an actually advertised5h
+   window is eligible; unknown and non-applicable remain distinguishable.
+5. Qualify injected clock/reset/cancellation/restart/account-replacement cases,
+   duplicate profiles and foreground races; then repeated real account reset
+   cycles, actual Android lifecycle and no user-history/workspace modification.
+   Count real inference/HTTP/process effects separately. Pro capability-discovery
+   calls are not required for this ordinary metering experiment.
+
+The [SPEC window-start contract](SPEC.md#planned-automatic-quota-window-start)
+owns behavior and boundaries. The [official rate-limit interface](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)
+provides bucket/duration/reset reads and update notifications; the
+[plan documentation](https://learn.chatgpt.com/docs/pricing#what-are-the-usage-limits-for-my-plan)
+requires treating actual five-hour applicability as account-dependent. A backend
+start mechanism remains an actual-product experiment, not a promised undocumented
+API. Compile/deploy/account enrollment and automatic requests are future work.
 
 ### Phase1: why direct GitHub and how to migrate
 
@@ -3369,9 +3452,10 @@ is signed Base128/0.166, actual ordinary CLI version is0.166.0 and previous
 is local-1793363754-4266-2/0.164. This supersedes the earlier intentionally
 restored0.164 selection. No additional update, rollback or service restart was
 initiated to observe the user's result. Do not repeat accepted compile/gates merely because a session
-was compacted or a handle expired. Phases0–2 have finished; phase3 is next.
-The Actions draft HTTP500/partial-metadata observations are preserved findings
-for phase7, not a proven global outage or a claim of unattended draft recovery.
+was compacted or a handle expired. Phases0–2 have finished. Use the importance/
+prerequisite order above: restore /switch/profiles and actual work ownership first,
+including the release-blocking portion of phase7. The HTTP500/partial-metadata
+observations do not prove a global outage or unattended draft recovery.
 
 Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. The early
 minimum-update-e2e-v3 supervisor/update/compiler disappeared without an exit
@@ -3395,9 +3479,10 @@ or installed current/rollback package was pruned. The measured named compiler
 cache roots total14.229GiB, including native10.662GiB, Provider1.609GiB and
 Core checks0.858GiB. This is a batch measurement, not a permanent capacity claim.
 
-After minimum-path completion, continue phase3 ownership/profile/notification
-investigation, then phase4 input/catalog/A1, phase5 requested originality cleanup,
-phase6 MCP/local-function separation and phases7–10 in the table. Preserve
+Follow Execution order and observable completion above, not raw phase-number
+order. The newly requested window-start capability is planned Manager work;
+its unknown backend mechanism must not delay restoring existing user features.
+Preserve
 credentials, sessions, source/diffs and original evidence. Legacy Worker
 credentials are not a prerequisite for new-Core payload delivery.
 

@@ -400,7 +400,9 @@ The UI first shows cached rows, then bounded asynchronous refresh. Refresh repla
 the existing picker, retaining selection/search and leaving other modals intact;
 one cancellation closes the picker. It exposes
 refresh, pool membership, enable/disable, ranking and session override without
-ordinary-launch network work or a new background service.
+ordinary-launch network work or a resident refresh service. The separately
+enabled window-start maintenance described below has its own Manager lifecycle;
+opening the picker or enabling ordinary rotation does not enable that maintenance.
 
 Automatic handoff requires a confirmed terminal UsageLimitExceeded or an opted-in
 proactive threshold at an idle primary turn boundary. Transport errors and generic
@@ -424,6 +426,79 @@ turn, not resubmission of the original prompt or retry of completed tools.
 Proactive idle switches submit no prompt. A durable attempt claim precedes exec;
 an uncertain crash pauses instead of replaying. At most3 automatic handoffs per
 thread per hour are attempted, with the selected cooldown between attempts.
+
+### Planned automatic quota-window start
+
+This is a requested, not yet implemented Manager capability. Its outcome is that
+an enabled account's renewed five-hour allowance has an actually started window.
+A temporary chat, a literal `hi`, and even an additional inference are mechanisms
+to minimize, not required product behavior. Existing usage refresh remains a
+read-only account/model operation; it must never silently create a model turn.
+Core/Base acquire no quota scheduling, account policy or Manager dependency.
+
+- A separate /switch setting controls window-start maintenance independently of
+  automatic account switching. The owner selects account identities; multiple
+  profiles of the same account share one operation for each metered bucket/cycle.
+  An enabled account is handled at every applicable reset even when it is not
+  selected for foreground work or the picker is closed. Replacing an account
+  does not transfer enrollment to the replacement identity.
+- Discover actual window duration, bucket, account identity and reset data through
+  the installed Native account interface. Watch the advertised five-hour window,
+  not a fixed five-hour timer started at login or application launch. No advertised
+  five-hour window means no fabricated window or probe: distinguish unknown from
+  positively established non-applicability. Reading a reset timestamp that is now
+  in the past is not evidence that allowance recovered or a new window started.
+- Prefer, in order: a window already started by normal account activity; a
+  documented and qualified non-inference operation that really starts that same
+  allowance window; and only when needed one minimal native model request using
+  the target account and metered bucket. Qualification must test whether ordinary
+  reads or thread initialization have the desired effect before adding inference.
+  No dedicated non-inference window-start operation is currently established.
+  Do not invent an API, redeem reset credits or purchase usage for this feature.
+- When inference is necessary, use the smallest qualified isolated invocation.
+  Native ephemeral execution is a candidate, not a requirement to fork a user
+  chat. Keep user conversation history, active workspace, foreground account,
+  model/effort and working-thread writer untouched. The maintenance model/effort
+  comes from explicit configuration or verified account capabilities; a cheaper
+  model is useful only if it advances the intended bucket. Do not route through
+  ChatGPT Provider reasoning and assume it starts the Codex allowance window.
+  The maintenance invocation has no project tools/MCP or project instructions;
+  qualify the actual invocation surface instead of assuming a sandbox name
+  provides Android isolation. This does not narrow ordinary development tools.
+- Manager owns one optional deadline-driven worker, supervised through the
+  existing selected service lifecycle. UI displays settings and observed results;
+  neither TUI, Provider nor the generic supervisor owns quota decisions. Reuse
+  qualified Native notifications where available and coalesce reset deadlines.
+  Admit due accounts with bounded concurrency instead of spawning every account
+  at once; an existing foreground request can satisfy the goal first.
+  No per-account permanent process, two-second poll, or message loop is required.
+  Restart/reconnection catches up due accounts after fresh identity/window reads.
+  Android termination, an offline device or unavailable authority cannot be
+  described as successful on-time execution; expose the delayed/pending reason.
+- Reuse existing account/home binding, private state and operation serialization.
+  Claim an account/bucket/cycle before a possible submission; the state is consumed
+  by restart recovery and duplicate suppression, not a new conversation ledger.
+  A foreground request that already starts the window satisfies the same goal.
+  Recheck the server's actual window after any maintenance operation: dispatch
+  acceptance, a successful model response, 100% remaining, or a locally predicted
+  timestamp alone is not a started-window result. Unavailable window evidence
+  remains unverified rather than causing repeated prompts. Definitely unsubmitted
+  failures can resume on supported recovery/backoff; ambiguous submissions must
+  be reconciled before another possible effect. Generic429 does not trigger
+  account rotation or an unbounded retry loop.
+
+Qualification requires a controlled comparison of existing activity, read-only
+queries, thread-only initialization and a minimal native request; select the
+least costly path that demonstrably starts the same account's actual window.
+Use injected clock/failure tests for duplicate profiles, simultaneous activity,
+restart and unknown outcomes, then actual account/window and Android process/
+history observations. Repeated reset cycles need recurring on-device proof;
+synthetic timestamps or a single `hi` response cannot qualify the whole feature.
+The evidence baseline is the [official rate-limit interface](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)
+and [current plan limits](https://learn.chatgpt.com/docs/pricing#what-are-the-usage-limits-for-my-plan).
+Neither source establishes a guarantee that a short message always rearms a
+five-hour window. The installed0.166 CLI advertises `exec --ephemeral`; actual
+metering and event semantics remain product-path qualification, not a docs claim.
 
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone TUI implementations live as
