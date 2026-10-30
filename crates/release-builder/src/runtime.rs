@@ -15,9 +15,10 @@ use std::time::{Duration, Instant};
 pub const TARGET: &str = "aarch64-unknown-linux-musl";
 // The release-input JSON limit already enforced by CI admission.
 const CONTROL_MAX_BYTES: usize = 16 * 1024;
-const BUILD: [(&str, &str); 5] = [
+const BUILD: [(&str, &str); 6] = [
     ("CARGO_PROFILE_RELEASE_OPT_LEVEL", "z"),
-    ("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1"),
+    ("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16"),
+    ("CARGO_PROFILE_RELEASE_LTO", "off"),
     ("CARGO_PROFILE_RELEASE_STRIP", "symbols"),
     ("CARGO_PROFILE_RELEASE_DEBUG", "0"),
     ("CARGO_PROFILE_RELEASE_INCREMENTAL", "false"),
@@ -270,16 +271,21 @@ fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<(
 
 fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<Vec<u8>> {
     let home = directory.join(".smoke-home");
+    let codex_home = home.join(".codex");
     fs::DirBuilder::new()
         .mode(0o700)
         .create(&home)
         .map_err(|e| format!("runtime smoke home: {e}"))?;
     let result = (|| {
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&codex_home)
+            .map_err(|e| format!("runtime smoke Codex home: {e}"))?;
         let mut child = Command::new(binary)
             .arg("--version")
             .env_clear()
             .env("HOME", &home)
-            .env("CODEX_HOME", home.join(".codex"))
+            .env("CODEX_HOME", &codex_home)
             .current_dir(&home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -823,7 +829,10 @@ mod tests {
             .join("bin/sh");
         let child = root.join("version-child");
         for (body, accepted) in [
-            ("printf 'codex-cli 0.165.0\\n'", true),
+            (
+                "test -d \"$CODEX_HOME\" || { printf 'CODEX_HOME missing\\n' >&2; exit 7; }; printf 'codex-cli 0.165.0\\n'",
+                true,
+            ),
             ("printf 'codex-cli other\\n'", false),
             (
                 "printf 'codex-cli 0.165.0\\n'; printf 'diagnostic\\n' >&2",

@@ -4322,12 +4322,21 @@ generation before a long source build. Before adapting source or starting Cargo,
 the shared runtime producer compiles and links a small standard-library consumer
 for the exact runtime target, verifies its static AArch64 ELF, and executes it
 with the existing bounded isolated runtime probe. The probe must return the exact
-expected text, empty stderr and successful status. An explicitly prepared Cargo
+expected text, empty stderr and successful status. It creates both its isolated
+HOME and CODEX_HOME directories privately before launching the child, then removes
+that complete owned home on success or failure. An explicitly prepared Cargo
 target linker is also used for this direct rustc invocation, so readiness and the
 subsequent build test the same linker selection. Matching Rust version/commit strings and an
 existing target-library directory alone do not establish compiler/stdlib
 compatibility. A failed probe preserves the compiler's actual diagnostic, leaves
 the checkout unchanged and removes its temporary probe inputs/output.
+The shared runtime producer selects size optimization,16 codegen units, globally
+disabled LTO, stripped symbols, no debug information and no incremental output.
+This selection applies to the complete Cargo release profile, including dependencies;
+disabling LTO only for the final CLI can leave dependency LLVM bitcode for a
+different-version native linker. Local and remote executors use this same profile.
+Its source definition participates in the existing runtime input fingerprint;
+previous differently compiled outputs cannot inherit the new raw-cache identity.
 The selected C/C++ compiler configuration
 is a build input; a different compiler variant cannot inherit another variant's
 raw-cache identity. An executor launcher's zero status is insufficient when its

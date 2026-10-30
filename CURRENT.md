@@ -498,8 +498,8 @@ Only the SDK's interpreter/library locations were adapted inside its disposable
 private directory. The small musl/libgcc runtime was fetched from Alpine's
 official repository; exact inputs are recorded, but APK signature admission has
 not been qualified and these files are not shipped product dependencies. Full
-Codex qualification, reproducible SDK acquisition/admission and Core integration
-are still required. This probe is not a completed local
+Codex build/lifecycle proof is recorded below; reproducible SDK acquisition/
+admission and Core integration remain required. This earlier probe is not a completed local
 update and does not change the operating installation. Native jemalloc passes
 its actual release build in3m45s, including the dependency-generation phase that
 failed in PRoot (`native-musl-jemalloc-network-exit.json`); the earlier absent-cache
@@ -533,9 +533,9 @@ reproduces the original Cargo101/protoc failure in5.7s; the source is restored
 (`native-protoc-mutation.json`). Six source tests, three CI input/reuse tests and
 workspace Clippy pass (`protoc-source-tests.log`, `protoc-runtime-input-tests.log`,
 `protoc-source-clippy.log`). The preceding complete gate belongs to the Provider
-batch before this new build-tool change; complete source-runtime and release
-acceptance are still pending. Do not infer completed Codex build or installation
-from SDK/jemalloc/protoc preparation.
+batch before this new build-tool change. Later full runtime/lifecycle trials below
+provide the actual build/install proof; SDK/jemalloc/protoc preparation alone
+establishes neither that proof nor public release acceptance.
 
 Independent native dependency qualification now also builds official libcap2.75
 from the archive digest pinned by the selected upstream build script, using
@@ -742,25 +742,57 @@ removed. The same raw runtime also passes actual Android native-tool execution,
 named permission/guardian approval, cold resume and a side thread through one
 backend (`native-source-runtime-permissions-v1.json`):3 actual commands,3 tool
 results and3 approval requests. Its model is a deterministic owned HTTP fixture,
-not actual model inference. These trials do not qualify the shared producer's
-still-different default profile, automatic SDK acquisition or Core's source-build
-orchestration. The SDK's musl/libgcc archives were freshly read back from official
+not actual model inference. The shared producer now selects that same coherent
+release profile: z/16 codegen units/global LTO off/symbol strip/debug0/incremental
+off. There is no final-crate-only override, and the existing source fingerprint
+invalidates older differently compiled raw-cache entries. Actual build-runtime
+through the final builder passes native compiler/linker execution, exact source
+adaptation, dependency audit, real Cargo, version/streams and verify-runtime
+(`runtime-global-profile-native-final.json`). It reuses the exact prepared source
+and compiler cache; only after comparing the full original patch does the owned
+qualification launcher restore the original prepared-file mtimes. This is a
+cache-reuse proof, not a fresh-build timing claim or an installed bypass. The
+raw SHA256 equals the previously executed/installed/permission-tested runtime.
+The first producer trial compiled successfully but failed version admission because
+probe assigned a nonexistent CODEX_HOME (`runtime-global-profile-native.json`).
+The probe now creates that private directory before spawning and removes the whole
+owned home afterward; exact stdout/empty stderr/status admission is unchanged.
+The strengthened existing version-child test fails before the fix and when that
+creation is removed in disposable source (`runtime-smoke-home-regression-before.log`,
+`runtime-smoke-home-mutation.json`); source is restored and its worktree removed.
+The first full source gate retained this regression failure and is not accepted;
+its Python25+124+10 passes. Final Rust/Clippy passes on the restored final source
+(`runtime-global-profile-rust-final.log`): Core230 plus the existing explicit
+device-test exclusion, Manager52, integration67+3, builder43 and binding2.
+Mutation compiler output had shared the first gate's cache; the final gate rebuilds
+the restored source with no concurrent mutation/test work. No skip or weaker
+version/streams assertion was introduced.
+Automatic SDK acquisition and Core's source-build orchestration remain unimplemented.
+The SDK's musl/libgcc archives were freshly read back from official
 URLs with matching known digests (`native-sdk-dependency-readback.json`); official
 Rust compiler/std digest metadata also matches the retained raw archives
 (`native-rust-sdk-readback.json`). Those are availability/input checks, not SDK
 installation or APK signature admission.
 Temporary runners are never installed and
 can be removed after terminal results, required artifacts and restoration inputs
-are retained and no armed proof consumes them. Actual artifact qualification is
-still required before adopting any linker/profile in product policy.
+are retained and no armed proof consumes them. The native profile and artifact
+proofs above do not qualify automatic provisioning or a public release.
 Earlier failure records and the original eight-file parity remain historical;
 none establishes completion of the pending exact-source runtime acceptance.
 
-Remaining approved scope, in dependency order: finish transport/native proofs;
-portable per-component build inputs and exact-output reuse; real local source
-build/tool dependencies and broader local-build composition acceptance; compatible installed
+Remaining approved scope, in dependency order: connect real local source builds/
+tool preparation to Core; portable per-component
+build inputs/exact-output reuse and broader local-build composition acceptance; compatible installed
 module planning including Provider/tunnel; optional executor/mirror adapters;
 complete publication/readback/disposable update and bounded device activation.
+The local executor must acquire/admit the official compiler and matching std,
+private musl/libgcc, native C/C++/linker, OpenSSL/libcap and protoc inputs without
+PRoot or an installed Python runner. Reuse the shared Rust producer and native
+Core download cache; bind the actual tool/compiler variant in reusable build
+inputs, not just Rust's version label. Keep musl aliases outside Cargo's exported
+target-library directory so ordinary Bionic child tools retain their own loader.
+Core's current activate_local_built_update still passes source_runtime=None to
+GenerationRequest: the successful standalone producer is not yet that public path.
 Provider selection source is qualified: keep a shared store lease for installed
 legacy writers, serialize new selection changes through the existing Core activation
 lock, and retain old immutable processes/profiles across installation and rollback.
@@ -1067,6 +1099,13 @@ the preserved release mode0755; its failed result remains, without weakening adm
 (`publication-native-input-correction.json`). Deployed backward-compatible redirect
 behavior and complete public readback remain unqualified. Deploy the compatible
 redirect before publishing sparse assets; public Base124/Full123 remain untouched.
+Retained asset maps now also protect every physical Base/Full origin from deletion,
+in addition to pinned logical Bases and rollback targets; no release deletion
+operation is added. Inactive qualification runtime/host payload copies were
+manifest/hash-checked and archived before pruning; original results, controls,
+drivers and restore records remain (`publication-native-v{1,2}-cleanup.jsonl`,
+`publication-extra-payload-cleanup.jsonl`, `runtime-global-profile-payload-cleanup.jsonl`).
+The accepted raw executable and all operating/rollback generations remain intact.
 Ordinary consumers install authenticated prebuilts without repository write access,
 GitHub CLI or a Codex/ChatGPT login. GitHub storage and GitHub job execution are
 separate dependencies: the existing Worker redirect still ultimately uses GitHub
