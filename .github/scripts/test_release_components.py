@@ -275,6 +275,7 @@ class ComponentsTests(unittest.TestCase):
         fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'runtime-source')
         for name in ['release/runtime-build-inputs-v1','.github/scripts/runtime_inputs.py',
+                     'crates/release-builder/src/native_sdk.rs','release/native-sdk-inputs.json',
                      'crates/release-builder/src/source.rs', 'crates/release-builder/src/lib.rs','crates/release-builder/src/runtime.rs','crates/release-builder/Cargo.toml','.github/scripts/upstream_release.py',
                      '.github/workflows/termux-runtime-source.yml']:
             target=repo/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,target)

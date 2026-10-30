@@ -1,0 +1,36 @@
+{
+  "rust": "1.99.1",
+  "zig": "0.14.0",
+  "archives": [
+    {
+      "name": "rustc.tar.xz",
+      "url": "https://static.rust-lang.org/dist/rustc-1.99.1-aarch64-unknown-linux-musl.tar.xz",
+      "sha256": "4c80eab52764172618197bd23000c739fdf561ae9415caa2a5ef62ab5c785175",
+      "max_bytes": 268435456
+    },
+    {
+      "name": "rust-std.tar.xz",
+      "url": "https://static.rust-lang.org/dist/rust-std-1.99.1-aarch64-unknown-linux-musl.tar.xz",
+      "sha256": "2f3eb0d0610e2b7f6b2121d106e2490ac648decfa0c09b30873bdfc60de6c1ab",
+      "max_bytes": 134217728
+    },
+    {
+      "name": "musl.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/musl-1.2.5-r13.apk",
+      "sha256": "d616c430bcbe0bf452b7f6ea2669f2cad14e85644a7599f4f495115d021742ef",
+      "max_bytes": 4194304
+    },
+    {
+      "name": "libgcc.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libgcc-14.2.0-r6.apk",
+      "sha256": "ba1835eec3ad8a120efd3d5020e561d53553a0513763a08f509e3ce6d4baa9ca",
+      "max_bytes": 4194304
+    },
+    {
+      "name": "zig.tar.xz",
+      "url": "https://ziglang.org/download/0.14.0/zig-linux-aarch64-0.14.0.tar.xz",
+      "sha256": "ab64e3ea277f6fc5f3d723dcd95d9ce1ab282c8ed0f431b4de880d30df891e4f",
+      "max_bytes": 134217728
+    }
+  ]
+}

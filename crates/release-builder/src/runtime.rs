@@ -140,7 +140,7 @@ fn recipe(path: &Path) -> Result<Recipe> {
     Ok(value)
 }
 
-fn output(command: &mut Command, phase: &str) -> Result<Vec<u8>> {
+pub(super) fn output(command: &mut Command, phase: &str) -> Result<Vec<u8>> {
     let result = command.output().map_err(|e| format!("{phase}: {e}"))?;
     if !result.status.success() {
         return Err(format!(
@@ -216,9 +216,14 @@ pub struct BuildRequest<'a> {
     pub openssl: &'a Path,
 }
 
-fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<()> {
+pub(super) fn compile_target_probe(
+    rustc: &Path,
+    output_dir: &Path,
+    toolchain: &str,
+    linker: Option<&std::ffi::OsStr>,
+) -> Result<()> {
     const EXPECTED: &str = "codex-runtime-target-ready\n";
-    let directory = request.output.join(".compiler-probe");
+    let directory = output_dir.join(".compiler-probe");
     fs::DirBuilder::new()
         .mode(0o700)
         .create(&directory)
@@ -228,7 +233,7 @@ fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<(
     let result = (|| {
         fs::write(&source, format!("fn main() {{ print!({EXPECTED:?}); }}\n"))
             .map_err(|e| format!("write runtime compiler probe: {e}"))?;
-        let mut compiler = Command::new(request.rustc);
+        let mut compiler = Command::new(rustc);
         compiler
             .args([
                 "--crate-name",
@@ -245,7 +250,7 @@ fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<(
             .arg("-o")
             .arg(&binary)
             .env("RUSTUP_TOOLCHAIN", toolchain);
-        if let Some(linker) = std::env::var_os("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER") {
+        if let Some(linker) = linker {
             let mut flag = OsString::from("linker=");
             flag.push(linker);
             compiler.arg("-C").arg(flag);
@@ -416,7 +421,12 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         .create(request.output)
         .map_err(|e| format!("reserve runtime output: {e}"))?;
     println!("[runtime] compile, link and execute prepared Rust/target standard-library probe");
-    compile_target_probe(request, &recipe.toolchains.frontend_rust)?;
+    compile_target_probe(
+        request.rustc,
+        request.output,
+        &recipe.toolchains.frontend_rust,
+        std::env::var_os("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER").as_deref(),
+    )?;
     println!("[runtime] adapt exact official source");
     let preparation = super::source::prepare(
         request.source,

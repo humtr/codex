@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # These are independently required by the actual producer/loader/normalizer flow.
 PRODUCER_FILES = ('release/runtime-build-inputs-v1', '.github/scripts/runtime_inputs.py',
                   'crates/release-builder/src/source.rs', 'crates/release-builder/src/lib.rs', 'crates/release-builder/src/runtime.rs', 'crates/release-builder/Cargo.toml',
+                  'crates/release-builder/src/native_sdk.rs', 'release/native-sdk-inputs.json',
                   '.github/scripts/upstream_release.py',
                   '.github/workflows/termux-runtime-source.yml')
 

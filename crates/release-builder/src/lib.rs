@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+pub mod native_sdk;
 pub mod provider;
 pub mod runtime;
 mod runtime_patch;
@@ -163,6 +164,8 @@ const USAGE: &str = concat!(
     "       codex-release-builder normalize-lock --source <CARGO_WORKSPACE> ",
     "--openssl <ABSOLUTE_EXECUTABLE> --audit <ABSENT_FILE>\n",
     "       codex-release-builder preserve-source-times --source <DISPOSABLE_CHECKOUT>\n",
+    "       codex-release-builder prepare-native-sdk --archives <ADMITTED_ARCHIVES> ",
+    "--output <ABSENT_DIRECTORY> --tools <NATIVE_TOOL_DIRECTORY>\n",
     "       codex-release-builder build-runtime --source <DISPOSABLE_CHECKOUT> ",
     "--recipe <RELEASE_INPUT> --output <ABSENT_DIRECTORY> --target-dir <COMPILER_CACHE> ",
     "--rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO> --openssl <ABSOLUTE_EXECUTABLE>\n",
@@ -3989,6 +3992,7 @@ where
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
         Some("build-runtime" | "verify-runtime") => runtime::command(&args),
+        Some("prepare-native-sdk") => native_sdk::command(&args),
         Some("prepare-source" | "normalize-lock" | "preserve-source-times") => {
             source::command(&args)
         }

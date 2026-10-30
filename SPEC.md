@@ -4342,6 +4342,23 @@ is a build input; a different compiler variant cannot inherit another variant's
 raw-cache identity. An executor launcher's zero status is insufficient when its
 worker died or the required output is absent. Preserve the actual compiler/worker
 failure and admit only the complete verified artifact from the selected inputs.
+Native SDK preparation uses the owner-shipped exact tool input catalog, independent
+of an upstream release's version. Core acquires the listed official archives through
+its authenticated digest cache; the shared Rust builder rechecks those digests
+before extracting or executing any input. The catalog pins Rust and matching target
+std, private musl/libgcc and Zig by URL/digest/byte bound. Its inputs are part of
+the runtime build identity. One C/C++ adapter normalizes cc-rs target arguments
+to Zig's target spelling, keeps host includes after target headers and preserves
+the upstream musl build's sanitizer/preprocessor behavior for native dependencies.
+APK contents are admitted by the owner-pinned complete
+archive digest, not by a claim that APK signatures were checked. Extraction runs
+only after every input passes admission and only into a newly reserved private SDK.
+An existing destination is preserved. Failure removes the SDK created by that call.
+Compiler interpreter/search adjustments stay inside that SDK. musl aliases belong
+beside its compiler libraries, never in Cargo's exported target-library directory.
+Readiness requires the same real compile/link/static-ELF/execution probe used by
+runtime construction. SDK assembly alone does not qualify the remaining C library
+dependencies, source build, installation or public release.
 
 Ordinary local results use the existing device-local derived signing authority and
 retain the admitted public update key/baseline. A configured signer whose public

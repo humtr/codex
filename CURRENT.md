@@ -767,7 +767,52 @@ device-test exclusion, Manager52, integration67+3, builder43 and binding2.
 Mutation compiler output had shared the first gate's cache; the final gate rebuilds
 the restored source with no concurrent mutation/test work. No skip or weaker
 version/streams assertion was introduced.
-Automatic SDK acquisition and Core's source-build orchestration remain unimplemented.
+Native SDK assembly is now a source implementation, not a copied experimental
+SDK. The Rust builder's prepare-native-sdk snapshots the5 owner-pinned official
+archives (Rust1.99.1, matching musl std, Alpine musl/libgcc and Zig0.14), checks
+all complete digests before extraction, and assembles a newly reserved private
+SDK. It patches only the SDK's compiler interpreters/search, keeps musl aliases
+outside Cargo's exported target-library directory, and uses the same static
+compile/link/execute readiness probe as build-runtime. An existing destination
+is preserved; an assembly failure removes only its new output. The catalog and
+implementation are in the existing runtime-input fingerprint. APK authority here
+is the owner-pinned complete digest; no APK signature verification is claimed.
+SDK provides one shared C/C++ adapter with the official musl argument semantics.
+The exact final builder passes actual native assembly, compile/link/execute readiness,
+locked/offline Cargo build script+C+proc-macro execution, and C++ object/dependency
+file generation (`native-sdk-assembly-native-final.json`, builder SHA256
+52daf1d02f683a47cd2192c0b585885ec09899a37e5420dea28e43dd28bf4087).
+Its program returns exact expected stdout and empty stderr. Existing output is
+rejected without mutation; private snapshots/probes are removed and no libc aliases
+enter Cargo's exported target-library directory. Earlier v3 checks additionally
+retain before/after compiler/loader/adapter comparisons. This uses production SDK
+adapters, original archive inputs and actual Android tools, without PRoot, account,
+real model inference or operating state changes. Archive downloading and remaining
+C-library/system-package preparation are not part of this accepted assembly scope.
+Full acceptance passes (`native-sdk-assembly-full-v2.log`): Python25+124+10,
+Core230 plus the existing explicit device-test exclusion, Manager52, integration67+3,
+builder45, binding2 and workspace Clippy. Final review merges duplicate external-
+tool result handling into the existing runtime implementation and shares its
+compile/link/execute probe through explicit compiler/linker/output inputs. Final
+focused SDK tests and workspace Clippy pass
+(`native-sdk-assembly-{targeted,clippy}-final.log`); actual native acceptance above
+uses that final implementation plus the CLI's native SDK usage. SDK regressions
+cover bad digest cleanup, existing output preservation and quoted C/C++ arguments.
+Inverting archive digest admission in disposable source fails its bad-archive
+assertion; source/added inputs are preserved, restored and its worktree removed
+(`native-sdk-admission-mutation.json`). No weaker admission or skipped trial was added.
+Original failures remain: v1 SDK linker naming made rustc select the C-driver
+argument dialect; the producer now names its adapter ld.lld. The minimal Cargo
+fixture launcher failed to translate cc-rs's target spelling; the production
+shared C/C++ adapter fixes that at its compiler boundary. Initial Python gate
+fixtures omitted the newly required input files; the actual fixture inventories
+are corrected rather than relaxing input fingerprints. Actual archive acquisition,
+remaining dependency preparation and Core source-build orchestration remain unimplemented.
+Inactive v2/v3 SDKs were inventoried/pruned only after their processes ended;
+original archives, builders, source and reconstruction instructions remain
+(`native-sdk-v{2,3}-cleanup.json`). sdk-final remains for the next dependency proof;
+compiler caches remain below15 GiB. Exact final production source/added files are
+frozen beside its builder, separately from failed assemblies and mutation copies.
 The SDK's musl/libgcc archives were freshly read back from official
 URLs with matching known digests (`native-sdk-dependency-readback.json`); official
 Rust compiler/std digest metadata also matches the retained raw archives

@@ -4,6 +4,8 @@ recipe	.github/scripts/runtime_inputs.py
 recipe	crates/release-builder/src/source.rs
 recipe	crates/release-builder/src/lib.rs
 recipe	crates/release-builder/src/runtime.rs
+recipe	crates/release-builder/src/native_sdk.rs
+recipe	release/native-sdk-inputs.json
 recipe	crates/release-builder/Cargo.toml
 recipe	.github/scripts/upstream_release.py
 recipe	.github/workflows/termux-runtime-source.yml
