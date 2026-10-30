@@ -510,6 +510,59 @@ composer; a Termux clipboard adapter is justified only by an actually missing
 platform operation. A clipboard feature must not move conversation UI into Core
 or make ordinary upstream launch depend on Manager.
 
+Preserve the distinction between the /copy picker (whole response, available
+code/quote/status targets and upstream transcript selection), Ctrl+O's native
+last-response action, a Termux extra-key macro and Android terminal-selection
+copy. A button sending Ctrl+O does not invoke /copy's picker. A bounded picker
+preview must never bound the copied source. Restore a missing native picker at
+its actual dispatch/source owner rather than replacing it with unconditional
+last-answer copying or a private command.
+
+Capacity is measured at the actual transport. In the inspected0.166 source,
+clipboard_copy::OSC52_MAX_RAW_BYTES is100,000 UTF-8 bytes, before Base64 encoding;
+100,000 ASCII characters produce133,336 encoded characters, plus framing. The
+terminal receiver must support that full upstream payload through parsing,
+decoding and Android storage without a smaller encoded-buffer or UTF-16
+truncation limit. This is not a universal100,000-character cap on native copying.
+The existing generic Termux candidate's100 KiB (102,400-byte) receiver/write
+bound covers the upstream OSC52 limit but is not the same number. Preserve
+these separately owned bounds and their units; do not relabel KiB as decimal
+bytes or promise100,000 Korean characters. The original user clarification
+requires supporting upstream Codex, not a separate larger Korean-character quota.
+
+The reported "Copy unconfirmed" behavior is a required repair, separate from
+payload capacity. Upstream maps a terminal-only Requested outcome to Unconfirmed
+because OSC52 write success carries no Android acknowledgement. Growing the
+receiver buffer or implementing image reads alone cannot change that fact.
+Prefer the existing source-only Termux terminal-control clipboard commands for
+the necessary Android boundary, after source and protocol review. A qualified
+Codex consumer maps only its matching successful clipboard-write-text response
+(correct schema/operation/result and confirmed:true) to the existing confirmed
+outcome. Android confirmation means its clipboard write succeeded; receiving
+the actual pasted content remains a separate acceptance observation. Invalid,
+failed, timed-out or unknown responses must not become successful copies.
+Retain ordinary upstream OSC52 behavior when no confirmed backend is available;
+report that path as unconfirmed, not as a repaired confirmed path. An unknown
+write outcome must not cause a blind delayed second write over a newer clipboard.
+
+The Termux side owns terminal ancestry/peer checks, foreground Android access,
+OSC parsing and clipboard effects; the TUI owns source/format selection,
+asynchronous operation ownership and feedback. Reuse the existing worker and
+native outcomes, including cancellation before delivery, busy state and stale
+completion handling. No extra daemon, global clipboard polling, X11 dependency,
+Core clipboard UI or duplicate text-copy path is justified by this feature.
+Validate actual required operations at capability discovery rather than an
+exact historical aggregate operations string: the clipboard extension must not
+disable existing origin/validate/focus consumers. Preserve schema, peer identity,
+live-origin and foreground checks; capability advertisement is not authorization.
+
+Qualify the actual composition. An unmodified upstream Base runtime can use the
+expanded terminal OSC52 receiver but still lacks the new confirmed-write/image
+consumer. The maintained TUI consumer must work without a Manager dependency;
+neither adding Manager nor activating the APK alone supplies that consumer.
+Report supported capacity, acknowledged text copy and image input separately
+for the installed pair rather than silently declare every composition fixed.
+
 Copy the selected logical source/Markdown according to the upstream copy format,
 not a rendered terminal viewport. Soft wrapping introduces no extra spaces or
 newlines; intentional paragraphs, code indentation, Unicode and selected code
@@ -521,14 +574,40 @@ establish that Android received the full content. Manual qualification prompts
 retain the existing automatic clipboard attempt, exact-text readback and separate
 one-step fallback; that workflow is distinct from /copy product acceptance.
 
-Image paste is a requested capability exploration followed by implementation
-where a supported Android transfer boundary can be demonstrated. Reuse upstream
+Required boundary proof includes99,999/100,000/100,001 raw-byte OSC52 requests,
+Base64/framing and fragmented BEL/ST input, malformed UTF-8/Base64, ASCII and
+mixed Unicode, and the Termux candidate's separate102,400-byte boundary. Keep
+upstream rejection beyond its OSC52 limit; do not impose it on a different native
+backend. Verify actual /copy whole-response and code-block choices, Ctrl+O,
+terminal selection and configured extra keys. Inject write failure and invalid/
+missing confirmation: no false success or clipboard truncation is acceptable.
+Source tests, complete APK build, Codex consumer build, installed pair and actual
+Android clipboard/paste are distinct gates. Preserve existing installed APK,
+package/signing identity, origin/focus behavior and rollback; installing an APK
+can terminate the hosting session and needs its own controlled activation step.
+
+Image paste requires review/qualification of the existing app-side candidate
+and implementation of its missing Codex consumer. Reuse upstream
 image composition, attachment and model submission; inspect the actual deployed
 target/clipboard backend, Android clipboard MIME/content-URI access, foreground
 permissions and any needed Termux companion. Text clipboard support or a build
 on an Android host does not prove image clipboard access. Prefer a minimal
 platform adapter over a second attachment pipeline or required Linux desktop.
 Do not assume rebuilding Full alone supplies Android clipboard images.
+
+There is already an unqualified app-side candidate in humtr/termux:
+the clipboard-read-image, clipboard-write-text and clipboard-release-image
+operations of termux-terminal-v1 over its existing authenticated AM socket.
+It provides image content-URI snapshots and confirmed
+text writes; Codex consumer integration remains missing. Audit/reuse that source
+instead of inventing another bridge. A clipboard-read-image snapshot is not yet
+a durable Native attachment: the TUI must validate and import it into the existing
+image-input lifetime before releasing the Termux token, including failure/cancel
+cleanup. Review claimed transfer time/size bounds, real URI permissions, foreground
+and process ancestry on the Android path; a source declaration is not proof.
+An elapsed-time check after a blocking URI open/read does not establish a bounded
+operation. Qualify cancellation and cleanup at the provider I/O boundary, not
+only the immediate-return fixture or a longer caller timeout.
 
 Direct clipboard-image paste, image-file attachment and Android share/picker
 input have separate acceptance results. Qualify image bytes reaching the existing

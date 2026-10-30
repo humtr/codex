@@ -197,7 +197,10 @@ does not force a model or reasoning effort.
 
 Upstream `/copy` and `Ctrl+O` copy logical output; use the upstream copy target/
 format rather than selecting terminal soft wraps. Termux clipboard round-trip
-qualification is tracked separately from preparing test prompts. Image files use
+qualification includes the full upstream100,000-byte raw OSC52 payload and the
+reported `Copy unconfirmed` issue, separately from preparing test prompts. The
+Termux clipboard candidate and Codex consumer are not yet an accepted installed
+pair; enlarging OSC52 alone cannot confirm Android delivery. Image files use
 upstream `--image`/`-i`; direct Android clipboard-image paste needs its own
 platform qualification and is not established by file-input support. See the
 [copy/image plan](CURRENT.md#clipboard-copy-and-image-paste).

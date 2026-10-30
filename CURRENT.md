@@ -3131,10 +3131,10 @@ this planning update.
 
 | Order | Scope / priority | Prerequisites | Observable result |
 | --- | --- | --- | --- |
-|1 | P0: restore selected user capabilities and work ownership (phase3 plus required parts of7/10) | Accepted Core128 baseline; match/qualify0.166 frontend/Manager; inspect actual owners and /config notification path | Restore /switch/profile transition and currently missing Android notifications. Compare upstream/Manager ownership before replacing notification logic. Qualify /copy/text clipboard and preserve upstream /config controls. Fix actual native_workspace_writer_busy selection/join/isolation causes. Resolve the reproduced release/draft boundary needed for this batch, then sign/read back/update/rollback the selected capabilities without silent Base substitution. |
+|1 | P0: restore selected user capabilities and work ownership (phase3 plus required parts of7/10) | Accepted Core128 baseline; match/qualify0.166 frontend/Manager; inspect actual owners, /config notifications and existing Termux clipboard candidate | Restore /switch/profile transition and missing Android notifications. Compare upstream/Manager ownership before replacing notification logic. Qualify /copy picker, full upstream100,000-byte payload and actual confirmed Android copy; growing OSC52 alone does not fix unconfirmed. Coordinate the necessary Termux candidate and capability-discovery repair; report any separately unactivated APK boundary explicitly. Fix actual native_workspace_writer_busy selection/join/isolation causes. Resolve release boundaries needed for this batch, then sign/read back/update/rollback selected capabilities without silent Base substitution. |
 |2 | P0/P1: input/catalog delivery and entrance consistency (phase4/A1) |1's ownership/selection and functioning actual-client test path; reuse implemented source | Deliver prompt-only chat_input versus workflow input, app/config-derived models/efforts and preserved settings. Prove Direct and Chat-origin Provider inference/result return, exact user/progress/tool/final records, no duplicate inference/effect and separate durable/live displays across Android/web/CLI. Include queue/schema, account/project/branch changes and control/recovery boundaries. |
 |3 | P1: automatic five-hour window start (new Manager slice of phase3) |1's account identity, quota view and isolated Native execution; no Provider A2/worker dependency | Enabled accounts' applicable windows start after reset using the least demonstrated activity: existing work, qualified non-inference action, or one minimal isolated Native request. Verify real window effects, same-account deduplication and lifecycle recovery; keep the toggle separate from rotation and the picker. |
-|4 | P1 capability work: Android clipboard image paste |1's native copy/input boundary; use2's relevant attachment/model contract | Explore actual Android image/URI access and adapt the upstream composer if supported. Qualify real image bytes plus text, multiple images, cancel/resume and model capabilities. Direct image paste, file attachment and share/picker paths have separate results; a missing platform capability does not delay urgent restoration. |
+|4 | P1 capability work: Android clipboard image paste |1's reviewed/qualified Termux clipboard command and TUI consumer boundary; use2's relevant attachment/model contract | Finish the existing app-side source candidate plus missing Codex consumer, reusing its confirmed-copy transport and upstream image composer. Qualify real image bytes plus text, multiple images, cancel/resume, model capabilities and snapshot/import/release lifetimes. Direct image paste, file attachment and share/picker paths have separate results; a missing platform capability does not delay urgent restoration. |
 |5 | P1: originality / retired-path cleanup (phase5) |2's accepted input path identifies consumers;3/4 are not prerequisites | Review the27 unresolved entries and actual package/config/process users. Remove confirmed obsolete formats, names, old local signed packages, settings copies and authorized unnecessary audit records with their source/tests/consumers. Preserve active/current-format rollback and unique user content; unknown ownership does not block unrelated confirmed cleanup. |
 |6 | P1: MCP/local_function common responsibilities (phase6/A2) |2's stable assignment/context contract and5's relevant retired-path removal | One shared work/context/intent/usage/Stop policy; distinct discovery, transport, leases and original caller returns. Preserve full tools/permissions, delete replaced orchestration and forwarding-only layers, and keep JavaScript limited to actual renderer/API/stream access. |
 |7 | P1: full selective lifecycle/composition and build reuse (rest of phase7) |1's feature-preserving activation and6's affected Provider boundaries; independent tunnel preparation can precede them | Core is mandatory; Manager/TUI/Provider/patched tunnel are individually selectable; Full selects all optional layers. Acquire/build only changed compatible inputs. Deliver prebuilt optional/Full tunnel, wrapper-owned source recovery, exact producer-artifact reuse, two-hour discovery/job reuse, dependency/signing policy, service/profile rebinding and mixed-composition rollback. |
@@ -3242,31 +3242,117 @@ No notification was emitted and no Android preference was changed by this plan.
 
 ### Clipboard copy and image paste
 
-The earlier manual-test text-copy requirement did not by itself cover /copy
-product behavior. Make /copy, Ctrl+O, selected-source/Markdown copying and /config
-copy/paste preferences explicit order1 regression/repair targets. Upstream0.166
-slash_dispatch.rs invokes show_copy_picker; clipboard_copy.rs owns native/OSC52/
-tmux routes. Preserve those owners instead of creating a private copy command.
-Check actual Android readback/paste with wide/Unicode text, code/indentation and
-intentional paragraph breaks; screen soft wraps must not be copied as extra
-whitespace, and display folding must not remove copied source. Supported Base
-and enhanced TUI paths are distinct observations.
+The prior plan omitted two explicit requirements: the full upstream copy payload
+and repair of "Copy unconfirmed". It also missed the existing Termux source-only
+clipboard implementation. This section replaces generic feasibility work with
+the actual pending producer/consumer and qualification work. No clipboard was
+read or written, APK built/installed, live key changed or product code modified
+during this planning correction.
 
-Direct image paste is requested where feasible and has order4 implementation/
-qualification. Upstream clipboard_paste.rs uses arboard on non-Android targets
-and explicitly returns unsupported on the Android target. The deployed upstream
-runtime uses aarch64-unknown-linux-musl, so it follows the desktop reader; the
-host being Android does not select the Android cfg branch or provide its
-clipboard API. Neither branch demonstrates access to Android image/URI data.
+**Original request and existing work.** Native thread
+01a15330-0d46-7b51-a460-5e0495030cf2 contains the2026-10-22/23 requests for the
+missing /copy whole-response/code-target picker, differences from the Termux
+button, Ctrl+O unconfirmed, image/X11 behavior, copy limits, selectable Ctrl+C
+policy, editor defaults and on-demand custom APK maintenance. The user clarified
+that100,000 Korean characters are not required: the terminal must support
+upstream Codex. The later current-thread request explicitly restores these
+requirements to this plan. This is a focused original-record reconciliation,
+not a fresh full reconstruction of all external Chat conversations.
 
-Inspect the actual Termux/Android clipboard MIME, URI grants, foreground input
-and companion capabilities, then connect the smallest supported platform
-adapter to existing composer/image submission. Text helper success, the CLI's
-image-file support or a rebuilt Full is not proof of image paste. Qualify image
-bytes, text-plus-image, multiple images, cancel/retry/resume, model support and
-safe retention of referenced files. Clearly separate direct paste from file/
-share/picker alternatives and record an unavailable platform path honestly.
-This research does not gate the urgent /switch/notification/text-copy release.
+Read-only review found ~/prj/termux at cc529633, with app-side implementation
+1a09fc35 and preserved user changes in CUSTOM.md. Read its AGENTS.md before any
+future review/edit. CUSTOM.md, docs/termux-clipboard-v1.md and
+docs/qualification-phase2-20261026.md identify the actual status:
+
+- OSC52 parser/buffer and exact Android copy, Ctrl+C option and image/confirmed-
+  copy commands have source and test cases. They are not an accepted installed
+  APK. The phase2 attempt passed two8-assertion stubbed JDK harnesses,18-file AST
+  parsing and isolated resource compilation; Gradle/complete APK was blocked by
+  uncached AGP8.13.2 and missing local Android SDK/toolchain. These are prior
+  results, not rerun or promoted to Robolectric/device acceptance here.
+- The existing authenticated AM socket exposes clipboard-read-image,
+  clipboard-write-text PATH and clipboard-release-image TOKEN. Reads/writes
+  require foreground/focus; text responses distinguish actual Android write
+  acceptance. No corresponding Codex consumer was found in frontend/crates/
+  providers/scripts. That missing consumer is implementation work, not just a
+  request to install Full or flip a build target.
+- The inspected0.166 clipboard_copy.rs:35 limits OSC52 to100,000 raw UTF-8 bytes;
+  osc52_sequence:328 checks the raw length before encoding. Its100,000 ASCII
+  bytes encode to133,336 Base64 characters plus control framing. The Termux
+  candidate independently accepts100 KiB (102,400bytes). These units are distinct.
+- The reviewed Termux pre-candidate source used ':' recognition where OSC type
+  parsing requires ';', leaving Codex52;c; input under the16,384-character default
+  buffer; its special limit also failed to account for Base64 expansion.
+  ShareUtils additionally truncated downstream text. Candidate source fixes
+  those places, but only full stream and Android tests prove the repair.
+- Upstream CopyOutcome::Requested maps to CopyStatus::Unconfirmed and the exact
+  "Copy unconfirmed; /export saves chat" message. That is expected for a plain
+  OSC52 send without acknowledgement. Payload expansion and image paste do not
+  by themselves produce confirmed text copying.
+
+**Responsibility and data flow.** Upstream TUI owns source, copy picker/format,
+the existing asynchronous worker and status presentation. Termux owns OSC
+decoding, authenticated terminal control, Android focus/permissions and clipboard
+effects. Core selects/launches qualified components; it acquires no clipboard UI
+or Android clipboard policy. Text flows from selected full source to the actual
+backend, then to Android and back as a correlated result; images flow from
+Android content URI to a private snapshot, existing TUI attachment storage and
+the real model input before source snapshot release. No second clipboard daemon,
+global polling, required X11 installation or hidden model/effort change is needed.
+
+**Implementation and acceptance sequence.** C1–C4 are order1's text-copy scope;
+C5 reuses their boundary in order4. C6/C7 are explicit related-request follow-ups,
+with no dependency on implementing a new Codex picker. Any shipped APK containing
+the keyboard changes must nevertheless pass C6 before activation; sharing a
+candidate does not exempt included changes from acceptance. Editor/environment
+work is independent. Separate source, build, installation and physical acceptance
+in every result; no unavailable optional image path blocks independent restoration.
+
+| Slice / dependency | Concrete implementation/review location | Required result and proof |
+| --- | --- | --- |
+| C1: reconcile deployed pair and original copy actions | Actual APK/package/certificate and Core/TUI identities; upstream chatwidget/slash_dispatch.rs, copy_picker.rs, app/clipboard.rs; frontend/manager-tui/native.patch | Record which binary receives /copy. Restore the exact upstream whole-response/code/quote/status choices where available; compare Base and enhanced TUI. Ctrl+O retains its upstream last-response behavior; identify extra-key macros and terminal selection separately. The picker preview never truncates the copied source. Preserve /config copy/paste controls. |
+| C2: finish the existing Termux capacity repair; C1 source baseline | ~/prj/termux TerminalEmulator.java::setOscTypeVariables/collectTerminalControlArgs/decodeOsc52Text and termux-shared ShareUtils::copyTextToClipboardExact; existing Osc52ClipboardTest/ClipboardExactCopyTest | Qualify100,000 raw-byte upstream payloads, Base64/framing, fragmented BEL/ST input, mixed Unicode and original paragraphs/code indentation through the complete stream parser and Android clipboard. Check99,999/100,000/100,001 at upstream's OSC boundary and102,399/102,400/102,401 at the separate candidate boundary. Preserve upstream's over-limit error, reject malformed/oversized input without visible escape-data leakage, truncation or clipboard-content logs. A presumed Binder budget is not physical capacity proof. |
+| C3: correct cross-repository capability discovery before new APK activation | crates/manager/src/origin.rs::capability and tmux_launch.rs callers; TermuxTerminalControl.java::execute capability response | Current Manager accepts only the exact string origin,validate,focus; the candidate app appends clipboard operations, so that combination evaluates Unavailable and changes launch/focus selection. Fix actual discovery to validate the schema and required supported operations while accepting qualified additions; retain peer/live-origin checks. Test actual old and expanded producers plus malformed/transport-failed replies; extensions must not disable existing origin/focus/notification return. This is a source-level interoperability defect, not a claimed cause of current installed clipboard failure. |
+| C4: connect confirmed Android text writes; C1–C3 | Missing bounded Android clipboard consumer in frontend/manager-tui/src at the real platform boundary; minimal native.patch integration in clipboard_copy.rs/worker.rs and relevant shared copy callers; existing AM socket discovery reviewed at origin.rs | Use the existing worker and Android clipboard-write-text command, passing an owned private UTF-8 file and validating matching schema/operation/result/confirmed:true before returning the existing Copied outcome. Cover /copy, Ctrl+O and applicable native selection paths. No Manager requirement for ordinary copy. Write failure, permission loss, timeout and malformed ACK are not confirmed. Preserve upstream OSC52 fallback and its honest unconfirmed status; never blindly repeat an unknown write over newer clipboard content. Actual Android clipboard/paste must equal the complete intended source. |
+| C5: finish Android image input; C3/C4 transport and relevant order2 input lifetime | TermuxClipboardControl::findImage/saveImage/releaseImage, TermuxTerminalControl::clipboard; TUI clipboard_paste.rs, chatwidget/clipboard.rs::paste_image, app/clipboard.rs and existing attach_image/submission | Reuse existing image URI snapshot command, validate returned actual bytes/type/path and import into the existing native attachment lifetime before release-image. Prove text+image, multiple images, model input, cancel/retry/resume, denied/revoked URI and no-image cases. An app-side image read is not completed model delivery; file/share/picker alternatives have separate results. Do not delete an attachment needed by an active or resumable Native thread. |
+| C6: retain the approved optional keyboard policy; Termux candidate qualification, no dependency for /copy | Termux TerminalView/TerminalExtraKeys, preference storage and Terminal I/O Keyboard setting; existing CtrlCKeyRoutingTest | Default-off Use Ctrl+C to copy. Enabled: selection copies; no selection sends nothing; Ctrl+Shift+C sends0x03. Disabled preserves ordinary behavior. Qualify physical and extra-key inputs, Shift/sticky modifiers, shell/SSH/editor interruptions and no accidental input; this is not the Codex internal selection/picker policy. |
+| C7: editor/environment and on-demand APK maintenance; independent follow-up | Existing Bash EDITOR/VISUAL setup, upstream editor launch; ~/prj/termux CUSTOM.md and .github/workflows/custom-candidate.yml | Prior records say EDITOR=nano and VISUAL=$EDITOR were set; verify effective inheritance and actual external-editor save/cancel rather than claim they remain missing or hardcode an editor. Use an exact reviewed official master/CI base on requested APK rebuilds; preserve custom origin/title/keyboard/clipboard changes, compatible signing and data. No recurring APK watcher was requested. Android clipboard needs no X11; the ChatGPT app host's separate Xvnc/display dependency remains untouched. |
+
+Additional source finding for C5: TermuxClipboardControl::saveImage checks its
+10-second deadline only after InputStream.read returns; openInputStream/read
+themselves can block. The declaration is not an end-to-end timeout guarantee.
+Qualify provider-open/read cancellation and cleanup at that actual I/O boundary,
+and keep UI responsiveness; increasing a timeout or passing an immediate stub
+cannot resolve it. Review current20-MiB image and100-KiB text bounds at their
+actual producers, rather than copy them into unrelated TUI/model limits.
+
+Upstream image paste uses arboard on non-Android targets and explicitly reports
+unsupported on Android targets. Our deployed runtime is Linux-musl, so an Android
+host alone selects neither an Android API nor a useful desktop clipboard. Retain
+SPEC's Linux-desktop/WSL capability fence; the new qualified Android backend
+must not require enabling a usable X11/Wayland clipboard path. Image support
+must not move into Core or create an unrelated desktop service.
+
+**Delivery gate.** Reuse the source candidate and appropriate existing private
+Android SDK-capable workflow; finish actual affected JUnit/Robolectric suites
+and full ARM64 APK build. The Codex frontend workflow must select the relevant
+copy-worker/picker and Android consumer tests, not count image-file preparation
+as clipboard coverage. Fix any substantive new regressions with disposable
+mutation proof. Reuse green Core evidence where actual inputs are unchanged.
+Preserve installed/current rollback APK and wrapper artifacts, credentials,
+terminals and jobs; prepare resumption before separately authorized APK
+activation, which can stop the host. Accept the actual old/new APK versus
+Base/enhanced-TUI composition, including required capability discovery and
+physical clipboard results. A signed wrapper release does not install an APK;
+neither single-sided installation completes C2/C4/C5.
+
+Unmodified Base retains ordinary OSC52's unconfirmed outcome even after the APK
+capacity fix. The new acknowledged-copy/image consumer belongs to the maintained
+TUI, independently of optional Manager; state this selected-component boundary
+in installation results instead of claiming the Base executable gained a new
+clipboard backend. All selected combinations retain their actual supported
+upstream copy behavior, and old/current rollback remains an explicit test input.
+
 See [SPEC clipboard/image boundary](SPEC.md#planned-clipboard-and-image-input-qualification).
 
 ### Direct user request coverage
@@ -3282,8 +3368,11 @@ regression coverage and missing delivery are distinguished from new development.
 | Session handoff, pause/resume and work taken over from Terra | Minimum-path takeover/review/delivery is complete at recorded scopes. Reuse original jobs/results and reread AGENTS after recovery; do not silently switch the active model or restart accepted work from a summary alone. |
 | Full /switch and profile preservation | Confirmed Base capability gap;1 restores matching frontend/Manager and actual profile handoff. Updates preserve the selected composition. |
 | /config notifications; absorb/replace custom notify; currently missing alerts | Explicit repair and adopt/retain/remove decision in1; no longer generic late UX. Physical Android delivery is required. |
-| /copy, clean copy without terminal wrap edits |1 qualifies upstream copy targets, formatting and Android clipboard. Manual prompt-copy delivery is separate. |
-| Image paste where feasible |4 explores Android image/URI access and reuses existing image composition; file/share fallback is labelled separately. |
+| /copy picker, Ctrl+O, button differences, clean copy and full upstream capacity |1/C1–C2 restore actual upstream target selection and source fidelity through Android, including100,000 raw UTF-8 bytes and encoded-buffer/decoder/downstream limits. This is distinct from manual prompt-copy delivery. |
+| Copy unconfirmed repair |1/C3–C4 connect actual Android write acknowledgement to upstream CopyOutcome/CopyStatus, fixing capability discovery first. A larger OSC52 buffer or renamed success message is insufficient; physical full-content copy and failure/unknown cases are acceptance gates. |
+| Image paste where feasible |4/C5 audits/reuses the existing Termux app-side candidate and finishes its missing Codex consumer, real model delivery, cancellation and image lifetimes. File/share fallback is labelled separately. |
+| Optional Ctrl+C copy, Ctrl+Shift+C interrupt and physical/extra-key consistency | C6 is app-owned, default-off and separate from native /copy/Ctrl+O. Existing source/test cases require full APK and Android proof. |
+| External editor, X11 purpose and custom APK update maintenance | C7 verifies historically set EDITOR/VISUAL inheritance; retains separate ChatGPT-host display needs and requested on-demand exact master-based APK build/rollback. No mandatory clipboard X11 or recurring APK watcher. |
 | native_workspace_writer_busy and concurrency |1 identifies real owner, join/handoff/isolation and actual process/writer boundaries; not a one-process assumption or blanket kill. |
 | ChatGPT app/web/CLI entrance equivalence and reverse propagation |2 closes the actual-client A1 matrix, original input/event/source identity, same-task binding and stored versus live display. |
 | ChatGPT requests Provider inference and gets its original result |2 includes this explicitly; it is not deferred to independent workers. Direct and Provider remain the only execution meanings. |
