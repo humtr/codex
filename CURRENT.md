@@ -17,6 +17,9 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
+The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
+own execution order; the current user request is planning only.
+
 **The device now runs signed Base124/upstream0.165.0. The preceding locally
 derived Full0.164 installation is retained for rollback. A1 entrance equivalence
 is partially qualified, not complete.** Full123 and Provider21 have their separate
@@ -1305,9 +1308,12 @@ runtime body fails digest admission without changing selection; auth/config/reso
 sentinels survive. This is synthetic owner control/storage, not deployed hosting or
 real model inference. The initial fixture's frozen Core mode0700 was corrected to
 the preserved release mode0755; its failed result remains, without weakening admission
-(`publication-native-input-correction.json`). Deployed backward-compatible redirect
-behavior and complete public readback remain unqualified. Deploy the compatible
-redirect before publishing sparse assets; public Base124/Full123 remain untouched.
+(`publication-native-input-correction.json`). At that fixture boundary the compatible
+redirect was not deployed. The later
+user-authorized deployment now has exact source readback; public route acceptance
+and complete candidate readback remain separate unfinished boundaries in the
+consolidated plan. That deployment does not qualify native GitHub-direct support
+or alter the signed Base125/Full123 heads read back later.
 Retained asset maps now also protect every physical Base/Full origin from deletion,
 in addition to pinned logical Bases and rollback targets; no release deletion
 operation is added. Inactive qualification runtime/host payload copies were
@@ -1375,9 +1381,11 @@ require their remaining gates; local signing does not implement publication.
 Signing a file inventory does not change the binaries and requires no upload by
 itself. A later public release should upload only absent changed artifact objects,
 new module/composition metadata and their signatures, referencing previously
-published immutable objects for unchanged content. The current Base publication
-still lacks this general reuse; Full's verified Base references are reusable
-implementation evidence. A locally rebuilt binary that differs must be uploaded
+published immutable objects for unchanged content. The current source includes
+Base/Full physical-asset reuse at the qualified
+publication boundary above; this is distinct from full selective-component policy
+and final delivery. Existing verified Base references remain reusable evidence.
+A locally rebuilt binary that differs must be uploaded
 if that exact binary is to be distributed, even when its version/source labels
 match. Reuse by digest avoids assuming reproducible builds. Binary delta delivery
 is a separate feature, not a consequence of module-selective updating.
@@ -2864,90 +2872,311 @@ call must not execute before grant or be replayed by a new logical call ID.
 
 ## Product completion scope and work order
 
-Earlier A–H were bounded completed batches, not proof of universal entrance
-parity. Their unchanged accepted artifacts need no rebuild. The Chat-authored
-16-file originality work (including9 inherited edits,91 calls/0 pending) remains
-preserved in its original TMPDIR workspace and Native history; Codex's later
-review/supplements and delivery are distinct from that unbuilt Chat batch.
+This section is the authoritative execution order for unfinished work. Older
+suggested orders and numbered batches elsewhere retain their evidence, not a
+competing queue. User instruction at this planning boundary: **prepare the plan
+and handoff only; another model will implement it after the user's instruction.**
+No new product implementation, deployment, activation or CI dispatch belongs to
+this documentation batch. Existing owned builds keep their original identity.
+The current goal remains a quality-qualified minimum update path; later phases
+are preserved work, not additional prerequisites for closing that goal.
 
-Recommended execution order follows dependencies; conditional investigation is
-not a new mandatory platform guarantee or permission gate.
+### Reviewed starting point and design decisions
 
-| Order | Work / responsibility and affected paths | Completion / expected result |
+- Product source is c31b11b82dc06beaa546c403b5a30d06d7a4161f on rewrite/rust-core.
+  This plan's documentation commit is separate. Device state readback still selects
+  Base124/0.165; previous is local-1793204956-318-2. Authenticated public heads are
+  Base125/0.166 and Full123/0.164 at main2734c121. Recheck before activation;
+  operating, public and candidate versions are different facts.
+- The native0.165 producer/SDK, cache-backed manual update/rollback and actual
+  Native commands have scoped proof. The latest separated-recipe trial also fetched
+  the original archive from actual official HTTPS and passes in68.18s. This does
+  not complete the cold automatic build, final candidate delivery or user replay.
+- Source acceptance41008373030 at c31b11b fails in two builder tests: the C/C++
+  adapter and unusable-linker fixtures execute PREFIX/bin/bash, while that CI
+  provisioning step installs sh and other tools but no bash. Original log:
+  minimum-update-hosted-source-c31-failed.log. The immediate correction belongs
+  to the actual test-tool provisioning boundary, followed by the real gate;
+  weakening assertions, substituting sh for Bash arrays, or adding skips is not
+  a solution. Additional failures may still emerge after that boundary is fixed.
+- Independent Core/runtime qualification41008373121 was in progress at this
+  observation; original source acceptance41007247967 failed, and its obsolete
+  independent run41007248058 was explicitly cancelled. Provider source gate
+  41007247910 passes at e96bb49. None is final public delivery of this candidate.
+- Cloudflare is not required for storing or authenticating artifacts. Current
+  RemoteReleaseBase::resource_url concatenates logical paths; the Worker translates
+  helpers/0 to helper-0 and follows existing asset-map-v1.json physical routes.
+  release_components.py::target already resolves those routes to GitHub URLs.
+  The next architecture moves that acquisition responsibility to the native client.
+- Worker source932b97eb... was actually deployed/read back. Credentials were copied
+  under the user's authorization to ~/.config/cloudflare/credentials.env with0700
+  directory/0600 file; the original remains. Public positive/negative verification
+  is still a distinct boundary. Do not deploy it again merely to continue this plan.
+- native_workspace_writer_busy is a work-phase/overlapping-path guard, not a
+  one-process architecture. The recorded3 reconciliation and1 waiting Direct works
+  establish a reachable rejection, not the identity/cause of the user's exact
+  failed request or proof that every owner is dead.
+
+Keep one Rust implementation for installed selection, acquisition, execution and
+state decisions. Reuse the existing build producer and signed inventories; scripts
+may coordinate development/CI. App renderer JavaScript owns only actual app API,
+state and stream access. A new language rewrite, orchestration engine, receipt
+hierarchy or external repository dependency is not a prerequisite for this plan.
+
+### Execution order and observable completion
+
+| Phase | Work and principal locations | Required result / exit condition |
 | --- | --- | --- |
-|P0 User override, active | Official0.165 Termux port; GitHub build/result tracking; consumer/developer update boundary; signed delivery and actual device replay | Complete update/install proof, return to0.164.0 and preserve a tested user replay path before remaining Provider work |
-|0 Completed here | Consolidate CURRENT, correct stale SPEC/README/AUDIT status | Delivered versus unqualified versus proposed work no longer conflicts; docs/diff check |
-|1 A1 qualification | Reuse qualify_provider_continuity.py and frozen accepted frontend; actual ordinary Android/Web/CLI inputs; Operator admission/context and native events are the execution authority | Close matrix1–9 or identify the exact missing host capability. Exercise Direct and Chat→Provider original-result return; no duplicate primary calls or full-history timer |
-|2 A1 corrections, interleaved with1 | Fix only reproduced owner/admission/branch/context/event defects at operator.rs, app.rs, mcp_bridge.rs or frontend owner as established | Each substantive regression first fails old/faulted disposable source, then passes actual affected path; retain originals, full output and permissions |
-|2a Completed maintenance | runtime.rs::ensure_binding/prepare caller and existing runit lifecycle; supervisor owns a supervised service, prepare consumes its verified endpoint | Reproduce concurrent cold startup in a disposable root; choose explicit supervised readiness versus standalone autostart without breaking either. Pass one actual owner/PID, no restart loop, no stolen active Native work |
-|2b Completed source/build/device maintenance; packaging at6 | Wrapper-owned official-source/patch/build recipe, retaining existing isolated latest-build evidence; no other checkout required | Reconcile latest supported upstream with the mobile HTTP/2 regression, build/qualify Android, then separately admit a versioned image and controlled service switch/rollback. Do not replace global/shared consumers incidentally |
-|2c Deferred until current input work is complete | Use the completed originality/name/legacy-consumer audit; retire obsolete layout support, decide naming, remove authorized obsolete profile/audit artifacts | Input implementation/product acceptance and applicable delivery first. Then separate contract/producer/consumer/test cleanup; retain current-format rollback and unrelated/active user work. Inspect exact audit entries and ownership/live references, including27 unreadable candidates; remove confirmed unnecessary artifacts under existing authorization |
-|3 A2 | Audit Operator::new/app_route/start_driver, app::AppHost/Transport and McpBridge actual callers; common execution policy stays Rust, renderer JS stays the host capability/wire boundary | Extract only real duplication; preserve local_function and MCP context/results/Stop/approval/handoff/compaction; no forwarding-only engine or deleted live caller |
-|4 Budget reassessment | Shared assignment admission/usage from A2, existing controller and ledger | Model proposes allowance, exhaustion pauses the specific unexecuted call for authorized extension/summary; measured counters survive restart and parent bounds |
-|5 A3/A4 discovery and worker implementation | Qualified A1/A2 history/control with explicit parent/assignment/context; supported host capability first | Independent model runs distinguishable from tool calls/replayed output; parent delegation/status/result references and full child history; native lineage only if proven |
-|6 Setup/component/tunnel integration | Core mandatory, optional layers individually selectable; use existing signed installation/service authority | Shared minimal setup and user-selected composition, tunnel dependency/version management per actual route, migration/rollback and Android proof |
-|7 Separate product polish | Repository separation, version/update UI, physical viewer and long-duration operation | Own affected-path acceptance; no incidental change to models, discovery defaults or current release pins |
+|0 Settle existing qualification | Existing cold trial and failure records; rald7-full-acceptance.yml tool provisioning; native_sdk.rs/runtime.rs fixture consumers | Preserve/reconcile existing jobs; repair and verify the known Bash preparation boundary. Collect existing gates without launching another foundation-only full batch before phase1; the final combined candidate receives complete acceptance in2. Record cold build/install/rollback separately from warm reuse. |
+|1 Native GitHub transport | Core RemoteReleaseBase/acquire_remote_release_source/fetch_verified_remote_release_file_with_timeout_and_progress; existing remote_download.rs; publication map/target consumers and readback tools | GitHub hosts signed controls, maps and flat immutable assets. Core resolves physical routes while staging original logical paths. A real update succeeds with all Worker access denied, including nested helpers and old-asset reuse. |
+|2 Close the minimum goal | Same producer/sign/install/rollback; existing release qualification, signing/readback/disposable consumer and non-forced promotion; selected device entrypoint | Exact candidate is delivered, activated and exercised, protected state/live jobs survive, rollback works and a genuine0.164 user replay is prepared/proved. Report ready-artifact installation and missing-artifact local/remote construction as distinct cases. |
+|3 Remove current operational blockers | Provider operator.rs::create/resume/fork admission, operator_native.rs and existing Core/Manager profile routes; notification investigation | Reproduce the exact workspace rejection and reported profile fault; fix verified ownership/selection causes. Same task joins its existing work; independent simultaneous writers use isolated worktrees. Verify blocking owner, completion/recovery and actual profile selection/resume. Produce an evidence-based upstream-notification boundary proposal. |
+|4 Deliver input/catalog and finish bounded A1 | Existing chat_input.rs/app_bridge.js/app.rs/catalog.rs/operator.rs, Native/TUI and registration/continuity qualifiers | Deliver the already implemented input/catalog candidate after applicable acceptance. Prove Direct and Chat-origin Provider flows, exact settings/source/public output, one intended inference/effect and separate stored/live display. Close the actual-client matrix or explicitly settle missing host capabilities. |
+|5 Authorized originality/retired-path cleanup | Existing AUDIT findings, actual package/config/process consumers, obsolete reader/export/restore paths | After input product acceptance, remove confirmed obsolete artifacts and source/tests together, retaining current-format rollback and live/unique user content. Inspect the27 unresolved entries and exact consumers; unknown ownership is recorded, not treated as dead or made a permanent blocker to unrelated cleanup. |
+|6 Targeted A2 responsibility extraction | Operator::new/app_route/start_driver, AppHost/Transport, McpBridge and their actual callers | One shared work/context/intent/usage/Stop policy, distinct MCP/local_function discovery/transport/result returns. Preserve both full tool surfaces and permissions; delete replaced paths and forwarding-only layers. |
+|7 Complete selective lifecycle and composition | Core update planner, release inputs/fingerprints/heads, optional installer/service selection, wrapper tunnel recipe and setup | Mandatory Core, individually selected Manager/TUI/Provider/patched tunnel, Full as all optional layers. Only changed compatible components are acquired/built; unchanged modules and old running images remain. Prebuilt tunnel is separately selectable and included in Full. Local/remote producers share contracts; actual mixed-composition update/rollback passes. |
+|8 Budget reassessment | Shared A2 assignment admission/ledger, existing controller and parent limits | Model proposes an initial allowance and re-evaluates measured progress at exhaustion; configured authority grants extension or work is settled.75/1000 are not universal defaults. No ungranted call executes/replays; restart/Stop/parent/platform limits remain effective. |
+|9 Independent workers, Pro discovery and BTW | Qualified Direct/Provider assignment/control, native child APIs and ephemeral-thread capabilities | Prove a separate reasoning context before labelling a child worker. Parent keeps delegation/status/result references; child keeps its full public execution. Establish live temporary-thread exchange and lifecycle before building orchestration. Spend the one recorded remaining Pro call only on a discriminating host-capability test, then apply discoveries to ordinary models. |
+|10 Remaining product work | Notification implementation after the supported boundary is decided, Linux app setup, mobile viewer/IME, longevity, repository/bootstrap separation | Remove redundant Manager responsibilities only where actual upstream coverage suffices. Preserve Android delivery/focus preferences. Verify first-run/account/project setup, physical UI and long-duration behavior at their actual boundaries; keep independent published histories. |
 
-Orders1/2 are iterative: a failure need not wait for every matrix case before its
-fix.2a is now delivered and activated, and2b has its wrapper-owned build/patch,
-actual cloud proof and scoped device activation. Full automatic dependency
-installation/update is still order6, distinct from accepted maintenance.
-Budget and worker features follow A2 so they do not create
-another admission/usage implementation. Read-only supported-host research can
-proceed while actual-model tests are rate limited; the last Pro call is conditional.
-A2 should not be blocked indefinitely by an upstream provenance capability that
-has been investigated and recorded as unsupported: first settle that A1 boundary,
-then retain the limitation explicitly without claiming universal equivalence.
+Phase3 profile work moves into phases0–2 only if it actually blocks update/replay.
+Other independent investigation can fill rate-limited A1 time; no concurrent writes
+in this shared worktree or simultaneous heavy Android builds. Phases3/4 iterate:
+a reproduced admission/context defect is fixed and retested before repeating the
+rest of the matrix. A2 can proceed once an unavailable host guarantee has been
+investigated and explicitly bounded; it does not wait for impossible universal
+host provenance. The notification proposal in3 is investigation, not automatic
+approval to replace Manager's existing contract in10.
 
-The release and service/tunnel follow-up add concrete maintenance candidates and
-a bounded investigation, rather than reopening every accepted feature:
+### Phase1: why direct GitHub and how to migrate
 
-- **New lifecycle work (2a):** concurrent runit/prepare startup produced the
-  observed detached-owner/supervisor mismatch. First amend the lifecycle contract
-  for the selected ownership mechanism, then reproduce and fix at that owner.
-  Provider16 now implements and qualifies that ownership contract. The existing
-  Journal exclusivity remains intact; it was not weakened to obtain success.
-- **Conditional host diagnosis:** reproduce copied-profile app_target_unavailable
-  only if it recurs or blocks qualification/setup. Capture app-target/composer
-  readiness at failure; the later composer alone identifies no cause. This is
-  distinct from the delivered Native notLoaded fix.
-- **Tunnel maintenance (2b):** upstream [v0.0.18](https://github.com/openai/tunnel-client/releases/tag/v0.0.18)
-  was published2026-10-23T20:25:58Z. The inspected0.0.14 base is162 upstream commits
-  behind that tag (four release increments); this does not establish protocol
-  incompatibility. The official inventory has Linux/macOS/Windows artifacts, not
-  an Android build. Actual Codex and global executables report GOOS=android,
-  GOARCH=arm64, CGO_ENABLED=1; the Codex image additionally identifies bb78162.
-  That local branch has one HTTP/2 liveness patch over0.0.14 and only the upstream
-  origin. No independent Termux release/update channel was established by the
-  inspected configuration or repository lookup. Current Codex install/update
-  does not update it. The updated target puts the authoritative source/patch/build recipe in this
-  wrapper repository. Tunnel is individually selectable and included prebuilt in
-  future Full; ordinary installation requires no compiler or separate checkout.
-  An explicit source-build/recovery path reuses the release recipe. Independent
-  component updates/rollback remain required; none of this packaging is yet delivered. Inspect the latest
-  transport and rerun the half-open regression before retaining/replacing the patch. Neither
-  age nor a successful version probe settles runtime compatibility.
-- **Existing A1 scope, now more precise:** qualify Chat-origin Provider context
-  acceptance/result return and external-source attribution before declaring full
-  entrance equivalence. Missing trusted host IDs may require a supported host
-  integration, not another local transcript copier.
-- **No new product rewrite justified:** output-file read timing and test-shell
-  inherited leases were qualification-helper findings. Preserve their evidence;
-  do not infer a Provider leak, tunnel incompatibility or model retry bug from
-  them. Accepted signed delivery/rollback, TZif and catalog fixes remain closed.
+Retaining the Worker as the permanent new-client download dependency adds another
+host, deployment credential and failure boundary for a translation the client can
+perform. A new server/mirror broker moves the dependency rather than removing it.
+One full tarball simplifies naming but forces unchanged-module downloads and weakens
+selective/resumable acquisition. Renaming installed logical paths to flat Release
+names changes the runtime/manifest contract and existing consumers unnecessarily.
+The preferred target therefore retains signed logical inventories and the existing
+flat assets/map, while Core and release readback resolve GitHub routes directly.
 
-**Service ownership finding.** The installed service-daemon matches
-~/prj/termux-services/files/bin/service-daemon at the follow-up. Boot/login starts
-the shared runit graph; its15s monitor observes root process identity, not remote
-Chat history. Read-only status showed one root and12 supervised services, with
-Codex Provider/host/tunnel up. It owns graph recovery, not Provider readiness.
-prepare calls runtime::ensure_token/ensure_binding, which can start its own
-detached serve process; runit separately invokes foreground serve. These two
-application startup authorities caused the observed collision without requiring
-duplicate runsvdir roots. Repair the Provider/service integration boundary first;
-do not add Provider-specific policy to the generic root monitor. The tunnel
-wrapper only reads authenticated local Provider status before running its pinned
-client; no tunnel-version cause of the observed startup collision is established.
+1. Keep index/manifest signature and generation/high-water admission authoritative.
+   Controls belong to the selected generation. Fetch the bounded map directly from
+   that generation's fixed GitHub Release; validate its generation, inventory,
+   manifest digest, physical asset names and permitted repository/generation routes.
+   Treat the map as routing data. Verify every final signed size/digest/mode before
+   staging logical helpers/0 etc. A route never grants execution authority.
+2. Implement the responsibility at acquisition, with one cohesive native resolver
+   used by real callers. Use the existing map/target implementation as the contract
+   reference; avoid a second updater or general URL-rewriting service. Preserve
+   custom/private HTTPS origins and explicit offline/local updates under their
+   existing contracts. Do not rewrite arbitrary user origins.
+3. Separate canonical signed release identity from its physical download location.
+   Qualify direct fetching of historical Worker-indexed generations where their
+   maps support it, without modifying immutable signed records. Test Base and Full,
+   inherited/earlier physical payloads and the bootstrapping Core path.
+4. Old installed Core still needs its known logical origin. Retain the deployed
+   Worker only for this actual consumer while qualifying signed Core migration/
+   bootstrap. New clients must work without Cloudflare DNS/service/credentials.
+   Worker retirement requires a documented supported-client floor and a working
+   migration/rebootstrap path, plus an explicit service retirement decision; it is
+   not inferred from one new binary or an inability to enumerate offline clients.
+5. Prove the transition using real native curl/GitHub delivery, Worker-denial,
+   interrupted Range, corrupt/foreign/traversing maps, signatures/digests, exact
+   old→new→rollback, and unchanged custom origins. Match the test to the consumer;
+   a local map test or GitHub Actions success alone cannot prove device acquisition.
+
+Make phases0–2 one product-path implementation/qualification batch, with logical
+commits for review and one final accepted candidate. Do not publish an intermediate
+Worker-dependent new Core merely to move later work to a second release. Account
+for already-running native/hosted proof before starting another build. Review
+transport placement and overly broad producer fingerprints together: acquisition-
+only changes must not require unrelated source recompilation merely because they
+share a large file or the complete wrapper lock. Narrow demonstrated false inputs
+at their actual owner, preserving required compiler/dependency admission and exact
+source proof; do not invent a general build platform to do so.
+
+GitHub Release storage and GitHub Actions execution are separate decisions.
+Consumers of ready signed artifacts need no gh login or model account. Keep local
+build usable when CI is unavailable. Reassess optional remote executors/mirrors
+later; do not build a new cloud platform during this minimum path.
+
+### Phase2/7: build, update and release boundaries
+
+Freeze each candidate's exact source/tool/compiler/std/C-C++/linker/protoc/profile
+inputs. Observe the current cold job to terminal completion; do not restart it
+because an exec wait expires. If reuse replaces a run, document the matching inputs
+and remaining unproved path explicitly; a cache hit is not a fresh-source proof.
+Repair at the missing producer/consumer boundary rather than patching over failures
+with extra retries, longer waits or new orchestration. Reuse unchanged green proof.
+
+The on-device recipe currently qualifies0.165; remote publication targets0.166.
+Qualify the next native source/toolchain combination from real upstream inputs,
+reusing a compatible supported SDK only when demonstrated. Recognized source
+patterns permit deterministic automatic patching and lock audit. An ambiguous or
+new semantic change yields an exact function/file reason for review, not guessed
+patching or a claim of arbitrary future-version support. Installing a ready public
+0.166 release is not evidence that the device compiled0.166.
+
+Phase2 must distinguish an original old-Core0.164 installation migrating to the
+new Core from a replay fixture containing the new Core and0.164 runtime. Exercise
+both where claimed. Leave the user the authorized0.164 replay state only after the
+candidate and rollback are qualified; report the actual launcher, selected runtime
+and preserved old processes separately. If the public artifact is already ready,
+plain update should install it, not manufacture a missing-build request. Qualify
+the missing-artifact menu/build with an isolated authenticated channel/snapshot;
+never remove a public release or regress stable pointers to manufacture that case.
+Physical user observation remains separate from recorded device execution.
+
+Existing source already implements download reuse/resume, independent selected-
+Provider updating, live immutable-package selection, missing-artifact policy,
+configured signing, physical-asset reuse, failure/status reporting and component
+publication times/notes. Reuse those implementations and scoped proofs; stage7
+finishes missing composition/toolchain/setup consumers and delivery instead of
+rewriting these foundations. Recorded operating behavior can still predate them.
+
+Broader lifecycle in7 reuses ready/cached bytes, then offers one grouped missing-
+artifact choice: keep that dependency group, build locally with required tools,
+or request one remote build. Independent ready groups can still advance. Never
+race local and remote builds automatically. Persist the owner's policy for future
+calls/noninteractive use. Source cron17 */2 * * * is implemented but needs hosted
+activation/job-reuse proof; unchanged inputs should create no build. Track ACK,
+actual build, failure, signed availability and installation as different states.
+
+Consumer/developer differences are capability checks, not another product mode.
+Normal builds use local-derived signing while retaining public update authority;
+configured authorized maintainers may sign release output. Login/checkout does
+not imply a signing key. Signing does not upload; upload only changed immutable
+objects and new signed metadata, then full readback/disposable acceptance and
+non-forced promotion. Preserve every physical origin referenced by retained maps.
+Narrow overly broad build identities to actual component inputs when justified;
+transport/display/test-only changes should not force unrelated runtime compiles.
+Use exact digests for admission, never version labels or assumed reproducibility.
+
+### Phases3–10: constraints and preserved requests
+
+- Reconcile overlapping work with actual Native controller/thread/job state, then
+  report the blocking owner and join/handoff/isolation action. Preserve unknown or
+  in-flight effects. Conversation lifetime is not a mutation lease. Read-only
+  admission and write ownership need actual tool/native support; fixed MCP hints
+  do not prove read-only execution. Include Direct, Provider, idle/terminal/stale,
+  pending approvals, descendants, ancestor paths, aliases and verified external
+  Core owners in the scope. Do not solve contention by dropping write capability,
+  ignoring all guards, editing journal phases or killing unrelated processes.
+- Input/catalog code already has source and scoped Native/app proof. Reuse it;
+  finish actual current-app selection/inheritance/explicit override, account change,
+  fresh query, fork/resume, restart and per-request settings provenance. chat_input
+  keeps user-prompt semantics; workflow setup belongs to its existing explicit
+  owner. Offered app options plus configured additions decide selectable models/
+  efforts. UI labels and wire values remain data. No model-generation hardcoding
+  or silent Instant/effort fallback. Direct/Provider remain the only execution
+  meanings; current/managed aliases are not reintroduced.
+- Separate the executable process, Native record owner and inference account.
+  A Termux Codex process executing tools does not establish a Codex-account model
+  submission. Classify each tool/route by its actual auth requirement and verify
+  model-free inspection/execution/update without an unnecessary Codex login.
+  ChatGPT/Codex login, app login, connector credentials and release signing are
+  distinct authorities; account switching must not silently reroute another work.
+- A1 includes ChatGPT asking Provider for another model response and receiving
+  the original result, not just Direct's tool use. Verify exact originals and
+  distinct inference/effect counts on Android, ordinary web and CLI. Preserve full
+  answer/progress/tool flow; duplicate-display fixes must not summarize, truncate,
+  suppress reasoning effort or lose legitimate repeated text. Use Bridge/native
+  events and bounded explicit recovery; never restore a two-second Chat crawler.
+  Retain the user's chosen presentation-only folding/expansion of source material;
+  canonical public text and tool chronology remain complete and available.
+- Registration ACK, local tools/list, host-cached schema, received queue message,
+  consumed input and completed model task are different. After an actual tool-
+  declaration change, refresh the verified existing connector once and read back
+  schema/descriptions/annotations; include queue and actual MCP invocation. Retain
+  the user's fixed true/false/false hints and behavior-based idempotency policy.
+- Existing termux-services/runit root is the generic supervisor. Provider prepare
+  consumes the verified supervised endpoint; standalone startup retains its own
+  explicit mode. Preserve the accepted collision/HTTP2 fixes rather than adding
+  Provider policy to the root daemon. Packaging must own service switch/readiness/
+  rollback separately from downloading immutable binaries and account activity.
+- Tunnel remains individually selectable and prebuilt in Full. The wrapper owns
+  upstream/patch/build inputs; another tunnel repository is optional development
+  evidence. Check current official compatibility at that batch, retain only needed
+  patches with the actual half-open HTTP2 regression. Ship Android artifacts for
+  ordinary installs; explicit source recovery uses the same producer. Determine
+  tunnel/app prerequisites from the actual selected MCP/local_function route;
+  neither common Provider code nor a local return alone proves equal dependencies.
+  Installed orchestration is native Rust; retained Python development/CI helpers need not be
+  rewritten by language preference, and must not duplicate build rules.
+- TZif/KST, fixed annotations/idempotency, delivered startup/HTTP2 corrections and
+  existing Native/display evidence are reused at their actual scopes. Component
+  publication times/brief upstream/Core/optional-module notes are implemented in
+  a candidate; complete their delivery instead of starting a new feature design.
+- Follow the input-first originality cleanup authorization and exact AUDIT entries.
+  Target miuuyy's repository specifically. Standard dependency licenses, similar
+  names and unobserved algorithms are distinct questions. Retire code/consumers
+  together; do not change immutable releases, remove current-format rollback or
+  keep obsolete backups permanently merely because they are historical evidence.
+- Pro/host-child and BTW investigations are conditional, after the foundation.
+  The recorded one remaining Pro call needs a discriminating test and fresh budget
+  verification; a Pro label is not an independent worker. BTW seed01a18ac9… is
+  ephemeral: read/resume failure is not nonexistence. Prove live addressing,
+  original context, ACK/delivery/consumption/result, cancellation and expiry without
+  creating a replacement thread or falsely asserting native parent_thread_id.
+- Handle429/host outages by preserving uncertain work and doing local analysis,
+  fixtures/docs or unrelated ready verification. Count actual requests; one tool
+  call is not proof of one HTTP request. User manual prompts retain exact UTF-8,
+  automatic clipboard attempt/readback and a separated short fallback; full source
+  delivery, not marker-only confirmation, is the input oracle.
+- Reproduce profile behavior on the selected runtime/TUI before choosing its owner.
+  Upstream notification migration requires actual event coverage, no duplicate
+  Android delivery and preserved focus/preferences; keep only device/profile
+  responsibilities still needed. Long runs observe real owned processes/memory/
+  network; free RAM or a historical Android LOW_MEMORY entry proves no new cause.
+- Use TMPDIR worktrees and XDG output, one heavy Android build at a time. After a
+  completed batch preserve armed/rollback executables and original results, archive
+  manifest-matched inactive fixture payloads with clean_development.py and keep
+  reusable compiler caches around15GiB. Preserve user files, private credentials,
+  conversations, active/unknown jobs and the resolver. Repository/history separation,
+  shared setup/login, physical viewer/IME and task UI stay in their assigned stages.
+- Project setup must read back the actual remote project, binding and selected
+  history policy. Configuration alone is not project creation. Task identity may
+  span several Chats or distinguish several works in one Chat; do not make titles,
+  paths or a universal Chat/thread1:1 rule identity authority.
+
+### Next-model handoff
+
+Read AGENTS.md in full after recovery/handoff, then this section, the current
+SPEC contract, current branch/HEAD/diff and each affected implementation/caller.
+The plan is a user-requested document, not authority to assume every old safety/
+completion claim is correct. Follow the order and finish each observable outcome;
+reorder only for actual dependencies/new evidence and explain a material change.
+Do not expand the current goal to all phases or end at source checks when delivery
+and device proof remain. This documentation batch does not mark that goal complete.
+
+Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. Cold fixture:
+$TMPDIR/minimum-update-e2e-nffz1i54, qualify-retry.py, live-process.json,
+terminal-v3.log/resources-v3.jsonl; terminal result minimum-update-e2e-v3.json.
+Last observed Core PID31810/exec handle36199 must be revalidated against /proc and
+its exact p/bin/codex executable, descendants and output, not treated as an enduring
+ID. An unavailable exec handle is not process-exit proof. Do not start a duplicate
+or prune its SDK/source/targets while it or its children are live.
+The final planning observation still showed codex-core at1245/1411 with no terminal
+report; its last available-memory sample was about1.52GiB. These are time-bound
+observations, not an OOM diagnosis. Recheck actual process/resource state before
+starting another memory-intensive job.
+
+The separated-native-recipe trial root is pointed to by
+minimum-update-native-recipe-root.txt; its accepted result is
+minimum-update-native-recipe-e2e-v1.json. Earlier accepted raw/Native artifacts,
+failed logs and mutable target binaries have distinct identities. The disposable
+fault runs can leave the shared debug executable with faulted bytes even though
+source is restored: use a frozen verified candidate or rebuild from current source,
+never install a debug path on filename alone. Reuse proofs by matching actual
+inputs/environment/contracts, not by identical version text or timestamps.
+
+Start phase0 after the user's implementation instruction. Fix the known CI Bash
+preparation and inspect the latest source/runtime run records. Before any public
+promotion or bounded activation, re-admit actual heads/authority/source, complete
+required readback and disposable acceptance. The copied common credential reference
+is available for a justified legacy-Worker operation; it is not a dependency for
+new GitHub-native clients. Preserve original/current/rollback state and leave a
+concise CURRENT update with exact results and the next real operation.
 
 ### G product qualification
 
@@ -2987,10 +3216,10 @@ main stays a caller pinned to accepted exact-source reusable release logic.
 Proposed installation/lifecycle refinement: ordinary Core/TUI update already
 installs a new immutable generation while old processes keep their executable;
 full121-device-update.json verifies7 Native owners preserved without restart.
-Provider install/rollback is currently stricter: provider.rs::action takes an
-exclusive package-selection lease and install/no_processes also rejects any live
-Provider generation. This is the deployed SPEC contract, not an OS requirement
-that all Codex processes stop. Separate verified immutable package acquisition/
+The operating installer is stricter: its package-selection/no_processes gate
+rejects a live Provider generation. This describes that older deployed installer,
+not the current source candidate or an OS requirement that Codex processes stop.
+Separate verified immutable package acquisition/
 installation and next-launch selection from replacement of the active service.
 Do not treat an active account/profile as an update lock. Retain generations used
 by running processes/profiles and keep their client, config and journal protocol
@@ -2998,7 +3227,10 @@ compatible. A shared Provider restart or state-format migration still needs its
 actual affected-work boundary; installing files must not implicitly interrupt it.
 Changing this behavior needs a SPEC amendment and actual old-process/new-package/
 next-launch/rollback proof; merely deleting the lease/process guard is incomplete.
-This is proposed stage6 work, not an implemented hot-update claim.
+The candidate's shared-lease/selection change and actual isolated live-owner
+proof above implement that separation. Final public delivery and service/config
+migration remain lifecycle work in the consolidated plan; source qualification
+does not imply that this device's older installer already behaves that way.
 
 That setup/update batch must also own MCP declaration-cache reconciliation.
 Provider20 demonstrates that a binary restart and local tools/list do not update

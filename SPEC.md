@@ -4696,6 +4696,38 @@ lock dependencies, upstream/archive and Core toolchain, not Manager/TUI policy.
 The producer verifies both the sidecar and base file inventory before reuse;
 version equality or a successful unowned workflow alone never permits reuse.
 
+#### Planned GitHub-native transport transition
+
+This is the next implementation target, not a claim that installed Core already
+implements it. The current Worker-backed publication contract above remains the
+existing-consumer boundary until migration is qualified. GitHub Release storage
+and GitHub Actions execution are independent choices; neither ordinary download
+nor local construction requires a second hosting service or gh/model login.
+
+The target native acquisition path reads the existing bounded physical asset map
+from GitHub and stages files under the unchanged signed logical paths. Admit the
+selected index/manifest and generation/high-water first; controls remain in the
+selected generation. Validate map identity, requested inventory, manifest binding,
+flat asset spelling and allowed repository/generation routes. Maps supply locations,
+not trust: signed final sizes/digests/modes and ordinary complete-candidate
+admission remain mandatory. Preserve Range/caches/errors and custom/private HTTPS
+origins. Reuse one cohesive native transport responsibility and existing publication
+map/target consumers rather than introducing another updater, server or changed
+installed layout.
+
+New-client acceptance must pass real GitHub acquisition with Worker access denied,
+including Base/Full nested helpers, reuse from previous physical releases,
+interruption/Range refusal, bad maps/signatures/digests, rollback and unchanged
+custom origins. Historical signed identities and immutable assets are preserved.
+Existing Core clients still using the logical Worker origin require a proved
+signed Core upgrade/bootstrap route; retain that real compatibility consumer
+until the supported-client floor and explicit retirement policy permit removal.
+Worker source readback alone proves neither new direct delivery nor legacy
+migration. Implementation, qualification, publication and device activation remain
+separate states. CURRENT's consolidated plan owns sequence and proof status.
+
+#### Existing composition and public qualification
+
 Each Release contains its changed payloads and a bounded `asset-map-v1.json`.
 Composition may reuse any same-path payload from an earlier authenticated public
 head when its signed digest and mode match the new inventory. Controls and

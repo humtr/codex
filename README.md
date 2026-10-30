@@ -86,8 +86,10 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 Earlier A–H batches are accepted only at their
 [recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-Full119 and Provider16 are delivered and activated at the
-[recorded scope](CURRENT.md#delivered-a1-implementation-and-remaining-qualification-boundaries).
+Signed delivery and device activation have their separate
+[recorded scopes](CURRENT.md#current-status-and-next-action); public and installed
+versions can differ. The [consolidated plan and handoff](CURRENT.md#product-completion-scope-and-work-order)
+prioritize native GitHub acquisition and a proved update/install/rollback path.
 Persistent owned-source binding, Bridge-first join and Native cold-resume/
 compaction fixes are implemented. Complete ChatGPT/CLI entrance equivalence still
 needs actual-client concurrency/recovery and trusted host-source qualification.
@@ -745,9 +747,11 @@ normalization and pristine input timestamps (`prepare-source`, `normalize-lock`,
 as `CODEX_RELEASE_BUILDER`; these rules no longer have Python implementations.
 The same Rust library also owns `build-runtime` and `verify-runtime`, used by
 CI for source compilation and transferred artifact checks. Python remains for
-independent development tests and CI input metadata/wiring. Installed Core
-source-build integration is still unfinished; passing producer checks alone does
-not establish a complete on-device update.
+independent development tests and CI input metadata/wiring. Candidate Core now
+connects native source preparation/build to ordinary signing/installation for its
+qualified native recipe. Cache-backed actual update/rollback passes; cold source
+construction, complete final acceptance and delivery remain separate proof
+boundaries in [CURRENT](CURRENT.md#minimum-update-path-implementation-and-actual-trials).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 
