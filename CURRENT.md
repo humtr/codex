@@ -234,8 +234,9 @@ runtime records remain under ~/.cache/codex/acceptance/service-tunnel-20261027/.
 
 The latest implementation, delivery and device evidence are authoritative in
 [Product completion scope and work order](#product-completion-scope-and-work-order).
-The device intentionally selects0.164 for the user's plain `codex update` replay,
-after actual signed Base128/0.166 update/rollback passed. Final source00e0ed1
+The user has now run the prepared plain `codex update` replay. Readback selects
+signed Base128/0.166 and actual `codex --version` returns0.166.0; the0.164 replay
+remains the previous generation. Final source00e0ed1
 has source/runtime acceptance, signed public delivery and actual device proof;
 existing process images and optional modules remain separate selections.
 The sections below retain the earlier Base124 investigation and scoped proofs.
@@ -2495,8 +2496,8 @@ provider18-operating-web-mcp.json under the service/tunnel root.
 | Plane | Last verified state and boundary |
 | --- | --- |
 | Product source | Core00e0ed1: source/runtime gates41062254814/41063039044; signed Base128 publication41066370680 attempt3 passes after bounded draft recovery. Stable promotion main675c38209068ee828e692962b63773024d9147cd; Provider/tunnel selections are independent |
-| Core | Intentionally restored replay local-1793363754-4266-2/0.164 after actual plain update to signed Base128/0.166 and rollback; previous Base128 retained. Replay keeps the original older Core; next plain update installs signed Core128. The newly created rollback hold alone was backed up/reset for the requested ordinary-command replay |
-| Native runtime | Current replay0.164; actual Base1280.166 execution and local-source0.166 compilation/install/rollback pass. Eleven existing Native process images survived both operating update and rollback unchanged; they need not match the current selection |
+| Core | User-initiated replay now selects signed Base128: local-base-relay-hosted-0-166-0-00e0ed11a04b-s128. Ordinary installed entrypoint and selected Core match the admitted signed inventory; installed manifest signature verifies. Previous is local-1793363754-4266-2/0.164; no update hold or rollback guard is present |
+| Native runtime | Actual ordinary CLI now executes0.166.0 after the user's update. Earlier controlled Base128 update/rollback preserved51 files/11 Native images; that is earlier scoped proof, not a fresh before/after observation of the user's command. Existing processes may retain their launched version |
 | TUI | Selected Base uses its ordinary upstream TUI. Optional enhanced frontend79b9d66 has historical hosted focused65, retained53 TUI/40 Core/2 protocol, two mutations/lint40517442561 and fresh-home resume proof; no qualified0.166 enhanced Full is claimed |
 | Provider | chatgpt-e78d83a69d3e-s21, sourcee78d83a, high-water21/previous20; actual signed update and profile rebinding |
 | Service/host | Historical Provider21 activation had matching process/runit PID19747, startup=supervised and authenticated ready idle host. Repeated Termux exits mean this is not current process-health readback |
@@ -2954,10 +2955,14 @@ builds retain their identities and failure/unknown outcomes.
   resolves the tested ordinary entrypoint $PREFIX/bin/codex.
   The user explicitly requested ordinary-command replay: only this new local
   rollback hold was backed up/reset; public keys/sequence policy, immutable
-  packages and user settings were preserved. Current is the authorized replay
-  local-1793363754-4266-2/0.164, previous signed Base128. A normal `codex update`
-  now has a ready signed0.166 artifact to install; it should not request another
-  build just to reproduce the earlier missing-artifact path. Final records are
+  packages and user settings were preserved. That prepared replay was
+  local-1793363754-4266-2/0.164, previous signed Base128. The user has now run
+  the ordinary update: readback selects signed Base128, the entrypoint matches
+  its admitted Core hash and actual CLI execution returns0.166.0 with exit0.
+  Previous is the0.164 replay; no second update or rollback was initiated for
+  this observation. The user's terminal output/command exit was not captured.
+  Ready-artifact installation does not require manufacturing a missing-build
+  request. Final controlled-trial records are
   minimum-update-live-replay-final/{admission,result}.json, plain-update.pty and
   before/after-native-images records. Earlier Base127's42.44s update/rollback proof
   remains separately in minimum-update-live-replay; it was not overwritten.
@@ -3359,11 +3364,11 @@ and affected implementations/callers. Existing source or newly added paths are
 not design authority. Reuse green proof only for its actual inputs and scope.
 Source00e0ed1 is accepted and signed/public as Base128. Actual operating
 plain update0.164→0.166, rollback,51 protected files and11 unchanged Native
-images pass. Current selection intentionally remains0.164 for the user's
-`codex update` replay; previous128 remains immutable, with only this new local
-rollback preference reset under the existing explicit authorization. Do not
-mistake this requested replay state for a failure to deliver128 or silently
-advance it again. Do not repeat accepted compile/gates merely because a session
+images pass. The user has now run the prepared `codex update` replay: current
+is signed Base128/0.166, actual ordinary CLI version is0.166.0 and previous
+is local-1793363754-4266-2/0.164. This supersedes the earlier intentionally
+restored0.164 selection. No additional update, rollback or service restart was
+initiated to observe the user's result. Do not repeat accepted compile/gates merely because a session
 was compacted or a handle expired. Phases0–2 have finished; phase3 is next.
 The Actions draft HTTP500/partial-metadata observations are preserved findings
 for phase7, not a proven global outage or a claim of unattended draft recovery.
