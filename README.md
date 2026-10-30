@@ -197,11 +197,12 @@ Core. Full also offers `/switch` for configured accounts. Ordinary configuration
 does not force a model or reasoning effort.
 
 Upstream `/copy` and `Ctrl+O` copy logical output; use the upstream copy target/
-format rather than selecting terminal soft wraps. Termux clipboard round-trip
-qualification includes the full upstream100,000-byte raw OSC52 payload and the
-reported `Copy unconfirmed` issue, separately from preparing test prompts. The
-Termux clipboard candidate and Codex consumer are not yet an accepted installed
-pair; enlarging OSC52 alone cannot confirm Android delivery. Image files use
+format rather than selecting terminal soft wraps. The qualified Full0.166 TUI
+and Termux APK0.118.0+18705c1.origin copy the complete100,000-byte upstream payload
+with Android acknowledgement and exact readback, preserving Unicode, paragraphs
+and indentation. Both `/copy` and Ctrl+O pass the actual Android route. An
+unmodified Base TUI still uses OSC52 and reports its unconfirmed outcome;
+enlarging OSC52 alone supplies no acknowledgement. Image files use
 upstream `--image`/`-i`; direct Android clipboard-image paste needs its own
 platform qualification and is not established by file-input support. See the
 [copy/image plan](CURRENT.md#clipboard-copy-and-image-paste).

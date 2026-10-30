@@ -546,8 +546,13 @@ report that path as unconfirmed, not as a repaired confirmed path. An unknown
 write outcome must not cause a blind delayed second write over a newer clipboard.
 
 The Termux side owns terminal ancestry/peer checks, foreground Android access,
-OSC parsing and clipboard effects; the TUI owns source/format selection,
-asynchronous operation ownership and feedback. Reuse the existing worker and
+OSC parsing and clipboard effects.
+Private input admission identifies the app's files/cache directories by their
+kernel device/inode identity, including Android's bind-mounted path aliases;
+literal canonical-path prefixes must not reject the same private directory.
+External files and symlinks escaping the private roots remain rejected.
+The TUI owns source/format selection, asynchronous operation ownership and
+feedback. Reuse the existing worker and
 native outcomes, including cancellation before delivery, busy state and stale
 completion handling. No extra daemon, global clipboard polling, X11 dependency,
 Core clipboard UI or duplicate text-copy path is justified by this feature.

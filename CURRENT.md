@@ -1,9 +1,10 @@
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns implementation, qualification,
-delivery and the remaining work. The verified operating Core is signed
-Base128/upstream0.166.0 (source00e0ed1), installed through the user's ordinary
-update. The user has authorized implementation of the finalized importance/
+delivery and the remaining work. The verified operating generation is signed
+Full131/upstream0.166.0 (source1da570d), activated through Core's signed update
+path after explicit selection of the Full channel. Previous is signed Base128.
+The user has authorized implementation of the finalized importance/
 dependency plan. Order1 capability restoration is underway; source changes,
 qualification and installed operation remain separate states below.
 
@@ -25,13 +26,13 @@ this status rather than appending another session diary.
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 
-**The device runs signed Base128/upstream0.166.0; previous is the local0.164
-replay. It currently selects Base, with no Manager/enhanced TUI.** Thus /switch
-and Manager's Android notification path are unavailable. Upstream /config
-notification settings and /copy remain upstream features; their Android delivery
-must be checked at the actual platform boundary. A1 entrance equivalence is
-partially qualified, not complete. The full optional-component target and matching
-0.166 enhanced frontend are not delivered by the Base-only update.
+**The device selects signed Full131/upstream0.166.0, with Manager and the matching
+enhanced TUI; previous is signed Base128.** Newly launched Codex clients use that
+composition. Already running clients retain their earlier executable; this
+active session is not evidence of an upgraded live TUI. Actual Android confirmed
+/copy and Ctrl+O pass with the installed18705c1 Termux APK below. A1 entrance
+equivalence, Android image paste and physical notification-tap acceptance remain
+separate incomplete work.
 
 The [operating baseline](#operating-baseline) and
 [execution order](#execution-order-and-observable-completion) own current state
@@ -51,14 +52,14 @@ a development binding enables no automatic saved-history polling.
 device/replay scopes.** Exact0.166 local source compilation through the owned
 cache, verified reuse, signing/install/rollback and the user's ready-artifact
 update have distinct proof. This does not qualify arbitrary future source
-versions, the missing0.166 enhanced frontend, complete A1 or every selective-
+versions, complete A1 or every selective-
 module lifecycle extension. Current planning restores actual user capabilities
 first, then follows the importance/prerequisite table. No new goal is created by
 this document, and accepted work is not restarted merely after context recovery.
 
 ### Active capability restoration
 
-The deployed Base128 remains unchanged. Current development fixes Manager's
+The installed Full131 includes the qualified Manager/TUI restoration. It fixes Manager's
 capability discovery to accept the required origin/validate/focus operations
 when the Termux producer also advertises clipboard operations. The real Manager/
 PTY/window regression passes both the expanded and original producer lists;
@@ -73,7 +74,8 @@ permission guards, question display and safety recourse alongside existing
 Provider source IDs and portable prepared input. Exact fresh assembly/scope and
 the10 existing assembler/command-boundary tests pass. Corrected source6e9df34
 subsequently completes actual native CLI compilation and143 focused regressions;
-the remaining upstream-feature and lint gates are unfinished. The renamed portable
+that run later times out during retained-upstream qualification. The accepted
+b759 run completes all remaining upstream-feature and lint gates below. The renamed portable
 input-preparation module is retained in the assembler's ordinary owned source
 set; a full formatter module traversal finds no missing module or syntax error.
 The traversal's formatting diff is not a successful pinned-toolchain formatting
@@ -84,9 +86,8 @@ the real compiler and failed on two newly introduced queued-input references to
 the old prepared-images interface. The queue producer, drain consumer, field
 definition and affected test construction now use prepared_input consistently;
 no compatibility alias is added. The exploratory work-branch runs cannot supply
-release authority: release_control.py requires rewrite/rust-core. The corrected
-source is undergoing qualification there before artifact admission, not by
-weakening that check.
+release authority: release_control.py requires rewrite/rust-core. The accepted b759 source qualifies on that branch and its exact artifact is
+admitted without weakening that authority check.
 
 The missing TUI confirmed-copy consumer is now written at the existing worker/
 Android boundary. It uses the Termux candidate's authenticated socket, private
@@ -100,28 +101,138 @@ write response: the actual app has two independently bounded two-second UI
 handoffs. The client allows that producer budget plus CLI return, distinguishes
 capability-query failure from unknown write outcome and does not replay writes.
 Restoring the too-short three-second write deadline makes the regression fail.
-This is not a real Android clipboard result or an installed frontend. The hosted
+Those source tests alone are not Android clipboard proof; the actual passing
+device path is recorded below. The hosted
 focused gate includes both upstream transcript-copy modes, clipboard worker and
 new consumer instead of treating image-file preparation as clipboard proof.
-Image consumer, notification restoration, signed wrapper delivery, installed UI
-and physical copy/notification acceptance remain
-unfinished; do not report order1 complete from these source checks.
+Image consumer and physical human paste/tap acceptance remain separate work;
+signed Full delivery/activation is completed below. Do not report all order1
+ownership problems solved from these copy/source checks.
 
-Termux candidate9ac9cdd5, built on the existing reviewed master base8629e63,
-passes actual Gradle/JUnit/Robolectric: six classes,28 tests, zero failed/error/
-skipped, plus the ARM64 APK build and matching package/certificate gate in
-run41101644146. The original run41100334309 failed because a test subclassed
-final TerminalSession. The fix preserves the real view dispatcher and session
-encoding, shadowing only PTY/copy output; it retains all five keyboard assertions
-and leaves production final classes unchanged. Downloaded source, all six XML
-reports, package/certificate and exact APK bytes were read back under apk-9ac9cdd5.
-This candidate is uninstalled and is not a claim of the latest official Termux
-master or physical clipboard acceptance. ~/prj/termux/CUSTOM.md user changes are
-preserved. The actual installed origin2 APK matches its recorded original SHA256
-and is backed up as termux-installed-before.apk; read-only actual capability
-query still reports origin,validate,focus and two existing terminals. No APK,
-clipboard content, terminal, installed notification preference or service was
-changed by that APK readback.
+Termux APK0.118.0+18705c1.origin is now installed with exact byte readback:
+SHA256505264f5ab4b018b6ff814dae24833572cdcb932482ae83b8f4c3f3dc984c080
+(apk-18705c1e-installed-readback.json). Source18705c1e is based on the reviewed
+master8629e63 and passes candidate41132529320:32 tests, APK compilation and matching
+package/certificate gates. All seven green XML reports, original fault XML/log,
+source/checksum and APK are read back under apk-18705c1e. Local JAR signature,
+public certificate and package checks also match; Android v2/v3 verification is
+the hosted apksigner result. The exact APK remains in /sdcard/Download. The
+original origin2 APK is retained as termux-installed-before.apk; user changes
+in ~/prj/termux/CUSTOM.md remain preserved.
+
+The confirmed app defect was literal-prefix private-file admission: /data/data
+and /data/user/0 expose the same private files through distinct bind mounts.
+On diagnostic105ab692, the former is rejected as clipboard_input_invalid, while
+that same kernel file via the latter writes/readbacks correctly. The repair
+compares canonical ancestor directory device/inode with the app's files/cache
+roots. External files and escaping symlinks remain refused. The unit boundary
+preserves host inode identity because Robolectric4.10's stock stat returns zero
+device/inode; its one alias mapping models the observed bind mount. Restoring
+the literal-prefix fault in disposable hosted source fails the alias regression
+for the original rejection, then restoring the source passes all tests/build.
+Original diagnostics are actual-android-clipboard-105-{cause,alias}.json. The
+user reported foreground Termux during the original9ac failures; do not replace
+this proven input-validation cause with an unobserved user-focus explanation.
+
+Actual Core → maintained TUI → authenticated AM socket → Android clipboard →
+Termux:API readback now passes through scripts/qualify_clipboard.py, with the
+accepted b759 frontend and final Manager/private signed composition. Both Ctrl+O
+and /copy copy the complete100,000-byte ASCII source and79,222-byte Korean/emoji
+source, retaining paragraphs, indentation, tabs and double spaces. All four
+cases require confirmed TUI feedback and byte-for-byte equality. A different
+controlled clipboard seed before each operation makes a no-op fail. Two primary
+local model requests and one upstream title request are counted separately;
+there is no remote model/Pro request. Evidence is
+actual-android-clipboard-187-final.json/.screen plus the original Native records.
+The native server's exit is confirmed through its verified pidfd. The driver
+preserves Native records on success and failure; clean_development.py owns the
+separate inactive manifest-matched payload archival. Both187 fixture payloads
+are archived with their respective *-payload-cleanup.jsonl restore records.
+The first187 result's four copy cases pass but its old cleanup condition reports
+failure; preserve it unchanged. Removing that three-second deletion condition
+preserves original Native records and delegates archival to the existing owner;
+the corrected actual-device run passes without weaker clipboard criteria.
+
+Actual app-boundary proof also passes102,400 bytes and both private path aliases;
+invalid UTF-8,102,401 bytes, an owned external file and an escaping symlink are
+refused with the original controlled clipboard unchanged. Evidence is
+actual-android-clipboard-187-boundaries-final.json. This app100 KiB boundary is
+separate from upstream's100,000-byte OSC52 boundary. The earlier extra-boundary
+trial is unsuccessful; its later foreground_required result is a separate
+actual policy rejection. Focusing the same verified existing terminal, without
+creating another terminal, precedes the green boundary trial. This does not
+attribute the original private-file defect to background use. Physical human
+paste and notification-tap observations remain separate from these readbacks.
+
+The root Python gate passes25+125+10 tests (clipboard-python-gate.log); actual
+Android proof above qualifies the device driver after its cleanup adjustment.
+Earlier9ac/105 APKs and failed source/device trials remain available. In
+particular,9ac run41101644146 passes28 tests; the original41100334309 test's final
+TerminalSession subclass was corrected without weakening keyboard assertions.
+A diagnostic moving the entire fixture HOME/TMPDIR to /data/user/0 fails backend
+catalog startup before any model/copy execution; actual-android-clipboard-105-
+alias-tui.* remains failure evidence. Its inactive payloads are archived in
+clipboard-105-alias-fixture-cleanup.jsonl; this is not copy acceptance.
+
+Hosted native run41119962227/sourceb7590ab passes143 focused regressions,
+retained-upstream topics and the pinned format/lint gate. Exact local artifact/
+proof admission passes and source1da570d binds that immutable input. The final
+private composition uses those exact frontend bytes and freshly built final
+Manager; all four Android smoke probes and the clipboard device proof pass.
+It uses only a disposable fixture key, not public update authority.
+Publication41130697732 was deliberately cancelled before signing/promotion while
+actual copy was still failing; its cancellation is not a new product defect.
+After device copy acceptance, publication41134090437 passes both existing lanes
+at accepted source1da570d: real Android execution, signing, complete public
+readback, disposable update/rollback and non-forced stable promotion. Base130 and
+Full131 are published; native compilation is reused. The user's device is then
+activated from Base128 to Full131 by ordinary signed Core update, with only its
+per-command index URL selecting Full. Exit0 and activation-state independently
+confirm Full131/current and Base128/previous. All51 recorded account/auth/config
+files retain their hashes, modes and symlink targets. Manager reads inherited
+account szob and the existing both-channel UserInputRequest/Stop/window settings.
+Evidence is device-full131-update.log; signed publication is run41134090437.
+Running old clients are preserved. device-full131-readback.json independently
+verifies all eight signed-inventory files and matches the installed frontend to
+the admitted b759 raw binary plus the exact54-byte platform adaptation. The
+publicly signed Full131 passes qualify_profiles.py on actual Android, including
+saved/inherited selection, live server leases, catalog coexistence/isolation,
+writer discovery, rename/delete and ordinary execution without Manager
+(full131-profiles.log). A fixture derived from those final bytes also passes the
+actual /switch menu/toggle and one automatic quota handoff: same thread/model/
+effort/permissions, one original prompt, one checkpoint, one command effect and
+visible switch/final (full131-switch-ui.json/.log). It uses synthetic accounts
+and local responses; named-permission handoff has separate prior proof.
+Installed Manager passes Android notification-list readback with disposable
+preferences for question bodies, same-conversation completion replacement,
+separate conversations and empty-reminder suppression; only its own two trial
+notifications are removed (full131-android-notifications.json/.log). Physical
+notification tap-to-window and human paste remain unobserved in this batch.
+Installed Manager's task status now succeeds without repairing/removing any
+historical records (full131-task-status-private.txt); this does not prove the
+cause or resolution of the user's exact old native_workspace_writer_busy work.
+Active compiler caches total around14GiB and no new compiler output requires
+pruning. The completed clipboard fixtures' verified payloads are already archived.
+
+Full131's release/notes.md was stale: its published display incorrectly says
+no Manager/TUI changes despite the restored code. The next-release source notes
+now describe capability/task discovery and0.166/confirmed-copy changes. Do not
+rewrite immutable published assets or confuse this wording defect with installed
+runtime behavior. Update output also reports Base unavailable for this Full;
+its display/provenance boundary needs phase7 review against the signed component
+metadata, without weakening payload/signature admission.
+
+The clipboard qualification also exposes an actual CLI/backend provider mismatch: setting
+-c model_provider=copy_fixture only on the TUI creates a copy_fixture thread,
+while the Core shared backend remains openai; turn/start rejects it with
+modelProviderMismatch (-32600) before any model-fixture request. Preserve the
+original screen/result as actual-android-clipboard-provider-mismatch.*. This
+belongs to order2's effective input/provider settings responsibility and needs
+an actual CLI override regression; source unit/catalog checks do not establish
+that route. Clipboard qualification instead writes its explicit provider into
+the isolated execution home's config, consumed by both real clients, and disables
+unrelated plugin discovery. This does not fix or qualify the CLI override defect.
+
 
 Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's
 workspace Rust tests and Clippy pass at the recorded inputs (407 tests plus the
@@ -249,6 +360,18 @@ inference, with the original command still executed only once. These results are
 restoration-switch-{ui,named-permissions,incompatible-permissions}.json in the
 same proof root. Completed disposable mutation source is archived as a diff and
 removed; accepted executables and original failure results remain retained.
+The completed mutation Cargo cache is pruned with scripts/clean_development.py;
+task-mutation-cache-cleanup.jsonl retains its exact removal record.
+
+One completion relay (controller41122700968) fails at its existing two-minute
+wait for the signalling workflow to become completed; the log reaches that bound
+before source fetching. A later relay correctly observes the pending Core gate,
+and both exact source/Core gates subsequently pass. This is not a source or
+runtime failure. The advisory completion path still needs phase7 review toward
+an actual final workflow event rather than a timed completion handshake; do not
+silently lengthen that wait or infer completed publication from an ACK. The
+current batch can reconcile its already completed proof through the existing
+explicit controller entrypoint.
 
 | Responsibility | Decision for this restoration | Reason / evidence |
 | --- | --- | --- |
