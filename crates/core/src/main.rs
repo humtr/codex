@@ -9266,11 +9266,11 @@ fn acquire_remote_release_source(
     base: &RemoteReleaseBase,
     acquisition_root: &std::path::Path,
     update_key: ReleasePublicKey,
-    current_release: &LocalReleaseManifest,
-    current_version: &str,
+    current: (&LocalReleaseManifest, &str),
     hold_policy: UpdateHoldPolicy,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
+    let (current_release, current_version) = current;
     let mut acquired_bytes = 0;
     fetch_remote_control_resource(
         roots,
@@ -10221,8 +10221,10 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
             &base,
             &acquisition_root,
             before.update_key,
-            &current_release,
-            &current_loaded.manifest.upstream_package_version,
+            (
+                &current_release,
+                &current_loaded.manifest.upstream_package_version,
+            ),
             hold_policy,
             presentation.as_deref_mut(),
         )?;
@@ -24413,8 +24415,7 @@ exit 2
                     &base,
                     &acquisition,
                     key,
-                    &verified_current,
-                    "9.9.9",
+                    (&verified_current, "9.9.9"),
                     UpdateHoldPolicy::Enforce,
                     None,
                 )
