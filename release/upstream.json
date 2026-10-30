@@ -11,7 +11,7 @@
   },
   "frontend": null,
   "qualification": {
-    "focused_tests": 65,
+    "focused_tests": 143,
     "lock_audit": {
       "external_packages_unchanged": 1308,
       "normalized_lock_sha256": "360ea1e0ec391255ffc153a73548be524aa5d50c3476f247631cec184c21d4cb",
