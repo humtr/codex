@@ -60,8 +60,9 @@ Install **Base** when you want only Core and upstream Codex. ChatGPT Provider
 is an optional separate package in either edition. The future
 composition makes Manager, TUI, Provider and the patched Android tunnel individually
 selectable, with Full including them all. Normal installs use prebuilt binaries;
-source-building is an explicit recovery/development option. This target has not
-changed the current Full119 inventory; see [work order](CURRENT.md#product-completion-scope-and-work-order).
+source-building is an explicit recovery/development option. The published Full
+still pairs Manager/TUI and installs Provider separately; the broader composition
+remains in the [work order](CURRENT.md#product-completion-scope-and-work-order).
 
 | Where you start | Who reasons about the task | Required setup |
 | --- | --- | --- |

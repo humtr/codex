@@ -152,6 +152,10 @@ on Android as codex-cli0.166.0; that is not installed TUI/copy acceptance. Actua
 focused coverage also establishes that the old65-test admission metadata is stale;
 sourceb7590ab records143 and run41119962227 performs the remaining complete gate
 without repeating the unchanged, already-observed mutation experiment.
+Subsequent Manager/qualification-driver changes leave those exact native build
+inputs unchanged. Source7426220 passes source acceptance41123511542; its independent
+Core/runtime gate is41123591651. No additional TUI build is dispatched for those
+unrelated changes while the matching native qualification is already in progress.
 The local Rust1.99.1 TUI library metadata check passes with the native SDK/cache
 and one job. The separate test-compilation check first found an uncached locked
 dependency; its online retry was interrupted by the Termux process loss and has
@@ -186,7 +190,11 @@ The production Provider currently lists38 works (18 stopped,15 completed and5
 reconciliation_required:3 Provider and2 Direct). These metadata observations
 identify outstanding controllers, not confirmed live writers or completed jobs.
 They remain protected; generic workspace contention must be resolved from native
-and host execution evidence before releasing their reservations. Proof is
+and host execution evidence before releasing their reservations. Bounded status
+checks observe four as native notLoaded / host unknown, while the remaining
+Direct work's lookup fails. None is marked completed or stopped by this readback;
+unloaded Native state alone does not establish host/tool completion. Evidence is
+actual-provider-unsettled-status-summary.json plus private original responses. Proof is
 task-discovery-pid-reuse-*, actual-task-status-pid-reuse-* and
 task-discovery-final-mutation-* in the same evidence root. This does not establish
 the cause or recovery of the earlier Provider native_workspace_writer_busy request.
@@ -235,6 +243,12 @@ observation or real account quota exhaustion. The driver now accepts an explicit
 signed fixture composition; the installed device remains Base. Original fixture
 failures (implicit installed Base had no Manager, then an obsolete menu label)
 are retained. The accepted menus use Auto: on/settings; no product UI was changed.
+Separate named-permission execution also passes the same-thread/one-effect
+handoff. An incompatible destination is detected and pauses before any destination
+inference, with the original command still executed only once. These results are
+restoration-switch-{ui,named-permissions,incompatible-permissions}.json in the
+same proof root. Completed disposable mutation source is archived as a diff and
+removed; accepted executables and original failure results remain retained.
 
 | Responsibility | Decision for this restoration | Reason / evidence |
 | --- | --- | --- |
