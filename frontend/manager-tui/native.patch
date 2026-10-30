@@ -2199,7 +2199,7 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/clipboard_copy.rs b/codex-rs/tui/src/clipboard_copy.rs
-index fee4d59..e393d8a 100644
+index fee4d59..ab8e19c 100644
 --- a/codex-rs/tui/src/clipboard_copy.rs
 +++ b/codex-rs/tui/src/clipboard_copy.rs
 @@ -110,6 +110,18 @@ fn copy_to_clipboard(
@@ -2244,7 +2244,7 @@ index fee4d59..e393d8a 100644
 -            osc52_copy_fn(text)
 -        }
 -    };
-+    let terminal_copy = || terminal_copy(text, environment, tmux_copy_fn, osc52_copy_fn);
++    let terminal_copy = || terminal_copy(text, environment, &tmux_copy_fn, &osc52_copy_fn);
      let native_copy = || {
          let html = match format {
              CopyFormat::PlainText => None,
