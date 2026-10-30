@@ -71,20 +71,22 @@ application, before compilation. Local source reconciliation rebases the patch
 onto the actual0.166 source, preserving the new prepared-resume boundary, cloud
 permission guards, question display and safety recourse alongside existing
 Provider source IDs and portable prepared input. Exact fresh assembly/scope and
-the10 existing assembler/command-boundary tests pass; complete native compilation
-and focused upstream runtime tests are still required. The renamed portable
+the10 existing assembler/command-boundary tests pass. Corrected source6e9df34
+subsequently completes actual native CLI compilation and143 focused regressions;
+the remaining upstream-feature and lint gates are unfinished. The renamed portable
 input-preparation module is retained in the assembler's ordinary owned source
 set; a full formatter module traversal finds no missing module or syntax error.
 The traversal's formatting diff is not a successful pinned-toolchain formatting
 gate. Candidate5719bd1's hosted run41100203008 was cancelled after detecting the
-omitted renamed file, before any deployment; the corrected exact source needs
-a new native qualification. Exploratory run41101378481/source3c1e47e reached
+omitted renamed file, before any deployment. Exploratory
+run41101378481/source3c1e47e reached
 the real compiler and failed on two newly introduced queued-input references to
 the old prepared-images interface. The queue producer, drain consumer, field
 definition and affected test construction now use prepared_input consistently;
 no compatibility alias is added. The exploratory work-branch runs cannot supply
 release authority: release_control.py requires rewrite/rust-core. The corrected
-source is qualified there before artifact admission, not by weakening that check.
+source is undergoing qualification there before artifact admission, not by
+weakening that check.
 
 The missing TUI confirmed-copy consumer is now written at the existing worker/
 Android boundary. It uses the Termux candidate's authenticated socket, private
@@ -118,7 +120,8 @@ master or physical clipboard acceptance. ~/prj/termux/CUSTOM.md user changes are
 preserved. The actual installed origin2 APK matches its recorded original SHA256
 and is backed up as termux-installed-before.apk; read-only actual capability
 query still reports origin,validate,focus and two existing terminals. No APK,
-clipboard content, terminal, notification preference or service was changed.
+clipboard content, terminal, installed notification preference or service was
+changed by that APK readback.
 
 Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's
 workspace Rust tests and Clippy pass at the recorded inputs (407 tests plus the
@@ -139,8 +142,48 @@ During qualification GitHub officially reported degraded Actions/Webhooks at
 2026-10-30T17:50Z (https://www.githubstatus.com/). Queue/status delivery coincided;
 that does not prove the cause of each run. Actual job logs, not a stale queued
 status, established both the APK failure/fix and frontend compiler errors.
-The local Rust1.99.1 metadata check uses the existing native SDK/cache with one
-job; it is separate from pinned hosted Rust1.95 and complete Android execution.
+Corrected source6e9df34 is pushed to rewrite/rust-core. Its source acceptance
+run41107044027 and independent Core/runtime run41107300924 pass. Native frontend
+run41107065608 completes CLI compilation,143 focused tests and both catalog/login
+fault checks, but reaches the job's90-minute limit during retained-upstream
+feature qualification. It is cancelled, not an admitted successful release.
+Its exact downloaded executable matches the published artifact digest and starts
+on Android as codex-cli0.166.0; that is not installed TUI/copy acceptance. Actual
+focused coverage also establishes that the old65-test admission metadata is stale;
+sourceb7590ab records143 and run41119962227 performs the remaining complete gate
+without repeating the unchanged, already-observed mutation experiment.
+The local Rust1.99.1 TUI library metadata check passes with the native SDK/cache
+and one job. The separate test-compilation check first found an uncached locked
+dependency; its online retry was interrupted by the Termux process loss and has
+no exit result. Neither check executes tests or replaces pinned hosted Rust1.95
+and complete Android execution.
+
+Actual Manager task discovery also exposes accumulated execution-record defects.
+The earlier code counts retired records toward64 and reads their obsolete binding
+formats before checking process death. After Termux restart, two historical PIDs
+are additionally reused by unrelated executables, leaving nonexistent old sockets.
+The candidate holds Core's existing directory coordination lock, excludes confirmed
+retired records before inactive binding parsing, verifies current bindings against
+the kernel executable, and applies the existing limit to live candidates under
+the existing whole-scan deadline. Current live bindings and uncertain/initializing
+records retain strict validation. The actual read-only task status now succeeds
+without deleting or repairing any user record; the original failures are retained.
+The focused test uses a real live fixture executable plus66 retired records and
+a reused PID. All four isolated faults (old count, early binding parsing, absent
+coordination lock and missing executable comparison) are detected. Final review
+also preserves an unlinked but still-running image as an uncertain live owner;
+that additional focused test passes and removing its guard fails the test.
+All123 Manager tests pass before that final guarded-image addition, followed by
+its focused regression and workspace Clippy. The original full-script failure is
+retained: an integration assertion required parsing a substituted binding even
+after verified process death. The revised contract instead ignores inert retired
+bindings. The replacement test retains live unsafe-home and binding-substitution
+rejection, then verifies the same record is ignored unchanged after actual exit.
+The unchanged Core's237 tests pass with its existing one ignored test. Exact
+source acceptance remains a separate release gate. Proof is
+task-discovery-pid-reuse-*, actual-task-status-pid-reuse-* and
+task-discovery-final-mutation-* in the same evidence root. This does not establish
+the cause or recovery of the earlier Provider native_workspace_writer_busy request.
 
 Notification source review and a read-only query of the actual stored settings
 confirm Android both-channel delivery is enabled for completion and structured
@@ -148,7 +191,19 @@ questions, with window return selected. The same existing settings render the
 expected native completion callback and anchored question hook. The selected
 Base lacks the Manager that executes these paths; reinstalling a qualified
 Manager/TUI composition is necessary, while actual Android delivery and permissions
-remain separate acceptance. No preference or notification was changed/sent.
+remain separate acceptance. That settings inspection changed no preference and
+sent no notification.
+
+The candidate Manager subsequently passes the actual Android notification
+delivery driver with disposable preferences: both question forms render their
+bodies, completion updates the same conversation's notification, a second
+conversation remains separate, and an empty reminder emits nothing. Android
+notification-list readback verifies those contents and removal of only the two
+owned trial notifications. Installed preferences are unchanged. Evidence is
+android-notification-delivery.{json,log} in the proof root. The first attempt
+used a nonexistent Core path and failed before any delivery; its original log
+is retained separately. This proves the real Android provider boundary, not
+physical tap-to-window or a newly installed frontend.
 
 | Responsibility | Decision for this restoration | Reason / evidence |
 | --- | --- | --- |
@@ -158,10 +213,13 @@ remain separate acceptance. No preference or notification was changed/sent.
 | Shared user state and migration | No destructive merge or renaming of unlike settings | Upstream per-config terminal focus/filter and Manager global Android subscriptions have different scope and consumers. Preserve both actual contracts and explain them; no merely apparent equivalence warrants losing headless alerts or overwriting existing choices. |
 | New notification routes / removed code | Add none at this stage; remove none without an equivalent replacement | The inspected Manager already delegates event generation upstream. Restoration addresses its absent installed artifact. Physical /config, backend, Android permission and tap-to-window proof will determine any further required changes. |
 
-The old source's internal-memory/maintenance suppression assumption must be
-requalified against0.166's actual worker paths before claiming that gate; merely
-retaining the legacy callback is not new proof. Do not move completion blindly
-to a second Stop hook or suppress genuine development notifications.
+The0.166 source still explicitly clears notify in memories/write/src/phase2.rs
+and guardian-v2's reviewer configuration. The existing
+memories_startup_phase2_scopes_stop_hooks test checks no internal notification
+and preserved parent notifications, but it has not been executed for this
+candidate. Internal-memory/maintenance suppression therefore still needs runtime
+requalification; source inspection is not a passing gate. Do not move completion
+blindly to a second Stop hook or suppress genuine development notifications.
 
 ### Earlier Provider qualification records
 

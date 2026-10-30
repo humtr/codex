@@ -376,13 +376,15 @@ fn bounded_record(path: &Path, limit: u64) -> Result<Vec<u8>, ManagerError> {
     Ok(bytes)
 }
 pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
-    Ok(servers(context)?.iter().any(|server| server.home == home))
+    Ok(servers(context, Instant::now() + SCAN_TIME)?
+        .iter()
+        .any(|server| server.home == home))
 }
 
-fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
+fn servers(context: &Context, deadline: Instant) -> Result<Vec<Server>, ManagerError> {
     let mut servers = Vec::new();
     for family in FAMILIES {
-        servers.extend(server_family(context, family)?);
+        servers.extend(server_family(context, family, deadline)?);
         if servers.len() > MAX_SERVERS {
             return Err(ERR_TASK);
         }
@@ -390,19 +392,45 @@ fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
     Ok(servers)
 }
 
-fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, ManagerError> {
+fn server_family(
+    context: &Context,
+    family: &str,
+    deadline: Instant,
+) -> Result<Vec<Server>, ManagerError> {
     let root = context.home.join(".local/share/codex/core").join(family);
     if inspect_path(&root)? == PathPresence::Missing {
         return Ok(Vec::new());
     }
     private(&root, true)?;
     let mut result = Vec::new();
-    for (count, entry) in fs::read_dir(&root).map_err(|_| ERR_TASK)?.enumerate() {
-        if count >= MAX_SERVERS {
+    for entry in fs::read_dir(&root).map_err(|_| ERR_TASK)? {
+        if Instant::now() >= deadline {
             return Err(ERR_TASK);
         }
         let dir = entry.map_err(|_| ERR_TASK)?.path();
         private(&dir, true)?;
+        // Core holds this directory's exclusive flock while publishing/restarting.
+        // Never classify an old PID as retired during a new owner's publication.
+        let snapshot = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(&dir)
+            .map_err(|_| ERR_TASK)?;
+        if unsafe { libc::flock(snapshot.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
+            return Err(ERR_TASK);
+        }
+        let text = String::from_utf8(record(&dir.join("pid"))?).map_err(|_| ERR_TASK)?;
+        let pid = text
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|p| *p > 1)
+            .ok_or(ERR_TASK)?;
+        let start = match process_start(pid) {
+            Ok(start) => start,
+            Err(_) if process_exited(pid)? => continue,
+            Err(_) => return Err(ERR_TASK),
+        };
         let Binding { home, program } = Binding::read(&dir, |path, limit| {
             if inspect_path(path).map_err(|_| io::Error::other("unsafe execution record"))?
                 == PathPresence::Missing
@@ -418,20 +446,18 @@ fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, Manager
         {
             return Err(ERR_TASK);
         }
-        let text = String::from_utf8(record(&dir.join("pid"))?).map_err(|_| ERR_TASK)?;
-        let pid = text
-            .trim()
-            .parse::<u32>()
-            .ok()
-            .filter(|p| *p > 1)
-            .ok_or(ERR_TASK)?;
-        let start = match process_start(pid) {
-            Ok(start) => start,
+        match fs::read_link(format!("/proc/{pid}/exe")) {
+            Ok(actual)
+                if actual.as_os_str().as_bytes().strip_suffix(b" (deleted)")
+                    == Some(program.as_os_str().as_bytes()) =>
+            {
+                return Err(ERR_TASK);
+            }
+            Ok(actual) if actual != program => continue,
+            Ok(_) => (),
             Err(_) if process_exited(pid)? => continue,
             Err(_) => return Err(ERR_TASK),
-        };
-        // Retired records survive homes and generations. Only live owners need
-        // those execution files; exited records are ignored without repairing them.
+        }
         private(&home, true)?;
         if !is_existing_executable(&program)? {
             return Err(ERR_TASK);
@@ -464,6 +490,9 @@ fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, Manager
             pid,
             start,
         });
+        if result.len() > MAX_SERVERS {
+            return Err(ERR_TASK);
+        }
     }
     result.sort_by_key(|s| (s.home.clone(), s.pid));
     Ok(result)
@@ -479,7 +508,7 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
     let deadline = Instant::now() + SCAN_TIME;
     let mut tasks = Vec::new();
     let mut seen = BTreeSet::new();
-    for server in servers(context)? {
+    for server in servers(context, deadline)? {
         let mut rpc = match server.connect(deadline) {
             Ok(rpc) => rpc,
             Err(_) => {
@@ -1058,6 +1087,154 @@ mod tests {
         values.iter().map(OsString::from).collect()
     }
     const ID: &str = "12345678-1234-1234-1234-123456789abc";
+    #[test]
+    fn discovery_counts_live_servers_without_admitting_retired_or_inflight_bindings() {
+        let root = std::env::temp_dir().join(format!(
+            "sd{}-{}",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, 0o700).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: std::env::current_exe().unwrap(),
+        };
+        let family = root.join(".local/share/codex/core/servers");
+        fs::create_dir_all(&family).unwrap();
+        set_mode(&family, 0o700).unwrap();
+        let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
+        let dead_pid = exited.id();
+        assert!(exited.wait().unwrap().success());
+        assert!(process_exited(dead_pid).unwrap());
+        let dead_record = format!("{dead_pid}\n");
+        for index in 0..MAX_SERVERS + 2 {
+            let dir = family.join(format!("{index:016x}"));
+            fs::create_dir(&dir).unwrap();
+            set_mode(&dir, 0o700).unwrap();
+            write_new_record(&dir.join("pid"), dead_record.as_bytes()).unwrap();
+            write_new_record(&dir.join("owner"), b"/removed/home\0/removed/runtime").unwrap();
+        }
+        let home = root.join("account");
+        fs::create_dir(&home).unwrap();
+        set_mode(&home, 0o700).unwrap();
+        let program = root.join(".local/lib/codex/core/generations/proof/runtime");
+        fs::create_dir_all(program.parent().unwrap()).unwrap();
+        let shell = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|path| path.join("sh"))
+            .find(|path| path.is_file())
+            .unwrap();
+        fs::copy(shell, &program).unwrap();
+        set_mode(&program, 0o700).unwrap();
+        struct Running(std::process::Child);
+        impl Drop for Running {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let running = Running(
+            Command::new(&program)
+                .args(["-c", "read line"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let config = b"actual current settings";
+        let id = codex_runtime_binding::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            config,
+            None,
+        );
+        let live = family.join(id);
+        fs::create_dir(&live).unwrap();
+        set_mode(&live, 0o700).unwrap();
+        fs::create_dir(live.join("config")).unwrap();
+        set_mode(&live.join("config"), 0o700).unwrap();
+        write_new_record(&live.join("config/config.toml"), config).unwrap();
+        write_new_record(
+            &live.join("owner"),
+            &codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+        )
+        .unwrap();
+        write_new_record(
+            &live.join("pid"),
+            format!("{}\n", running.0.id()).as_bytes(),
+        )
+        .unwrap();
+        let stale_config = b"retired current settings";
+        let reused = family.join(codex_runtime_binding::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            stale_config,
+            None,
+        ));
+        fs::create_dir(&reused).unwrap();
+        set_mode(&reused, 0o700).unwrap();
+        fs::create_dir(reused.join("config")).unwrap();
+        set_mode(&reused.join("config"), 0o700).unwrap();
+        write_new_record(&reused.join("config/config.toml"), stale_config).unwrap();
+        write_new_record(
+            &reused.join("owner"),
+            &codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+        )
+        .unwrap();
+        // A real current process now owns the retired PID, but is not that runtime.
+        write_new_record(
+            &reused.join("pid"),
+            format!("{}\n", std::process::id()).as_bytes(),
+        )
+        .unwrap();
+        let socket = root.join("s");
+        let _socket = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        set_mode(&socket, 0o600).unwrap();
+        std::os::unix::fs::symlink(&socket, live.join("s")).unwrap();
+        let found = servers(&context, Instant::now() + SCAN_TIME).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].home, home);
+        assert_eq!(found[0].pid, running.0.id());
+        assert!(servers(&context, Instant::now()).is_err());
+
+        let retired = family.join("0000000000000000");
+        let pid_file = retired.join("pid");
+        fs::write(&pid_file, format!("{}\n", std::process::id())).unwrap();
+        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        fs::write(&pid_file, &dead_record).unwrap();
+        let publishing = File::open(&retired).unwrap();
+        publishing.try_lock().unwrap();
+        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        drop(publishing);
+        fs::write(&pid_file, b"not a PID").unwrap();
+        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        fs::write(&pid_file, &dead_record).unwrap();
+        set_mode(&pid_file, 0o644).unwrap();
+        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        set_mode(&pid_file, 0o600).unwrap();
+        assert_eq!(
+            servers(&context, Instant::now() + SCAN_TIME).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            fs::read(retired.join("owner")).unwrap(),
+            b"/removed/home\0/removed/runtime"
+        );
+        // Unlinking a still-running image does not turn its writer into PID reuse.
+        fs::remove_file(&program).unwrap();
+        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+    }
     #[test]
     fn local_connect_full_backlog_obeys_deadline_and_preserves_listener() {
         let root = std::env::temp_dir().join(format!("hc{}", std::process::id()));

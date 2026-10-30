@@ -2305,8 +2305,7 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
 }
 
 #[test]
-fn active_task_live_unsafe_home_and_substituted_dead_binding_fail_closed() {
-    use std::os::unix::ffi::OsStrExt;
+fn active_task_live_unsafe_or_substituted_binding_is_rejected_and_retired_record_is_inert() {
     let mut f = TaskFixture::new();
     let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(status.status.code(), Some(0));
@@ -2318,16 +2317,25 @@ fn active_task_live_unsafe_home_and_substituted_dead_binding_fail_closed() {
     let rejected = run_manager(&f.root.0, &f.core, &["task", "takeover", TASK_ID], None);
     assert_eq!(rejected.status.code(), Some(1));
     assert!(rejected.stdout.is_empty());
-    // Even an exited record must have private, structurally bound metadata.
-    f.child.kill().unwrap();
-    f.child.wait().unwrap();
-    let mut owner = f.account.as_os_str().as_bytes().to_vec();
-    owner.push(0);
-    owner.extend_from_slice(b"/substituted/runtime");
-    fs::write(f.binding.join("owner"), owner).unwrap();
+    fs::remove_file(&f.account).unwrap();
+    fs::create_dir(&f.account).unwrap();
+    fs::set_permissions(&f.account, fs::Permissions::from_mode(0o700)).unwrap();
+    let owner = codex_runtime_binding::configuration_owner_bytes(
+        &f.account,
+        std::ffi::OsStr::new("/substituted/runtime"),
+        false,
+    );
+    fs::write(f.binding.join("owner"), &owner).unwrap();
     let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(rejected.status.code(), Some(1));
     assert!(rejected.stdout.is_empty());
+    // Once the actual server exits, this binding authorizes no execution.
+    f.child.kill().unwrap();
+    f.child.wait().unwrap();
+    let ignored = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(ignored.status.code(), Some(0));
+    assert_eq!(ignored.stdout, b"No current task writers found.\n");
+    assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner);
 }
 
 #[test]

@@ -6361,13 +6361,22 @@ identities are included, not just Manager-registered profiles. All retained Core
 server rendezvous records are considered, including old-generation active servers.
 This helper adds no permanent task registry, watcher, supervisor or automatic
 account switch. Quota rotation is the separate Manager/TUI contract above.
-A private, structurally valid binding whose recorded process is confirmed absent
-or fully exited is ignored read-only before requiring its execution home, runtime
-or socket to remain present. Retired homes, historical home aliases and removed
-old generation files do not make an exited server a current owner. Such records
-are not deleted or repaired by Manager. A live or uncertain process still requires
-all existing home/runtime/socket and peer checks; this is no permission to trust
-aliases, ignore substituted metadata, or skip an unverified live writer.
+Discovery holds the existing execution directory's shared coordination lock
+while classifying its private PID record. A confirmed absent or fully exited
+process is ignored read-only before parsing its inactive binding schema or
+requiring its home, runtime or socket to remain present. For a current valid
+binding, a PID whose kernel executable differs from its recorded runtime is
+also retired: PID reuse does not make that unrelated process a server. A running
+image of that same runtime which the kernel marks deleted remains an uncertain
+live owner; it is not classified as PID reuse. Failure to inspect a still-live
+process is not proof of retirement. This does not restore
+retired binding formats as executable authority. Initialization in progress,
+invalid PID/directory metadata and uncertain liveness still fail discovery.
+Retired records are neither deleted nor repaired by Manager. Every live process
+still requires the complete current namespace/home/runtime/socket and peer
+checks; aliases and substituted bindings remain invalid. The64-server limit
+counts live candidates, not accumulated retired records; the existing end-to-end
+scan deadline bounds enumeration and native queries together.
 
 Owner means the currently verified kernel writer-lock holder and that process's
 execution identity, never the original conversation author, recorded origin,
