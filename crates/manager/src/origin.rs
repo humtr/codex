@@ -130,7 +130,13 @@ pub(super) fn capability() -> Capability {
         && parsed.as_ref().is_some_and(|v| {
             v["schema"] == SCHEMA
                 && v["result"] == "ok"
-                && v["operations"] == "origin,validate,focus"
+                && v["operations"].as_str().is_some_and(|operations| {
+                    ["origin", "validate", "focus"].iter().all(|required| {
+                        operations
+                            .split(',')
+                            .any(|operation| operation == *required)
+                    })
+                })
         })
     {
         Capability::Native

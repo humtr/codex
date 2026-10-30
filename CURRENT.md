@@ -3,9 +3,9 @@
 SPEC owns product behavior; this file owns implementation, qualification,
 delivery and the remaining work. The verified operating Core is signed
 Base128/upstream0.166.0 (source00e0ed1), installed through the user's ordinary
-update. The current request is a final importance/dependency plan, including
-notification convergence, /copy and image input; no runtime implementation or
-live feature setting is changed by this planning batch.
+update. The user has authorized implementation of the finalized importance/
+dependency plan. Order1 capability restoration is underway; source changes,
+qualification and installed operation remain separate states below.
 
 Provider21/sourcee78d83a and wrapper tunnel recipe3236692 retain their separate
 maintenance/activation evidence below. Those earlier service/host/process
@@ -23,7 +23,7 @@ this status rather than appending another session diary.
 ## Current status and next action
 
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
-own execution order; the current user request is planning only.
+own execution order; implementation now follows that order.
 
 **The device runs signed Base128/upstream0.166.0; previous is the local0.164
 replay. It currently selects Base, with no Manager/enhanced TUI.** Thus /switch
@@ -55,6 +55,46 @@ versions, the missing0.166 enhanced frontend, complete A1 or every selective-
 module lifecycle extension. Current planning restores actual user capabilities
 first, then follows the importance/prerequisite table. No new goal is created by
 this document, and accepted work is not restarted merely after context recovery.
+
+### Active capability restoration
+
+The deployed Base128 remains unchanged. Current development fixes Manager's
+capability discovery to accept the required origin/validate/focus operations
+when the Termux producer also advertises clipboard operations. The real Manager/
+PTY/window regression passes both the expanded and original producer lists;
+restoring the exact-list fault in disposable source makes that regression fail
+with the erroneous window-unavailable warning. No new runtime alias or registry
+was introduced, and terminal peer/live-origin authorization is unchanged.
+
+The existing0.166 frontend qualification41066348059 failed at integration-patch
+application, before compilation. Local source reconciliation rebases the patch
+onto the actual0.166 source, preserving the new prepared-resume boundary, cloud
+permission guards, question display and safety recourse alongside existing
+Provider source IDs and portable prepared input. Exact fresh assembly/scope and
+the10 existing assembler/command-boundary tests pass; complete native compilation
+and focused upstream runtime tests are still required.
+
+The missing TUI confirmed-copy consumer is now written at the existing worker/
+Android boundary. It uses the Termux candidate's authenticated socket, private
+UTF-8 file and matching successful acknowledgement; preserves native tmux/SSH
+forwarding and honest upstream fallback for an app without this API. A test of
+that actual Rust consumer with a disposable CLI/socket fixture passes100,000-byte
+and Unicode round trips, oversized input, cancellation, invalid acknowledgement
+and legacy capability handling. Restoring a false-confirmation fault in disposable
+source makes the test fail. This is not a real Android clipboard result or an
+installed frontend. The hosted focused gate now includes the clipboard worker,
+copy picker and new consumer instead of treating image-file preparation as
+clipboard proof. Image consumer, notification migration/repair, APK qualification,
+signed delivery, installed UI and physical copy/notification acceptance remain
+unfinished; do not report order1 complete from these source checks.
+
+Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's
+workspace Rust tests and Clippy pass at the recorded inputs (407 tests plus the
+existing one ignored Core case); the first script exit was its final diff check
+catching newly generated patch-context whitespace during concurrent source
+editing, not a test/lint failure. The patch formatting is corrected and the
+current diff check passes. Retain the original log and reuse unchanged test
+evidence rather than rerun the entire suite solely for patch whitespace.
 
 ### Earlier Provider qualification records
 

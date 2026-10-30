@@ -75,7 +75,7 @@ os.execv('''+repr(str(native))+''',['native'])
     env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'TMUX_TMPDIR':str(root), 'TMUX':'','TMUX_PANE':'','TERM':'xterm-256color','CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(core),'FIXTURE_MANAGER':str(manager),'FIXTURE_SID':sid1,'OWNED_PRIVATE_AUTH':'synthetic-auth-retained'}
     for key in ('CODEX_HOME','NO_COLOR','CODEX_TERMUX_WINDOW_TOKEN','CODEX_TERMUX_WINDOW_READY'):env.pop(key,None)
     server=socket.socket(socket.AF_UNIX);server.bind(str(endpoint));server.listen();server.settimeout(.1)
-    state={'mode':'native','windows':{},'requests':[],'errors':[]};stop=threading.Event();processes=[];fds=[]
+    state={'mode':'native','operations':'origin,validate,focus,clipboard-read-image,clipboard-write-text,clipboard-release-image','windows':{},'requests':[],'errors':[]};stop=threading.Event();processes=[];fds=[]
     def start(command,environment=env,cwd=root):
         master,slave=pty.openpty();fds.extend([master,slave]);fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,100,0,0))
         process=subprocess.Popen(command,stdin=slave,stdout=slave,stderr=slave,env=environment,cwd=cwd,start_new_session=True);processes.append(process)
@@ -96,7 +96,7 @@ os.execv('''+repr(str(native))+''',['native'])
                         elif state['mode']=='unavailable':result.update(stderr='terminal control unavailable\n',status=69)
                         else:
                             op=words[1]
-                            if op=='capabilities':value={'schema':'termux-terminal-origin-v1','result':'ok','operations':'origin,validate,focus'}
+                            if op=='capabilities':value={'schema':'termux-terminal-origin-v1','result':'ok','operations':state['operations']}
                             else:
                                 if op=='origin':
                                     pid=int(Path('/proc',str(peer),'stat').read_text().rsplit(')',1)[1].split()[1])
@@ -126,11 +126,19 @@ os.execv('''+repr(str(native))+''',['native'])
             time.sleep(.02)
         raise AssertionError(('workloads',count,rows,state['errors']))
     def calls():return len([r for r in state['requests'] if r.startswith('startservice')])
+    def output(master):
+        data=b''
+        while select.select([master],[],[],0)[0]:
+            data+=os.read(master,65536)
+        return data
     tsock=str(root/('tmux-'+str(os.getuid()))/'default')
     try:
-        a,_,a_tty=start([str(manager),'launch','--profile','default','--',sid1]);r1=workloads(1)[0]
-        b,_,b_tty=start([str(manager),'launch','--profile','default','--',sid2]);r2=workloads(2)[1]
+        a,a_console,a_tty=start([str(manager),'launch','--profile','default','--',sid1]);r1=workloads(1)[0]
+        b,b_console,b_tty=start([str(manager),'launch','--profile','default','--',sid2]);r2=workloads(2)[1]
         assert r1['tty']==os.ttyname(a_tty) and r2['tty']==os.ttyname(b_tty) and not r1['tmux'] and not r2['tmux'] and calls()==0
+        for console in (a_console,b_console):
+            displayed=output(console)
+            assert b'exact window return unavailable' not in displayed,displayed
         first=focus(sid1);second=focus(sid2);assert first.returncode==0 and second.returncode==0 and calls()==0,(first.stderr,second.stderr,state['requests'])
         # A real exec replaces FD identity but retains the live terminal and PID/start.
         bindings=home/'.local/share/codex/manager/terminals'
@@ -191,11 +199,13 @@ os.execv('''+repr(str(native))+''',['native'])
         launch,_,_=start([str(manager),'launch','--profile','default']);assert launch.wait(timeout=8)==13
         assert calls()==before and len(state['windows'])==4
         print('PASS inconclusive_native_failure_no_constructor_fallback')
-        state['mode']='native'
-        guarded,_,_=start([str(manager),'launch','--profile','default','--',sid1])
+        state['mode']='native';state['operations']='origin,validate,focus'
+        guarded,guarded_console,_=start([str(manager),'launch','--profile','default','--',sid1])
         deadline=time.monotonic()+4
         while not (root/f'{guarded.pid}.ready').exists() and time.monotonic()<deadline:time.sleep(.01)
         assert (root/f'{guarded.pid}.ready').exists()
+        displayed=output(guarded_console)
+        assert b'exact window return unavailable' not in displayed,displayed
         r6=next(r for r in [json.loads(line) for line in log.read_text().splitlines()] if r['pid']==guarded.pid)
         binding=next(bindings.glob(f'binding-{r6["pid"]}-*'))
         foreign=json.loads(binding.read_text());foreign['schema']='future-or-foreign-binding'
