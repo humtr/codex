@@ -72,7 +72,13 @@ onto the actual0.166 source, preserving the new prepared-resume boundary, cloud
 permission guards, question display and safety recourse alongside existing
 Provider source IDs and portable prepared input. Exact fresh assembly/scope and
 the10 existing assembler/command-boundary tests pass; complete native compilation
-and focused upstream runtime tests are still required.
+and focused upstream runtime tests are still required. The renamed portable
+input-preparation module is retained in the assembler's ordinary owned source
+set; a full formatter module traversal finds no missing module or syntax error.
+The traversal's formatting diff is not a successful pinned-toolchain formatting
+gate. Candidate5719bd1's hosted run41100203008 was cancelled after detecting the
+omitted renamed file, before any deployment; the corrected exact source needs
+a new native qualification.
 
 The missing TUI confirmed-copy consumer is now written at the existing worker/
 Android boundary. It uses the Termux candidate's authenticated socket, private
@@ -95,6 +101,27 @@ catching newly generated patch-context whitespace during concurrent source
 editing, not a test/lint failure. The patch formatting is corrected and the
 current diff check passes. Retain the original log and reuse unchanged test
 evidence rather than rerun the entire suite solely for patch whitespace.
+
+Notification source review and a read-only query of the actual stored settings
+confirm Android both-channel delivery is enabled for completion and structured
+questions, with window return selected. The same existing settings render the
+expected native completion callback and anchored question hook. The selected
+Base lacks the Manager that executes these paths; reinstalling a qualified
+Manager/TUI composition is necessary, while actual Android delivery and permissions
+remain separate acceptance. No preference or notification was changed/sent.
+
+| Responsibility | Decision for this restoration | Reason / evidence |
+| --- | --- | --- |
+| /config notification UI, event filter, focus/always condition and OSC9/BEL selection | Adopt/retain upstream ownership unchanged | Native config_panel/toggle.rs, chatwidget/notifications.rs and tui.rs already own these functions; duplicate terminal UI/policy is unnecessary. |
+| Completion and other backend event production, including headless work | Retain upstream notify/hooks, not a TUI watcher or a new event engine | runtime_config.rs only selects native callbacks; the TUI's focus-dependent terminal emitter does not replace a detached backend callback. |
+| Android notification/toast channel, presentation and existing-window return | Retain the required thin optional Manager adapter and actual stored choices | Upstream OSC9/BEL has no equivalent Termux API call, channel preferences, per-thread grouping or authenticated existing-window return. Current settings use both channels; those are deliberate separate deliveries, not duplicate generation. |
+| Shared user state and migration | No destructive merge or renaming of unlike settings | Upstream per-config terminal focus/filter and Manager global Android subscriptions have different scope and consumers. Preserve both actual contracts and explain them; no merely apparent equivalence warrants losing headless alerts or overwriting existing choices. |
+| New notification routes / removed code | Add none at this stage; remove none without an equivalent replacement | The inspected Manager already delegates event generation upstream. Restoration addresses its absent installed artifact. Physical /config, backend, Android permission and tap-to-window proof will determine any further required changes. |
+
+The old source's internal-memory/maintenance suppression assumption must be
+requalified against0.166's actual worker paths before claiming that gate; merely
+retaining the legacy callback is not new proof. Do not move completion blindly
+to a second Stop hook or suppress genuine development notifications.
 
 ### Earlier Provider qualification records
 
