@@ -865,6 +865,14 @@ future upstream. Missing source qualification fails before the upstream archive
 or package provisioning. Official latest readback now identifies0.166, published
 2026-10-29T19:47:53Z (`minimum-update-official-latest-readback.json`); first0.165
 acceptance must not be presented as support for that newer target.
+The remote bot preparation c7134470f093591f05d5fd7c1aef7324fc676511 is preserved in
+history. Its source acceptance40966902401 and independent Base qualification
+40966904977 pass against the preceding source and Rust1.95.0; Manager frontend
+40970565956 fails. Those runs do not qualify this producer/native SDK. Integration
+retains the already admitted0.165 release recipe for the bounded minimum-path
+candidate rather than implicitly replacing it with that different toolchain.
+Restore/adapt the preserved0.166 preparation only in its separately qualified next
+source step. The bot commit is not discarded or force-overwritten.
 
 The embedded producer inventory, Core environment construction and selected recipe
 identify local output caches. The complete wrapper lock conservatively binds its
@@ -942,6 +950,13 @@ ownership, omitted byte hashes and accepting upstream shared-OpenSSL options
 owned mutation worktrees were removed. Source and final diff review cover the Core
 caller, source cache ownership/retry and the unchanged signing/activation consumer.
 No new test duplicates the existing full SDK/archive/permission matrices.
+The final candidate is frozen outside mutable compiler output and bound in
+minimum-update-accepted-candidate.json; its source implementation is4f7540c.
+After successful Native proofs, inactive fixture cleanup archived12 manifest-matched
+payload copies and reclaimed2,031,009,792 allocated bytes using the existing cleaner
+(minimum-update-inactive-fixture-{0,1,2}.jsonl). Original source/logs/manifests and
+restoration records remain; final armed fixture, cold build and operating artifacts
+were preserved. No live/unknown worktree or active compiler cache was pruned.
 
 Remaining for the minimum goal: terminal fresh-source result or a precisely
 justified reuse disposition; signed exact-source delivery/readback and disposable
