@@ -78,7 +78,13 @@ set; a full formatter module traversal finds no missing module or syntax error.
 The traversal's formatting diff is not a successful pinned-toolchain formatting
 gate. Candidate5719bd1's hosted run41100203008 was cancelled after detecting the
 omitted renamed file, before any deployment; the corrected exact source needs
-a new native qualification.
+a new native qualification. Exploratory run41101378481/source3c1e47e reached
+the real compiler and failed on two newly introduced queued-input references to
+the old prepared-images interface. The queue producer, drain consumer, field
+definition and affected test construction now use prepared_input consistently;
+no compatibility alias is added. The exploratory work-branch runs cannot supply
+release authority: release_control.py requires rewrite/rust-core. The corrected
+source is qualified there before artifact admission, not by weakening that check.
 
 The missing TUI confirmed-copy consumer is now written at the existing worker/
 Android boundary. It uses the Termux candidate's authenticated socket, private
@@ -87,12 +93,32 @@ forwarding and honest upstream fallback for an app without this API. A test of
 that actual Rust consumer with a disposable CLI/socket fixture passes100,000-byte
 and Unicode round trips, oversized input, cancellation, invalid acknowledgement
 and legacy capability handling. Restoring a false-confirmation fault in disposable
-source makes the test fail. This is not a real Android clipboard result or an
-installed frontend. The hosted focused gate now includes the clipboard worker,
-copy picker and new consumer instead of treating image-file preparation as
-clipboard proof. Image consumer, notification migration/repair, APK qualification,
-signed delivery, installed UI and physical copy/notification acceptance remain
+source makes the test fail. The final source also accepts a3.25-second legitimate
+write response: the actual app has two independently bounded two-second UI
+handoffs. The client allows that producer budget plus CLI return, distinguishes
+capability-query failure from unknown write outcome and does not replay writes.
+Restoring the too-short three-second write deadline makes the regression fail.
+This is not a real Android clipboard result or an installed frontend. The hosted
+focused gate includes both upstream transcript-copy modes, clipboard worker and
+new consumer instead of treating image-file preparation as clipboard proof.
+Image consumer, notification restoration, signed wrapper delivery, installed UI
+and physical copy/notification acceptance remain
 unfinished; do not report order1 complete from these source checks.
+
+Termux candidate9ac9cdd5, built on the existing reviewed master base8629e63,
+passes actual Gradle/JUnit/Robolectric: six classes,28 tests, zero failed/error/
+skipped, plus the ARM64 APK build and matching package/certificate gate in
+run41101644146. The original run41100334309 failed because a test subclassed
+final TerminalSession. The fix preserves the real view dispatcher and session
+encoding, shadowing only PTY/copy output; it retains all five keyboard assertions
+and leaves production final classes unchanged. Downloaded source, all six XML
+reports, package/certificate and exact APK bytes were read back under apk-9ac9cdd5.
+This candidate is uninstalled and is not a claim of the latest official Termux
+master or physical clipboard acceptance. ~/prj/termux/CUSTOM.md user changes are
+preserved. The actual installed origin2 APK matches its recorded original SHA256
+and is backed up as termux-installed-before.apk; read-only actual capability
+query still reports origin,validate,focus and two existing terminals. No APK,
+clipboard content, terminal, notification preference or service was changed.
 
 Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's
 workspace Rust tests and Clippy pass at the recorded inputs (407 tests plus the
@@ -101,6 +127,20 @@ catching newly generated patch-context whitespace during concurrent source
 editing, not a test/lint failure. The patch formatting is corrected and the
 current diff check passes. Retain the original log and reuse unchanged test
 evidence rather than rerun the entire suite solely for patch whitespace.
+After the disposable mutation used a shared Cargo target, a subsequent no-op
+build retained the faulted Manager executable alias; actual window-path execution
+detected it. Pruning only that owned package's compiler outputs and rebuilding
+restored the correct binary and all nine window-path cases pass. The accepted
+executable had been retained outside the mutable target throughout. Future
+source-fault fixtures must isolate their package output rather than treat Cargo
+success or source inspection as proof of the executable's behavior.
+
+During qualification GitHub officially reported degraded Actions/Webhooks at
+2026-10-30T17:50Z (https://www.githubstatus.com/). Queue/status delivery coincided;
+that does not prove the cause of each run. Actual job logs, not a stale queued
+status, established both the APK failure/fix and frontend compiler errors.
+The local Rust1.99.1 metadata check uses the existing native SDK/cache with one
+job; it is separate from pinned hosted Rust1.95 and complete Android execution.
 
 Notification source review and a read-only query of the actual stored settings
 confirm Android both-channel delivery is enabled for completion and structured

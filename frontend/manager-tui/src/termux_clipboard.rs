@@ -90,7 +90,15 @@ impl Transport {
                 ));
             }
         }
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // clipboard-v1 writes use two two-second runOnMain handoffs; capability
+        // discovery uses one. Retain one second for the CLI response. A lost
+        // write reply cannot authorize replay, even if Android already wrote it.
+        let timeout_seconds = if args[0] == "clipboard-write-text" {
+            5
+        } else {
+            3
+        };
+        let deadline = Instant::now() + Duration::from_secs(timeout_seconds);
         let mut output = Vec::new();
         let mut errors = Vec::new();
         loop {
@@ -106,7 +114,11 @@ impl Transport {
                 });
             }
             if Instant::now() >= deadline {
-                return Err("Termux clipboard response timed out; write outcome unknown".into());
+                return Err(if args[0] == "clipboard-write-text" {
+                    "Android clipboard write response timed out; write outcome unknown".into()
+                } else {
+                    "Termux clipboard capability query timed out".into()
+                });
             }
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -211,6 +223,11 @@ mod tests {
                 copy(&text, || Ok(())).unwrap().unwrap();
                 assert_eq!(std::fs::read(&delivered).unwrap(), text.as_bytes());
             }
+            // Two valid app-side UI handoffs can exceed three seconds together.
+            std::fs::write(root.join("write-delay"), "3.25").unwrap();
+            copy("delayed confirmation", || Ok(())).unwrap().unwrap();
+            assert_eq!(std::fs::read(&delivered).unwrap(), b"delayed confirmation");
+            std::fs::remove_file(root.join("write-delay")).unwrap();
             let before = std::fs::read(&delivered).unwrap();
             let oversized = "x".repeat(MAX_TEXT_BYTES + 1);
             assert!(
@@ -254,7 +271,7 @@ mod tests {
         )
         .unwrap();
         let script = root.path().join("client.py");
-        std::fs::write(&script, r#"import json, os, pathlib, shlex, sys
+        std::fs::write(&script, r#"import json, os, pathlib, shlex, sys, time
 root=pathlib.Path(os.environ['TERMUX_CLIPBOARD_TEST_ROOT'])
 args=shlex.split(sys.argv[1])
 assert args[0]=='termux-terminal-v1'
@@ -262,6 +279,7 @@ if args[1]=='capabilities':
  print(json.dumps({'schema':'termux-terminal-origin-v1','result':'ok','operations':(root/'operations').read_text()}))
 else:
  assert args[1]=='clipboard-write-text' and len(args)==3
+ if (root/'write-delay').exists(): time.sleep(float((root/'write-delay').read_text()))
  source=pathlib.Path(args[2])
  assert source.stat().st_mode & 0o777 == 0o600
  (root/'delivered').write_bytes(source.read_bytes())

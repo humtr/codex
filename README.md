@@ -205,6 +205,11 @@ upstream `--image`/`-i`; direct Android clipboard-image paste needs its own
 platform qualification and is not established by file-input support. See the
 [copy/image plan](CURRENT.md#clipboard-copy-and-image-paste).
 
+In upstream's owned transcript mode, `/copy` enters message/target selection;
+use the arrow keys to select whole responses or available code/quote blocks and
+Enter to copy. Other transcript contexts use the copy picker. `Ctrl+O` requests
+the latest response, so a Termux button mapped to that shortcut has that behavior.
+
 Use `/permissions` to select **Approve for me**. Native Codex automatically
 reviews actions that its approval policy sends for approval; ordinary allowed
 commands can run without a reviewer call. Termux uses `danger-full-access` with

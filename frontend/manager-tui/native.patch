@@ -1352,7 +1352,7 @@ index 832104c..0000000
 -        .collect()
 -}
 diff --git a/codex-rs/tui/src/chatwidget/input_flow.rs b/codex-rs/tui/src/chatwidget/input_flow.rs
-index fd7fb8f..a68dae5 100644
+index fd7fb8f..702693d 100644
 --- a/codex-rs/tui/src/chatwidget/input_flow.rs
 +++ b/codex-rs/tui/src/chatwidget/input_flow.rs
 @@ -13,7 +13,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
@@ -1364,6 +1364,39 @@ index fd7fb8f..a68dae5 100644
          self.blocks_direct_input = true;
          self.bottom_pane.set_parent_owned_thread();
      }
+@@ -213,7 +213,7 @@ impl ChatWidget {
+                 .queued_user_messages
+                 .push_back(QueuedUserMessage {
+                     user_message,
+-                    prepared_images: None,
++                    prepared_input: None,
+                     action,
+                     delivery: MessageDelivery::Unsent,
+                     pending_pastes,
+@@ -280,7 +280,7 @@ impl ChatWidget {
+                 QueuedInputAction::Literal => {
+                     let QueuedUserMessage {
+                         user_message,
+-                        prepared_images,
++                        prepared_input,
+                         pending_pastes,
+                         source,
+                         ..
+@@ -309,12 +309,12 @@ impl ChatWidget {
+                             );
+                     }
+                     submitted_follow_up = self
+-                        .submit_user_message_with_prepared_images(
++                        .submit_user_message_with_prepared_input(
+                             user_message,
+                             history_record,
+                             ShellEscapePolicy::Disallow,
+                             source,
+-                            prepared_images,
++                            prepared_input,
+                         )
+                         .0;
+                     if !submitted_follow_up {
 @@ -346,7 +346,7 @@ impl ChatWidget {
      }
 
@@ -1409,7 +1442,7 @@ index bc4a9c1..97da74c 100644
          let composer = ThreadComposerState {
              text: draft.text,
 diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
-index 7d0c740..f709729 100644
+index 7d0c740..51cd471 100644
 --- a/codex-rs/tui/src/chatwidget/input_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/input_submission.rs
 @@ -114,7 +114,7 @@ impl ChatWidget {
@@ -1465,6 +1498,15 @@ index 7d0c740..f709729 100644
                  0
              } else {
                  self.input_queue.queued_user_messages.len()
+@@ -178,7 +178,7 @@ impl ChatWidget {
+                 queue_index,
+                 QueuedUserMessage {
+                     source,
+-                    prepared_images,
++                    prepared_input,
+                     ..QueuedUserMessage::new(
+                         user_message,
+                         match shell_escape_policy {
 @@ -275,10 +275,12 @@ impl ChatWidget {
              });
          }
@@ -1899,9 +1941,18 @@ index 42f292b..501dbfb 100644
  mod terminal_program_status;
  mod terminal_title;
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-index 4b77a77..d033ed1 100644
+index 4b77a77..7d38d49 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
+@@ -389,7 +389,7 @@ async fn parent_owned_thread_preserves_queued_input_before_draining() {
+     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ Some("gpt-5")).await;
+     let queued_message = QueuedUserMessage {
+         user_message: UserMessage::from("keep this queued prompt"),
+-        prepared_images: None,
++        prepared_input: None,
+         action: QueuedInputAction::Plain,
+         delivery: MessageDelivery::Unsent,
+         pending_pastes: vec![("[Image 1]".to_string(), "pasted contents".to_string())],
 @@ -2581,7 +2581,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
              let mut rendered = Vec::new();
              let (items, client_user_message_id) = loop {
@@ -2183,6 +2234,28 @@ index f44ad24..996d853 100644
                      break;
                  }
              }
+diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
+index 2cc3331..0730d81 100644
+--- a/codex-rs/tui/src/chatwidget/user_messages.rs
++++ b/codex-rs/tui/src/chatwidget/user_messages.rs
+@@ -78,7 +78,7 @@ pub(super) enum MessageDelivery {
+ #[derive(Debug, Clone, PartialEq)]
+ pub(super) struct QueuedUserMessage {
+     pub(super) user_message: UserMessage,
+-    pub(super) prepared_images: Option<Vec<UserInput>>,
++    pub(super) prepared_input: Option<Vec<UserInput>>,
+     pub(super) action: QueuedInputAction,
+     pub(super) delivery: MessageDelivery,
+     pub(super) pending_pastes: Vec<(String, String)>,
+@@ -89,7 +89,7 @@ impl QueuedUserMessage {
+     pub(super) fn new(user_message: UserMessage, action: QueuedInputAction) -> Self {
+         Self {
+             user_message,
+-            prepared_images: None,
++            prepared_input: None,
+             action,
+             delivery: MessageDelivery::Unsent,
+             pending_pastes: Vec::new(),
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
 index 29469b2..5caeb50 100644
 --- a/codex-rs/tui/src/cli.rs
