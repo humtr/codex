@@ -78,7 +78,8 @@ def qualify(core, generation, parent, public_key):
         home, prefix = root / "h", root / "p"
         fields = parse_descriptor(generation / "generation.meta")
         identity = fields["generation_id"]
-        assert ";permission_policy=" in fields["patch_report"]
+        # Core admits the signed runtime policy. Check its effective permissions
+        # below on the real thread/start result, independently of build strategy.
         installed = home / ".local/lib/codex/core/generations" / identity
         materialize_signed_generation(generation, installed)
         assert (installed / "manager").is_file()
@@ -202,9 +203,16 @@ requires_openai_auth = false
             assert len(deliveries) == 2, "memory work emitted a completion notification"
             assert all(args[args.index("--content") + 1] == "synthetic ordinary completion" for args in deliveries)
             assert record.read_bytes() == record_before
-            rendered = (home / ".local/share/codex/core/config/config.toml").read_text()
-            assert 'notify = ["codex", "termux", "notify", "emit", "Stop"]' in rendered
-            assert "hooks.Stop" not in rendered and "emit UserInputRequest" in rendered
+            effective = rpc.request("config/read", {"cwd": str(root)})["config"]
+            assert effective["notify"] == ["codex", "termux", "notify", "emit", "Stop"]
+            hooks = effective["hooks"]
+            assert not hooks.get("Stop"), "unexpected second completion producer"
+            question = [entry for entry in hooks["PreToolUse"] if any(
+                hook.get("command") == "codex termux notify emit UserInputRequest"
+                for hook in entry["hooks"]
+            )]
+            assert len(question) == 1
+            assert question[0]["matcher"] == r"^(functions\.)?request_user_input(_async)?$"
             assert not (home / ".codex/auth.json").exists()
             print("PASS native ordinary completion: two root turns, one single-line Manager delivery each")
             print("PASS enabled native memory consolidation: successful job and real model fixture, zero extra delivery")

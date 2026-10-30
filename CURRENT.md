@@ -180,7 +180,13 @@ after verified process death. The revised contract instead ignores inert retired
 bindings. The replacement test retains live unsafe-home and binding-substitution
 rejection, then verifies the same record is ignored unchanged after actual exit.
 The unchanged Core's237 tests pass with its existing one ignored test. Exact
-source acceptance remains a separate release gate. Proof is
+source acceptance remains a separate release gate. Exact-sourcee1da130 subsequently
+passes source acceptance41121953028 and independent Core/runtime41122267321.
+The production Provider currently lists38 works (18 stopped,15 completed and5
+reconciliation_required:3 Provider and2 Direct). These metadata observations
+identify outstanding controllers, not confirmed live writers or completed jobs.
+They remain protected; generic workspace contention must be resolved from native
+and host execution evidence before releasing their reservations. Proof is
 task-discovery-pid-reuse-*, actual-task-status-pid-reuse-* and
 task-discovery-final-mutation-* in the same evidence root. This does not establish
 the cause or recovery of the earlier Provider native_workspace_writer_busy request.
@@ -204,6 +210,31 @@ android-notification-delivery.{json,log} in the proof root. The first attempt
 used a nonexistent Core path and failed before any delivery; its original log
 is retained separately. This proves the real Android provider boundary, not
 physical tap-to-window or a newly installed frontend.
+
+A separate development-only composition reuses the authenticated installed Base,
+adds the candidate Manager plus adapted6e9 frontend, and passes actual Android
+Manager/Core/runtime/frontend smoke. Its disposable key signs only a private
+fixture; no installed authority/composition changes and no public asset is written.
+qualify_profiles.py passes saved/default/inherited selection, actual server/home
+leases, native/catalog coexistence, changed-catalog isolation, writer discovery,
+rename/delete and Manager-absent execution on that composition.
+qualify_notifications.py passes two actual ordinary native model-fixture turns,
+one Manager delivery each, and successful native memory consolidation with zero
+extra delivery. The model endpoint and notification executable are loopback/test
+fixtures, not a remote model or Android notification provider. Actual Android
+delivery has the separate proof above. The original obsolete policy-marker,
+mutable-config-path and default-empty-hook assertions are retained as failed logs;
+the updated driver checks effective sandbox and config/read at the runtime that
+consumes the immutable settings. No product policy or runtime behavior changed.
+The actual native TUI /switch menu and rotation toggle also pass with synthetic
+accounts and a loopback model. A quota-triggered transition preserves the same
+thread, resolved model/effort and permissions, uses one original prompt plus one
+checkpoint and executes the command once. The final answer and switch notice
+appear in the PTY. This is actual Android native UI output, not physical screen
+observation or real account quota exhaustion. The driver now accepts an explicit
+signed fixture composition; the installed device remains Base. Original fixture
+failures (implicit installed Base had no Manager, then an obsolete menu label)
+are retained. The accepted menus use Auto: on/settings; no product UI was changed.
 
 | Responsibility | Decision for this restoration | Reason / evidence |
 | --- | --- | --- |

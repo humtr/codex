@@ -33,7 +33,7 @@ def probe(args):
     failures=[];requests=[];state={'exhausted':False}
     with tempfile.TemporaryDirectory(prefix='qn-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary)
-        home,prefix,env=fixture(root,args.core,args.frontend,args.manager,None)
+        home,prefix,env=fixture(root,args.core,args.frontend,args.manager,args.generation)
         env.pop('OPENAI_API_KEY',None)
         work=root/'w';command=work/'owned-once';counter=work/'effects'
         command.write_text('#!'+os.environ['PREFIX']+'/bin/sh\n'
@@ -201,7 +201,7 @@ def probe(args):
                 end=time.monotonic()+.5
                 while time.monotonic()<end:drain()
                 os.write(master,b'\r')
-                wait(lambda:'Profiles' in screen and 'Automatic switching' in screen)
+                wait(lambda:'Profiles' in screen and 'Auto: on' in screen)
                 wait(lambda:'weekly' in screen and '5h' in screen)
                 end=time.monotonic()+1
                 while time.monotonic()<end:drain()
@@ -289,6 +289,7 @@ def probe(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['core','manager','frontend','report']:parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--generation',type=Path,help='Explicit signed fixture generation instead of the installed composition')
     parser.add_argument('--prepare-only',action='store_true')
     parser.add_argument('--source-only',action='store_true')
     parser.add_argument('--ui-proof',action='store_true')
