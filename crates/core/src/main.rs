@@ -9391,27 +9391,38 @@ fn acquire_remote_release_source(
                 any(target_os = "android", target_os = "linux"),
                 any(target_arch = "aarch64", target_arch = "x86_64")
             ))]
-            if let Some(reused) = if current_release.files.contains(file) {
+            {
                 ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
-                reuse_remote_release_file(
+                let mut reused = reuse_remote_release_file(
                     roots,
                     acquisition_root,
-                    &roots.generation_root.join(&current_release.generation_id),
+                    &roots.generation_root.join(&manifest.generation_id),
                     file,
                     expected_size,
-                )?
-            } else {
-                None
-            } {
-                payload_downloaded = payload_downloaded
-                    .checked_add(reused)
-                    .ok_or(LocalProductError::RemoteResponseTooLarge)?;
-                if updating {
-                    if let Some(presentation) = presentation.as_deref_mut() {
-                        presentation.download_progress(payload_downloaded, sizes.total_bytes);
-                    }
+                )?;
+                if reused.is_none()
+                    && manifest.generation_id != current_release.generation_id
+                    && current_release.files.contains(file)
+                {
+                    reused = reuse_remote_release_file(
+                        roots,
+                        acquisition_root,
+                        &roots.generation_root.join(&current_release.generation_id),
+                        file,
+                        expected_size,
+                    )?;
                 }
-                continue;
+                if let Some(reused) = reused {
+                    payload_downloaded = payload_downloaded
+                        .checked_add(reused)
+                        .ok_or(LocalProductError::RemoteResponseTooLarge)?;
+                    if updating {
+                        if let Some(presentation) = presentation.as_deref_mut() {
+                            presentation.download_progress(payload_downloaded, sizes.total_bytes);
+                        }
+                    }
+                    continue;
+                }
             }
             let completed_before = payload_downloaded;
             let total_bytes = sizes.total_bytes;
@@ -25098,6 +25109,10 @@ exit 0
                 std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
             }
             b2_attach_core(&fixture.release, &fixture.openssl, &core);
+            let runtime = fixture.release.join("runtime");
+            let mut bytes = std::fs::read(&runtime).unwrap();
+            bytes.extend_from_slice(b"\n# retained target fixture\n");
+            std::fs::write(&runtime, bytes).unwrap();
             b4_write_signed_release(&fixture.release, 2, &fixture.openssl, &fixture.private_key);
             b4_write_download_size_sidecar(
                 &fixture.release,
@@ -25288,6 +25303,17 @@ exit 0
             let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
             assert!(calls.contains(&format!("{github}release.manifest")));
             assert!(!calls.contains("asset-map-v1.json"));
+            std::fs::remove_file(fixture.release.join("runtime")).unwrap();
+            let runtime_digest =
+                openssl_sha256(&fixture.openssl, &installed.join("runtime")).unwrap();
+            std::fs::remove_file(
+                fixture
+                    .home
+                    .join(".local/share/codex/core/downloads-v1")
+                    .join(format!("{runtime_digest}.part")),
+            )
+            .unwrap();
+            std::fs::write(&fixture.curl_log, b"").unwrap();
             let forced = arh1_run_public_channel_force_update(
                 &fixture.index_url,
                 &fixture.home,
@@ -25295,6 +25321,9 @@ exit 0
                 &fixture.tmp,
             );
             assert!(forced.status.success(), "stderr={:?}", forced.stderr);
+            assert!(!std::fs::read_to_string(&fixture.curl_log)
+                .unwrap()
+                .contains(&format!("{github}runtime")));
             assert_eq!(
                 read_pointer_state(&state_paths).unwrap().unwrap().current,
                 generation

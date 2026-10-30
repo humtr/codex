@@ -4722,6 +4722,12 @@ New-client acceptance must pass real GitHub acquisition with Worker access denie
 including Base/Full nested helpers, reuse from previous physical releases,
 interruption/Range refusal, bad maps/signatures/digests, rollback and unchanged
 custom origins. Historical signed identities and immutable assets are preserved.
+After admitting fresh signed controls and sizes, Core reuses matching files from
+the retained target generation or current selection before downloading payloads.
+Retained bytes must pass the same ownership, file type, size, mode and copied-byte
+digest checks. Reuse never skips complete candidate admission or repairs a corrupt
+immutable generation. A rollback followed by an authenticated force retry must
+work with the retained target's runtime origin unavailable.
 Existing Core clients still using the logical Worker origin require a proved
 signed Core upgrade/bootstrap route; retain that real compatibility consumer
 until the supported-client floor and explicit retirement policy permit removal.
