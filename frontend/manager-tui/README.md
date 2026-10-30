@@ -47,6 +47,15 @@ The signed helper's hidden `--termux-backend-capabilities` query advertises
 Core uses an exact bounded response to defer backend creation. With
 `CODEX_TERMUX_BACKEND_STARTUP=resolved-v1`, the adapter requests only the
 upstream-resolved catalog, or `__app-server-default-v1` when no catalog is selected.
+Both requests include upstream-parsed CLI overrides as standard `--config`
+arguments and the selected upstream `--profile`, from the same loader used by
+the TUI. Core starts the backend with those arguments at the resolved CWD and
+binds their exact private snapshot into reuse identity. Different invocation
+settings use a configured sibling; they never retarget the default rendezvous,
+rewrite saved account configuration or change a live server. The resolved
+catalog snapshot is supplied last so an original mutable catalog path cannot
+replace the exact admitted bytes. Upstream still owns value interpretation,
+precedence, authentication and managed requirements.
 An old Core still eagerly supplies its socket; an old helper still receives the
 same eager behavior from a new Core. The signed helper identity/inventory is
 unchanged. No provider policy or profile TOML parsing moves into Core.
@@ -71,8 +80,8 @@ typed UI metadata and the original bytes; backend startup consumes those bytes,
 including fields the UI does not know. Installed-catalog restoration supplies
 both views from the same read. Re-serializing typed UI metadata can lose fields
 or insert defaults and incorrectly select another execution server.
-Exact catalog bytes, execution home
-and signed backend identify reuse; native/default siblings keep their own socket.
+Exact catalog/invocation bytes, execution home, Core system settings and signed
+backend identify reuse; native/default siblings keep their own socket.
 For an initial resume/fork without an explicit catalog, startup first reads the
 selected native model and resolves installed Chat metadata before attachment.
 It reuses that same coordinator to connect the catalog-backed server; closing

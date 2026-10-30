@@ -1,5 +1,6 @@
 //! Upstream loads configuration; Core binds its resolved catalog to the backend.
 use codex_utils_absolute_path::AbsolutePathBuf;
+use std::ffi::OsString;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Stdio;
@@ -43,6 +44,7 @@ pub(crate) async fn bind(
     target: &mut crate::AppServerTarget,
     config: &crate::legacy_core::config::Config,
     cli_kv_overrides: &[(String, toml::Value)],
+    loader_overrides: &codex_config::LoaderOverrides,
 ) -> color_eyre::Result<()> {
     if crate::termux_permissions::enabled()
         && matches!(target, crate::AppServerTarget::LocalDaemon { .. })
@@ -54,7 +56,15 @@ pub(crate) async fn bind(
             let core = std::env::var_os("CODEX_PROFILE_CORE")
                 .map(std::path::PathBuf::from)
                 .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
-            let socket_path = prepare(&core, &config.codex_home, catalog).await?;
+            let arguments = invocation_args(cli_kv_overrides, loader_overrides);
+            let socket_path = prepare(
+                &core,
+                &config.codex_home,
+                catalog,
+                &arguments,
+                config.cwd.as_path(),
+            )
+            .await?;
             *target = crate::AppServerTarget::LocalDaemon {
                 endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket {
                     socket_path,
@@ -75,10 +85,26 @@ pub(crate) async fn bind(
     Ok(())
 }
 
+fn invocation_args(
+    cli: &[(String, toml::Value)],
+    loader: &codex_config::LoaderOverrides,
+) -> Vec<OsString> {
+    let mut args = Vec::new();
+    if let Some(profile) = &loader.user_config_profile {
+        args.extend([OsString::from("--profile"), profile.to_string().into()]);
+    }
+    for (key, value) in cli {
+        args.extend([OsString::from("--config"), format!("{key}={value}").into()]);
+    }
+    args
+}
+
 pub(crate) async fn prepare(
     core: &Path,
     home: &Path,
     catalog: Option<&[u8]>,
+    arguments: &[OsString],
+    cwd: &Path,
 ) -> color_eyre::Result<AbsolutePathBuf> {
     let metadata = std::fs::symlink_metadata(core)?;
     if !core.is_absolute()
@@ -97,7 +123,9 @@ pub(crate) async fn prepare(
             } else {
                 "__app-server-default-v1"
             })
+            .args(arguments)
             .env("CODEX_HOME", home)
+            .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -202,7 +230,7 @@ mod tests {
         )?;
         std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;
         let bytes = br#"{"models":[{"slug":"owned"}]}"#;
-        let socket = prepare(&core, &home, Some(bytes)).await?;
+        let socket = prepare(&core, &home, Some(bytes), &[], root.path()).await?;
         assert_eq!(socket.as_path(), Path::new("/owned/s"));
         assert_eq!(std::fs::read(home.join("catalog"))?, bytes);
         std::fs::write(
@@ -210,18 +238,72 @@ mod tests {
             "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = __app-server-default-v1 ] || exit 2\ncat > \"$CODEX_HOME/default-input\"\nprintf '/owned/native\\n'\n",
         )?;
         assert_eq!(
-            prepare(&core, &home, None).await?.as_path(),
+            prepare(&core, &home, None, &[], root.path())
+                .await?
+                .as_path(),
             Path::new("/owned/native")
         );
         assert!(std::fs::read(home.join("default-input"))?.is_empty());
-        assert!(prepare(&core, &home, Some(b"")).await.is_err());
+        let cli = vec![
+            ("model_provider".into(), toml::Value::String("owned".into())),
+            (
+                "features".into(),
+                toml::Value::Table(
+                    [("plugins".into(), toml::Value::Boolean(false))]
+                        .into_iter()
+                        .collect(),
+                ),
+            ),
+        ];
+        let loader = codex_config::LoaderOverrides {
+            user_config_profile: Some("work".parse()?),
+            ..Default::default()
+        };
+        let arguments = invocation_args(&cli, &loader);
+        assert_eq!(arguments[0], "--profile");
+        assert_eq!(arguments[1], "work");
+        let parsed = codex_utils_cli::CliConfigOverrides {
+            raw_overrides: arguments
+                .chunks_exact(2)
+                .skip(1)
+                .map(|pair| pair[1].to_str().unwrap().to_owned())
+                .collect(),
+        }
+        .parse_overrides()
+        .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
+        assert_eq!(parsed, cli);
+        std::fs::write(
+            &core,
+            "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$CODEX_HOME/arguments\"\npwd > \"$CODEX_HOME/cwd\"\ncat > \"$CODEX_HOME/catalog\"\nprintf '/owned/s\\n'\n",
+        )?;
+        prepare(&core, &home, Some(bytes), &arguments, &home).await?;
+        let mut expected = b"__app-server-catalog-v1\0".to_vec();
+        for arg in &arguments {
+            expected.extend_from_slice(arg.to_str().unwrap().as_bytes());
+            expected.push(0);
+        }
+        assert_eq!(std::fs::read(home.join("arguments"))?, expected);
+        assert_eq!(std::fs::read(home.join("catalog"))?, bytes);
+        assert_eq!(
+            std::fs::read_to_string(home.join("cwd"))?.trim_end(),
+            home.to_str().unwrap()
+        );
         assert!(
-            prepare(&core, &home, Some(&vec![b'x'; LIMIT + 1]))
+            prepare(&core, &home, Some(b""), &[], root.path())
+                .await
+                .is_err()
+        );
+        assert!(
+            prepare(&core, &home, Some(&vec![b'x'; LIMIT + 1]), &[], root.path())
                 .await
                 .is_err()
         );
         std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o777))?;
-        assert!(prepare(&core, &home, Some(bytes)).await.is_err());
+        assert!(
+            prepare(&core, &home, Some(bytes), &[], root.path())
+                .await
+                .is_err()
+        );
         Ok(())
     }
 }

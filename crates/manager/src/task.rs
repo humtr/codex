@@ -1155,6 +1155,7 @@ mod tests {
             &home,
             program.as_os_str(),
             None,
+            None,
             config,
             None,
         );
@@ -1166,7 +1167,12 @@ mod tests {
         write_new_record(&live.join("config/config.toml"), config).unwrap();
         write_new_record(
             &live.join("owner"),
-            &codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+            &codex_runtime_binding::configuration_owner_bytes(
+                &home,
+                program.as_os_str(),
+                false,
+                false,
+            ),
         )
         .unwrap();
         write_new_record(
@@ -1179,6 +1185,7 @@ mod tests {
             &home,
             program.as_os_str(),
             None,
+            None,
             stale_config,
             None,
         ));
@@ -1189,7 +1196,12 @@ mod tests {
         write_new_record(&reused.join("config/config.toml"), stale_config).unwrap();
         write_new_record(
             &reused.join("owner"),
-            &codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+            &codex_runtime_binding::configuration_owner_bytes(
+                &home,
+                program.as_os_str(),
+                false,
+                false,
+            ),
         )
         .unwrap();
         // A real current process now owns the retired PID, but is not that runtime.

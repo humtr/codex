@@ -233,6 +233,56 @@ that route. Clipboard qualification instead writes its explicit provider into
 the isolated execution home's config, consumed by both real clients, and disables
 unrelated plugin discovery. This does not fix or qualify the CLI override defect.
 
+The next implementation batch now repairs that source boundary. TUI passes the
+same parsed CLI --config values and selected upstream --profile to Core's existing
+private catalog/default operations. Core accepts only configuration argument
+pairs, launches the fixed qualified app-server with them, and includes their
+immutable snapshot in its existing record namespace. Configured siblings use
+the catalogs family and cannot retarget the default rendezvous. Resolved catalog
+bytes remain the last native override so a changing original catalog path cannot
+replace them. No user config write, provider/model policy in Core, duplicate
+primary inference or automatic retry is added.
+Core/Manager and Provider share the changed record codec. Records without an
+invocation retain their exact previous encoding/hash; invocation-bearing records
+have an explicit marker and bounded private argument snapshot. A Provider build
+with the old codec cannot decode those new records, so matched Provider delivery
+and real Bridge ownership/continuation tests are required before this route's
+operating activation. Existing running owners remain pinned and untouched.
+Full131 remains the installed baseline. Source changes and candidate tests are
+in progress; they are not an installed CLI/Provider interoperability result.
+Current source evidence: the full workspace passes409 tests plus its existing
+one ignored Core case; the final codec's three tests and workspace Clippy pass.
+Dropping Core's actual invocation forwarding in disposable source makes the
+coordinator regression fail for missing native argv; its source is restored and
+isolated compiler output is retained until batch cleanup. A complete actual
+native test driver with the old b759 TUI reproduces modelProviderMismatch,
+records zero primary/title model requests and confirms both owned server exits
+(invocation-old-frontend-negative.*). Its six inactive payloads are archived
+with invocation-old-negative-payload-cleanup.jsonl, preserving Native records.
+The changed frontend library and test targets both pass local1.99.1 SDK metadata
+checks with one compiler, zero debug information and no incremental output.
+These are compilation checks, not executed TUI tests or the pinned1.95 hosted
+qualification. The new positive device driver exercises explicit config, selected
+profile and a fresh-auth home, preserving the default sibling, saved defaults,
+model/effort, exactly one primary request and Manager's configured-owner view.
+Its positive actual TUI result is pending the rebuilt artifact.
+An actual Android Core/native-server readback passes explicit --config provider
+and effort propagation, then rejects --profile before serving the selected
+profile (invocation-core-android-startup.json). Upstream0.166 explicitly excludes
+app-server from profile_v2_for_subcommand and passes default LoaderOverrides to
+both foreground startup APIs. The maintained runtime source preparation now
+admits only foreground app-server/config discovery and supplies the existing
+upstream profile loader to those APIs. Daemon lifecycle subcommands stay excluded;
+no profile flattening, alternate home, credential copy or frontend executor is
+introduced. Exact official-source preflight succeeds with the bounded CLI diff
+retained as invocation-runtime-source.diff; the newly patched runtime's build
+and positive Android profile readback are still required. This changes the
+runtime recipe, so reusing Full131's old runtime would not qualify the fix.
+Before completing A1, also inspect Provider Pool::prepare and Operator create/
+resume/fork against upstream's same effective-provider admission. That prepare
+path currently supplies the catalog without invocation selection; passing a
+per-thread Provider definition alone does not prove turn/start admission.
+
 
 Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's
 workspace Rust tests and Clippy pass at the recorded inputs (407 tests plus the

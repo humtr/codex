@@ -283,7 +283,20 @@ update authority is maintained.
   Core then passes `CODEX_TERMUX_BACKEND_STARTUP=resolved-v1` and the planned native
   socket address without creating a server. The frontend loads upstream
   configuration and requests exactly its resolved catalog or the native/default
-  server before connecting. Older/unknown helpers keep the original eager startup.
+  server before connecting. The same request carries the invocation's parsed
+  CLI configuration overrides and selected upstream profile as standard
+  --config/--profile argument pairs. Core passes these to the qualified server;
+  it does not interpret provider/model policy or flatten CLI settings into a
+  lower-precedence file layer. Invocation arguments join immutable server reuse
+  identity. A configured server never retargets the ordinary default rendezvous
+  or changes the options of a live sibling. Older/unknown helpers keep the
+  original eager startup.
+  The maintained runtime's foreground app-server path applies the same upstream
+  profile loader as the TUI. Its narrow source adaptation admits --profile for
+  foreground app-server/config discovery and passes that loader to the existing
+  startup APIs; daemon lifecycle subcommands remain outside that admission.
+  Do not flatten a selected profile into CLI values or substitute a different
+  execution home to work around missing upstream profile propagation.
   The Core-owned local target bypasses the TUI's upstream daemon auto-start and
   package/feature recovery paths, including before the resolved server exists.
   Only Core's coordinator may materialize that target; a missing socket is not
@@ -7032,15 +7045,19 @@ user embedded/remote/configuration selections retain their upstream semantics.
 A qualified local TUI may submit its upstream-resolved model catalog
 to Core's private `__app-server-catalog-v1` operation on stdin (at most4 MiB).
 For deferred startup without a resolved catalog, the frontend requests the same
-native server through private no-argument `__app-server-default-v1`. This operation
-does not consume stdin or interpret frontend configuration. Both operations return
+native server through private `__app-server-default-v1`. Both private commands
+also accept bounded --config VALUE/--profile VALUE pairs for the invocation;
+their existing no-argument callers remain unchanged. The default command does
+not consume stdin. Core validates the argument transport but delegates the
+meaning, precedence and policy of their values to upstream. Both operations return
 only a validated socket and share the existing coordinator. Failure after deferred
 selection is explicit; it never retries through an embedded executor or starts a
 second native server. A catalog request remains distinct from an absent catalog;
 an empty/invalid catalog is not a request for native/default behavior.
 Core returns only the exact qualified server socket, and uses the existing server
 coordinator, environment, descriptor and retirement path. Catalog bytes, profile
-home, runtime and effective system config/requirements jointly identify reuse; a changed catalog at the same source
+home, runtime, invocation arguments and effective system config/requirements
+jointly identify reuse; a changed catalog at the same source
 filename must not reuse stale metadata. Core stores an immutable private snapshot
 and supplies its path only to backend startup, never to ordinary upstream argv.
 It does not interpret profile TOML, resolve provider credentials or start another
@@ -7048,12 +7065,18 @@ executor. The frontend remains responsible for loading selected user/CLI/project
 configuration with upstream code. Existing native servers and active siblings
 remain intact. Remote/embedded launches are unaffected; failure to prepare a
 requested catalog is explicit, never a fallback to an unqualified embedded backend.
-Catalog server records live under Core's private `catalogs` namespace and never
+Catalog or invocation-configured records live under Core's private `catalogs` namespace and never
 retarget the default `servers` rendezvous. Current Manager discovery
 validates both families, including exact catalog content, runtime and peer PID;
 generation retirement applies the same existing-client/writer protections to both.
 The existing server-record codec has one implementation shared by Core and
-Manager: owner fields, family/namespace binding, opaque catalog bytes and bounds.
+Manager: owner fields, family/namespace binding, opaque catalog/invocation bytes
+and bounds. Records without invocation overrides retain their existing encoding
+and namespace for their live consumers. An invocation record adds its explicit
+marker and private argument snapshot; reuse validates complete bytes, not only
+the routing hash. The snapshot shares the existing16 KiB configuration-record
+bound, including its UTF-8 arguments and NUL separators. Unsupported/malformed
+arguments fail before server launch.
 Core owns this execution-record contract; Manager consumes decoded bindings for
 its task UX rather than independently defining Core's catalog/storage format.
 This is a dependency-free source library compiled into each executable, not an

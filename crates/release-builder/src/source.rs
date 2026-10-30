@@ -142,6 +142,17 @@ fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
         source,
         changes: BTreeMap::new(),
     };
+    plan.edit("cli/src/main.rs", "cli_main", |text, where_| {
+        replacements(text, &[
+            ("Some(Subcommand::AppServer(app_server_cli)) => {", "Some(Subcommand::AppServer(app_server_cli)) => {\n            let loader_overrides = loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?;"),
+            ("root_config_overrides,\n                    LoaderOverrides::default(),\n                    strict_config,\n                    startup_config,", "root_config_overrides,\n                    loader_overrides,\n                    strict_config,\n                    startup_config,"),
+            ("root_config_overrides,\n                        LoaderOverrides::default(),\n                        strict_config,\n                        analytics_default_enabled,", "root_config_overrides,\n                        loader_overrides,\n                        strict_config,\n                        analytics_default_enabled,"),
+        ], where_)
+    })?;
+    plan.edit("cli/src/main.rs", "profile_v2_for_subcommand", |text, where_| {
+        let text = replace(text, "    match subcommand {", "    match subcommand {\n        Subcommand::AppServer(server) if server.subcommand.is_none() => Ok(Some(profile_v2)),", where_)?;
+        replace(&text, "and `codex debug prompt-input`.\"", "`codex debug prompt-input`, and foreground `codex app-server`.\"", where_)
+    })?;
     plan.edit("code-mode-protocol/build.rs", "main", |text, where_| {
         replace(
             text,

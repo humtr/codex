@@ -730,15 +730,22 @@ mod reply_tests {
         let program = installation.join(".local/lib/codex/core/generations/f/runtime");
         crate::journal::private_directory(program.parent().unwrap()).unwrap();
         std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+        let invocation = codex_runtime_binding::encode_invocation(&[
+            "--config".into(),
+            "model_provider=\"fixture\"".into(),
+        ])
+        .unwrap()
+        .unwrap();
         let name = codex_runtime_binding::configuration_namespace(
             &home,
             program.as_os_str(),
             None,
+            Some(&invocation),
             b"",
             None,
         );
         let directory = installation
-            .join(".local/share/codex/core/servers")
+            .join(".local/share/codex/core/catalogs")
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
         std::os::unix::fs::symlink(directory.join("s"), root.join("socket-path")).unwrap();
@@ -757,8 +764,14 @@ mod reply_tests {
         for (name, bytes) in [
             (
                 "owner",
-                codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+                codex_runtime_binding::configuration_owner_bytes(
+                    &home,
+                    program.as_os_str(),
+                    false,
+                    true,
+                ),
             ),
+            ("invocation", invocation),
             ("config/config.toml", vec![]),
             ("pid", pid.to_string().into_bytes()),
         ] {
@@ -828,6 +841,7 @@ mod reply_tests {
                 &home,
                 program.as_os_str(),
                 None,
+                None,
                 config,
                 None,
             ));
@@ -836,7 +850,12 @@ mod reply_tests {
         for (name, bytes) in [
             (
                 "owner",
-                codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false),
+                codex_runtime_binding::configuration_owner_bytes(
+                    &home,
+                    program.as_os_str(),
+                    false,
+                    false,
+                ),
             ),
             ("config/config.toml", config.to_vec()),
         ] {
@@ -887,6 +906,7 @@ mod reply_tests {
             &home,
             program.as_os_str(),
             None,
+            None,
             config,
             None,
         );
@@ -894,8 +914,12 @@ mod reply_tests {
             .join(".local/share/codex/core/servers")
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
-        let owner =
-            codex_runtime_binding::configuration_owner_bytes(&home, program.as_os_str(), false);
+        let owner = codex_runtime_binding::configuration_owner_bytes(
+            &home,
+            program.as_os_str(),
+            false,
+            false,
+        );
         let process = Process::read(std::process::id()).unwrap();
         assert_ne!(process.image, program);
         use std::io::Write;

@@ -2011,6 +2011,7 @@ fn task_binding(root: &Path, home: &Path, runtime: &Path) -> PathBuf {
             home,
             runtime.as_os_str(),
             None,
+            None,
             TASK_SETTINGS,
             None,
         ),
@@ -2026,7 +2027,12 @@ fn task_binding(root: &Path, home: &Path, runtime: &Path) -> PathBuf {
     for (path, bytes) in [
         (
             directory.join("owner"),
-            codex_runtime_binding::configuration_owner_bytes(home, runtime.as_os_str(), false),
+            codex_runtime_binding::configuration_owner_bytes(
+                home,
+                runtime.as_os_str(),
+                false,
+                false,
+            ),
         ),
         (directory.join("config/config.toml"), TASK_SETTINGS.to_vec()),
     ] {
@@ -2066,7 +2072,7 @@ impl TaskFixture {
         }
         fs::write(
             self.binding.join("owner"),
-            configuration_owner_bytes(&self.account, runtime.as_os_str(), catalog.is_some()),
+            configuration_owner_bytes(&self.account, runtime.as_os_str(), catalog.is_some(), false),
         )
         .unwrap();
         let family = self
@@ -2084,6 +2090,7 @@ impl TaskFixture {
             &self.account,
             runtime.as_os_str(),
             catalog,
+            None,
             config,
             requirements,
         ));
@@ -2150,8 +2157,12 @@ impl TaskFixture {
             process.env("TASK_FIXTURE_CHILD_VIEW_ONLY", "1");
         }
         let child = process.spawn().unwrap();
-        let owner =
-            codex_runtime_binding::configuration_owner_bytes(&account, runtime.as_os_str(), false);
+        let owner = codex_runtime_binding::configuration_owner_bytes(
+            &account,
+            runtime.as_os_str(),
+            false,
+            false,
+        );
         for (name, bytes) in [
             ("owner", owner),
             ("pid", format!("{}\n", child.id()).into_bytes()),
@@ -2278,8 +2289,12 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
     let mut snapshots = Vec::new();
     for home in [f.root.0.join("removed-home"), alias, broken] {
         let binding = task_binding(&f.root.0, &home, &runtime);
-        let owner =
-            codex_runtime_binding::configuration_owner_bytes(&home, runtime.as_os_str(), false);
+        let owner = codex_runtime_binding::configuration_owner_bytes(
+            &home,
+            runtime.as_os_str(),
+            false,
+            false,
+        );
         for (name, bytes) in [("owner", owner), ("pid", format!("{pid}\n").into_bytes())] {
             let p = binding.join(name);
             fs::write(&p, &bytes).unwrap();
@@ -2323,6 +2338,7 @@ fn active_task_live_unsafe_or_substituted_binding_is_rejected_and_retired_record
     let owner = codex_runtime_binding::configuration_owner_bytes(
         &f.account,
         std::ffi::OsStr::new("/substituted/runtime"),
+        false,
         false,
     );
     fs::write(f.binding.join("owner"), &owner).unwrap();
@@ -2370,8 +2386,12 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
         .0
         .join(".local/lib/codex/core/generations/fixture-old/runtime");
     let binding = task_binding(&f.root.0, &account, &runtime);
-    let owner =
-        codex_runtime_binding::configuration_owner_bytes(&account, runtime.as_os_str(), false);
+    let owner = codex_runtime_binding::configuration_owner_bytes(
+        &account,
+        runtime.as_os_str(),
+        false,
+        false,
+    );
     let socket = f.root.0.join("s2");
     let mut child = OwnedProcess(
         Command::new(&runtime)

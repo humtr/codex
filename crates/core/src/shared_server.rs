@@ -115,7 +115,14 @@ pub(super) fn private_dir(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 fn namespace(home: &Path, program: &OsStr) -> String {
-    configuration_namespace(home, program, None, &super::render_core_config(&[]), None)
+    configuration_namespace(
+        home,
+        program,
+        None,
+        None,
+        &super::render_core_config(&[]),
+        None,
+    )
 }
 
 fn read_record(path: &Path) -> io::Result<Vec<u8>> {
@@ -138,6 +145,7 @@ pub(super) fn native_socket(
         .join(configuration_namespace(
             profile,
             program,
+            None,
             None,
             &settings.config,
             settings.requirements.as_deref(),
@@ -291,33 +299,47 @@ pub(super) fn ensure(
     config: &Path,
     env: &super::TermuxBaseEnvPlan,
 ) -> io::Result<PathBuf> {
-    ensure_catalog(program, profile, state, resolver, config, env, None)
+    ensure_configured(
+        program,
+        profile,
+        state,
+        resolver,
+        config,
+        env,
+        Startup::default(),
+    )
 }
 
-pub(super) fn ensure_catalog(
+#[derive(Default)]
+pub(super) struct Startup<'a> {
+    pub catalog: Option<&'a [u8]>,
+    pub arguments: &'a [OsString],
+}
+
+pub(super) fn ensure_configured(
     program: &OsStr,
     profile: &Path,
     state: &Path,
     resolver: &Path,
     config: &Path,
     env: &super::TermuxBaseEnvPlan,
-    catalog: Option<&[u8]>,
+    startup: Startup<'_>,
 ) -> io::Result<PathBuf> {
+    let catalog = startup.catalog;
+    let invocation = codex_runtime_binding::encode_invocation(startup.arguments)?;
     if catalog.is_some_and(|c| c.is_empty() || c.len() as u64 > CATALOG_LIMIT) {
         return Err(invalid());
     }
     let settings = super::system_config::Bytes::read(config)?;
     private_dir(profile)?;
-    let servers = state.join(if catalog.is_some() {
-        "catalogs"
-    } else {
-        "servers"
-    });
+    let configured = catalog.is_some() || invocation.is_some();
+    let servers = state.join(if configured { "catalogs" } else { "servers" });
     private_dir(&servers)?;
     let directory = servers.join(configuration_namespace(
         profile,
         program,
         catalog,
+        invocation.as_deref(),
         &settings.config,
         settings.requirements.as_deref(),
     ));
@@ -332,8 +354,12 @@ pub(super) fn ensure_catalog(
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    let binding =
-        codex_runtime_binding::configuration_owner_bytes(profile, program, catalog.is_some());
+    let binding = codex_runtime_binding::configuration_owner_bytes(
+        profile,
+        program,
+        catalog.is_some(),
+        invocation.is_some(),
+    );
     let owner = directory.join("owner");
     match read_record(&owner) {
         Ok(b) if b == binding => (),
@@ -350,6 +376,15 @@ pub(super) fn ensure_catalog(
             Err(e) => return Err(e),
         }
     }
+    if let Some(invocation) = &invocation {
+        let path = directory.join("invocation");
+        match read_bounded(&path, codex_runtime_binding::INVOCATION_LIMIT) {
+            Ok(old) if old == *invocation => (),
+            Ok(_) => return Err(invalid()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => write_record(&path, invocation)?,
+            Err(e) => return Err(e),
+        }
+    }
     let socket = directory.join("s");
     if socket.as_os_str().as_bytes().len() > 107 {
         return Err(invalid());
@@ -357,7 +392,7 @@ pub(super) fn ensure_catalog(
     let logical_dir = profile.join("app-server-control");
     private_dir(&logical_dir)?;
     let logical = logical_dir.join("app-server-control.sock");
-    if catalog.is_none() {
+    if !configured {
         match fs::symlink_metadata(&logical) {
             Ok(m) if m.file_type().is_symlink() => {
                 let previous = fs::read_link(&logical)?;
@@ -417,6 +452,8 @@ pub(super) fn ensure_catalog(
     if !running {
         let fds = super::RuntimeFdSources::open(resolver, &snapshot)?;
         let mut command = Command::new(program);
+        command.args(startup.arguments);
+        // The resolved catalog must win over its original, potentially changing path.
         if catalog.is_some() {
             command.args([
                 "-c".to_owned(),
@@ -467,7 +504,7 @@ pub(super) fn ensure_catalog(
             return Err(error);
         }
     }
-    if catalog.is_none() && fs::read_link(&logical).ok().as_ref() != Some(&socket) {
+    if !configured && fs::read_link(&logical).ok().as_ref() != Some(&socket) {
         let temporary = logical.with_extension(format!("tmp-{}", std::process::id()));
         std::os::unix::fs::symlink(&socket, &temporary)?;
         fs::rename(&temporary, &logical)?;
@@ -638,13 +675,17 @@ mod tests {
 use std::{env,fs,io::Read,os::unix::net::UnixListener};
 fn main() {
  let a:Vec<String>=env::args().collect();
- let start=if a.get(1).map(String::as_str)==Some("-c") {
-  let path=a[2].strip_prefix("model_catalog_json=\"").unwrap().strip_suffix('"').unwrap();
-  assert!(!fs::read(path).unwrap().is_empty());
-  3
- } else {1};
+ let mut start=1;
+ while matches!(a.get(start).map(String::as_str),Some("-c"|"--config"|"--profile")) {
+  if a[start]=="-c" {
+   let path=a[start+1].strip_prefix("model_catalog_json=\"").unwrap().strip_suffix('"').unwrap();
+   assert!(!fs::read(path).unwrap().is_empty());
+  }
+  start+=2;
+ }
  assert_eq!(&a[start..start+2], &["app-server", "--listen"]);
  let path=a[start+2].strip_prefix("unix://").unwrap();
+ fs::write(std::path::Path::new(path).with_extension("argv"), a[1..start].join("\0")).unwrap();
  let c=fs::read_to_string("/proc/self/fd/34/config.toml").unwrap();
  assert!(c.contains("danger-full-access"));
  assert!(!fs::read("/proc/self/fd/33").unwrap().is_empty());
@@ -774,14 +815,17 @@ fn main() {
         };
         let profile = root.join("profile");
         let start = |catalog| {
-            ensure_catalog(
+            ensure_configured(
                 program.as_os_str(),
                 &profile,
                 &state,
                 &resolver,
                 &config,
                 &env,
-                catalog,
+                Startup {
+                    catalog,
+                    arguments: &[],
+                },
             )
             .unwrap()
         };
@@ -828,32 +872,87 @@ fn main() {
             fs::read(one.parent().unwrap().join("models.json")).unwrap(),
             br#"{"models":[{"slug":"first"}]}"#
         );
+        let arguments = [
+            "--config",
+            "model_provider=\"selected\"",
+            "--profile",
+            "work",
+        ]
+        .map(OsString::from);
+        let configured = |catalog, arguments: &[OsString]| {
+            ensure_configured(
+                program.as_os_str(),
+                &profile,
+                &state,
+                &resolver,
+                &config,
+                &env,
+                Startup { catalog, arguments },
+            )
+        };
+        let invocation = configured(None, &arguments).unwrap();
+        let combined = configured(Some(br#"{"models":[{"slug":"first"}]}"#), &arguments).unwrap();
+        assert_ne!(invocation, native);
+        assert_ne!(combined, one);
+        assert_eq!(
+            invocation.parent().unwrap().parent(),
+            Some(state.join("catalogs").as_path())
+        );
+        assert_eq!(
+            fs::read(invocation.with_extension("argv")).unwrap(),
+            b"--config\0model_provider=\"selected\"\0--profile\0work"
+        );
+        let invocation_pid = read_record(&invocation.parent().unwrap().join("pid")).unwrap();
+        assert_eq!(configured(None, &arguments).unwrap(), invocation);
+        assert_eq!(
+            read_record(&invocation.parent().unwrap().join("pid")).unwrap(),
+            invocation_pid
+        );
+        let changed = ["--config", "model_provider=\"other\""].map(OsString::from);
+        let other = configured(None, &changed).unwrap();
+        assert_ne!(other, invocation);
+        assert_eq!(
+            fs::read_link(profile.join("app-server-control/app-server-control.sock")).unwrap(),
+            native
+        );
+        for socket in [&invocation, &combined, &other] {
+            Binding::read(socket.parent().unwrap(), read_bounded).unwrap();
+        }
+        fs::write(invocation.parent().unwrap().join("invocation"), b"changed").unwrap();
+        assert!(configured(None, &arguments).is_err());
+        assert!(configured(None, &["exec".into(), "effect".into()]).is_err());
         assert!(read_catalog(&b""[..]).is_err());
         assert!(read_catalog(std::io::repeat(b'x').take(CATALOG_LIMIT + 1)).is_err());
-        assert!(ensure_catalog(
+        assert!(ensure_configured(
             program.as_os_str(),
             &profile,
             &state,
             &resolver,
             &config,
             &env,
-            Some(b"")
+            Startup {
+                catalog: Some(b""),
+                arguments: &[]
+            }
         )
         .is_err());
         // A changed or substituted snapshot never acquires the original identity.
         fs::write(one.parent().unwrap().join("models.json"), b"changed").unwrap();
-        assert!(ensure_catalog(
+        assert!(ensure_configured(
             program.as_os_str(),
             &profile,
             &state,
             &resolver,
             &config,
             &env,
-            Some(br#"{"models":[{"slug":"first"}]}"#)
+            Startup {
+                catalog: Some(br#"{"models":[{"slug":"first"}]}"#),
+                arguments: &[]
+            }
         )
         .is_err());
         drop(held);
-        for socket in [native, one, two] {
+        for socket in [native, one, two, invocation, combined, other] {
             let pid =
                 String::from_utf8(read_record(&socket.parent().unwrap().join("pid")).unwrap())
                     .unwrap();
@@ -989,8 +1088,12 @@ fn main() {
         let profile = root.join("account");
         let directory = servers.join(namespace(&profile, program.as_os_str()));
         private_dir(&directory).unwrap();
-        let owner =
-            codex_runtime_binding::configuration_owner_bytes(&profile, program.as_os_str(), false);
+        let owner = codex_runtime_binding::configuration_owner_bytes(
+            &profile,
+            program.as_os_str(),
+            false,
+            false,
+        );
         write_record(&directory.join("owner"), &owner).unwrap();
         let snapshot = directory.join("config");
         private_dir(&snapshot).unwrap();
@@ -1043,14 +1146,17 @@ fn main() {
         let busy_socket =
             ensure(program.as_os_str(), &busy, &state, &resolver, &config, &env).unwrap();
         let idle = root.join("idle");
-        let idle_socket = ensure_catalog(
+        let idle_socket = ensure_configured(
             program.as_os_str(),
             &idle,
             &state,
             &resolver,
             &config,
             &env,
-            Some(br#"{"models":[{"slug":"retired"}]}"#),
+            Startup {
+                catalog: Some(br#"{"models":[{"slug":"retired"}]}"#),
+                arguments: &[],
+            },
         )
         .unwrap();
         let busy_pid =

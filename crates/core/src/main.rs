@@ -1475,9 +1475,9 @@ where
     }
     let config_dir = prepared.path.as_path();
     use std::io::IsTerminal as _;
-    if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)]
-        || options.planned_args == [OsStr::new(shared_server::DEFAULT_COMMAND)]
-    {
+    if options.planned_args.first().is_some_and(|arg| {
+        arg == shared_server::CATALOG_COMMAND || arg == shared_server::DEFAULT_COMMAND
+    }) {
         let prepare = || -> std::io::Result<_> {
             let catalog = if options.planned_args[0] == shared_server::CATALOG_COMMAND {
                 Some(shared_server::read_catalog(std::io::stdin().lock())?)
@@ -1487,14 +1487,17 @@ where
             let home = std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
                 .ok_or_else(|| std::io::Error::other("catalog server requires HOME"))?;
-            shared_server::ensure_catalog(
+            shared_server::ensure_configured(
                 selection.runtime.program_path,
                 &upstream_execution_home(&home),
                 &home.join(".local/share/codex/core"),
                 resolver_path.as_ref(),
                 config_dir,
                 &env_plan,
-                catalog.as_deref(),
+                shared_server::Startup {
+                    catalog: catalog.as_deref(),
+                    arguments: &options.planned_args[1..],
+                },
             )
         };
         match prepare() {
