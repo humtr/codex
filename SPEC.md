@@ -465,6 +465,8 @@ Core/Base acquire no quota scheduling, account policy or Manager dependency.
   The maintenance invocation has no project tools/MCP or project instructions;
   qualify the actual invocation surface instead of assuming a sandbox name
   provides Android isolation. This does not narrow ordinary development tools.
+  Qualify suppression of ordinary completion alerts for the internal maintenance
+  request without suppressing the user's foreground/background work notifications.
 - Manager owns one optional deadline-driven worker, supervised through the
   existing selected service lifecycle. UI displays settings and observed results;
   neither TUI, Provider nor the generic supervisor owns quota decisions. Reuse
@@ -499,6 +501,44 @@ and [current plan limits](https://learn.chatgpt.com/docs/pricing#what-are-the-us
 Neither source establishes a guarantee that a short message always rearms a
 five-hour window. The installed0.166 CLI advertises `exec --ephemeral`; actual
 metering and event semantics remain product-path qualification, not a docs claim.
+
+### Planned clipboard and image-input qualification
+
+Preserve upstream /copy, its available copy-picker targets, Ctrl+O, selection
+copy and /config copy/paste preferences. Upstream owns the logical content and
+composer; a Termux clipboard adapter is justified only by an actually missing
+platform operation. A clipboard feature must not move conversation UI into Core
+or make ordinary upstream launch depend on Manager.
+
+Copy the selected logical source/Markdown according to the upstream copy format,
+not a rendered terminal viewport. Soft wrapping introduces no extra spaces or
+newlines; intentional paragraphs, code indentation, Unicode and selected code
+blocks remain intact. Collapsed display does not truncate copied source. Verify
+Base and enhanced TUI, ordinary Termux and supported tmux paths, native clipboard/
+OSC52 routing, failure/cancel behavior and actual Android clipboard readback or
+paste. A successful helper exit or emitted terminal sequence alone does not
+establish that Android received the full content. Manual qualification prompts
+retain the existing automatic clipboard attempt, exact-text readback and separate
+one-step fallback; that workflow is distinct from /copy product acceptance.
+
+Image paste is a requested capability exploration followed by implementation
+where a supported Android transfer boundary can be demonstrated. Reuse upstream
+image composition, attachment and model submission; inspect the actual deployed
+target/clipboard backend, Android clipboard MIME/content-URI access, foreground
+permissions and any needed Termux companion. Text clipboard support or a build
+on an Android host does not prove image clipboard access. Prefer a minimal
+platform adapter over a second attachment pipeline or required Linux desktop.
+Do not assume rebuilding Full alone supplies Android clipboard images.
+
+Direct clipboard-image paste, image-file attachment and Android share/picker
+input have separate acceptance results. Qualify image bytes reaching the existing
+composer/native request, text-plus-image, multiple images, model capabilities,
+cancel/retry and supported resume, without changing the selected model/effort or
+silently losing/resizing content. Keep image data needed by an active/restorable
+thread; cleanup follows the actual persisted-image consumer, not a temporary-file
+name. Clearly report unsupported clipboard paths and available file/share paths;
+one must not be counted as proof of the other. Missing platform support does not
+hold the urgent restoration release after the supported text-copy path passes.
 
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone TUI implementations live as
@@ -6319,6 +6359,54 @@ records and whole-server force scope in owned roots; native runtime proof is
 required beyond simulated RPC.
 
 ### Notification configuration and delivery
+
+#### Planned convergence with upstream /config
+
+Repair the reported missing Android notifications in the same urgent capability-
+restoration scope as /switch/profiles. Upstream0.166 already owns /config
+notification preferences, TUI event filtering/conditions and OSC9/BEL delivery;
+Base therefore retains official notification controls. Optional Manager's
+Android notification/toast/window-return path is a distinct capability. Its
+absence is a verified break in that path, not a sufficient diagnosis of every
+missing terminal or Android notification.
+
+The existing Manager integration already consumes upstream notify/hooks:
+runtime_config::render connects turn completion to notify and other selected
+events to hooks; lib::emit_notification applies its stored policy and invokes
+Termux delivery. Do not describe it as an entirely independent event engine or
+assume the new settings UI alone duplicates every Android responsibility.
+
+Before changing ownership, trace /config saved/effective settings, real event
+production, focus filtering, selected backend, Manager hook/adapter availability,
+Termux API/permissions and physical Android delivery. Compare Base and the
+qualified enhanced frontend with the same event/preferences. Produce an explicit
+adopt/retain/remove matrix for completed turns, approvals, structured questions,
+other currently selected hooks, channel/content preferences, notification IDs,
+window return, global/profile/session setting scope and account/profile changes.
+Include a detached/headless backend, CLI, Direct and Provider work; replacing a
+native backend hook with a TUI-only event must not lose alerts when no TUI exists.
+
+Prefer upstream settings/UI, event semantics and delivery wherever they actually
+cover the required behavior. Keep only demonstrated Android/Termux or profile/
+window adaptation and uncovered required events in the optional device/Manager
+boundary. Whole or partial retirement is determined by that comparison; Core
+does not acquire notification policy. A settings migration must define one owner
+for each equivalent preference/event/delivery effect, preserve existing user
+choices and current/rollback compatibility, and remove replaced producers,
+consumers, commands and tests together where no actual caller remains. Do not
+layer another notification system beside upstream merely to hide a failure.
+
+Acceptance includes actual /config navigation/save/restart, on/off and focus
+conditions, completion/approval/question event coverage, foreground/background
+Android notification/toast delivery, headless and CLI/Direct/Provider work,
+selected-window return without starting a second workload, distinct conversations,
+internal maintenance/memory exclusion and exactly one intended delivery per
+event/channel, failure reporting and rollback. A native event, OSC/BEL write or
+Termux command exit is not physical notification proof. The boundary comparison
+is required before choosing the migration; current commands/contracts below
+remain operative until a qualified replacement is delivered.
+
+#### Existing Manager command and state contract
 
 Notification commands use these user-facing forms:
 

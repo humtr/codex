@@ -1,12 +1,17 @@
 # Operating state and product completion
 
-SPEC owns product behavior; this file owns actual implementation, qualification,
-delivery and remaining work. Latest maintenance record: 2026-10-30 KST, from
-sourcee78d83a69d3eefddadfbffdbb57807a87fd4ec82 (Provider21), wrapper tunnel
-recipe3236692 and the original acceptance records. The service/tunnel maintenance
-batch below includes bounded actual device activation with zero Provider-triggered
-model submissions. The separately identified Android user trial did invoke its
-ordinary ChatGPT response; source readback is not another inference.
+SPEC owns product behavior; this file owns implementation, qualification,
+delivery and the remaining work. The verified operating Core is signed
+Base128/upstream0.166.0 (source00e0ed1), installed through the user's ordinary
+update. The current request is a final importance/dependency plan, including
+notification convergence, /copy and image input; no runtime implementation or
+live feature setting is changed by this planning batch.
+
+Provider21/sourcee78d83a and wrapper tunnel recipe3236692 retain their separate
+maintenance/activation evidence below. Those earlier service/host/process
+observations are not fresh health checks after subsequent Termux exits. Original
+Android user trials used their ordinary ChatGPT response; bounded source readback
+is not another inference.
 
 [AUDIT.md](AUDIT.md) preserves the independent 2026-10-26 original-record audit.
 Its superseded proposals are historical, not the current implementation plan.
@@ -20,22 +25,21 @@ this status rather than appending another session diary.
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; the current user request is planning only.
 
-**The device now runs signed Base124/upstream0.165.0. The preceding locally
-derived Full0.164 installation is retained for rollback. A1 entrance equivalence
-is partially qualified, not complete.** Full123 and Provider21 have their separate
-signed delivery records; this Base update does not qualify Full0.165 or replace
-running services. Authenticated public-head readback now identifies signed
-Base125/upstream0.166.0, while this device remains on Base124; Full still serves123.
-The newer public head does not install or qualify the current candidate automatically.
-The startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
-Android0.0.18 patch. The Provider has one supervised process, the same ready
-authenticated host and37 preserved works at the Provider21 activation boundary.
-That activation preserved16 protected files and13 existing Native owners. These are
-recorded observations, not a recheck on every documentation edit.
-The retained Full123 TUI includes the catalog and fresh-home login corrections;
-selected Base uses upstream TUI. Running clients retain their launch executable.
-The latest Core readback is recorded in Priority0 below; older numbered proof
-descriptions retain the generation observed during those specific trials.
+**The device runs signed Base128/upstream0.166.0; previous is the local0.164
+replay. It currently selects Base, with no Manager/enhanced TUI.** Thus /switch
+and Manager's Android notification path are unavailable. Upstream /config
+notification settings and /copy remain upstream features; their Android delivery
+must be checked at the actual platform boundary. A1 entrance equivalence is
+partially qualified, not complete. The full optional-component target and matching
+0.166 enhanced frontend are not delivered by the Base-only update.
+
+The [operating baseline](#operating-baseline) and
+[execution order](#execution-order-and-observable-completion) own current state
+and next work. Priority0 retains earlier Base124 evidence as history. Provider21,
+Full123 and the locally derived patched tunnel have independent recorded scopes;
+running clients retain their launch executable. The plan's urgent batch restores
+selected profiles/TUI, notifications and work ownership, qualifies text-copy
+behavior, and includes only the release fixes that batch actually needs.
 
 Ordinary Bridge `join` now registers submitted input on the selected existing
 Native work, returns its controller/context and requires context acceptance before
@@ -43,30 +47,20 @@ effects. It performs no saved-Chat retrieval or new Provider primary inference.
 Explicit `source_sync`/`source_join` retain original-source verification/recovery;
 a development binding enables no automatic saved-history polling.
 
-**Current user-revised goal: secure a quality-qualified minimum end-to-end update
-path, rather than finish every lifecycle extension before users can update.**
-Priority is a real Base0.164→codex update→official release discovery/choice→automatic
-required tool/source preparation/build→authorized signing/install→actual execution
-and rollback, followed by a user-reproducible operating installation. Preserve
-profiles/auth/conversations, unchanged installed modules, current/rollback artifacts,
-admission/compatibility and observable failures throughout. Reuse accepted proof
-when inputs/environment/contracts match; combine remaining implementation and
-qualification around that complete product path instead of another foundation-only
-batch. Independent local source/cache proofs alone do not satisfy this goal.
-Broader selective-module planning, two-hour remote preparation, optional executors/
-mirrors, performance refinements and agent/BTW extensions remain approved follow-up
-scope below; their absence must not conceal a missing step in the minimum path.
-Signed delivery/device activation/user replay remain distinct completion evidence;
-the first producer/consumer trial must not silently replace their quality gates.
-The complete broader lifecycle is not yet qualified or deployed. After the user
-cleared the old goal, the revised minimum-path objective was registered as the
-new active goal; its actual completion requires the product-path evidence above.
-Provider20 actual ordinary Android join after backend replacement, file execution,
-live TUI final and exact original final-text comparison pass at the scope below.
-Original host identity and unjoined requests remain visibility limits to investigate,
-not facts inferred from model arguments. Independent worker/native-child extensions
-follow A2.
-Delivered TZif/KST, canonical names and signed release/activation are not reopened.
+**The minimum Base update objective is complete at its recorded source/public/
+device/replay scopes.** Exact0.166 local source compilation through the owned
+cache, verified reuse, signing/install/rollback and the user's ready-artifact
+update have distinct proof. This does not qualify arbitrary future source
+versions, the missing0.166 enhanced frontend, complete A1 or every selective-
+module lifecycle extension. Current planning restores actual user capabilities
+first, then follows the importance/prerequisite table. No new goal is created by
+this document, and accepted work is not restarted merely after context recovery.
+
+### Earlier Provider qualification records
+
+The following Provider20/21 details retain their original inputs, versions,
+failures and acceptance limits. They are not current pending user prompts or
+claims that the old Full/Provider combination is the newly selected Core.
 
 Provider20 rejects new assistant-authored report/final/native-call
 report/handoff text containing currently known private controls before emission
@@ -1691,10 +1685,11 @@ about907MB. The current and rollback installations were preserved.
 
 ## Update display: publication times and component notes
 
-Requested source work is committed/pushed as `0c16656` and is included in the
-locally derived updater staged above. Public Full123 does not yet contain it.
-The detailed trials below originally qualified this work from a Full121 baseline;
-they do not claim the user's pending live update has already displayed it.
+Display source0c16656 is included in delivered Core128; retained Full123 does not
+contain that newer updater. The detailed trials below originally qualified it
+from Full121 with captured metadata and retain those exact scopes. The later
+Base128 ordinary-update record owns actual current-device delivery; these earlier
+trials do not independently prove the user's physical terminal observation.
 The candidate uses the existing official release response for upstream publication
 time/notes, and bounded public GitHub tag reads
 for the already-admitted Core package, its authenticated Base identity and selected
@@ -2753,6 +2748,10 @@ establish delivery of the complete prepared text. The source comparison correcte
 the initial clipboard-delivery assumption; the original observation is preserved.
 The cause of the missing full prompt is unobserved. Before the next substantive
 trial, verify full prompt delivery, not merely its marker or setter exit code.
+Later ordinary-update handoffs successfully set and read back `codex update`
+through Termux clipboard helpers. That establishes those prepared text transfers,
+not /copy picker semantics or Android image-clipboard access. Preserve the earlier
+empty-readback failure and compare full content on each substantive manual trial.
 
 ## Confirmed design, not implemented
 
@@ -3132,33 +3131,44 @@ this planning update.
 
 | Order | Scope / priority | Prerequisites | Observable result |
 | --- | --- | --- | --- |
-|1 | P0: restore existing /switch, profiles and work ownership (phase3, necessary release slice of7) | Accepted Core128 is the baseline; qualify the matching0.166 enhanced frontend/Manager and reproduce actual Native ownership | Restore the user's chosen Manager/TUI capabilities and same-conversation profile transitions. Identify the actual native_workspace_writer_busy owner, join the same work or isolate independent writers. Preserve unknown/in-flight effects, other processes and existing auth/history. Diagnose the publication HTTP500/draft identity/partial-stage boundary needed by this release; complete signed readback/update/rollback before declaring recovery. |
-|2 | P0/P1: input/catalog delivery and entrance consistency (phase4/A1) |1's ownership/selection boundaries; reuse implemented source | Deliver app-offered/configured models and efforts with inheritance/explicit selection. Prove Direct and Chat-origin Provider execution, full original result/progress/tool records, intended inference/effect counts and separate durable/live displays across Android/web/CLI. Settle real host limits explicitly. |
-|3 | P1: automatic five-hour window start (new Manager slice of phase3) |1's account identity, quota view and isolated Native execution; no dependency on Provider A2 or independent-agent orchestration | For enabled accounts, rearm the real window at each applicable reset with the least additional work. Existing account activity or a qualified non-inference operation wins; use one isolated minimal native request only if needed. Verify the actual window, duplicate-profile/concurrent-request deduplication and restart recovery. The setting is independent of rotation and works with the picker closed. |
-|4 | P1: originality / retired-path cleanup (phase5) |2's accepted input path identifies the real consumers;3 is not a prerequisite | Inspect the27 unresolved entries and exact package/config/process consumers. Remove confirmed obsolete formats, names, packages, source and corresponding tests together. Preserve current-format rollback and unique/live user data; unknown ownership does not block unrelated confirmed cleanup. |
-|5 | P1: MCP/local_function common responsibilities (phase6/A2) |2's stable assignment/context contract and4's relevant retired-path removal | One shared work/context/intent/usage/Stop policy with distinct discovery, transport, lease/lifecycle and original caller returns. Preserve full tool capabilities/permissions and remove replaced orchestration/forwarding-only layers. |
-|6 | P1: complete selective lifecycle/composition and build reuse (rest of phase7) |1's feature-preserving activation and5's affected Provider boundaries; independent tunnel preparation need not wait | Mandatory Core plus individually selected Manager/TUI/Provider/patched tunnel; Full means selecting all optional layers. Acquire/build only changed compatible inputs. Deliver prebuilt optional/Full tunnel, qualified producer-artifact transfer/reuse, dependency preparation, service selection/readiness and mixed-composition rollback. Retain the explicit keep/local/remote missing-artifact choice and exact signing authority. |
-|7 | P2: model-directed budget reassessment (phase8) |5's common assignment/usage/Stop ownership | Model proposes initial allowance and reassesses measured progress at exhaustion; configured authority grants an extension or the work is settled.75/1000 are not universal defaults; preserve parent/platform/concurrency limits and unexecuted-call accounting. |
-|8 | P2: independent workers, Pro capability discovery and BTW (phase9/A3) |2/5 for actual execution identity and7 for worker control; bounded capability research may precede implementation | Prove separate reasoning contexts, real child/temporary-thread lifecycle and original result return. Parent records delegation/status/results; children retain public execution. Spend only the remaining approved Pro allowance on discriminating discovery, then test findings on ordinary models. No fake native lineage or universal Chat/thread1:1 rule. |
-|9 | P2: remaining product experience/setup (phase10) | Respective runtime/ownership boundaries above; notification implementation follows the upstream/Manager boundary investigation in1 | Complete notification delivery/focus, first-run/account/project setup, mobile viewer/IME, independent repository/bootstrap separation and actual long-duration acceptance. |
+|1 | P0: restore selected user capabilities and work ownership (phase3 plus required parts of7/10) | Accepted Core128 baseline; match/qualify0.166 frontend/Manager; inspect actual owners and /config notification path | Restore /switch/profile transition and currently missing Android notifications. Compare upstream/Manager ownership before replacing notification logic. Qualify /copy/text clipboard and preserve upstream /config controls. Fix actual native_workspace_writer_busy selection/join/isolation causes. Resolve the reproduced release/draft boundary needed for this batch, then sign/read back/update/rollback the selected capabilities without silent Base substitution. |
+|2 | P0/P1: input/catalog delivery and entrance consistency (phase4/A1) |1's ownership/selection and functioning actual-client test path; reuse implemented source | Deliver prompt-only chat_input versus workflow input, app/config-derived models/efforts and preserved settings. Prove Direct and Chat-origin Provider inference/result return, exact user/progress/tool/final records, no duplicate inference/effect and separate durable/live displays across Android/web/CLI. Include queue/schema, account/project/branch changes and control/recovery boundaries. |
+|3 | P1: automatic five-hour window start (new Manager slice of phase3) |1's account identity, quota view and isolated Native execution; no Provider A2/worker dependency | Enabled accounts' applicable windows start after reset using the least demonstrated activity: existing work, qualified non-inference action, or one minimal isolated Native request. Verify real window effects, same-account deduplication and lifecycle recovery; keep the toggle separate from rotation and the picker. |
+|4 | P1 capability work: Android clipboard image paste |1's native copy/input boundary; use2's relevant attachment/model contract | Explore actual Android image/URI access and adapt the upstream composer if supported. Qualify real image bytes plus text, multiple images, cancel/resume and model capabilities. Direct image paste, file attachment and share/picker paths have separate results; a missing platform capability does not delay urgent restoration. |
+|5 | P1: originality / retired-path cleanup (phase5) |2's accepted input path identifies consumers;3/4 are not prerequisites | Review the27 unresolved entries and actual package/config/process users. Remove confirmed obsolete formats, names, old local signed packages, settings copies and authorized unnecessary audit records with their source/tests/consumers. Preserve active/current-format rollback and unique user content; unknown ownership does not block unrelated confirmed cleanup. |
+|6 | P1: MCP/local_function common responsibilities (phase6/A2) |2's stable assignment/context contract and5's relevant retired-path removal | One shared work/context/intent/usage/Stop policy; distinct discovery, transport, leases and original caller returns. Preserve full tools/permissions, delete replaced orchestration and forwarding-only layers, and keep JavaScript limited to actual renderer/API/stream access. |
+|7 | P1: full selective lifecycle/composition and build reuse (rest of phase7) |1's feature-preserving activation and6's affected Provider boundaries; independent tunnel preparation can precede them | Core is mandatory; Manager/TUI/Provider/patched tunnel are individually selectable; Full selects all optional layers. Acquire/build only changed compatible inputs. Deliver prebuilt optional/Full tunnel, wrapper-owned source recovery, exact producer-artifact reuse, two-hour discovery/job reuse, dependency/signing policy, service/profile rebinding and mixed-composition rollback. |
+|8 | P2: model-directed budget reassessment (phase8) |6's shared assignment/usage/Stop owner | Model proposes initial allowance and reassesses measured progress at exhaustion; configured authority grants extension or settles work.75/1000 are not universal defaults; retain parent/platform/concurrency limits and unexecuted-call accounting. |
+|9 | P2: independent workers, Pro discovery and BTW (phase9/A3) |2/6 for execution identity and8 for worker control; bounded discovery can precede implementation | Prove independent reasoning, actual child/temporary-thread lifecycle and original result return. Parent records delegation/status/results; child retains public execution. Use remaining approved Pro calls for discriminating capability discovery applicable to ordinary models, not routine smoke. No fake native ancestry or universal Chat/thread1:1 mapping. |
+|10 | P2: remaining setup/product experience (rest of phase10) | Respective verified runtime/ownership boundaries | Complete account/project/history-policy setup, Linux host setup, physical viewer/IME/touch, repository/bootstrap separation and remaining long-duration/product polish. Notification restoration and ownership comparison are already in1, not deferred here. |
 
-Order1 includes only the release/lifecycle work needed to restore existing
-capabilities; it does not wait for all of order6. The optional window-start feature
-must not hold the urgent restoration release while real reset-cycle experiments
-are still running. Its implementation can use order2's host-rate-limited waiting
-time once order1's required boundaries pass; one shared worktree still has one
-writer and only one heavy Android build. It need not wait for BTW/subagent work.
-Input delivery precedes related originality cleanup, and that cleanup precedes
-extracting its remaining common Provider responsibilities. An unverified host
-capability cannot become an indefinite prerequisite for unrelated useful work.
+Order1 pulls in the release/lifecycle and notification work necessary to restore
+working user features; it does not wait for all of order7. Qualify the existing
+paired0.166 Manager/TUI delivery if that remains the admitted layout, while
+preserving independently selected Provider/tunnel bindings; do not label the
+broader all-optional component packaging complete from that interim restoration.
+Physical Android notification/copy observations and same-thread/profile behavior
+are release gates,
+not inferred from settings UI, a mock reply or a process exit code. Stage the
+notification boundary decision before its implementation and remove replaced
+logic in that same qualified change. Preserve existing notification preferences
+and active workloads while the new boundary is evaluated.
 
-Termux termination/resource observation and preservation of chosen capabilities
-are cross-cutting acceptance throughout, not deferred exclusively to order9. The
-known rustc memory peak does not prove a TUI leak or a system-kill cause. Existing
-notification support is investigated with order1; replacing its ownership is a
-separate justified implementation, not an automatic consequence of an upstream
-feature name. Each substantive batch owns appropriate actual execution, signing,
-public readback, disposable update and rollback proof before activation.
+New window-start and image-paste work must not delay the urgent restoration
+release. After1's required owners are stable,3/4 can use2's external-rate-limited
+waiting time. Input acceptance precedes related originality cleanup, then common
+Provider extraction. The numbers express priority; the prerequisites do not
+force unrelated work to wait for an unavailable optional feature. One shared
+worktree still has one writer and one heavy Android build. Do not turn an
+unverified host capability into an indefinite blocker for useful independent work.
+
+Termux process/memory/network observation, account/inference attribution, startup/
+HTTP2 readiness, preserved selected capabilities, model-free operation without
+unnecessary Codex login and safe live-process updates apply throughout. Reuse
+accepted TZif/KST, annotation/idempotency and publication-display behavior at its
+actual scope. Every substantive batch owns its appropriate execution, signing,
+public readback, disposable update and rollback proof; cleanup only verified
+owned outputs before/after builds, retaining original evidence and armed artifacts.
 
 ### Immediate restoration evidence and scope
 
@@ -3170,12 +3180,135 @@ owning profile state; Core only validates/selects/launches components. This
 explains the missing command in the Base UI, not deletion from Core or proof
 that0.166 first introduced the absence. release/upstream.json currently has
 frontend=null, so a qualified matching0.166 enhanced frontend is missing.
+Inspect the original failed frontend qualification41066348059/source00e0ed1
+before launching another build; no failure cause is inferred from frontend=null.
+Reuse green Core/runtime proof only for unchanged actual inputs and scope.
 Restoration must qualify that actual pair rather than borrowing an old helper,
 rolling back the user's newly installed Core silently, or moving the UI/policy
 into Core. Update success must report actual selected capabilities; ordinary
 updates preserve the selected optional composition or retain the last working
 combination when its compatible replacement is unavailable. Explicit Base-only
 trials remain a separate owner-selected action, not a silent substitute for Full.
+
+### Notification restoration and upstream boundary
+
+This was explicitly requested earlier, remained in Deferred Core follow-up, and
+was inadequately reduced to later notification polish in the prior summary. It
+is now an explicit order1 repair plus responsibility review. The user's current
+missing notifications are a reported product failure, not merely a new feature.
+
+Read-only inspection confirms the selected Base128 has no Manager; actual
+`codex termux notify show` returns `Codex Termux Manager is unavailable.` Upstream
+source6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 nevertheless contains Config and
+notification preferences in tui/src/config_panel/toggle.rs. Its
+notifications/mod.rs selects OSC9 or BEL (the auto OSC9 allowlist does not include
+Termux), and tui.rs::notify applies focus/condition/backend checks. These facts
+explain the absent Manager path and possible native terminal differences; actual
+physical Android failure causation is not yet qualified.
+
+Existing Manager runtime_config.rs::render already wires Stop through upstream
+notify and selected remaining events through hooks. lib.rs::emit_notification
+filters stored preferences and calls termux-notification/toast/window return.
+There is no need to invent a second event engine. The replacement decision must
+compare actual settings, events, focus, channel/content/ID behavior, global/
+profile/session scope and Android return coverage, not infer equivalence from a
+/config menu. Include headless/detached Native, CLI, Direct and Provider work;
+TUI-only emission must not replace a required backend notification path blindly.
+
+1. Reproduce the user's actual /config settings/event path in Base and the matching
+   restored frontend. Locate failure at event production, effective config, focus
+   filtering, OSC/BEL/backend availability, missing Manager adapter or Android
+   permission/delivery. Inspect only needed settings/diagnostics; do not dump auth
+   or private notification contents or edit live preferences during this plan.
+2. Produce an adopt/retain/remove matrix. Prefer upstream UI/settings/event rules
+   and native delivery where equivalent; retain only demonstrated Android/toast/
+   window/profile adaptation and required uncovered events. Moving all or part is
+   conditional on proof. Core receives no notification policy, and the ordinary
+   Base launch retains independence from Manager.
+3. Define one owner for equivalent preferences/events/delivery; migrate old user
+   settings with rollback and remove superseded producers/callers/tests. Preserve
+   actual external callers where needed; do not keep duplicate handlers merely
+   under new names or enable both emitters to conceal missing delivery.
+4. Prove actual /config navigation/save/restart; on/off, foreground/background,
+   completion, approval and structured-question behavior in CLI/Direct/Provider
+   and headless work; internal maintenance/memory exclusion; one intended Android
+   delivery per event/channel, stable per-thread grouping and tap-to-existing-
+   window without a new workload. Include unavailable provider/error and rollback
+   cases. Source tests and successful command/OSC writes are not physical proof.
+
+See [SPEC notification convergence](SPEC.md#planned-convergence-with-upstream-config)
+and the [official native notification distinction](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications).
+No notification was emitted and no Android preference was changed by this plan.
+
+### Clipboard copy and image paste
+
+The earlier manual-test text-copy requirement did not by itself cover /copy
+product behavior. Make /copy, Ctrl+O, selected-source/Markdown copying and /config
+copy/paste preferences explicit order1 regression/repair targets. Upstream0.166
+slash_dispatch.rs invokes show_copy_picker; clipboard_copy.rs owns native/OSC52/
+tmux routes. Preserve those owners instead of creating a private copy command.
+Check actual Android readback/paste with wide/Unicode text, code/indentation and
+intentional paragraph breaks; screen soft wraps must not be copied as extra
+whitespace, and display folding must not remove copied source. Supported Base
+and enhanced TUI paths are distinct observations.
+
+Direct image paste is requested where feasible and has order4 implementation/
+qualification. Upstream clipboard_paste.rs uses arboard on non-Android targets
+and explicitly returns unsupported on the Android target. The deployed upstream
+runtime uses aarch64-unknown-linux-musl, so it follows the desktop reader; the
+host being Android does not select the Android cfg branch or provide its
+clipboard API. Neither branch demonstrates access to Android image/URI data.
+
+Inspect the actual Termux/Android clipboard MIME, URI grants, foreground input
+and companion capabilities, then connect the smallest supported platform
+adapter to existing composer/image submission. Text helper success, the CLI's
+image-file support or a rebuilt Full is not proof of image paste. Qualify image
+bytes, text-plus-image, multiple images, cancel/retry/resume, model support and
+safe retention of referenced files. Clearly separate direct paste from file/
+share/picker alternatives and record an unavailable platform path honestly.
+This research does not gate the urgent /switch/notification/text-copy release.
+See [SPEC clipboard/image boundary](SPEC.md#planned-clipboard-and-image-input-qualification).
+
+### Direct user request coverage
+
+This reconciliation uses the user requests present in this conversation plus
+SPEC/CURRENT/AUDIT and affected source. It does not claim a fresh reconstruction
+of every linked external Chat/native session. Completed scopes stay completed;
+regression coverage and missing delivery are distinguished from new development.
+
+| Explicit request | Status and assigned consumer/batch |
+| --- | --- |
+| Independent original-record audit and final design/status documents | Existing AUDIT keeps its exact scope and limits.2 uses original conversation/branch/message/native IDs and pagination for affected paths; this reconciliation fixes stale current-state summaries without claiming a fresh external-history audit. |
+| Session handoff, pause/resume and work taken over from Terra | Minimum-path takeover/review/delivery is complete at recorded scopes. Reuse original jobs/results and reread AGENTS after recovery; do not silently switch the active model or restart accepted work from a summary alone. |
+| Full /switch and profile preservation | Confirmed Base capability gap;1 restores matching frontend/Manager and actual profile handoff. Updates preserve the selected composition. |
+| /config notifications; absorb/replace custom notify; currently missing alerts | Explicit repair and adopt/retain/remove decision in1; no longer generic late UX. Physical Android delivery is required. |
+| /copy, clean copy without terminal wrap edits |1 qualifies upstream copy targets, formatting and Android clipboard. Manual prompt-copy delivery is separate. |
+| Image paste where feasible |4 explores Android image/URI access and reuses existing image composition; file/share fallback is labelled separately. |
+| native_workspace_writer_busy and concurrency |1 identifies real owner, join/handoff/isolation and actual process/writer boundaries; not a one-process assumption or blanket kill. |
+| ChatGPT app/web/CLI entrance equivalence and reverse propagation |2 closes the actual-client A1 matrix, original input/event/source identity, same-task binding and stored versus live display. |
+| ChatGPT requests Provider inference and gets its original result |2 includes this explicitly; it is not deferred to independent workers. Direct and Provider remain the only execution meanings. |
+| Full answer/tool quality, duplicate-display folding | Preserve the chosen presentation-only fold/expand, canonical complete final and chronology in2; no reduced effort, summarization or duplicate inference as a display fix. |
+| Prompt-only chat_input and explicit workflow input |2 reuses the inspected host input/inheritance path; model/effort come from app offerings/config additions, not generation hardcoding or silent Instant fallback. |
+| Unexpected model/effort changes |2 traces settings-event/per-request provenance; current config cannot disprove later changes, and missing evidence is not attributed to the user. |
+| Current/managed removal and future session/tool-call compatibility | Delivered canonical names/ID corrections remain regression inputs in2. Do not reintroduce aliases or spend the batch rewriting old failed sessions that the user excluded. |
+| Queue schema mismatch and actual queue delivery |2/7 compare local, registered and cached host schemas; ACK, received user input and consumed/completed execution are separate proof. |
+| Fixed MCP hints and behavior-based idempotency | Retain true/false/false and per-tool semantics;2/7 verify the actual host declaration/refresh and calls. Cloud omission is not declared corrected by a local schema. |
+| Model-free tools without Codex login; process versus inference account |1/2/7 classify actual auth per operation; tools/update processes do not imply Codex model usage. Do not block installation merely because an account/process is active. |
+| Project creation, actual membership and history mode |2/10 verify created remote project plus lane/history-policy binding; config change alone does not create/move a Chat. Include account/project/branch changes in actual acceptance. |
+| KST and TZif for Core/TUI | Delivered at recorded scopes;1/7 regress matching frontend and inherited timezone rather than restart completed timezone development. |
+| Service startup/runit relationship and HTTP2 failures | Keep qualified corrections;1 rechecks required owner/readiness after Termux exits,7 owns selection/switch/rollback. Generic supervisor stays policy-free. |
+| Tunnel latest compatibility, own patch/build and no other repo prerequisite | Recipe/scoped activation exist;7 verifies then-current upstream and ships prebuilt independent selection plus Full, with source-build recovery from this repo. |
+| Selective updates, keep/local/remote, dependencies and developer signing | Source/scoped proof exists;7 closes remaining consumers/composition. Signing authority is explicit, no forced whole rebuild/upload of unchanged objects. |
+| Proactive remote discovery/build and cache/artifact reuse |7 qualifies existing two-hour discovery/job reuse, narrows real inputs and transfers accepted artifacts across the actual publisher boundary. Necessary release failures are handled already in1. |
+| Module dates/times, KST and brief changelog | Included in Core128 at recorded proof;1/7 regress upstream/Core/Manager/TUI/selected Provider metadata, source versus package dates and unavailable fields. |
+| Automatic five-hour window start | Planned3; goal is real window start using minimum necessary activity, not mandated hi/ephemeral chat. Account/bucket deduplication and restart proof required. |
+| Native-call allowance chosen/reassessed by delegated model |8; preserve actual counts and configurable authority rather than fixed75/1000. Platform/parent/Stop limits remain real. |
+| Independent workers, same-Chat multiple-model possibilities, Pro and BTW |9; distinguish sequential requests, hidden internals, independent inference and actual native lineage. Pro is capability discovery for ordinary models, not just a Pro-only check. |
+| Originality, borrowed names/formats and old signed local artifacts/config/audit copies |5 follows input acceptance and the authorized exact cleanup scope. Inspect actual consumers/27 unresolved entries; do not interpret this as deleting unrelated notices, user conversations or immutable public assets. |
+| Rust runtime, minimal renderer JavaScript, Python explanation |6/7 keep installed lifecycle/state/policy in Rust, JS only at actual renderer boundaries; CI/test Python is not a second runtime/build-rule implementation. |
+| Ready text for manual Android tests |1/2 prepare full UTF-8 instructions, automatic clipboard attempt/readback and separated short fallback; no hard-wrapped selection or marker-only delivery proof. |
+| Stability, free space, account switches and repeated429/termination | Cross-cutting actual owner/resource evidence, serial heavy builds and owned-output cleanup. No renewed ADB demand, speculative TUI leak, automatic crawler or assumption that429 proves task failure. |
+| First-run/app/viewer/repository/setup work |10 keeps route-specific auth, native login versus ChatGPT/connector/signing separation, actual history/project setup, physical touch/IME and independent source/release histories. |
 
 ### Planned Manager window-start slice
 
@@ -3204,6 +3337,8 @@ and keep Provider account/model inference distinct from Codex metered usage.
    Otherwise use a documented, qualified non-inference operation if available;
    failing that, one minimal eligible Native model request with isolated context,
    no project tools/instructions and no change to the user's active session.
+   Exclude the internal maintenance turn from ordinary completion alerts without
+   changing the user's notification preferences or real-work delivery.
 3. Expose a separate enable/account selection in /switch. Reuse account bindings
    and bucket identities; deduplicate profiles of one allowance pool. A single
    optional Manager worker uses server reset deadlines and supported events,
@@ -3453,8 +3588,10 @@ is local-1793363754-4266-2/0.164. This supersedes the earlier intentionally
 restored0.164 selection. No additional update, rollback or service restart was
 initiated to observe the user's result. Do not repeat accepted compile/gates merely because a session
 was compacted or a handle expired. Phases0–2 have finished. Use the importance/
-prerequisite order above: restore /switch/profiles and actual work ownership first,
-including the release-blocking portion of phase7. The HTTP500/partial-metadata
+prerequisite order above: restore /switch/profiles, /config-to-Android notification
+behavior, upstream text-copy and actual work ownership first, including the
+release-blocking portion of phase7. Image paste is a distinct feasibility/
+implementation track and must not delay those existing-feature repairs. The HTTP500/partial-metadata
 observations do not prove a global outage or unattended draft recovery.
 
 Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. The early
@@ -3550,42 +3687,21 @@ ordinary Core launch must remain independent. Derive public-consumer generation
 and high-water expectations from signed manifests, including intentional tool
 description changes, instead of copying release-specific qualification constants.
 
-### Deferred Core follow-up
+### Earlier Core follow-ups: current assignment
 
-Priority0 retains the historical Base124/upstream0.165.0 proof. The current
-operating/replay state and latest delivered source belong to Operating baseline
-and Product completion scope. Discovery1c54418/run40594324500 remains a historical
-qualification rejection; it does not invalidate later signed releases.
+The earlier profile problem and upstream-notification responsibility request are
+now in order1, not deferred behind lifecycle or generic UX. Base124/0.165 and
+Base128/0.166 lack Manager/enhanced TUI; this explains missing optional commands
+but does not diagnose every profile or physical-notification failure. Reproduce
+actual account-profile versus upstream --profile selection, inheritance and
+same-thread resume. For notifications, the exact /config source, real event/
+focus/backend/Android path and supported upstream/Manager ownership comparison
+are explicit in [Notification restoration](#notification-restoration-and-upstream-boundary).
 
-The user requested the following two follow-ups after the current update-lifecycle
-work. They are investigation items, not approved changes to existing ownership
-contracts or completed diagnosis:
-
-1. **Profile behavior on0.165.0.** The user reports that profiles appear not to
-   work normally; whether the cause is Manager, the selected TUI, Core launch
-   environment or upstream behavior is not established. Reproduce the actual
-   profile selection/launch path with a retained0.165 baseline and distinguish
-   account-profile selection, upstream configuration profiles and TUI display.
-   Compare the effective execution home/configuration and inherited launch
-   settings, including Base's upstream TUI versus the enhanced Full frontend where
-   applicable. Preserve credentials, user configuration and running jobs. Identify
-   the owning defect before fixing it; acceptance must exercise actual selection,
-   resulting configuration and restart/resume behavior, not just a displayed name.
-
-2. **Upstream notification integration and Manager boundary.** The user reports
-   that notifications are now an official upstream feature. First verify the
-   exact installed/upstream API, event coverage and actual behavior. Compare those
-   capabilities with Manager's current policy, hook rendering, Termux delivery and
-   window/focus return. Assess whether some or all responsibilities can move to
-   upstream, and retain only the device/account-specific work that remains
-   necessary. Present the supported boundary and migration plan before changing
-   SPEC or implementation. Preserve existing notification preferences and return
-   behavior, prevent duplicate delivery when both mechanisms coexist, and qualify
-   the actual upstream-event-to-Android delivery path and rollback.
-
-The requested installed/latest component publication times and changelog are now
-implemented in the next-Core candidate above. Further bare-launch update-choice
-changes require an explicit discovery/snooze contract amendment, separate from A1.
+Module publication dates/times and notes have Core128 implementation/proof;
+remaining selected-composition and restored-frontend tests belong to1/7.
+Do not reopen them as wholly unimplemented features or promote historical
+Base124/source qualification failures to claims about the current installation.
 
 ### Linux ChatGPT app management and deferred viewer work
 

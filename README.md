@@ -195,6 +195,13 @@ an earlier thread or `codex resume THREAD_ID` for a known thread. `codex exec "T
 Core. Full also offers `/switch` for configured accounts. Ordinary configuration
 does not force a model or reasoning effort.
 
+Upstream `/copy` and `Ctrl+O` copy logical output; use the upstream copy target/
+format rather than selecting terminal soft wraps. Termux clipboard round-trip
+qualification is tracked separately from preparing test prompts. Image files use
+upstream `--image`/`-i`; direct Android clipboard-image paste needs its own
+platform qualification and is not established by file-input support. See the
+[copy/image plan](CURRENT.md#clipboard-copy-and-image-paste).
+
 Use `/permissions` to select **Approve for me**. Native Codex automatically
 reviews actions that its approval policy sends for approval; ordinary allowed
 commands can run without a reviewer call. Termux uses `danger-full-access` with
@@ -588,7 +595,15 @@ workload is created in that terminal. Use a separate Termux terminal for indepen
 Changing execution mode requires a safe new launch, rather than migrating a live
 Codex process. Independent launches never share a workload or cover another launch.
 
-## Notifications (Full)
+## Notifications and Android delivery
+
+Upstream `/config` controls terminal notification preferences in Base as well as
+Full. Its OSC 9/BEL output is distinct from Android notification/toast delivery;
+see the [official notification configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications).
+The optional Manager supplies the Termux delivery/window-return commands below;
+they are unavailable in a Base-only selected generation. Convergence with the
+upstream settings and repair of the reported Android delivery failure are planned
+in [CURRENT](CURRENT.md#notification-restoration-and-upstream-boundary).
 
 `codex termux help` lists the installed Manager commands. Profiles separate
 execution preferences and authentication while sharing upstream conversation
