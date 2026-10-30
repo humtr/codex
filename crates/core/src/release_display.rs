@@ -175,6 +175,7 @@ impl Publication {
 fn public_origin(base: &str, tag: &str) -> bool {
     base == format!("https://humtr.github.io/codex/{tag}/")
         || base == format!("https://github.com/humtr/codex/releases/download/{tag}/")
+        || remote_release::mapped_generation(base) == Some(tag)
 }
 
 fn public_release(roots: &LocalCoreRoots, tag: &str) -> Option<Publication> {

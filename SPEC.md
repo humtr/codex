@@ -973,10 +973,10 @@ retains its existing path. All remote Provider payloads use Core's existing priv
 digest-keyed download cache. Interrupted bytes remain untrusted and may resume only
 on the next explicit request after the new signed envelope is admitted. A complete
 cached entry is rehashed before staging; invalid complete bytes or rejected ranges
-are discarded with an error, without an automatic restart. The existing Provider
-240-second acquisition deadline and per-transfer bounds also apply to cache misses
-and resumes. Terminal progress identifies the Provider file and authenticated byte
-total; redirects, signatures, sequence floors and final installation admission keep
+are discarded with an error, without an automatic restart. Provider controls have
+finite transfer deadlines, and payload downloads use Core's progress-aware idle
+bound for cache misses and resumes. Terminal progress identifies the Provider file
+and authenticated byte total; redirects, signatures, sequence floors and final installation admission keep
 their existing authority. No new cache format, public switch or release format is
 added.
 Within one explicit command, optional release information is acquired once per
@@ -3337,7 +3337,8 @@ Release delivery without a separate mirror or changes to Base/Full public heads.
 Core downloads the bounded manifest/signature first, authenticates them against
 its admitted authority before fetching payload files, enforces signed file and
 aggregate bounds and reuses the same staging/selection checks as local install.
-Downloads have finite control/file timeouts and one total acquisition deadline.
+Controls have finite transfer deadlines; payload downloads fail after 120 seconds
+without new bytes and continue while bytes are arriving, subject to signed size ceilings.
 Failed or uncertain transfers are never retried implicitly and cannot select a
 payload. Stable discovery reads the independent `provider-index-v1` and its
 detached signature from the owned main branch. The bounded ordered stable index
@@ -4659,11 +4660,13 @@ any authenticated release file contains a `/` path component, the automated
 Release-asset publisher must fail closed before creating a release or advancing
 the index.
 
-New nested-path publication uses immutable GitHub Release assets behind the fixed
-`https://codex-releases.humtr.workers.dev/<generation_id>/` logical file origin
-for `local-relay-hosted-*` and `local-base-relay-hosted-*` generations. Historical
+New nested-path publication uses immutable GitHub Release assets and retains the
+fixed `https://codex-releases.humtr.workers.dev/<generation_id>/` logical identity
+in signed records for `local-relay-hosted-*` and `local-base-relay-hosted-*`
+generations. Core resolves that identity to the direct GitHub routes described
+below; the Worker remains available to supported older clients. Historical
 signed Pages URLs and existing assets remain unchanged. The publication validator
-chooses canonical origin by namespace. New publication never redeploys the legacy
+chooses canonical identity by namespace. New publication never redeploys the legacy
 Pages site, raises its size guard, or evicts a retained public generation.
 
 Base owns Core, adapted upstream runtime/default UI, code-mode host and the two
@@ -4696,15 +4699,15 @@ lock dependencies, upstream/archive and Core toolchain, not Manager/TUI policy.
 The producer verifies both the sidecar and base file inventory before reuse;
 version equality or a successful unowned workflow alone never permits reuse.
 
-#### Planned GitHub-native transport transition
+#### GitHub-native transport and legacy compatibility
 
-This is the next implementation target, not a claim that installed Core already
-implements it. The current Worker-backed publication contract above remains the
-existing-consumer boundary until migration is qualified. GitHub Release storage
-and GitHub Actions execution are independent choices; neither ordinary download
-nor local construction requires a second hosting service or gh/model login.
+This is the contract for the new Core, not a claim that the installed Core already
+implements it. The Worker-backed logical origin remains the existing-consumer
+boundary until migration is qualified. GitHub Release storage and GitHub Actions
+execution are independent choices; neither ordinary download nor local construction
+requires a second hosting service or gh/model login.
 
-The target native acquisition path reads the existing bounded physical asset map
+The native acquisition path reads the existing bounded physical asset map
 from GitHub and stages files under the unchanged signed logical paths. Admit the
 selected index/manifest and generation/high-water first; controls remain in the
 selected generation. Validate map identity, requested inventory, manifest binding,
@@ -4748,7 +4751,8 @@ uses existing account credentials locally, never grants CI another credential.
 Verify deployed source identity and public negative/positive requests before use.
 
 Release CI stages immutable assets, verifies exact composition and complete public
-HTTPS readback through the logical origin, runs disposable Android fresh install/
+HTTPS readback of their physical GitHub routes, separately maintains the supported
+legacy logical-origin consumer, and runs disposable Android fresh install/
 update/no-op/rollback proof, then non-forced stable promotion. Old clients retain
 their ordinary HTTPS fetch and signature validation; they may download common
 files again. Core's generic acquisition may instead copy a hash/size/mode-verified
@@ -5564,11 +5568,15 @@ by parsing. For a non-rotation it verifies `release.sig` with `update_key`. For 
 rotation it verifies `release-authority.sig` with `update_key` first and only then
 verifies `release.sig` with the manifest candidate key. No generation content is
 acquired before this control admission succeeds. The remaining remote resources
-are exactly the files named by the signed inventory.
+are the files named by the signed inventory. For the fixed mapped public identity,
+Core also acquires the bounded GitHub asset map and resolves those files to physical
+Release assets as specified above. Custom HTTPS origins retain the ordinary
+logical-path transport.
 
-Inventory URLs are derived only by preserving `/` separators and percent-
-encoding every UTF-8 path byte outside the RFC 3986 unreserved set. Every
-resulting resource URL is also at most 4,096 ASCII bytes. After signed control
+For ordinary custom origins, inventory URLs are derived only by preserving `/`
+separators and percent-encoding every UTF-8 path byte outside the RFC 3986
+unreserved set. Every resulting resource URL is also at most 4,096 ASCII bytes.
+After signed control
 admission, Core reconstructs the exact inventory, verifies the assembled bundle
 again through the same local v3/v4 admission, and feeds the existing staging,
 probe, activation, and recovery path. This file-addressed release transport is
@@ -5587,14 +5595,20 @@ requires curl, `$PREFIX/bin/openssl`, and a valid recovered v3 trust state; Core
 remote update never falls back to the bootstrap key file. The curl child loads no
 user config, inherits no environment/proxy settings, permits HTTPS only, uses
 the Termux certificate file/directory, applies a 15-second connect timeout and a
-30-second control transfer deadline; payload transfers have a 60-second low-throughput
-window (less than 1 KiB/s) and a 30-minute overall deadline, follows redirects only with `--location` and
+30-second control transfer deadline. For payloads, the former whole-transfer
+deadline instead bounds time without additional response bytes: 300 seconds for
+official and local-build inputs, 1800 seconds for release files, and 120 seconds
+for Provider files. A transfer does not expire merely because its total duration
+is long while bytes continue arriving. Curl payload output is unbuffered so that
+Core observes received bytes before deciding whether a transfer is idle. It follows
+redirects only with `--location` and
 `--proto-redir =https`, and writes response bytes only to a caller-created
 regular file. The manifest limit remains 128 KiB and each signature file is
 limited to 1 KiB; each generation-file response is limited to 512 MiB and the
 sum of all response bytes is limited to 1 GiB. Curl and Core both enforce the
 applicable remaining byte bound. A transport or bound failure is terminal for
-that explicit attempt and reports curl exit status, HTTP status when available, elapsed time and observed bytes.
+that explicit attempt and reports its cause and observed bytes; curl failures also
+report exit status, HTTP status when available and elapsed time.
 There is no automatic build or retry. Authenticated payload identities permit
 a private `state_root/downloads-v1` content-addressed cache outside activation
 staging. It reserves the selected object's authenticated size (or file limit),

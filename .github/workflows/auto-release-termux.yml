@@ -412,14 +412,44 @@ jobs:
             local require_download_size="${3:-false}"
             local release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
             local destination="$root/$generation"
+            local map=""
             mkdir -p "$destination/helpers"
+            case "$generation" in
+              local-relay-hosted-*|local-base-relay-hosted-*)
+                map="$root/$generation.asset-map-v1.json"
+                curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                  --connect-timeout 15 --max-time 60 --max-filesize 16384 --output "$map" \
+                  "https://github.com/humtr/codex/releases/download/$generation/asset-map-v1.json"
+                ;;
+            esac
+            transport_url() {
+              if test -n "$map"; then
+                python3 publication-source/.github/scripts/release_components.py target \
+                  --map "$map" --generation "$generation" --path "$1"
+              else
+                printf '%s%s\n' "$release_base" "$1"
+              fi
+            }
             for rel in release.manifest release.sig; do
+              local url
+              url="$(transport_url "$rel")"
               mkdir -p "$(dirname "$destination/$rel")"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-                --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
+                --connect-timeout 15 --max-time 600 --output "$destination/$rel" "$url"
             done
             openssl pkeyutl -verify -pubin -inkey "$authority" -rawin \
               -in "$destination/release.manifest" -sigfile "$destination/release.sig"
+            if test -n "$map"; then
+              python3 - "$map" "$generation" "$destination/release.manifest" <<'PYMAP'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, 'publication-source/.github/scripts')
+          from release_components import sha256, unique, validate_map
+          mapping = validate_map(json.loads(Path(sys.argv[1]).read_bytes(), object_pairs_hook=unique), sys.argv[2])
+          if mapping['manifest_sha256'] != sha256(Path(sys.argv[3])):
+              raise SystemExit('public asset map differs from authenticated manifest')
+          PYMAP
+            fi
             python3 - "$destination/release.manifest" "$generation" <<'PYTHON' > "$root/$generation.inventory"
           import sys
           from pathlib import Path
@@ -431,31 +461,35 @@ jobs:
               print('\t'.join(record))
           PYTHON
             while IFS=$'\t' read -r rel digest mode; do
+              url="$(transport_url "$rel")"
               mkdir -p "$(dirname "$destination/$rel")"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 600 --max-filesize 1073741824 \
-                --output "$destination/$rel" "${release_base}${rel}"
+                --output "$destination/$rel" "$url"
               chmod "$mode" "$destination/$rel"
             done < "$root/$generation.inventory"
+            local size_url size_signature_url
+            size_url="$(transport_url compat/download-size-v1)"
+            size_signature_url="$(transport_url compat/download-size-v1.sig)"
             if test "$require_download_size" = true; then
               mkdir -p "$destination/compat"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 120 --max-filesize 131072 \
-                --output "$destination/compat/download-size-v1" "${release_base}compat/download-size-v1"
+                --output "$destination/compat/download-size-v1" "$size_url"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 120 --max-filesize 1024 \
-                --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+                --output "$destination/compat/download-size-v1.sig" "$size_signature_url"
             else
               if download_size_code="$(curl --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 120 --max-filesize 131072 --write-out '%{http_code}' \
-                --output "$destination/download-size-v1.tmp" "${release_base}compat/download-size-v1")"; then
+                --output "$destination/download-size-v1.tmp" "$size_url")"; then
                 case "$download_size_code" in
                   200)
                     mkdir -p "$destination/compat"
                     mv "$destination/download-size-v1.tmp" "$destination/compat/download-size-v1"
                     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                       --connect-timeout 15 --max-time 120 --max-filesize 1024 \
-                      --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+                      --output "$destination/compat/download-size-v1.sig" "$size_signature_url"
                     ;;
                   404)
                     rm -f "$destination/download-size-v1.tmp"
@@ -489,12 +523,13 @@ jobs:
             --release-base "$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$current")"
 
           candidate_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$candidate")"
-          candidate_index="${candidate_base}update-index-v1"
+          release_url="https://github.com/humtr/codex/releases/download/$candidate"
+          candidate_index="$release_url/candidate-update-index-v1"
           ready=false
           for attempt in $(seq 1 20); do
             if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$root/candidate-probe" \
-              "${candidate_base}release.manifest" && \
+              "$release_url/release.manifest" && \
               test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/candidate-probe")" = "$candidate"; then
               ready=true
               break
@@ -504,57 +539,23 @@ jobs:
           test "$ready" = true
           fetch_generation "$candidate" "$candidate_index" true
 
-          release_readback="$root/release-readback"
-          mkdir -p "$release_readback"
-          release_url="https://github.com/humtr/codex/releases/download/$candidate"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 16384 \
-            --output "$root/asset-map-v1.json" "$release_url/asset-map-v1.json"
-          compare_release_asset() {
-            local asset="$1"
-            local relative="$2"
-            local target_url
-            target_url="$(python3 publication-source/.github/scripts/release_components.py target \
-              --map "$root/asset-map-v1.json" --generation "$candidate" --path "$relative")"
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-              --connect-timeout 15 --max-time 600 \
-              --output "$release_readback/$asset" "$target_url"
-            cmp "$release_readback/$asset" "$root/$candidate/$relative"
-          }
-          compare_release_asset release.manifest release.manifest
-          compare_release_asset release.sig release.sig
-          compare_release_asset download-size-v1 compat/download-size-v1
-          compare_release_asset download-size-v1.sig compat/download-size-v1.sig
-          while IFS=$'\t' read -r relative digest mode; do
-            case "$relative" in
-              helpers/*) asset="helper-${relative##*/}" ;;
-              *) asset="$relative" ;;
-            esac
-            compare_release_asset "$asset" "$relative"
-          done < "$root/$candidate.inventory"
-          compare_release_asset candidate-update-index-v1 update-index-v1
-          compare_release_asset candidate-update-index-v1.sig update-index-v1.sig
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
-            --output "$release_readback/update-public-key.pem" "$release_url/update-public-key.pem"
-          cmp "$release_readback/update-public-key.pem" "$authority"
+            --output "$root/candidate-update-public-key.pem" "$release_url/update-public-key.pem"
+          cmp "$root/candidate-update-public-key.pem" "$authority"
 
           # Display metadata is optional for retained clients, but every new
-          # candidate must expose its signed date and exact base through both
-          # the logical origin and immutable Release assets.
+          # candidate must expose its signed date and exact base through its
+          # immutable Release assets.
           display="$root/display"
           mkdir "$display"
           cp "$root/$candidate/release.manifest" "$display/release.manifest"
           for relative in component-input-v1 component-input-v1.sig; do
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-              --connect-timeout 15 --max-time 60 --max-filesize 4096 \
-              --output "$display/$relative" "${candidate_base}${relative}"
             target_url="$(python3 publication-source/.github/scripts/release_components.py target \
-              --map "$root/asset-map-v1.json" --generation "$candidate" --path "$relative")"
+              --map "$root/$candidate.asset-map-v1.json" --generation "$candidate" --path "$relative")"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --max-filesize 4096 \
-              --output "$release_readback/$relative" "$target_url"
-            cmp "$display/$relative" "$release_readback/$relative"
+              --output "$display/$relative" "$target_url"
           done
           PYTHONPATH=publication-source/.github/scripts python3 - "$display" "$candidate" "$authority" <<'PYDISPLAY'
           from pathlib import Path

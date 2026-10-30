@@ -418,21 +418,15 @@ fn install_remote(
     let acquisition = store.root.join(format!(".download-{}", std::process::id()));
     fs::DirBuilder::new().mode(0o700).create(&acquisition)?;
     let result = (|| -> Result<()> {
-        let deadline = Instant::now() + Duration::from_secs(240);
         let mut total = 0u64;
         let mut fetch_control = |name: &str, bound: u64| -> Result<()> {
-            let remaining = deadline.saturating_duration_since(Instant::now()).as_secs();
-            if remaining == 0 {
-                return Err("Provider acquisition deadline exceeded".into());
-            }
-            let timeout = remaining.min(20).to_string();
             let output = fresh(&acquisition.join(name))?;
             let bytes = fetch_remote_file_with_timeout(
                 roots,
                 &format!("{}{}", base.value, name.replace('/', "--")),
                 &output,
                 bound,
-                &timeout,
+                "20",
             )?;
             total = total
                 .checked_add(bytes)
@@ -511,11 +505,6 @@ fn install_remote(
                     continue;
                 }
             }
-            let remaining = deadline.saturating_duration_since(Instant::now()).as_secs();
-            if remaining == 0 {
-                return Err("Provider acquisition deadline exceeded".into());
-            }
-            let timeout = remaining.min(120).to_string();
             let path = acquisition.join(&file.name);
             let entry = ReleaseFileEntry {
                 relative_path: file.name.clone(),
@@ -537,7 +526,7 @@ fn install_remote(
                 remote_download::PayloadOptions {
                     limit: file.bytes,
                     expected_size: Some(file.bytes),
-                    timeout: &timeout,
+                    timeout: "120",
                     progress: Some(&mut progress),
                 },
             )?;

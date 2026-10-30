@@ -945,10 +945,12 @@ The same frozen Core was explicitly retried from that owned fixture: completed
 SDK/library tree admission, exact recorded source recovery, compiler probe, lock
 audit and incremental compilation resume, without another full preparation.
 Root is $TMPDIR/minimum-update-e2e-nffz1i54; current terminal-v3.log/resources-v3.jsonl
-and live-process.json must be revalidated before acting. Its terminal report is
-minimum-update-e2e-v3.json. This frozen Core predates later lease/identity refinements;
-final Core cache/installation behavior is independently proved above. A live cold
-trial is unfinished, never success inferred from an observation timeout.
+and live-process.json preserve the last supervisor observations. The supervisor
+disappeared without writing minimum-update-e2e-v3.json; the exact Core and compiler
+descendants were then observed until they exited at 06:47:51 UTC
+(`minimum-update-e2e-v3-observer.jsonl`). The initial generation remained selected;
+neither the exit status nor the cause was captured. This frozen Core predates later
+lease/identity refinements. The cold trial is not a successful compile/install proof.
 
 Python acceptance passes25+124+10 (`minimum-update-python-v1.log`). The interrupted
 Rust run completed Core232 plus the existing explicit real-device test exclusion,
@@ -2874,17 +2876,16 @@ call must not execute before grant or be replayed by a new logical call ID.
 
 This section is the authoritative execution order for unfinished work. Older
 suggested orders and numbered batches elsewhere retain their evidence, not a
-competing queue. User instruction at this planning boundary: **prepare the plan
-and handoff only; another model will implement it after the user's instruction.**
-No new product implementation, deployment, activation or CI dispatch belongs to
-this documentation batch. Existing owned builds keep their original identity.
-The current goal remains a quality-qualified minimum update path; later phases
-are preserved work, not additional prerequisites for closing that goal.
+competing queue. Implementation of phases0–2 is now authorized and underway;
+later phases are preserved work, not additional prerequisites for the current
+quality-qualified minimum update goal. Existing owned builds keep their identity.
 
 ### Reviewed starting point and design decisions
 
-- Product source is c31b11b82dc06beaa546c403b5a30d06d7a4161f on rewrite/rust-core.
-  This plan's documentation commit is separate. Device state readback still selects
+- The implementation baseline is c31b11b82dc06beaa546c403b5a30d06d7a4161f;
+  bf5dd73 contains the plan only, and 57f0d80 repairs source-CI Bash provisioning.
+  The current GitHub-native transport remains an unqualified working-tree candidate.
+  Last device state readback selected
   Base124/0.165; previous is local-1793204956-318-2. Authenticated public heads are
   Base125/0.166 and Full123/0.164 at main2734c121. Recheck before activation;
   operating, public and candidate versions are different facts.
@@ -2894,20 +2895,69 @@ are preserved work, not additional prerequisites for closing that goal.
   not complete the cold automatic build, final candidate delivery or user replay.
 - Source acceptance41008373030 at c31b11b fails in two builder tests: the C/C++
   adapter and unusable-linker fixtures execute PREFIX/bin/bash, while that CI
-  provisioning step installs sh and other tools but no bash. Original log:
-  minimum-update-hosted-source-c31-failed.log. The immediate correction belongs
-  to the actual test-tool provisioning boundary, followed by the real gate;
-  weakening assertions, substituting sh for Bash arrays, or adding skips is not
-  a solution. Additional failures may still emerge after that boundary is fixed.
-- Independent Core/runtime qualification41008373121 was in progress at this
-  observation; original source acceptance41007247967 failed, and its obsolete
+  provisioning step installed sh and other tools but no bash. Original log:
+  minimum-update-hosted-source-c31-failed.log. Commit57f0d80 fixes the actual
+  provisioning boundary. On Android, the original and corrected workflow steps
+  were exercised in disposable prefixes: both specific tests failed before and
+  passed afterward; minimum-update-ci-bash-local-v1.{json,log} records the runs.
+  Final candidate hosted source acceptance remains required.
+- Independent Core/runtime qualification41008373121 completed successfully at
+  c31b11b, including Android/AArch64 executable smoke; original source
+  acceptance41007247967 failed, and its obsolete
   independent run41007248058 was explicitly cancelled. Provider source gate
   41007247910 passes at e96bb49. None is final public delivery of this candidate.
-- Cloudflare is not required for storing or authenticating artifacts. Current
-  RemoteReleaseBase::resource_url concatenates logical paths; the Worker translates
-  helpers/0 to helper-0 and follows existing asset-map-v1.json physical routes.
-  release_components.py::target already resolves those routes to GitHub URLs.
-  The next architecture moves that acquisition responsibility to the native client.
+- Cloudflare is not required for storing or authenticating artifacts. The candidate
+  moves fixed-public-origin asset-map resolution into Core acquisition while keeping
+  signed logical paths and custom HTTPS origins. The pre-existing Worker remains
+  the actual compatibility path for old Core. Direct map unit tests and an owned
+  curl-double Base/Full update/rollback/hold/force test passed. The frozen current
+  candidate Core also updated a disposable Android 0.164 runtime fixture to actual
+  public Full123 over real GitHub HTTPS with the Worker denied, fetched helper0
+  from Base116, executed 0.164 and rolled back while preserving fixture state
+  (`minimum-update-github-android-e2e-v2.json`). This is a new-Core consumer, not
+  old-Core migration or final-candidate public delivery. Real public Base125/Full123
+  maps match their authenticated manifests (minimum-update-github-map-preflight-v2).
+  The candidate publication readback now uses direct GitHub map targets and checks
+  the map against the signed manifest; its owned Pages/GitHub transport tests pass
+  (`minimum-update-github-readback-v3.log`). Publication head/composition discovery
+  and the old-Core bootstrap still use the legacy origin, so this is not evidence
+  that the entire publishing pipeline is Worker-independent. A disposable fault
+  routing helpers/0 to helper-1 failed the update regression as intended; its source
+  was restored and faulted compiler output reclaimed (`minimum-update-github-mutation-v1.json`).
+  Full acceptance, signing and delivery remain to be proved.
+- The native0.166 recipe experiment prepared exact official source and reproduced
+  its dependency audit with Rust1.99.1, but this is not yet a qualified build.
+  An actual missing-artifact local-build selection used the real official archive;
+  it timed out at 152,243,571 of 187,370,368 bytes after300s, retaining the private
+  download prefix (`minimum-update-native166-e2e-v3.json`). The origin confirmed
+  HTTP206 for that offset; a new actual update resumed the same owned prefix,
+  admitted the archive and reached official Git source fetch under
+  $TMPDIR/minimum-native166-retry-z57tzj14/resume-v4.py. Check its supervisor,
+  exact process descendants, terminal-v4.log and result before starting another build.
+- The authenticated public Base125 component record predates
+  `runtime_inputs_sha256` (`minimum-update-runtime-reuse-preflight-v1`). Its source
+  used the earlier Python preparation and Cargo release profile; the current Rust
+  producer and recorded profile changed. Version equality alone cannot establish
+  the input equivalence required to reuse Base125 as a current-producer result.
+- The user requested progress-aware timeouts after the real slow-network archive
+  failure. The working-tree Core candidate changes cached payload acquisition,
+  including Provider, to reset the existing per-payload deadline when bytes advance;
+  control and connection deadlines remain bounded. The unchanged local-source
+  caller retains its previous producer/cache identity instead of recompiling solely
+  for the transport change; all15 hashed input files match57f0d80
+  (`minimum-update-local-cache-input-preflight-v1.json`). The test's actual TLS origin and native curl show that
+  a one-second whole-transfer limit fails after receiving3072 bytes while the same
+  Range response completes in1.28s (`minimum-update-slow-fixture-preflight-v1.json`);
+  this is fixture proof only. An isolated Rust module harness first exposed that
+  curl buffered received bytes when writing to the regular-file stdout. Real curl
+  observation confirmed the cause (`minimum-update-slow-buffer-diagnosis-v1.json`);
+  payload curl now disables output buffering. All6 module tests pass, including
+  stalled-prefix retention and a Range resume below1 KiB/s
+  (`minimum-update-slow-module-positive-v4.log`). Disabling timer renewal in a
+  disposable copy fails the resumed transfer at896 bytes as expected, and the
+  source copy is restored (`minimum-update-slow-mutation-v3.json`).
+  The harness stubs parent helpers, so final whole-Core tests and acceptance remain
+  required. The in-flight native trial uses its earlier frozen Core, not this change.
 - Worker source932b97eb... was actually deployed/read back. Credentials were copied
   under the user's authorization to ~/.config/cloudflare/credentials.env with0700
   directory/0600 file; the original remains. Public positive/negative verification
@@ -3147,19 +3197,19 @@ The plan is a user-requested document, not authority to assume every old safety/
 completion claim is correct. Follow the order and finish each observable outcome;
 reorder only for actual dependencies/new evidence and explain a material change.
 Do not expand the current goal to all phases or end at source checks when delivery
-and device proof remain. This documentation batch does not mark that goal complete.
+and device proof remain. The current implementation has not completed that goal.
 
 Evidence root: ~/.cache/codex/acceptance/update-lifecycle-20261029. Cold fixture:
 $TMPDIR/minimum-update-e2e-nffz1i54, qualify-retry.py, live-process.json,
-terminal-v3.log/resources-v3.jsonl; terminal result minimum-update-e2e-v3.json.
-Last observed Core PID31810/exec handle36199 must be revalidated against /proc and
-its exact p/bin/codex executable, descendants and output, not treated as an enduring
-ID. An unavailable exec handle is not process-exit proof. Do not start a duplicate
-or prune its SDK/source/targets while it or its children are live.
-The final planning observation still showed codex-core at1245/1411 with no terminal
-report; its last available-memory sample was about1.52GiB. These are time-bound
-observations, not an OOM diagnosis. Recheck actual process/resource state before
-starting another memory-intensive job.
+terminal-v3.log/resources-v3.jsonl. The original supervisor disappeared before
+writing minimum-update-e2e-v3.json. Its exact Core executable and Cargo/rustc
+descendants remained live afterward and were observed until all disappeared at
+06:47:51 UTC in minimum-update-e2e-v3-observer.jsonl. The fixture still selected
+the initial generation; no exit status or completion/rollback result was captured.
+The last supervisor log showed1396/1411, not a completed compile. Cause and exit
+are unknown: neither an expired handle nor the observed termination diagnoses OOM
+or proves success. Preserve the job's original data and reconcile any reuse by
+actual inputs; a fresh compile/install/rollback claim remains unproved.
 
 The separated-native-recipe trial root is pointed to by
 minimum-update-native-recipe-root.txt; its accepted result is
@@ -3170,8 +3220,7 @@ source is restored: use a frozen verified candidate or rebuild from current sour
 never install a debug path on filename alone. Reuse proofs by matching actual
 inputs/environment/contracts, not by identical version text or timestamps.
 
-Start phase0 after the user's implementation instruction. Fix the known CI Bash
-preparation and inspect the latest source/runtime run records. Before any public
+Continue the in-progress phase1 candidate and final phase2 qualification. Before any public
 promotion or bounded activation, re-admit actual heads/authority/source, complete
 required readback and disposable acceptance. The copied common credential reference
 is available for a justified legacy-Worker operation; it is not a dependency for

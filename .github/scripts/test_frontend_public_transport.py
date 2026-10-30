@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import patch
 
 import test_rald5_publication as fixtures
+from rald5_publication import canonical_release_base
+from release_components import CONTROL_ASSETS, FLAT_ASSETS
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGES = ROOT / '.github/workflows/publish-termux-update-pages.yml'
@@ -30,20 +32,28 @@ class PublicTransportTests(unittest.TestCase):
         current = root / 'current'
         shutil.copytree(fixture.signed, current)
         with patch.object(fixtures, 'GENERATION', CANDIDATE), patch.object(
-                fixtures, 'BASE', f'https://humtr.github.io/codex/{CANDIDATE}/'), patch.object(fixtures, 'SEQUENCE', '12'):
+                fixtures, 'BASE', canonical_release_base(CANDIDATE)), patch.object(fixtures, 'SEQUENCE', '12'):
             fixture.build_signed(frontend=candidate_frontend)
+            if CANDIDATE.startswith(('local-relay-hosted-', 'local-base-relay-hosted-')):
+                component = fixture.signed/'component-input-v1'
+                metadata = {'schema': 'codex-component-input-v1', 'generation_id': CANDIDATE,
+                            'source_sha': 'a'*40, 'base_inputs_sha256': 'b'*64,
+                            'manifest_sha256': fixtures.sha256(fixture.signed/'releases'/CANDIDATE/'release.manifest')}
+                component.write_text(json.dumps(metadata, sort_keys=True, separators=(',', ':'))+'\n')
+                fixtures.openssl('pkeyutl', '-sign', '-rawin', '-inkey', str(fixture.private_key),
+                                 '-in', str(component), '-out', str(component)+'.sig')
             assets = root / 'release-assets'
             result = fixture.prepare(assets)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
         source = root / 'publication-source/.github/scripts'
         source.mkdir(parents=True)
         shutil.copy2(ROOT / '.github/scripts/rald5_publication.py', source)
-        for name in ['release_heads.py', 'rald3_preflight.py']:
+        for name in ['release_heads.py', 'rald3_preflight.py', 'release_components.py', 'runtime_inputs.py']:
             shutil.copy2(ROOT/'.github/scripts'/name, source)
         urls = {}
         for signed in (current, fixture.signed):
             generation = fixtures.GENERATION if signed == current else CANDIDATE
-            base = f'https://humtr.github.io/codex/{generation}/'
+            base = canonical_release_base(generation)
             release = signed / 'releases' / generation
             for path in release.rglob('*'):
                 if path.is_file():
@@ -76,6 +86,7 @@ class PublicTransportTests(unittest.TestCase):
             from pathlib import Path
             args = sys.argv[1:]
             root = Path(os.environ['TRANSPORT_FIXTURE'])
+            with (root / 'curl-requests').open('a') as log: log.write(args[-1]+'\\n')
             source = json.loads((root / 'urls.json').read_text()).get(args[-1])
             code = 200 if source else 404
             if not source:
@@ -185,6 +196,53 @@ class PublicTransportTests(unittest.TestCase):
                     self.assertEqual((destination / CANDIDATE / 'helpers/2').exists(), frontend)
                 if fault == 'signature':
                     self.assertFalse((destination / CANDIDATE / 'core').exists())
+
+    def test_mapped_readback_uses_github_and_checks_signed_inventory(self):
+        block = AUTO.read_text().split('          fetch_generation() {', 1)[1].split('          current_index=', 1)[0]
+        script = textwrap.dedent('          fetch_generation() {' + block)
+        generation = 'local-relay-hosted-owned-s12'
+        previous = 'local-base-relay-hosted-owned-s11'
+        github = f'https://github.com/humtr/codex/releases/download/{generation}/'
+        prior = f'https://github.com/humtr/codex/releases/download/{previous}/'
+        for fault in (None, 'map-digest', 'traversal', 'payload', 'missing', 'signature'):
+            with self.subTest(fault=fault), patch.object(sys.modules[__name__], 'CANDIDATE', generation):
+                fixture, _, assets, env = self.fixture(True, True)
+                root = fixture.root
+                release = fixture.signed / 'releases' / generation
+                files = {name: {'generation': generation, 'asset': FLAT_ASSETS[name]}
+                         for name, _ in fixtures.FILES + [('helpers/2', 0o755)]}
+                files['helpers/0']['generation'] = previous
+                files.update({name: {'generation': generation, 'asset': asset}
+                              for name, asset in CONTROL_ASSETS.items()})
+                mapping = {'schema': 'codex-asset-map-v1', 'generation_id': generation,
+                           'base_generation': previous, 'manifest_sha256': fixtures.sha256(release/'release.manifest'),
+                           'files': files}
+                if fault == 'map-digest': mapping['manifest_sha256'] = '0'*64
+                if fault == 'traversal': mapping['files']['helpers/0']['asset'] = '../helper-0'
+                map_path = root/'asset-map-v1.json'
+                map_path.write_text(json.dumps(mapping))
+                urls = {github + path.name: str(path) for path in assets.iterdir() if path.is_file()}
+                urls[github + 'asset-map-v1.json'] = str(map_path)
+                urls[prior + 'helper-0'] = str(assets/'helper-0')
+                if fault == 'payload': (assets/'helper-2').write_bytes(b'changed')
+                if fault == 'missing': del urls[prior + 'helper-0']
+                if fault == 'signature': (assets/'release.sig').write_bytes(b'x'*64)
+                (root/'urls.json').write_text(json.dumps(urls))
+                destination = root/'readback'; destination.mkdir()
+                env.update(root=str(destination), authority=str(fixture.public_key), candidate=generation)
+                index = github+'candidate-update-index-v1'
+                actual = script + '\nfetch_generation "$candidate" "'+index+'" true\n'
+                actual += 'python3 publication-source/.github/scripts/rald5_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "'+canonical_release_base(generation)+'" --require-download-size\n'
+                result = subprocess.run(['bash', '-ec', actual], cwd=root, env=env,
+                                        text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1200:])
+                requests = (root/'curl-requests').read_text().splitlines()
+                self.assertTrue(all(url.startswith('https://github.com/humtr/codex/releases/download/') for url in requests))
+                if fault is None:
+                    self.assertIn(prior+'helper-0', requests)
+                    self.assertEqual((destination/generation/'helpers/0').read_bytes(), (assets/'helper-0').read_bytes())
+                if fault in ('map-digest', 'traversal', 'signature'):
+                    self.assertFalse((destination/generation/'core').exists())
 
 
 if __name__ == '__main__':

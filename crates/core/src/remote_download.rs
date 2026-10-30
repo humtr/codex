@@ -21,6 +21,12 @@ extern "C" {
 
 const HTTP_STATUS: &str = "%{stderr}CODEX_HTTP_STATUS=%{response_code}";
 
+#[derive(Clone, Copy)]
+pub(super) enum TransferTimeout<'a> {
+    Fixed(&'a str),
+    Progress(Duration),
+}
+
 fn transfer_io(source: std::io::Error) -> LocalProductError {
     LocalProductError::Io {
         operation: "access remote transfer output",
@@ -40,7 +46,7 @@ pub(super) fn fetch(
     url: &str,
     output: &File,
     max_bytes: u64,
-    timeout: &str,
+    timeout: TransferTimeout<'_>,
     offset: u64,
     mut progress: Option<&mut dyn FnMut(u64)>,
 ) -> Result<u64, LocalProductError> {
@@ -80,14 +86,16 @@ pub(super) fn fetch(
         .arg(&roots.cert_file)
         .arg("--capath")
         .arg(&roots.cert_dir)
-        .args([
-            "--connect-timeout",
-            REMOTE_CONNECT_TIMEOUT_SECONDS,
-            "--max-time",
-            timeout,
-        ]);
-    if timeout != REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
-        command.args(["--speed-limit", "1024", "--speed-time", "60"]);
+        .args(["--connect-timeout", REMOTE_CONNECT_TIMEOUT_SECONDS]);
+    if let TransferTimeout::Fixed(seconds) = timeout {
+        command.args(["--max-time", seconds]);
+        if seconds != REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
+            command.args(["--speed-limit", "1024", "--speed-time", "60"]);
+        }
+    } else {
+        // The idle timer observes file growth, so curl must expose received
+        // bytes immediately rather than buffering them on its stdout stream.
+        command.arg("--no-buffer");
     }
     if offset != 0 {
         command.arg("--continue-at").arg(offset.to_string());
@@ -109,6 +117,8 @@ pub(super) fn fetch(
         .map_err(|_| LocalProductError::CurlUnavailable)?;
     let result = (|| {
         let mut last = u64::MAX;
+        let mut last_received = offset;
+        let mut last_progress = started;
         loop {
             let status = child.try_wait().map_err(transfer_io)?;
             loop {
@@ -129,6 +139,10 @@ pub(super) fn fetch(
             let observed = output.metadata().map_err(transfer_io)?.len();
             if observed > max_bytes {
                 return Err(LocalProductError::RemoteResponseTooLarge);
+            }
+            if observed > last_received {
+                last_received = observed;
+                last_progress = Instant::now();
             }
             if observed != last {
                 if let Some(callback) = progress.as_mut() {
@@ -154,6 +168,15 @@ pub(super) fn fetch(
                 }
                 output.sync_all().map_err(transfer_io)?;
                 return Ok(observed);
+            }
+            match timeout {
+                TransferTimeout::Progress(idle) if last_progress.elapsed() >= idle => {
+                    return Err(LocalProductError::RemoteStalled {
+                        bytes: observed,
+                        idle_seconds: idle.as_secs(),
+                    });
+                }
+                _ => {}
             }
             std::thread::sleep(Duration::from_millis(80));
         }
@@ -234,6 +257,12 @@ pub(super) fn payload(
     if (limit == 0 && expected_size != Some(0)) || expected_size.is_some_and(|n| n > limit) {
         return Err(LocalProductError::RemoteResponseTooLarge);
     }
+    let idle = timeout
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .ok_or(LocalProductError::Remote("invalid payload idle timeout"))?;
     ensure_real_directory(
         &roots.state_root,
         "inspect update state",
@@ -301,7 +330,15 @@ pub(super) fn payload(
             fs::remove_file(&path).map_err(io)?;
             return Err(LocalProductError::ReleaseDigestMismatch);
         }
-        match fetch(roots, url, &file, reserve, timeout, size, progress) {
+        match fetch(
+            roots,
+            url,
+            &file,
+            reserve,
+            TransferTimeout::Progress(idle),
+            size,
+            progress,
+        ) {
             Ok(n) => size = n,
             Err(error) => {
                 // Some curl versions reject the full200 response against the
@@ -416,7 +453,7 @@ mod tests {
     // This is a real TLS origin and native curl, not a transport double. Fault is
     // injected at the socket: declared body length exceeds the first sent body.
     const SERVER: &str = r#"
-import http.server, ssl, pathlib, sys, socket
+import http.server, ssl, pathlib, sys, socket, time
 root=pathlib.Path(sys.argv[1]); data=(root/'source').read_bytes()
 class Handler(http.server.BaseHTTPRequestHandler):
  def log_message(self,*a): pass
@@ -432,18 +469,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
   self.send_header('Content-Length',str(len(data)-offset)); self.end_headers()
   if not header and not mode:
    self.wfile.write(data[:len(data)//3]); self.wfile.flush(); self.connection.shutdown(socket.SHUT_RDWR)
+  elif mode=='slow-progress':
+   for start in range(offset,len(data),128):
+    self.wfile.write(data[start:start+128]); self.wfile.flush(); time.sleep(0.4)
+  elif mode=='stall':
+   self.wfile.write(data[:len(data)//2]); self.wfile.flush(); time.sleep(2)
   else: self.wfile.write(bytes(b^1 for b in data[offset:]) if mode=='changed' else data[offset:])
-server=http.server.HTTPServer(('127.0.0.1',0),Handler)
+server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
 context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(root/'cert.pem',root/'key.pem')
 server.socket=context.wrap_socket(server.socket,server_side=True)
 (root/'port').write_text(str(server.server_port)); server.serve_forever()
 "#;
 
-    #[test]
-    fn interrupted_https_resumes_and_verified_cache_works_offline() {
-        let mut f = fixture();
-        let data: Vec<u8> = (0..256 * 1024).map(|n| (n % 251) as u8).collect();
-        let entry = entry(&f, &data);
+    fn serve(f: &mut Fixture) -> String {
         assert!(Command::new(&f.roots.openssl)
             .args([
                 "req",
@@ -484,10 +522,76 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             );
             std::thread::sleep(Duration::from_millis(10));
         }
-        let url = format!(
+        format!(
             "https://127.0.0.1:{}/runtime",
             fs::read_to_string(f.root.join("port")).unwrap()
+        )
+    }
+
+    #[test]
+    fn slow_https_progress_extends_payload_timeout_but_stalls_fail() {
+        let mut f = fixture();
+        let data = vec![42; 1024];
+        let entry = entry(&f, &data);
+        let url = serve(&mut f);
+        fs::write(f.root.join("mode"), "stall").unwrap();
+        let path = f.root.join("download");
+        let error = payload(
+            &f.roots,
+            &url,
+            &path,
+            &entry,
+            PayloadOptions {
+                limit: data.len() as u64,
+                expected_size: Some(data.len() as u64),
+                timeout: "1",
+                progress: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, LocalProductError::RemoteStalled { bytes, idle_seconds: 1 } if bytes == data.len() as u64 / 2),
+            "{error}"
         );
+        let cached = f
+            .root
+            .join("downloads-v1")
+            .join(format!("{}.part", entry.sha256));
+        assert_eq!(fs::read(&cached).unwrap(), &data[..data.len() / 2]);
+        assert!(!path.exists());
+
+        fs::write(f.root.join("mode"), "slow-progress").unwrap();
+        let started = Instant::now();
+        assert_eq!(
+            payload(
+                &f.roots,
+                &url,
+                &path,
+                &entry,
+                PayloadOptions {
+                    limit: data.len() as u64,
+                    expected_size: Some(data.len() as u64),
+                    timeout: "1",
+                    progress: None,
+                },
+            )
+            .unwrap(),
+            data.len() as u64
+        );
+        assert!(started.elapsed() > Duration::from_secs(1));
+        assert_eq!(fs::read(&path).unwrap(), data);
+        assert!(fs::read_to_string(f.root.join("requests"))
+            .unwrap()
+            .lines()
+            .any(|line| line == format!("bytes={}-", data.len() / 2)));
+    }
+
+    #[test]
+    fn interrupted_https_resumes_and_verified_cache_works_offline() {
+        let mut f = fixture();
+        let data: Vec<u8> = (0..256 * 1024).map(|n| (n % 251) as u8).collect();
+        let entry = entry(&f, &data);
+        let url = serve(&mut f);
         let dest = f.root.join("download");
         let failed = payload(
             &f.roots,

@@ -21,6 +21,8 @@ mod release_display;
 #[cfg(unix)]
 mod remote_download;
 #[cfg(unix)]
+mod remote_release;
+#[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
@@ -4193,6 +4195,10 @@ enum LocalProductError {
         bytes: u64,
         elapsed_seconds: u64,
     },
+    RemoteStalled {
+        bytes: u64,
+        idle_seconds: u64,
+    },
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
     SourceBuild(String),
@@ -4272,6 +4278,9 @@ impl std::fmt::Display for LocalProductError {
                 };
                 write!(f, "remote release transport failed: {cause} (curl {code:?}, HTTP {http_status:?}, {bytes} output bytes, {elapsed_seconds}s); rerun update to resume authenticated payloads")
             }
+            LocalProductError::RemoteStalled { bytes, idle_seconds } => {
+                write!(f, "remote release transport stalled: no additional bytes for {idle_seconds}s ({bytes} output bytes); rerun update to resume authenticated payloads")
+            }
             LocalProductError::RemoteResponseTooLarge => {
                 f.write_str("remote release response exceeds its byte bound")
             }
@@ -4345,6 +4354,7 @@ fn required_absolute_env_path(name: &'static str) -> Result<std::path::PathBuf, 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RemoteReleaseBase {
     value: String,
+    routes: Option<remote_release::AssetMap>,
 }
 
 #[cfg(unix)]
@@ -4489,6 +4499,7 @@ impl RemoteReleaseBase {
         }
         Ok(Self {
             value: value.to_owned(),
+            routes: None,
         })
     }
 
@@ -4500,11 +4511,15 @@ impl RemoteReleaseBase {
                 | "release-authority.sig"
                 | "component-input-v1"
                 | "component-input-v1.sig"
+                | "asset-map-v1.json"
         ) && !valid_release_relative_path(relative_path)
         {
             return Err(LocalProductError::Remote(
                 "remote release resource path is invalid",
             ));
+        }
+        if let Some(generation) = remote_release::mapped_generation(&self.value) {
+            return remote_release::resource_url(generation, self.routes.as_ref(), relative_path);
         }
         let url = format!(
             "{}{}",
@@ -5549,7 +5564,7 @@ fn fetch_remote_file_with_timeout(
         url,
         output,
         max_bytes,
-        transfer_timeout_seconds,
+        remote_download::TransferTimeout::Fixed(transfer_timeout_seconds),
         0,
         None,
     )
@@ -7956,6 +7971,62 @@ impl SignedUpdateOutcome {
 }
 
 #[cfg(unix)]
+fn admit_signed_release_order(
+    roots: &LocalCoreRoots,
+    source: &LocalReleaseManifest,
+    current: &LocalReleaseManifest,
+    hold_policy: UpdateHoldPolicy,
+) -> Result<(bool, Option<UpdateHoldRecord>), LocalProductError> {
+    if source.release_sequence < current.release_sequence {
+        return Err(LocalProductError::ReleaseSequenceRollback);
+    }
+    let validated_hold = rollback_guard::effective_update_hold(roots, None)?;
+    if source.release_sequence == current.release_sequence {
+        if source != current {
+            return Err(LocalProductError::ReleaseSequenceRollback);
+        }
+        if hold_policy == UpdateHoldPolicy::ForceHeld {
+            let hold = validated_hold
+                .as_ref()
+                .ok_or(LocalProductError::UpdateHold(
+                    "forced update requires an active rollback hold",
+                ))?;
+            if source.release_sequence != hold.release_sequence {
+                return Err(LocalProductError::UpdateHold(
+                    "forced update candidate does not match the held release sequence",
+                ));
+            }
+        }
+        return Ok((true, validated_hold));
+    }
+    match hold_policy {
+        UpdateHoldPolicy::Enforce => {
+            if let Some(hold) = validated_hold.as_ref() {
+                if source.release_sequence <= hold.release_sequence {
+                    return Err(LocalProductError::UpdateHeld {
+                        generation_id: hold.generation_id.clone().into_boxed_str(),
+                        release_sequence: hold.release_sequence,
+                    });
+                }
+            }
+        }
+        UpdateHoldPolicy::ForceHeld => {
+            let hold = validated_hold
+                .as_ref()
+                .ok_or(LocalProductError::UpdateHold(
+                    "forced update requires an active rollback hold",
+                ))?;
+            if source.release_sequence != hold.release_sequence {
+                return Err(LocalProductError::UpdateHold(
+                    "forced update candidate does not match the held release sequence",
+                ));
+            }
+        }
+    }
+    Ok((false, validated_hold))
+}
+
+#[cfg(unix)]
 fn prepare_signed_local_release_with_hold_policy(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
@@ -7984,54 +8055,13 @@ fn prepare_signed_local_release_with_hold_policy(
         before.current_key,
         "active generation descriptor id does not match current",
     )?;
-    if source_release.release_sequence < current_release.release_sequence {
-        return Err(LocalProductError::ReleaseSequenceRollback);
-    }
-    let validated_hold = rollback_guard::effective_update_hold(roots, None)?;
-    if source_release.release_sequence == current_release.release_sequence {
-        if source_loaded.generation_id == before.current && source_release == current_release {
-            if hold_policy == UpdateHoldPolicy::ForceHeld {
-                let hold = validated_hold
-                    .as_ref()
-                    .ok_or(LocalProductError::UpdateHold(
-                        "forced update requires an active rollback hold",
-                    ))?;
-                if source_release.release_sequence != hold.release_sequence {
-                    return Err(LocalProductError::UpdateHold(
-                        "forced update candidate does not match the held release sequence",
-                    ));
-                }
-            }
-            return Ok(PreparedSignedLocalRelease::AlreadyCurrent(UpdateTarget {
-                generation_id: before.current,
-                version: current_loaded.manifest.upstream_package_version.clone(),
-            }));
-        }
-        return Err(LocalProductError::ReleaseSequenceRollback);
-    }
-    match hold_policy {
-        UpdateHoldPolicy::Enforce => {
-            if let Some(hold) = validated_hold.as_ref() {
-                if source_release.release_sequence <= hold.release_sequence {
-                    return Err(LocalProductError::UpdateHeld {
-                        generation_id: hold.generation_id.clone().into_boxed_str(),
-                        release_sequence: hold.release_sequence,
-                    });
-                }
-            }
-        }
-        UpdateHoldPolicy::ForceHeld => {
-            let hold = validated_hold
-                .as_ref()
-                .ok_or(LocalProductError::UpdateHold(
-                    "forced update requires an active rollback hold",
-                ))?;
-            if source_release.release_sequence != hold.release_sequence {
-                return Err(LocalProductError::UpdateHold(
-                    "forced update candidate does not match the held release sequence",
-                ));
-            }
-        }
+    let (already_current, validated_hold) =
+        admit_signed_release_order(roots, &source_release, &current_release, hold_policy)?;
+    if already_current {
+        return Ok(PreparedSignedLocalRelease::AlreadyCurrent(UpdateTarget {
+            generation_id: before.current,
+            version: current_loaded.manifest.upstream_package_version.clone(),
+        }));
     }
 
     let destination = roots.generation_root.join(&source_loaded.generation_id);
@@ -8892,7 +8922,7 @@ fn fetch_remote_resource_with_timeout_and_progress(
         &url,
         &output,
         limit,
-        transfer_timeout_seconds,
+        remote_download::TransferTimeout::Fixed(transfer_timeout_seconds),
         0,
         progress,
     )?;
@@ -9238,6 +9268,7 @@ fn acquire_remote_release_source(
     update_key: ReleasePublicKey,
     current_release: &LocalReleaseManifest,
     current_version: &str,
+    hold_policy: UpdateHoldPolicy,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
     let mut acquired_bytes = 0;
@@ -9275,6 +9306,17 @@ fn acquire_remote_release_source(
             "remote release base does not match signed generation identity",
         ));
     }
+    if remote_release::mapped_generation(&base.value).is_some() {
+        admit_signed_release_order(roots, &manifest, current_release, hold_policy)?;
+    }
+    let resolved_base = remote_release::resolve(
+        roots,
+        base,
+        acquisition_root,
+        &manifest,
+        &mut acquired_bytes,
+    )?;
+    let base = &resolved_base;
     let download_sizes = fetch_remote_download_sizes(
         roots,
         base,
@@ -10181,6 +10223,7 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
             before.update_key,
             &current_release,
             &current_loaded.manifest.upstream_package_version,
+            hold_policy,
             presentation.as_deref_mut(),
         )?;
         prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
@@ -24372,6 +24415,7 @@ exit 2
                     key,
                     &verified_current,
                     "9.9.9",
+                    UpdateHoldPolicy::Enforce,
                     None,
                 )
                 .unwrap();
@@ -24996,6 +25040,266 @@ exit 0
                 .as_encoded_bytes()
                 .starts_with(b".acquire-")
         }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mapped_public_update_uses_github_routes_and_rolls_back_with_worker_denied() {
+        use std::os::unix::fs::PermissionsExt;
+
+        for full in [false, true] {
+            let generation = if full {
+                "local-relay-hosted-fixture-s20"
+            } else {
+                "local-base-relay-hosted-fixture-s20"
+            };
+            let prior = "local-base-relay-hosted-fixture-s10";
+            let fixture = b5_channel_fixture("github-map", generation);
+            let core = fixture.root.join("candidate-core");
+            b8_write_core_probe_wrapper(&core);
+            std::fs::copy(&core, fixture.prefix.join("bin/codex")).unwrap();
+            let current = fixture
+                .home
+                .join(".local/lib/codex/core/generations")
+                .join(&fixture.current_id);
+            b2_attach_core(&current, &fixture.openssl, &core);
+            b4_write_signed_release(&current, 1, &fixture.openssl, &fixture.private_key);
+            b2_add_helper(&fixture.release);
+            let descriptor_path = fixture.release.join("generation.meta");
+            let mut descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
+            descriptor = descriptor.replace(
+                "helper_count\t1\n",
+                if full {
+                    "helper_count\t3\n"
+                } else {
+                    "helper_count\t2\n"
+                },
+            );
+            descriptor.push_str("helper\thelper-b\thelper-b-digest\n");
+            if full {
+                descriptor.push_str("helper\thelper-c\thelper-c-digest\n");
+                descriptor = descriptor.replace(
+                    "manager_artifact_digest\t-\n",
+                    "manager_artifact_digest\tmanager-digest\n",
+                );
+                std::fs::copy(
+                    fixture.release.join("runtime"),
+                    fixture.release.join("manager"),
+                )
+                .unwrap();
+            }
+            std::fs::write(&descriptor_path, descriptor).unwrap();
+            for index in 0..if full { 3 } else { 2 } {
+                let path = fixture.release.join("helpers").join(index.to_string());
+                if index != 0 {
+                    std::fs::write(&path, format!("owned-helper-{index}")).unwrap();
+                }
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            b2_attach_core(&fixture.release, &fixture.openssl, &core);
+            b4_write_signed_release(&fixture.release, 2, &fixture.openssl, &fixture.private_key);
+            b4_write_download_size_sidecar(
+                &fixture.release,
+                &fixture.openssl,
+                &fixture.private_key,
+            );
+            let base = format!("https://codex-releases.humtr.workers.dev/{generation}/");
+            std::fs::write(&fixture.index_path, format!(
+                "codex-update-index-v1\nchannel\tstable\ngeneration_id\t{generation}\nrelease_base\t{base}\n"
+            )).unwrap();
+            b4_sign_update_index(
+                &fixture.index_path,
+                &fixture.signature_path,
+                &fixture.openssl,
+                &fixture.private_key,
+            );
+            let digest =
+                openssl_sha256(&fixture.openssl, &fixture.release.join("release.manifest"))
+                    .unwrap();
+            let inherited = if full {
+                format!("\"{prior}\"")
+            } else {
+                "null".into()
+            };
+            let map = r#"{
+              "schema":"codex-asset-map-v1","generation_id":"@GEN@","base_generation":@BASE@,"manifest_sha256":"@DIGEST@",
+              "files":{
+                "codex-code-mode-host":{"generation":"@GEN@","asset":"codex-code-mode-host"},
+                "core":{"generation":"@GEN@","asset":"core"},
+                "generation.meta":{"generation":"@GEN@","asset":"generation.meta"},
+                "helpers/0":{"generation":"@PRIOR@","asset":"helper-0"},
+                "helpers/1":{"generation":"@GEN@","asset":"helper-1"},
+                @FULL_FILES@
+                "runtime":{"generation":"@GEN@","asset":"runtime"},
+                "release.manifest":{"generation":"@GEN@","asset":"release.manifest"},
+                "release.sig":{"generation":"@GEN@","asset":"release.sig"},
+                "update-index-v1":{"generation":"@GEN@","asset":"candidate-update-index-v1"},
+                "update-index-v1.sig":{"generation":"@GEN@","asset":"candidate-update-index-v1.sig"},
+                "update-public-key.pem":{"generation":"@GEN@","asset":"update-public-key.pem"},
+                "compat/download-size-v1":{"generation":"@GEN@","asset":"download-size-v1"},
+                "compat/download-size-v1.sig":{"generation":"@GEN@","asset":"download-size-v1.sig"},
+                "component-input-v1":{"generation":"@GEN@","asset":"component-input-v1"},
+                "component-input-v1.sig":{"generation":"@GEN@","asset":"component-input-v1.sig"}
+              }}"#.replace("@FULL_FILES@", if full {
+                    "\"helpers/2\":{\"generation\":\"@GEN@\",\"asset\":\"helper-2\"},\"manager\":{\"generation\":\"@GEN@\",\"asset\":\"manager\"},"
+                } else { "" })
+                .replace("@GEN@", generation).replace("@BASE@", &inherited)
+                .replace("@PRIOR@", prior).replace("@DIGEST@", &digest);
+            let map_path = fixture.root.join("public-map.json");
+            std::fs::write(&map_path, map.replace("\"helper-0\"", "\"../helper-0\"")).unwrap();
+
+            let github = format!("https://github.com/humtr/codex/releases/download/{generation}/");
+            let old_github = format!("https://github.com/humtr/codex/releases/download/{prior}/");
+            let mut cases = String::new();
+            for (url, path) in [
+                (format!("{github}asset-map-v1.json"), map_path.clone()),
+                (
+                    format!("{github}release.manifest"),
+                    fixture.release.join("release.manifest"),
+                ),
+                (
+                    format!("{github}release.sig"),
+                    fixture.release.join("release.sig"),
+                ),
+                (
+                    format!("{github}download-size-v1"),
+                    fixture.release.join("compat/download-size-v1"),
+                ),
+                (
+                    format!("{github}download-size-v1.sig"),
+                    fixture.release.join("compat/download-size-v1.sig"),
+                ),
+                (
+                    format!("{github}generation.meta"),
+                    fixture.release.join("generation.meta"),
+                ),
+                (
+                    format!("{github}codex-code-mode-host"),
+                    fixture.release.join("codex-code-mode-host"),
+                ),
+                (format!("{github}core"), fixture.release.join("core")),
+                (
+                    format!("{github}helper-1"),
+                    fixture.release.join("helpers/1"),
+                ),
+                (format!("{github}runtime"), fixture.release.join("runtime")),
+                (
+                    format!("{old_github}helper-0"),
+                    fixture.release.join("helpers/0"),
+                ),
+            ] {
+                cases.push_str(&format!(
+                    "  {}) exec \"$cat_path\" {} ;;\n",
+                    b5_shell_quote_text(&url),
+                    b5_shell_quote(&path)
+                ));
+            }
+            if full {
+                for (asset, path) in [("manager", "manager"), ("helper-2", "helpers/2")] {
+                    cases.push_str(&format!(
+                        "  {}) exec \"$cat_path\" {} ;;\n",
+                        b5_shell_quote_text(&format!("{github}{asset}")),
+                        b5_shell_quote(&fixture.release.join(path))
+                    ));
+                }
+            }
+            let curl = fixture.prefix.join("bin/curl");
+            let script = std::fs::read_to_string(&curl).unwrap();
+            let marker = "case \"$url\" in\n";
+            assert_eq!(script.matches(marker).count(), 1);
+            std::fs::write(
+                &curl,
+                script.replacen(marker, &format!("{marker}{cases}"), 1),
+            )
+            .unwrap();
+
+            let state_paths =
+                CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+            let before = std::fs::read(&state_paths.activation_state).unwrap();
+            let bad = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert!(!bad.status.success());
+            assert_eq!(
+                std::fs::read(&state_paths.activation_state).unwrap(),
+                before
+            );
+            assert!(!std::fs::read_to_string(&fixture.curl_log)
+                .unwrap()
+                .contains(&format!("{old_github}helper-0")));
+
+            std::fs::write(&map_path, map).unwrap();
+            let updated = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert!(
+                updated.status.success(),
+                "stdout={:?} stderr={:?}",
+                updated.stdout,
+                updated.stderr
+            );
+            let selected = read_pointer_state(&state_paths).unwrap().unwrap();
+            assert_eq!(selected.current, generation);
+            assert_eq!(
+                selected.previous.as_deref(),
+                Some(fixture.current_id.as_str())
+            );
+            let installed = fixture
+                .home
+                .join(".local/lib/codex/core/generations")
+                .join(generation);
+            assert_eq!(
+                std::fs::read(installed.join("helpers/0")).unwrap(),
+                std::fs::read(fixture.release.join("helpers/0")).unwrap()
+            );
+            let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            assert!(calls.contains(&format!("{old_github}helper-0")));
+            assert!(!calls.contains("https://codex-releases.humtr.workers.dev/"));
+            let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+            assert!(
+                rollback.status.success(),
+                "stdout={:?} stderr={:?}",
+                rollback.stdout,
+                rollback.stderr
+            );
+            assert_eq!(
+                read_pointer_state(&state_paths).unwrap().unwrap().current,
+                fixture.current_id
+            );
+            std::fs::write(&fixture.curl_log, b"").unwrap();
+            let held = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
+            assert_human_update_error_contains(
+                &held.stderr,
+                b"release sequence 2 is locally held after rollback",
+            );
+            let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            assert!(calls.contains(&format!("{github}release.manifest")));
+            assert!(!calls.contains("asset-map-v1.json"));
+            let forced = arh1_run_public_channel_force_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert!(forced.status.success(), "stderr={:?}", forced.stderr);
+            assert_eq!(
+                read_pointer_state(&state_paths).unwrap().unwrap().current,
+                generation
+            );
+            remove_temp_root(fixture.root);
+        }
     }
 
     #[cfg(unix)]
