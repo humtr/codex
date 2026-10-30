@@ -232,7 +232,7 @@ pub struct LocalRecipe {
 }
 
 pub fn local_recipe(version: &str, archive_sha256: &str) -> Result<LocalRecipe> {
-    const BYTES: &[u8] = include_bytes!("../../../release/upstream.json");
+    const BYTES: &[u8] = include_bytes!("../../../release/native-runtime.json");
     let value: Recipe = serde_json::from_slice(BYTES).map_err(|e| e.to_string())?;
     if value.upstream.version != version || value.upstream.archive_sha256 != archive_sha256 {
         return Err("no bundled qualified source recipe for the selected official release".into());

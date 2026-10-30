@@ -8,6 +8,7 @@ recipe	crates/release-builder/src/native_sdk.rs
 recipe	crates/release-builder/src/native_dependencies.rs
 recipe	crates/release-builder/build.rs
 recipe	release/native-sdk-inputs.json
+recipe	release/native-runtime.json
 recipe	crates/release-builder/Cargo.toml
 recipe	.github/scripts/upstream_release.py
 recipe	.github/workflows/termux-runtime-source.yml

@@ -4374,8 +4374,12 @@ The resulting libraries must link and execute a static target probe that checks
 OpenSSL's selected version/SHA-256/TLS-context operations and reads/frees this
 process's capabilities. No network connection or capability modification is needed.
 Core's selected local build uses binary adaptation when its known policy is
-available, otherwise the bundled qualified source recipe matching the selected
-official version/archive. An unavailable source recipe is an explicit unsupported
+available, otherwise the bundled qualified native source recipe matching the
+selected official version/archive. release/native-runtime.json owns that admitted
+on-device compiler/source contract; release/upstream.json selects remote release
+production. A new remotely qualified upstream does not qualify the device SDK or
+replace its admitted source target. Both are actual inputs to their respective
+consumers and may advance independently. An unavailable source recipe is an explicit unsupported
 target, not permission to run an unverified binary policy. Resolve that selection
 before acquiring its upstream archive or provisioning build tools. Core owns required
 Termux package preparation, official source acquisition, SDK/dependency caches,

@@ -21,8 +21,10 @@ this status rather than appending another session diary.
 derived Full0.164 installation is retained for rollback. A1 entrance equivalence
 is partially qualified, not complete.** Full123 and Provider21 have their separate
 signed delivery records; this Base update does not qualify Full0.165 or replace
-running services. The
-startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
+running services. Authenticated public-head readback now identifies signed
+Base125/upstream0.166.0, while this device remains on Base124; Full still serves123.
+The newer public head does not install or qualify the current candidate automatically.
+The startup fix runs in supervised mode; the Codex tunnel uses the wrapper-built
 Android0.0.18 patch. The Provider has one supervised process, the same ready
 authenticated host and37 preserved works at the Provider21 activation boundary.
 That activation preserved16 protected files and13 existing Native owners. These are
@@ -860,19 +862,31 @@ Core connects manual local choice to native tool checks/missing-package installa
 exact official Git source, digest-cached SDK/library archives, private preparation
 and the shared Rust source producer. Core supplies the child environment; the
 existing generation builder, signing, atomic activation and rollback consume its
-admitted output. The source target is the bundled qualified0.165 recipe, not every
+admitted output. The native source target is the bundled qualified0.165 recipe, not every
 future upstream. Missing source qualification fails before the upstream archive
 or package provisioning. Official latest readback now identifies0.166, published
 2026-10-29T19:47:53Z (`minimum-update-official-latest-readback.json`); first0.165
 acceptance must not be presented as support for that newer target.
-The remote bot preparation c7134470f093591f05d5fd7c1aef7324fc676511 is preserved in
-history. Its source acceptance40966902401 and independent Base qualification
-40966904977 pass against the preceding source and Rust1.95.0; Manager frontend
-40970565956 fails. Those runs do not qualify this producer/native SDK. Integration
-retains the already admitted0.165 release recipe for the bounded minimum-path
-candidate rather than implicitly replacing it with that different toolchain.
-Restore/adapt the preserved0.166 preparation only in its separately qualified next
-source step. The bot commit is not discarded or force-overwritten.
+Authenticated release admission remains required, but the public Base index readback
+now points to Base125/0.166, sourcec713447. The remote bot preparation and its
+source acceptance40966902401/independent Base qualification40966904977 are preserved;
+Manager frontend40970565956 fails separately. These preceding-source/Rust1.95.0
+runs do not qualify this on-device SDK. release/upstream.json therefore retains
+that0.166 remote-production target, while release/native-runtime.json preserves
+0.165/Rust1.99.1 for Core's admitted local source build. The distinct consumers
+justify separate input records; neither silently claims the other's qualification.
+The earlier merge temporarily retained0.165 in the remote recipe before the new
+public index was read; this correction preserves current public-version progression.
+The public Base125/Full123 heads, signatures and descriptors pass exact-main/key
+admission at2734c12101483b25d9d922cc78e137ea9f9d97f0 (minimum-update-public-heads).
+The split native recipe passes Core2/Clippy/build and the full Python25+124+10
+checks (minimum-update-native-recipe-{gate,python}-v1.log). Its actual owned manual
+0.164→0.165→0.164 update passes in68.18s, now downloading the original165 archive
+from the actual official HTTPS origin with native curl/certificate verification
+(minimum-update-native-recipe-e2e-v1.json). Discovery/baseline metadata still use the
+controlled snapshot and the raw source output remains qualified cache reuse;
+this is not current-live latest discovery, a fresh compile or public candidate delivery.
+
 
 The embedded producer inventory, Core environment construction and selected recipe
 identify local output caches. The complete wrapper lock conservatively binds its
