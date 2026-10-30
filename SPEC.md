@@ -4660,8 +4660,10 @@ owned retained file into private staging without hardlinks, then apply unchanged
 complete-candidate admission. Unavailable/corrupt files fall back to authenticated
 download. This optimization never interprets account, UI or rotation policy.
 
-Both current lane heads, rollback/compatibility targets and every base referenced
-by a retained full release must be preserved. Deleting an unreferenced retired
+Both current lane heads, rollback/compatibility targets, every Base pinned by a
+retained Full and every physical generation named by retained asset maps must be
+preserved. Physical origins can be earlier Base or Full releases, independently
+of the current logical Base. Deleting an unreferenced retired
 release requires explicit retention scope and a reference check; no date-only
 cleanup, published-asset overwrite or silent deletion is authorized. Immutable
 Release delivery avoids the Pages aggregate-image cap, not all hosting limits.
