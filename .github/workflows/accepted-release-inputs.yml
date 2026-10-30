@@ -2,7 +2,7 @@ name: Advance accepted release inputs
 run-name: ${{ inputs.requested_upstream && format('Codex build request {0}', inputs.requested_upstream) || 'Advance accepted release inputs' }}
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '17 */2 * * *'
   workflow_dispatch:
     inputs:
       discover_upstream:
@@ -119,6 +119,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 accepted-controller/.github/scripts/release_attention.py --reconcile
+
+      - name: Prepare shared Rust source contract tool
+        if: steps.discoverable.outputs.accepted == 'true' && (github.event_name == 'schedule' || inputs.discover_upstream)
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import json; print(json.load(open("accepted-controller/release/upstream.json"))["toolchains"]["core_rust"])')"
+          rustup toolchain install "$version" --profile minimal
+          CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$version" build \
+            --manifest-path accepted-controller/Cargo.toml --release --locked -p codex-release-builder
+          echo "CODEX_RELEASE_BUILDER=$RUNNER_TEMP/source-tools/release/codex-release-builder" >> "$GITHUB_ENV"
 
       - name: Discover official stable and submit independent base inputs
         id: discovery

@@ -1,7 +1,12 @@
 name: Termux Hosted Release Preflight
+run-name: ${{ inputs.upstream_version && format('Codex publication {0}', inputs.upstream_version) || 'Termux Hosted Release Preflight' }}
 on:
   workflow_dispatch:
     inputs:
+      upstream_version:
+        description: Publication status label; accepted source remains authoritative
+        type: string
+        default: ''
       publish:
         description: Publish after all real execution/readback gates
         type: boolean
@@ -43,7 +48,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@7f557c2088564a073f928eda0c53121db6d16098
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@bd6caa9af69509be0a6b20e0da46ade347ae49dc
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: base
@@ -57,7 +62,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@7f557c2088564a073f928eda0c53121db6d16098
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@bd6caa9af69509be0a6b20e0da46ade347ae49dc
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: full
