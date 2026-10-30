@@ -4319,8 +4319,12 @@ changes explicitly. Actual Termux and Android execution qualification is require
 before declaring a local recipe supported.
 Compiler preparation verifies both object compilation and required dependency
 generation before a long source build. Before adapting source or starting Cargo,
-the shared runtime producer compiles a small standard-library consumer to an
-object for the exact runtime target. Matching Rust version/commit strings and an
+the shared runtime producer compiles and links a small standard-library consumer
+for the exact runtime target, verifies its static AArch64 ELF, and executes it
+with the existing bounded isolated runtime probe. The probe must return the exact
+expected text, empty stderr and successful status. An explicitly prepared Cargo
+target linker is also used for this direct rustc invocation, so readiness and the
+subsequent build test the same linker selection. Matching Rust version/commit strings and an
 existing target-library directory alone do not establish compiler/stdlib
 compatibility. A failed probe preserves the compiler's actual diagnostic, leaves
 the checkout unchanged and removes its temporary probe inputs/output.

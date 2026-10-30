@@ -1,7 +1,7 @@
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns actual implementation, qualification,
-delivery and remaining work. Latest maintenance record: 2026-10-29 KST, from
+delivery and remaining work. Latest maintenance record: 2026-10-30 KST, from
 sourcee78d83a69d3eefddadfbffdbb57807a87fd4ec82 (Provider21), wrapper tunnel
 recipe3236692 and the original acceptance records. The service/tunnel maintenance
 batch below includes bounded actual device activation with zero Provider-triggered
@@ -626,8 +626,8 @@ A separate native probe rejects the apparently simpler mixed SDK: Termux Rust
 and official musl Rust report the same1.99.1 release/commit, but Termux rustc
 rejects the official target std with E0514 (`termux-rustc-musl-probe.json`). Their
 reported LLVM versions differ21.1.8/23.1.1; that observation alone does not prove
-the exact metadata incompatibility cause. The candidate shared Rust producer now
-compiles a tiny std consumer to an actual target object before source adaptation
+the exact metadata incompatibility cause. The earlier accepted shared Rust producer
+compiled a tiny std consumer to an actual target object before source adaptation
 or Cargo. Its probe inputs/output are removed and the actual compiler diagnostic
 is preserved on failure. This closes the directory/version-only readiness gap;
 it does not provision a usable SDK or replace full source/runtime acceptance.
@@ -660,6 +660,33 @@ inactive qualification worktrees were removed only after their exact diffs and
 absence of untracked/live work were verified;131,350,528 allocated bytes were
 reclaimed. Git bases, patches, logs/results and restore instructions remain in
 `runtime-compiler-preflight-worktree-cleanup.json`.
+
+The next prepared-toolchain preflight now compiles and links a standard-library
+consumer, validates its static AArch64 ELF and executes it through the existing
+bounded isolated runtime probe before source adaptation or Cargo. Its explicitly
+prepared Cargo target linker is also supplied to direct rustc. Matching versions
+and object emission alone no longer report readiness. One private probe directory
+owns source, binary, runtime home and compiler intermediates. The first new actual
+missing-linker regression exposed rcgu files left after link failure; removing only
+the two named files was insufficient. Private-directory cleanup fixes that without
+touching other outputs (`compiler-execution-targeted-v{1,2}.log`).
+The six focused runtime tests pass. Actual Android SDK trials reject a missing
+linker and a valid linked executable that exits21, preserving pristine source,
+an unstarted Cargo boundary and an empty output. The ready SDK passes compile,
+link, ELF and actual execution, then produces the exact source patch/lock audit
+before an intentionally stopped Cargo returns37 (`compiler-execution-native.json`).
+This is preflight qualification, not completed Codex compilation. Omitting only
+the execution call in disposable source makes that wrong-result trial fail because
+it incorrectly reaches Cargo; source is restored (`compiler-execution-mutation.json`).
+The complete source gate passes Python25+123+10, Core230 with the existing device
+exclusion, Manager52, integration67+3, builder43, binding2 and workspace Clippy
+(`compiler-execution-full-v1.log`). Final affected-flow review retains the exact
+six-file runtime artifact, source/lock admission and both existing consumers.
+No installed SDK provisioner or operating activation is claimed. The accepted
+builder is frozen in `compiler-execution-bin`; the three inactive qualification
+checkouts were removed only after exact diff/untracked/ignored/process-reference
+checks, reclaiming258,147,840 allocated bytes. Bases, patches, fault and original
+results remain (`compiler-execution-worktree-cleanup.json`).
 
 The next bounded diagnostic retained the16-unit/LTO-off final-crate experiment
 and added the actual linker's supported --threads=1 option, without changing

@@ -216,46 +216,48 @@ pub struct BuildRequest<'a> {
 }
 
 fn compile_target_probe(request: &BuildRequest<'_>, toolchain: &str) -> Result<()> {
-    let source = request.output.join(".compiler-probe.rs");
-    let object = request.output.join(".compiler-probe.o");
+    const EXPECTED: &str = "codex-runtime-target-ready\n";
+    let directory = request.output.join(".compiler-probe");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .map_err(|e| format!("reserve runtime compiler probe: {e}"))?;
+    let source = directory.join("main.rs");
+    let binary = directory.join("probe");
     let result = (|| {
-        fs::write(
-            &source,
-            "pub fn target_std_probe() -> Vec<u8> { vec![1, 2, 3] }\n",
-        )
-        .map_err(|e| format!("write runtime compiler probe: {e}"))?;
-        output(
-            Command::new(request.rustc)
-                .args([
-                    "--crate-name",
-                    "codex_runtime_compiler_probe",
-                    "--crate-type",
-                    "lib",
-                    "--edition",
-                    "2021",
-                    "--target",
-                    TARGET,
-                    "--emit=obj",
-                ])
-                .arg(&source)
-                .arg("-o")
-                .arg(&object)
-                .env("RUSTUP_TOOLCHAIN", toolchain),
-            "prepared Rust target compilation",
-        )?;
-        let metadata = fs::symlink_metadata(&object)
-            .map_err(|e| format!("read runtime compiler probe object: {e}"))?;
-        if !metadata.is_file() || metadata.len() == 0 {
-            return Err("runtime compiler probe did not emit a regular nonempty object".into());
+        fs::write(&source, format!("fn main() {{ print!({EXPECTED:?}); }}\n"))
+            .map_err(|e| format!("write runtime compiler probe: {e}"))?;
+        let mut compiler = Command::new(request.rustc);
+        compiler
+            .args([
+                "--crate-name",
+                "codex_runtime_compiler_probe",
+                "--crate-type",
+                "bin",
+                "--edition",
+                "2021",
+                "--target",
+                TARGET,
+                "--emit=link",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .env("RUSTUP_TOOLCHAIN", toolchain);
+        if let Some(linker) = std::env::var_os("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER") {
+            let mut flag = OsString::from("linker=");
+            flag.push(linker);
+            compiler.arg("-C").arg(flag);
         }
+        output(&mut compiler, "prepared Rust target compilation")?;
+        super::validate_static_aarch64_elf(&binary).map_err(|e| e.to_string())?;
+        probe(&binary, &directory, EXPECTED.as_bytes())
+            .map_err(|e| format!("prepared Rust target execution: {e}"))?;
         Ok(())
     })();
-    let cleanup = [&source, &object]
-        .into_iter()
-        .try_for_each(|path| match fs::remove_file(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            result => result,
-        });
+    // A failed linker may leave rcgu objects beside its output too. This newly
+    // reserved directory owns every probe artifact, including those diagnostics.
+    let cleanup = fs::remove_dir_all(&directory);
     match (result, cleanup) {
         (Err(error), Err(cleanup)) => {
             Err(format!("{error}; remove runtime compiler probe: {cleanup}"))
@@ -407,7 +409,7 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         .mode(0o700)
         .create(request.output)
         .map_err(|e| format!("reserve runtime output: {e}"))?;
-    println!("[runtime] compile prepared Rust/target standard-library probe");
+    println!("[runtime] compile, link and execute prepared Rust/target standard-library probe");
     compile_target_probe(request, &recipe.toolchains.frontend_rust)?;
     println!("[runtime] adapt exact official source");
     let preparation = super::source::prepare(
@@ -766,6 +768,49 @@ mod tests {
         assert!(git(&source, &["status", "--porcelain"]).unwrap().is_empty());
         assert_eq!(fs::read_dir(output).unwrap().count(), 0);
         assert!(!root.join("cache").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unusable_linker_fails_before_source_preparation_or_cargo() {
+        let (root, source, path) = checkout();
+        let shell = std::env::var_os("PREFIX")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr"))
+            .join("bin/bash");
+        fs::create_dir_all(root.join("sysroot/lib/rustlib").join(TARGET).join("lib")).unwrap();
+        let rustc = root.join("prepared-rustc");
+        // Compile with the real host rustc/std, but an unavailable linker. Only
+        // target selection and initial SDK queries are adapted by this fixture.
+        let version = inputs()["toolchains"]["frontend_rust"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        fs::write(&rustc, format!("#!{}\ncase \"$1\" in\n--version) printf 'rustc {version}\\n'; exit;;\n--print) printf '%s\\n' \"${{0%/*}}/sysroot\"; exit;;\nesac\nargs=()\nwhile [ \"$#\" -gt 0 ]; do\n if [ \"$1\" = --target ]; then shift 2; else args+=(\"$1\"); shift; fi\ndone\nexec rustc \"${{args[@]}}\" -C \"linker=${{0%/*}}/unavailable-probe-linker\"\n", shell.display())).unwrap();
+        fs::set_permissions(&rustc, fs::Permissions::from_mode(0o700)).unwrap();
+        let output = root.join("output");
+        let cache = root.join("cache");
+        let error = build(&BuildRequest {
+            source: &source,
+            output: &output,
+            recipe: &path,
+            target_dir: &cache,
+            rustc: &rustc,
+            cargo: &root.join("must-not-run-cargo"),
+            openssl: &openssl(),
+        })
+        .unwrap_err();
+        assert!(
+            error.contains("prepared Rust target compilation"),
+            "{error}"
+        );
+        assert!(
+            error.contains("unavailable-probe-linker"),
+            "linker cause lost: {error}"
+        );
+        assert!(git(&source, &["status", "--porcelain"]).unwrap().is_empty());
+        assert_eq!(fs::read_dir(output).unwrap().count(), 0);
+        assert!(!cache.exists());
         fs::remove_dir_all(root).unwrap();
     }
 
