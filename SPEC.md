@@ -4386,8 +4386,12 @@ the real non-installed workspace executable named `codex-release-builder`,
 and signs the resulting adapted generation for delivery. The installed Core
 never executes an upstream self-updater. Explicit local build prepares only
 recipe-required tools and invokes the bounded release-production routines.
-Those routines fetch the official
-archive, adapt the raw runtime, qualify the result and sign only that local
+Core acquires the official archive through its shared bounded, resumable download
+cache, keyed by the digest from official release metadata. It reports transferred
+bytes and preserves untrusted partial bytes for the next explicit command; only
+the verified complete archive reaches generation assembly. The builder owns the
+256-MiB archive bound shared by acquisition and archive admission. It then adapts
+the raw runtime, qualifies the result and signs only that local
 candidate with the selected local-build signer while preserving the official
 forward update_key. Local build never accepts a raw archive as an activation
 candidate and never bypasses signed local admission. The builder's

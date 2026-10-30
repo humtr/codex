@@ -8473,20 +8473,37 @@ fn activate_local_built_update(
         let generation_id = local_update_generation_id();
         let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
         if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠙", "Downloading official Codex source...");
+            presentation.transient("⠙", "Downloading official Codex package...");
         }
-        let archive_digest = codex_release_builder::fetch_archive(
-            &metadata.version,
-            &roots.curl,
-            &roots.openssl,
+        let archive_entry = ReleaseFileEntry {
+            relative_path: UPSTREAM_PACKAGE_ASSET.into(),
+            sha256: metadata.package_sha256.clone(),
+            mode: 0o600,
+        };
+        let mut progress = |bytes| {
+            if let Some(presentation) = presentation.as_deref_mut() {
+                presentation.transient(
+                    "⠙",
+                    &format!("Downloading official Codex package... {bytes} bytes"),
+                );
+            }
+        };
+        remote_download::payload(
+            roots,
+            &format!(
+                "{UPSTREAM_RELEASE_METADATA_BASE}/{}/{UPSTREAM_PACKAGE_ASSET}",
+                metadata.version
+            ),
             &archive,
-        )
-        .map_err(LocalProductError::Builder)?;
-        if archive_digest != metadata.package_sha256 {
-            return Err(LocalProductError::LocalUpdate(
-                "official upstream archive digest does not match release metadata",
-            ));
-        }
+            &archive_entry,
+            remote_download::PayloadOptions {
+                limit: codex_release_builder::ARCHIVE_MAX_BYTES,
+                expected_size: None,
+                timeout: codex_release_builder::RELEASE_TRANSFER_TIMEOUT_SECONDS,
+                progress: Some(&mut progress),
+            },
+        )?;
+        let archive_digest = metadata.package_sha256.clone();
         let core = match current_loaded.core_path.as_ref() {
             Some(path) => path.clone(),
             None => running_core_artifact_for_local_build()?,
@@ -19122,6 +19139,14 @@ esac
         assert!(calls.contains(index_url));
         assert!(calls.contains(&metadata_url));
         assert!(calls.contains(&archive_url));
+        assert_eq!(
+            calls
+                .lines()
+                .filter(|line| line.contains(&archive_url))
+                .count(),
+            1,
+            "verified archive must survive failed construction and be reused: {calls}"
+        );
 
         let local_state = read_pointer_state(&paths).unwrap().unwrap();
         let first_local_generation = local_state.current.clone();

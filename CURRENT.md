@@ -688,6 +688,19 @@ fail was incorrect and is retained separately
 (`native-lto-profile-probe{,-v2}.json`). None of these probes qualifies full Codex.
 A bounded full-source experiment now uses whole-profile LTO off,16 code-generation
 units and native LLD21 with one linking thread; production profile remains unchanged.
+After the session interruption its original observer disappeared while Cargo
+remained alive. A replacement observer attaches to that worker through a kernel
+pidfd, preserving the memory budgets without starting another build
+(`native-runtime-global-off-v1-reattached-resources.jsonl`). The missing original
+parent's exit status cannot be recovered; any artifact still requires exact-source
+admission and actual execution qualification. That observer later stopped at its
+1.5-GiB reserve without a compiler failure. A second same-input continuation also
+stopped there (peak anonymous1,744,584,704 bytes, status-15 in55.79s), preserving
+completed dependencies (`native-runtime-global-off-v2-exit.json`). The third bounded
+experiment retains the single compilation job,3-GiB per-process anonymous budget
+and original source/profile, but explicitly lowers the system reserve to768 MiB.
+It passed the previously interrupted app-server-protocol compilation; no complete
+runtime is claimed yet. These observation limits are never installed product policy.
 Temporary runners are never installed and
 can be removed after terminal results, required artifacts and restoration inputs
 are retained and no armed proof consumes them. Actual artifact qualification is
@@ -901,10 +914,28 @@ still consumes its original Core outcome after releasing the update lease;
 concurrent activation and the actual current-client handoff need separate proof.
 Broader module compatibility/planning, native source/dependency provisioning,
 configured transports, publication/readback and bounded device activation remain
-required. The local archive fetch still suppresses curl stderr and removes its
-partial staging on failure. Source integration needs cause-specific failure,
-verified resumable acquisition and observable transfer progress beyond its phase
-label, rather than a longer unexplained timeout or another acquisition route.
+required. The next local archive acquisition draft routes Core's official package
+download through the same digest-keyed cache, with the official metadata digest
+and builder-owned256-MiB archive bound. The former fetch_archive API has no other
+caller and is removed; standalone builder fetch retains its explicit CLI contract.
+The existing public local-build authority/failure regression passes. Its new
+assertion requires exactly one archive acquisition across failed construction
+and a subsequent successful update. Removing the verified cached archive before
+acquisition in disposable source makes the test fail with3 requests instead of1;
+the source is restored and the inactive worktree removed with restoration records
+(`local-archive-mutation{,-inputs}.json`, `local-archive-worktree-cleanup.json`).
+The first full gate passes Python25+123+10, Core230 with the existing device
+exclusion, Manager52, integration67+3, builder42, binding2 and Clippy
+(`local-archive-resume-full-v1.log`). Final flow review corrected an unintended
+300-to1800-second timeout change and reused the existing official URL constant;
+the caller now shares the builder's original300-second archive transfer bound.
+The final Rust/Clippy gate passes the same counts
+(`local-archive-resume-rust-final.log`). Actual Android32-step qualification passes
+with the final frozen executables (`local-archive-resume-native-final.json`): real
+official0.164 HTTPS acquisition, authorized local signing, immutable Core reuse
+while the running image is replaced, activation and both rollback directions.
+Its owned fixture is removed, with operating state unchanged. These are download
+and binary-adaptation proofs, not completed0.165 source provisioning or delivery.
 Provider transfer progress/resume is qualified by the subsequent batch below.
 The manual-update display qualification now follows actual selected-Provider
 installation rather than an informational-only lookup. Its signed fixture supplies

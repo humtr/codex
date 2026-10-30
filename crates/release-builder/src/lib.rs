@@ -15,7 +15,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
+pub const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -45,7 +45,7 @@ const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux
 const OFFICIAL_RELEASE_BASE: &str = "https://releases.openai.com/codex/releases";
 const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
 const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
-const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
+pub const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
 const SOURCE_RUNTIME_POLICY: &str = "termux-source-v1";
 const RELEASE_INDEX_FORMAT: &str = "codex-update-index-v1";
@@ -3925,22 +3925,6 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
         (Err(error), Ok(())) => Err(error),
         (Ok(()), Ok(())) => Ok(()),
     }
-}
-
-/// Runs the bounded official-archive acquisition without going through the
-/// human-facing command dispatcher. Core uses this for its local update path.
-pub fn fetch_archive(
-    version: &str,
-    curl: &Path,
-    openssl: &Path,
-    output: &Path,
-) -> Result<String, BuilderError> {
-    fetch(&FetchRequest {
-        version: version.to_owned(),
-        curl: curl.to_owned(),
-        openssl: openssl.to_owned(),
-        output: output.to_owned(),
-    })
 }
 
 /// Signs one qualified generation into a complete local publication tree.
