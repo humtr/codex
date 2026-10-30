@@ -23,7 +23,9 @@ export function validateMap(value, generation) {
   for (const path of paths) {
     const target = value.files[path];
     if (!target || Object.keys(target).sort().join() !== 'asset,generation' || target.asset !== flat(path)
-        || target.generation !== (!base && common.includes(path) ? value.base_generation : generation)) {
+        || typeof target.generation !== 'string' || !generationRE.test(target.generation)
+        || !/^local-(base-)?relay-hosted-/.test(target.generation)
+        || ((path in control || path === 'generation.meta') && target.generation !== generation)) {
       throw Error('invalid target');
     }
   }

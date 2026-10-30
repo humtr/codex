@@ -4632,12 +4632,20 @@ lock dependencies, upstream/archive and Core toolchain, not Manager/TUI policy.
 The producer verifies both the sidecar and base file inventory before reuse;
 version equality or a successful unowned workflow alone never permits reuse.
 
-The full Release contains only its additional/replaced files and a bounded
-`asset-map-v1.json` pointing common files to that exact base Release. The transport
-map is not trust authority; the complete signed inventory authenticates every
+Each Release contains its changed payloads and a bounded `asset-map-v1.json`.
+Composition may reuse any same-path payload from an earlier authenticated public
+head when its signed digest and mode match the new inventory. Controls and
+generation.meta always belong to the new Release. Full still requires the exact
+input-matching Base; common payload routes are flattened from that Base's map so
+they point to physical assets even when the Base itself reuses older payloads.
+Existing missing maps permit no optional previous-head reuse; a malformed map,
+wrong manifest binding, invalid signature or non-earlier head is an error.
+Inherited routes to the candidate itself are rejected before removing copies.
+Every staged payload is checked before omitting any generated copy. The transport
+map is not trust authority; the complete new signed inventory authenticates every
 logical file. The redirect adapter accepts only GET/HEAD, canonical bounded local
 generations, fixed humtr/codex Release assets and exact admitted paths. It rejects
-encoded/unsafe paths, queries, missing/foreign maps and cycles. It never proxies
+encoded/unsafe paths, queries, missing/foreign maps and indirect routing. It never proxies
 payloads, chooses stable, handles credentials or controls device state. It needs
 no secret/binding/storage or per-generation deployment. Administrative deployment
 uses existing account credentials locally, never grants CI another credential.

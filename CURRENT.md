@@ -726,8 +726,29 @@ stopped there (peak anonymous1,744,584,704 bytes, status-15 in55.79s), preservin
 completed dependencies (`native-runtime-global-off-v2-exit.json`). The third bounded
 experiment retains the single compilation job,3-GiB per-process anonymous budget
 and original source/profile, but explicitly lowers the system reserve to768 MiB.
-It passed the previously interrupted app-server-protocol compilation; no complete
-runtime is claimed yet. These observation limits are never installed product policy.
+It completed the entire CLI in4361.52s with status0, unchanged prepared source and
+no observer stop (`native-runtime-global-off-v3-exit.json`). Peak sampled process
+RSS is3,112,308,736 bytes and anonymous RSS2,882,584,576 bytes; these are sampled
+observations, not exact physical peaks. The188,812,720-byte raw executable is
+frozen in `native-runtime-global-off-v3-bin`, SHA256
+5a1d75b6d92bbce713e4fda6c32b3f5a359e66ba4eb02e0a73844a6dc98e4493.
+Actual Android --version succeeds with exactly codex-cli0.165.0 and empty stderr.
+These observation limits are never installed product policy.
+The existing20-step Core lifecycle also passes with that exact raw runtime and
+the real official0.165 archive (`native-source-runtime-lifecycle-v1.json`): source
+admission, generation assembly/signing, isolated install/version/command surfaces,
+update and both rollback directions preserve user-state sentinels. Its fixture is
+removed. The same raw runtime also passes actual Android native-tool execution,
+named permission/guardian approval, cold resume and a side thread through one
+backend (`native-source-runtime-permissions-v1.json`):3 actual commands,3 tool
+results and3 approval requests. Its model is a deterministic owned HTTP fixture,
+not actual model inference. These trials do not qualify the shared producer's
+still-different default profile, automatic SDK acquisition or Core's source-build
+orchestration. The SDK's musl/libgcc archives were freshly read back from official
+URLs with matching known digests (`native-sdk-dependency-readback.json`); official
+Rust compiler/std digest metadata also matches the retained raw archives
+(`native-rust-sdk-readback.json`). Those are availability/input checks, not SDK
+installation or APK signature admission.
 Temporary runners are never installed and
 can be removed after terminal results, required artifacts and restoration inputs
 are retained and no armed proof consumes them. Actual artifact qualification is
@@ -935,13 +956,13 @@ retained0.164 runtime/frontend, not a new0.165 port, public delivery or operatin
 activation; reusable compiler caches remain below15 GiB.
 
 This qualifies selected Provider updates and the tested local Core input scope,
-not the entire module lifecycle. General changed-object publication and broader
-module planning remain required. Manual freshness
+not the entire module lifecycle. General changed-object publication is locally
+qualified below; broader module planning remains required. Manual freshness
 still consumes its original Core outcome after releasing the update lease;
 concurrent activation and the actual current-client handoff need separate proof.
 Broader module compatibility/planning, native source/dependency provisioning,
 configured transports, publication/readback and bounded device activation remain
-required. The next local archive acquisition draft routes Core's official package
+required. Core's local archive acquisition now routes the official package
 download through the same digest-keyed cache, with the official metadata digest
 and builder-owned256-MiB archive bound. The former fetch_archive API has no other
 caller and is removed; standalone builder fetch retains its explicit CLI contract.
@@ -1014,6 +1035,38 @@ Core should own detection, composition selection, acquisition choice, progress,
 verification and atomic activation. Keep one portable artifact preparation/build
 implementation; local execution and remote runners, including optional GitHub CI,
 consume it. Publishing remains a separate owner-controlled signed operation.
+The publication producer expands the existing transport map to reuse any
+same-path/digest/mode payload from an earlier authenticated head. Controls and
+generation.meta remain current. Full still verifies its exact Base input closure,
+but inherits that Base's flattened physical routes instead of assuming its files
+are all uploaded again. The release workflow supplies the authenticated previous
+lane; no second upload protocol is added. The redirect consumer accepts these
+physical payload routes while retaining fixed repository/assets/path/method and
+current-control restrictions. Older maps remain readable without aliases or a new
+schema. An absent optional historical map means no previous-head optimization;
+malformed/signature/manifest-binding errors remain terminal before copy removal.
+Python25+124+10 passes (`publication-reuse-python-reviewed.log`), including actual compose
+CLI execution and signed public-tree reconstruction across two Bases/two Fulls.
+Node redirect tests pass (`publication-reuse-worker.log`). Omitting digest
+eligibility, route flattening, previous signature verification or the redirect's
+current-control rule or candidate-self-route rejection each fails its targeted
+assertion; disposable source is restored (`publication-reuse-mutations-final.json`).
+Staged map replacement is atomic and does not follow an existing map symlink;
+removing that replacement fails the user-data preservation assertion
+(`publication-map-atomic-mutation.json`). An unavailable optional historical map
+is reported and retains all new payloads. The original Python exception-type
+regression is retained and corrected at the transport validator's error boundary.
+Actual Android consumption passes through the production composer, actual Worker
+handler, native curl and owned hostname-verified TLS (`publication-reuse-native-v2.json`).
+All5 common payloads are absent from the new release's physical storage; the old
+release supplies the runtime,0.165 executes and rollback executes0.164. A corrupted
+runtime body fails digest admission without changing selection; auth/config/resolver
+sentinels survive. This is synthetic owner control/storage, not deployed hosting or
+real model inference. The initial fixture's frozen Core mode0700 was corrected to
+the preserved release mode0755; its failed result remains, without weakening admission
+(`publication-native-input-correction.json`). Deployed backward-compatible redirect
+behavior and complete public readback remain unqualified. Deploy the compatible
+redirect before publishing sparse assets; public Base124/Full123 remain untouched.
 Ordinary consumers install authenticated prebuilts without repository write access,
 GitHub CLI or a Codex/ChatGPT login. GitHub storage and GitHub job execution are
 separate dependencies: the existing Worker redirect still ultimately uses GitHub

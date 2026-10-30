@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -57,10 +58,27 @@ class ComponentsTests(unittest.TestCase):
             value['upstream']['archive_sha256']='f'*64;recipe.write_text(json.dumps(value));self.commit(root)
             self.assertNotEqual(component.base_fingerprint(root),before)
 
-    def signed_assets(self, fixture, repo, generation, base=False):
+    def signed_assets(self, fixture, repo, generation, base=False, changes=None):
         files=[row for row in fixtures.FILES if not base or row[0]!='manager']
         with patch.object(fixtures,'GENERATION',generation),patch.object(fixtures,'BASE',publication.canonical_release_base(generation)),patch.object(fixtures,'FILES',files):
             fixture.build_signed(frontend=not base)
+            if changes:
+                release=fixture.signed/'releases'/generation
+                manifest=release/'release.manifest'
+                old_manifest=publication.sha256(manifest)
+                text=manifest.read_text()
+                for name,data in changes.items():
+                    path=release/name
+                    self.assertEqual(len(data),path.stat().st_size)
+                    old=publication.sha256(path);path.write_bytes(data)
+                    text=text.replace('file\t'+name+'\t'+old+'\t','file\t'+name+'\t'+publication.sha256(path)+'\t')
+                manifest.write_text(text)
+                fixtures.openssl('pkeyutl','-sign','-rawin','-inkey',str(fixture.private_key),
+                    '-in',str(manifest),'-out',str(release/'release.sig'))
+                sizes=fixture.signed/'download-size-v1'
+                sizes.write_text(sizes.read_text().replace(old_manifest,publication.sha256(manifest)))
+                fixtures.openssl('pkeyutl','-sign','-rawin','-inkey',str(fixture.private_key),
+                    '-in',str(sizes),'-out',str(fixture.signed/'download-size-v1.sig'))
             component.sign_component(repo,fixture.signed,generation,fixture.private_key,Path(shutil.which('openssl')))
             controls=repo.parent/('controls-'+generation);controls.mkdir()
             for name in ['release.manifest','release.sig']:
@@ -69,13 +87,15 @@ class ComponentsTests(unittest.TestCase):
                 shutil.copyfile(fixture.signed/name,controls/name)
             assets=repo.parent/('assets-'+generation)
             result=fixture.prepare(assets);self.assertEqual(result.returncode,0,result.stderr.decode())
+            if base:
+                component.compose(assets,None,fixture.public_key)
+                shutil.copyfile(assets/component.MAP,controls/component.MAP)
         return assets,controls
 
     def test_signed_base_and_addons_reconstruct_complete_full_and_reject_wrong_base(self):
         fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')
         base,controls=self.signed_assets(fixture,repo,BASE,True)
-        component.compose(base,None,fixture.public_key)
         full,_=self.signed_assets(fixture,repo,FULL)
         original={path.name:path.read_bytes() for path in full.iterdir()}
         with self.assertRaisesRegex(ValueError,'requires an authenticated'):
@@ -104,7 +124,7 @@ class ComponentsTests(unittest.TestCase):
         for fault in ['foreign','inheritance','omitted','extra','cycle','identity']:
             changed=copy.deepcopy(mapping)
             if fault=='foreign':changed['files']['runtime']['generation']='other/repo'
-            elif fault=='inheritance':changed['files']['manager']['generation']=BASE
+            elif fault=='inheritance':changed['files']['generation.meta']['generation']=BASE
             elif fault=='omitted':del changed['files']['core']
             elif fault=='extra':changed['files']['helpers/9']=changed['files']['helpers/0']
             elif fault=='cycle':changed['base_generation']=FULL
@@ -116,6 +136,92 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(publication.canonical_release_base('local-hosted-old'),'https://humtr.github.io/codex/local-hosted-old/')
         for invalid in ['local-../escape','other','local-a\n']:
             with self.assertRaises(publication.ValidationError):publication.canonical_release_base(invalid)
+
+    def test_changed_payload_publication_flattens_base_and_reuses_unchanged_addons(self):
+        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        repo=self.repository(fixture.root/'source')
+        old_base_id='local-base-relay-hosted-old-s10'
+        old_full_id='local-relay-hosted-old-s11'
+        new_base_id='local-base-relay-hosted-new-s12'
+        new_full_id='local-relay-hosted-new-s13'
+        with patch.object(fixtures,'SEQUENCE','10'):
+            old_base,old_base_controls=self.signed_assets(fixture,repo,old_base_id,True)
+        with patch.object(fixtures,'SEQUENCE','11'):
+            old_full,old_full_controls=self.signed_assets(fixture,repo,old_full_id)
+        component.compose(old_full,old_base_controls,fixture.public_key)
+        shutil.copyfile(old_full/component.MAP,old_full_controls/component.MAP)
+        (repo/'crates/core/lib.rs').write_text('changed Core input');self.commit(repo)
+        changed={'core':b'changed:core\n'}
+        with patch.object(fixtures,'SEQUENCE','12'):
+            new_base,new_base_controls=self.signed_assets(fixture,repo,new_base_id,True,changed)
+        old_transport=old_base_controls/component.MAP;old_mapping=old_transport.read_bytes()
+        old_transport.unlink()
+        missing=[]
+        def absent(url,target,limit,*,optional):
+            self.assertTrue(optional);missing.append(url);return False
+        retained=component.compose(new_base,None,fixture.public_key,old_base_controls,absent)
+        self.assertEqual(missing,[publication.canonical_release_base(old_base_id)+component.MAP])
+        self.assertEqual(retained['files']['runtime']['generation'],new_base_id)
+        self.assertTrue((new_base/'runtime').is_file())
+        old_transport.write_bytes(old_mapping)
+        protected=fixture.root/'unrelated-user-data';protected.write_bytes(b'preserve this content')
+        (new_base/component.MAP).unlink();(new_base/component.MAP).symlink_to(protected)
+        result=subprocess.run([sys.executable,str(ROOT/'.github/scripts/release_components.py'),'compose',
+            '--assets',str(new_base),'--authority',str(fixture.public_key),'--previous',str(old_base_controls)],capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr.decode())
+        self.assertEqual(protected.read_bytes(),b'preserve this content')
+        self.assertFalse((new_base/component.MAP).is_symlink())
+        base_map=json.loads((new_base/component.MAP).read_bytes())
+        self.assertEqual(base_map['files']['core']['generation'],new_base_id)
+        self.assertEqual(base_map['files']['runtime']['generation'],old_base_id)
+        self.assertFalse((new_base/'runtime').exists())
+        shutil.copyfile(new_base/component.MAP,new_base_controls/component.MAP)
+        with patch.object(fixtures,'SEQUENCE','13'):
+            new_full,_=self.signed_assets(fixture,repo,new_full_id,changes=changed)
+        before={path.name:path.read_bytes() for path in new_full.iterdir()}
+        signature=old_full_controls/'release.sig';original=signature.read_bytes()
+        signature.write_bytes(bytes(64))
+        with self.assertRaises(publication.ValidationError):
+            component.compose(new_full,new_base_controls,fixture.public_key,old_full_controls)
+        signature.write_bytes(original)
+        transport=old_full_controls/component.MAP;original=transport.read_bytes()
+        bad=json.loads(original);bad['manifest_sha256']='f'*64;transport.write_text(json.dumps(bad))
+        with self.assertRaisesRegex(ValueError,'manifest differs'):
+            component.compose(new_full,new_base_controls,fixture.public_key,old_full_controls)
+        self.assertEqual({path.name:path.read_bytes() for path in new_full.iterdir()},before)
+        transport.write_bytes(original)
+        base_transport=new_base_controls/component.MAP;original=base_transport.read_bytes()
+        bad=json.loads(original);bad['files']['runtime']['generation']=new_full_id
+        base_transport.write_text(json.dumps(bad))
+        with self.assertRaisesRegex(ValueError,'route points to candidate'):
+            component.compose(new_full,new_base_controls,fixture.public_key,old_full_controls)
+        self.assertEqual({path.name:path.read_bytes() for path in new_full.iterdir()},before)
+        base_transport.write_bytes(original)
+        result=subprocess.run([sys.executable,str(ROOT/'.github/scripts/release_components.py'),'compose',
+            '--assets',str(new_full),'--authority',str(fixture.public_key),'--base',str(new_base_controls),
+            '--previous',str(old_full_controls)],capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr.decode())
+        mapping=json.loads((new_full/component.MAP).read_bytes())
+        self.assertEqual(mapping['files']['runtime']['generation'],old_base_id)
+        self.assertEqual(mapping['files']['core']['generation'],new_base_id)
+        for path in ['manager','helpers/2']:
+            self.assertEqual(mapping['files'][path]['generation'],old_full_id)
+            self.assertFalse((new_full/publication.FLAT_ASSETS[path]).exists())
+        self.assertEqual(mapping['files']['generation.meta']['generation'],new_full_id)
+        origins={old_base_id:old_base,old_full_id:old_full,new_base_id:new_base,new_full_id:new_full}
+        public=fixture.root/'public';target=public/new_full_id;target.mkdir(parents=True)
+        for path,route in mapping['files'].items():
+            if path.startswith('component-') or path=='update-public-key.pem':continue
+            destination=target/path;destination.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(origins[route['generation']]/route['asset'],destination)
+        _,records=publication.parse_manifest(target/'release.manifest')
+        for path,digest,mode in records:
+            self.assertEqual(publication.sha256(target/path),digest)
+            (target/path).chmod(int(mode,8))
+        result=fixtures.run('verify-public','--root',str(public),'--public-key',str(fixture.public_key),
+            '--generation',new_full_id,'--release-sequence','13',
+            '--release-base',publication.canonical_release_base(new_full_id),'--require-download-size')
+        self.assertEqual(result.returncode,0,result.stderr.decode())
 
     def test_display_metadata_is_signed_manifest_bound_and_matches_actual_base(self):
         fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)

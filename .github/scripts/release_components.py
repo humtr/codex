@@ -9,10 +9,11 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 
-from rald5_publication import (BASE_FILES, FLAT_ASSETS, canonical_release_base,
+from rald5_publication import (BASE_FILES, FLAT_ASSETS, ValidationError, canonical_release_base,
                                parse_manifest, sha256, verify_signature)
 from release_heads import download
 from runtime_inputs import fingerprint as runtime_fingerprint, cargo_dependencies, locked_packages
@@ -238,54 +239,95 @@ def acquire_base(source, heads, authority, destination, fetch=download):
     return generation
 
 
-def compose(assets, base, authority):
-    """Verify all bytes before omitting common files; map is only transport."""
+def transport_origin(directory, authority, scratch, fetch, required):
+    """Authenticate an origin inventory and its bounded, non-authoritative routes."""
+    manifest, files = parse_manifest(directory/'release.manifest')
+    verify_signature('openssl',authority,directory/'release.manifest',directory/'release.sig')
+    generation = manifest['generation_id']
+    if not generation.startswith(('local-base-relay-hosted-', 'local-relay-hosted-')):
+        if required:
+            raise ValueError('composition requires a mapped public Base')
+        print(f'Historical origin {generation} has no supported map; retaining publication payloads.',file=sys.stderr)
+        return manifest, files, None
+    path = directory/MAP
+    if not path.exists() and not path.is_symlink():
+        path = scratch/generation/MAP
+        path.parent.mkdir(parents=True,exist_ok=True)
+        if not fetch(canonical_release_base(generation)+MAP,path,16384,optional=not required):
+            print(f'Previous map unavailable for {generation}; retaining publication payloads.',file=sys.stderr)
+            return manifest, files, None
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 16384:
+        raise ValueError('invalid origin transport map')
+    mapping = validate_map(json.loads(path.read_bytes(),object_pairs_hook=unique),generation)
+    if mapping['manifest_sha256'] != sha256(directory/'release.manifest'):
+        raise ValueError('origin transport map manifest differs')
+    return manifest, files, mapping
+
+
+def compose(assets, base, authority, previous=None, fetch=download):
+    """Authenticate inventories, flatten physical routes, then omit verified copies."""
     own, files = parse_manifest(assets/'release.manifest')
     generation = own['generation_id']
     verify_signature('openssl',authority,assets/'release.manifest',assets/'release.sig')
     own_component = component(assets,generation,authority)
     inherited = {}
     base_generation = None
-    if not generation.startswith('local-base-'):
-        if base is None:
-            raise ValueError('full composition requires an authenticated matching base')
-        base_manifest, base_files = parse_manifest(base/'release.manifest')
-        base_generation = base_manifest['generation_id']
-        if not base_generation.startswith('local-base-relay-hosted-'):
-            raise ValueError('full composition requires qualified base provenance')
-        verify_signature('openssl',authority,base/'release.manifest',base/'release.sig')
-        base_component = component(base,base_generation,authority)
-        if base_component['base_inputs_sha256'] != own_component['base_inputs_sha256']:
-            raise ValueError('full and base input closure differs')
-        if 'display' in own_component and (
-                own_component['display']['base_generation'] != base_generation
-                or own_component['display']['base_sequence'] != int(base_manifest['release_sequence'])):
-            raise ValueError('display base differs from actual composition')
-        inherited = {name:(digest,mode) for name,digest,mode in base_files if name in COMMON}
-        if set(inherited) != COMMON:
-            raise ValueError('base common inventory differs')
-    mapped = {}
-    omit = []
-    for name,digest,mode in files:
-        asset = FLAT_ASSETS[name]
-        if sha256(assets/asset) != digest:
-            raise ValueError('composition payload digest differs')
-        target = generation
-        if name in inherited:
-            if inherited[name] != (digest,mode):
-                raise ValueError('common payload differs from pinned base')
-            target = base_generation
-            omit.append(assets/asset)
-        mapped[name] = {'generation':target,'asset':asset}
-
-    mapped.update({name:{'generation':generation,'asset':asset} for name,asset in CONTROL_ASSETS.items()})
-    value = {'schema':'codex-asset-map-v1','generation_id':generation,
-             'base_generation':base_generation,'manifest_sha256':own_component['manifest_sha256'], 'files':mapped}
-    validate_map(value,generation)
-    (assets/MAP).write_bytes(canonical(value))
-    for path in omit:
-        path.unlink()  # Only verified generated release copies, never user data.
-    return value
+    with tempfile.TemporaryDirectory(prefix='.composition-',dir=assets) as temporary:
+        scratch=Path(temporary)
+        if not generation.startswith('local-base-'):
+            if base is None:
+                raise ValueError('full composition requires an authenticated matching base')
+            base_manifest, base_files, base_map = transport_origin(base,authority,scratch,fetch,True)
+            base_generation = base_manifest['generation_id']
+            if not base_generation.startswith('local-base-relay-hosted-'):
+                raise ValueError('full composition requires qualified base provenance')
+            base_component = component(base,base_generation,authority)
+            if base_component['base_inputs_sha256'] != own_component['base_inputs_sha256']:
+                raise ValueError('full and base input closure differs')
+            if 'display' in own_component and (
+                    own_component['display']['base_generation'] != base_generation
+                    or own_component['display']['base_sequence'] != int(base_manifest['release_sequence'])):
+                raise ValueError('display base differs from actual composition')
+            inherited = {name:(digest,mode,base_map['files'][name])
+                         for name,digest,mode in base_files if name in COMMON}
+            if set(inherited) != COMMON:
+                raise ValueError('base common inventory differs')
+        prior = {}
+        if previous is not None:
+            previous_manifest, previous_files, previous_map = transport_origin(previous,authority,scratch,fetch,False)
+            if int(previous_manifest['release_sequence']) >= int(own['release_sequence']):
+                raise ValueError('reuse origin must be an earlier release')
+            if previous_map is not None:
+                prior = {name:(digest,mode,previous_map['files'][name])
+                         for name,digest,mode in previous_files if name != 'generation.meta'}
+        mapped = {}
+        omit = []
+        for name,digest,mode in files:
+            asset = FLAT_ASSETS[name]
+            if sha256(assets/asset) != digest:
+                raise ValueError('composition payload digest differs')
+            target = {'generation':generation,'asset':asset}
+            inherited_file = inherited.get(name)
+            if inherited_file is not None:
+                if inherited_file[:2] != (digest,mode):
+                    raise ValueError('common payload differs from pinned base')
+            elif name in prior and prior[name][:2] == (digest,mode):
+                inherited_file = prior[name]
+            if inherited_file is not None:
+                target = inherited_file[2]
+                if target['generation'] == generation:
+                    raise ValueError('reuse route points to candidate generation')
+                omit.append(assets/asset)
+            mapped[name] = target
+        mapped.update({name:{'generation':generation,'asset':asset} for name,asset in CONTROL_ASSETS.items()})
+        value = {'schema':'codex-asset-map-v1','generation_id':generation,
+                 'base_generation':base_generation,'manifest_sha256':own_component['manifest_sha256'], 'files':mapped}
+        validate_map(value,generation)
+        (scratch/MAP).write_bytes(canonical(value))
+        os.replace(scratch/MAP,assets/MAP)
+        for path in omit:
+            path.unlink()  # Verified generated release copies; original assets stay immutable.
+        return value
 
 
 def validate_map(value, generation):
@@ -307,9 +349,19 @@ def validate_map(value, generation):
     paths=set(BASE_FILES)|set(CONTROL_ASSETS)| (set() if base else {'manager','helpers/2'})
     if set(value['files']) != paths:raise ValueError('invalid mapped inventory')
     for name,target in value['files'].items():
-        expected={'generation':inherited if not base and name in COMMON else generation,
-                  'asset':CONTROL_ASSETS.get(name,FLAT_ASSETS.get(name))}
-        if target != expected:raise ValueError('invalid mapped target')
+        if (not isinstance(target,dict) or set(target)!={'generation','asset'}
+            or target['asset'] != CONTROL_ASSETS.get(name,FLAT_ASSETS.get(name))
+            or not isinstance(target['generation'],str)):
+            raise ValueError('invalid mapped target')
+        try:
+            safe_generation(target['generation'])
+        except ValidationError as error:
+            raise ValueError('invalid mapped origin') from error
+        if not target['generation'].startswith(('local-base-relay-hosted-', 'local-relay-hosted-')):
+            raise ValueError('invalid mapped origin')
+        if name in CONTROL_ASSETS or name == 'generation.meta':
+            if target['generation'] != generation:
+                raise ValueError('release controls must belong to the current generation')
     return value
 
 
@@ -386,6 +438,7 @@ def main():
     for name in ['assets','authority']:
         composition.add_argument('--'+name,type=Path,required=True)
     composition.add_argument('--base',type=Path)
+    composition.add_argument('--previous',type=Path)
     candidate=sub.add_parser('candidate')
     for name in ['base','manager','frontend','builder','output']:
         candidate.add_argument('--'+name,type=Path,required=True)
@@ -418,7 +471,7 @@ def main():
     elif args.command=='candidate':
         candidate_from_base(args.base,args.manager,args.frontend,args.builder,args.generation,args.version,args.output)
     else:
-        value=compose(args.assets,args.base,args.authority)
+        value=compose(args.assets,args.base,args.authority,args.previous)
         print('base_generation='+str(value['base_generation'] or ''))
 
 

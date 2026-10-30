@@ -277,15 +277,18 @@ jobs:
             --release-base "$release_base"
 
           composition_args=()
+          python3 publication-source/.github/scripts/release_heads.py \
+            --main-sha "$expected_main" --variant '${{ inputs.release_variant }}' --public-key "$authority" \
+            --output "$work/heads" > "$work/heads.env"
+          previous_lane='${{ inputs.release_variant }}'
+          if ! test -f "$work/heads/$previous_lane/release.manifest"; then previous_lane=full; fi
+          composition_args+=(--previous "$work/heads/$previous_lane")
           if test '${{ inputs.release_variant }}' = full; then
-            python3 publication-source/.github/scripts/release_heads.py \
-              --main-sha "$expected_main" --variant full --public-key "$authority" \
-              --output "$work/heads" > "$work/heads.env"
             python3 publication-source/.github/scripts/release_components.py match-base \
               --source publication-source --heads "$work/heads" --authority "$authority" \
               --output "$work/base" > "$work/base.env"
             test "$(sed -n 's/^reuse_base=//p' "$work/base.env")" = true
-            composition_args=(--base "$work/base")
+            composition_args+=(--base "$work/base")
           fi
           python3 publication-source/.github/scripts/release_components.py compose \
             --assets "$assets" --authority "$authority" "${composition_args[@]}"

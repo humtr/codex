@@ -30,14 +30,26 @@ for (const path of ['','?url=https://evil.invalid','helpers/9','runtime?x=1','%7
   assert.equal(response.status,404,path);
 }
 assert.equal(fetches,before);
+// Payloads can be physical assets of earlier Base or Full generations. No
+// recursive map fetch is necessary; controls still belong to the new release.
+for (const path of ['core','manager','helpers/2']) {
+  const copy=structuredClone(map);
+  copy.files[path].generation='local-relay-hosted-previous-s0';
+  validateMap(copy,generation);
+  const response=await handle(new Request(`https://codex-releases.humtr.workers.dev/${generation}/${path}`),async()=>new Response(JSON.stringify(copy)));
+  assert.equal(response.status,302);
+  assert.equal(response.headers.get('Location'),`https://github.com/humtr/codex/releases/download/local-relay-hosted-previous-s0/${copy.files[path].asset}`);
+}
 assert.equal((await handle(new Request(`https://codex-releases.humtr.workers.dev/${generation}/core`,{method:'POST'}),fetcher)).status,405);
-for (const fault of ['foreign','missing','extra','cycle','trailing-newline']) {
+for (const fault of ['foreign','missing','extra','cycle','trailing-newline','inherited-control','wrong-asset']) {
   const copy=structuredClone(map);
   if (fault==='foreign')copy.files.core.generation='evil';
   if (fault==='missing')delete copy.files.runtime;
   if (fault==='extra')copy.files['helpers/9']=copy.files['helpers/0'];
   if (fault==='cycle')copy.base_generation=generation;
   if (fault==='trailing-newline')copy.base_generation=base+'\n';
+  if (fault==='inherited-control')copy.files['release.manifest'].generation=base;
+  if (fault==='wrong-asset')copy.files.core.asset='runtime';
   assert.throws(()=>validateMap(copy,generation),undefined,fault);
   const response=await handle(new Request(`https://codex-releases.humtr.workers.dev/${generation}/core`),async()=>new Response(JSON.stringify(copy)));
   assert.equal(response.status,502);
