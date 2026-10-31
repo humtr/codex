@@ -1567,10 +1567,12 @@ scenario. See CURRENT's acceptance matrix and work order for the remaining scope
 
 #### Work recording scope and entry selection
 
-The workflow meanings currently called **direct: ChatGPT standalone development**
-and **provider: common Codex development/orchestration** are authoritative;
-the labels themselves are under review. The entrypoint and inference initiation
-route do not redefine these modes. MCP/local_function is transport.
+The workflow names are fixed as **standalone — 단독 개발** and
+**integrated — 통합 개발**. Standalone means ChatGPT standalone development;
+integrated means the common task/tool/control/history/orchestration workflow.
+Entrypoint, model and inference initiation do not redefine these modes.
+Provider remains the component name, not a workflow mode. MCP/local_function is
+transport. Do not retain direct/provider or current/managed as workflow aliases.
 CURRENT records implementation and qualification; this contract does not claim
 that the installed MCP already exposes a threadless local-tool surface.
 
@@ -1579,14 +1581,14 @@ that the installed MCP already exposes a threadless local-tool surface.
   Codex conversation history. Reusing the installed Core executable does not
   require a Native conversation, a model catalog or Codex model authentication;
   that API fact alone does not qualify a backend as standalone development.
-- Provider workflow owns all participation in Codex tasks, Native tools and
+- Integrated workflow owns all participation in Codex tasks, Native tools and
   orchestration: common instructions, work/turn admission, permissions,
   execution/control, public history, CLI projection and completion. A ChatGPT
-  response attaching to existing Codex work uses provider workflow too.
-- Codex CLI entry and ChatGPT entry into provider mode use that same common
+  response attaching to existing Codex work uses integrated workflow too.
+- Codex CLI entry and ChatGPT entry into integrated mode use that same common
   work admission/execution/event/result lifecycle. Differences in incoming
   transport and final display destination do not create a second development
-  workflow. Direct never serves as a bypass into Native work/tools.
+  workflow. Standalone never serves as a bypass into Native work/tools.
 - A new unbound ChatGPT task defaults to local tools. A Codex-origin input or a
   verified selection of an existing Codex task retains its Native work. One
   initial selection persists across ordinary follow-ups; repository paths,
@@ -1669,12 +1671,12 @@ A supported project instruction/connection can guide the model; neither proves
 that tools, developer instructions or a work controller are continuously applied.
 No unsupported host hook may be assumed to make this guarantee.
 
-**Execution meaning and terminology.** Direct means ChatGPT standalone development
+**Execution meaning and terminology.** Standalone means ChatGPT standalone development
 without joining Codex work, invoking its Native tool workflow or orchestrating
-through it. Provider means the common Codex work/tool/orchestration workflow,
+through it. Integrated means the common Codex work/tool/orchestration workflow,
 whether the request enters in CLI or ChatGPT and whether reasoning uses an
 already-active Chat response or a Provider-submitted model request. Attaching an
-active Chat to existing Codex work is provider, never direct. The workflow mode
+active Chat to existing Codex work is integrated. The workflow mode
 does not by itself mean an independent child agent.
 Independent delegation requires a separate reasoning context, a parent/assignment
 relationship and original result return. No current/managed compatibility names
@@ -1690,7 +1692,7 @@ never reinterpret an old `reasoning=direct` Native record as standalone work or
 retain aliases as a substitute for completing migration. Preserve original work,
 history and matched code/state rollback artifacts.
 
-Within provider workflow, an already-active response can be admitted without a
+Within integrated workflow, an already-active response can be admitted without a
 second primary inference, and a genuine new CLI input can submit a new model
 request. Both use the same selected work/controller, context acceptance,
 permissions and Native event/result handling. Reserve the actual reasoning owner
@@ -1718,7 +1720,7 @@ parallel tools and exposed independent host children require different evidence.
 
 MCP and local_function are tool/result transports, a different axis. Existing
 attached-response inference presently requires MCP; submitted inference can use
-MCP or explicitly selected app-local functions. Both Native paths are provider
+MCP or explicitly selected app-local functions. Both Native paths are integrated
 workflow. Local functions need no remote Chat-side tunnel;
 external ChatGPT-to-MCP does. Native Responses rounds, host tool continuations,
 new primary user requests and independent child runs are counted separately.
@@ -2227,7 +2229,7 @@ a compatibility input alongside the per-work combined routing. MCP/local is sele
 managed execution and cannot change on uncertain delivery. General delegation
 always enters through MCP and binds the current Chat's question/result return;
 the inner managed path is the same as Codex-origin work. Attached-response
-inference does not start another primary Chat; it is still provider workflow.
+inference does not start another primary Chat; it is still integrated workflow.
 Child/reviewer inference and any app acquisition are
 explicit dependent assignments with separately counted cost.
 
@@ -2253,7 +2255,7 @@ changed-path comparison and H review; its name is not the architecture. Managed
 MCP is the selected new opt-in preference and managed local is an explicit
 before-start alternative. Bare/installed legacy defaults do not change in E/F.
 Do not add another execution.mode permutation for these roles: keep that setting
-as the legacy default for unbound requests. Within common provider workflow,
+as the legacy default for unbound requests. Within integrated workflow,
 new work selects attached or submitted inference through the common work service; the assignment's route
 remains fixed until an acknowledged transfer. Existing create/resume/fork/start
 inputs keep their meaning when the new selection is absent. The common CLI is
@@ -2909,7 +2911,7 @@ service-wide setting; the combined target requires its own implementation and
 proof. ChatGPT attached-response execution of selected Codex work uses the owned Termux
 Codex wrapper's native app-server with no second primary model or execution-app
 acquisition. Submitted inference uses the common app-backed model path. Both are
-provider workflow. Direct standalone tools follow the work-recording scope contract;
+integrated workflow. Standalone tools follow the work-recording scope contract;
 they do not automatically create Native work or start a managed model.
 Existing controls already use the native server; neither reasoning route introduces
 a new executor or counts an identical path twice. App-backed reviewers and automatic Chat
@@ -2935,7 +2937,7 @@ not become a global gate on ordinary Bridge tools.
 
 The optional Provider may expose one authenticated MCP control service with two
 entrances. A Codex-origin native request starts the initial selected Chat model/effort;
-a Chat-origin provider-workflow request opens or attaches its selected work
+a Chat-origin integrated-workflow request opens or attaches its selected work
 without initiating Chat or another model. Both then use the same work binding and
 controls. The Provider routes controls/events/results; upstream owns execution, approvals, writers,
 canonical history, context commits and native task lifecycle. The Codex entrance

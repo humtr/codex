@@ -34,7 +34,10 @@ task contexts; fixed local-tools/Codex-work profiles remain optional lock/entry 
 The new local-tool MCP feature and selection enforcement are not implemented.
 Ordinary ChatGPT local tools must not require Codex conversation history;
 The user's workflow distinction is standalone ChatGPT development versus common
-Codex task/tool/orchestration development. Its final names are under review.
+task/tool/orchestration development. Final workflow names are fixed:
+standalone (단독 개발) and integrated (통합 개발). Provider remains the component
+name; direct/provider and current/managed are not workflow aliases. Entrypoint,
+model and attached/submitted inference do not redefine those modes.
 The earlier report incorrectly preserved the code's direct/provider inference
 distinction as the product definition. Native participation from either entrance
 belongs to the common workflow, even when the active Chat does the reasoning.
@@ -3059,11 +3062,12 @@ host readiness, Native commit and active/physical UI display are separate facts.
 | Project/TZ | Authenticated explicit project create/reuse for new lanes; Core supplies Android TZif to runtime/TUI, Seoul/New York DST and picker proof | Changing default project does not move an existing Chat; old processes keep launch TZ |
 | Packages/composition | Signed Full121/Provider20 (earlier composition proof119/15), Base/Manager-without-TUI/Full Android execution, signed rollback and exact state codec | Current public Full is Core+Manager+TUI; Provider remains separately selected |
 
-Direct means the active ChatGPT response uses Native tools without Provider
-submitting a new primary inference. Provider means Provider starts/manages a model
+In the installed legacy reasoning field, direct means the active ChatGPT response
+uses Native tools without another primary inference; provider starts/manages a model
 response, including sequential requests in a retained Chat. MCP/local_function
-are tool-return transports, not reasoning modes. Neither mode proves an independent
-worker. Separate assignment/context/result provenance establishes delegation.
+are tool-return transports. Both Native routes belong to integrated workflow;
+neither proves an independent worker. Separate assignment/context/result provenance
+establishes delegation. The public workflow names are standalone/integrated.
 
 ## Delivered A1 implementation and remaining qualification boundaries
 
@@ -4123,8 +4127,9 @@ Use exact digests for admission, never version labels or assumed reproducibility
   keeps user-prompt semantics; workflow setup belongs to its existing explicit
   owner. Offered app options plus configured additions decide selectable models/
   efforts. UI labels and wire values remain data. No model-generation hardcoding
-  or silent Instant/effort fallback. Direct/Provider remain the only execution
-  meanings; current/managed aliases are not reintroduced.
+  or silent Instant/effort fallback. Standalone/integrated are the workflow modes;
+  direct/provider and current/managed are not workflow aliases. Inference initiation
+  is a separate internal responsibility.
 - Separate the executable process, Native record owner and inference account.
   A Termux Codex process executing tools does not establish a Codex-account model
   submission. Classify each tool/route by its actual auth requirement and verify

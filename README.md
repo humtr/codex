@@ -38,8 +38,11 @@ paths. Saving an answer is separate from live TUI display. The
 [current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
 the remaining gaps; a client restart does not implement their repair.
 
-The intended workflows are **ChatGPT standalone development** and **common Codex
-development** from either entrance. Final workflow names are under review.
+The workflow names are **standalone — 단독 개발** and **integrated — 통합 개발**.
+Standalone is ChatGPT development outside the common work framework; integrated
+uses its shared task, tool, control, history and orchestration lifecycle from either
+entrance. Provider remains the component name. Entrypoint/model/inference initiation
+do not select or rename the workflow.
 The installed API still overloads `reasoning=direct|provider` for attached versus
 submitted inference; both create/reuse Native history. That old protocol is not
 the public workflow definition. Standalone ChatGPT tools are a separate

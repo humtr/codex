@@ -13,8 +13,9 @@ Codex 세션 기록으로 남는 것이다. 알림은 이 결합에서 파생된
 
 현행 코드의 `Selection.reasoning=direct|provider`는 현재 응답 참가와 새 응답 제출을
 나누며 둘 다 Native work를 사용한다. 이것을 제품의 direct/provider 정의로 보존한
-앞선 보고서와 설명은 잘못이었다. 사용자 계약은 **ChatGPT 독자 개발 / Codex 공통
-작업·도구·오케스트레이션**의 구분이다. 명칭 자체는 별도 재검토하며, 진입점이나
+앞선 보고서와 설명은 잘못이었다. 최종 명칭은 **standalone — 단독 개발 /
+integrated — 통합 개발**로 확정했다. 전자는 ChatGPT 단독 개발, 후자는 공통
+작업·도구·권한·이력·실행 제어·오케스트레이션을 사용한다. 진입점이나
 추론 제출 주체가 이 개발 의미를 바꾸지 않는다. MCP/local_function은 운반 방식이다.
 
 권고는 실행 의미를 먼저 분리하는 것이다.
@@ -234,7 +235,7 @@ admin profile의 저장 범위를 분리해야 한다. 사용자 지시에 따�
 
 | 구분 | 답하는 질문 | 권고 |
 | --- | --- | --- |
-| 개발 워크플로우 | ChatGPT 독자 개발인지, Codex 기전을 쓰는 공통 개발인지 | 사용자 정의 direct/provider의 의미. 최종 명칭은 별도 검토 |
+| 개발 워크플로우 | ChatGPT 단독 개발인지, 공통 작업 체계에 참가하는지 | standalone / integrated. 진입점·모델·추론 제출 주체와 독립 |
 | 추론 접속 | 이미 진행 중인 응답을 연결할지 새 모델 요청을 제출할지 | 공통 개발 내부의 실행 방식. 기존 reasoning 필드/enum의 혼동을 제거하는 구현·마이그레이션 필요 |
 | 연결 방식 | 도구 요청과 결과를 어떻게 운반할지 | MCP / local function은 동일한 실행 의미에 연결되는 adapter |
 
@@ -242,7 +243,9 @@ admin profile의 저장 범위를 분리해야 한다. 사용자 지시에 따�
 관계다. 범용 기능이 곧 모든 일을 Codex에 기록해야 한다는 뜻은 아니다. 독립 작업과
 독립 모델 작업자도 다르다. 후자는 추가 추론/별도 문맥과 실제 결과 반환을 입증해야 한다.
 
-사용자에게는 **ChatGPT 독자 개발 / Codex 공통 개발**의 의미를 먼저 제시한다.
+사용자 표기는 **standalone — 단독 개발 / integrated — 통합 개발**로 고정한다.
+Provider는 구성 요소 이름으로 남기고 direct/provider·current/managed를 모드 별칭으로
+유지하지 않는다. 기존 inference API/원본 기록의 의미와 최종 모드 명칭은 구분한다.
 Codex CLI 입력과 ChatGPT의 Codex 작업 요청은 공통 admission, 지침/문맥, 권한,
 Native 도구, 공개 이벤트와 결과 반환을 공유한다. “ChatGPT로 Codex 작업”과
 “Provider가 새 응답을 시작한 Codex 작업”을 서로 다른 개발 모드로 나누지 않는다.
@@ -250,9 +253,9 @@ Native 도구, 공개 이벤트와 결과 반환을 공유한다. “ChatGPT로 
 공통 개발이라는 이유만으로 이미 진행 중인 원본 요청을 중복 제출하지 않는다.
 
 기존 `Reasoning::Direct` Native 기록과 당시 시험은 원본 사실로 보존한다. 이 값은
-앞으로의 독자 개발 모드가 아니므로 문자열만 새 의미로 읽으면 안 된다. inference
+앞으로의 단독 개발 모드가 아니므로 문자열만 새 의미로 읽으면 안 된다. inference
 접속의 별도 표현으로 API·caller·저장 형식을 함께 교체해야 한다. 비세션 Core I/O
-시험은 재사용 가능성의 근거이며 그 자체로 독자 개발의 도구/품질 적합성을 확정하지 않는다.
+시험은 재사용 가능성의 근거이며 그 자체로 단독 개발의 도구/품질 적합성을 확정하지 않는다.
 
 ## 6. 진입점에서의 선택: 매번 추측하지 않고 작업 문맥을 유지
 
@@ -493,7 +496,7 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 | 순서·수정 위치 | 유지/추가/제거할 책임 | 완료 판정 |
 | --- | --- | --- |
 |1. `mcp.rs::http`, `operator.rs::http`, `runtime.rs::mcp_stdio`, local-function 호출자 | host `_meta`와 model arguments를 구분해 호출 문맥을 전달. 인증된 연결을 권한 기준으로 유지. anonymous session은 후보 문맥 조회에만 사용 | metadata 부재/타입 오류/다른 subject·connector·branch가 이전 Native 작업의 자동 선택으로 이어지지 않음. 양쪽 ingress의 같은 의미 검증 |
-|2. `operator.rs::{Selection,Reasoning,call,create/join/start,tools}`, `config.rs`, 기존 journal | 개발 모드와 추론 접속을 분리해 old reasoning API/enum/caller/codec을 함께 교체. Native 참가·도구·오케스트레이션은 진입점과 무관하게 공통 개발. Native는 기존 work/controller/receipt, 독자는 허용된 로컬 문맥 사용. 단독 고정은 서버에서 강제 | 양쪽 공통 개발 진입이 같은 작업 admission·지침·권한·도구·이벤트 절차를 통과. 원본 old direct 기록의 오해석·중복 모델 호출 없음. 잘못된 Native 호출은 dispatch 전 거절 |
+|2. `operator.rs::{Selection,Reasoning,call,create/join/start,tools}`, `config.rs`, 기존 journal | 개발 모드와 추론 접속을 분리해 old reasoning API/enum/caller/codec을 함께 교체. Native 참가·도구·오케스트레이션은 진입점과 무관하게 integrated. Native는 기존 work/controller/receipt, standalone은 허용된 로컬 문맥 사용. 단독 고정은 서버에서 강제 | 양쪽 통합 개발 진입이 같은 작업 admission·지침·권한·도구·이벤트 절차를 통과. 원본 old direct 기록의 오해석·중복 모델 호출 없음. 잘못된 Native 호출은 dispatch 전 거절 |
 |3. `operator_native.rs::{Owner,Native,Pool}`와 Core의 app-server 준비 호출 | 검증된 socket/RPC/owner 수명주기 재사용. 로컬 준비에서 model routing/catalog·`thread/read`·rollout 의존을 분리. Native용 준비/원본 이력은 유지 | 인증/모델 catalog 없는 실제 Core 연결에서 로컬 I/O 성공. Native thread/turn 생성0. 현재 Pool::prepare 전체를 그대로 로컬 준비로 사용하지 않음 |
 |4. 기존 `operation.rs`와 로컬 I/O 소비부 | intent/result·동시 observer·불확실 효과 reconciliation 재사용. Core fs/command 원결과·process handle 반환. 허용 접근/승인과 작업 지침 전달. raw fs를 cwd 제한으로 오인하는 경로 금지 | 실제 수정·시험·긴 출력·PTY/Stop·응답 유실·재접속, 동일 호출 재전송 효과1회, 입력 변경 시 거절. 권한/응답 품질 축소 없음 |
 |5. `mcp.rs`, `mcp_bridge.rs`, `app_bridge.js`와 등록/문서 | 같은 operation을 고정 도구 계약으로 노출. MCP/local function의 운반·caller-return 차이만 유지. JS는 앱 SDK와 렌더러 연결, Rust는 정책/상태/복구 소유 | 로컬/등록/실호스트 schema 일치. 실제 Linux 모델의 로컬 작업과 선택 Native 작업 비교; Android/웹은 각 해당 소비자 시험 |

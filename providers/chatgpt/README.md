@@ -35,9 +35,10 @@ tools Native execution or establish unobserved original host message identities.
 Current execution tools require a Native work, including the installed API's
 `reasoning=direct` field. That old field means attached-response inference; it
 does not implement the intended standalone workflow. Product workflow means
-**ChatGPT standalone development / common Codex development and orchestration**.
-Both ChatGPT and CLI participation in Codex work use the latter. Final workflow
-names are under review; do not redefine them from the old code's enum values.
+**standalone — 단독 개발 / integrated — 통합 개발**. Both ChatGPT and CLI
+participation in the common Codex task/tool/orchestration lifecycle are integrated.
+Provider is the component name. Do not redefine workflows from the old inference
+enum values or keep those values as workflow aliases.
 The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
 separates threadless local tools from selected Codex work. Basic threadless Core
 I/O and process controls have Android proof; a new ChatGPT local-tool surface and
