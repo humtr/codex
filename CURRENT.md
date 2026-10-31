@@ -26,6 +26,30 @@ this status rather than appending another session diary.
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 
+Before continuing order2's entrance equivalence, resolve the user's work-recording
+boundary and entry-selection requirement in [WORK_SCOPE_REVIEW.md](WORK_SCOPE_REVIEW.md).
+This is a reviewed proposal, not an adopted product contract or implemented MCP
+feature. Ordinary ChatGPT local tools must not require Codex conversation history;
+Native direct/provider reasoning and MCP/local transport do not define that choice.
+Original user-identified work/controller metadata confirms a Chat-origin Direct
+root work with durable Native history. Bounded actual Android probes show Native
+completion without a TUI, ephemeral history loss without notification suppression,
+and existing upstream fs/readFile, fs/writeFile and command/exec success with no
+thread/turn/inference/notification. A separate fresh home also passes without
+Native authentication, Provider configuration or a saved model catalog. These are
+Core/native API proofs, not a new ChatGPT MCP/local-function product acceptance.
+Proof root: ~/.cache/codex/acceptance/work-scope-review-20261031. User sessions,
+operating configuration and installed components are unchanged; no new build.
+
+The latest requirement is selection without repeated manual prompting. Investigate
+entry defaults, retained selected-work context and explicit transitions before
+choosing one versus two MCP connections. Two connections do not remove ambiguity
+if the model must choose anew on every request. Official host session metadata
+offers a correlation mechanism currently unused by the Rust handlers; actual
+Android/web/tunnel propagation and lifetime are unverified. Never use it as source
+message provenance or authorization, infer another Chat's mode from a global last
+selection, or silently turn a local tool request into a Native work.
+
 Build cadence: finish the invocation-startup build already running at source59b92d2
 and its required qualification. Subsequent source changes accumulate in the
 existing work order; do not start a product build/release for each change. Group
