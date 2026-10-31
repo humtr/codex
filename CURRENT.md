@@ -292,10 +292,14 @@ Source41147657405 and Provider source/Android-build41147657380 are green at59b92
 Publication41152027749 signs/readbacks/disposable-update-proves and promotes
 Base132 from c964be7; Full signing is skipped without an admitted frontend. This
 does not activate it on the device or qualify matched Provider interoperability.
-The installed Full131 remains unchanged. Cache-saving must not consume the
-remaining acceptance-job deadline and turn successful execution into a repeat
-build; factor that existing CI lifecycle boundary in the next grouped change,
-without treating cancelled execution as a successful admission.
+The installed Full131 remains unchanged. The next grouped source change excludes
+optional cache publication from mutation-enabled qualification: that run spends
+its measured remaining job budget on required execution/fault checks, while
+ordinary qualification retains reusable compiler state. No test gate or job
+deadline is weakened, and cancelled execution still cannot authorize admission.
+This workflow edit has not run; the existing c964be7 retry is unchanged.
+YAML parsing and the8 existing lint-boundary, completion-signal and upstream-
+release tests pass; these source checks are not a hosted cache-save execution.
 An actual Android Core/native-server readback passes explicit --config provider
 and effort propagation, then rejects --profile before serving the selected
 profile (invocation-core-android-startup.json). Upstream0.166 explicitly excludes
