@@ -246,6 +246,18 @@ impl Bridge for Synthetic {
                                 && !name.starts_with("operator_local_")
                         })
                     });
+                let title = submitted.is_some_and(|row| {
+                    row["instructions"].as_array().is_some_and(|instructions| {
+                        instructions.iter().any(|text| {
+                            text.as_str()
+                                .and_then(|text| text.split_once('\n'))
+                                .and_then(|(_, schema)| serde_json::from_str::<Value>(schema).ok())
+                                .is_some_and(|schema| {
+                                    schema["properties"]["title"]["type"] == "string"
+                                })
+                        })
+                    })
+                });
                 let assessment = json!({"risk_level":"low","user_authorization":"high","outcome":if self.path.parent().unwrap().join("deny-review").exists(){"deny"}else{"allow"},"rationale":"Only this owned disposable fixture program is in scope."});
                 let ended = submitted.is_some_and(|row| {
                     row["messages"].as_array().is_some_and(|messages| {
@@ -263,6 +275,8 @@ impl Bridge for Synthetic {
                     .exists()
                 {
                     submitted.map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
+                } else if title && reviewer {
+                    json!([{"id":"owned-title-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[json!({"title":"Owned integration title"}).to_string()]},"status":"finished_successfully","end_turn":true}])
                 } else if reviewer {
                     json!([{"id":"owned-review-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[assessment.to_string()]},"status":"finished_successfully","end_turn":true}])
                 } else if self

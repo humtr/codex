@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop|models> [--state PATH] | migrate-reasoning --state PATH --backup PATH --target direct-provider|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop|models> [--state PATH] | migrate-inference --state PATH --backup PATH --target attached-submitted|provider21|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -17,10 +17,10 @@ fn run() -> Result<(), String> {
                 .map_err(|_| "arguments must be UTF-8".to_string())
         })
         .collect::<Result<_, _>>()?;
-    if args.first().map(String::as_str) == Some("migrate-reasoning") {
+    if args.first().map(String::as_str) == Some("migrate-inference") {
         let mut options = std::collections::BTreeMap::new();
         if args.len() != 7 {
-            return Err("migrate-reasoning requires --state PATH --backup PATH --target direct-provider|provider14".into());
+            return Err("migrate-inference requires --state PATH --backup PATH --target attached-submitted|provider21|provider14".into());
         }
         for pair in args[1..].as_chunks::<2>().0 {
             if !matches!(pair[0].as_str(), "--state" | "--backup" | "--target")
@@ -29,7 +29,7 @@ fn run() -> Result<(), String> {
                 return Err("invalid migration option".into());
             }
         }
-        let value = codex_chatgpt_provider::operator::migrate_reasoning(
+        let value = codex_chatgpt_provider::operator::migrate_inference(
             std::path::Path::new(options["--state"]),
             std::path::Path::new(options["--backup"]),
             options["--target"],

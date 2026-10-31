@@ -41,12 +41,12 @@ class GDriver(unittest.TestCase):
 
     def test_cold_budget_extends_only_elapsed_cap_without_resetting_original_start(self):
         budget=dict(max_parallel=1,max_app_starts=4,max_native_calls=40,max_elapsed_seconds=900)
-        record=dict(selection={'reasoning':'direct'},assignment={'started_at_unix_ms':1000,'budget':budget})
+        record=dict(selection={'inference':'attached'},assignment={'started_at_unix_ms':1000,'budget':budget})
         self.assertEqual(g.cold_budget(record,1000001),dict(budget,max_elapsed_seconds=1000))
         self.assertEqual(record['assignment']['started_at_unix_ms'],1000)
         self.assertEqual(budget['max_elapsed_seconds'],900)
         self.assertEqual(g.cold_budget(record,2000),budget)
-        record['selection']['reasoning']='provider'
+        record['selection']['inference']='submitted'
         with self.assertRaises(AssertionError):g.cold_budget(record,1000001)
 
     def test_input_budget_namespace_is_stable_and_separate_per_batch(self):

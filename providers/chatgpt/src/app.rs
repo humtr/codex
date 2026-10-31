@@ -687,7 +687,7 @@ pub fn presentation_groups(root: &std::path::Path, thread: &str) -> Result<Value
 }
 /// Offline control-state conversion preserves an already reserved queue ID.
 /// The runtime never guesses an old ID or re-enqueues to repair provenance.
-pub(crate) fn migrate_source_queue(mut value: Value, target: &str) -> Result<Value, Error> {
+pub(crate) fn migrate_source_queue(mut value: Value, downgrade: bool) -> Result<Value, Error> {
     let lane: Lane = serde_json::from_value(value.clone())
         .map_err(|_| Error("source_queue_migration_invalid"))?;
     let Some(external) = lane.external else {
@@ -698,7 +698,7 @@ pub(crate) fn migrate_source_queue(mut value: Value, target: &str) -> Result<Val
         "chat-source:{}",
         context::digest(&(&external.input.conversation, &external.input.message))
     );
-    if target == "direct-provider" {
+    if !downgrade {
         if external.queue_call_id.is_empty() {
             value["external"]["queue_call_id"] = json!(legacy);
         }
@@ -1651,8 +1651,8 @@ async fn exchange(
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }
-    if request.guardian && lane.project.is_some() {
-        return Err(Error("reviewer_project_isolation_required"));
+    if request.is_auxiliary() && lane.project.is_some() {
+        return Err(Error("auxiliary_project_isolation_required"));
     }
     let request_digest = context::digest(request);
     if request_digest == lane.request && lane.phase == Phase::Idle {
@@ -1800,7 +1800,7 @@ async fn exchange(
         return Err(Error("previous_round_unsettled"));
     }
     if lane.phase == Phase::New {
-        lane.project = if request.guardian {
+        lane.project = if request.is_auxiliary() {
             None
         } else {
             crate::project::resolve(bridge, journal, &request.history, &observed).await?
@@ -2623,7 +2623,7 @@ mod approval_tests {
             native_turn: None,
         });
         assert_eq!(
-            migrate_source_queue(serde_json::to_value(&lane).unwrap(), "provider14"),
+            migrate_source_queue(serde_json::to_value(&lane).unwrap(), true),
             Err(Error("source_queue_downgrade_requires_settlement"))
         );
         let mut old = serde_json::to_value(&lane).unwrap();
@@ -2643,7 +2643,7 @@ mod approval_tests {
             Err(Error("source_queue_migration_required"))
         );
         drop(old_host);
-        let converted = migrate_source_queue(old.clone(), "direct-provider").unwrap();
+        let converted = migrate_source_queue(old.clone(), false).unwrap();
         journal
             .write(&context::digest(&lane.native_thread), &converted)
             .unwrap();
@@ -2658,7 +2658,7 @@ mod approval_tests {
             )
         );
         assert_ne!(reserved, input.call_id("account-reference"));
-        assert_eq!(migrate_source_queue(converted, "provider14").unwrap(), old);
+        assert_eq!(migrate_source_queue(converted, true).unwrap(), old);
         drop(host);
         std::fs::remove_dir_all(root).unwrap();
     }

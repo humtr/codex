@@ -124,7 +124,7 @@ test('candidate catalog comes from its actual stdio producer with exact argument
  const root=mkdtempSync(process.env.TMPDIR+'/candidate-catalog-');
  try{
   const binary=join(root,'provider'),state=join(root,'state');
-  const tools=[{name:'codex_sessions',inputSchema:{type:'object',properties:{reasoning:{type:'string',enum:['direct','provider']}}}},{name:'additional-advertised-tool',inputSchema:{type:'object'}}];
+  const tools=[{name:'codex_sessions',inputSchema:{type:'object',properties:{inference:{type:'string',enum:['attached','submitted']}}}},{name:'additional-advertised-tool',inputSchema:{type:'object'}}];
   const program=reply=>`#!${process.execPath}\nimport {createInterface} from 'node:readline';const lines=createInterface({input:process.stdin});lines.once('line',line=>{const q=JSON.parse(line);if(JSON.stringify(process.argv.slice(2))!==${JSON.stringify(JSON.stringify(['mcp-stdio','--state',state]))})process.exit(3);console.log(JSON.stringify(${reply}));});\n`;
   writeFileSync(binary,program(`{jsonrpc:'2.0',id:q.id,result:{tools:${JSON.stringify(tools)}}}`));chmodSync(binary,0o700);
   expect(await candidateTools(binary,state)).toEqual(tools);

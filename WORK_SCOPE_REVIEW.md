@@ -3,7 +3,8 @@
 2026-10-31. 상태: 사용자 요청에 따라 검토·자격검증 진행 중. 실행 의미와 선택 책임은
 SPEC의 work-recording 계약에 반영했다. 실제 Linux 앱/MCP 시험을 거쳐 한 MCP와
 명시적 작업 문맥을 기본 설계로 선정했다. 단독 고정 프로필은 선택 기능이다.
-새 로컬 도구 제품 경로와 정책 강제는 아직 구현·배포하지 않았다.
+새 로컬 도구 제품 경로와 정책 강제는 아직 구현·배포하지 않았다. 통합 개발 내부의
+추론 접속 명칭 교체는 소스에 반영 중이며11절과 CURRENT가 그 상태를 구분한다.
 
 ## 1. 판정
 
@@ -11,7 +12,7 @@ SPEC의 work-recording 계약에 반영했다. 실제 Linux 앱/MCP 시험을 �
 Codex work/thread/turn을 전제로 해서, ChatGPT에서 독립적으로 처리하려던 작업도
 Codex 세션 기록으로 남는 것이다. 알림은 이 결합에서 파생된 현상이다.
 
-현행 코드의 `Selection.reasoning=direct|provider`는 현재 응답 참가와 새 응답 제출을
+검토 기준 소스(a8167e3)의 `Selection.reasoning=direct|provider`는 현재 응답 참가와 새 응답 제출을
 나누며 둘 다 Native work를 사용한다. 이것을 제품의 direct/provider 정의로 보존한
 앞선 보고서와 설명은 잘못이었다. 최종 명칭은 **standalone — 단독 개발 /
 integrated — 통합 개발**로 확정했다. 전자는 ChatGPT 단독 개발, 후자는 공통
@@ -63,6 +64,9 @@ ChatGPT 단독 도구 사용의 세션 기록 문제를 해결하지는 않는�
 
 ## 3. 코드에서 확인한 결합
 
+아래 위치·옛 API 이름은 검토 기준 a8167e3의 사실이다. 이후 소스 교체는11절과
+CURRENT에 기록하며, 기존 원본의 의미와 시험 결과를 바꾸지 않는다.
+
 | 책임 | 확인 위치 | 의미 |
 | --- | --- | --- |
 | 추론 선택 | `providers/chatgpt/src/operator.rs:103`, `Selection`, `Reasoning` | direct/provider와 반환 경로를 보유하며, 세션 생성 여부를 나타내지 않는다. |
@@ -82,7 +86,8 @@ Native 실행 문맥, 로컬 도구, durable Codex 기록이 묶여 있다. 모�
 
 증거는 `~/.cache/codex/acceptance/work-scope-review-20261031`에 있다. 설치된 signed
 Full131/Core/Manager/runtime 바이트를 복사·검증한 disposable fixture를 사용했다.
-제품 코드를 수정·빌드하거나 운영 설정·사용자 세션을 바꾸지 않았다. Native 서버 종료는
+이 절의 기반 API 시험에서는 제품 소스를 바꾸지 않았고 운영 설정·사용자 세션도
+바꾸지 않았다. 이후 소스 검증은 CURRENT에 별도로 기록한다. Native 서버 종료는
 각 시험에서 소유 PID/실행 파일과 kernel 종료 관찰로 확인했다.
 
 ### 4.1 Native 기록·알림 관계
@@ -496,7 +501,7 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 | 순서·수정 위치 | 유지/추가/제거할 책임 | 완료 판정 |
 | --- | --- | --- |
 |1. `mcp.rs::http`, `operator.rs::http`, `runtime.rs::mcp_stdio`, local-function 호출자 | host `_meta`와 model arguments를 구분해 호출 문맥을 전달. 인증된 연결을 권한 기준으로 유지. anonymous session은 후보 문맥 조회에만 사용 | metadata 부재/타입 오류/다른 subject·connector·branch가 이전 Native 작업의 자동 선택으로 이어지지 않음. 양쪽 ingress의 같은 의미 검증 |
-|2. `operator.rs::{Selection,Reasoning,call,create/join/start,tools}`, `config.rs`, 기존 journal | 개발 모드와 추론 접속을 분리해 old reasoning API/enum/caller/codec을 함께 교체. Native 참가·도구·오케스트레이션은 진입점과 무관하게 integrated. Native는 기존 work/controller/receipt, standalone은 허용된 로컬 문맥 사용. 단독 고정은 서버에서 강제 | 양쪽 통합 개발 진입이 같은 작업 admission·지침·권한·도구·이벤트 절차를 통과. 원본 old direct 기록의 오해석·중복 모델 호출 없음. 잘못된 Native 호출은 dispatch 전 거절 |
+|2. `operator.rs::{Selection,Inference,call,create/join/start,tools}`, `config.rs`, 기존 journal | 개발 모드와 추론 접속을 분리해 old reasoning API/enum/caller/codec을 함께 교체. Native 참가·도구·오케스트레이션은 진입점과 무관하게 integrated. Native는 기존 work/controller/receipt, standalone은 허용된 로컬 문맥 사용. 단독 고정은 서버에서 강제 | 양쪽 통합 개발 진입이 같은 작업 admission·지침·권한·도구·이벤트 절차를 통과. 원본 old direct 기록의 오해석·중복 모델 호출 없음. 잘못된 Native 호출은 dispatch 전 거절 |
 |3. `operator_native.rs::{Owner,Native,Pool}`와 Core의 app-server 준비 호출 | 검증된 socket/RPC/owner 수명주기 재사용. 로컬 준비에서 model routing/catalog·`thread/read`·rollout 의존을 분리. Native용 준비/원본 이력은 유지 | 인증/모델 catalog 없는 실제 Core 연결에서 로컬 I/O 성공. Native thread/turn 생성0. 현재 Pool::prepare 전체를 그대로 로컬 준비로 사용하지 않음 |
 |4. 기존 `operation.rs`와 로컬 I/O 소비부 | intent/result·동시 observer·불확실 효과 reconciliation 재사용. Core fs/command 원결과·process handle 반환. 허용 접근/승인과 작업 지침 전달. raw fs를 cwd 제한으로 오인하는 경로 금지 | 실제 수정·시험·긴 출력·PTY/Stop·응답 유실·재접속, 동일 호출 재전송 효과1회, 입력 변경 시 거절. 권한/응답 품질 축소 없음 |
 |5. `mcp.rs`, `mcp_bridge.rs`, `app_bridge.js`와 등록/문서 | 같은 operation을 고정 도구 계약으로 노출. MCP/local function의 운반·caller-return 차이만 유지. JS는 앱 SDK와 렌더러 연결, Rust는 정책/상태/복구 소유 | 로컬/등록/실호스트 schema 일치. 실제 Linux 모델의 로컬 작업과 선택 Native 작업 비교; Android/웹은 각 해당 소비자 시험 |
@@ -507,8 +512,13 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 필요한 만큼만 둔다. 추가 도구 이름/설정 필드는1~2단계에서 실제 caller와 함께 확정하며
 읽히지 않는 placeholder schema나 무사용 추적 필드를 먼저 추가하지 않는다.
 
-설계 검토의 최종 선택은 완료했지만 위 표는 제품 구현 작업이다. 실제 프로덕션 소스의
-로컬 도구/정책 강제는 아직 없으며, diagnostic만으로 이를 구현·검증 완료라고 하지 않는다.
+설계 검토의 최종 선택은 완료했고 위 표의 추론 접속 명칭 교체가 소스에 반영됐다.
+`selection.inference=attached|submitted`, work schema v3와 실제 API/driver/transfer
+소비자를 함께 교체했다. `migrate-inference`는 정지된 journal의 v1/v2·pending index·
+transfer를 명시적으로 변환하고 Provider21/Provider14 역변환을 제공한다. 옛 호출 필드와
+값은 실행 API 별칭으로 받지 않는다. 이 변경은 통합 개발 내부의 추론 접속 구분이며
+standalone 구현 완료가 아니다. 로컬 도구/정책 강제와 metadata 문맥 소비는 아직 없고,
+diagnostic만으로 이를 구현·검증 완료라고 하지 않는다. CURRENT가 최신 시험 상태를 소유한다.
 사용자의 빌드 묶음 방침에 따라 소스를 준비한 뒤 유효한 분량을 모아 실제 빌드·전체
 권한/품질 수용 시험을 수행한다. 설치·운영 활성화는 그 이후 별도 관찰한다.
 
@@ -521,7 +531,9 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 이번 산출물은 원본 대조, Native/알림4조건 시험, 비세션 I/O의 기존·깨끗한 home 시험,
 stdio metadata 보존·실제 command 수명주기·raw API 경계 시험, 실제 Linux 앱/MCP 모델
 6요청·branch/restart와 이전 Android 원본 재대조, SPEC의 실행 의미 계약과 선정 설계다.
-한시적 시험 전용 MCP/터널을 등록해 검증했으며 제품 소스 구현/배포/빌드는 하지 않았다.
+초기 검토에서는 한시적 시험용 MCP/터널을 등록했고 제품 소스 구현/배포/빌드는 하지
+않았다. 이후 통합 개발의 추론 접속 명칭·변환과 Native 보조 요청 분리는 소스에
+반영·검증 중이며, 최신 완료/잔여 범위는 CURRENT를 따른다.
 시험 driver와 원본 결과·Native 기록은 보존했고, 종료가 확인된 두 fixture의 payload는
 clean_development.py로 manifest 대조·보관 후 정리했다. 복원 기록은 같은 증거 루트의
 scope-fixture-payload-cleanup.jsonl과 clean-fixture-payload-cleanup.jsonl이다.

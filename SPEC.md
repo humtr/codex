@@ -1685,9 +1685,33 @@ are introduced.
 The installed code's existing `Selection.reasoning=direct|provider` and
 `Reasoning::{Direct,Provider}` distinguish attached versus submitted inference;
 both presently require Native work. Those are implementation/migration facts,
-not the target workflow definition. Replace that overloaded distinction with
-separately named inference initiation at its actual scheduling/result consumers.
-Change declarations, callers, persisted codecs and offline migration together;
+not the target workflow definition. The replacement is
+`inference=attached|submitted` / `Inference::{Attached,Submitted}` at the actual
+scheduling/result consumers. Native work controls always select integrated
+workflow; do not add a repeated workflow selector where the tool/work identity
+already establishes it. Attached admits the existing original response without
+another primary submission; submitted starts a genuine model request.
+Native auxiliary requests remain separate from development-work admission. The
+upstream `thread_source=thread_title` and guardian metadata route to the existing
+AppHost response lifecycle, preserving their original schema/result/cancellation.
+They do not register a work, require codex_attach/finish, inherit a development
+project, or change the primary workflow. Prompt words are not a request-kind
+classifier. Keep absent/false auxiliary metadata out of existing request digests;
+original primary/reviewer replay identities must remain valid. Qualify the actual
+TUI-generated title response/name and absence of extra Operator work, including
+cold server shutdown with all owned Native turns settled.
+New work records use v3 with `selection.inference`; the runtime accepts no old
+reasoning field or value aliases. Change declarations, callers and offline
+migration together. `migrate-inference --target attached-submitted` converts
+v1/v2 work, pending-index and transfer selections while preserving original
+transcripts/receipts. Explicit targets provider21/provider14 prepare matched old
+code/state rollback; this does not add old runtime parsers.
+Delivery must pair the new executable/state with generated clients and refreshed
+registered MCP declarations. Compare actual local/server/host schemas before
+activation; stale hosts must not be concealed by accepting old inference aliases.
+Do not change model `reasoning.effort` / `model_reasoning_effort`, which are a
+different public upstream contract. Migration uses the existing journal owner
+lease, immutable backup, whole-input prevalidation and restartable exact writes;
 never reinterpret an old `reasoning=direct` Native record as standalone work or
 retain aliases as a substitute for completing migration. Preserve original work,
 history and matched code/state rollback artifacts.
@@ -1724,8 +1748,9 @@ MCP or explicitly selected app-local functions. Both Native paths are integrated
 workflow. Local functions need no remote Chat-side tunnel;
 external ChatGPT-to-MCP does. Native Responses rounds, host tool continuations,
 new primary user requests and independent child runs are counted separately.
-Existing execution.mode=model_adapter|operator and stored formats remain compatible;
-these old names do not justify retaining duplicate responsibility.
+Existing execution.mode=model_adapter|operator remains unchanged. Work schema v3
+requires the explicit matched-code/state migration described above; transport
+selection does not justify retaining duplicate responsibility.
 
 **Identity and connection lifetime.** A work_id selects one existing native
 thread and execution scope. Development responsibility, native thread/turn,
@@ -1739,7 +1764,7 @@ A persistent development binding is established only for an explicit/verified
 existing development work and authorized source. It identifies account reference,
 conversation, verified ancestry anchor, native home/workspace/thread and connection
 state in the existing Provider work journal. It survives reasoning-route changes,
-ordinary completion, reconnect and context renewal. Changing Direct/Provider must
+ordinary completion, reconnect and context renewal. Changing attached/submitted inference must
 not silently discard the retained source connection. Explicit unbind ends future automatic
 attachment; it cannot erase admitted input, unresolved effects or historical
 source references. Stop fences execution; it is not implicit deletion/unbinding.
@@ -1827,20 +1852,20 @@ The Bridge-first path must qualify exact input, context, tool/result,
 completion and display semantics before replacing the current source-follow
 path; existing source equivalence is not claimed while that work is unfinished.
 
-For Bridge/Direct progress, record every public progress message for the bound
+For Bridge/attached-response progress, record every public progress message for the bound
 task verbatim before publishing it in ChatGPT. On joining, also record any public
 progress already shown for that task. Do not replace a longer public message with
 a shorter Native status or expose hidden reasoning. A native-call report can
 satisfy this requirement for that same message; do not emit an extra copy through
-codex_report. The report declaration, Direct attachment and Provider-driven
+codex_report. The report declaration, attached-response context and Provider-driven
 control instructions must share one progress policy. This is model guidance,
 not automatic observation of arbitrary host messages; compare actual original
 commentary with Native records separately.
 
-For Bridge/Direct completion, prepare the full public final answer before calling
+For Bridge/attached-response completion, prepare the full public final answer before calling
 codex_finish, submit that complete text, then return the same text unchanged in
 ChatGPT after successful settlement. This instruction must be available in the
-finish tool declaration, Direct context attachment and Provider-driven control
+finish tool declaration, attached-response context attachment and Provider-driven control
 instructions from one definition. It imposes no reduction of reasoning, tool use,
 answer detail or public progress. A model instruction is not trusted host
 provenance: qualify the actual later final separately, and report divergence
@@ -1890,7 +1915,7 @@ remain rejected, and lint must not introduce changes beyond the assembled input.
 
 **Bridge admission API.** `codex_sessions join` selects an explicitly named
 existing, completed Native work and receives `task` plus a required stable
-`call_id`. The common Native start transition reserves one Direct generation;
+`call_id`. The common Native start transition reserves one attached-response generation;
 it does not retrieve saved Chat or submit Provider inference. The authenticated
 Bridge caller receives the generation controller and uses `codex_attach` to read
 and accept the actual current Native context before effects. A running, stopped,
@@ -1904,7 +1929,7 @@ meaning; neither is labelled as an unseen host message.
 `source_sync` and `source_join` are explicitly requested saved-source recovery /
 verification controls. They retain original-ID/branch/context verification and
 never run in the background. `synchronize` is solely the Native input barrier
-used by CLI: it waits for an admitted Direct/source execution, without saved-Chat
+used by CLI: it waits for an admitted attached/source execution, without saved-Chat
 retrieval. Completion observers consume Native lifecycle events/recovery reads
 only. A development binding does not enable a periodic remote history reader.
 
@@ -1922,7 +1947,7 @@ Implementation and remaining qualification order:
    owner at its verified Native boundary before granting a new writer.
 3. Reuse Broker/Operator tools, progress and completion. Provider-origin Bridge
    requests use the normal Native->Provider model stream and original result
-   return. Direct-origin requests use the invoking model, with no new primary
+   return. Attached-response requests use the invoking model, with no new primary
    inference. Preserve complete output; distinguish a submitted completion from
    an unobserved later Chat final until a qualified host event supplies it.
 4. Keep watch_completion restricted to Native lifecycle observation and ordinary
@@ -1937,7 +1962,7 @@ Implementation and remaining qualification order:
    the system never receives; report that visibility boundary without inventing
    a task, polling all chats or implying that execution occurred.
 
-Direct native tool reasoning retains its existing app-free capability. Complete
+Attached native tool inference retains its existing app-free capability. Complete
 saved-source observation currently requires the authenticated app reader; absence
 reports source_observation_unavailable rather than disabling unrelated native
 tools or claiming complete source synchronization. A context delivered as a tool
@@ -2805,7 +2830,7 @@ boundaries while verifying the other annotation values remain unchanged.
 #### F qualification input and evidence contract
 
 [qualification.schema.json](providers/chatgpt/qualification.schema.json) defines
-termux-codex-bridge-qualification-v1. It is an input contract, not an executable
+termux-codex-bridge-qualification-v2. It is an input contract, not an executable
 runner or authorization to launch F. F adds an explicit --inputs manifest option
 to reusable qualification entrypoints, preserving historical invocation/evidence.
 No implicit D2/TMPDIR/tunnel/previous-frontend path is a valid new input. JSON
@@ -2813,7 +2838,7 @@ schema validates shape; the consumer must also perform the semantic checks below
 
 | Input | Required semantics |
 | --- | --- |
-| run_id, cases, routes | Unique owned run; explicit F1–F9 cases and Codex/direct/delegated route list. Direct uses direct reasoning/MCP; Codex/delegated use provider reasoning, with their declared inner return path |
+| run_id, cases, routes | Unique owned run; explicit F1–F9 cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Earlier v1 manifests remain original evidence and are not silently accepted as new inputs |
 | candidate | Base Git commit plus complete current source-input manifest/hash, including dirty/untracked build inputs; immutable binary, embedded bridge and effective config hashes. A commit ID alone cannot identify this working tree |
 | native | Exact Core/frontend hashes and qualified upstream version/source; canonical isolated execution home and workspace, never the user's active home/project |
 | fixture | Frozen project/tasks/expected checks/seed manifest, including task ordering and per-role ownership. Preparation creates separate short TMPDIR homes/workspaces, preserves socket path bounds and seals inputs before any model action |

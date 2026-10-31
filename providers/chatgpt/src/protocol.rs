@@ -49,6 +49,8 @@ pub struct Request {
     pub parent: Option<String>,
     pub turn: Option<String>,
     pub guardian: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub thread_title: bool,
     pub compaction: Option<crate::context::Compaction>,
     pub history: crate::config::HistoryConfig,
     #[serde(skip)]
@@ -109,6 +111,9 @@ fn tools(
 }
 
 impl Request {
+    pub(crate) fn is_auxiliary(&self) -> bool {
+        self.guardian || self.thread_title
+    }
     pub fn parse(
         value: Value,
         config: &Config,
@@ -327,6 +332,7 @@ impl Request {
             parent,
             turn: field("turn_id"),
             guardian,
+            thread_title: field("thread_source").as_deref() == Some("thread_title"),
             compaction,
             history: config.history.clone(),
             handoff,

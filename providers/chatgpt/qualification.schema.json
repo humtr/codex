@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:humtr:codex:bridge-qualification:v1",
+  "$id": "urn:humtr:codex:bridge-qualification:v2",
   "title": "Explicit inputs for F bridge qualification; not a trial launcher",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "run_id", "cases", "candidate", "native", "fixture", "environment", "routes", "limits", "return"],
   "properties": {
-    "schema": {"const": "termux-codex-bridge-qualification-v1"},
+    "schema": {"const": "termux-codex-bridge-qualification-v2"},
     "run_id": {"type": "string", "pattern": "^[a-zA-Z0-9_.-]{1,100}$"},
     "cases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["F1-routes", "F2-chat-input", "F3-reading", "F4-serial-agents", "F5-parallel-agents", "F6-management", "F7-idempotency", "F8-history-inputs", "F9-efficiency"]}},
     "candidate": {
@@ -100,15 +100,15 @@
       "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
     },
     "route": {
-      "type": "object", "additionalProperties": false, "required": ["entry", "reasoning", "return_path"],
+      "type": "object", "additionalProperties": false, "required": ["entry", "inference", "return_path"],
       "properties": {
-        "entry": {"enum": ["codex", "chatgpt_direct", "chatgpt_delegated"]},
-        "reasoning": {"enum": ["direct", "provider"]},
+        "entry": {"enum": ["codex", "chatgpt_attached", "chatgpt_submitted"]},
+        "inference": {"enum": ["attached", "submitted"]},
         "return_path": {"enum": ["mcp", "local_function"]}
       },
       "allOf": [
-        {"if": {"properties": {"entry": {"const": "chatgpt_direct"}}}, "then": {"properties": {"reasoning": {"const": "direct"}, "return_path": {"const": "mcp"}}}},
-        {"if": {"properties": {"entry": {"enum": ["codex", "chatgpt_delegated"]}}}, "then": {"properties": {"reasoning": {"const": "provider"}}}}
+        {"if": {"properties": {"entry": {"const": "chatgpt_attached"}}}, "then": {"properties": {"inference": {"const": "attached"}, "return_path": {"const": "mcp"}}}},
+        {"if": {"properties": {"entry": {"enum": ["codex", "chatgpt_submitted"]}}}, "then": {"properties": {"inference": {"const": "submitted"}}}}
       ]
     }
   }

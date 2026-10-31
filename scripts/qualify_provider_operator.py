@@ -373,6 +373,12 @@ def probe(args):
         for marker in ['OWNED_LIVE_INITIAL', 'OWNED_LIVE_INTERMEDIATE', 'OWNED_LIVE_FINAL', 'CLI_TOOL_RESULT', 'SUCCESSOR_RESULT']:
             assert marker in json.dumps(history), marker
         print('Codex entrance: live initial/middle/final, native tools and automatic synthetic Chat renewal passed', flush=True)
+        # Native's hidden title request is auxiliary model execution. It must
+        # return its structured result, never wait on another development work.
+        selected_work = rpc('codex_sessions', {'action': 'list'})['work']
+        assert {row['work_id'] for row in selected_work} == {binding['work_id'], child['work_id'], cli_binding['work_id']}, ('auxiliary request registered extra development work', selected_work)
+        wait(lambda: native_rpc(home, 'thread/read', {'threadId': thread_before, 'includeTurns': False})['thread']['name'] == 'Owned integration title')
+        print('Actual TUI title saved its original result without another development work', flush=True)
         commands_before = json.loads((root / 'bridge-commands.json').read_text())
         opens_before = sum(row['op'] == 'open' for row in commands_before)
         submissions_before = sum(row['op'] == 'submit' for row in commands_before)
@@ -665,17 +671,17 @@ def probe(args):
         selected_proof = None
         if getattr(args, 'inputs', None) or getattr(args, 'selected_controls', False):
             # Additional new-control integration proof on real native Android
-            # threads; synthetic reasoning never counts as F live agent proof.
+            # threads; synthetic inference never counts as F live agent proof.
             before_selected = len(json.loads((root / 'bridge-commands.json').read_text()))
             budget = {'max_parallel': 2, 'max_app_starts': 12,
                       'max_native_calls': 24, 'max_elapsed_seconds': 240}
 
-            def selected(label, parent=None, dependencies=None, reasoning='direct', parallel=None,
+            def selected(label, parent=None, dependencies=None, inference='attached', parallel=None,
                          native_calls=None):
                 workspace = root / ('work-' + label)
                 workspace.mkdir()
                 request = {'action': 'create', 'call_id': 'selected-create-' + label,
-                           'reasoning': reasoning, 'workspace': str(workspace),
+                           'inference': inference, 'workspace': str(workspace),
                            'role': label, 'budget': {**budget, **({'max_parallel':parallel} if parallel is not None else {})}}
                 if native_calls is not None:
                     request['budget']['max_native_calls'] = native_calls
@@ -701,7 +707,7 @@ def probe(args):
             configured_history = (tomllib.loads(args.config.read_text()).get('history', {})
                                   if getattr(args, 'config', None) else {})
             if configured_history.get('mode') == 'project':
-                unstarted, _ = selected('managed-status', reasoning='provider')
+                unstarted, _ = selected('managed-status', inference='submitted')
                 unstarted_status = rpc('codex_status', {'work_id': unstarted['work_id']})
                 assert not unstarted_status['completed'] and unstarted_status['app_lane'] is None
                 initial_events = rpc('codex_sessions', {'action': 'events', 'work_id': unstarted['work_id']})
@@ -716,7 +722,7 @@ def probe(args):
                 managed_status_proved = True
             else:
                 missing = rpc('codex_sessions', {'action': 'create', 'call_id': 'managed-without-project',
-                    'reasoning': 'provider', 'role': 'managed-status', 'budget': budget}, True)
+                    'inference': 'submitted', 'role': 'managed-status', 'budget': budget}, True)
                 assert missing['error'] == 'provider_project_required'
 
             independent_a, _ = selected('independent-a', parallel=1)
@@ -765,7 +771,7 @@ def probe(args):
             rpc('codex_finish',{**coordinator,'call_id':'selected-extended-final','text':'EXTENDED_BUDGET_COMPLETE'})
             source = rpc('codex_history', {'work_id': coordinator['work_id']})
             offered = rpc('codex_sessions', {**coordinator, 'action': 'transfer', 'call_id': 'selected-transfer',
-                          'reasoning': 'direct', 'text': 'source.txt contains source; continue this same native work.',
+                          'inference': 'attached', 'text': 'source.txt contains source; continue this same native work.',
                           'cursor': source['cursor'], 'context_cursor': source['context_cursor']})
             rpc('codex_tools', coordinator, True)
             successor = {'work_id': coordinator['work_id'], 'controller': offered['controller']}
@@ -809,7 +815,7 @@ def probe(args):
             assert (root / 'work-writer-b/result.txt').read_text() == 'isolated'
             assert not (root / 'work-writer-a/result.txt').exists()
             after_selected = json.loads((root / 'bridge-commands.json').read_text())[before_selected:]
-            assert not any(row['op'] == 'submit' for row in after_selected), 'direct selected work acquired managed reasoning'
+            assert not any(row['op'] == 'submit' for row in after_selected), 'direct selected work acquired managed inference'
             selected_proof = {'same_thread_successor': original['thread_id'], 'source_fenced_until_receipt': True,
                               'private_report_did_not_consume_single_call_budget': True,
                               'two_isolated_native_writers': True, 'same_parent_limit_queued_third_writer':True, 'independent_roots_progress_with_parallel_one':True, 'terminal_stop_survived_restart':True, 'per_task_stop_preserved_sibling': True,
@@ -822,6 +828,7 @@ def probe(args):
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
             'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True,
+            'tui_title_saved': True, 'auxiliary_registered_extra_work': False,
             'terminal_with_pending_submission_did_not_dispatch': True,
             'settlement_resumed_same_chat': not cold_resume,
             'cold_native_resume': cold_proof,

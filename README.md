@@ -43,10 +43,11 @@ Standalone is ChatGPT development outside the common work framework; integrated
 uses its shared task, tool, control, history and orchestration lifecycle from either
 entrance. Provider remains the component name. Entrypoint/model/inference initiation
 do not select or rename the workflow.
-The installed API still overloads `reasoning=direct|provider` for attached versus
-submitted inference; both create/reuse Native history. That old protocol is not
-the public workflow definition. Standalone ChatGPT tools are a separate
-[execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
+Source uses `inference=attached|submitted` for existing-response attachment versus
+new model submission within integrated work. Installed Provider21 still uses its
+old `reasoning=direct|provider` protocol until matched package/state activation.
+Neither protocol defines the standalone workflow. Standalone ChatGPT tools are a
+separate [execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
 Core I/O proof but no implemented ChatGPT tool surface yet. Ordinary file access
 must not automatically become Codex work in that target. The selected design is
 one MCP with explicit task contexts; standalone fixed profiles are optional.
@@ -321,7 +322,7 @@ With Termux Bridge selected, ask:
 > Bring back its progress and original final result.
 
 The current Chat requests/observes the work; a separate managed Chat does the
-reasoning (`reasoning=provider`). Managed work can use MCP (default) or explicitly selected
+reasoning (`inference=submitted` in the new source protocol). Managed work can use MCP (default) or explicitly selected
 `local_function` internally. That internal transport choice does not create a
 second direct ChatGPT entrypoint. `work wait`/events retrieve original results;
 uncertain calls are observed by their existing handles rather than resent.

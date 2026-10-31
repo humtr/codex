@@ -53,13 +53,15 @@ class QualificationInputs(unittest.TestCase):
 
     def test_schema_requires_routes_budgets_and_original_return_without_bool_integer_aliases(self):
         route = self.schema["$defs"]["route"]
-        for entry, reasoning, transport in [("codex", "provider", "mcp"), ("codex", "provider", "local_function"),
-                                             ("chatgpt_direct", "direct", "mcp"), ("chatgpt_delegated", "provider", "mcp")]:
-            q.validate({"entry": entry, "reasoning": reasoning, "return_path": transport}, route, self.schema)
-        for entry, reasoning, transport in [("chatgpt_direct", "provider", "mcp"), ("chatgpt_direct", "direct", "local_function"),
-                                             ("codex", "direct", "mcp")]:
+        for entry, inference, transport in [("codex", "submitted", "mcp"), ("codex", "submitted", "local_function"),
+                                             ("chatgpt_attached", "attached", "mcp"), ("chatgpt_submitted", "submitted", "mcp")]:
+            q.validate({"entry": entry, "inference": inference, "return_path": transport}, route, self.schema)
+        for entry, inference, transport in [("chatgpt_attached", "submitted", "mcp"), ("chatgpt_attached", "attached", "local_function"),
+                                             ("codex", "attached", "mcp"), ("chatgpt_direct", "direct", "mcp")]:
             with self.assertRaises(q.InvalidInputs):
-                q.validate({"entry": entry, "reasoning": reasoning, "return_path": transport}, route, self.schema)
+                q.validate({"entry": entry, "inference": inference, "return_path": transport}, route, self.schema)
+        with self.assertRaises(q.InvalidInputs):
+            q.validate({"entry": "codex", "reasoning": "provider", "return_path": "mcp"}, route, self.schema)
         with self.assertRaises(q.InvalidInputs):
             q.validate(True, {"type": "integer"})
         with self.assertRaises(q.InvalidInputs):

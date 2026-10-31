@@ -240,7 +240,7 @@ class Batch:
             self.event("original_app_confirmation_replied", work_id=work["work_id"], confirmed=approved.get("app_approval_requested"))
 
     def created(self, name, route="mcp", workspace=None, dependencies=None, parent=None):
-        args = {"action": "create", "call_id": creation_call_id(self.root, name), "reasoning": "provider", "return_path": route,
+        args = {"action": "create", "call_id": creation_call_id(self.root, name), "inference": "submitted", "return_path": route,
             "workspace": str(workspace or self.root / ("w-" + name)), "role": name,
             "budget": self.plan["assignment_budget"]}
         if dependencies:

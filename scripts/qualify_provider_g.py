@@ -47,7 +47,7 @@ def input_client_id(root):
 
 
 def cold_budget(record, deadline_unix_ms):
-    assert record['selection']['reasoning']=='direct'
+    assert record['selection']['inference']=='attached'
     start=record['assignment']['started_at_unix_ms']
     assert isinstance(start,int) and start>0
     budget=dict(record['assignment']['budget'])
@@ -130,9 +130,9 @@ def prepare(args):
         for command in [['git','init','-q'],['git','add','.'],['git','-c','user.name=G fixture','-c','user.email=g-fixture@localhost','commit','-qm','owned original G contract']]:
             subprocess.run(command,cwd=workspace,env=env,check=True,capture_output=True)
     (root/'task.txt').write_text(TASK+'\n')
-    for name, reasoning in [('direct','direct'),('general','provider')]:
-        create=dict(action='create',call_id=creation_call_id(root,name),reasoning=reasoning,return_path='mcp',workspace=str(root/('w-'+name)),role='g-'+name,budget=plan['assignment_budget'])
-        instructions=('This Chat is the reasoning source. After create, start this genuine task once, attach and echo its exact receipt as accept before effects. Discover tools, execute with stable call IDs, publish through codex_report and finish through codex_finish.' if name=='direct' else 'Delegate reasoning to the created managed worker. Start this genuine task once with a stable call ID, wait on the original work, read its completed native history and report the actual result here. Do not attach or execute on behalf of the managed worker.')
+    for name, inference in [('direct','attached'),('general','submitted')]:
+        create=dict(action='create',call_id=creation_call_id(root,name),inference=inference,return_path='mcp',workspace=str(root/('w-'+name)),role='g-'+name,budget=plan['assignment_budget'])
+        instructions=('This Chat is the inference source. After create, start this genuine task once, attach and echo its exact receipt as accept before effects. Discover tools, execute with stable call IDs, publish through codex_report and finish through codex_finish.' if name=='direct' else 'Delegate inference to the created managed worker. Start this genuine task once with a stable call ID, wait on the original work, read its completed native history and report the actual result here. Do not attach or execute on behalf of the managed worker.')
         (root/('task-'+name+'.txt')).write_text('Use only the installed Termux Bridge MCP; no Work. Create exactly one work with these fields: '+json.dumps(create)+'. '+instructions+'\nTask:\n'+TASK+'\nPublish the full final in this saved Chat, then G_'+name.upper()+'_COMPLETE alone on the last line.\n')
     preflight_native(root,info,env)
     files=[p for p in root.rglob('*') if p.is_file() and (p.parent==root and p.suffix in ('.py','.mjs','.txt') or p.parent==root/'candidate')]
@@ -253,12 +253,12 @@ def audit(root,batch):
 
 
 def prepare_cold(root, prior_requests=0):
-    """Arm one new task on the settled current-reasoning work after host restart."""
+    """Arm one new task on the settled current-inference work after host restart."""
     assert not (root/'plan.json').exists()
     assert isinstance(prior_requests,int) and 0<=prior_requests<4
     request_ceiling=4-prior_requests
     prior=explicit_input('PRIOR_BATCH')
-    target=next(w for w in native_work(root) if w['selection']['reasoning']=='direct')
+    target=next(w for w in native_work(root) if w['selection']['inference']=='attached')
     assert target['phase']=='stopped' and not target['pending']
     shutil.copytree(prior/'candidate',root/'candidate')
     shutil.copy2(SOURCE/'scripts/d3_notify.py',root/'notify.py')
@@ -296,7 +296,7 @@ def cold(root):
         batch=Batch(root);batch.check();batch.client.call('init');batch.client.call('release_source')
         wid=batch.plan['target_work'];record=next(w for w in native_work(root) if w['id']==wid)
         history=batch.rpc('codex_history',{'work_id':wid});save(root/'before-history-private.json',history,True)
-        # Current-reasoning extension preserves the original start/counters/caps.
+        # Current-inference extension preserves the original start/counters/caps.
         budget=cold_budget(record,batch.plan['deadline_unix_ms'])
         claimed=batch.session(action='claim',work_id=wid,call_id='g-cold-claim-'+input_client_id(root),cursor=history['cursor'],context_cursor=history['context_cursor'],budget=budget)
         save(root/'claim-private.json',claimed,True)

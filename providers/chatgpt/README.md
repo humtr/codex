@@ -209,7 +209,7 @@ This device's local runtime now uses [runit services](#device-runit-services);
 do not start a second tmux runtime against the same remote tunnel.
 
 Once connected, use [this response for Codex work](../../README.md#chatgpt-using-this-response-for-codex-work).
-With the installed protocol, the assistant selects `reasoning=direct` for attached
+With the source protocol, the assistant selects `inference=attached` for attached
 inference on common Codex work and completes the native attach/receipt/
 execution/final protocol through advertised tools. No Linux rootfs is required
 for this primary path.
@@ -272,7 +272,7 @@ remote binding for reconciliation; retry the same selection without creating a
 duplicate. Direct `config set` remains available for policy-only changes and
 does not itself create a remote project.
 Do not change an active work's destination underneath it. General delegation
-selects `reasoning=provider`; the Provider task requires app readiness and
+selects `inference=submitted`; the Provider task requires app readiness and
 its own work/receipt/budget controls. See the
 [entrypoint example](../../README.md#chatgpt-delegating-provider-development).
 
@@ -443,27 +443,32 @@ users identify the project/task and the desired reasoning source.
 | Continue a settled task | Reconcile and resume/start the related work at its supported boundary |
 | Stop a selected task | `codex_stop`; use tree Stop only when that whole scope is requested |
 
-The installed reasoning field still accepts `direct` for an attached Chat response
-and `provider` for a submitted response. Both are common Codex development in the
-target contract; this code/API overload needs coordinated replacement, not a
-new product definition. Neither inference route proves an independent child model.
-Previous names are not accepted as aliases. Existing installation state requires
-explicit offline format migration with its originals retained. MCP/local_function describe tool/result transport. A plain queue
-can start new inference; the existing no-reinference follow path additionally
-requires verified saved-source admission. chat_input deliberately starts a new
-saved-Chat user request and must not mirror an already active original prompt.
+The source protocol selects `inference=attached` for an existing Chat response
+and `inference=submitted` for a new Provider model request. Both use integrated
+work. Native controls already identify the workflow; they need no repeated mode
+selector. Neither inference selection proves an independent child model.
+The old `reasoning` field and direct/provider/current/managed values are rejected
+at runtime. MCP/local_function describe tool/result transport. A plain queue can
+start new inference; no-reinference source following requires verified admission.
+chat_input deliberately starts a saved-Chat user request and must not mirror an
+already active original prompt.
 
-Provider15 exposes bind/unbind/join; see CURRENT for exact qualification and
-remaining source-identity gaps. Earlier immutable Provider14 lacks these controls.
-An existing Provider14 journal must be converted while its service is stopped:
-`migrate-reasoning --state /absolute/state --backup /absolute/new-backup.json --target direct-provider`
-uses the new verified executable and preserves original control records. The
-installed CLI form is `codex provider chatgpt migrate-reasoning ...` after package
-selection. It starts no service or inference. Before rolling back to Provider14,
-use the new executable with `--target provider14` while stopped, then select the
-old package. Pending/unknown execution must reconcile first. Runtime aliases are
-not used to read old state. Installation changes package selection; existing
-service executable pins and generated profiles need their explicit update too.
+New source uses work schema v3. Installed Provider21 still uses v2 and Provider14
+uses v1: source/API qualification does not update their running services. Stop the
+service before converting its journal with the **new executable**:
+`migrate-inference --state /absolute/state --backup /absolute/new-backup.json --target attached-submitted`.
+After package selection the CLI form is `codex provider chatgpt migrate-inference ...`.
+Conversion preserves original receipts/transcripts and keeps an immutable private
+backup outside the state directory. The same backup resumes an interrupted exact
+conversion; changes made afterwards are rejected. It starts no service or inference.
+Before old-package rollback, use the new executable while stopped with a fresh
+backup and `--target provider21` or `--target provider14`, then select that matched
+package. Pending/unknown execution must reconcile before downgrade. Runtime
+aliases do not read old state. Package selection, service executable pins and
+generated profiles each require their explicit update and validation. Refresh the
+registered MCP declaration and verify its actual inference enum against the new
+service before acceptance; cached old tool schemas are not a reason to retain
+old runtime aliases.
 Ordinary `join` admits Bridge-submitted input directly on a selected completed
 Native work, without saved-source crawling. Accept current context via
 `codex_attach`; progress, actual tools/results and submitted final use the common
@@ -545,8 +550,8 @@ account/filter-bound `list_cursor`; `chats read` returns stable IDs, parents,
 source cursors and explicit unavailable content. Range enumeration (`complete`)
 and readable content (`content_complete`) are separate.
 
-Under the installed wire protocol, new Native work may select `reasoning=direct`
-(attached Chat/MCP) or `reasoning=provider` (submitted saved-project response,
+Under the source wire protocol, new Native work selects `inference=attached`
+(existing Chat/MCP) or `inference=submitted` (new saved-project response,
 explicit return path). Both belong to common Codex workflow. Related starts
 retain the native work. `work events` retrieves its original public results;
 `work wait --max-wait-seconds N` waits locally up to300 seconds for a genuine
@@ -655,15 +660,14 @@ active turn becomes observable when upstream commits it on a subsequent round.
 
 For an existing completed work, `codex_sessions join` takes its explicit
 `work_id`, the Bridge-submitted `task` and a stable `call_id`. It reuses the
-Native start transition with Direct reasoning, returns the generation controller,
+Native start transition with attached inference, returns the generation controller,
 and performs no saved-Chat retrieval or new Provider inference. Read and accept
 current context through `codex_attach` before tools; use `codex_report` and
 `codex_finish` for full submitted progress/final. Exact retries reuse their
 receipt. Busy, stopped and unreconciled works are rejected, not taken over.
 Submitted text is not falsely labelled as an unobserved ChatGPT original.
 Record each full public progress message verbatim before showing it in ChatGPT;
-on joining, also record progress already shown for the same task. The Direct
-attachment's `progress` policy and report declaration share one definition.
+on joining, also record progress already shown for the same task. The attached response's `progress` policy and report declaration share one definition.
 A native tool's report can carry that same message without a second report call.
 This preserves public detail and does not request hidden reasoning. Actual host
 commentary still requires independent comparison; the policy is model guidance.

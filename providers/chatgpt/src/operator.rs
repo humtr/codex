@@ -26,10 +26,10 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 const HANDOFF: &str = "Codex Chat context handoff v1\n";
-const DIRECT_PROGRESS: &str = "Record and display every complete public progress message for this task verbatim in Native before publishing the same message in ChatGPT. On joining, also record public progress already shown for this task. Do not replace full public text with a shorter status, reduce reasoning or tool use, or expose hidden reasoning/private controls. If a native tool call's report already records that exact message, do not record it again with codex_report. Retry the same call_id and text after uncertain delivery. Submitted reports are not independently observed host messages.";
-const DIRECT_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
+const ATTACHED_PROGRESS: &str = "Record and display every complete public progress message for this task verbatim in Native before publishing the same message in ChatGPT. On joining, also record public progress already shown for this task. Do not replace full public text with a shorter status, reduce reasoning or tool use, or expose hidden reasoning/private controls. If a native tool call's report already records that exact message, do not record it again with codex_report. Retry the same call_id and text after uncertain delivery. Submitted reports are not independently observed host messages.";
+const ATTACHED_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
 const LIMIT: usize = 16 * 1024 * 1024;
-pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v2";
+pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v3";
 const SOURCE_ADMISSION_SCHEMA: &str = "codex-chatgpt-source-admission-v1";
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 fn source_observation_pending(error: &Error) -> bool {
@@ -101,14 +101,14 @@ fn queue_client_id(thread: &str, call: &str) -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
-    reasoning: Reasoning,
+    inference: Inference,
     return_path: ReturnPath,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Reasoning {
-    Direct,
-    Provider,
+enum Inference {
+    Attached,
+    Submitted,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,10 +180,10 @@ struct Record {
     assignment: Option<Assignment>,
 }
 // This offline upgrade/rollback boundary is the only reader of old selection
-// names. Normal API and journal decoding accept only Direct/Provider.
+// names. Normal API and journal decoding accept only Attached/Submitted.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ReasoningMigration {
+struct InferenceMigration {
     schema: String,
     owner: String,
     root: std::path::PathBuf,
@@ -194,46 +194,111 @@ fn migrate_selection(value: &mut Value, target: &str) -> Result<(), Error> {
     let Some(selection) = value.get_mut("selection").filter(|value| !value.is_null()) else {
         return Ok(());
     };
-    let name = match selection["reasoning"].as_str() {
-        Some("current" | "direct") => {
-            if target == "direct-provider" {
-                "direct"
-            } else {
-                "current"
-            }
+    let selection = selection
+        .as_object_mut()
+        .ok_or(Error("inference_migration_selection_invalid"))?;
+    let attached = match (selection.get("inference"), selection.get("reasoning")) {
+        (Some(Value::String(name)), None) if name == "attached" => true,
+        (Some(Value::String(name)), None) if name == "submitted" => false,
+        (None, Some(Value::String(name))) if matches!(name.as_str(), "current" | "direct") => true,
+        (None, Some(Value::String(name))) if matches!(name.as_str(), "managed" | "provider") => {
+            false
         }
-        Some("managed" | "provider") => {
-            if target == "direct-provider" {
-                "provider"
-            } else {
-                "managed"
-            }
-        }
-        _ => return Err(Error("reasoning_migration_selection_invalid")),
+        _ => return Err(Error("inference_migration_selection_invalid")),
     };
-    selection["reasoning"] = json!(name);
+    selection.remove("reasoning");
+    selection.remove("inference");
+    let (field, name) = match (target, attached) {
+        ("attached-submitted", true) => ("inference", "attached"),
+        ("attached-submitted", false) => ("inference", "submitted"),
+        ("provider21", true) => ("reasoning", "direct"),
+        ("provider21", false) => ("reasoning", "provider"),
+        ("provider14", true) => ("reasoning", "current"),
+        ("provider14", false) => ("reasoning", "managed"),
+        _ => return Err(Error("inference_migration_target_invalid")),
+    };
+    selection.insert(field.into(), json!(name));
     Ok(())
 }
 fn migration_record(mut value: Value, target: &str) -> Result<Value, Error> {
     if !matches!(
         value["schema"].as_str(),
-        Some("termux-codex-operator-work-v1" | WORK_SCHEMA)
+        Some("termux-codex-operator-work-v1" | "termux-codex-operator-work-v2" | WORK_SCHEMA)
     ) {
-        return Err(Error("reasoning_migration_record_invalid"));
+        return Err(Error("inference_migration_record_invalid"));
     }
     value["schema"] = json!(WORK_SCHEMA);
-    migrate_selection(&mut value, "direct-provider")?;
+    migrate_selection(&mut value, "attached-submitted")?;
     serde_json::from_value::<Record>(value.clone())
-        .map_err(|_| Error("reasoning_migration_record_invalid"))?;
+        .map_err(|_| Error("inference_migration_record_invalid"))?;
     migrate_selection(&mut value, target)?;
-    if target == "provider14" {
-        value["schema"] = json!("termux-codex-operator-work-v1");
-    }
+    value["schema"] = json!(match target {
+        "attached-submitted" => WORK_SCHEMA,
+        "provider21" => "termux-codex-operator-work-v2",
+        "provider14" => "termux-codex-operator-work-v1",
+        _ => return Err(Error("inference_migration_target_invalid")),
+    });
     Ok(value)
+}
+fn inference_migration_records(
+    journal: &Journal,
+    target: &str,
+) -> Result<BTreeMap<String, Value>, Error> {
+    let mut records = BTreeMap::new();
+    let mut source = journal.records("termux-codex-operator-work-v1")?;
+    source.extend(journal.records("termux-codex-operator-work-v2")?);
+    source.extend(journal.records(WORK_SCHEMA)?);
+    for (key, value) in source {
+        if key != digest(&("operator-work-v1", &value["id"]))
+            && key
+                != digest(&(
+                    "operator-previous-controller-v1",
+                    &value["id"],
+                    &value["generation"],
+                ))
+        {
+            return Err(Error("inference_migration_record_key_invalid"));
+        }
+        let converted = migration_record(value.clone(), target)?;
+        if converted != value {
+            records.insert(key, value.clone());
+        }
+        let lane_key = digest(&value["thread"]);
+        if let Some(lane) = journal.read::<Value>(&lane_key)? {
+            if lane["native_thread"] != value["thread"] {
+                return Err(Error("inference_migration_record_key_invalid"));
+            }
+            if crate::app::migrate_source_queue(lane.clone(), target == "provider14")? != lane {
+                records.insert(lane_key, lane);
+            }
+        }
+        let key = digest(&("work-route-transfer-v1", &value["id"]));
+        if let Some(mut offer) = journal.read::<Value>(&key)? {
+            let before = offer.clone();
+            if offer["work_id"] != value["id"] {
+                return Err(Error("inference_migration_record_key_invalid"));
+            }
+            migrate_selection(&mut offer, target)?;
+            if before != offer {
+                records.insert(key, before);
+            }
+        }
+    }
+    let key = work_index_key();
+    if let Some(mut index) = journal.read::<Value>(&key)? {
+        let before = index.clone();
+        if !index["pending"].is_null() {
+            index["pending"] = migration_record(index["pending"].clone(), target)?;
+        }
+        if before != index {
+            records.insert(key, before);
+        }
+    }
+    Ok(records)
 }
 /// Explicit offline format conversion, including the inverse needed before an
 /// old binary rollback. Original Chat/native history and call receipts stay put.
-pub fn migrate_reasoning(
+pub fn migrate_inference(
     root: &std::path::Path,
     backup: &std::path::Path,
     target: &str,
@@ -243,12 +308,12 @@ pub fn migrate_reasoning(
         io::Write,
         os::unix::fs::OpenOptionsExt,
     };
-    if !matches!(target, "direct-provider" | "provider14") {
-        return Err(Error("reasoning_migration_target_invalid"));
+    if !matches!(target, "attached-submitted" | "provider21" | "provider14") {
+        return Err(Error("inference_migration_target_invalid"));
     }
     let parent = backup
         .parent()
-        .ok_or(Error("reasoning_migration_backup_invalid"))?;
+        .ok_or(Error("inference_migration_backup_invalid"))?;
     if !root.is_absolute()
         || fs::canonicalize(root).ok().as_deref() != Some(root)
         || !backup.is_absolute()
@@ -256,98 +321,57 @@ pub fn migrate_reasoning(
         || backup.starts_with(root)
         || !root.join("owner-v1").is_file()
     {
-        return Err(Error("reasoning_migration_backup_invalid"));
+        return Err(Error("inference_migration_backup_invalid"));
     }
     crate::journal::private_directory(parent)?;
     let journal = Journal::open(root)?;
     let snapshot = if backup.exists() {
         let size = fs::symlink_metadata(backup)
-            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?
+            .map_err(|_| Error("inference_migration_backup_unavailable"))?
             .len();
         let raw = crate::cdp::private_read(backup, size)?;
-        let snapshot: ReasoningMigration = serde_json::from_slice(&raw)
-            .map_err(|_| Error("reasoning_migration_backup_invalid"))?;
-        if snapshot.schema != "termux-codex-reasoning-migration-v1"
+        let snapshot: InferenceMigration = serde_json::from_slice(&raw)
+            .map_err(|_| Error("inference_migration_backup_invalid"))?;
+        if snapshot.schema != "termux-codex-inference-migration-v1"
             || snapshot.owner != journal.owner
             || snapshot.root != root
             || snapshot.target != target
         {
-            return Err(Error("reasoning_migration_backup_invalid"));
+            return Err(Error("inference_migration_backup_invalid"));
         }
         snapshot
     } else {
-        let mut records = BTreeMap::new();
-        let mut source = journal.records("termux-codex-operator-work-v1")?;
-        source.extend(journal.records(WORK_SCHEMA)?);
-        for (key, value) in source {
-            if key != digest(&("operator-work-v1", &value["id"]))
-                && key
-                    != digest(&(
-                        "operator-previous-controller-v1",
-                        &value["id"],
-                        &value["generation"],
-                    ))
-            {
-                return Err(Error("reasoning_migration_record_key_invalid"));
-            }
-            let converted = migration_record(value.clone(), target)?;
-            if converted != value {
-                records.insert(key, value.clone());
-            }
-            let lane_key = digest(&value["thread"]);
-            if let Some(lane) = journal.read::<Value>(&lane_key)? {
-                if lane["native_thread"] != value["thread"] {
-                    return Err(Error("reasoning_migration_record_key_invalid"));
-                }
-                if crate::app::migrate_source_queue(lane.clone(), target)? != lane {
-                    records.insert(lane_key, lane);
-                }
-            }
-            let key = digest(&("work-route-transfer-v1", &value["id"]));
-            if let Some(mut offer) = journal.read::<Value>(&key)? {
-                let before = offer.clone();
-                if offer["work_id"] != value["id"] {
-                    return Err(Error("reasoning_migration_record_key_invalid"));
-                }
-                migrate_selection(&mut offer, target)?;
-                if before != offer {
-                    records.insert(key, before);
-                }
-            }
-        }
-        let key = work_index_key();
-        if let Some(mut index) = journal.read::<Value>(&key)? {
-            let before = index.clone();
-            if !index["pending"].is_null() {
-                index["pending"] = migration_record(index["pending"].clone(), target)?;
-            }
-            if before != index {
-                records.insert(key, before);
-            }
-        }
-        let snapshot = ReasoningMigration {
-            schema: "termux-codex-reasoning-migration-v1".into(),
+        let records = inference_migration_records(&journal, target)?;
+        let snapshot = InferenceMigration {
+            schema: "termux-codex-inference-migration-v1".into(),
             owner: journal.owner.clone(),
             root: root.into(),
             target: target.into(),
             records,
         };
         let bytes = serde_json::to_vec(&snapshot)
-            .map_err(|_| Error("reasoning_migration_backup_invalid"))?;
+            .map_err(|_| Error("inference_migration_backup_invalid"))?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(backup)
-            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+            .map_err(|_| Error("inference_migration_backup_unavailable"))?;
         file.write_all(&bytes)
             .and_then(|()| file.sync_all())
-            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+            .map_err(|_| Error("inference_migration_backup_unavailable"))?;
         File::open(parent)
             .and_then(|file| file.sync_all())
-            .map_err(|_| Error("reasoning_migration_backup_unavailable"))?;
+            .map_err(|_| Error("inference_migration_backup_unavailable"))?;
         snapshot
     };
+    // A resumed backup cannot silently omit old-format work admitted later.
+    if inference_migration_records(&journal, target)?
+        .keys()
+        .any(|key| !snapshot.records.contains_key(key))
+    {
+        return Err(Error("inference_migration_state_changed"));
+    }
     // Validate every current value before changing any: an interrupted conversion
     // may resume only from its original or exact converted values.
     let mut updates = Vec::new();
@@ -355,14 +379,14 @@ pub fn migrate_reasoning(
         let mut after = before.clone();
         if matches!(
             after["schema"].as_str(),
-            Some("termux-codex-operator-work-v1" | WORK_SCHEMA)
+            Some("termux-codex-operator-work-v1" | "termux-codex-operator-work-v2" | WORK_SCHEMA)
         ) {
             after = migration_record(after, target)?;
         } else if let Some(thread) = after["native_thread"].as_str() {
             if key != &digest(&thread) {
-                return Err(Error("reasoning_migration_record_key_invalid"));
+                return Err(Error("inference_migration_record_key_invalid"));
             }
-            after = crate::app::migrate_source_queue(after, target)?;
+            after = crate::app::migrate_source_queue(after, target == "provider14")?;
         } else if key == &work_index_key() {
             if !after["pending"].is_null() {
                 after["pending"] = migration_record(after["pending"].clone(), target)?;
@@ -372,9 +396,9 @@ pub fn migrate_reasoning(
         }
         let current = journal
             .read::<Value>(key)?
-            .ok_or(Error("reasoning_migration_state_changed"))?;
+            .ok_or(Error("inference_migration_state_changed"))?;
         if current != *before && current != after {
-            return Err(Error("reasoning_migration_state_changed"));
+            return Err(Error("inference_migration_state_changed"));
         }
         updates.push((key, after));
     }
@@ -405,15 +429,23 @@ fn commit_work_index(journal: &Journal, index: &WorkIndex) -> Result<(), Error> 
     journal.write(&work_index_key(), index)
 }
 fn recover_work_index(journal: &Journal) -> Result<WorkIndex, Error> {
+    if !journal.records("termux-codex-operator-work-v1")?.is_empty()
+        || !journal.records("termux-codex-operator-work-v2")?.is_empty()
+    {
+        return Err(Error("inference_migration_required"));
+    }
     let legacy = journal
         .read::<Vec<String>>(&digest(&"operator-index-v1"))?
         .unwrap_or_default();
-    let mut index = if let Some(index) = journal.read::<WorkIndex>(&work_index_key())? {
-        index
-    } else {
-        if !journal.records("termux-codex-operator-work-v1")?.is_empty() {
-            return Err(Error("reasoning_migration_required"));
+    let mut index = if let Some(index) = journal.read::<Value>(&work_index_key())? {
+        if matches!(
+            index["pending"]["schema"].as_str(),
+            Some("termux-codex-operator-work-v1" | "termux-codex-operator-work-v2")
+        ) {
+            return Err(Error("inference_migration_required"));
         }
+        serde_json::from_value::<WorkIndex>(index).map_err(|_| Error("operator_record_invalid"))?
+    } else {
         let mut ids = legacy.clone();
         // Include pre-migration orphan work records; do not mistake an old
         // incomplete index for authority that those native works do not exist.
@@ -438,7 +470,7 @@ fn recover_work_index(journal: &Journal) -> Result<WorkIndex, Error> {
     }
     if let Some(record) = &index.pending {
         if record.schema != WORK_SCHEMA {
-            return Err(Error("reasoning_migration_required"));
+            return Err(Error("inference_migration_required"));
         }
         let key = digest(&("operator-work-v1", &record.id));
         if journal.read::<Record>(&key)?.is_none() {
@@ -569,7 +601,6 @@ pub struct Operator {
     works: Works,
     config: Config,
     bridge: Arc<dyn Bridge>,
-    reviewer: Arc<AppHost>,
     mcp_host: Arc<AppHost>,
     local_host: Arc<AppHost>,
     token: String,
@@ -662,7 +693,7 @@ fn controller_matches(record: &Record, args: &Value) -> bool {
         && !record
             .selection
             .as_ref()
-            .is_some_and(|s| s.reasoning == Reasoning::Provider)
+            .is_some_and(|s| s.inference == Inference::Submitted)
         && record.accepted
         && matches!(
             record.phase.as_str(),
@@ -689,7 +720,7 @@ impl Operator {
                 .read(&key)?
                 .ok_or(Error("operator_record_missing"))?;
             if value["schema"] != WORK_SCHEMA {
-                return Err(Error("reasoning_migration_required"));
+                return Err(Error("inference_migration_required"));
             }
             let mut record: Record =
                 serde_json::from_value(value).map_err(|_| Error("operator_record_invalid"))?;
@@ -748,15 +779,9 @@ impl Operator {
             AppHost::new(local_bridge, journal.clone())
                 .with_connector(config.transport.connector_name.clone()),
         );
-        let reviewer = if config.transport.return_path == ReturnPath::Mcp {
-            mcp_host.clone()
-        } else {
-            local_host.clone()
-        };
         Ok(Arc::new(Self {
             pool,
             broker: broker.clone(),
-            reviewer,
             mcp_host,
             local_host,
             journal,
@@ -826,7 +851,7 @@ impl Operator {
             return Ok(Some(ReturnPath::Mcp));
         }
         Ok(record.selection.as_ref().and_then(|selection| {
-            (selection.reasoning == Reasoning::Provider).then_some(selection.return_path)
+            (selection.inference == Inference::Submitted).then_some(selection.return_path)
         }))
     }
     async fn admit_native_call(&self, thread: &str, call_id: &str) -> Result<(), Error> {
@@ -1241,10 +1266,10 @@ impl Operator {
             .as_ref()
             .filter(|_| select_origin && work.record.phase != "starting_native")
             .map(|previous| Selection {
-                reasoning: if source_bound {
-                    Reasoning::Direct
+                inference: if source_bound {
+                    Inference::Attached
                 } else {
-                    Reasoning::Provider
+                    Inference::Submitted
                 },
                 return_path: if source_bound {
                     ReturnPath::Mcp
@@ -1254,7 +1279,7 @@ impl Operator {
             });
         let route_changed = selection.as_ref().is_some_and(|selected| {
             work.record.selection.as_ref().is_none_or(|old| {
-                old.reasoning != selected.reasoning || old.return_path != selected.return_path
+                old.inference != selected.inference || old.return_path != selected.return_path
             })
         });
         if !owner_changed && !route_changed {
@@ -1278,7 +1303,7 @@ impl Operator {
             .record
             .selection
             .as_ref()
-            .is_some_and(|selection| selection.reasoning == Reasoning::Provider)
+            .is_some_and(|selection| selection.inference == Inference::Submitted)
         {
             work.record.phase = "waiting_native".into();
         }
@@ -2243,7 +2268,7 @@ impl Operator {
                                 .record
                                 .selection
                                 .as_ref()
-                                .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                                .is_some_and(|s| s.inference == Inference::Submitted)
                                 && !matches!(
                                     work.record.phase.as_str(),
                                     "completed" | "stop_requested" | "stopped"
@@ -2338,7 +2363,7 @@ impl Operator {
                 if record
                     .selection
                     .as_ref()
-                    .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                    .is_some_and(|s| s.inference == Inference::Submitted)
                 {
                     return Err(Error("app_response_owns_execution"));
                 }
@@ -2607,7 +2632,7 @@ impl Operator {
             }
             self.persist(&work.record)?;
         }
-        let direct = self
+        let attached = self
             .app_route(&record, record.native_turn.as_deref())?
             .is_none();
         let works = self.works.lock().await;
@@ -2617,8 +2642,8 @@ impl Operator {
             "summary":summary,"incremental_history":history[count..],"cursor":Self::cursor(&history),"receipt":receipt,
             "incremental_context":context[context_count..],"context_cursor":Self::cursor(&context),
             "accepted":work.record.accepted,"instructions":work.request.as_ref().map(|request|&request.instructions),
-            "progress":direct.then_some(DIRECT_PROGRESS),
-            "completion":direct.then_some(DIRECT_COMPLETION),
+            "progress":attached.then_some(ATTACHED_PROGRESS),
+            "completion":attached.then_some(ATTACHED_COMPLETION),
             "native_context":work.record.phase,"return_bound":record.origin=="codex"}),
         )
     }
@@ -3103,30 +3128,30 @@ impl Operator {
                 )? {
                     return Ok(result);
                 }
-                let selection = match args.get("reasoning") {
+                let selection = match args.get("inference") {
                     Some(value) => {
-                        let reasoning = serde_json::from_value::<Reasoning>(value.clone())
+                        let inference = serde_json::from_value::<Inference>(value.clone())
                             .map_err(|_| Error("operator_arguments_invalid"))?;
                         let return_path = match args.get("return_path") {
                             Some(value) => serde_json::from_value(value.clone())
                                 .map_err(|_| Error("operator_arguments_invalid"))?,
                             None => ReturnPath::Mcp,
                         };
-                        if reasoning == Reasoning::Direct && return_path != ReturnPath::Mcp {
-                            return Err(Error("direct_requires_mcp"));
+                        if inference == Inference::Attached && return_path != ReturnPath::Mcp {
+                            return Err(Error("attached_inference_requires_mcp"));
                         }
-                        if reasoning == Reasoning::Provider
+                        if inference == Inference::Submitted
                             && self.config.history.mode != crate::config::HistoryMode::Project
                         {
                             return Err(Error("provider_project_required"));
                         }
                         Some(Selection {
-                            reasoning,
+                            inference,
                             return_path,
                         })
                     }
                     None if args.get("return_path").is_some() => {
-                        return Err(Error("reasoning_selection_required"))
+                        return Err(Error("inference_selection_required"))
                     }
                     None => None,
                 };
@@ -3136,7 +3161,7 @@ impl Operator {
                     || args.get("dependencies").is_some()
                 {
                     if selection.is_none() {
-                        return Err(Error("reasoning_selection_required"));
+                        return Err(Error("inference_selection_required"));
                     }
                     let role = text(&args, "role", 64)?.to_owned();
                     let budget: Budget = serde_json::from_value(args["budget"].clone())
@@ -3264,7 +3289,7 @@ impl Operator {
                                     .record
                                     .selection
                                     .as_ref()
-                                    .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                                    .is_some_and(|s| s.inference == Inference::Submitted)
                                 && work.record.workspace.as_ref().is_some_and(|other| {
                                     workspace.starts_with(other) || other.starts_with(&workspace)
                                 })
@@ -3301,7 +3326,7 @@ impl Operator {
                 let native = if action == "create"
                     || selection
                         .as_ref()
-                        .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                        .is_some_and(|s| s.inference == Inference::Submitted)
                 {
                     pool.prepare(Some(crate::registration::PROVIDER)).await?
                 } else {
@@ -3315,7 +3340,7 @@ impl Operator {
                     if action == "fork"
                         || selection
                             .as_ref()
-                            .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                            .is_some_and(|s| s.inference == Inference::Submitted)
                     {
                         let state = native
                             .call(
@@ -3328,7 +3353,7 @@ impl Operator {
                             .ok_or(Error("native_model_settings_unavailable"))?;
                         use_configured_route = selection
                             .as_ref()
-                            .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                            .is_some_and(|s| s.inference == Inference::Submitted)
                             && previous != crate::registration::PROVIDER;
                         if action == "fork" && !use_configured_route {
                             let model = state["thread"]["model"]
@@ -3381,7 +3406,7 @@ impl Operator {
                     text(&args, "call_id", 160)?;
                     if [
                         "controller",
-                        "reasoning",
+                        "inference",
                         "return_path",
                         "conversation_id",
                         "source_message_id",
@@ -3470,9 +3495,9 @@ impl Operator {
                     && record
                         .selection
                         .as_ref()
-                        .is_none_or(|selection| selection.reasoning != Reasoning::Provider)
+                        .is_none_or(|selection| selection.inference != Inference::Submitted)
                 {
-                    return Err(Error("native_model_override_requires_provider"));
+                    return Err(Error("native_model_override_requires_submitted_inference"));
                 }
                 let settings = if args.get("mode").is_some()
                     || model_override.is_some()
@@ -3574,7 +3599,7 @@ impl Operator {
                     }
                     if joining {
                         work.record.selection = Some(Selection {
-                            reasoning: Reasoning::Direct,
+                            inference: Inference::Attached,
                             return_path: ReturnPath::Mcp,
                         });
                         work.record.accepted = false;
@@ -3752,10 +3777,10 @@ impl Operator {
                     if !record
                         .selection
                         .as_ref()
-                        .is_some_and(|s| s.reasoning == Reasoning::Direct)
+                        .is_some_and(|s| s.inference == Inference::Attached)
                     {
                         return Err(Error(
-                            "assignment_budget_extension_requires_direct_reasoning",
+                            "assignment_budget_extension_requires_attached_inference",
                         ));
                     }
                     let assignment = record
@@ -3989,7 +4014,7 @@ impl Operator {
         let pool = self.work_pool(&record).await?;
         let native = pool.discover_thread(thread).await?;
         let (record, state, _) = self.observe_native(record, &native).await?;
-        let direct_active = self
+        let attached_active = self
             .app_route(&record, record.native_turn.as_deref())?
             .is_none()
             && !matches!(
@@ -4004,7 +4029,7 @@ impl Operator {
             .mcp_host
             .source_turn_pending(thread, record.native_turn.as_deref())?;
         let active = state["thread"]["status"]["type"] == "active";
-        Ok(if direct_active || source_active && active {
+        Ok(if attached_active || source_active && active {
             json!({"thread_id":thread,"status":"waiting","reason":"native_turn_active",
                 "retry_after_seconds":RECONCILE_INTERVAL.as_secs(),"inference_submitted":false})
         } else {
@@ -4606,8 +4631,8 @@ impl Operator {
             return Err(Error("operator_transfer_boundary_required"));
         }
         let selection = Selection {
-            reasoning: serde_json::from_value(args["reasoning"].clone())
-                .map_err(|_| Error("reasoning_selection_required"))?,
+            inference: serde_json::from_value(args["inference"].clone())
+                .map_err(|_| Error("inference_selection_required"))?,
             return_path: args
                 .get("return_path")
                 .map(|v| {
@@ -4617,10 +4642,10 @@ impl Operator {
                 .transpose()?
                 .unwrap_or(ReturnPath::Mcp),
         };
-        if selection.reasoning == Reasoning::Direct && selection.return_path != ReturnPath::Mcp {
-            return Err(Error("direct_requires_mcp"));
+        if selection.inference == Inference::Attached && selection.return_path != ReturnPath::Mcp {
+            return Err(Error("attached_inference_requires_mcp"));
         }
-        if selection.reasoning == Reasoning::Provider
+        if selection.inference == Inference::Submitted
             && self.config.history.mode != crate::config::HistoryMode::Project
         {
             return Err(Error("provider_project_required"));
@@ -4629,7 +4654,7 @@ impl Operator {
         // Reconcile and stop the old owned host lane before offering a new
         // generation. The saved source is retained, never adopted by title.
         if record.selection.as_ref().is_some_and(|s| {
-            s.reasoning == Reasoning::Provider && s.return_path != selection.return_path
+            s.inference == Inference::Submitted && s.return_path != selection.return_path
         }) && crate::app::inspect_lane(&self.journal.root, &record.thread).is_ok()
         {
             let host = if record.selection.as_ref().unwrap().return_path == ReturnPath::Mcp {
@@ -5101,7 +5126,7 @@ impl Operator {
                 self.config.transport.connector_name
             )
         };
-        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. {DIRECT_PROGRESS} {DIRECT_COMPLETION} The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
+        instructions.push(format!("Operate local Codex through {transport}. Use codex_attach with work_id={} and controller={}. Read its current history and echo its receipt as accept before effects. Discover full native tools with codex_tools, run them with codex_execute, publish initial/intermediate reports with codex_report, and explicitly codex_finish after actual results. Context renewal uses codex_history then codex_handoff with the confirmed cursor and context_cursor, grounded summary and renew=true. After a successful handoff, end this source Chat turn without further controls; the successor continues. {ATTACHED_PROGRESS} {ATTACHED_COMPLETION} The same native thread and original return remain bound. If native_context=native_summary, supply codex_native_summary with a unique stable call_id for that request, without replacing Chat. Never invent execution receipts, create another primary thread or reveal private reasoning. Exact retries reuse logical call IDs; uncertain actions are reconciled, never resent.",record.id,record.capability));
         {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -5456,7 +5481,7 @@ impl Operator {
         if record
             .selection
             .as_ref()
-            .is_none_or(|s| s.reasoning != Reasoning::Direct)
+            .is_none_or(|s| s.inference != Inference::Attached)
             && (!existed || new_user_turn || (manual_compact && record.driver.is_some()))
         {
             let this = self.clone();
@@ -5648,7 +5673,6 @@ impl Operator {
             });
         }
         while stops.join_next().await.is_some() {}
-        self.reviewer.shutdown().await;
         self.mcp_host.shutdown().await;
         self.local_host.shutdown().await;
     }
@@ -5718,8 +5742,10 @@ impl Host for Operator {
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), Error>> {
-        if request.guardian {
-            return self.reviewer.exchange(request, events, cancel);
+        if request.is_auxiliary() {
+            return self
+                .app_host(self.config.transport.return_path)
+                .exchange(request, events, cancel);
         }
         let this = self.clone();
         Box::pin(async move {
@@ -5744,7 +5770,7 @@ impl Host for Operator {
                         Some(&request),
                         pool.clone(),
                         Some(Selection {
-                            reasoning: Reasoning::Provider,
+                            inference: Inference::Submitted,
                             return_path: this.config.transport.return_path,
                         }),
                         None,
@@ -6053,7 +6079,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "list_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"offset":{"type":"integer","minimum":0},"filter":{"type":"string"}},"required":["account","offset","filter"],"additionalProperties":false})
         }
-        "reasoning" => json!({"type":"string","enum":["direct","provider"]}),
+        "inference" => json!({"type":"string","enum":["attached","submitted"]}),
         "source_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false})
         }
@@ -6082,14 +6108,14 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
-        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, reserves Direct reasoning without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. Direct means this response uses Native tools; provider means Native starts Provider model execution (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled Direct claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Provider extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode reasoning return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
+        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
         ("codex_execute", "Execute one advertised native tool under upstream approvals and return its original result. Reuse exact call_id/name/input/report on delivery retries.", "work_id controller call_id name input report", "work_id controller call_id name input report"),
         ("codex_answer", "Forward the user's supplied answer to a pending native question. This cannot answer approval/reviewer requests.", "work_id controller request_id answers", "work_id controller request_id answers"),
-        ("codex_report", DIRECT_PROGRESS, "work_id controller call_id text", "work_id controller call_id text"),
-        ("codex_finish", DIRECT_COMPLETION, "work_id controller call_id text", "work_id controller call_id text"),
+        ("codex_report", ATTACHED_PROGRESS, "work_id controller call_id text", "work_id controller call_id text"),
+        ("codex_finish", ATTACHED_COMPLETION, "work_id controller call_id text", "work_id controller call_id text"),
         ("codex_status", "Observe native execution, unresolved calls, human requests and unknown host progress.", "work_id", "work_id"),
         ("codex_stop", "Fence new effects and request interruption; report actual confirmation separately.", "work_id", "work_id"),
         ("codex_handoff", "Prepare a grounded summary at a history cursor, fence the old Chat and optionally request a successor on the same Codex thread.", "work_id controller call_id summary cursor context_cursor renew", "work_id controller call_id summary cursor context_cursor"),
@@ -6310,44 +6336,64 @@ mod local_tests {
     }
 
     #[test]
-    fn reasoning_contract_has_only_direct_and_provider() {
+    fn integrated_work_inference_contract_rejects_old_workflow_names() {
         let catalog = tools();
         let sessions = catalog
             .iter()
             .find(|tool| tool["name"] == "codex_sessions")
             .unwrap();
         assert_eq!(
-            sessions["inputSchema"]["properties"]["reasoning"]["enum"],
-            json!(["direct", "provider"])
+            sessions["inputSchema"]["properties"]["inference"]["enum"],
+            json!(["attached", "submitted"])
         );
-        for name in ["direct", "provider"] {
-            let value = json!({"reasoning":name,"return_path":"mcp"});
+        assert!(sessions["inputSchema"]["properties"]
+            .get("reasoning")
+            .is_none());
+        for name in ["attached", "submitted"] {
+            let value = json!({"inference":name,"return_path":"mcp"});
             validate_arguments(
                 &catalog,
                 "codex_sessions",
-                &json!({"action":"list","reasoning":name}),
+                &json!({"action":"create","inference":name,"call_id":"new-task"}),
             )
             .unwrap();
             let selection: Selection = serde_json::from_value(value.clone()).unwrap();
             assert_eq!(serde_json::to_value(selection).unwrap(), value);
         }
-        for name in ["current", "managed", "Direct", "Provider"] {
+        for name in [
+            "direct",
+            "provider",
+            "current",
+            "managed",
+            "standalone",
+            "integrated",
+        ] {
             assert!(validate_arguments(
                 &catalog,
                 "codex_sessions",
-                &json!({"action":"list","reasoning":name})
+                &json!({"action":"create","inference":name})
             )
             .is_err());
             assert!(serde_json::from_value::<Selection>(
-                json!({"reasoning":name,"return_path":"mcp"})
+                json!({"inference":name,"return_path":"mcp"})
             )
             .is_err());
         }
+        assert!(validate_arguments(
+            &catalog,
+            "codex_sessions",
+            &json!({"action":"create","reasoning":"direct"})
+        )
+        .is_err());
+        assert!(serde_json::from_value::<Selection>(
+            json!({"reasoning":"direct","return_path":"mcp"})
+        )
+        .is_err());
     }
 
     #[test]
-    fn offline_reasoning_conversion_preserves_originals_restarts_and_downgrades() {
-        let root = std::env::temp_dir().join(format!("reasoning-migrate-{}", random_id().unwrap()));
+    fn offline_inference_conversion_preserves_originals_restarts_and_downgrades() {
+        let root = std::env::temp_dir().join(format!("inference-migrate-{}", random_id().unwrap()));
         crate::journal::private_directory(&root).unwrap();
         let state = root.join("state");
         let journal = Journal::open(&state).unwrap();
@@ -6355,60 +6401,121 @@ mod local_tests {
         value["schema"] = json!("termux-codex-operator-work-v1");
         value["selection"] = json!({"reasoning":"current","return_path":"mcp"});
         value["summary"] = json!("Original prose mentioning managed and current must not change.");
+        // A crash can leave only an indexed admission intent, without a work
+        // file. Refuse it as old state before attempting the new typed codec.
+        let pending_only = json!({"ids":[],"pending":value});
+        journal.write(&work_index_key(), &pending_only).unwrap();
+        assert_eq!(
+            recover_work_index(&journal).err(),
+            Some(Error("inference_migration_required"))
+        );
+        assert_eq!(
+            journal.read::<Value>(&work_index_key()).unwrap(),
+            Some(pending_only)
+        );
         let key = digest(&("operator-work-v1", &value["id"]));
         journal.write(&key, &value).unwrap();
         let original = value.clone();
         let mut other = value.clone();
         other["id"] = json!("work-two");
-        other["selection"]["reasoning"] = json!("managed");
+        other["schema"] = json!("termux-codex-operator-work-v2");
+        other["selection"]["reasoning"] = json!("provider");
         let other_key = digest(&("operator-work-v1", &other["id"]));
         journal.write(&other_key, &other).unwrap();
+        let index = json!({"ids":["work-two"],"pending":original});
+        journal.write(&work_index_key(), &index).unwrap();
+        assert_eq!(
+            recover_work_index(&journal).err(),
+            Some(Error("inference_migration_required"))
+        );
+        assert_eq!(
+            journal.read::<Value>(&work_index_key()).unwrap(),
+            Some(index.clone())
+        );
+        let transfer_key = digest(&("work-route-transfer-v1", &other["id"]));
+        let transfer = json!({"work_id":other["id"],"selection":other["selection"],"summary":"original transfer"});
+        journal.write(&transfer_key, &transfer).unwrap();
         let untouched =
             json!({"result":{"selection":{"reasoning":"managed"}},"source":"original receipt"});
         let receipt_key = digest(&"immutable-original-receipt");
         journal.write(&receipt_key, &untouched).unwrap();
         assert_eq!(
-            migrate_reasoning(&state, &root.join("busy.json"), "direct-provider"),
+            migrate_inference(&state, &root.join("busy.json"), "attached-submitted"),
             Err(Error("provider_already_running"))
         );
         drop(journal);
         let backup = root.join("before.json");
         assert_eq!(
-            migrate_reasoning(&state, &backup, "direct-provider").unwrap()["converted_records"],
-            2
+            migrate_inference(&state, &backup, "attached-submitted").unwrap()["converted_records"],
+            4
         );
         // Resume a genuinely mixed transaction after one record write was lost.
         let journal = Journal::open(&state).unwrap();
         journal.write(&key, &original).unwrap();
         drop(journal);
-        migrate_reasoning(&state, &backup, "direct-provider").unwrap();
+        migrate_inference(&state, &backup, "attached-submitted").unwrap();
         let journal = Journal::open(&state).unwrap();
         let upgraded: Record = journal.read(&key).unwrap().unwrap();
         assert_eq!(upgraded.schema, WORK_SCHEMA);
-        assert_eq!(upgraded.selection.unwrap().reasoning, Reasoning::Direct);
+        assert_eq!(upgraded.selection.unwrap().inference, Inference::Attached);
+        let second: Record = journal.read(&other_key).unwrap().unwrap();
+        assert_eq!(second.selection.unwrap().inference, Inference::Submitted);
+        assert_eq!(
+            journal.read::<Value>(&transfer_key).unwrap().unwrap()["selection"]["inference"],
+            "submitted"
+        );
+        assert_eq!(
+            journal.read::<Value>(&work_index_key()).unwrap().unwrap()["pending"]["schema"],
+            WORK_SCHEMA
+        );
         assert_eq!(
             journal.read::<Value>(&receipt_key).unwrap(),
             Some(untouched)
         );
-        let snapshot: ReasoningMigration =
+        let snapshot: InferenceMigration =
             serde_json::from_slice(&std::fs::read(&backup).unwrap()).unwrap();
         assert_eq!(snapshot.records[&key], original);
+        let mut later_work = other.clone();
+        later_work["id"] = json!("later-old-writer-work");
+        let later_key = digest(&("operator-work-v1", &later_work["id"]));
+        journal.write(&later_key, &later_work).unwrap();
+        drop(journal);
+        assert_eq!(
+            migrate_inference(&state, &backup, "attached-submitted"),
+            Err(Error("inference_migration_state_changed"))
+        );
+        let journal = Journal::open(&state).unwrap();
+        assert_eq!(journal.read::<Value>(&later_key).unwrap(), Some(later_work));
+        // Only this test's injected record is removed; it is not migration logic.
+        std::fs::remove_file(state.join(format!("{later_key}.json"))).unwrap();
         let canonical: Value = journal.read(&key).unwrap().unwrap();
         let mut changed = canonical.clone();
         changed["summary"] = json!("Later user state must not be overwritten by a stale backup.");
         journal.write(&key, &changed).unwrap();
         drop(journal);
         assert_eq!(
-            migrate_reasoning(&state, &backup, "direct-provider"),
-            Err(Error("reasoning_migration_state_changed"))
+            migrate_inference(&state, &backup, "attached-submitted"),
+            Err(Error("inference_migration_state_changed"))
         );
         let journal = Journal::open(&state).unwrap();
         assert_eq!(journal.read::<Value>(&key).unwrap(), Some(changed));
         journal.write(&key, &canonical).unwrap();
         drop(journal);
-        migrate_reasoning(&state, &root.join("downgrade.json"), "provider14").unwrap();
+        migrate_inference(&state, &root.join("provider21.json"), "provider21").unwrap();
+        let journal = Journal::open(&state).unwrap();
+        let second: Value = journal.read(&other_key).unwrap().unwrap();
+        assert_eq!(second, other);
+        let first: Value = journal.read(&key).unwrap().unwrap();
+        assert_eq!(first["schema"], "termux-codex-operator-work-v2");
+        assert_eq!(first["selection"]["reasoning"], "direct");
+        assert!(serde_json::from_value::<Record>(first).is_err());
+        drop(journal);
+        migrate_inference(&state, &root.join("reupgrade.json"), "attached-submitted").unwrap();
+        migrate_inference(&state, &root.join("downgrade.json"), "provider14").unwrap();
         let journal = Journal::open(&state).unwrap();
         assert_eq!(journal.read::<Value>(&key).unwrap(), Some(original));
+        other["schema"] = json!("termux-codex-operator-work-v1");
+        other["selection"]["reasoning"] = json!("managed");
         assert_eq!(journal.read::<Value>(&other_key).unwrap(), Some(other));
         drop(journal);
         std::fs::remove_dir_all(root).unwrap();
@@ -6572,7 +6679,7 @@ mod local_tests {
         assert!(!controller_matches(&record, &current));
         record.phase = "running".into();
         record.selection = Some(Selection {
-            reasoning: Reasoning::Provider,
+            inference: Inference::Submitted,
             return_path: ReturnPath::Mcp,
         });
         assert!(!controller_matches(&record, &current));

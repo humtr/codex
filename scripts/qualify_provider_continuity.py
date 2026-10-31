@@ -128,7 +128,7 @@ def probe(args):
 
         created_before_tui = None
         if args.native_created:
-            created_before_tui = rpc('codex_sessions',{'action':'create','reasoning':'direct',
+            created_before_tui = rpc('codex_sessions',{'action':'create','inference':'attached',
                 'call_id':'native-before-tui-create'})
             thread = created_before_tui['thread_id']
             started = rpc('codex_sessions',{'action':'start','work_id':created_before_tui['work_id'],
@@ -360,7 +360,7 @@ def probe(args):
                 wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','CLI after Bridge completes')
                 after_cli = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
                 assert after_cli[:-1]==bridge_prefix and len(after_cli)==len(bridge_prefix)+1
-                assert rpc('codex_status',{'work_id':work['work_id']})['selection']['reasoning']=='provider'
+                assert rpc('codex_status',{'work_id':work['work_id']})['selection']['inference']=='submitted'
                 assert source_reads()==before_reads
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
@@ -385,22 +385,22 @@ def probe(args):
             origin = 'Native-created work→ordinary TUI resume' if created_before_tui else 'Provider→Direct same work'
             print(f'Bridge-first: {origin}, concurrent retry once, context gate, actual effects/results, public progress/final in live TUI, restart and zero saved-Chat reads',flush=True)
             return
-        def select_route(reasoning, label):
+        def select_route(inference, label):
             native_before = history()
             source = rpc('codex_history', {'work_id': work['work_id']})
             claimed = rpc('codex_sessions', {'action': 'claim', 'work_id': work['work_id'],
                 'call_id': label + '-claim', 'cursor': source['cursor'], 'context_cursor': source['context_cursor']})
             bound = {'work_id': work['work_id'], 'controller': claimed['controller']}
             offered = rpc('codex_sessions', {**bound, 'action': 'transfer', 'call_id': label + '-offer',
-                'reasoning': reasoning, 'return_path': 'mcp', 'cursor': source['cursor'],
+                'inference': inference, 'return_path': 'mcp', 'cursor': source['cursor'],
                 'context_cursor': source['context_cursor'], 'text': 'Continue this same verified development work.'})
             accepted = rpc('codex_sessions', {'work_id': work['work_id'], 'controller': offered['controller'],
                 'action': 'transfer_accept', 'call_id': label + '-accept', 'transfer_receipt': offered['offer']['receipt'],
                 'cursor': source['cursor'], 'context_cursor': source['context_cursor']})
-            assert accepted['accepted'] and accepted['selection']['reasoning'] == reasoning
+            assert accepted['accepted'] and accepted['selection']['inference'] == inference
             assert history() == native_before, 'route transfer changed original native items'
         if args.direct:
-            select_route('direct', 'direct-source')
+            select_route('attached', 'direct-source')
         unbind_command = None
         unbind_result = None
         if args.binding:
@@ -892,7 +892,7 @@ def probe(args):
             (root/'interrupted-native-turn.json').write_text(json.dumps(failed,indent=2))
             print('Interrupted original: partial preserved, Native failure confirmed, next source consumed once without inference',flush=True)
         if args.direct:
-            select_route('direct', 'direct-stop')
+            select_route('attached', 'direct-stop')
         saved += [{'id':'web-user-5','role':'user','content':{'content_type':'text','parts':['Cancel this external response']}},
             {'id':'web-progress-5','role':'assistant','recipient':'all','channel':'commentary',
              'status':'finished_partial_completion','end_turn':False,

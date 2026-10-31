@@ -466,7 +466,7 @@ def probe(args):
         assert record()['phase'] == 'completed', 'claim lost the settled route-transfer boundary'
         current_binding = dict(binding, controller=claimed['controller'])
         offered = control('codex_sessions', dict(current_binding, action='transfer', call_id='owned-current-transfer',
-            cursor=boundary['cursor'], context_cursor=boundary['context_cursor'], reasoning='direct',
+            cursor=boundary['cursor'], context_cursor=boundary['context_cursor'], inference='attached',
             text='The owned synthetic app completed the retained native turns; continue development in this same thread.'))
         current_binding['controller'] = offered['controller']
         accepted = control('codex_sessions', dict(current_binding, action='transfer_accept',

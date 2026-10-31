@@ -41,11 +41,67 @@ model and attached/submitted inference do not redefine those modes.
 The earlier report incorrectly preserved the code's direct/provider inference
 distinction as the product definition. Native participation from either entrance
 belongs to the common workflow, even when the active Chat does the reasoning.
-`Selection.reasoning`/`Reasoning` currently encode attached/submitted inference;
-replace that overload with its callers/codecs/migration before exposing workflow
-selection. Historical direct Native records/evidence retain their original meaning.
-MCP/local transport is separate. No runtime migration or source implementation
-has been performed by this documentation correction.
+The source now replaces `Selection.reasoning`/`Reasoning` with
+`Selection.inference`/`Inference::{Attached,Submitted}` throughout declarations,
+scheduling, transfers, drivers and v3 persistence. Both select integrated work;
+no standalone mode is implemented by this rename. Runtime old fields/values are
+rejected. Explicit offline `migrate-inference` upgrades v1/v2 work, pending-index
+and transfer selections to v3, or prepares matched Provider21/Provider14 rollback;
+original receipts/transcripts are preserved. Stopped-owner lease and immutable
+backup protect conversion/restart. Historical direct Native records/evidence
+retain their original meaning. MCP/local transport is separate. Installed
+Provider21 and its live journal have not been migrated or replaced.
+The v2 qualification-input contract now names attached/submitted inference; old
+v1 input manifests remain original evidence rather than new accepted inputs.
+The first actual Android Operator/TUI run passes provider startup, commands/exact
+retry, automatic reviewer allow/deny, same-thread handoff and visible CLI progress/
+final, then fails cold shutdown. Original results are retained as
+inference-android-operator.log (fixture ob-n5krdwri). The Native primary was
+completed, but an automatic TUI thread_title request had been registered as
+another development work and remained running. A new inventory assertion fails
+against the retained pre-fix executable (inference-title-pre-fix-negative.json,
+fixture ob-0hrp57wg); extending the shutdown timeout is not the repair.
+Source now routes thread_source=thread_title through the existing auxiliary
+AppHost lifecycle, like guardian review, without registering Operator work or
+inheriting a development project. The configured MCP/local AppHost is reused;
+the redundant stored reviewer-host alias and duplicate shutdown are removed.
+False/absent title metadata is omitted from serialization to preserve old
+primary/reviewer request digests. The existing project-isolation test now covers
+both auxiliary sources; the Android driver requires the actual saved title and
+no additional work. Actual Android Core/runtime/frontend plus the synthetic host
+now pass full/cold/selected-control acceptance (inference-title-android-operator.json,
+fixture ob-h209reac): actual TUI title saved, no extra development work, original
+Native history and captured PTY progress/final, cold owner rebind, same-thread
+compaction, reviewer allow/deny, exact retry, questions, concurrent Stop/start,
+failed-start settlement, parallel/dependency/descendant control and service restart.
+This is not a new actual ChatGPT app/model or human physical-screen trial.
+A focused Project-mode test also passes tool-free submitted inference over MCP
+and local_function, status before the first turn, one synthetic model submission
+per route despite exact start retry, and original final in Native history
+(submitted-inference-android.json). Native login/API-key environment are absent;
+its model host is synthetic, so this does not prove actual model tool-use quality.
+The initial focused driver read its absent pre-first-call trace too early; its
+failed result/source remain, and the corrected driver treats that producer's
+uncreated trace as zero calls. The intermediate inert-environment proof is also
+retained with its narrower explicit environment scope.
+Default Rust checks pass219 top-level tests (30 explicit environment/subprocess
+cases excluded; the transport peer additionally passes in its owned child).
+After final migration-resume and host-selection review, the affected library/
+AppHost/operator targets pass165 tests. Clippy passes with warnings denied;
+Bun1.4.0 passes108 tests and affected Python checks pass63. Test builds use one
+compiler, debug information0 and incremental output disabled. The migration
+mapping fault fails its disposable test; excluding titles from auxiliary handling
+fails the real project-isolation consumer. Both sources are restored. Conversion
+also rejects a stale backup when another old writer added work afterwards.
+Source/API qualification does not activate Provider21, migrate its live journal
+or refresh the registered host schema. Those matched-state/schema and real-host
+acceptance boundaries remain required before delivery.
+The completed batch's five inactive fixtures have kernel-absence/exit proof;
+manifest-verified archive cleanup reclaimed3818823680 allocated bytes from30
+payload copies. Their individual *-payload-cleanup.jsonl files preserve restoration
+records; source, Native histories, original results and immutable test executables
+remain. The final no-credential fixture also has its own exit/restoration record
+and reclaims another763764736 bytes from6 payload copies.
 Original user-identified work/controller metadata confirms a Chat-origin Direct
 root work with durable Native history. Bounded actual Android probes show Native
 completion without a TUI, ephemeral history loss without notification suppression,
@@ -54,7 +110,8 @@ thread/turn/inference/notification. A separate fresh home also passes without
 Native authentication, Provider configuration or a saved model catalog. These are
 Core/native API proofs, not a new ChatGPT MCP/local-function product acceptance.
 Proof root: ~/.cache/codex/acceptance/work-scope-review-20261031. User sessions,
-operating configuration and installed components are unchanged; no new build.
+operating configuration and installed components are unchanged; no product
+release build or device activation.
 
 The latest requirement is selection without repeated manual prompting. Keep entry
 defaults, explicit task contexts and transitions; two connections do not remove
@@ -413,12 +470,15 @@ passing. A subsequent source batch now passes the selected provider and only
 its owned definition to the existing Core startup interface. Cold queue/resume/
 fork reads saved Native metadata before preparing the execution server, retaining
 other providers and live-owner discovery. All four prepare callers are updated;
-saved defaults and input ownership are unchanged. This subsequent diff is only
-source-reviewed/formatted, not compiled, qualified or deployed. Its next grouped
-build must run the real operator/CLI suite, cold continuation and the actual
-startup assertions, including a disposable missing-forwarding fault. Matched
-Provider qualification/delivery and actual interoperability remain prerequisites
-for activating the new invocation-bearing record route.
+saved defaults and input ownership are unchanged. This producer repair now
+compiles and passes the actual Android operator/CLI suite, cold continuation and
+startup assertions in inference-title-android-operator.json, using the matched
+retained Core/runtime/frontend. The original missing-forwarding failure remains
+in invocation-provider-startup-negative.log; it was not rerun as a new source
+mutation. The new auxiliary-title regression and its distinct negative/mutation
+proofs are recorded in the current status above. Matched signed Provider delivery,
+registered schema/state conversion and real-host interoperability remain separate
+prerequisites for activating the new invocation-bearing record route.
 Cold restoration of an arbitrary provider defined only by a lost CLI override
 is not qualified by this metadata selection: a provider name does not recover
 its missing definition. The current tests must distinguish configured native
