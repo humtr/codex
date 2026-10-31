@@ -1565,6 +1565,70 @@ contracts include the delivered bind/unbind/join foundation and the broader
 entrance-equivalence target; API delivery alone does not qualify every target
 scenario. See CURRENT's acceptance matrix and work order for the remaining scope.
 
+#### Work recording scope and entry selection
+
+The execution target distinguishes **ChatGPT local tools** from **Codex work**.
+This is independent of direct/provider reasoning and MCP/local_function transport.
+CURRENT records implementation and qualification; this contract does not claim
+that the installed MCP already exposes a threadless local-tool surface.
+
+- ChatGPT local tools return actual file/command results to the initiating Chat
+  without creating Native threads/turns or copying user/assistant messages into
+  Codex conversation history. Reusing the installed Core executable does not
+  require a Native conversation, a model catalog or Codex model authentication.
+- Codex work intentionally uses Native threads/turns, instructions, tools,
+  approvals, public history, CLI projection and completion notifications. Existing
+  direct/provider reasoning applies within that selected execution scope.
+- A new unbound ChatGPT task defaults to local tools. A Codex-origin input or a
+  verified selection of an existing Codex task retains its Native work. One
+  initial selection persists across ordinary follow-ups; repository paths,
+  titles, incidental mentions and a global last-work selection cannot establish
+  that relationship. Several tasks in one Chat need distinct selected contexts.
+- Users may select or change the scope through explicit instructions or a
+  supported setting/UI. Do not require another confirmation of an already clear
+  instruction. Natural-language initial selection is model-assisted behavior,
+  not a guarantee that unexpressed intent will always be classified correctly.
+  A standalone lock must be enforced by server configuration or a verified
+  user-selected profile/UI: a model argument alone cannot lift that lock.
+- A scope transition affects subsequent operations and hands over necessary
+  instructions/results without replaying previous effects or retroactively
+  importing/deleting history. Existing jobs, approvals and controllers remain
+  owned until their actual transition/Stop boundary settles.
+
+The Provider owns scope admission, retained selection, authorized access and
+uncertain-delivery reconciliation. Core/upstream own actual file/process I/O;
+Native owns conversation execution only for selected Codex work. MCP and renderer
+local functions use those same operation semantics and return to the original
+caller. Keep one implementation per responsibility; two advertised profiles do
+not justify two providers, executors or conversation stores.
+
+A single MCP with retained selection is the first qualification candidate.
+Adoption requires actual host/tunnel correlation and enforcement proof, not just
+model-choice examples. Fixed local-tools/Codex-work profiles are an alternative
+for explicit scope selection or a standalone lock; making both visible does not
+itself guarantee correct automatic selection. Do not vary registered tool lists
+on each turn to hide an unresolved scope decision.
+
+Host-provided anonymous session metadata may correlate calls only within its
+verified lifetime and authenticated connection scope. It is not the Chat URL's
+conversation ID, original message/branch provenance, authorization or user scope
+selection. Missing/conflicting metadata requires a verified explicit context or
+fixed profile, never inference from another Chat's last selection. Qualify actual
+Android/web, new Chat/branch, account changes and restart behavior before relying
+on this correlation. Retain the separate original-source verification contract.
+
+Threadless I/O must preserve authorized read/write development, relevant workspace
+instructions and applicable approval/reviewer behavior. Upstream fs RPCs do not
+inherit a cwd path grant, and command/exec process IDs are connection-local process
+controls, not durable idempotency keys. Never expose raw APIs as equivalent to
+Native tool admission without qualifying these differences. Reuse the existing
+operation reconciliation responsibility: uncertain mutation delivery must not
+trigger automatic redispatch. Necessary operation/control records are not a
+second Chat transcript store. Stop, streaming, PTY, disconnect and reconnection
+must be qualified on the actual path. Local-tool completion produces no Native
+work-completion event; do not implement this by merely suppressing notifications
+while still creating unwanted conversations.
+
 #### Entrance equivalence and continuous development binding
 
 **Primary admission correction.** Bridge-native participation is the primary
@@ -1586,12 +1650,13 @@ A supported project instruction/connection can guide the model; neither proves
 that tools, developer instructions or a work controller are continuously applied.
 No unsupported host hook may be assumed to make this guarantee.
 
-**Execution meaning and terminology.** reasoning=direct means the active ChatGPT
-response develops with native tools, without Provider submitting a new primary
-model request. User-facing wording is "Direct — direct development" and the Rust
-variant is Reasoning::Direct. reasoning=provider means Provider starts/manages
-model inference, including sequential follow-ups in the same retained Chat.
-User-facing wording is "Provider — model execution" and the Rust variant is
+**Execution meaning and terminology.** Within selected Codex work,
+reasoning=direct means the active ChatGPT response develops with native tools,
+without Provider submitting a new primary model request. User-facing wording is
+"ChatGPT로 Codex 작업 (direct)" and the Rust variant is Reasoning::Direct.
+reasoning=provider means Provider starts/manages model inference, including
+sequential follow-ups in the same retained Chat. User-facing wording is
+"Provider로 Codex 작업 (provider)" and the Rust variant is
 Reasoning::Provider. Neither route by itself means an independent child agent.
 Independent delegation requires a separate reasoning context, a parent/assignment
 relationship and original result return. The public schema accepts exactly
@@ -1601,9 +1666,10 @@ Direct development means the active ChatGPT is the developer, not a transcript
 importer. Selecting/creating a work and reusing an existing work are separate
 decisions from the reasoning origin; a new work still requires explicit task
 selection/authorization. Neither mode promises a separate independent worker.
-Direct/Provider names the reasoning initiation route, not the model, tool transport
-or absence/presence of Provider infrastructure. Direct may still use Provider's
-native-tool connection. Old installation state requires an explicit offline,
+Direct/Provider names the reasoning initiation route, not standalone versus
+Codex-recorded work, the model, tool transport or absence/presence of Provider
+infrastructure. Direct may still use Provider's native-tool connection.
+Old installation state requires an explicit offline,
 recoverable format migration before activation; preserve original records and
 conversation/native transcripts. Rollback must restore the matching code/state
 snapshot rather than require dual-format runtime readers.
@@ -2820,20 +2886,22 @@ define operator execution. One optional Provider may expose a Responses model
 interface to Codex and an authenticated MCP work-control interface to ChatGPT,
 sharing bindings, receipts and recovery. Current execution.mode remains a
 service-wide setting; the combined target requires its own implementation and
-proof. Direct ChatGPT primary execution uses the owned Termux Codex wrapper's
-native app-server with no second primary model or execution-app acquisition.
-General ChatGPT development deliberately uses the common app-backed managed path.
-Existing controls already use the native server; neither route introduces a new
-executor or counts an identical path twice. App-backed reviewers and automatic Chat
+proof. ChatGPT direct execution of selected Codex work uses the owned Termux
+Codex wrapper's native app-server with no second primary model or execution-app
+acquisition. Explicit Provider reasoning uses the common app-backed model path.
+General ChatGPT local tools follow the separate work-recording scope contract;
+they do not automatically create Native work or start a managed model.
+Existing controls already use the native server; neither reasoning route introduces
+a new executor or counts an identical path twice. App-backed reviewers and automatic Chat
 creation/renewal retain their own dependencies and must be accounted separately.
 
 The target uses ordinary ChatGPT conversation intelligence/context without
 substituting Codex/Work allowance or separate API billing as the solution.
 Same-account MCP authentication does not select an inference quota. SIWC identity,
 MCP service authorization, native transport access and model-request credentials
-remain distinct even when linked to the same user. Preserve native approvals,
-execution and canonical recording across both entrances; no second transcript
-authority or uncertain mid-task route switch is introduced.
+remain distinct even when linked to the same user. For selected Codex work,
+preserve native approvals, execution and canonical recording across both entrances;
+no second transcript authority or uncertain mid-task route switch is introduced.
 
 Codex subscription login/auth.json is not a prerequisite for the Bridge's Native
 tool, work-control, history or presentation path. The selected Native runtime and
@@ -2847,9 +2915,9 @@ not become a global gate on ordinary Bridge tools.
 
 The optional Provider may expose one authenticated MCP control service with two
 entrances. A Codex-origin native request starts the initial selected Chat model/effort;
-a direct Chat-origin MCP request opens or attaches native work without initiating Chat or
-another model. Both then use the same work binding and controls. The Provider
-routes controls/events/results; upstream owns execution, approvals, writers,
+a direct Chat-origin MCP request for Codex work opens or attaches that work
+without initiating Chat or another model. Both then use the same work binding and
+controls. The Provider routes controls/events/results; upstream owns execution, approvals, writers,
 canonical history, context commits and native task lifecycle. The Codex entrance
 may bind those same controls through local functions under D2. There is no Provider
 shell executor, planning agent, second transcript database or self-review override.
@@ -2862,8 +2930,10 @@ Chat lifetime is independent of those rounds and native compaction. Local-functi
 result continuation may submit another app request in the same saved Chat; a
 transport round alone must not start a replacement saved Chat.
 Preserve the complete
-advertised/deferred tool surface and independent child/reviewer contexts. Do not
-substitute threadless command/exec or user-shell escape hatches.
+advertised/deferred tool surface and independent child/reviewer contexts. Within
+selected Codex work, do not substitute threadless command/exec or user-shell
+escape hatches for Native tool admission/recording. Threadless local tools are
+a separate intentional execution scope, not a fallback for broken Native work.
 
 The candidate configuration adds `execution.mode=model_adapter|operator`, plus
 `execution.core`, `execution.home` and `execution.workspace`. Operator requires
@@ -2921,9 +2991,9 @@ user message. Keep private reply destinations, credentials and account identifie
 local. Authenticate bootstrap controls before they can create or claim work; a
 work capability and exclusive controller then fence subsequent operations.
 
-Reports and final output enter a qualified native event/recording path, render
-live in an attached CLI and persist through upstream recording. A Chat-origin task
-without a CLI has real native history and no fabricated CLI-origin request. Actual
+For Codex work, reports and final output enter a qualified native event/recording
+path, render live in an attached CLI and persist through upstream recording.
+A Chat-origin Codex task without a CLI has real native history and no fabricated CLI-origin request. Actual
 execution receipts come from native tools. Completion is idempotent and only
 confirmed after outstanding calls and the native turn settle. HTTP success or a
 saved report alone is not CLI visibility proof.
@@ -2936,8 +3006,8 @@ verified backend socket. Isolated fixture homes explicitly select their generate
 Provider before model submission and preflight the native account requirement;
 they never copy credentials to satisfy an unrelated default login screen.
 
-The Codex thread is the durable continuity authority; a Chat conversation is a
-replaceable reasoning context that should support substantial MCP development
+For Codex work, the Codex thread is the durable continuity authority; a Chat
+conversation is a replaceable reasoning context that should support substantial MCP development
 before replacement. ChatGPT chooses a useful handoff boundary and supplies a
 summary grounded in the previous accepted summary, confirmed incremental native
 history and current actual work state. Local code validates source coverage and

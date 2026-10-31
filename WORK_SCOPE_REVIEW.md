@@ -1,7 +1,8 @@
 # ChatGPT 단독 로컬 작업과 Codex 작업의 경계 검토
 
-2026-10-31. 상태: 사용자 요청에 따른 조사·권고안이다. 제품 계약 변경이나 구현 승인,
-새 실행 경로의 배포를 뜻하지 않는다. 기존 SPEC은 채택·수정 전까지 현행 계약이다.
+2026-10-31. 상태: 사용자 요청에 따라 검토·자격검증 진행 중. 실행 의미와 선택 책임은
+SPEC의 work-recording 계약에 반영했다. 한 MCP/고정 프로필의 최종 채택은 실제 호스트
+시험 뒤 판정한다. 새 로컬 도구 제품 경로는 아직 구현·배포하지 않았다.
 
 ## 1. 판정
 
@@ -135,6 +136,39 @@ Full131/Core/Manager/runtime 바이트를 복사·검증한 disposable fixture�
 - experimental `process/spawn`은 Codex sandbox 없는 프로세스 API다. 이미 sandbox 정책을
   적용하는 command/exec가 있으므로 파일 작업의 기본 executor로 이를 택할 이유가 없다.
 
+### 4.4 선택 검토 착수 후 추가 실행 증거
+
+같은 증거 루트에 원본 driver, 결과와 TMPDIR fixture 경로를 보존했다. 새 컴파일,
+운영 설정 변경 또는 실제 ChatGPT/Pro 추론은 없었다.
+
+| 경계 | 실제 관찰 | 입증하지 않은 것 |
+| --- | --- | --- |
+| 설치 Provider21의 mcp-stdio → 인증된 시험 HTTP 수신기 | 동시7요청의 JSON envelope가 입력과 동일. 서로 다른/같은 가상 session, subject 변경, metadata 부재, 잘못된 타입, 중첩 값, arguments 안의 별도 `_meta`를 보존 | 실제 호스트가 metadata를 주는지와 tunnel 전달/수명, 작업 선택·권한 강제 |
+| 설치 Full131/Core의 command/exec | stdout stream·stdin 왕복, 중복 active process ID의 실행 전 거절, 실제 PTY resize, terminate 후 child 종료, timeout 후 child 종료 | 새 ChatGPT 로컬 도구 또는 Native reviewer와의 동등성 |
+| Core stdio 연결 종료·새 연결 | 원래 child/server 종료를 확인. 새 연결의 옛 process ID에 대한 write는 `-32600: no active command/exec` | server가 살아 있는 WebSocket 재접속, Provider 재시작 후 효과 복구 |
+| 완료된 command/exec 재전송 | 동일 process ID/인자로 두 번 실행하면 시험 파일에 효과2회 | Core process ID가 durable 논리 호출 ID라는 가정은 기각 |
+| Core fs API의 cwd 경계 | 시험 작업 폴더 밖의 소유한 disposable 파일에도 읽기·쓰기 성공 | cwd가 파일 접근 허가 경계를 자동 적용한다는 가정은 기각 |
+| 실제 qualification MCP 연결 | `codex_host status`1회가 OpenAI gateway SSE probe에서429 | Rust 수신 여부 미관찰. metadata 부재·지원 불가나 우리 도구의 반복 호출이 원인이라는 판정 불가 |
+
+stdio 증거: `mcp-stdio-metadata.json` 및 `mcp-stdio-metadata-driver.py`.
+첫 시험 수신기는 HTTP/1.0을 반환해 현행 HTTP/1.1 readiness 검증에 거절됐다.
+시험 수신기의 protocol만 바로잡았으며 제품 검증을 완화하지 않았다.
+원본은 `mcp-stdio-metadata-initial-http10.json`과 initial driver에 남겼다.
+
+실행 수명주기 증거: `threadless-lifecycle-initial.json`,
+`threadless-lifecycle-continuation.json`, `threadless-lifecycle-summary.json`.
+초기 driver는 위7조건 통과 뒤 오류 문구에 `not`이 있을 것으로 잘못 기대해 실패했다.
+실제 거절은 `no active command/exec for process id "disconnect"`였다. 실패 원본을
+보존하고 새 연결에서 그 정확한 오류/code와 timeout·최종 inventory를 검증했다.
+이미 통과한 명령 효과를 재실행하지 않았다. 최종 Native thread/rollout0,
+Native auth 없음, 모델 요청0, 알림 명령0이며 소유한 모든 child 종료를 확인했다.
+
+이는 완성된 원격 도구가 아니라 기반 API의 실제 실행 증거다. 다음 구현은 기존
+operation의 불확실 효과/재시도 책임을 재사용하고 접근·승인 경계를 연결해야 한다.
+모델에 raw fs/command를 그대로 공개하거나 Native 대화를 숨기는 것으로 대체하지 않는다.
+`host-mcp-probe.json`은1회429를 기록한다. 자동 재시도는 하지 않았고 실제 호스트
+선택 시험은 미실행 상태다.
+
 ## 5. 세 가지 구분을 혼합하지 않는 설계
 
 | 구분 | 답하는 질문 | 권고 |
@@ -253,6 +287,41 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 사용자가 모드를 선택하는 UI를 도입한다면 UI 전용 변경 도구와 실제 사용자 조작의
 경계를 검증한다. 문서에 UI visibility가 있다는 사실만으로 동의가 입증된다고 하지 않는다.
 
+### 6.3 검토 순서와 결과별 채택 기준
+
+실행 의미는 [SPEC](SPEC.md#work-recording-scope-and-entry-selection)에 채택했다.
+연결 수와 자동 선택의 기본 UX는 다음 증거를 확보한 뒤 정한다.
+
+1. **호스트 상관관계:** 실제 Android/웹 → tunnel → stdio → Rust 경계에서 metadata의
+   도달과 수명을 확인한다. 같은 Chat의 다음 턴, 다른 Chat/계정, 분기, 재시작을 비교한다.
+   원문·인증 값은 기록하지 않는다. 같은 conversation과 같은 개발 작업을 혼동하지 않는다.
+   현재는 로컬 stdio 보존만 통과했으며 실제 MCP probe는429로 관찰하지 못했다.
+2. **선택 유지·강제:** 새로운 단독 작업, 명시적으로 선택한 기존 Native 작업과 여러 Chat을
+   격리해 후속 입력·재시작을 시험한다. 단독 고정 상태에서 Native 생성/연결을 시도해
+   실행 전 거절과 Native inventory 불변을 확인한다. metadata를 모델 arguments로 흉내 낸
+   요청이 host/auth/user 선택으로 승격되지 않는지도 확인한다. 이 정책은 아직 미구현이다.
+3. **최초 선택 품질:** 같은 일반 모델·노력도·도구 조건으로 명시적 단독/Codex 요청,
+   설정 기본값에 따르는 무지정 요청, 연결 후 자연스러운 후속 지시, 별건 전환,
+   Codex를 인용만 한 문서, 동일 폴더의 다른 Chat을 비교한다. 기존 작업의 중복 생성,
+   불필요한 재지정, 무관한 작업의 연결, 단독 기록 침범을 각각 판정한다. 현재 실모델
+   선택 시험은 하지 않았다. 소수 성공은 자연어 분류의 보편적 정확성 증명이 아니다.
+4. **제품 경로·품질:** 실제 읽기·쓰기·Git·시험 실행과 필요한 지침/승인/reviewer를
+   유지하고, 스트림·Stop·응답 유실·재접속을 검증한다. MCP/local function, Native 저장과
+   실행 중 TUI, 호출 반환과 물리 알림은 각각 판정한다. 위 기반 API 증거로 대체하지 않는다.
+
+| 검토 결과 | 채택할 구성 | 사용자 경험과 한계 |
+| --- | --- | --- |
+| 상관관계·정책 강제가 통과하고 최초 선택 시험도 적합 | 한 MCP + 작업별 선택 유지 | 설정 기본값/자연어 최초 선택 후 후속 입력은 같은 문맥. 단독 고정도 서버에서 제공 |
+| 상관관계·강제는 통과하나 최초 자동 선택이 불안정 | 한 MCP + 시작/전환 때 한 번의 명시 선택 | 호스트가 실제 지원하는 설정/UI 또는 명시 지시로 선택. 매 호출 재지정은 요구하지 않음 |
+| 자동 상관관계를 검증할 수 없거나 필요한 수명에서 끊김 | 검증된 명시 context 또는 공통 서비스의 고정 프로필 | 그 범위 밖의 자동 연결을 약속하지 않음. 두 MCP를 동시에 자유 선택하게 두는 것만으로 해결하지 않음 |
+| 사용자가 기록 금지를 확실히 고정하려 함 | 서버가 강제하는 단독 프로필/설정 | Native 생성·전환을 모델 임의로 허용하지 않음. 위 편의 구성을 채택해도 선택 가능한 별도 보장 수준 |
+
+429는 세 번째 행의 기술적 실패로 판정할 근거가 아니다. 관찰하지 못한 호스트의
+기능을 없다고 가정해 두 연결을 기본으로 확정하지 않는다. 다음 실제 시험의 첫 단계는
+호스트 식별 도달/수명이며, 이것이 준비되기 전에는 새 Native work를 만들어 선택 품질을
+시험하거나 Pro 호출을 소모하지 않는다. 필요한 시험용 노출은 기존 운영 연결과 활성
+작업을 보존하는 disposable 경계에서 준비하고, 새 제품 빌드는 유효한 변경 묶음으로 모은다.
+
 ## 7. MCP와 local function
 
 두 방식은 **같은 로컬 실행 계약 또는 같은 Native 작업 계약**을 호출해야 한다.
@@ -354,10 +423,14 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 이 실행/기록 경계를 먼저 채택한 뒤 순서2의 양방향 연결을 계속한다.
 
 이번 산출물은 원본 대조, Native/알림4조건 시험, 비세션 I/O의 기존·깨끗한 home 시험,
-설계 대안 비교 및 이 보고서다. 제품 구현/새 MCP 등록/배포/빌드는 하지 않았다.
+stdio metadata 보존·실제 command 수명주기·raw API 경계 시험, SPEC의 실행 의미 계약과
+결과별 채택 기준이다. 제품 소스 구현/새 MCP 등록/배포/빌드는 하지 않았다.
 시험 driver와 원본 결과·Native 기록은 보존했고, 종료가 확인된 두 fixture의 payload는
 clean_development.py로 manifest 대조·보관 후 정리했다. 복원 기록은 같은 증거 루트의
 scope-fixture-payload-cleanup.jsonl과 clean-fixture-payload-cleanup.jsonl이다.
+추가 수명주기 fixture의 생성 payload6개도 종료·manifest·보관본 검증 후 약728MiB를
+회수했다. lifecycle-fixture-payload-cleanup.jsonl이 복원/제거 근거이며 원본 프로토콜과
+실행 파일 이외의 소스·결과·Native 상태는 보존했다.
 남은 핵심 불확실성은 호스트 metadata의 실제 전달/지속 범위, 선택 context의 강제성,
 두 MCP 프로필의 tunnel 등록 방식, 전체 권한·도구/문맥 품질 동등성과 장기
 process/재접속 수명주기다. 연결 수보다 선택 책임과 선택 유지의 검증이 선행한다.

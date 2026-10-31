@@ -28,8 +28,8 @@ not another product component. Provider release sequence numbers identify signed
 publications, not different component names.
 
 The common managed development loop is Codex -> Linux app API -> work Chat ->
-MCP or app-injected local functions -> the same native work. ChatGPT general
-and direct development use the same native execution path through MCP. The
+MCP or app-injected local functions -> the same native work. Existing ChatGPT
+work controls also use native execution through MCP, including direct reasoning. The
 primary Codex thread retains durable history while Chat contexts can be replaced.
 Origin, controller identity and original tool-return bindings survive qualified
 handoff. A direct Android/web follow-up does not automatically inherit that
@@ -37,6 +37,13 @@ execution context: model participation and saved-source observation are differen
 paths. Saving an answer is separate from live TUI display. The
 [current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
 the remaining gaps; a client restart does not implement their repair.
+
+Direct currently means **this ChatGPT response working on Codex work**; it still
+creates or reuses Native history. Standalone ChatGPT local tools are a separate
+[execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
+Core I/O proof but no implemented ChatGPT tool surface yet. Ordinary file access
+must not automatically become Codex work in that target. One versus two MCP
+profiles remains under [qualification](WORK_SCOPE_REVIEW.md#63-검토-순서와-결과별-채택-기준).
 
 Installed Provider21 passes scoped Android→CLI→Android same-work continuity and
 plain-prompt automation through `chat_input`. Automated input uses the configured
@@ -69,7 +76,7 @@ remains in the [work order](CURRENT.md#product-completion-scope-and-work-order).
 | Terminal: ordinary Codex | Your selected native Codex model | Base or Full; native Codex login |
 | Terminal: Codex using Termux Bridge tools | Your selected Codex model; a managed Chat only for work explicitly delegated there | Native Codex plus Provider's local MCP connection; app/login for managed Chat work |
 | Terminal: Codex with ChatGPT | A managed Chat in the provisioned Linux ChatGPT app | Base or Full, Provider, app/login; MCP connection if using its MCP return path |
-| ChatGPT: direct local development | The Chat you are currently using | Base or Full, Provider/native execution binding, reachable MCP connection; no Linux app for primary direct work |
+| ChatGPT: this response working on Codex work | The Chat you are currently using | Base or Full, Provider/native execution binding, reachable MCP connection; no Linux app for primary direct work |
 | ChatGPT: delegate managed development | A separate Provider work Chat; the current Chat requests and receives the work | Direct-entry setup plus the Linux app/login and an explicit ChatGPT project |
 
 Core is installation/runtime support. Manager provides account/window conveniences.
@@ -276,11 +283,11 @@ picker, then describe the task. Do not assume that typing its name alone enables
 an unavailable connection. The local `127.0.0.1` URL and `mcp-stdio` command are
 not remote Server URLs; a configured tunnel can invoke that local command.
 
-### ChatGPT with direct local development
+### ChatGPT using this response for Codex work
 
 With Termux Bridge selected, ask:
 
-> Work in /absolute/path/to/your-project from this Chat. Fix [problem] and verify it.
+> Use this ChatGPT response for Codex work in /absolute/path/to/your-project. Fix [problem] and verify it.
 
 This Chat supplies reasoning (`reasoning=direct`); native Codex executes,
 approves and records. The assistant handles the advertised attachment and native

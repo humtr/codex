@@ -32,6 +32,15 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
+Current execution tools require a Native work, including `reasoning=direct`.
+Here direct means **ChatGPT로 Codex 작업**, not standalone ChatGPT file access.
+The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
+separates threadless local tools from selected Codex work. Basic threadless Core
+I/O and process controls have Android proof; a new ChatGPT local-tool surface and
+retained host-context selection are not yet implemented or qualified. One versus
+two MCP profiles remains subject to actual host/tunnel tests in
+[the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
+
 Provider18 retains inherited handles, including Core's payload selection lease,
 in its own process and marks non-stdio handles close-on-exec before starting
 children. Native/app children receive only explicitly exported descriptors; they
@@ -192,7 +201,7 @@ and remote alias in CURRENT are local operating state, not fresh-install default
 This device's local runtime now uses [runit services](#device-runit-services);
 do not start a second tmux runtime against the same remote tunnel.
 
-Once connected, use [direct development](../../README.md#chatgpt-with-direct-local-development).
+Once connected, use [this response for Codex work](../../README.md#chatgpt-using-this-response-for-codex-work).
 The assistant selects `reasoning=direct` and completes the native attach/receipt/
 execution/final protocol through advertised tools. No Linux rootfs is required
 for this primary path.
@@ -419,7 +428,7 @@ users identify the project/task and the desired reasoning source.
 
 | User intent | Existing control path |
 | --- | --- |
-| Work from this Chat | `codex_sessions` with direct reasoning, native attach/receipt, tools/report/finish |
+| Use this ChatGPT response for Codex work | `codex_sessions` with direct reasoning, native attach/receipt, tools/report/finish |
 | Delegate to a separate work Chat | Provider-started work with explicit app/project readiness and distinct assignment; retrieve its original final |
 | List or inspect work | `codex_sessions` list and `codex_status` |
 | Retrieve an existing result | Events/wait and public history on that work; no new task |

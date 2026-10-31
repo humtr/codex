@@ -28,8 +28,10 @@ own execution order; implementation now follows that order.
 
 Before continuing order2's entrance equivalence, resolve the user's work-recording
 boundary and entry-selection requirement in [WORK_SCOPE_REVIEW.md](WORK_SCOPE_REVIEW.md).
-This is a reviewed proposal, not an adopted product contract or implemented MCP
-feature. Ordinary ChatGPT local tools must not require Codex conversation history;
+SPEC's work-recording contract now adopts the execution meaning and selection
+responsibility; one MCP versus fixed profiles remains a qualification decision.
+The new local-tool MCP feature and selection enforcement are not implemented.
+Ordinary ChatGPT local tools must not require Codex conversation history;
 Native direct/provider reasoning and MCP/local transport do not define that choice.
 Original user-identified work/controller metadata confirms a Chat-origin Direct
 root work with durable Native history. Bounded actual Android probes show Native
@@ -49,6 +51,26 @@ offers a correlation mechanism currently unused by the Rust handlers; actual
 Android/web/tunnel propagation and lifetime are unverified. Never use it as source
 message provenance or authorization, infer another Chat's mode from a global last
 selection, or silently turn a local tool request into a Native work.
+
+Additional bounded Android proof verifies installed Provider21 stdio preserves
+all7 concurrent synthetic request envelopes, including separate/missing metadata
+and distinct metadata inside arguments. This is not actual host/tunnel identity
+proof or an implemented policy. Full131 threadless Core passes streamed stdout /
+stdin, actual PTY resize, active duplicate-ID rejection, kernel-confirmed Stop /
+timeout, stdio EOF child/server exit and old-handle rejection on a new connection.
+Native threads/rollouts, model calls and notification commands remain0, without
+Native auth. Raw command/exec redispatch repeats a settled effect; fs RPCs access
+owned disposable paths outside cwd. Thus process IDs do not replace operation
+reconciliation and cwd does not provide a remote file-access grant. Existing
+approval/reviewer and complete instruction/tool parity remain unqualified.
+The real qualification MCP's one status attempt returned gateway SSE-probe429;
+Rust receipt/metadata were not observed, and there was no automatic retry or new
+ChatGPT/Pro inference. This does not reject single-MCP feasibility or establish
+the rate-limit cause. See WORK_SCOPE_REVIEW sections4.4/6.3 and the same proof root
+for original failed driver assertions, follow-up proof and result-based choices.
+After confirmed process exit, the standard manifest/archive cleaner reclaimed
+763633664 bytes of generated lifecycle payloads; original protocol/results and
+source remain, with lifecycle-fixture-payload-cleanup.jsonl for restoration.
 
 Build cadence: finish the invocation-startup build already running at source59b92d2
 and its required qualification. Subsequent source changes accumulate in the
