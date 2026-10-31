@@ -30,6 +30,7 @@ const ATTACHED_PROGRESS: &str = "Record and display every complete public progre
 const ATTACHED_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
 const LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v3";
+const CHAT_CONTEXT_DOMAIN: &str = "operator-chat-context-v1";
 const SOURCE_ADMISSION_SCHEMA: &str = "codex-chatgpt-source-admission-v1";
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 fn source_observation_pending(error: &Error) -> bool {
@@ -2233,6 +2234,65 @@ impl Operator {
                 .await;
         }
         self.call_inner(name, args, summary_round).await
+    }
+    async fn call_in_chat(
+        &self,
+        name: &str,
+        args: Value,
+        correlation: Option<String>,
+    ) -> Result<Value, Error> {
+        let selected = name == "codex_sessions"
+            && matches!(
+                args["action"].as_str(),
+                Some(
+                    "create"
+                        | "resume"
+                        | "fork"
+                        | "join"
+                        | "source_join"
+                        | "start"
+                        | "claim"
+                        | "takeover"
+                        | "transfer_accept"
+                        | "bind"
+                )
+            )
+            || name == "codex_attach" && args.get("accept").is_some();
+        let listing = name == "codex_sessions" && args["action"] == "list";
+        let mut result = self.call(name, args).await?;
+        if let Some(correlation) = correlation {
+            let linked = (|| {
+                if listing {
+                    let rows = result["work"].as_array_mut().unwrap();
+                    let hints = rows
+                        .iter()
+                        .map(|row| {
+                            let key = digest(&(CHAT_CONTEXT_DOMAIN, &row["work_id"], &correlation));
+                            self.journal
+                                .read::<bool>(&key)
+                                .map(|value| value.unwrap_or(false))
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?;
+                    for (row, related) in rows.iter_mut().zip(hints) {
+                        row["chat_correlated"] = json!(related);
+                    }
+                } else if selected {
+                    if let Some(work) = result["work_id"].as_str() {
+                        let key = digest(&(CHAT_CONTEXT_DOMAIN, work, &correlation));
+                        if self.journal.read::<bool>(&key)? != Some(true) {
+                            self.journal.write(&key, &true)?;
+                        }
+                    }
+                }
+                Ok::<(), Error>(())
+            })();
+            if let Err(error) = linked {
+                // This optional discovery failure cannot erase an admitted
+                // Native outcome or make its caller submit the effect again.
+                result["chat_correlation_error"] = json!(error.0);
+            }
+        }
+        Ok(result)
     }
     async fn call_inner(
         &self,
@@ -6108,7 +6168,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
         ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
-        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
+        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
@@ -6186,8 +6246,12 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
         "tools/call" => {
             let name = row["params"]["name"].as_str().unwrap_or("").to_owned();
             let args = row["params"]["arguments"].clone();
+            // Metadata stays outside model arguments. It can annotate explicit
+            // work selection, never supply a missing work/controller or branch.
+            let correlation = crate::mcp::chat_correlation(&row["params"], &operator.journal.owner);
             // Dropping an HTTP observer never cancels a dispatched transition.
-            let operation = tokio::spawn(async move { operator.call(&name, args).await });
+            let operation =
+                tokio::spawn(async move { operator.call_in_chat(&name, args, correlation?).await });
             let value = match tokio::time::timeout(Duration::from_secs(600), operation).await {
                 Ok(Ok(value)) => value,
                 _ => Err(Error("mcp_observer_timeout")),

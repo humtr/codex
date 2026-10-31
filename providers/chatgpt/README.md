@@ -45,7 +45,13 @@ I/O and process controls have Android proof; a new ChatGPT local-tool surface an
 retained host-context selection are not yet implemented or qualified. Actual
 Linux-app model/MCP trials select one MCP with explicit task contexts, with fixed
 standalone profiles optional. Anonymous session IDs span distinct saved branches;
-they cannot authorize or select Native work by themselves. See
+they cannot authorize or select Native work by themselves. Source MCP work lists
+mark chat_correlated candidates after explicit selection/accepted attachment,
+using private owner-scoped hashes of host metadata. Several works can be marked;
+the flag provides no controller or automatic branch selection. Missing metadata
+leaves it absent; failed optional storage is reported as chat_correlation_error
+with the original Native outcome preserved. This is separate from a standalone
+local-tool or lock implementation. See
 [the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
 
 Provider18 retains inherited handles, including Core's payload selection lease,

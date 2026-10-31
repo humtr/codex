@@ -121,7 +121,38 @@ a different anonymous session. Distinct original saved branches share that sessi
 never dispatch a conversation's latest Native work merely from this ID. Retain
 existing work/controller for Native calls and authorized local context for local
 operations. Metadata provides eligible-context hints, not source-message provenance,
-authorization or user scope selection. The Rust handlers do not yet consume it.
+authorization or user scope selection. The Operator MCP entry now consumes only
+host-envelope session/subject/organization for private owner-scoped correlation.
+Successful explicit work selections and accepted attachments store an association;
+plain inspection does not. `codex_sessions list` adds chat_correlated per row only
+with a session hint, can mark several candidates and never dispatches/selects one.
+Missing metadata changes no Native identity requirement. Raw host identifiers are
+not stored. Optional association failure returns chat_correlation_error alongside
+the original successful Native outcome. MCP/local common execution stays in the
+existing call path; local functions keep their verified explicit lane/work.
+Actual Android Core/TUI acceptance now passes in chat-context-android-operator-final.json:
+host-envelope-only metadata, missing/malformed/argument-spoof cases, read-only
+inspection without selection, two candidates in one anonymous Chat, changed
+subject isolation of hints, exact start retry with injected association-I/O failure,
+no raw host identifiers in the journal, and persistence across service restart.
+The full prior Native/TUI/cold/Stop/parallel suite remains green. This uses an
+owned synthetic host and injected MCP envelopes, not a fresh actual Android/
+Linux ChatGPT model selection trial or a new authorization policy.
+The first run reaches the expected Native failed-round state but its qualifier
+mistakes a later auxiliary title for the requested primary submission and times
+out. Original data and replay diagnosis remain in chat-context-auxiliary-order-diagnosis.json.
+The driver now selects the actual work-bearing submission and requested user task;
+a focused regression covers title interleaving, and the full rerun passes without
+new product compilation. The original failed qualifier result is not relabelled green. The metadata key's cross-service fault is detected in
+disposable source and restored. Affected Rust targets pass142 tests (plus the
+owned transport child), affected Python checks pass58, and Clippy denies warnings.
+Both inactive metadata fixtures have kernel-absence proof; manifest/archive cleanup
+reclaims1527529472 bytes from12 payload copies, retaining original results/Native
+records and restoration logs. No service, live state or public package is changed.
+New standalone local tools, access grants and fixed-profile enforcement remain
+unimplemented; related-work hints do not implement that policy or automatic intent
+classification. Next implement authorized threadless local execution, preserving
+full read/write capability and actual operation/Stop/result reconciliation.
 
 Additional bounded Android proof verifies installed Provider21 stdio preserves
 all7 concurrent synthetic request envelopes, including separate/missing metadata

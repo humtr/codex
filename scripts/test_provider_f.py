@@ -5,10 +5,24 @@ import io
 from scripts.qualify_provider_chat_entry import control, cli_final_visible, observer_env, require_observer_account, prepare_fixture_observer_profile
 from pathlib import Path
 from unittest.mock import patch
+from scripts.qualify_provider_operator import submitted_work_binding
 from scripts.qualify_provider_f import Batch, creation_call_id, input_completed, require_host_capabilities, followup_branch, run
 
 
 class FDriverTests(unittest.TestCase):
+    def test_native_work_selection_ignores_auxiliary_order_and_matches_original_task(self):
+        first, second = 'a'*48, 'b'*48
+        rows=[{'op':'submit','messages':[{'role':'user','text':'first request'}],
+               'instructions':['work_id='+first+' and controller='+first]},
+              {'op':'submit','messages':[{'role':'user','text':'second request'}],
+               'instructions':['work_id='+second+' and controller='+second]},
+              {'op':'submit','messages':[{'role':'user','text':'title request'}],
+               'instructions':['Return the requested title JSON']}]
+        self.assertEqual(submitted_work_binding(rows),dict(work_id=second,controller=second))
+        self.assertEqual(submitted_work_binding(rows,'first request'),dict(work_id=first,controller=first))
+        self.assertEqual(submitted_work_binding(rows,'second request'),dict(work_id=second,controller=second))
+        self.assertIsNone(submitted_work_binding(rows,'not submitted'))
+
     def test_creation_keys_are_stable_within_a_run_and_distinct_between_runs(self):
         with tempfile.TemporaryDirectory() as directory:
             first, second = Path(directory) / "first", Path(directory) / "second"

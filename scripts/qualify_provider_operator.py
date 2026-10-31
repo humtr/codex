@@ -3,6 +3,7 @@ import argparse
 import concurrent.futures
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,19 @@ def fixture_auth(path, provider_binary=None):
                     'if [ "$1" = work ]; then echo "codex-chatgpt-provider: unsupported work action" >&2; exit 2; fi\n' +
                     'printf %s ' + shlex.quote(TOKEN) + '\n')
     path.chmod(0o700)
+
+
+def submitted_work_binding(rows, task=None):
+    """Select the actual work-bearing submission, skipping interleaved auxiliaries."""
+    for row in reversed(rows):
+        if row['op'] != 'submit':
+            continue
+        if task is not None and not any(message.get('role') == 'user' and message.get('text') == task for message in row['messages']):
+            continue
+        match = re.search(r'work_id=([0-9a-f]{48}) and controller=([0-9a-f]{48})', '\n'.join(row.get('instructions', [])))
+        if match:
+            return {'work_id': match[1], 'controller': match[2]}
+    return None
 
 
 def probe(args):
@@ -83,11 +97,13 @@ def probe(args):
         port = json.loads((root / 'provider-ready.json').read_text())['port']
         seq = 0
 
-        def rpc(name, arguments, expect_error=False, authorized=True):
+        def rpc(name, arguments, expect_error=False, authorized=True, *, metadata=None):
             nonlocal seq
             seq += 1
             row = {'jsonrpc': '2.0', 'id': seq, 'method': 'tools/call',
                    'params': {'name': name, 'arguments': arguments}}
+            if metadata is not None:
+                row['params']['_meta'] = metadata
             headers = {'Content-Type': 'application/json'}
             if authorized:
                 headers['Authorization'] = 'Bearer ' + TOKEN
@@ -129,8 +145,21 @@ def probe(args):
         except urllib.error.HTTPError as error:
             assert error.code == 401
         saved_defaults = config_path.read_bytes()
-        created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'})
-        assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}) == created
+        chat_a = {'openai/session': 'owned-qualification-chat-A', 'openai/subject': 'owned-subject-A'}
+        chat_b = {'openai/session': 'owned-qualification-chat-B', 'openai/subject': 'owned-subject-A'}
+        def related(meta):
+            return {row['work_id'] for row in rpc('codex_sessions', {'action': 'list'}, metadata=meta)['work'] if row.get('chat_correlated')}
+        created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a)
+        assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a) == created
+        assert related(chat_a) == {created['work_id']}
+        assert not related(chat_b)
+        rpc('codex_status', {'work_id': created['work_id']}, metadata=chat_b)
+        assert not related(chat_b), 'inspection alone selected work'
+        for row in rpc('codex_sessions', {'action': 'list'})['work']:
+            assert 'chat_correlated' not in row, 'missing metadata borrowed another Chat'
+        assert rpc('codex_sessions', {'action': 'list'}, True, metadata=[])['error'] == 'mcp_chat_metadata_invalid'
+        rpc('codex_sessions', {'action': 'list', '_meta': chat_a}, True)
+        assert len(rpc('codex_sessions', {'action': 'list'})['work']) == 1
         startup = native_rpc(home, 'config/read', {'threadId': created['thread_id'],
             'cwd': str(root / 'w'), 'includeLayers': False})['config']
         assert startup['model_provider'] == 'chatgpt_desktop', ('native input provider mismatch', startup['model_provider'])
@@ -138,12 +167,26 @@ def probe(args):
         assert config_path.read_bytes() == saved_defaults, 'Provider startup changed saved defaults'
         print('Native session created through qualified Core', flush=True)
         binding = {'work_id': created['work_id'], 'controller': created['controller']}
-        rpc('codex_sessions', {**binding, 'action': 'start', 'task': 'OWNED_CHAT_ENTRY_DEVELOPMENT'})
+        start = {**binding, 'action': 'start', 'call_id': 'owned-first-start', 'task': 'OWNED_CHAT_ENTRY_DEVELOPMENT'}
+        chat_error = {'openai/session': 'owned-qualification-chat-write-error'}
+        owner = (root / 'provider-state/owner-v1').read_text().strip()
+        correlation = hmac.new(owner.encode(), json.dumps(['mcp-chat-correlation-v1', chat_error['openai/session'], None, None], separators=(',', ':')).encode(), hashlib.sha256).hexdigest()
+        key = hashlib.sha256(json.dumps(['operator-chat-context-v1', created['work_id'], correlation], separators=(',', ':')).encode()).hexdigest()
+        obstruction = root / 'provider-state' / (key + '.json')
+        assert not obstruction.exists()
+        obstruction.mkdir(mode=0o700)
+        admitted = rpc('codex_sessions', start, metadata=chat_error)
+        assert admitted['started'] and admitted['chat_correlation_error'] == 'private_file_required', admitted
+        assert rpc('codex_sessions', start, metadata=chat_error) == admitted
+        obstruction.rmdir()  # Only this test-created empty obstruction is removed.
+        recovered = rpc('codex_sessions', start, metadata=chat_error)
+        assert recovered['started'] and 'chat_correlation_error' not in recovered
+        assert related(chat_error) == {created['work_id']}
         wait(lambda: rpc('codex_status', {'work_id': binding['work_id']})['phase'] == 'running')
 
-        def attach(bound):
-            observed = rpc('codex_attach', bound)
-            accepted = rpc('codex_attach', {**bound, 'accept': observed['receipt']})
+        def attach(bound, *, metadata=None):
+            observed = rpc('codex_attach', bound, metadata=metadata)
+            accepted = rpc('codex_attach', {**bound, 'accept': observed['receipt']}, metadata=metadata)
             assert accepted['accepted']
             return accepted
 
@@ -181,13 +224,18 @@ def probe(args):
         assert all(row['messages'] for row in review_commands if row['op']=='submit')
         print('Independent native automatic reviewer allowed and prevented actual effects',flush=True)
         # Child sessions are independent work, never the primary Chat-renewal path.
-        child = rpc('codex_sessions', {'action': 'fork', 'call_id': 'independent-child', 'thread_id': created['thread_id']})
+        child = rpc('codex_sessions', {'action': 'fork', 'call_id': 'independent-child', 'thread_id': created['thread_id']}, metadata=chat_b)
         assert child['thread_id'] != created['thread_id']
         rpc('codex_sessions', {**{'work_id': child['work_id'], 'controller': child['controller']},
             'action': 'start', 'task': 'OWNED_INDEPENDENT_CHILD'})
         child_binding = {'work_id': child['work_id'], 'controller': child['controller']}
         wait(lambda: rpc('codex_status', {'work_id': child_binding['work_id']})['phase'] == 'running')
-        attach(child_binding)
+        assert related(chat_b) == {child['work_id']}
+        attach(child_binding, metadata=chat_a)
+        assert related(chat_a) == {created['work_id'], child['work_id']}
+        assert related({**chat_a, 'unverified_branch': 'another-branch'}) == related(chat_a)
+        assert not related({**chat_a, 'openai/subject': 'another-subject'})
+        assert all('owned-qualification-chat-' not in path.read_text() for path in (root / 'provider-state').glob('*.json'))
         command(child_binding, 'child-command', 'printf INDEPENDENT_CHILD_RESULT')
         rpc('codex_finish', {**child_binding, 'call_id': 'child-final', 'text': 'OWNED_INDEPENDENT_CHILD_COMPLETE'})
         assert not rpc('codex_status', {'work_id': binding['work_id']})['completed']
@@ -260,7 +308,7 @@ def probe(args):
         drain(.8)
         os.write(master, b'\r')
 
-        def driver_binding():
+        def driver_binding(task=None):
             drain()
             path = root / 'bridge-commands.json'
             if not path.exists():
@@ -269,16 +317,7 @@ def probe(args):
                 rows = json.loads(path.read_text())
             except json.JSONDecodeError:
                 return None
-            submissions = [v for v in rows if v['op'] == 'submit']
-            if not submissions:
-                return None
-            text = '\n'.join(submissions[-1].get('instructions', []))
-            match = re.search(r'work_id=([0-9a-f]{48}) and controller=([0-9a-f]{48})', text)
-            if match:
-                for message in submissions[-1]['messages']:
-                    if message['role'] == 'user':
-                        assert message['text'] in ['OWNED_CODEX_ENTRY_DEVELOPMENT','OWNED_CODEX_FOLLOWUP','OWNED_CODEX_AFTER_COMPACT','OWNED_AFTER_SERVICE_RESTART','OWNED_FAILED_HOST','OWNED_ENDED_HOST']
-                return {'work_id': match[1], 'controller': match[2]}
+            return submitted_work_binding(rows, task)
 
         cli_binding = wait(driver_binding)
         attach(cli_binding)
@@ -503,6 +542,9 @@ def probe(args):
 
         released_thread = rpc('codex_status', {'work_id': after_compact['work_id']})['thread_id']
         closed_bridge_commands = restart_fixture()
+        assert related(chat_a) == {created['work_id'], child['work_id']}
+        assert related(chat_b) == {child['work_id']}
+        print('Host-envelope work hints survived restart, kept multiple candidates and granted no controller', flush=True)
         assert rpc('codex_attach', resumed, True)['error'] == 'operator_controller_fenced'
         latest = rpc('codex_history', {'work_id': resumed['work_id']})
         claimed = rpc('codex_sessions', {'action': 'claim', 'work_id': resumed['work_id'], 'cursor': latest['cursor'], 'context_cursor': latest['context_cursor']})
@@ -656,11 +698,7 @@ def probe(args):
         os.write(master,b'OWNED_ENDED_HOST')
         drain(.8)
         os.write(master,b'\r')
-        def ended_binding():
-            rows=json.loads((root/'bridge-commands.json').read_text())
-            submissions=[row for row in rows if row['op']=='submit']
-            return driver_binding() if any(message['text']=='OWNED_ENDED_HOST' for message in submissions[-1]['messages']) else None
-        ended=wait(ended_binding)
+        ended=wait(lambda:driver_binding('OWNED_ENDED_HOST'))
         wait(lambda:rpc('codex_status',{'work_id':ended['work_id']})['phase']=='reconciliation_required')
         wait(lambda:'operator_app_round_incomplete' in drain())
         wait(lambda:'ChatGPT turn ended without completing' in json.dumps(rpc('codex_history',{'work_id':ended['work_id']})))
@@ -829,6 +867,7 @@ def probe(args):
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
             'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True,
             'tui_title_saved': True, 'auxiliary_registered_extra_work': False,
+            'chat_correlation': {'envelope_only':True,'inspection_did_not_select':True,'multiple_candidates_not_dispatch':True,'different_subject_hint_isolated':True,'restart_retained':True,'raw_identifiers_not_stored':True,'optional_write_failure_preserved_native_result':True},
             'terminal_with_pending_submission_did_not_dispatch': True,
             'settlement_resumed_same_chat': not cold_resume,
             'cold_native_resume': cold_proof,

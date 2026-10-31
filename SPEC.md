@@ -1638,6 +1638,22 @@ anonymous ID. CURRENT records observed clients/lifetimes; new clients, account
 changes and unresolved fork semantics need their own qualification. Retain the
 separate original-source verification contract.
 
+The integrated MCP work list may mark each row `chat_correlated` when its call
+carries host `_meta["openai/session"]`. Derive the private association from the
+persistent authenticated service owner and session/subject/organization tuple;
+never store raw host identifiers in that association. Record it only after a
+successful explicit create/resume/fork/join/ownership selection or accepted
+attachment. Inspecting work alone does not select it. Missing metadata leaves
+the marker absent; another Chat/account/service has no borrowed last selection.
+Several rows may be correlated, including across branches. The flag is a discovery
+hint only, never a controller, branch selection, source receipt or default dispatch.
+Keep metadata outside model arguments and reject malformed consumed metadata before
+effects. A failed optional association write must be reported alongside the
+original successful Native outcome, without resubmitting or hiding that outcome.
+MCP restart/credential rotation retain associations within the same journal owner;
+local functions retain their verified explicit lane/work identity and do not
+invent Chat metadata. This adds no conversation transcript or workflow alias.
+
 Threadless I/O must preserve authorized read/write development, relevant workspace
 instructions and applicable approval/reviewer behavior. Upstream fs RPCs do not
 inherit a cwd path grant, and command/exec process IDs are connection-local process

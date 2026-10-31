@@ -25,11 +25,85 @@ use std::{
 };
 use tokio::sync::{Mutex, Notify};
 
+/// Host metadata can locate related contexts, never authorize or choose work.
+/// The authenticated service owner scopes private correlation across restarts.
+pub(crate) fn chat_correlation(params: &Value, owner: &str) -> Result<Option<String>, Error> {
+    let Some(meta) = params.get("_meta") else {
+        return Ok(None);
+    };
+    let meta = meta.as_object().ok_or(Error("mcp_chat_metadata_invalid"))?;
+    let field = |key: &str| match meta.get(key) {
+        None => Ok(None),
+        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.as_str())),
+        _ => Err(Error("mcp_chat_metadata_invalid")),
+    };
+    let session = field("openai/session")?;
+    let subject = field("openai/subject")?;
+    let organization = field("openai/organization")?;
+    let Some(session) = session else {
+        return Ok(None);
+    };
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(owner.as_bytes()).unwrap();
+    mac.update(
+        &serde_json::to_vec(&("mcp-chat-correlation-v1", session, subject, organization)).unwrap(),
+    );
+    Ok(Some(
+        mac.finalize()
+            .into_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    ))
+}
+
 const LIMIT: usize = 16 * 1024 * 1024;
 const TURN_CACHE_CAPACITY: usize = 256;
 #[cfg(test)]
 mod source_tests {
     use super::*;
+    #[test]
+    fn chat_correlation_uses_only_host_envelope_and_authenticated_owner() {
+        let params = json!({"_meta":{"openai/session":"chat-A","openai/subject":"subject-A","openai/organization":"organization-A"}});
+        let first = chat_correlation(&params, "owner-A").unwrap().unwrap();
+        assert_eq!(first.len(), 64);
+        assert_ne!(
+            Some(first.clone()),
+            chat_correlation(&params, "owner-B").unwrap()
+        );
+        for field in ["openai/session", "openai/subject", "openai/organization"] {
+            let mut other = params.clone();
+            other["_meta"][field] = json!("different");
+            assert_ne!(
+                Some(first.clone()),
+                chat_correlation(&other, "owner-A").unwrap()
+            );
+        }
+        let mut branch = params.clone();
+        branch["_meta"]["unverified_branch"] = json!("another branch");
+        assert_eq!(
+            Some(first.clone()),
+            chat_correlation(&branch, "owner-A").unwrap()
+        );
+        assert_eq!(
+            chat_correlation(&json!({"arguments":params}), "owner-A").unwrap(),
+            None
+        );
+        assert_eq!(
+            chat_correlation(&json!({"_meta":{"openai/subject":"subject-A"}}), "owner-A").unwrap(),
+            None
+        );
+        for invalid in [
+            json!({"_meta":null}),
+            json!({"_meta":[]}),
+            json!({"_meta":{"openai/session":false}}),
+        ] {
+            assert_eq!(
+                chat_correlation(&invalid, "owner-A"),
+                Err(Error("mcp_chat_metadata_invalid"))
+            );
+        }
+    }
     #[tokio::test]
     async fn stop_retries_evicted_source_revocation_after_journal_failure() {
         let root = std::env::temp_dir().join(format!("source-revocation-{}", random_id().unwrap()));

@@ -333,8 +333,13 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 식별자로 문서화한다. `_meta.ui.visibility`는 UI와 모델에 보이는 도구를 구분하는 기능이다.
 이것은 사용자 원문/메시지 ID/branch, 동의 또는 특정 Native work 선택을 증명하지 않는다.
 
-현재 Rust MCP의 `mcp.rs::http`와 `operator.rs::http`는 도구 이름/arguments를 처리하며
-이 session metadata를 작업 선택에 사용하지 않는다. 따라서 “MCP에는 대화를 식별할
+검토 기준 a8167e3의 Rust MCP는 이 session metadata를 작업 선택에 쓰지 않았다.
+후속 소스는 `operator.rs::http`에서 호스트 envelope를 따로 받아, 명시적으로 선택한
+work의 목록에 chat_correlated 후보를 표시한다. `mcp.rs::chat_correlation`이 서비스
+owner와 session/subject/organization으로 비공개 연관 키를 계산하고 원문은 저장하지
+않는다. 후보가 여러 개여도 작업/분기/권한을 자동 선택하지 않는다. 실제 Android
+Core·TUI와 주입한 MCP envelope의 시험은 통과했으며 실제 ChatGPT의 최종 도구 선택과
+새 단독 실행/정책 강제는 별도 경계다. CURRENT가 최신 근거와 완료 범위를 기록한다. 따라서 “MCP에는 대화를 식별할
 정보가 전혀 없어서 모델이 매번 work_id를 만들어 전달해야만 한다”는 결론도 성급하다.
 
 선행 시험과 구현 수용 경계는 다음과 같다. 실제 Linux 시험 결과는4.5절에 있으며,
@@ -366,6 +371,9 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 1. **호스트 상관관계:** 실제 Android/웹 → tunnel → stdio → Rust 경계에서 metadata의
    도달과 수명을 확인한다. 같은 Chat의 다음 턴, 다른 Chat/계정, 분기, 재시작을 비교한다.
    원문·인증 값은 기록하지 않는다. 같은 conversation과 같은 개발 작업을 혼동하지 않는다.
+   후속 구현은 이 신호를 실제 Native 목록의 후보 표시에만 쓰며, 자동 작업 선택·권한
+   부여는 하지 않는다. 다른 owner/subject, 누락·오형식·arguments 위조와 재시작의
+   제품 경로 시험은 CURRENT에 별도로 기록했다.
    Linux 실제 모델 호출은4.5절의 같은/다른 Chat·MCP/app 재시작·branch 범위에서 통과했다.
    이전 Android 응답의 식별 전달도 재확인했다. 다른 계정/동시 작업의 합격을 대신하지 않는다.
 2. **선택 유지·강제:** 새로운 단독 작업, 명시적으로 선택한 기존 Native 작업과 여러 Chat을
@@ -517,7 +525,7 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 소비자를 함께 교체했다. `migrate-inference`는 정지된 journal의 v1/v2·pending index·
 transfer를 명시적으로 변환하고 Provider21/Provider14 역변환을 제공한다. 옛 호출 필드와
 값은 실행 API 별칭으로 받지 않는다. 이 변경은 통합 개발 내부의 추론 접속 구분이며
-standalone 구현 완료가 아니다. 로컬 도구/정책 강제와 metadata 문맥 소비는 아직 없고,
+standalone 구현 완료가 아니다. metadata의 관련 작업 후보 표시는 반영했으며 로컬 도구/정책 강제는 아직 없고,
 diagnostic만으로 이를 구현·검증 완료라고 하지 않는다. CURRENT가 최신 시험 상태를 소유한다.
 사용자의 빌드 묶음 방침에 따라 소스를 준비한 뒤 유효한 분량을 모아 실제 빌드·전체
 권한/품질 수용 시험을 수행한다. 설치·운영 활성화는 그 이후 별도 관찰한다.
