@@ -1,8 +1,9 @@
 # ChatGPT 단독 로컬 작업과 Codex 작업의 경계 검토
 
 2026-10-31. 상태: 사용자 요청에 따라 검토·자격검증 진행 중. 실행 의미와 선택 책임은
-SPEC의 work-recording 계약에 반영했다. 한 MCP/고정 프로필의 최종 채택은 실제 호스트
-시험 뒤 판정한다. 새 로컬 도구 제품 경로는 아직 구현·배포하지 않았다.
+SPEC의 work-recording 계약에 반영했다. 실제 Linux 앱/MCP 시험을 거쳐 한 MCP와
+명시적 작업 문맥을 기본 설계로 선정했다. 단독 고정 프로필은 선택 기능이다.
+새 로컬 도구 제품 경로와 정책 강제는 아직 구현·배포하지 않았다.
 
 ## 1. 판정
 
@@ -139,7 +140,8 @@ Full131/Core/Manager/runtime 바이트를 복사·검증한 disposable fixture�
 ### 4.4 선택 검토 착수 후 추가 실행 증거
 
 같은 증거 루트에 원본 driver, 결과와 TMPDIR fixture 경로를 보존했다. 새 컴파일,
-운영 설정 변경 또는 실제 ChatGPT/Pro 추론은 없었다.
+운영 설정 변경 또는 실제 ChatGPT/Pro 추론은 이 로컬 시험 묶음에는 없었다.
+그 이후의 실제 Linux 앱 시험은4.5절에서 별도로 구분한다.
 
 | 경계 | 실제 관찰 | 입증하지 않은 것 |
 | --- | --- | --- |
@@ -166,8 +168,66 @@ Native auth 없음, 모델 요청0, 알림 명령0이며 소유한 모든 child 
 이는 완성된 원격 도구가 아니라 기반 API의 실제 실행 증거다. 다음 구현은 기존
 operation의 불확실 효과/재시도 책임을 재사용하고 접근·승인 경계를 연결해야 한다.
 모델에 raw fs/command를 그대로 공개하거나 Native 대화를 숨기는 것으로 대체하지 않는다.
-`host-mcp-probe.json`은1회429를 기록한다. 자동 재시도는 하지 않았고 실제 호스트
-선택 시험은 미실행 상태다.
+`host-mcp-probe.json`은1회429를 기록한다. 이는 이 Codex 세션에 노출된 이전 시험용
+커넥터의 게이트웨이 조회이며 Linux 앱의 실제 모델/MCP 호출 시험이 아니었다.
+이것으로 Linux 시험을 중단한 판단은 수정했다. 다음 절에 실제 경로와 그 한계를 기록한다.
+
+### 4.5 실제 Linux 앱 → 모델 → MCP → Rust 전달 시험
+
+사용자 지적에 따라 호출 주체를 다시 구분했다. Provider 설정의 `return_path=mcp`는
+Linux 앱의 모델이 MCP를 통해 Native 도구 결과를 받는 경로이고, 일반 Android/웹의
+직접 입력도 다른 호스트에서 같은 종류의 프로토콜을 이용할 수 있다. 한쪽 시험을
+다른 쪽 합격으로 대체할 수 없다. 앞선 Codex-host probe가 가리킨 과거 qualification
+터널은 확인 시 로컬 프로세스가 종료돼 있었다.429의 원인을 그것으로 확정하지는 않는다.
+
+현재 운영 Linux 호스트는 로컬 `host status`에서 준비됨/활성 lane0을 확인했다.
+그 호스트를 재시작하거나 운영 터널을 바꾸지 않고, 동일한 공식 앱/rootfs의 격리된
+프로필·화면·호스트와 새 시험용 터널/커넥터를 사용했다. 설치 Provider21의 실제
+`mcp-stdio` 뒤에 한시적 metadata-only 수신기를 연결했다. 수신기는 식별 정보의 키와
+시험 전용 HMAC 상관관계만 보존하고 원문·인증 값을 로그에 남기지 않았다.
+
+실제 모델 없이 Linux SDK `call_mcp`로 tools/list·scope_probe를 실행한 뒤, 앱이 제공한
+일반 `gpt-6-thinking`/`standard`를 선택해 실제 응답6회를 제출했다. 송신 경계의
+model/effort, 원래 MCP 수신, 공개 최종과 저장된 원본 branch graph를 대조했다.
+Pro0회, Native work/thread/rollout0개다. read/write 작업을 한 것으로 표시하지 않는다.
+
+| 실제 요청 | 관찰 및 판정 |
+| --- | --- |
+| 모델 없는 Linux SDK tools/call | subject/organization 전달, session 없음. 수동 SDK 호출로 모델 호출의 대화 식별 능력을 판정하면 안 됨 |
+| A1: 첫 대화의 모델 호출 | Linux 모델 → cloud tunnel → 설치 Rust stdio → 수신기 성공. subject/session/organization 존재. 정확한 공개 최종 확인 |
+| A2: 같은 대화의 자연스러운 후속 요청 | 앱/도구 이름을 다시 쓰지 않고 같은 도구1회·같은 session·정확한 최종. 반복 지정 불필요의 제한된 실제 증거 |
+| B1: 새 대화 | subject는 같고 session은 다름. 다른 Chat 구별 가능 |
+| A3: MCP 프로세스 종료·재시작 후 같은 대화 | 소유한 이전 프로세스2개의 kernel 종료와 새 ready 확인. 같은 session으로 성공 |
+| BRANCH: Linux 앱 재시작 후 A1 final에서 갈라진 후속 입력 | 원본 graph에서 A3와 다른 경로임을 확인. 두 분기는 같은 session을 받음. session은 branch/work ID가 아님 |
+| NEGATIVE: 같은 대화의 별건 설명·Codex 인용 | MCP0회, 원래 모델 공개 답변·완료 표시 확인. 도구 사용이 필요 없는 사례1건이며 완성된 두 실행 경로의 오선택률은 아님 |
+
+증거: `linux-actual-mcp-summary.json`, `linux-scope-observations.jsonl`,
+`linux-branch-graph-proof.json`과 원본 fixture의6개 `*-snapshot-private.json`.
+이 시험은 실제 앱의 SDK/모델/MCP 경로이며 Android 물리 입력이나 앱 화면의 육안 관찰
+증명은 아니다. SDK 직접 호출은1회, 모델이 호출한 diagnostic 도구는5회다. 모델별
+추론 토큰·내부 숨은 호출 수는 공개되지 않아 primary 요청6회와 혼동하지 않는다.
+
+이전에 보존된 Android `CATALOG_BRIDGE_ANDROID_20261027` 원본에도 MCP8호출의
+metadata shape와 일관된 익명 session fingerprint가 있었다. 이번 재조사에서 찾아
+`prior-android-metadata-summary.json`으로 색인했다. URL UUID와 일치하지 않는다.
+이것은 이전 Android 응답1개의 근거이며 새로운 Linux 재시작/분기 시험과 별개의 증거다.
+
+따라서 **MCP 하나에서 대화를 구별할 수 없다는 가정은 기각**한다. 반면 **대화별로
+마지막 Native 작업을 자동 적용해도 된다는 가정도 분기 실증으로 기각**한다.
+모델이 완성된 local/Codex 도구 중 최초 범위를 얼마나 잘 고르는지, 다른 계정과
+동시 작업, 실제 read/write/승인/reviewer와 품질 동등성은 이 diagnostic 시험의 합격
+범위가 아니다. 이 부분은 제품 구현의 수용 시험으로 남긴다.
+
+시험용 커넥터와 터널은 삭제 후 각각404 readback으로 확인했고, 소유한 Linux/MCP
+프로세스 종료와 임시 alias 제거를 확인했다. 운영 호스트는 최종 로컬 관찰에서도
+present/ready, 활성 lane0이었다. 시험 CLI의 `runtimes connect --admin-key`는 기본
+관리 프로필의 키 참조도 저장하는 부수효과가 있었다. 시험 전 확인했던
+`env:OPENAI_ADMIN_KEY` 참조만 원상복구하고 다른 필드/active profile은 보존했다.
+이는 wrapper 실행 결함의 증명은 아니지만 향후 시험/연결 준비에서는 runtime key와
+admin profile의 저장 범위를 분리해야 한다. 사용자 지시에 따라 공통 위치에 마련한
+키 파일은 유지했고 원본 키 값은 공개하지 않았다. 격리 앱의 auth 복사본은 원본과
+같음을 확인한 뒤 제거했다. 원본 시험 Chat/branch와 결과·driver는 보존했다.
+정리 근거: `linux-fixture-cleanup-summary.json` 및 fixture의 개별 원본 응답.
 
 ## 5. 세 가지 구분을 혼합하지 않는 설계
 
@@ -229,16 +289,16 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 
 ### 6.1 MCP 한 개와 두 개
 
-초기 검토의 “두 연결을 일반 사용의 기본으로 권고”는 선택 문맥 유지 가능성을
-검증하기 전으로서는 이르다. 최종 권고 우선순위를 수정한다. **공통 서비스 하나에서
-위 문맥 유지가 실제로 성립하는지 먼저 검증하고, 두 고정 MCP 프로필은 명시적인
-진입 선택/단독 고정을 제공하는 수단으로 둔다.** 매 요청마다 둘 중 하나를 모델이
-다시 고르게 하는 구조는 어느 경우에도 기본안이 아니다.
+초기 검토의 “두 연결을 일반 사용의 기본으로 권고”는 철회한다. 실제 Linux 시험에서
+대화 상관관계와 후속 호출 유지가 성립했고, 연결을 나눠도 같은 대화 내 작업/분기
+선택 문제가 사라지지 않는다. **공통 서비스·한 MCP·명시적 작업 문맥을 기본 구현안으로
+선정하고, 두 고정 프로필은 명시 진입/단독 고정을 위한 선택 기능으로 둔다.**
+매 요청마다 둘 중 하나를 모델이 다시 고르게 하는 구조는 어느 경우에도 기본안이 아니다.
 
 | 형태 | 장점 | 한계 / 판정 |
 | --- | --- | --- |
 | 한 MCP, 지금처럼 Native 도구만 제공 | 기존 코드 유지 | 로컬 도구를 쓰려면 계속 Native 기록이 생김. 요구 미충족 |
-| 한 MCP + 유지되는 작업 context | 연결 추가가 적고 후속 입력에 반복 지정 불필요 | 호스트/터널을 통과하는 context 식별과 서버 정책의 실제 검증을 먼저 수행. 우선 검토할 기본 UX |
+| 한 MCP + 유지되는 작업 context | 연결 추가가 적고 후속 입력에 반복 지정 불필요 | 기본 구현안. 실제 호스트 대화 상관관계 통과; branch/work 선택·정책 강제는 별도 구현/합격 필요 |
 | 공통 서비스의 고정 local-tools/Codex-work 프로필 | 각 프로필의 도구와 기록 의미가 명확함 | 연결/등록 선택이 추가됨. 단독 고정·명시 진입 수단; 모델이 매번 양쪽 중 하나를 고르면 근본 해결은 아님 |
 | 서로 다른 provider/executor 코드·서비스로 복제 | 표면적 구분 | 수정·권한·재시도·배포 규칙이 분기. 불필요한 중복이므로 기각 |
 
@@ -268,7 +328,8 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 이 session metadata를 작업 선택에 사용하지 않는다. 따라서 “MCP에는 대화를 식별할
 정보가 전혀 없어서 모델이 매번 work_id를 만들어 전달해야만 한다”는 결론도 성급하다.
 
-제안의 선행 시험은 다음과 같다. 새 제품 빌드/등록 없이 문서만으로 완료 처리하지 않는다.
+선행 시험과 구현 수용 경계는 다음과 같다. 실제 Linux 시험 결과는4.5절에 있으며,
+호스트 식별·완성된 정책 강제·제품 품질 합격을 구분한다.
 
 1. 실제 Android/웹 → tunnel-client → mcp-stdio → Rust에서 해당 metadata가 도달하는지
    제한적으로 관찰한다. 원문/인증 값은 수집하지 않는다.
@@ -290,12 +351,14 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 ### 6.3 검토 순서와 결과별 채택 기준
 
 실행 의미는 [SPEC](SPEC.md#work-recording-scope-and-entry-selection)에 채택했다.
-연결 수와 자동 선택의 기본 UX는 다음 증거를 확보한 뒤 정한다.
+다음 검토 단계 중 호스트 기반 실증과 기본 구성 선정은 완료했다. 정책 강제와
+완성된 도구의 선택·품질 시험은 제품 구현/수용 단계이며 미실행으로 구분한다.
 
 1. **호스트 상관관계:** 실제 Android/웹 → tunnel → stdio → Rust 경계에서 metadata의
    도달과 수명을 확인한다. 같은 Chat의 다음 턴, 다른 Chat/계정, 분기, 재시작을 비교한다.
    원문·인증 값은 기록하지 않는다. 같은 conversation과 같은 개발 작업을 혼동하지 않는다.
-   현재는 로컬 stdio 보존만 통과했으며 실제 MCP probe는429로 관찰하지 못했다.
+   Linux 실제 모델 호출은4.5절의 같은/다른 Chat·MCP/app 재시작·branch 범위에서 통과했다.
+   이전 Android 응답의 식별 전달도 재확인했다. 다른 계정/동시 작업의 합격을 대신하지 않는다.
 2. **선택 유지·강제:** 새로운 단독 작업, 명시적으로 선택한 기존 Native 작업과 여러 Chat을
    격리해 후속 입력·재시작을 시험한다. 단독 고정 상태에서 Native 생성/연결을 시도해
    실행 전 거절과 Native inventory 불변을 확인한다. metadata를 모델 arguments로 흉내 낸
@@ -303,8 +366,9 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 3. **최초 선택 품질:** 같은 일반 모델·노력도·도구 조건으로 명시적 단독/Codex 요청,
    설정 기본값에 따르는 무지정 요청, 연결 후 자연스러운 후속 지시, 별건 전환,
    Codex를 인용만 한 문서, 동일 폴더의 다른 Chat을 비교한다. 기존 작업의 중복 생성,
-   불필요한 재지정, 무관한 작업의 연결, 단독 기록 침범을 각각 판정한다. 현재 실모델
-   선택 시험은 하지 않았다. 소수 성공은 자연어 분류의 보편적 정확성 증명이 아니다.
+   불필요한 재지정, 무관한 작업의 연결, 단독 기록 침범을 각각 판정한다. diagnostic
+   도구의 자연스러운 후속 요청과 별건 설명은 통과했으나 완성된 local/Codex 도구의
+   선택 비교는 미실행이다. 소수 성공은 자연어 분류의 보편적 정확성 증명이 아니다.
 4. **제품 경로·품질:** 실제 읽기·쓰기·Git·시험 실행과 필요한 지침/승인/reviewer를
    유지하고, 스트림·Stop·응답 유실·재접속을 검증한다. MCP/local function, Native 저장과
    실행 중 TUI, 호출 반환과 물리 알림은 각각 판정한다. 위 기반 API 증거로 대체하지 않는다.
@@ -316,11 +380,11 @@ Native 생성·전환을 막아야 한다. 자연어 자동 분류가 항상 정
 | 자동 상관관계를 검증할 수 없거나 필요한 수명에서 끊김 | 검증된 명시 context 또는 공통 서비스의 고정 프로필 | 그 범위 밖의 자동 연결을 약속하지 않음. 두 MCP를 동시에 자유 선택하게 두는 것만으로 해결하지 않음 |
 | 사용자가 기록 금지를 확실히 고정하려 함 | 서버가 강제하는 단독 프로필/설정 | Native 생성·전환을 모델 임의로 허용하지 않음. 위 편의 구성을 채택해도 선택 가능한 별도 보장 수준 |
 
-429는 세 번째 행의 기술적 실패로 판정할 근거가 아니다. 관찰하지 못한 호스트의
-기능을 없다고 가정해 두 연결을 기본으로 확정하지 않는다. 다음 실제 시험의 첫 단계는
-호스트 식별 도달/수명이며, 이것이 준비되기 전에는 새 Native work를 만들어 선택 품질을
-시험하거나 Pro 호출을 소모하지 않는다. 필요한 시험용 노출은 기존 운영 연결과 활성
-작업을 보존하는 disposable 경계에서 준비하고, 새 제품 빌드는 유효한 변경 묶음으로 모은다.
+429를 세 번째 행의 기술적 실패로 판정하지 않고 실제 Linux 시험을 완료했다.
+대화 상관관계/재접속 기반은 통과했지만 branch를 구별하지 못하므로, 한 MCP에서
+기존 work/controller와 별도 로컬 작업 문맥을 명시적으로 유지하는 설계를 채택한다.
+최초 범위 선택은 자연어/설정에 따른 편의이고 단독 고정은 서버의 강제 계약이다.
+어느 선택지를 쓰든 session 하나를 Native 실행 허가로 자동 승격하지 않는다.
 
 ## 7. MCP와 local function
 
@@ -395,7 +459,9 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 2. 같은 작업을 명시적으로 Codex-work로 요청하면 의도한 Native 기록·승인·CLI 표시·알림이 생긴다.
 3. 같은 모델/노력도와 작업 자료로 두 경로의 변경 결과·실행 시험·필요 도구·문맥 준수 수준을
    비교한다. 길이/말투나 “성공했다”는 모델 주장만으로 품질 동등성을 판정하지 않는다.
-4. 로컬 작업은 Codex 로그인·Provider 모델 설정·Linux 앱 없이 읽기와 쓰기까지 가능해야 한다.
+4. 로컬 도구 실행 서비스는 Codex 로그인·Provider 모델 설정·추가 Linux 실행 앱 없이
+   읽기와 쓰기까지 가능해야 한다. 입력 주체가 Linux ChatGPT 앱이면 그 클라이언트는
+   당연히 존재한다. 실행 서비스의 앱 획득 의존과 입력 클라이언트를 구분한다.
    읽기 전용으로 바꿔 요구를 축소하지 않는다. 첫 cold-start/model discovery도 관찰한다.
 5. 실제 접근 범위·쓰기 승인·사용자 정의 정책·비밀값 전달·큰 출력/첨부의 경계를 검증한다.
    fs API나 command API를 Native의 전체 승인/reviewer와 동등하다고 가정하지 않는다.
@@ -416,21 +482,47 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 12. 코드·패키지·기기 활성화·Android 앱에서의 실제 동작·물리적 표시/알림을 각각 판정하고,
     실패를 Native 기록 경로로 조용히 우회해 성공 처리하지 않는다.
 
-## 11. 이번 검토로 바뀌는 우선순위
+## 11. 선정안의 구체적 구현 순서
+
+새로운 전역 planner/마지막 작업 라우터를 만들지 않는다. 기존 Native work/controller를
+재사용하고 로컬 I/O에 필요한 작업·권한 문맥만 추가한다. 새 모델 호출이나 saved Chat
+크롤링 없이 도구 호출의 원래 반환 경로를 유지한다.
+
+| 순서·수정 위치 | 유지/추가/제거할 책임 | 완료 판정 |
+| --- | --- | --- |
+|1. `mcp.rs::http`, `operator.rs::http`, `runtime.rs::mcp_stdio`, local-function 호출자 | host `_meta`와 model arguments를 구분해 호출 문맥을 전달. 인증된 연결을 권한 기준으로 유지. anonymous session은 후보 문맥 조회에만 사용 | metadata 부재/타입 오류/다른 subject·connector·branch가 이전 Native 작업의 자동 선택으로 이어지지 않음. 양쪽 ingress의 같은 의미 검증 |
+|2. `operator.rs::{call,create/join/start,tools}`, `config.rs`, 기존 journal | Native는 기존 work/controller/receipt, 로컬은 허용된 workspace·권한 문맥 사용. 한 Chat에 복수 문맥 허용. 기본 local, Native는 선택한 작업만. 단독 고정은 모델이 바꾸지 못하는 설정/프로필에서 강제 | 모델의 잘못된 Native 호출을 dispatch 전 거절. 같은 실제 작업 후속 요청은 사용자 재지정 없이 유지. branch/모호한 별건은 전역 latest로 보정하지 않음 |
+|3. `operator_native.rs::{Owner,Native,Pool}`와 Core의 app-server 준비 호출 | 검증된 socket/RPC/owner 수명주기 재사용. 로컬 준비에서 model routing/catalog·`thread/read`·rollout 의존을 분리. Native용 준비/원본 이력은 유지 | 인증/모델 catalog 없는 실제 Core 연결에서 로컬 I/O 성공. Native thread/turn 생성0. 현재 Pool::prepare 전체를 그대로 로컬 준비로 사용하지 않음 |
+|4. 기존 `operation.rs`와 로컬 I/O 소비부 | intent/result·동시 observer·불확실 효과 reconciliation 재사용. Core fs/command 원결과·process handle 반환. 허용 접근/승인과 작업 지침 전달. raw fs를 cwd 제한으로 오인하는 경로 금지 | 실제 수정·시험·긴 출력·PTY/Stop·응답 유실·재접속, 동일 호출 재전송 효과1회, 입력 변경 시 거절. 권한/응답 품질 축소 없음 |
+|5. `mcp.rs`, `mcp_bridge.rs`, `app_bridge.js`와 등록/문서 | 같은 operation을 고정 도구 계약으로 노출. MCP/local function의 운반·caller-return 차이만 유지. JS는 앱 SDK와 렌더러 연결, Rust는 정책/상태/복구 소유 | 로컬/등록/실호스트 schema 일치. 실제 Linux 모델의 로컬 작업과 선택 Native 작업 비교; Android/웹은 각 해당 소비자 시험 |
+|6. Manager/TUI/알림 및 기존 자격검증 driver | Native 기록을 원할 때 기존 이력/CLI/알림 유지. 로컬 작업의 완료를 Native 이벤트로 만들지 않음. 알림 숨김·사후 기록 삭제로 대체하지 않음 | 같은 수정 과제의 결과·지침·도구·시험 충실도 비교, 저장/활성 TUI/물리 알림 각각 합격. 기존 운영 데이터와 활성 작업 보존 |
+
+공개 Native `work_id`와 controller가 이미 의미를 갖는 곳에 새 scope selector를 중복
+기입시키지 않는다. 로컬 문맥 식별자는 실제 허용 workspace·process·재시도 소비자에
+필요한 만큼만 둔다. 추가 도구 이름/설정 필드는1~2단계에서 실제 caller와 함께 확정하며
+읽히지 않는 placeholder schema나 무사용 추적 필드를 먼저 추가하지 않는다.
+
+설계 검토의 최종 선택은 완료했지만 위 표는 제품 구현 작업이다. 실제 프로덕션 소스의
+로컬 도구/정책 강제는 아직 없으며, diagnostic만으로 이를 구현·검증 완료라고 하지 않는다.
+사용자의 빌드 묶음 방침에 따라 소스를 준비한 뒤 유효한 분량을 모아 실제 빌드·전체
+권한/품질 수용 시험을 수행한다. 설치·운영 활성화는 그 이후 별도 관찰한다.
+
+## 12. 이번 검토로 바뀌는 우선순위
 
 기존 순서2의 “진입점 동등성”에는 **동일한 Codex 작업을 선택했을 때**라는 전제가 필요하다.
 모든 ChatGPT 로컬 작업을 Codex로 들여보내는 것을 동등성으로 구현해서는 안 된다.
 이 실행/기록 경계를 먼저 채택한 뒤 순서2의 양방향 연결을 계속한다.
 
 이번 산출물은 원본 대조, Native/알림4조건 시험, 비세션 I/O의 기존·깨끗한 home 시험,
-stdio metadata 보존·실제 command 수명주기·raw API 경계 시험, SPEC의 실행 의미 계약과
-결과별 채택 기준이다. 제품 소스 구현/새 MCP 등록/배포/빌드는 하지 않았다.
+stdio metadata 보존·실제 command 수명주기·raw API 경계 시험, 실제 Linux 앱/MCP 모델
+6요청·branch/restart와 이전 Android 원본 재대조, SPEC의 실행 의미 계약과 선정 설계다.
+한시적 시험 전용 MCP/터널을 등록해 검증했으며 제품 소스 구현/배포/빌드는 하지 않았다.
 시험 driver와 원본 결과·Native 기록은 보존했고, 종료가 확인된 두 fixture의 payload는
 clean_development.py로 manifest 대조·보관 후 정리했다. 복원 기록은 같은 증거 루트의
 scope-fixture-payload-cleanup.jsonl과 clean-fixture-payload-cleanup.jsonl이다.
 추가 수명주기 fixture의 생성 payload6개도 종료·manifest·보관본 검증 후 약728MiB를
 회수했다. lifecycle-fixture-payload-cleanup.jsonl이 복원/제거 근거이며 원본 프로토콜과
 실행 파일 이외의 소스·결과·Native 상태는 보존했다.
-남은 핵심 불확실성은 호스트 metadata의 실제 전달/지속 범위, 선택 context의 강제성,
-두 MCP 프로필의 tunnel 등록 방식, 전체 권한·도구/문맥 품질 동등성과 장기
-process/재접속 수명주기다. 연결 수보다 선택 책임과 선택 유지의 검증이 선행한다.
+남은 제품 수용 경계는 정책 강제, 다른 계정·동시 작업, 선택적 두 고정 프로필의 호스트
+진입 제약, 전체 권한·도구/문맥 품질 동등성과 장기 process/재접속이다. 실제 호스트가
+session을 준다는 사실과 그 값으로 branch/work를 선택할 수 없다는 사실을 함께 반영한다.

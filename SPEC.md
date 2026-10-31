@@ -1602,20 +1602,31 @@ local functions use those same operation semantics and return to the original
 caller. Keep one implementation per responsibility; two advertised profiles do
 not justify two providers, executors or conversation stores.
 
-A single MCP with retained selection is the first qualification candidate.
-Adoption requires actual host/tunnel correlation and enforcement proof, not just
-model-choice examples. Fixed local-tools/Codex-work profiles are an alternative
-for explicit scope selection or a standalone lock; making both visible does not
-itself guarantee correct automatic selection. Do not vary registered tool lists
-on each turn to hide an unresolved scope decision.
+A single MCP with explicit task contexts is the selected implementation design.
+Linux-app actual-model calls establish conversation correlation, including across
+MCP/app restart, but the same anonymous session also spans distinct saved branches.
+Therefore a conversation-wide last-selected mode/work cannot be the dispatch key.
+Retain the existing work/controller for Native calls; local operations carry their
+own authorized workspace context. Correlation can find eligible contexts and
+present defaults, never silently choose between unrelated tasks or branches.
+Public enforcement/read-write/quality acceptance remains required before delivery.
+Fixed local-tools/Codex-work profiles remain optional explicit entry/standalone-lock
+surfaces over the same implementation. Making both visible does not itself
+guarantee correct automatic selection. Do not vary registered tool lists on each
+turn to hide an unresolved scope decision.
 
 Host-provided anonymous session metadata may correlate calls only within its
 verified lifetime and authenticated connection scope. It is not the Chat URL's
 conversation ID, original message/branch provenance, authorization or user scope
-selection. Missing/conflicting metadata requires a verified explicit context or
-fixed profile, never inference from another Chat's last selection. Qualify actual
-Android/web, new Chat/branch, account changes and restart behavior before relying
-on this correlation. Retain the separate original-source verification contract.
+selection. An actual model tool call and a manually issued Linux SDK tools/call
+have different metadata: the latter need not contain a conversation session.
+Missing/conflicting metadata requires a verified explicit context or fixed
+profile, never inference from another Chat's last selection. Keep authenticated
+connection scope separate from host subject/organization/session hints. A branch
+edit cannot automatically inherit another branch's latest selection from this
+anonymous ID. CURRENT records observed clients/lifetimes; new clients, account
+changes and unresolved fork semantics need their own qualification. Retain the
+separate original-source verification contract.
 
 Threadless I/O must preserve authorized read/write development, relevant workspace
 instructions and applicable approval/reviewer behavior. Upstream fs RPCs do not

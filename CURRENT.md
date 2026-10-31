@@ -28,8 +28,9 @@ own execution order; implementation now follows that order.
 
 Before continuing order2's entrance equivalence, resolve the user's work-recording
 boundary and entry-selection requirement in [WORK_SCOPE_REVIEW.md](WORK_SCOPE_REVIEW.md).
-SPEC's work-recording contract now adopts the execution meaning and selection
-responsibility; one MCP versus fixed profiles remains a qualification decision.
+SPEC's work-recording contract adopts the execution meaning and selection
+responsibility. Actual Linux-app MCP proof selects one service/MCP with explicit
+task contexts; fixed local-tools/Codex-work profiles remain optional lock/entry UX.
 The new local-tool MCP feature and selection enforcement are not implemented.
 Ordinary ChatGPT local tools must not require Codex conversation history;
 Native direct/provider reasoning and MCP/local transport do not define that choice.
@@ -43,14 +44,15 @@ Core/native API proofs, not a new ChatGPT MCP/local-function product acceptance.
 Proof root: ~/.cache/codex/acceptance/work-scope-review-20261031. User sessions,
 operating configuration and installed components are unchanged; no new build.
 
-The latest requirement is selection without repeated manual prompting. Investigate
-entry defaults, retained selected-work context and explicit transitions before
-choosing one versus two MCP connections. Two connections do not remove ambiguity
-if the model must choose anew on every request. Official host session metadata
-offers a correlation mechanism currently unused by the Rust handlers; actual
-Android/web/tunnel propagation and lifetime are unverified. Never use it as source
-message provenance or authorization, infer another Chat's mode from a global last
-selection, or silently turn a local tool request into a Native work.
+The latest requirement is selection without repeated manual prompting. Keep entry
+defaults, explicit task contexts and transitions; two connections do not remove
+ambiguity if the model chooses anew on every request. Linux actual-model MCP calls
+correlate the same Chat across follow-up and MCP/app restart, and a new Chat gets
+a different anonymous session. Distinct original saved branches share that session:
+never dispatch a conversation's latest Native work merely from this ID. Retain
+existing work/controller for Native calls and authorized local context for local
+operations. Metadata provides eligible-context hints, not source-message provenance,
+authorization or user scope selection. The Rust handlers do not yet consume it.
 
 Additional bounded Android proof verifies installed Provider21 stdio preserves
 all7 concurrent synthetic request envelopes, including separate/missing metadata
@@ -63,11 +65,30 @@ Native auth. Raw command/exec redispatch repeats a settled effect; fs RPCs acces
 owned disposable paths outside cwd. Thus process IDs do not replace operation
 reconciliation and cwd does not provide a remote file-access grant. Existing
 approval/reviewer and complete instruction/tool parity remain unqualified.
-The real qualification MCP's one status attempt returned gateway SSE-probe429;
-Rust receipt/metadata were not observed, and there was no automatic retry or new
-ChatGPT/Pro inference. This does not reject single-MCP feasibility or establish
-the rate-limit cause. See WORK_SCOPE_REVIEW sections4.4/6.3 and the same proof root
-for original failed driver assertions, follow-up proof and result-based choices.
+The earlier Codex-exposed qualification connector's one status probe returned429;
+that was not a Linux model/MCP trial, and its old tunnel was later observed stopped.
+Do not claim that stopped local state establishes the429 cause. After correcting
+this scope error, an isolated authenticated official Linux app and a new owned
+diagnostic tunnel/connector pass actual SDK catalog/tool calls and6 ordinary
+gpt-6-thinking/standard primary requests (Pro0). Five model tool calls return
+their original exact public final; the separate explanation-only request uses no
+MCP. Same-Chat natural follow-up omits repeated app/tool names. Original graph
+readback proves the tested branch differs, including preserved A3 ancestry.
+Manual SDK tools/call has subject/organization but no session; actual model calls
+add session. Prior Android CATALOG metadata8calls also carry one stable fingerprint,
+now re-indexed from its original capture. These diagnostic/saved-graph proofs do
+not qualify production scope enforcement, read/write, approval/reviewer parity,
+different-account/concurrent selection, or physical Android/web inputs. See
+WORK_SCOPE_REVIEW sections4.5/6.3/11 and linux-actual-mcp-summary.json in the same
+proof root for the final design, exact scope and concrete implementation sequence.
+The temporary connector/tunnel deletion has404 readback, their local alias is
+removed and owned Linux/MCP processes are confirmed exited. Operating host status
+remains present/ready with0 active lanes. The trial CLI persisted its explicit
+admin-key reference into the default admin profile; only that reference was
+restored to its previously observed env:OPENAI_ADMIN_KEY, preserving active
+selection and other fields. Keep runtime/admin credential persistence separate
+in future connection preparation. Original trial Chats/branches/results remain;
+the identical fixture auth copy was removed after comparison, not the original.
 After confirmed process exit, the standard manifest/archive cleaner reclaimed
 763633664 bytes of generated lifecycle payloads; original protocol/results and
 source remain, with lifecycle-fixture-payload-cleanup.jsonl for restoration.

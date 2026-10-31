@@ -42,8 +42,10 @@ Direct currently means **this ChatGPT response working on Codex work**; it still
 creates or reuses Native history. Standalone ChatGPT local tools are a separate
 [execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
 Core I/O proof but no implemented ChatGPT tool surface yet. Ordinary file access
-must not automatically become Codex work in that target. One versus two MCP
-profiles remains under [qualification](WORK_SCOPE_REVIEW.md#63-검토-순서와-결과별-채택-기준).
+must not automatically become Codex work in that target. The selected design is
+one MCP with explicit task contexts; standalone fixed profiles are optional.
+[Actual Linux proof and limits](WORK_SCOPE_REVIEW.md#45-실제-linux-앱--모델--mcp--rust-전달-시험)
+distinguish conversation correlation from branch/work selection and product acceptance.
 
 Installed Provider21 passes scoped Android→CLI→Android same-work continuity and
 plain-prompt automation through `chat_input`. Automated input uses the configured

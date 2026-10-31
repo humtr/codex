@@ -37,8 +37,10 @@ Here direct means **ChatGPT로 Codex 작업**, not standalone ChatGPT file acces
 The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
 separates threadless local tools from selected Codex work. Basic threadless Core
 I/O and process controls have Android proof; a new ChatGPT local-tool surface and
-retained host-context selection are not yet implemented or qualified. One versus
-two MCP profiles remains subject to actual host/tunnel tests in
+retained host-context selection are not yet implemented or qualified. Actual
+Linux-app model/MCP trials select one MCP with explicit task contexts, with fixed
+standalone profiles optional. Anonymous session IDs span distinct saved branches;
+they cannot authorize or select Native work by themselves. See
 [the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
 
 Provider18 retains inherited handles, including Core's payload selection lease,
