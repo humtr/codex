@@ -32,8 +32,12 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
-Current execution tools require a Native work, including `reasoning=direct`.
-Here direct means **ChatGPT로 Codex 작업**, not standalone ChatGPT file access.
+Current execution tools require a Native work, including the installed API's
+`reasoning=direct` field. That old field means attached-response inference; it
+does not implement the intended standalone workflow. Product workflow means
+**ChatGPT standalone development / common Codex development and orchestration**.
+Both ChatGPT and CLI participation in Codex work use the latter. Final workflow
+names are under review; do not redefine them from the old code's enum values.
 The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
 separates threadless local tools from selected Codex work. Basic threadless Core
 I/O and process controls have Android proof; a new ChatGPT local-tool surface and
@@ -85,11 +89,11 @@ use their current configuration; these examples are for first-time setup.
 | Entry | Primary reasoning | Linux app needed? | Remote MCP needed? |
 | --- | --- | --- | --- |
 | Terminal with ChatGPT | Provider response | Yes, with app login | Only for MCP inner returns; local_function does not need it |
-| ChatGPT direct | Active response develops directly (`reasoning=direct`) | No for primary direct work | Yes |
-| ChatGPT general delegation | Provider-started response (`reasoning=provider`) | Yes, with app login and project configuration | Yes for the requesting Chat |
+| ChatGPT joining common Codex work | Attached response; old API uses `reasoning=direct` | No extra Linux host for the attached primary response | Yes |
+| ChatGPT requesting new inference on Codex work | Submitted response; old API uses `reasoning=provider` | Yes, with app login and project configuration | Yes for the requesting Chat |
 
 Native Codex login, Linux app login and the ChatGPT MCP connection are separate
-boundaries. Direct current-Chat work does not require a native subscription login
+boundaries. Attached current-Chat work does not require a native subscription login
 or a Linux app for primary reasoning; separately configured app reviewers do.
 Never copy tokens between them or into chat prompts.
 
@@ -204,7 +208,8 @@ This device's local runtime now uses [runit services](#device-runit-services);
 do not start a second tmux runtime against the same remote tunnel.
 
 Once connected, use [this response for Codex work](../../README.md#chatgpt-using-this-response-for-codex-work).
-The assistant selects `reasoning=direct` and completes the native attach/receipt/
+With the installed protocol, the assistant selects `reasoning=direct` for attached
+inference on common Codex work and completes the native attach/receipt/
 execution/final protocol through advertised tools. No Linux rootfs is required
 for this primary path.
 
@@ -430,16 +435,17 @@ users identify the project/task and the desired reasoning source.
 
 | User intent | Existing control path |
 | --- | --- |
-| Use this ChatGPT response for Codex work | `codex_sessions` with direct reasoning, native attach/receipt, tools/report/finish |
+| Use this ChatGPT response for Codex work | Common Codex workflow; installed API's attached-inference route, native attach/receipt, tools/report/finish |
 | Delegate to a separate work Chat | Provider-started work with explicit app/project readiness and distinct assignment; retrieve its original final |
 | List or inspect work | `codex_sessions` list and `codex_status` |
 | Retrieve an existing result | Events/wait and public history on that work; no new task |
 | Continue a settled task | Reconcile and resume/start the related work at its supported boundary |
 | Stop a selected task | `codex_stop`; use tree Stop only when that whole scope is requested |
 
-The only reasoning values are `direct` and `provider`: direct uses the active
-Chat response; provider starts/manages a model response, including sequential
-follow-ups in the same saved Chat. Neither proves an independent child model.
+The installed reasoning field still accepts `direct` for an attached Chat response
+and `provider` for a submitted response. Both are common Codex development in the
+target contract; this code/API overload needs coordinated replacement, not a
+new product definition. Neither inference route proves an independent child model.
 Previous names are not accepted as aliases. Existing installation state requires
 explicit offline format migration with its originals retained. MCP/local_function describe tool/result transport. A plain queue
 can start new inference; the existing no-reinference follow path additionally
@@ -521,7 +527,7 @@ could offer these controls over the same service:
 Official [MCP Apps UI support](https://developers.openai.com/plugins/build/app-quickstart)
 makes an embedded ChatGPT panel possible. No such UI resources or panel exist in
 the current tools-only service. A panel would reuse existing Provider controls,
-route direct reasoning through the active Chat, preserve native approvals and
+admit attached-response inference through the common Codex workflow, preserve native approvals and
 human answers, and distinguish requested Stop from confirmed interruption.
 It must not create another transcript store, retry uncertain effects or convert
 ordinary status reads into app acquisition/model requests. The proposed order is
@@ -538,8 +544,9 @@ account/filter-bound `list_cursor`; `chats read` returns stable IDs, parents,
 source cursors and explicit unavailable content. Range enumeration (`complete`)
 and readable content (`content_complete`) are separate.
 
-New native work may select `reasoning=direct` (origin Chat/MCP) or
-`reasoning=provider` (saved project Chat, explicit return path). Related starts
+Under the installed wire protocol, new Native work may select `reasoning=direct`
+(attached Chat/MCP) or `reasoning=provider` (submitted saved-project response,
+explicit return path). Both belong to common Codex workflow. Related starts
 retain the native work. `work events` retrieves its original public results;
 `work wait --max-wait-seconds N` waits locally up to300 seconds for a genuine
 question, completion or pending handle without a supervising model. Explicit

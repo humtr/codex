@@ -1567,18 +1567,26 @@ scenario. See CURRENT's acceptance matrix and work order for the remaining scope
 
 #### Work recording scope and entry selection
 
-The execution target distinguishes **ChatGPT local tools** from **Codex work**.
-This is independent of direct/provider reasoning and MCP/local_function transport.
+The workflow meanings currently called **direct: ChatGPT standalone development**
+and **provider: common Codex development/orchestration** are authoritative;
+the labels themselves are under review. The entrypoint and inference initiation
+route do not redefine these modes. MCP/local_function is transport.
 CURRENT records implementation and qualification; this contract does not claim
 that the installed MCP already exposes a threadless local-tool surface.
 
 - ChatGPT local tools return actual file/command results to the initiating Chat
   without creating Native threads/turns or copying user/assistant messages into
   Codex conversation history. Reusing the installed Core executable does not
-  require a Native conversation, a model catalog or Codex model authentication.
-- Codex work intentionally uses Native threads/turns, instructions, tools,
-  approvals, public history, CLI projection and completion notifications. Existing
-  direct/provider reasoning applies within that selected execution scope.
+  require a Native conversation, a model catalog or Codex model authentication;
+  that API fact alone does not qualify a backend as standalone development.
+- Provider workflow owns all participation in Codex tasks, Native tools and
+  orchestration: common instructions, work/turn admission, permissions,
+  execution/control, public history, CLI projection and completion. A ChatGPT
+  response attaching to existing Codex work uses provider workflow too.
+- Codex CLI entry and ChatGPT entry into provider mode use that same common
+  work admission/execution/event/result lifecycle. Differences in incoming
+  transport and final display destination do not create a second development
+  workflow. Direct never serves as a bypass into Native work/tools.
 - A new unbound ChatGPT task defaults to local tools. A Codex-origin input or a
   verified selection of an existing Codex task retains its Native work. One
   initial selection persists across ordinary follow-ups; repository paths,
@@ -1661,38 +1669,36 @@ A supported project instruction/connection can guide the model; neither proves
 that tools, developer instructions or a work controller are continuously applied.
 No unsupported host hook may be assumed to make this guarantee.
 
-**Execution meaning and terminology.** Within selected Codex work,
-reasoning=direct means the active ChatGPT response develops with native tools,
-without Provider submitting a new primary model request. User-facing wording is
-"ChatGPT로 Codex 작업 (direct)" and the Rust variant is Reasoning::Direct.
-reasoning=provider means Provider starts/manages model inference, including
-sequential follow-ups in the same retained Chat. User-facing wording is
-"Provider로 Codex 작업 (provider)" and the Rust variant is
-Reasoning::Provider. Neither route by itself means an independent child agent.
+**Execution meaning and terminology.** Direct means ChatGPT standalone development
+without joining Codex work, invoking its Native tool workflow or orchestrating
+through it. Provider means the common Codex work/tool/orchestration workflow,
+whether the request enters in CLI or ChatGPT and whether reasoning uses an
+already-active Chat response or a Provider-submitted model request. Attaching an
+active Chat to existing Codex work is provider, never direct. The workflow mode
+does not by itself mean an independent child agent.
 Independent delegation requires a separate reasoning context, a parent/assignment
-relationship and original result return. The public schema accepts exactly
-"direct" and "provider"; no legacy aliases or runtime dual-format parsing remain.
+relationship and original result return. No current/managed compatibility names
+are introduced.
 
-Direct development means the active ChatGPT is the developer, not a transcript
-importer. Selecting/creating a work and reusing an existing work are separate
-decisions from the reasoning origin; a new work still requires explicit task
-selection/authorization. Neither mode promises a separate independent worker.
-Direct/Provider names the reasoning initiation route, not standalone versus
-Codex-recorded work, the model, tool transport or absence/presence of Provider
-infrastructure. Direct may still use Provider's native-tool connection.
-Old installation state requires an explicit offline,
-recoverable format migration before activation; preserve original records and
-conversation/native transcripts. Rollback must restore the matching code/state
-snapshot rather than require dual-format runtime readers.
+The installed code's existing `Selection.reasoning=direct|provider` and
+`Reasoning::{Direct,Provider}` distinguish attached versus submitted inference;
+both presently require Native work. Those are implementation/migration facts,
+not the target workflow definition. Replace that overloaded distinction with
+separately named inference initiation at its actual scheduling/result consumers.
+Change declarations, callers, persisted codecs and offline migration together;
+never reinterpret an old `reasoning=direct` Native record as standalone work or
+retain aliases as a substitute for completing migration. Preserve original work,
+history and matched code/state rollback artifacts.
 
-Reasoning origin belongs to an execution, not permanently to its work. A verified
-new CLI/native user input starts Provider execution even if the previous response
-was Direct. An admitted original Chat response uses Direct execution even if the
-work previously ran through Provider. An explicit direct start reserves its
-current caller before native turn/start and keeps that route; tool-result rounds
-keep their admitted response. Validate the exact native turn/source and scoped
-owner before changing route/controller. Preserve the development binding across
-these transitions; do not require a manual transfer between ordinary entrances.
+Within provider workflow, an already-active response can be admitted without a
+second primary inference, and a genuine new CLI input can submit a new model
+request. Both use the same selected work/controller, context acceptance,
+permissions and Native event/result handling. Reserve the actual reasoning owner
+before native turn/start and keep original tool-result return bindings. Validate
+the exact turn/source and scoped owner when changing inference initiation;
+preserve the development binding. Ordinary entrance changes require no manual
+workflow-mode transfer. Attaching after a host response starts does not prove
+that its original request-start instructions were identical; qualify that boundary.
 
 Both initiation entrances are required for Provider-started execution: a native
 CLI request, and a current Chat's explicit request to Provider. In the latter,
@@ -1710,9 +1716,10 @@ and original result when they exist. A Provider-started primary response needs
 no fabricated parent/child relation. Pro internal model work, sequential requests,
 parallel tools and exposed independent host children require different evidence.
 
-MCP and local_function are tool/result transports, a different axis. Direct
-reasoning presently requires MCP. Provider reasoning can use MCP or explicitly
-selected app-local functions. Local functions need no remote Chat-side tunnel;
+MCP and local_function are tool/result transports, a different axis. Existing
+attached-response inference presently requires MCP; submitted inference can use
+MCP or explicitly selected app-local functions. Both Native paths are provider
+workflow. Local functions need no remote Chat-side tunnel;
 external ChatGPT-to-MCP does. Native Responses rounds, host tool continuations,
 new primary user requests and independent child runs are counted separately.
 Existing execution.mode=model_adapter|operator and stored formats remain compatible;
@@ -2164,7 +2171,8 @@ Count primary submissions, continuation requests and tool effects independently.
 No new primary inference for importing/reading the original source is permitted.
 Unknown IDs/content/capabilities remain unfinished, not weakened PASS results.
 Old work/selection/history/rollback artifacts and user auth/profiles remain usable.
-Active work records use the v2 codec and only direct/provider selection. The
+Existing active work records use the v2 codec and the old direct/provider
+inference-selection field; migrate this separately from public workflow mode. The
 normal runtime does not read v1 work records or old selection aliases. Explicit
 offline migration preserves originals; rollback to Provider14 requires inverse
 format conversion before the old process starts. Lane control state additionally
@@ -2218,13 +2226,14 @@ the current Chat or in an app-managed Chat. The existing service-wide mode remai
 a compatibility input alongside the per-work combined routing. MCP/local is selected before
 managed execution and cannot change on uncertain delivery. General delegation
 always enters through MCP and binds the current Chat's question/result return;
-the inner managed path is the same as Codex-origin work. Direct work does not
-start another primary Chat. Child/reviewer inference and any app acquisition are
+the inner managed path is the same as Codex-origin work. Attached-response
+inference does not start another primary Chat; it is still provider workflow.
+Child/reviewer inference and any app acquisition are
 explicit dependent assignments with separately counted cost.
 
 F resolves the native thread/work binding before dispatching each Responses
-request: provider reasoning reuses the existing model-adapter/AppHost/McpBridge
-mechanisms; current-Chat reasoning reuses the native-control Host without opening
+request: submitted inference reuses the existing model-adapter/AppHost/McpBridge
+mechanisms; attached-Chat inference reuses the native-control Host without opening
 a primary Chat. Both interfaces are registered in one optional Provider service.
 Codex-origin Responses discover the unique loaded thread across Core's verified
 execution homes and derive the workspace from native thread metadata. Provider
@@ -2244,8 +2253,8 @@ changed-path comparison and H review; its name is not the architecture. Managed
 MCP is the selected new opt-in preference and managed local is an explicit
 before-start alternative. Bare/installed legacy defaults do not change in E/F.
 Do not add another execution.mode permutation for these roles: keep that setting
-as the legacy default for unbound requests. New work explicitly selects current
-or provider reasoning through the common work service; the assignment's route
+as the legacy default for unbound requests. Within common provider workflow,
+new work selects attached or submitted inference through the common work service; the assignment's route
 remains fixed until an acknowledged transfer. Existing create/resume/fork/start
 inputs keep their meaning when the new selection is absent. The common CLI is
 the optional Provider's candidate work/chats/host facade; G admits its public
@@ -2897,10 +2906,10 @@ define operator execution. One optional Provider may expose a Responses model
 interface to Codex and an authenticated MCP work-control interface to ChatGPT,
 sharing bindings, receipts and recovery. Current execution.mode remains a
 service-wide setting; the combined target requires its own implementation and
-proof. ChatGPT direct execution of selected Codex work uses the owned Termux
+proof. ChatGPT attached-response execution of selected Codex work uses the owned Termux
 Codex wrapper's native app-server with no second primary model or execution-app
-acquisition. Explicit Provider reasoning uses the common app-backed model path.
-General ChatGPT local tools follow the separate work-recording scope contract;
+acquisition. Submitted inference uses the common app-backed model path. Both are
+provider workflow. Direct standalone tools follow the work-recording scope contract;
 they do not automatically create Native work or start a managed model.
 Existing controls already use the native server; neither reasoning route introduces
 a new executor or counts an identical path twice. App-backed reviewers and automatic Chat
@@ -2917,8 +2926,8 @@ no second transcript authority or uncertain mid-task route switch is introduced.
 Codex subscription login/auth.json is not a prerequisite for the Bridge's Native
 tool, work-control, history or presentation path. The selected Native runtime and
 its local Provider connection remain required; an execution home selects local
-configuration/history, not an inference account. Direct uses the current ChatGPT
-response, and Provider reasoning uses its configured ChatGPT host authentication.
+configuration/history, not an inference account. Attached-response inference uses
+the current ChatGPT response; submitted inference uses configured host authentication.
 Keep local service/MCP authorization and tool-specific external credentials intact.
 Optional Codex account usage/rotation and explicitly selected Codex-hosted inference
 retain their own authentication requirements; their unavailable account state must
@@ -2926,7 +2935,7 @@ not become a global gate on ordinary Bridge tools.
 
 The optional Provider may expose one authenticated MCP control service with two
 entrances. A Codex-origin native request starts the initial selected Chat model/effort;
-a direct Chat-origin MCP request for Codex work opens or attaches that work
+a Chat-origin provider-workflow request opens or attaches its selected work
 without initiating Chat or another model. Both then use the same work binding and
 controls. The Provider routes controls/events/results; upstream owns execution, approvals, writers,
 canonical history, context commits and native task lifecycle. The Codex entrance
@@ -3008,7 +3017,7 @@ A Chat-origin Codex task without a CLI has real native history and no fabricated
 execution receipts come from native tools. Completion is idempotent and only
 confirmed after outstanding calls and the native turn settle. HTTP success or a
 saved report alone is not CLI visibility proof.
-For provider reasoning, the Operator reconciles completion from the bound native
+For submitted inference, the Operator reconciles completion from the bound native
 turn, no owned jobs and the settled app lane when native terminal events arrive.
 Status and overlapping-workspace admission use that same rule; completion must
 not depend on a prior status read. Stop and newer native turns fence old observers.

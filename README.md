@@ -29,7 +29,7 @@ publications, not different component names.
 
 The common managed development loop is Codex -> Linux app API -> work Chat ->
 MCP or app-injected local functions -> the same native work. Existing ChatGPT
-work controls also use native execution through MCP, including direct reasoning. The
+work controls also use native execution through MCP, including an attached Chat response. The
 primary Codex thread retains durable history while Chat contexts can be replaced.
 Origin, controller identity and original tool-return bindings survive qualified
 handoff. A direct Android/web follow-up does not automatically inherit that
@@ -38,8 +38,11 @@ paths. Saving an answer is separate from live TUI display. The
 [current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
 the remaining gaps; a client restart does not implement their repair.
 
-Direct currently means **this ChatGPT response working on Codex work**; it still
-creates or reuses Native history. Standalone ChatGPT local tools are a separate
+The intended workflows are **ChatGPT standalone development** and **common Codex
+development** from either entrance. Final workflow names are under review.
+The installed API still overloads `reasoning=direct|provider` for attached versus
+submitted inference; both create/reuse Native history. That old protocol is not
+the public workflow definition. Standalone ChatGPT tools are a separate
 [execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
 Core I/O proof but no implemented ChatGPT tool surface yet. Ordinary file access
 must not automatically become Codex work in that target. The selected design is
@@ -291,7 +294,7 @@ With Termux Bridge selected, ask:
 
 > Use this ChatGPT response for Codex work in /absolute/path/to/your-project. Fix [problem] and verify it.
 
-This Chat supplies reasoning (`reasoning=direct`); native Codex executes,
+This is the common Codex workflow: this Chat supplies reasoning and native Codex executes,
 approves and records. The assistant handles the advertised attachment and native
 tool protocol, including project instructions, existing changes and actual final
 results. You do not need to spell out protocol fields, call sequences or private

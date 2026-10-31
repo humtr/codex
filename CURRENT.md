@@ -33,7 +33,16 @@ responsibility. Actual Linux-app MCP proof selects one service/MCP with explicit
 task contexts; fixed local-tools/Codex-work profiles remain optional lock/entry UX.
 The new local-tool MCP feature and selection enforcement are not implemented.
 Ordinary ChatGPT local tools must not require Codex conversation history;
-Native direct/provider reasoning and MCP/local transport do not define that choice.
+The user's workflow distinction is standalone ChatGPT development versus common
+Codex task/tool/orchestration development. Its final names are under review.
+The earlier report incorrectly preserved the code's direct/provider inference
+distinction as the product definition. Native participation from either entrance
+belongs to the common workflow, even when the active Chat does the reasoning.
+`Selection.reasoning`/`Reasoning` currently encode attached/submitted inference;
+replace that overload with its callers/codecs/migration before exposing workflow
+selection. Historical direct Native records/evidence retain their original meaning.
+MCP/local transport is separate. No runtime migration or source implementation
+has been performed by this documentation correction.
 Original user-identified work/controller metadata confirms a Chat-origin Direct
 root work with durable Native history. Bounded actual Android probes show Native
 completion without a TUI, ephemeral history loss without notification suppression,
