@@ -595,8 +595,23 @@ impl Pool {
         }
         found.ok_or(Error("native_thread_owner_unavailable"))
     }
-    pub async fn prepare(&self) -> Result<Arc<Native>, Error> {
-        self.routing()?;
+    pub async fn prepare_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
+        // Metadata observation does not load a writer or submit inference. The
+        // saved provider determines which configured server may admit input.
+        let observer = self.prepare(None).await?;
+        let saved = observer
+            .call(
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":false}),
+            )
+            .await?;
+        let provider = saved["thread"]["modelProvider"]
+            .as_str()
+            .ok_or(Error("native_model_settings_unavailable"))?;
+        self.prepare(Some(provider)).await
+    }
+    pub async fn prepare(&self, provider: Option<&str>) -> Result<Arc<Native>, Error> {
+        let routing = self.routing()?;
         let catalog = crate::projection::catalog(&self.config)
             .map_err(|_| Error("native_catalog_invalid"))?;
         let core = self
@@ -605,8 +620,24 @@ impl Pool {
             .core
             .as_ref()
             .ok_or(Error("operator_core_required"))?;
-        let mut child = tokio::process::Command::new(core)
-            .arg("__app-server-catalog-v1")
+        let mut command = tokio::process::Command::new(core);
+        command.arg("__app-server-catalog-v1");
+        if let Some(provider) = provider {
+            command.args([
+                "--config".to_owned(),
+                format!("model_provider={}", toml::Value::String(provider.into())),
+            ]);
+            if provider == registration::PROVIDER {
+                let definition =
+                    toml::Value::try_from(&routing["model_providers"][registration::PROVIDER])
+                        .map_err(|_| Error("native_model_settings_unavailable"))?;
+                command.args([
+                    "--config".to_owned(),
+                    format!("model_providers.{}={definition}", registration::PROVIDER),
+                ]);
+            }
+        }
+        let mut child = command
             .env("CODEX_HOME", &self.home)
             .current_dir(&self.workspace)
             .stdin(Stdio::piped())

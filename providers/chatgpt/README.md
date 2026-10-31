@@ -114,6 +114,14 @@ These fields select defaults for explicitly created native work. Terminal Chat
 requests follow the actual native session's account and working directory,
 including after account switches; no Provider configuration change is needed.
 
+The pending startup fix passes the selected ChatGPT provider and its definition
+through Core's invocation configuration, rather than relying only on thread
+settings or changing saved defaults. Cold continuation reads the original Native
+thread's provider before preparing its server. This source change and the shared
+owner-record codec require matched Core/Provider qualification and delivery;
+they are not part of the installed Provider21 baseline. See
+[current startup evidence](../../CURRENT.md#active-capability-restoration).
+
 The Linux app account is read from its current authenticated state. Account IDs,
 workspace IDs and connector IDs are not compiled into Provider. Configure the
 common account-switch policy through `history.account_change`: `new_chat` (default)

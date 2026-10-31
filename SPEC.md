@@ -297,6 +297,12 @@ update authority is maintained.
   startup APIs; daemon lifecycle subcommands remain outside that admission.
   Do not flatten a selected profile into CLI values or substitute a different
   execution home to work around missing upstream profile propagation.
+  Provider-created ChatGPT work also supplies its selected provider and owned
+  provider definition through this Core startup interface. Per-thread routing
+  alone does not establish the server's effective provider for input admission.
+  Cold continuation reads the original thread's provider through Native metadata
+  before preparing its execution server; it must preserve other native providers
+  for queue/resume/fork and must not rewrite the execution home's saved defaults.
   The Core-owned local target bypasses the TUI's upstream daemon auto-start and
   package/feature recovery paths, including before the resolved server exists.
   Only Core's coordinator may materialize that target; a missing socket is not

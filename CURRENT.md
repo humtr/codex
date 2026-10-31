@@ -26,6 +26,12 @@ this status rather than appending another session diary.
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 
+Build cadence: finish the invocation-startup build already running at source59b92d2
+and its required qualification. Subsequent source changes accumulate in the
+existing work order; do not start a product build/release for each change. Group
+build and delivery when a useful batch is ready, preserving the distinction
+between reviewed source and built, qualified or activated behavior.
+
 **The device selects signed Full131/upstream0.166.0, with Manager and the matching
 enhanced TUI; previous is signed Base128.** Newly launched Codex clients use that
 composition. Already running clients retain their earlier executable; this
@@ -211,8 +217,8 @@ notification tap-to-window and human paste remain unobserved in this batch.
 Installed Manager's task status now succeeds without repairing/removing any
 historical records (full131-task-status-private.txt); this does not prove the
 cause or resolution of the user's exact old native_workspace_writer_busy work.
-Active compiler caches total around14GiB and no new compiler output requires
-pruning. The completed clipboard fixtures' verified payloads are already archived.
+The completed clipboard fixtures' verified payloads are archived; later startup
+qualification cleanup below owns the current cache status.
 
 Full131's release/notes.md was stale: its published display incorrectly says
 no Manager/TUI changes despite the restored code. The next-release source notes
@@ -265,7 +271,31 @@ These are compilation checks, not executed TUI tests or the pinned1.95 hosted
 qualification. The new positive device driver exercises explicit config, selected
 profile and a fresh-auth home, preserving the default sibling, saved defaults,
 model/effort, exactly one primary request and Manager's configured-owner view.
-Its positive actual TUI result is pending the rebuilt artifact.
+The source59b92d2 frontend candidate now passes the actual Android --config case
+with Full131's old runtime: matching provider/low effort, visible final, exactly
+one primary plus one separate title request, unchanged saved defaults/default
+sibling, Manager owner discovery and both kernel-confirmed server exits. The
+following --profile case fails before any model request with that old runtime;
+fresh-auth is not reached. Preserve the entire unsuccessful aggregate and both
+screens (invocation-new-tui-old-runtime.*). This is positive --config evidence,
+not profile/full-matrix acceptance or installed operation. Core/runtime41147657349
+now passes source compilation, candidate construction and all Android executable
+smokes. Frontend41147658238 passes compilation,143 focused tests, both catalog/
+login fault-injection checks, retained upstream feature gates and pinned lint;
+the original downloadable proof is under invocation-frontend-proof. That job
+hits its90-minute limit only while saving the compiler cache after those gates,
+so its overall conclusion remains cancelled and cannot authorize release.
+The automatic input controller commits c964be7 (only the now-stale frontend
+binding is cleared), and its pre-existing native qualification41155666201 is
+running without the optional mutation trials. Do not start another duplicate.
+Source41147657405 and Provider source/Android-build41147657380 are green at59b92d2.
+Publication41152027749 signs/readbacks/disposable-update-proves and promotes
+Base132 from c964be7; Full signing is skipped without an admitted frontend. This
+does not activate it on the device or qualify matched Provider interoperability.
+The installed Full131 remains unchanged. Cache-saving must not consume the
+remaining acceptance-job deadline and turn successful execution into a repeat
+build; factor that existing CI lifecycle boundary in the next grouped change,
+without treating cancelled execution as a successful admission.
 An actual Android Core/native-server readback passes explicit --config provider
 and effort propagation, then rejects --profile before serving the selected
 profile (invocation-core-android-startup.json). Upstream0.166 explicitly excludes
@@ -275,13 +305,50 @@ admits only foreground app-server/config discovery and supplies the existing
 upstream profile loader to those APIs. Daemon lifecycle subcommands stay excluded;
 no profile flattening, alternate home, credential copy or frontend executor is
 introduced. Exact official-source preflight succeeds with the bounded CLI diff
-retained as invocation-runtime-source.diff; the newly patched runtime's build
-and positive Android profile readback are still required. This changes the
-runtime recipe, so reusing Full131's old runtime would not qualify the fix.
-Before completing A1, also inspect Provider Pool::prepare and Operator create/
-resume/fork against upstream's same effective-provider admission. That prepare
-path currently supplies the catalog without invocation selection; passing a
-per-thread Provider definition alone does not prove turn/start admission.
+retained as invocation-runtime-source.diff. Actual Android acceptance now passes
+all three cases with the new source59b92d2 runtime/frontend and the matching
+Core/Manager coordinator code: --config, --profile and a fresh home with no
+Native login/API-key environment. Each case records exactly one local primary
+and one separate title request, the original visible final, invocation provider/
+low effort, unchanged saved defaults/default sibling and actual Manager owner
+discovery. All six owned server exits are kernel-confirmed. The private fixture
+reuses verified Full131's unaffected payloads and seals the new runtime through
+the existing shared54-byte FD remapper; it is not public release admission or
+device activation. Evidence is invocation-runtime-composition.json/.log and
+invocation-matched-android-startup.json plus three original screens. No remote
+model/Pro request is made. Full131's old runtime fails the same profile case;
+that original failure is retained above. The runtime recipe necessarily changes,
+so old-runtime reuse would not qualify this repair.
+The same Provider producer defect is now reproduced through the actual Android
+Core/Native operator service: create records a ChatGPT thread but config/read
+still returns no selected provider and an empty provider-definition table. The
+new assertion in the existing qualify_provider_operator.py fails at that
+boundary using the retained pre-fix service executable, before tool effects or
+Chat inference (invocation-provider-startup-negative.log; fixture ob-890q5de7).
+Do not interpret source59b92d2's green Provider source gate as this actual route
+passing. A subsequent source batch now passes the selected provider and only
+its owned definition to the existing Core startup interface. Cold queue/resume/
+fork reads saved Native metadata before preparing the execution server, retaining
+other providers and live-owner discovery. All four prepare callers are updated;
+saved defaults and input ownership are unchanged. This subsequent diff is only
+source-reviewed/formatted, not compiled, qualified or deployed. Its next grouped
+build must run the real operator/CLI suite, cold continuation and the actual
+startup assertions, including a disposable missing-forwarding fault. Matched
+Provider qualification/delivery and actual interoperability remain prerequisites
+for activating the new invocation-bearing record route.
+Cold restoration of an arbitrary provider defined only by a lost CLI override
+is not qualified by this metadata selection: a provider name does not recover
+its missing definition. The current tests must distinguish configured native
+providers from that unresolved snapshot-recovery case, without silently changing
+the route or falling back to a different model.
+
+Completed qualification cleanup retains the next proof's Core/Manager/Provider/
+service-test/source-builder executables outside mutable Cargo targets. Inactive
+Core probe payloads are manifest-archived, and the workspace, Provider and isolated
+mutation debug outputs are pruned through clean_development.py. Original results,
+Native records, source diffs and restore records remain under the proof root;
+the reusable native compiler cache remains available. This is not cleanup of
+installed generations, credentials, user conversations or unknown work trees.
 
 
 Proof root: ~/.cache/codex/acceptance/capability-restoration-20261031. Manager's

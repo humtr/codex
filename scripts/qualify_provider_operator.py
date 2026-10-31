@@ -128,8 +128,14 @@ def probe(args):
             raise AssertionError('unauthenticated bootstrap accepted')
         except urllib.error.HTTPError as error:
             assert error.code == 401
+        saved_defaults = config_path.read_bytes()
         created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'})
         assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}) == created
+        startup = native_rpc(home, 'config/read', {'threadId': created['thread_id'],
+            'cwd': str(root / 'w'), 'includeLayers': False})['config']
+        assert startup['model_provider'] == 'chatgpt_desktop', ('native input provider mismatch', startup['model_provider'])
+        assert startup['model_providers']['chatgpt_desktop']['base_url'] == f'http://127.0.0.1:{port}/v1'
+        assert config_path.read_bytes() == saved_defaults, 'Provider startup changed saved defaults'
         print('Native session created through qualified Core', flush=True)
         binding = {'work_id': created['work_id'], 'controller': created['controller']}
         rpc('codex_sessions', {**binding, 'action': 'start', 'task': 'OWNED_CHAT_ENTRY_DEVELOPMENT'})

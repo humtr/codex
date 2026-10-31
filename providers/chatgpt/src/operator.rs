@@ -1084,7 +1084,7 @@ impl Operator {
                     "reconciliation_required" | "completed" | "stop_requested" | "stopped"
                 ) =>
             {
-                pool.prepare().await?
+                pool.prepare_thread(&record.thread).await?
             }
             Err(error) => return Err(error),
         };
@@ -2644,13 +2644,17 @@ impl Operator {
             let pool = self.scoped_pool(&home, &self.pool.workspace, None).await?;
             match pool.for_thread(thread).await {
                 Ok(native) => native,
-                Err(Error("native_thread_owner_unavailable")) => pool.prepare().await?,
+                Err(Error("native_thread_owner_unavailable")) => {
+                    pool.prepare_thread(thread).await?
+                }
                 Err(error) => return Err(error),
             }
         } else {
             match self.pool.discover_thread(thread).await {
                 Ok(native) => native,
-                Err(Error("native_thread_owner_unavailable")) => self.pool.prepare().await?,
+                Err(Error("native_thread_owner_unavailable")) => {
+                    self.pool.prepare_thread(thread).await?
+                }
                 Err(error) => return Err(error),
             }
         };
@@ -3294,7 +3298,15 @@ impl Operator {
                 {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
-                let native = pool.prepare().await?;
+                let native = if action == "create"
+                    || selection
+                        .as_ref()
+                        .is_some_and(|s| s.reasoning == Reasoning::Provider)
+                {
+                    pool.prepare(Some(crate::registration::PROVIDER)).await?
+                } else {
+                    pool.prepare_thread(text(&args, "thread_id", 256)?).await?
+                };
                 let mut config = pool.routing()?;
                 let mut use_configured_route = action == "create";
                 let mut fork_settings = None;
