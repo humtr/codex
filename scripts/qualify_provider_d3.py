@@ -619,7 +619,7 @@ def stop_owned_servers(case, info):
     save(case / "native-servers-stopped.json", {"servers": stopped, "user_files_removed": False, **now()})
 
 
-def stop_owned_pid(pid, expected):
+def open_pidfd(pid):
     # Termux Python does not expose os.pidfd_open/signal.pidfd_send_signal.
     # These Linux architectures share the asm-generic pidfd syscall numbers.
     assert platform.machine() in ("aarch64", "x86_64", "riscv64")
@@ -627,6 +627,12 @@ def stop_owned_pid(pid, expected):
     fd = libc.syscall(ctypes.c_long(434), ctypes.c_int(pid), ctypes.c_uint(0))
     if fd < 0:
         raise OSError(ctypes.get_errno(), "pidfd_open; no numeric PID fallback")
+    return fd
+
+
+def stop_owned_pid(pid, expected):
+    fd = open_pidfd(pid)
+    libc = ctypes.CDLL(None, use_errno=True)
     try:
         proc = Path("/proc", str(pid))
         assert (proc / "exe").resolve() == expected.resolve(), "private process identity changed"

@@ -379,7 +379,9 @@ Core·TUI와 주입한 MCP envelope의 시험은 통과했으며 실제 ChatGPT�
 2. **선택 유지·강제:** 새로운 단독 작업, 명시적으로 선택한 기존 Native 작업과 여러 Chat을
    격리해 후속 입력·재시작을 시험한다. 단독 고정 상태에서 Native 생성/연결을 시도해
    실행 전 거절과 Native inventory 불변을 확인한다. metadata를 모델 arguments로 흉내 낸
-   요청이 host/auth/user 선택으로 승격되지 않는지도 확인한다. 이 정책은 아직 미구현이다.
+   요청이 host/auth/user 선택으로 승격되지 않는지도 확인한다. 설정 잠금과 후보 표시는 소스에
+   구현했고 실제 Android MCP→Provider→Core에서 거절·재시작·Native controller 보존을
+   확인했다. 여러 실제 Chat/계정의 의도 선택 시험은 별도 미검증이다.
 3. **최초 선택 품질:** 같은 일반 모델·노력도·도구 조건으로 명시적 단독/Codex 요청,
    설정 기본값에 따르는 무지정 요청, 연결 후 자연스러운 후속 지시, 별건 전환,
    Codex를 인용만 한 문서, 동일 폴더의 다른 Chat을 비교한다. 기존 작업의 중복 생성,
@@ -525,8 +527,9 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 소비자를 함께 교체했다. `migrate-inference`는 정지된 journal의 v1/v2·pending index·
 transfer를 명시적으로 변환하고 Provider21/Provider14 역변환을 제공한다. 옛 호출 필드와
 값은 실행 API 별칭으로 받지 않는다. 이 변경은 통합 개발 내부의 추론 접속 구분이며
-standalone 구현 완료가 아니다. metadata의 관련 작업 후보 표시는 반영했으며 로컬 도구/정책 강제는 아직 없고,
-diagnostic만으로 이를 구현·검증 완료라고 하지 않는다. CURRENT가 최신 시험 상태를 소유한다.
+metadata의 관련 작업 후보 표시, Core threadless 실행을 재사용한 local_context/local_execute/local_process와
+설정 기반 workflow_lock이 소스에 반영됐다. 실제 Android MCP→Provider→Core 시험과 모델의
+의도 선택·실호스트 시험 및 설치 활성화는 다른 경계이며 diagnostic만으로 전체 완료라고 하지 않는다. CURRENT가 최신 시험 상태를 소유한다.
 사용자의 빌드 묶음 방침에 따라 소스를 준비한 뒤 유효한 분량을 모아 실제 빌드·전체
 권한/품질 수용 시험을 수행한다. 설치·운영 활성화는 그 이후 별도 관찰한다.
 

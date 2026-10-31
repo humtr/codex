@@ -2,7 +2,7 @@
 //! dispatch only; Chat lifetime is independent. Upstream is the transcript owner.
 use crate::{
     app::{AppHost, Bridge},
-    config::{Config, ReturnPath},
+    config::{Config, ReturnPath, Workflow},
     context::{self, digest},
     journal::{random_id, Journal},
     mcp::{Arguments, Broker},
@@ -597,6 +597,7 @@ impl Bridge for LimitedBridge {
 #[derive(Clone)]
 pub struct Operator {
     pool: Arc<Pool>,
+    local: Option<Arc<crate::local::Local>>,
     broker: Arc<Broker>,
     journal: Arc<Journal>,
     works: Works,
@@ -715,7 +716,12 @@ impl Operator {
         token: String,
     ) -> Result<Arc<Self>, Error> {
         let mut works = BTreeMap::new();
-        for id in recover_work_index(&journal)?.ids {
+        let ids = if config.execution.workflow_lock == Some(Workflow::Standalone) {
+            Vec::new()
+        } else {
+            recover_work_index(&journal)?.ids
+        };
+        for id in ids {
             let key = digest(&("operator-work-v1", &id));
             let value: Value = journal
                 .read(&key)?
@@ -780,8 +786,10 @@ impl Operator {
             AppHost::new(local_bridge, journal.clone())
                 .with_connector(config.transport.connector_name.clone()),
         );
+        let local = crate::local::Local::new(pool.clone(), journal.clone(), &config);
         Ok(Arc::new(Self {
             pool,
+            local,
             broker: broker.clone(),
             mcp_host,
             local_host,
@@ -2147,8 +2155,29 @@ impl Operator {
         }
         Ok(json!({"native_item":id,"recorded":true,"completed":final_answer}))
     }
+    fn admits(&self, name: &str) -> bool {
+        if name.starts_with("local_") {
+            self.local.is_some()
+                && self.config.execution.workflow_lock != Some(Workflow::Integrated)
+        } else {
+            self.config.execution.workflow_lock != Some(Workflow::Standalone)
+                || matches!(name, "codex_projects" | "codex_host" | "codex_chats")
+        }
+    }
+    fn declarations(&self) -> Vec<Value> {
+        tools()
+            .into_iter()
+            .filter(|tool| self.admits(tool["name"].as_str().unwrap()))
+            .collect()
+    }
     pub async fn call(&self, name: &str, args: Value) -> Result<Value, Error> {
         validate_arguments(&tools(), name, &args)?;
+        if !self.admits(name) {
+            return Err(Error("workflow_tool_not_admitted"));
+        }
+        if name.starts_with("local_") {
+            return self.local.as_ref().unwrap().call(name, args).await;
+        }
         // Only identical logical mutations share this wait. Broker tool calls
         // already coalesce original-result observers; reads and Stop must remain
         // independent of a waiting finish or handoff.
@@ -5179,7 +5208,7 @@ impl Operator {
             .map(context::text)
             .collect::<Result<Vec<_>, _>>()?;
         let transport = if local {
-            format!("the declared local {gateway} function. Call it with name=<control name> and input=<JSON string encoding its control arguments object>. These controls are the same native Operator Host, not app tools. Control schemas: {}. Do not use an MCP connector",serde_json::to_string(&tools()).unwrap())
+            format!("the declared local {gateway} function. Call it with name=<control name> and input=<JSON string encoding its control arguments object>. These controls are the same native Operator Host, not app tools. Control schemas: {}. Do not use an MCP connector",serde_json::to_string(&integrated_tools()).unwrap())
         } else {
             format!(
                 "the installed {} MCP connector. Do not use local functions",
@@ -5343,7 +5372,11 @@ impl Operator {
                 let result = match parsed {
                     Ok(_) => {
                         corrections = 0;
-                        match this.call(&name, args).await {
+                        match if name.starts_with("local_") {
+                            Err(Error("integrated_lane_requires_native_tools"))
+                        } else {
+                            this.call(&name, args).await
+                        } {
                             Ok(value) => value,
                             Err(error) => json!({"error":{"code":error.0}}),
                         }
@@ -5680,6 +5713,9 @@ impl Operator {
             .with_state(self)
     }
     pub async fn close(&self) {
+        if let Some(local) = &self.local {
+            local.close().await;
+        }
         let mut works = self.works.lock().await;
         for work in works.values_mut() {
             if let Some(observer) = work.completion_observer.take() {
@@ -5802,6 +5838,9 @@ impl Host for Operator {
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), Error>> {
+        if self.config.execution.workflow_lock == Some(Workflow::Standalone) {
+            return Box::pin(async { Err(Error("workflow_tool_not_admitted")) });
+        }
         if request.is_auxiliary() {
             return self
                 .app_host(self.config.transport.return_path)
@@ -6005,7 +6044,7 @@ fn local_arguments(message: &Value) -> Result<(String, Value), Value> {
 fn local_signature(gateway: &str) -> Value {
     // This app's local API uses kwargs/params, not OpenAI JSON function schemas.
     // Keep the same string gateway wire type as the qualified model adapter.
-    let names = tools()
+    let names = integrated_tools()
         .iter()
         .map(|v| v["name"].as_str().unwrap().to_owned())
         .collect::<Vec<_>>()
@@ -6134,6 +6173,12 @@ pub(crate) fn validate_arguments(
     }
     Ok(())
 }
+fn integrated_tools() -> Vec<Value> {
+    tools()
+        .into_iter()
+        .filter(|tool| !tool["name"].as_str().unwrap().starts_with("local_"))
+        .collect()
+}
 pub(crate) fn tools() -> Vec<Value> {
     let field = |name: &str| match name {
         "list_cursor" => {
@@ -6194,7 +6239,7 @@ pub(crate) fn tools() -> Vec<Value> {
         json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,
             "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false},
             "annotations":crate::mcp::tool_annotations(name)})
-    }).collect()
+    }).chain(crate::local::tools()).collect()
 }
 
 async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Response {
@@ -6242,7 +6287,7 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
             _ => Err(Error("mcp_protocol_unqualified")),
         },
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools":tools()})),
+        "tools/list" => Ok(json!({"tools":operator.declarations()})),
         "tools/call" => {
             let name = row["params"]["name"].as_str().unwrap_or("").to_owned();
             let args = row["params"]["arguments"].clone();
@@ -6802,6 +6847,9 @@ mod local_tests {
     #[test]
     fn qualified_idempotency_policy_preserves_every_other_annotation() {
         let selected = [
+            "local_context",
+            "local_execute",
+            "local_process",
             "native_catalog",
             "native_tool",
             "codex_chats",
@@ -6816,7 +6864,6 @@ mod local_tests {
             "codex_attach",
         ];
         let controls = tools();
-        assert_eq!(controls.len(), 17);
         assert_eq!(
             controls
                 .iter()
@@ -6852,7 +6899,7 @@ mod local_tests {
         assert!(params
             .iter()
             .all(|v| v["required"] == true && v["type"]["type"] == "string"));
-        for control in tools() {
+        for control in integrated_tools() {
             assert!(params[0]["type"]["description"]
                 .as_str()
                 .unwrap()

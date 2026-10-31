@@ -13,6 +13,7 @@ mod control;
 pub mod handoff;
 pub mod host;
 pub mod journal;
+mod local;
 pub mod mcp;
 pub mod mcp_bridge;
 pub mod mcp_stdio;

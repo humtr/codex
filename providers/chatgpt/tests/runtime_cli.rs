@@ -885,6 +885,7 @@ async fn authenticated_stdio_survives_service_replacement_without_desktop_or_cor
         core: Some(root.0.join("not-launched-core")),
         home: Some(root.0.join("not-opened-home")),
         workspace: Some(root.0.join("not-opened-workspace")),
+        ..ExecutionConfig::default()
     };
     assert!(config.host.rootfs.is_none());
     let path = root.0.join("config/codex/providers/chatgpt.toml");

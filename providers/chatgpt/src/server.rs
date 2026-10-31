@@ -395,6 +395,11 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     if parts.uri.path() != "/v1/responses" || parts.method != "POST" {
         return failure(StatusCode::NOT_FOUND, "not_found");
     }
+    // Reject the fixed standalone profile before model/catalog acquisition.
+    // The Host guard also covers direct callers that do not use this HTTP edge.
+    if config.execution.workflow_lock == Some(crate::config::Workflow::Standalone) {
+        return failure(StatusCode::CONFLICT, "workflow_tool_not_admitted");
+    }
     let body = match tokio::time::timeout(
         Duration::from_secs(30),
         read_body(&parts.headers, body, &config),

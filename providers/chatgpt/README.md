@@ -32,27 +32,51 @@ response at the qualification scope in CURRENT. Saved-source recovery is explici
 ordinary Bridge work does not crawl Chat. Source recovery does not make all host
 tools Native execution or establish unobserved original host message identities.
 
-Current execution tools require a Native work, including the installed API's
-`reasoning=direct` field. That old field means attached-response inference; it
-does not implement the intended standalone workflow. Product workflow means
-**standalone — 단독 개발 / integrated — 통합 개발**. Both ChatGPT and CLI
-participation in the common Codex task/tool/orchestration lifecycle are integrated.
-Provider is the component name. Do not redefine workflows from the old inference
-enum values or keep those values as workflow aliases.
+Product workflow means **standalone — 단독 개발 / integrated — 통합 개발**.
+Standalone local tools return to ChatGPT without Native conversation history.
+Both ChatGPT and CLI participation in common Native tasks/tools/orchestration are
+integrated. Provider names the component; MCP/local_function names transport.
+The source uses `inference=attached|submitted` within integrated work, without
+runtime aliases for old current/managed/direct/provider fields or values. The
+installed Provider21 API remains old until matched migration and activation;
+`migrate-inference` performs explicit offline upgrade or matched rollback while
+preserving original receipts and history. See CURRENT for delivery status.
+
 The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
-separates threadless local tools from selected Codex work. Basic threadless Core
-I/O and process controls have Android proof; a new ChatGPT local-tool surface and
-retained host-context selection are not yet implemented or qualified. Actual
-Linux-app model/MCP trials select one MCP with explicit task contexts, with fixed
-standalone profiles optional. Anonymous session IDs span distinct saved branches;
-they cannot authorize or select Native work by themselves. Source MCP work lists
-mark chat_correlated candidates after explicit selection/accepted attachment,
-using private owner-scoped hashes of host metadata. Several works can be marked;
-the flag provides no controller or automatic branch selection. Missing metadata
-leaves it absent; failed optional storage is reported as chat_correlation_error
-with the original Native outcome preserved. This is separate from a standalone
-local-tool or lock implementation. See
-[the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
+now has source MCP tools `local_context`, `local_execute` and `local_process`.
+They reuse Core's threadless command execution, socket validation and durable
+operation recovery, without a model catalog/login, Native work, Native approval
+round or completion callback. Commands cover file reads/writes/patches and tests;
+output pages preserve original bytes, and the same process connection owns
+stdin/PTY/Stop. A returned process ID is admission, not spawn/exit confirmation.
+An acknowledged Stop still requires the original command result. Lost delivery
+is fenced rather than automatically repeated. Actual Android path proof is in
+CURRENT; this is not yet signed/activated or an actual-model intent-selection
+qualification. Standalone renderer local-function ingress is not implemented yet.
+
+Enable the local surface by explicitly choosing a Core permissions-profile ID in
+`execution.standalone_permission_profile`, with the existing Core/home/workspace
+settings. This is a standing grant enforced by Core, not Native per-turn approval
+or reviewer parity. The model cannot set or escalate that profile in tool args.
+`execution.workflow_lock=standalone` exposes local tools and rejects Native work;
+`integrated` exposes Native work and excludes local tools. Omit the lock to expose
+both configured surfaces. The lock governs Bridge admission; Core permissions
+govern programs/files within commands. Native development/orchestration uses
+integrated work. Changes require a service restart. No local tools are
+enabled when the permission profile is absent; existing configurations gain no
+implicit new grant. Standard Core profile IDs or configured custom IDs are
+validated by Core. Read applicable AGENTS.md using local tools before effects.
+
+Actual Linux-app model/MCP trials select one MCP with explicit task contexts;
+fixed profiles are an optional stronger entry boundary. Anonymous session IDs
+span distinct saved branches, so they cannot authorize or select Native work.
+Source MCP work lists mark chat_correlated candidates after explicit selection/
+accepted attachment, using private owner-scoped metadata hashes. Multiple marked
+works remain possible; no controller or branch selection is inferred. Missing
+metadata leaves the flag absent. Optional storage failures report
+chat_correlation_error alongside the original Native outcome. Natural-language
+initial selection remains model-assisted, with actual-model qualification still
+required. See [the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
 
 Provider18 retains inherited handles, including Core's payload selection lease,
 in its own process and marks non-stdio handles close-on-exec before starting

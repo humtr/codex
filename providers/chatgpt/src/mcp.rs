@@ -428,7 +428,10 @@ mod source_tests {
 pub(crate) fn tool_annotations(name: &str) -> Value {
     let idempotent = matches!(
         name,
-        "native_catalog"
+        "local_context"
+            | "local_execute"
+            | "local_process"
+            | "native_catalog"
             | "native_tool"
             | "codex_chats"
             | "codex_history"

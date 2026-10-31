@@ -31,7 +31,8 @@ boundary and entry-selection requirement in [WORK_SCOPE_REVIEW.md](WORK_SCOPE_RE
 SPEC's work-recording contract adopts the execution meaning and selection
 responsibility. Actual Linux-app MCP proof selects one service/MCP with explicit
 task contexts; fixed local-tools/Codex-work profiles remain optional lock/entry UX.
-The new local-tool MCP feature and selection enforcement are not implemented.
+Source now implements threadless standalone MCP tools and configured workflow locks;
+actual-model selection and delivery remain separate acceptance boundaries.
 Ordinary ChatGPT local tools must not require Codex conversation history;
 The user's workflow distinction is standalone ChatGPT development versus common
 task/tool/orchestration development. Final workflow names are fixed:
@@ -149,10 +150,69 @@ owned transport child), affected Python checks pass58, and Clippy denies warning
 Both inactive metadata fixtures have kernel-absence proof; manifest/archive cleanup
 reclaims1527529472 bytes from12 payload copies, retaining original results/Native
 records and restoration logs. No service, live state or public package is changed.
-New standalone local tools, access grants and fixed-profile enforcement remain
-unimplemented; related-work hints do not implement that policy or automatic intent
-classification. Next implement authorized threadless local execution, preserving
-full read/write capability and actual operation/Stop/result reconciliation.
+Source adds local_context/local_execute/local_process in local.rs, reusing
+operator_native's Core preparation/owner/socket/RPC and operation.rs deduplicated
+admission/result recovery. Permission-profile IDs come only from explicit
+execution.standalone_permission_profile; no setting means no new local grant.
+Core enforces its profile/managed constraints; this is not Native per-turn
+approval/reviewer parity. Raw fs RPCs are not exposed. File reads/writes/patches
+and tests use the same command API. Original stdout/stderr bytes are paged from
+private operation outputs with no output cap, reliable notification delivery and
+separate process connections; these are not Native conversation records.
+execution.workflow_lock optionally fixes standalone/integrated in registration
+and admission. Standalone startup does not recover/rotate Native controllers;
+integrated-owned renderer function catalogs exclude standalone execution.
+Standalone Responses requests are rejected before model/catalog acquisition.
+The actual production serve→MCP→Core Android proof in local-android-final.json passes
+without Native authentication or a saved model catalog: file read/write/test,
+five concurrent exact admissions and settled retry with one effect, changed-input
+rejection, exact binary stderr, complete2MiB output, streaming stdin/EOF, actual PTY resize, Stop
+with kernel exit and an unaffected sibling, and execution beyond the ordinary
+30s observation deadline. Native loaded/saved threads, rollouts and completion
+callback effects are0 before the separate explicit integrated-control phase.
+Abrupt Provider death ends its owned command; restart preserves old final results,
+fences unsettled operations as delivery_unknown without replay, rejects old-handle
+controls and enforces profiles while preserving stored Native controllers.
+An invalid Core permissions profile is explicitly rejected before its effect;
+mixed mode exposes both surfaces and an omitted local grant exposes no local tools.
+The full existing integrated Android/TUI/cold/selected-control regression also
+passes (local-native-android.json, ob-5btlpzep), including auxiliary title isolation,
+reviewer allow/deny, public progress/final, same-thread compaction, questions,
+restart, Stop/start, failed start and assignment/dependency/tree controls.
+Default Rust219 checks remain applicable to unchanged targets; the affected
+library/operator/responses targets pass151 tests, including two new local
+regressions, plus the transport child. Clippy denies warnings and affected Python
+checks pass78. All builds use one compiler, debug information0, incremental off.
+A disposable foreign-context admission fault fails the actual pre-Core boundary
+test (local-context-mutation.json); the private copy is restored. No Pro or new
+external ChatGPT model requests are used by these deterministic Android suites.
+The final post-review production-path proof local-completion-android.json passes
+the same complete standalone suite, including PTY, configured locks and restart.
+Final review additionally requires a valid original Core streaming-command reply
+before declaring exit. Static build review caught its initially unconnected helper
+(local-completion-build.log); the actual run consumer now uses that validation,
+and local-completion-clippy.log passes with warnings denied. The completion regression
+passes all3 local cases and rejects an injected false-exit classification
+(local-completion-mutation.json); the disposable source is restored. Malformed replies retain original data and unknown state;
+this does not equate a mock/journal field to kernel-exit proof.
+The initial qualifier stops at unavailable os.pidfd_open (Termux Python); it now
+reuses qualify_provider_d3's existing syscall-based kernel observer. Original
+local-android-initial.log/json and the fixture remain; the corrected run passes.
+A new capture-sink regression first tries /dev/full, which Android denies. It now
+injects the same real write failure at the file sink using a read-only descriptor;
+no skip or weaker loss-detection assertion. Original local-lib-final.log retains
+the failed run. Local backend tests also verify mismatched contexts and unsettled
+old intent cannot launch Core. The retained operating Provider21 is untouched.
+The completed local/integrated qualification batch's5 inactive fixtures reclaim
+3818823680 allocated bytes from30 manifest-matched payload copies, using the
+existing archive cleaner. The first initial-fixture cleanup preserves its0-work
+result; the later distinct cleanup record removes its verified payloads. Per-root
+*-payload-cleanup*.jsonl files retain restoration records; source, original
+operation/native results and immutable candidates remain. Reusable compiler caches
+total about14.51GiB and are retained. Installed services/configuration are unchanged.
+Standalone renderer local-function ingress has no implemented caller yet.
+Actual-model intent selection, per-turn approval/reviewer parity, signed packaging
+and device activation remain unqualified; local/backend success does not imply those boundaries passed.
 
 Additional bounded Android proof verifies installed Provider21 stdio preserves
 all7 concurrent synthetic request envelopes, including separate/missing metadata

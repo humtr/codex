@@ -27,6 +27,8 @@ pub const FIELDS: &[&str] = &[
     "execution.core",
     "execution.home",
     "execution.workspace",
+    "execution.standalone_permission_profile",
+    "execution.workflow_lock",
     "service.startup",
 ];
 
@@ -88,9 +90,20 @@ pub enum ExecutionMode {
     Operator,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Workflow {
+    Standalone,
+    Integrated,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExecutionConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub standalone_permission_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_lock: Option<Workflow>,
     pub mode: ExecutionMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub core: Option<std::path::PathBuf>,
@@ -271,6 +284,38 @@ impl Config {
         }) {
             return Err(ConfigError::Invalid(
                 "host paths must be absolute and unambiguous",
+            ));
+        }
+        if self
+            .execution
+            .standalone_permission_profile
+            .as_ref()
+            .is_some_and(|v| {
+                v.trim().is_empty() || v.len() > 256 || v.chars().any(char::is_control)
+            })
+        {
+            return Err(ConfigError::Invalid(
+                "standalone permission profile is invalid",
+            ));
+        }
+        if self.execution.workflow_lock == Some(Workflow::Standalone)
+            && self.execution.standalone_permission_profile.is_none()
+        {
+            return Err(ConfigError::Invalid(
+                "standalone lock requires an explicit permission profile",
+            ));
+        }
+        if self.execution.standalone_permission_profile.is_some()
+            && [
+                &self.execution.core,
+                &self.execution.home,
+                &self.execution.workspace,
+            ]
+            .iter()
+            .any(|v| v.is_none())
+        {
+            return Err(ConfigError::Invalid(
+                "standalone tools require Core, execution home and workspace",
             ));
         }
         if self.execution.mode == ExecutionMode::Operator

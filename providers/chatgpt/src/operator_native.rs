@@ -28,7 +28,7 @@ use tokio::{
 };
 
 const LIMIT: usize = 16 * 1024 * 1024;
-type PendingReply = (String, oneshot::Sender<Result<Value, Error>>);
+type PendingReply = oneshot::Sender<Result<Value, Error>>;
 type Replies = Arc<Mutex<BTreeMap<u64, PendingReply>>>;
 
 fn native_reply(method: &str, row: &Value) -> Result<Value, Error> {
@@ -188,6 +188,7 @@ pub struct Native {
     write: mpsc::Sender<Value>,
     replies: Replies,
     sequence: AtomicU64,
+    closed: tokio_util::sync::CancellationToken,
     pub events: broadcast::Sender<Value>,
     pub human_requests: Arc<Mutex<BTreeMap<String, Value>>>,
 }
@@ -318,6 +319,13 @@ impl Native {
         Ok(())
     }
     pub async fn connect(owner: Owner, installation: PathBuf) -> Result<Arc<Self>, Error> {
+        Self::connect_output(owner, installation, None).await
+    }
+    pub(crate) async fn connect_output(
+        owner: Owner,
+        installation: PathBuf,
+        output_events: Option<mpsc::Sender<Value>>,
+    ) -> Result<Arc<Self>, Error> {
         owner.validate(&installation)?;
         let path = owner.directory.join("s");
         let socket =
@@ -370,18 +378,21 @@ impl Native {
         let replies: Replies = Arc::new(Mutex::new(BTreeMap::new()));
         let (events, _) = broadcast::channel(1024);
         let human_requests = Arc::new(Mutex::new(BTreeMap::new()));
+        let closed = tokio_util::sync::CancellationToken::new();
         let client = Arc::new(Self {
             owner,
             installation,
             write,
             replies: replies.clone(),
             sequence: AtomicU64::new(1),
+            closed: closed.clone(),
             events: events.clone(),
             human_requests: human_requests.clone(),
         });
         tokio::spawn(async move {
             loop {
                 tokio::select! {
+                    _ = closed.cancelled() => break,
                     row = output.recv() => match row {
                         Some(row) => if sink.send(row.to_string().into()).await.is_err() { break; },
                         None => break,
@@ -398,17 +409,24 @@ impl Native {
                             if let Some(id) = row.get("id") {
                                 human_requests.lock().await.insert(id.to_string(), row.clone());
                             }
+                            if row["method"] == "command/exec/outputDelta" {
+                                if let Some(sink) = &output_events {
+                                    // Backpressure preserves command bytes; the ordinary
+                                    // Native UI broadcast remains an independent observer.
+                                    if sink.send(row.clone()).await.is_err() { break; }
+                                }
+                            }
                             let _ = events.send(row);
                         } else if let Some(id) = row["id"].as_u64() {
-                            if let Some((method, reply)) = replies.lock().await.remove(&id) {
-                                let _ = reply.send(native_reply(&method, &row));
+                            if let Some(reply) = replies.lock().await.remove(&id) {
+                                let _ = reply.send(Ok(row));
                             }
                         }
                     }
                 }
             }
             output.close();
-            for (_, (_, reply)) in std::mem::take(&mut *replies.lock().await) {
+            for (_, reply) in std::mem::take(&mut *replies.lock().await) {
                 let _ = reply.send(Err(Error("native_delivery_unknown")));
             }
             let _ = events.send(json!({"method":"operator/nativeDisconnected"}));
@@ -427,14 +445,18 @@ impl Native {
             .map_err(|_| Error("native_delivery_unknown"))?;
         Ok(client)
     }
+    pub(crate) fn close(&self) {
+        self.closed.cancel();
+    }
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, Error> {
+        native_reply(method, &self.request(method, params).await?)
+    }
+    /// Preserve the original JSON-RPC rejection for standalone operations.
+    pub(crate) async fn request(&self, method: &str, params: Value) -> Result<Value, Error> {
         self.owner.validate(&self.installation)?;
         let id = self.sequence.fetch_add(1, Ordering::Relaxed);
         let (send, receive) = oneshot::channel();
-        self.replies
-            .lock()
-            .await
-            .insert(id, (method.to_owned(), send));
+        self.replies.lock().await.insert(id, send);
         if self
             .write
             .send(json!({"id":id,"method":method,"params":params}))
@@ -444,11 +466,20 @@ impl Native {
             self.replies.lock().await.remove(&id);
             return Err(Error("native_delivery_unknown"));
         }
-        let result = tokio::time::timeout(Duration::from_secs(30), receive).await;
+        // command/exec owns a deferred reply lasting until actual process exit.
+        // Other RPCs keep their existing bounded observation behavior.
+        let result = if method == "command/exec" {
+            receive.await.map_err(|_| ())
+        } else {
+            tokio::time::timeout(Duration::from_secs(30), receive)
+                .await
+                .map_err(|_| ())
+                .and_then(|v| v.map_err(|_| ()))
+        };
         self.replies.lock().await.remove(&id);
         match result {
-            Ok(Ok(value)) => value,
-            _ => Err(Error("native_delivery_unknown")),
+            Ok(value) => value,
+            Err(()) => Err(Error("native_delivery_unknown")),
         }
     }
 }
@@ -637,6 +668,36 @@ impl Pool {
                 ]);
             }
         }
+        self.client(
+            self.prepare_server(command, Some(catalog), "catalogs")
+                .await?,
+        )
+        .await
+    }
+    /// Reuse Core preparation and socket authority without model routing/catalog.
+    pub(crate) async fn prepare_io(
+        &self,
+        output: mpsc::Sender<Value>,
+    ) -> Result<Arc<Native>, Error> {
+        let core = self
+            .config
+            .execution
+            .core
+            .as_ref()
+            .ok_or(Error("operator_core_required"))?;
+        let mut command = tokio::process::Command::new(core);
+        command.arg("__app-server-default-v1");
+        let owner = self.prepare_server(command, None, "servers").await?;
+        // One connection owns one command; closing it cannot interrupt another
+        // standalone command or an integrated Native turn on the shared server.
+        Native::connect_output(owner, self.installation.clone(), Some(output)).await
+    }
+    async fn prepare_server(
+        &self,
+        mut command: tokio::process::Command,
+        catalog: Option<Value>,
+        family: &str,
+    ) -> Result<Owner, Error> {
         let mut child = command
             .env("CODEX_HOME", &self.home)
             .current_dir(&self.workspace)
@@ -650,7 +711,11 @@ impl Pool {
             .stdin
             .take()
             .ok_or(Error("native_core_prepare_failed"))?
-            .write_all(&serde_json::to_vec(&catalog).unwrap())
+            .write_all(
+                &catalog
+                    .map(|v| serde_json::to_vec(&v).unwrap())
+                    .unwrap_or_default(),
+            )
             .await
             .map_err(|_| Error("native_core_prepare_failed"))?;
         let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
@@ -666,14 +731,15 @@ impl Pool {
                 .trim(),
         );
         let directory = socket.parent().ok_or(Error("native_binding_invalid"))?;
-        if directory
-            .parent()
-            .is_none_or(|p| p != self.installation.join(".local/share/codex/core/catalogs"))
-        {
+        if directory.parent().is_none_or(|p| {
+            p != self
+                .installation
+                .join(".local/share/codex/core")
+                .join(family)
+        }) {
             return Err(Error("native_binding_invalid"));
         }
-        self.client(Owner::load(directory, &self.home, &self.installation)?)
-            .await
+        Owner::load(directory, &self.home, &self.installation)
     }
 }
 

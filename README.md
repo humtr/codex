@@ -46,11 +46,14 @@ do not select or rename the workflow.
 Source uses `inference=attached|submitted` for existing-response attachment versus
 new model submission within integrated work. Installed Provider21 still uses its
 old `reasoning=direct|provider` protocol until matched package/state activation.
-Neither protocol defines the standalone workflow. Standalone ChatGPT tools are a
-separate [execution target](SPEC.md#work-recording-scope-and-entry-selection), with basic
-Core I/O proof but no implemented ChatGPT tool surface yet. Ordinary file access
-must not automatically become Codex work in that target. The selected design is
-one MCP with explicit task contexts; standalone fixed profiles are optional.
+Neither protocol defines the standalone workflow. The source now supplies
+`local_context`/`local_execute`/`local_process` for standalone development, under an
+explicit configured Core permissions profile, plus optional server-enforced
+standalone/integrated locks. Ordinary local file access creates no Native work
+or completion notification. Actual Android I/O proof, actual-model selection,
+signed delivery and activation remain distinct; see [CURRENT](CURRENT.md).
+The [selected design](SPEC.md#work-recording-scope-and-entry-selection) uses one MCP
+with explicit contexts; existing profiles gain no implicit new access grant.
 [Actual Linux proof and limits](WORK_SCOPE_REVIEW.md#45-실제-linux-앱--모델--mcp--rust-전달-시험)
 distinguish conversation correlation from branch/work selection and product acceptance.
 

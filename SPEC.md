@@ -1666,6 +1666,58 @@ must be qualified on the actual path. Local-tool completion produces no Native
 work-completion event; do not implement this by merely suppressing notifications
 while still creating unwanted conversations.
 
+Standalone local admission uses `execution.standalone_permission_profile`, an
+explicit Core permissions-profile ID chosen by the operator, never a model tool
+argument. Absence disables local execution. Core validates that profile and its
+managed requirements; cwd is a working directory, not an additional path grant.
+Commands, file edits/patches and tests use `command/exec` under that same profile;
+raw fs RPCs are not exposed. This is a standing configured grant, not Native
+turn approval/reviewer parity: do not claim a Native approval event occurred.
+The local context returns the workspace, permission profile and instructions to
+read applicable workspace guidance before effects. No model or effort is chosen
+by these tools and no independent inference is submitted.
+
+`local_context`, `local_execute` and `local_process` share one Rust operation
+backend. Context IDs bind the service owner and configured execution scope;
+commands require that explicit context and stable call_id. Execution captures
+complete stdout/stderr as private operation output, with byte-offset paging and
+base64 for exact bytes. A returned process ID confirms admission, not OS spawn
+or exit. Dedicated connections isolate each command's stdin/PTY/Stop and lifetime
+without starting a separate Core server per command. Deferred Core command replies
+are not cut off by the ordinary short RPC observation deadline. Output loss or
+unknown transport delivery is explicit, never successful completion or an
+automatic command replay. Exact retries return the original process/result even
+across service restart; an unsettled old operation cannot restart itself.
+
+Process controls have their own stable call_id and preserve original Core replies.
+A terminate acknowledgement is not exit confirmation; only the original exec
+result confirms completion. Validate the streamed command response shape before
+marking exit; an invalid response remains unknown with its original reply retained. An early control can be explicitly rejected before
+Core has registered the command; this is not a successful Stop. Connection loss
+fences further controls on that handle and does not borrow a replacement
+connection. Provider shutdown releases its own command connections only, not
+shared Core servers or unrelated Native jobs.
+
+`execution.workflow_lock=standalone|integrated` optionally fixes the server's
+workflow surface for its whole lifetime. Standalone requires an explicit local
+permission profile, excludes Native work/tools and does not recover/rotate their
+controllers. Integrated excludes local tools. Neutral host/project/Chat inspection
+remains available. The same admission guard rejects calls hidden by the profile;
+model arguments and host correlation cannot lift it. Workflow locks govern Bridge
+tool/inference admission; Core's selected permissions separately govern programs
+and file access inside commands. Commands intentionally starting Native development
+or Codex orchestration belong to integrated work. An unlocked service exposes
+both configured surfaces and retains explicit contexts without global last-work
+dispatch. Integrated model-owned local-function catalogs exclude standalone tools;
+a standalone function consumer must use the same local backend and grant, never
+pretend to be an integrated Native turn.
+
+These optional settings preserve serialization of prior configurations when absent.
+Rollback to a pre-standalone Provider requires the matched prior configuration
+(or removal of the two new execution settings while stopped), as well as the
+existing explicit inference-state downgrade. Preserve local operation/output
+records: an older Provider must not convert them into Native conversation work.
+
 #### Entrance equivalence and continuous development binding
 
 **Primary admission correction.** Bridge-native participation is the primary
