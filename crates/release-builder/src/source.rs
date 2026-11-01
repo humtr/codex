@@ -286,6 +286,117 @@ fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
             *text = text.replacen(&imported, "", 1);
         }
     }
+    // The upstream ToolRegistry is the common executable boundary for
+    // AppServer, CLI, TUI, direct and Code Mode tool calls. Keep the Provider's
+    // existing effect classification implementation identical here. Embed the
+    // implementation into a tracked source file so the release source patch
+    // contains all executable bytes (untracked generated modules would not).
+    let effects = include_str!("../../../providers/chatgpt/src/native_effect.rs")
+        .split_once("\n#[cfg(test)]\nmod tests")
+        .ok_or("Native effect module tests boundary changed")?
+        .0;
+    let claims = include_str!("../../../providers/chatgpt/src/native_claims.rs")
+        .split_once("\n#[cfg(test)]\nmod tests")
+        .ok_or("Native claim module tests boundary changed")?
+        .0
+        .replace(
+            "use crate::native_effect::{self, Effect};",
+            "use super::native_effect::{self, Effect};",
+        );
+    plan.edit(
+        "core/src/tools/registry.rs",
+        "dispatch_any_with_state",
+        |text, where_| {
+            let text = replace(
+                text,
+                "        let result = otel\n            .log_tool_result_with_tags(",
+                r#"        // Validate and reserve the actual post-approval tool input
+        // before dispatch. The OS-backed claim survives task cancellation.
+        let native_name = match (invocation.tool_name.namespace.as_deref(),
+            invocation.tool_name.name.as_str()) {
+            (None | Some("functions"), "exec_command") => "functions.exec_command",
+            (None | Some("functions"), "apply_patch") => "functions.apply_patch",
+            (None | Some("functions"), "write_stdin") => "functions.write_stdin",
+            _ => "",
+        };
+        let native_name = if native_name.is_empty() {
+            // Unclassified tools must not inherit the write-free status of a
+            // similarly named tool in another namespace.
+            "native.opaque"
+        } else { native_name };
+        let native_input = match &invocation.payload {
+            ToolPayload::Function { arguments } => arguments.as_str(),
+            ToolPayload::Custom { input } => input.as_str(),
+            _ => "",
+        };
+        // A same-file nonoverlapping patch can finish after the first editor
+        // publishes. Retry the original native input: the upstream patch
+        // handler still checks its old-side context and will not blindly
+        // overwrite a competing edit. An unresolved owner returns a bounded
+        // resource-specific wait instead of locking work admission.
+        let native_wait_started = std::time::Instant::now();
+        let mut native_claim = loop {
+            match native_claims::Guard::begin(
+                &invocation.turn.cwd().to_path_buf(),
+                &invocation.session.thread_id.to_string(),
+                &call_id_owned,
+                native_name,
+                native_input,
+            ) {
+                Ok(guard) => break guard,
+                Err(message) if message == "native_resource_busy"
+                    && native_wait_started.elapsed() < Duration::from_secs(20) => {
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_millis(40)) => {}
+                            _ = cancellation_token.cancelled() =>
+                                return Err(FunctionCallError::RespondToModel(
+                                    "native_effect_cancelled".into())),
+                        }
+                    }
+                Err(message) => return Err(FunctionCallError::RespondToModel(message)),
+            }
+        };
+
+        let result = otel
+            .log_tool_result_with_tags("#,
+                where_,
+            )?;
+            replace(
+                &text,
+                "            .await;\n        let success = match &result {",
+                r#"            .await;
+        // A handler future dropped before this observation retains its claim.
+        // Persist the observed result transition before returning the tool
+        // outcome. An unconfirmed asynchronous process keeps its resources.
+        let native_result = result.as_ref().ok().and_then(|result| {
+            serde_json::to_value(result.result.to_response_item(
+                &call_id_owned, &invocation.payload)).ok()
+        });
+        native_claim.observed(native_result.as_ref())
+            .map_err(FunctionCallError::RespondToModel)?;
+        let success = match &result {"#,
+                where_,
+            )
+        },
+    )?;
+    let registry = source.join("codex-rs/core/src/tools/registry.rs");
+    let current = plan
+        .changes
+        .get_mut(&registry)
+        .ok_or("Native ToolRegistry source adaptation missing")?;
+    *current = format!(
+        "mod native_effect {{\n{effects}\n}}\nmod native_claims {{\n{claims}\n}}\n{current}"
+    );
+    let manifest = source.join("codex-rs/core/Cargo.toml");
+    plan.changes.insert(
+        manifest.clone(),
+        replace(
+            &read(&manifest)?,
+            "serde_json = { workspace = true }",
+            "serde_json = { workspace = true }\nsha2 = { workspace = true }",
+            "core/Cargo.toml Native effect dependency",
+        )?,
+    );
     Ok(plan.changes)
 }
 
@@ -448,6 +559,34 @@ fn normalized(source: &Path, before: &str) -> Result<(String, usize, usize)> {
         return Err("workspace lock inventory mismatch".into());
     }
     let mut expected = old.clone();
+    // The pinned 0.166.0 Core source now imports the same SHA-256 effect
+    // implementation as the Provider. Its lock has sha2 0.10.9 already, but
+    // the original Core package did not list it as a direct dependency.
+    // Amend only that local package edge during normalization; external
+    // package inventory and the audited pristine source digest stay intact.
+    let core_effect_dependency = version == "0.166.0"
+        && read(&source.join("core/Cargo.toml"))?.contains("sha2 = { workspace = true }");
+    if core_effect_dependency {
+        let core = expected["package"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|package| {
+                package["name"].as_str() == Some("codex-core") && package.get("source").is_none()
+            })
+            .ok_or("missing pinned core lock entry")?;
+        let dependencies = core["dependencies"]
+            .as_array_mut()
+            .ok_or("missing core lock dependencies")?;
+        if dependencies
+            .iter()
+            .any(|v| v.as_str() == Some("sha2 0.10.9"))
+        {
+            return Err("Core lock already declares effect SHA-256 dependency".into());
+        }
+        dependencies.push(toml::Value::String("sha2 0.10.9".into()));
+        dependencies.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+    }
     for package in expected["package"].as_array_mut().unwrap() {
         if package.get("source").is_some() {
             continue;
@@ -488,6 +627,14 @@ fn normalized(source: &Path, before: &str) -> Result<(String, usize, usize)> {
         let mut block = format!("[[package]]\n{block}");
         let value = toml(&block)?;
         let package = &value["package"][0];
+        if core_effect_dependency && package["name"].as_str() == Some("codex-core") {
+            block = replace(
+                &block,
+                " \"sha1 0.10.6\",\n",
+                " \"sha1 0.10.6\",\n \"sha2 0.10.9\",\n",
+                "Core effect SHA-256 lock edge",
+            )?;
+        }
         if package.get("source").is_none() {
             if names.contains(package["name"].as_str().ok_or("invalid lock name")?) {
                 block = replace(

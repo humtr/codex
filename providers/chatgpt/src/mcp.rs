@@ -4,6 +4,7 @@
 use crate::{
     context::digest,
     journal::{random_id, Journal},
+    native_claims::Guard as SharedNativeGuard,
     native_effect::{self, Effect},
     protocol::{gateway_calls, Error, Tool},
 };
@@ -514,6 +515,8 @@ struct ExternalEffectReceipt {
     continuation: Option<u64>,
     #[serde(default)]
     settled: bool,
+    #[serde(default)]
+    workspace: Option<PathBuf>,
 }
 #[derive(Default, Serialize, Deserialize)]
 struct ActiveEffects {
@@ -537,6 +540,12 @@ fn settle_effect(
         if let Some(claim) = claims.claims.get_mut(id) {
             claim.session_id = running;
         }
+        return;
+    }
+    // A response string without an observed Native exit is not proof that
+    // a possibly backgrounded shell writer stopped. Keep BOTH the Provider
+    // journal and Core's shared claim until a real terminal receipt arrives.
+    if name == "functions.exec_command" && !exited {
         return;
     }
     if let Some(session) = continuation {
@@ -624,6 +633,30 @@ pub struct Arguments {
     pub report: String,
 }
 impl Broker {
+    fn shared_guard_home(&self) -> Option<PathBuf> {
+        // A Provider unit test is not an installed execution host; its
+        // disposable Journal has its own private, process-shareable ledger.
+        // Production Core and Provider use the same account-scoped ledger.
+        #[cfg(test)]
+        {
+            Some(self.journal.root.join("native-shared-test"))
+        }
+        #[cfg(not(test))]
+        {
+            None
+        }
+    }
+
+    fn shared_guard_error(reason: String) -> Error {
+        match reason.as_str() {
+            "native_resource_busy" => Error("native_resource_busy"),
+            "native_resource_version_conflict" => Error("native_resource_version_conflict"),
+            "native_effect_duplicate_unconfirmed" => Error("native_effect_duplicate_unconfirmed"),
+            "native_effect_identity_changed" => Error("native_effect_identity_changed"),
+            _ => Error("native_resource_shared_guard_failed"),
+        }
+    }
+
     /// Bounded, account-private status data. Never export paths, file contents,
     /// command text or authentication material from another work.
     pub(crate) fn effect_status(&self, lane: &str) -> Result<Value, Error> {
@@ -692,6 +725,15 @@ impl Broker {
             return Err(Error("native_resource_busy"));
         }
         native_effect::can_offer(&effect, &root).map_err(Error)?;
+        SharedNativeGuard::offer_external(
+            &root,
+            self.shared_guard_home().as_deref(),
+            lane,
+            &resource_id,
+            name,
+            input,
+        )
+        .map_err(Self::shared_guard_error)?;
         let continuing_owned = continuation.is_some_and(|session| {
             state
                 .claims
@@ -715,6 +757,7 @@ impl Broker {
                 name: name.into(),
                 continuation,
                 settled: false,
+                workspace: Some(root),
             },
         );
         self.journal.write(&key, &state)?;
@@ -735,6 +778,7 @@ impl Broker {
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut changed = false;
+        let mut shared_results = Vec::new();
         for (id, result) in results {
             let effect_id = external_effect_id(lane, id);
             if let Some(receipt) = state
@@ -753,10 +797,31 @@ impl Broker {
                 );
                 state.external.get_mut(&effect_id).unwrap().settled = true;
                 changed = true;
+                if let Some(root) = receipt.workspace.as_ref() {
+                    shared_results.push((
+                        root.clone(),
+                        effect_id,
+                        receipt.name,
+                        receipt.continuation,
+                        result.clone(),
+                    ));
+                }
             }
         }
         if changed {
             self.journal.write(&key, &state)?;
+            for (workspace, id, name, continuation, value) in shared_results {
+                SharedNativeGuard::settle_external_receipt(
+                    &workspace,
+                    self.shared_guard_home().as_deref(),
+                    lane,
+                    &id,
+                    &name,
+                    continuation,
+                    &value,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
             self.changed.notify_waiters();
         }
         Ok(())
@@ -1269,6 +1334,25 @@ impl Broker {
                     continue;
                 }
             }
+            if let Some(workspace) = next.workspace.as_deref() {
+                match SharedNativeGuard::offer_external(
+                    workspace,
+                    self.shared_guard_home().as_deref(),
+                    &next.lane,
+                    &call.id,
+                    &call.name,
+                    &call.input,
+                ) {
+                    Ok(()) => {}
+                    Err(reason) if reason == "native_resource_busy" => continue,
+                    Err(reason) if reason == "native_resource_version_conflict" => {
+                        call.result = Some(json!({"error":reason,"executed":false}));
+                        changed = true;
+                        continue;
+                    }
+                    Err(reason) => return Err(Self::shared_guard_error(reason)),
+                }
+            }
             let continuing_owned = continuation.is_some_and(|session| {
                 claims
                     .claims
@@ -1380,6 +1464,25 @@ impl Broker {
             }
             if before != serde_json::to_vec(&claims).map_err(|_| Error("invalid_lane_record"))? {
                 self.journal.write(&claims_key, &claims)?;
+            }
+            for (id, result) in results {
+                if let Some(workspace) = turn.workspace.as_deref() {
+                    let call = turn
+                        .calls
+                        .values()
+                        .find(|v| v.id == *id)
+                        .ok_or(Error("mcp_result_invalid"))?;
+                    SharedNativeGuard::settle_external(
+                        workspace,
+                        self.shared_guard_home().as_deref(),
+                        &turn.lane,
+                        id,
+                        &call.name,
+                        &call.input,
+                        result,
+                    )
+                    .map_err(Self::shared_guard_error)?;
+                }
             }
         }
         self.changed.notify_waiters();
@@ -1849,7 +1952,14 @@ mod native_concurrency_tests {
         broker.enqueue(&two, &second).await.unwrap();
         assert!(broker.offer(&two).await.unwrap().is_empty());
         broker
-            .settle(&one, &[(opaque, json!("done"))])
+            .settle(
+                &one,
+                &[(
+                    opaque,
+                    json!({"output":
+                "Chunk ID: terminal\nProcess exited with code 0\nOutput:\ndone"}),
+                )],
+            )
             .await
             .unwrap();
         let offered = broker.offer(&two).await.unwrap();
@@ -1946,6 +2056,51 @@ mod native_concurrency_tests {
             .get(&command_id)
             .is_none());
         fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_core_and_provider_both_consult_the_same_shared_journal() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let home = broker.shared_guard_home().unwrap();
+        let direct = patch("file", "alpha", "ALPHA");
+        SharedNativeGuard::offer_external(
+            &root,
+            Some(&home),
+            "core-work",
+            "core-patch",
+            &direct.name,
+            &direct.input,
+        )
+        .unwrap();
+        let token = broker
+            .register_scoped("direct", tools, false, Some(&root))
+            .await
+            .unwrap();
+        broker.enqueue(&token, &direct).await.unwrap();
+        assert!(
+            broker.offer(&token).await.unwrap().is_empty(),
+            "Provider must see an upstream Core claim not in Broker's journal"
+        );
+        let other = broker
+            .admit_external_tool("app-host", "same-file", &direct.name, &direct.input, &root)
+            .await;
+        assert_eq!(
+            other,
+            Err(Error("native_resource_busy")),
+            "AppHost must also see that independently acquired Core claim"
+        );
+        SharedNativeGuard::settle_external(
+            &root,
+            Some(&home),
+            "core-work",
+            "core-patch",
+            &direct.name,
+            &direct.input,
+            &json!("patched"),
+        )
+        .unwrap();
+        assert_eq!(broker.offer(&token).await.unwrap().len(), 1);
     }
     #[tokio::test]
     async fn nc_external_native_tool_and_mcp_tool_share_exact_resource_claims() {

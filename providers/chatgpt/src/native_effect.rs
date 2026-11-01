@@ -216,10 +216,33 @@ fn is_simple_read_command(input: &str) -> bool {
     let Some(command) = value.get("cmd").and_then(|v| v.as_str()) else {
         return false;
     };
-    matches!(
+    if matches!(
         command.trim(),
-        "pwd" | "git rev-parse HEAD" | "git branch --show-current" | "git log -1 --oneline"
-    )
+        "pwd"
+            | "git rev-parse HEAD"
+            | "git rev-parse --show-toplevel"
+            | "git branch --show-current"
+            | "git log -1 --oneline"
+            | "ls"
+            | "ls -la"
+            | "ls -l"
+            | "ls -1"
+    ) {
+        return true;
+    }
+    // A single explicit, inert path operand is a real read even when a
+    // bounded write to an unrelated resource is still running. No wildcard,
+    // flag, command substitution, redirection or shell control is admitted.
+    let Some(path) = command.trim().strip_prefix("cat ") else {
+        return false;
+    };
+    !path.is_empty()
+        && !path.starts_with('-')
+        && !path.starts_with('/')
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'_' | b'-'))
+        && !path.split('/').any(|part| part == ".." || part.is_empty())
 }
 
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {

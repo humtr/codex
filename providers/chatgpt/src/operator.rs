@@ -3373,43 +3373,10 @@ impl Operator {
                     .map(|(_, catalog)| catalog);
                 }
                 let pool = self.scoped_pool(&home, &workspace, catalog).await?;
-                if args.get("workspace").is_some() {
-                    let candidates = self
-                        .works
-                        .lock()
-                        .await
-                        .values()
-                        .filter(|work| {
-                            work.record.phase == "running"
-                                && work
-                                    .record
-                                    .selection
-                                    .as_ref()
-                                    .is_some_and(|s| s.inference == Inference::Submitted)
-                                && work.record.workspace.as_ref().is_some_and(|other| {
-                                    workspace.starts_with(other) || other.starts_with(&workspace)
-                                })
-                        })
-                        .map(|work| work.record.id.clone())
-                        .collect::<Vec<_>>();
-                    for id in candidates {
-                        let (record, native) = self.binding(&json!({"work_id":id}), false).await?;
-                        self.observe_native(record, &native).await?;
-                    }
-                }
-                if args.get("workspace").is_some()
-                    && self.works.lock().await.values().any(|work| {
-                        let other = work
-                            .record
-                            .workspace
-                            .as_deref()
-                            .unwrap_or(&self.pool.workspace);
-                        !matches!(work.record.phase.as_str(), "completed" | "stopped")
-                            && (workspace.starts_with(other) || other.starts_with(&workspace))
-                    })
-                {
-                    return Err(Error("native_workspace_writer_busy"));
-                }
+                // A Native work record (including a waiting, stopped-requested
+                // or unreconciled work) is not a write effect. The Core tool
+                // dispatch coordinates physical resources at mutation time;
+                // admission still enforces the existing owner and home checks.
                 if action == "resume"
                     && self
                         .works
