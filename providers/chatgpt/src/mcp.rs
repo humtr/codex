@@ -725,6 +725,18 @@ impl Broker {
             return Err(Error("native_resource_busy"));
         }
         native_effect::can_offer(&effect, &root).map_err(Error)?;
+        // There is no authoritative external receipt for this identity yet:
+        // a previous reservation could have crashed before delivery. Do not
+        // mistake that known unoffered claim for a live Native invocation.
+        SharedNativeGuard::reconcile_unoffered(
+            &root,
+            self.shared_guard_home().as_deref(),
+            lane,
+            &resource_id,
+            name,
+            input,
+        )
+        .map_err(Self::shared_guard_error)?;
         SharedNativeGuard::offer_external(
             &root,
             self.shared_guard_home().as_deref(),
@@ -751,16 +763,29 @@ impl Broker {
             );
         }
         state.external.insert(
-            resource_id,
+            resource_id.clone(),
             ExternalEffectReceipt {
                 fingerprint,
                 name: name.into(),
                 continuation,
                 settled: false,
-                workspace: Some(root),
+                workspace: Some(root.clone()),
             },
         );
-        self.journal.write(&key, &state)?;
+        if let Err(error) = self.journal.write(&key, &state) {
+            // No upstream tool is forwarded until this durable receipt
+            // commits; release the reservation when that commit fails.
+            SharedNativeGuard::abort_unoffered(
+                &root,
+                self.shared_guard_home().as_deref(),
+                lane,
+                &resource_id,
+                name,
+                input,
+            )
+            .map_err(Self::shared_guard_error)?;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -778,7 +803,6 @@ impl Broker {
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut changed = false;
-        let mut shared_results = Vec::new();
         for (id, result) in results {
             let effect_id = external_effect_id(lane, id);
             if let Some(receipt) = state
@@ -787,6 +811,22 @@ impl Broker {
                 .filter(|v| !v.settled)
                 .cloned()
             {
+                // A verified upstream result may release the physical claim
+                // before this Provider-owned delivery receipt is committed.
+                // Reversing the order would make a journaled "settled" record
+                // skip a failed shared release on every subsequent retry.
+                if let Some(root) = receipt.workspace.as_ref() {
+                    SharedNativeGuard::settle_external_receipt(
+                        root,
+                        self.shared_guard_home().as_deref(),
+                        lane,
+                        &effect_id,
+                        &receipt.name,
+                        receipt.continuation,
+                        result,
+                    )
+                    .map_err(Self::shared_guard_error)?;
+                }
                 settle_effect(
                     &mut state,
                     &effect_id,
@@ -797,31 +837,10 @@ impl Broker {
                 );
                 state.external.get_mut(&effect_id).unwrap().settled = true;
                 changed = true;
-                if let Some(root) = receipt.workspace.as_ref() {
-                    shared_results.push((
-                        root.clone(),
-                        effect_id,
-                        receipt.name,
-                        receipt.continuation,
-                        result.clone(),
-                    ));
-                }
             }
         }
         if changed {
             self.journal.write(&key, &state)?;
-            for (workspace, id, name, continuation, value) in shared_results {
-                SharedNativeGuard::settle_external_receipt(
-                    &workspace,
-                    self.shared_guard_home().as_deref(),
-                    lane,
-                    &id,
-                    &name,
-                    continuation,
-                    &value,
-                )
-                .map_err(Self::shared_guard_error)?;
-            }
             self.changed.notify_waiters();
         }
         Ok(())
@@ -1302,85 +1321,129 @@ impl Broker {
         let mut calls = Vec::new();
         let mut changed = false;
         let mut claims_changed = false;
-        for call in next
-            .calls
-            .values_mut()
-            .filter(|v| !v.offered && v.result.is_none())
-        {
-            if calls.len() == 32 {
-                break;
-            }
-            let effect = call.effect.clone().unwrap_or(Effect::Opaque);
-            let continuation = continued_process(&call.name, &call.input);
-            if claims.claims.values().any(|held| {
-                native_effect::conflicts(&effect, &held.effect)
-                    && !(continuation.is_some()
-                        && held.lane == next.lane
-                        && held.session_id == continuation)
-            }) {
-                continue;
-            }
-            if let Effect::Paths(_) = &effect {
-                let verified = next
-                    .workspace
-                    .as_ref()
-                    .ok_or(Error("native_workspace_unavailable"))
-                    .and_then(|workspace| {
-                        native_effect::can_offer(&effect, workspace).map_err(Error)
-                    });
-                if let Err(reason) = verified {
-                    call.result = Some(json!({"error":reason.0,"executed":false}));
-                    changed = true;
+        let mut reserved = Vec::new();
+        let admission = (|| -> Result<(), Error> {
+            for call in next
+                .calls
+                .values_mut()
+                .filter(|v| !v.offered && v.result.is_none())
+            {
+                if calls.len() == 32 {
+                    break;
+                }
+                let effect = call.effect.clone().unwrap_or(Effect::Opaque);
+                let continuation = continued_process(&call.name, &call.input);
+                // The call's authoritative turn still says it was not offered.
+                // Repair a crash between a previous shared reservation and turn
+                // commit, including its local non-authoritative claim mirror.
+                if claims.claims.remove(&call.id).is_some() {
+                    claims_changed = true;
+                }
+                if claims.claims.values().any(|held| {
+                    native_effect::conflicts(&effect, &held.effect)
+                        && !(continuation.is_some()
+                            && held.lane == next.lane
+                            && held.session_id == continuation)
+                }) {
                     continue;
                 }
-            }
-            if let Some(workspace) = next.workspace.as_deref() {
-                match SharedNativeGuard::offer_external(
-                    workspace,
-                    self.shared_guard_home().as_deref(),
-                    &next.lane,
-                    &call.id,
-                    &call.name,
-                    &call.input,
-                ) {
-                    Ok(()) => {}
-                    Err(reason) if reason == "native_resource_busy" => continue,
-                    Err(reason) if reason == "native_resource_version_conflict" => {
-                        call.result = Some(json!({"error":reason,"executed":false}));
+                if let Effect::Paths(_) = &effect {
+                    let verified = next
+                        .workspace
+                        .as_ref()
+                        .ok_or(Error("native_workspace_unavailable"))
+                        .and_then(|workspace| {
+                            native_effect::can_offer(&effect, workspace).map_err(Error)
+                        });
+                    if let Err(reason) = verified {
+                        call.result = Some(json!({"error":reason.0,"executed":false}));
                         changed = true;
                         continue;
                     }
-                    Err(reason) => return Err(Self::shared_guard_error(reason)),
                 }
-            }
-            let continuing_owned = continuation.is_some_and(|session| {
-                claims
-                    .claims
-                    .values()
-                    .any(|held| held.lane == next.lane && held.session_id == Some(session))
-            });
-            if effect != Effect::Read && !continuing_owned {
-                claims.claims.insert(
-                    call.id.clone(),
-                    ClaimedEffect {
-                        lane: next.lane.clone(),
-                        effect,
-                        session_id: None,
-                    },
+                if let Some(workspace) = next.workspace.as_deref() {
+                    SharedNativeGuard::reconcile_unoffered(
+                        workspace,
+                        self.shared_guard_home().as_deref(),
+                        &next.lane,
+                        &call.id,
+                        &call.name,
+                        &call.input,
+                    )
+                    .map_err(Self::shared_guard_error)?;
+                    match SharedNativeGuard::offer_external(
+                        workspace,
+                        self.shared_guard_home().as_deref(),
+                        &next.lane,
+                        &call.id,
+                        &call.name,
+                        &call.input,
+                    ) {
+                        Ok(()) => reserved.push((
+                            workspace.to_path_buf(),
+                            next.lane.clone(),
+                            call.id.clone(),
+                            call.name.clone(),
+                            call.input.clone(),
+                        )),
+                        Err(reason) if reason == "native_resource_busy" => continue,
+                        Err(reason) if reason == "native_resource_version_conflict" => {
+                            call.result = Some(json!({"error":reason,"executed":false}));
+                            changed = true;
+                            continue;
+                        }
+                        Err(reason) => return Err(Self::shared_guard_error(reason)),
+                    }
+                }
+                let continuing_owned = continuation.is_some_and(|session| {
+                    claims
+                        .claims
+                        .values()
+                        .any(|held| held.lane == next.lane && held.session_id == Some(session))
+                });
+                if effect != Effect::Read && !continuing_owned {
+                    claims.claims.insert(
+                        call.id.clone(),
+                        ClaimedEffect {
+                            lane: next.lane.clone(),
+                            effect,
+                            session_id: None,
+                        },
+                    );
+                    claims_changed = true;
+                }
+                call.offered = true;
+                changed = true;
+                calls.push(
+                    json!({"id":call.id,"name":call.name,"input":call.input,"report":call.report}),
                 );
-                claims_changed = true;
             }
-            call.offered = true;
-            changed = true;
-            calls.push(
-                json!({"id":call.id,"name":call.name,"input":call.input,"report":call.report}),
-            );
-        }
-        if claims_changed {
-            self.journal.write(&claims_key, &claims)?;
+            if claims_changed {
+                self.journal.write(&claims_key, &claims)?;
+            }
+            if changed {
+                self.persist(token, &next)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = admission {
+            // None of this offer batch has been returned to upstream yet.
+            // Compensate only our own freshly reserved resources, not another
+            // worker's live reservation or an already-offered prior batch.
+            for (workspace, lane, id, name, input) in reserved {
+                SharedNativeGuard::abort_unoffered(
+                    &workspace,
+                    self.shared_guard_home().as_deref(),
+                    &lane,
+                    &id,
+                    &name,
+                    &input,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
+            return Err(error);
         }
         if changed {
-            self.persist(token, &next)?;
             *turn = next;
             self.changed.notify_waiters();
         }
@@ -1438,9 +1501,32 @@ impl Broker {
             }
             next.tools = catalog;
         }
-        // All-or-nothing catalog/result validation and durable commit precede
-        // waking the model, which may immediately discover/call the new tools.
+        // All-or-nothing catalog/result validation precedes any settlement.
+        // A verified Native result can release its shared resource before the
+        // Provider's receipt is persisted. If persistence fails, replaying the
+        // same original result is idempotent; the reverse order could strand
+        // the shared claim behind a journaled "completed" call.
         prepare()?;
+        for (id, result) in results {
+            if let Some(workspace) = next.workspace.as_deref() {
+                let call = next
+                    .calls
+                    .values()
+                    .find(|v| v.id == *id)
+                    .ok_or(Error("mcp_result_invalid"))?;
+                SharedNativeGuard::settle_external(
+                    workspace,
+                    self.shared_guard_home().as_deref(),
+                    &next.lane,
+                    id,
+                    &call.name,
+                    &call.input,
+                    result,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
+        }
+        // Durable call results precede waking the model.
         self.persist(token, &next)?;
         *turn = next;
         if !results.is_empty() {
@@ -1464,25 +1550,6 @@ impl Broker {
             }
             if before != serde_json::to_vec(&claims).map_err(|_| Error("invalid_lane_record"))? {
                 self.journal.write(&claims_key, &claims)?;
-            }
-            for (id, result) in results {
-                if let Some(workspace) = turn.workspace.as_deref() {
-                    let call = turn
-                        .calls
-                        .values()
-                        .find(|v| v.id == *id)
-                        .ok_or(Error("mcp_result_invalid"))?;
-                    SharedNativeGuard::settle_external(
-                        workspace,
-                        self.shared_guard_home().as_deref(),
-                        &turn.lane,
-                        id,
-                        &call.name,
-                        &call.input,
-                        result,
-                    )
-                    .map_err(Self::shared_guard_error)?;
-                }
             }
         }
         self.changed.notify_waiters();
@@ -1822,6 +1889,63 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn nc_crashed_unoffered_external_reservation_can_be_recovered() {
+        if let (Ok(cwd), Ok(home)) = (
+            std::env::var("NATIVE_UNOFFERED_PROBE_CWD"),
+            std::env::var("NATIVE_UNOFFERED_PROBE_HOME"),
+        ) {
+            let command = patch("file", "alpha", "ALPHA");
+            SharedNativeGuard::offer_external(
+                Path::new(&cwd),
+                Some(Path::new(&home)),
+                "app-host",
+                &external_effect_id("app-host", "original"),
+                &command.name,
+                &command.input,
+            )
+            .unwrap();
+            return;
+        }
+        let (root, journal, _) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let home = broker.shared_guard_home().unwrap();
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "mcp::native_concurrency_tests::nc_crashed_unoffered_external_reservation_can_be_recovered",
+            ])
+            .env("NATIVE_UNOFFERED_PROBE_CWD", &root)
+            .env("NATIVE_UNOFFERED_PROBE_HOME", &home)
+            .status()
+            .unwrap();
+        assert!(child.success());
+        let command = patch("file", "alpha", "ALPHA");
+        broker
+            .admit_external_tool("app-host", "original", &command.name, &command.input, &root)
+            .await
+            .unwrap();
+        assert_eq!(
+            broker
+                .admit_external_tool("other", "conflict", &command.name, &command.input, &root,)
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        broker
+            .settle_external_tools(
+                "app-host",
+                &[("original".into(), json!({"output":"applied"}))],
+            )
+            .await
+            .unwrap();
+        broker
+            .admit_external_tool("other", "conflict", &command.name, &command.input, &root)
+            .await
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn nc_distinct_writers_and_reads_are_parallel_nonoverlap_rebases() {
         let (root, journal, tools) = fixture();
         fs::write(root.join("file"), "alpha\nbeta\ngamma\n").unwrap();
@@ -2047,14 +2171,13 @@ mod native_concurrency_tests {
             .await
             .unwrap();
         assert_eq!(broker.offer(&other).await.unwrap().len(), 1);
-        assert!(broker
+        assert!(!broker
             .journal
             .read::<ActiveEffects>(&digest(&"native-effect-claims-v1"))
             .unwrap()
             .unwrap()
             .claims
-            .get(&command_id)
-            .is_none());
+            .contains_key(&command_id));
         fs::remove_dir_all(root).unwrap();
     }
     #[tokio::test]

@@ -140,10 +140,11 @@ fn parse_patch(input: &str, workspace: &Path) -> Option<Effect> {
             (name, FileOperation::Update)
         } else if let Some(name) = header.strip_prefix("*** Add File: ") {
             (name, FileOperation::Add)
-        } else if let Some(name) = header.strip_prefix("*** Delete File: ") {
-            (name, FileOperation::Delete)
         } else {
-            return None;
+            (
+                header.strip_prefix("*** Delete File: ")?,
+                FileOperation::Delete,
+            )
         };
         let mut anchors = Vec::new();
         let mut hunk = Vec::new();
@@ -173,9 +174,9 @@ fn parse_patch(input: &str, workspace: &Path) -> Option<Effect> {
                     return None;
                 }
                 hunk.push(line);
-            } else if operation == FileOperation::Add && !line.starts_with('+') {
-                return None;
-            } else if operation == FileOperation::Delete {
+            } else if (operation == FileOperation::Add && !line.starts_with('+'))
+                || operation == FileOperation::Delete
+            {
                 return None;
             }
         }

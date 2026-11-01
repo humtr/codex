@@ -886,7 +886,22 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
         hold: true,
     });
     let bridge = McpBridge::new(app, broker.clone(), journal, "My Owned Connector".into()).unwrap();
-    let catalog=format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n{}",serde_json::to_string(&parsed().tools).unwrap());
+    // Two pending independent reads may coexist. Unknown exec effects are
+    // serialized by Native resource arbitration and cannot exercise the
+    // per-owner cancellation behavior this test is intended to prove.
+    let mut read_request = request();
+    read_request["tools"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}));
+    let tools = Request::parse(
+        read_request,
+        &Config::default(),
+        Some("owned-mcp-native-thread"),
+    )
+    .unwrap()
+    .tools;
+    let catalog=format!("Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n{}",serde_json::to_string(&tools).unwrap());
     let mut tokens = Vec::new();
     let mut waiting = Vec::new();
     let mut offered = Vec::new();
@@ -924,7 +939,7 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
                 &t,
                 Arguments {
                     call_id: "action".into(),
-                    name: "exec".into(),
+                    name: "clock.curr_time".into(),
                     input: "{}".into(),
                     report: "Run once".into(),
                 },

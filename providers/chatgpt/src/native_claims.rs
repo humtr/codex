@@ -35,6 +35,39 @@ struct Entry {
     effect: Effect,
     #[serde(default)]
     session: Option<u64>,
+    #[serde(default)]
+    owner: Option<ProcessOwner>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ProcessOwner {
+    pid: u32,
+    start: u64,
+}
+
+fn process_start(pid: u32) -> Result<u64, std::io::Error> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    stat.rsplit_once(')')
+        .and_then(|(_, rest)| rest.split_whitespace().nth(19))
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| std::io::Error::other("invalid process identity"))
+}
+
+impl ProcessOwner {
+    fn current() -> Result<Self, String> {
+        let pid = std::process::id();
+        let start = process_start(pid).map_err(|_| "native_resource_process_unavailable")?;
+        Ok(Self { pid, start })
+    }
+
+    fn departed(&self) -> bool {
+        match process_start(self.pid) {
+            Ok(start) => start != self.start,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            // Permission errors or malformed /proc are not departure proof.
+            Err(_) => false,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -43,7 +76,7 @@ struct Ledger {
 }
 
 pub(crate) struct Guard {
-    ledger: Option<Ledger>,
+    ledger: Ledger,
     identity: String,
     thread: String,
     tool: String,
@@ -52,6 +85,13 @@ pub(crate) struct Guard {
 
 fn fail() -> String {
     "native_resource_journal_unavailable".to_owned()
+}
+
+fn fingerprint(tool: &str, input: &str, cwd: &Path) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(format!("{tool}\0{input}\0{}", cwd.display()).as_bytes())
+    )
 }
 
 fn private_directory(path: &Path) -> Result<(), String> {
@@ -215,6 +255,78 @@ fn process_status(value: &serde_json::Value) -> (Option<u64>, bool) {
 }
 
 impl Guard {
+    /// Reconcile only a Provider call that its authoritative journal still
+    /// marks as *not offered*. No upstream handler may have received that
+    /// call. A crash between the shared claim and the offer journal commit can
+    /// therefore leave an orphaned reservation that is safe to replace.
+    /// This must never be used for a previously offered or uncertain call.
+    pub(crate) fn reconcile_unoffered(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        call_id: &str,
+        tool: &str,
+        input: &str,
+    ) -> Result<(), String> {
+        Self::clear_unoffered(cwd, private_test_home, thread, call_id, tool, input, false)
+    }
+
+    /// A known failed journal commit cannot have delivered the tool. It may
+    /// release its own same-process reservation immediately, but may never
+    /// revoke a different live process's unresolved claim.
+    pub(crate) fn abort_unoffered(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        call_id: &str,
+        tool: &str,
+        input: &str,
+    ) -> Result<(), String> {
+        Self::clear_unoffered(cwd, private_test_home, thread, call_id, tool, input, true)
+    }
+
+    fn clear_unoffered(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        call_id: &str,
+        tool: &str,
+        input: &str,
+        abort_current: bool,
+    ) -> Result<(), String> {
+        if native_effect::classify(tool, input, Some(cwd)) == Effect::Read {
+            return Ok(());
+        }
+        let ledger = match private_test_home {
+            Some(home) => Ledger::at(cwd, home)?,
+            None => Ledger::new(cwd)?,
+        };
+        let cwd = fs::canonicalize(cwd).map_err(|_| "native_workspace_unavailable".to_owned())?;
+        let identity = format!("{thread}:{call_id}");
+        let expected = fingerprint(tool, input, &cwd);
+        let current = ProcessOwner::current()?;
+        ledger.transact(|state| {
+            let Some(held) = state.claims.get(&identity) else {
+                return Ok(((), false));
+            };
+            if held.fingerprint != expected || held.thread != thread {
+                return Err("native_effect_identity_changed".into());
+            }
+            if held.session.is_some() {
+                return Err("native_effect_duplicate_unconfirmed".into());
+            }
+            if !held
+                .owner
+                .as_ref()
+                .is_some_and(|owner| owner.departed() || (abort_current && *owner == current))
+            {
+                return Err("native_effect_duplicate_unconfirmed".into());
+            }
+            state.claims.remove(&identity);
+            Ok(((), true))
+        })
+    }
+
     /// Provider Direct/AppHost offers reserve the very same OS-backed
     /// resources as other Provider-mediated routes. Provider keeps its
     /// original journal as the authoritative call/receipt owner.
@@ -226,6 +338,11 @@ impl Guard {
         tool: &str,
         input: &str,
     ) -> Result<(), String> {
+        // Proven reads have no resource claim. A failed/unavailable ledger must
+        // not turn an independent read into a blocked Native tool call.
+        if native_effect::classify(tool, input, Some(cwd)) == Effect::Read {
+            return Ok(());
+        }
         let ledger = match private_test_home {
             Some(home) => Ledger::at(cwd, home)?,
             None => Ledger::new(cwd)?,
@@ -254,10 +371,7 @@ impl Guard {
         };
         let cwd = fs::canonicalize(cwd).map_err(|_| "native_workspace_unavailable".to_owned())?;
         let identity = format!("{thread}:{call_id}");
-        let fingerprint = format!(
-            "{:x}",
-            Sha256::digest(format!("{tool}\0{input}\0{}", cwd.display()).as_bytes())
-        );
+        let fingerprint = fingerprint(tool, input, &cwd);
         let original_session = continuation(tool, input);
         ledger.transact(|state| {
             if let Some(record) = state.claims.get(&identity) {
@@ -276,7 +390,7 @@ impl Guard {
             Ok(((), false))
         })?;
         let mut observed = Self {
-            ledger: Some(ledger),
+            ledger,
             identity,
             thread: thread.into(),
             tool: tool.into(),
@@ -297,6 +411,11 @@ impl Guard {
         continued_session: Option<u64>,
         result: &serde_json::Value,
     ) -> Result<(), String> {
+        // AppHost receipts have no original input. Only tools proven to be
+        // reads even without input can bypass a broken shared writer ledger.
+        if continued_session.is_none() && native_effect::classify(tool, "", None) == Effect::Read {
+            return Ok(());
+        }
         let ledger = match private_test_home {
             Some(home) => Ledger::at(cwd, home)?,
             None => Ledger::new(cwd)?,
@@ -319,36 +438,13 @@ impl Guard {
             return Ok(());
         }
         let mut observed = Self {
-            ledger: Some(ledger),
+            ledger,
             identity,
             thread: thread.into(),
             tool: tool.into(),
             continuation: continued_session,
         };
         observed.observed(Some(result))
-    }
-
-    /// Only the final handler dispatch calls this, after upstream approval and
-    /// input rewrites. "Read" does not hold any write claim.
-    pub(crate) fn begin(
-        cwd: &Path,
-        thread: &str,
-        call_id: &str,
-        tool: &str,
-        input: &str,
-    ) -> Result<Self, String> {
-        // A verified read never needs to create or open shared writer state;
-        // it remains available even when that store is unavailable.
-        if native_effect::classify(tool, input, Some(cwd)) == Effect::Read {
-            return Ok(Self {
-                ledger: None,
-                identity: format!("{thread}:{call_id}"),
-                thread: thread.into(),
-                tool: tool.into(),
-                continuation: None,
-            });
-        }
-        Self::begin_with(cwd, thread, call_id, tool, input, Ledger::new(cwd)?)
     }
 
     fn begin_with(
@@ -367,19 +463,8 @@ impl Guard {
         let effect = native_effect::classify(tool, input, Some(&workspace));
         let identity = format!("{thread}:{call_id}");
         let existing_session = continuation(tool, input);
-        if effect == Effect::Read {
-            return Ok(Self {
-                ledger: None,
-                identity,
-                thread: thread.into(),
-                tool: tool.into(),
-                continuation: None,
-            });
-        }
-        let fingerprint = format!(
-            "{:x}",
-            Sha256::digest(format!("{tool}\0{input}\0{}", workspace.display()).as_bytes())
-        );
+        let fingerprint = fingerprint(tool, input, &workspace);
+        let owner = ProcessOwner::current()?;
         let resumed = ledger.transact(|state| {
             if let Some(existing) = state.claims.get(&identity) {
                 return Err(if existing.fingerprint == fingerprint {
@@ -414,13 +499,14 @@ impl Guard {
                         fingerprint,
                         effect,
                         session: None,
+                        owner: Some(owner),
                     },
                 );
                 Ok((false, true))
             }
         })?;
         Ok(Self {
-            ledger: Some(ledger),
+            ledger,
             identity,
             thread: thread.into(),
             tool: tool.into(),
@@ -428,21 +514,15 @@ impl Guard {
         })
     }
 
-    /// A dropped guard intentionally preserves the record. Missing output is
-    /// not evidence that a possibly-running child has stopped.
+    /// Only an actual handler result may settle a claim. A dropped future
+    /// or an absent receipt never proves completion, including apply_patch.
     pub(crate) fn observed(&mut self, result: Option<&serde_json::Value>) -> Result<(), String> {
-        let Some(ledger) = self.ledger.as_ref() else {
+        let Some(result) = result else {
             return Ok(());
         };
-        let (running, exited) = result.map(process_status).unwrap_or((None, false));
+        let (running, exited) = process_status(result);
         let session = self.continuation;
-        let uncertain = (self.tool == "functions.exec_command"
-            || self.tool == "functions.write_stdin")
-            && result.is_none();
-        ledger.transact(|state| {
-            if uncertain {
-                return Ok(((), false));
-            }
+        self.ledger.transact(|state| {
             if let Some(session) = session {
                 if exited {
                     state.claims.retain(|_, held| {
@@ -526,6 +606,7 @@ mod tests {
                         fingerprint: "a".into(),
                         effect: a.clone(),
                         session: None,
+                        owner: Some(ProcessOwner::current().unwrap()),
                     },
                 );
                 Ok(((), true))
@@ -560,6 +641,13 @@ mod tests {
         );
         let mut second = apply(&cwd, &home, "two", "other", "b").unwrap();
         first.observed(None).unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "third", "unconfirmed", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy"),
+            "a missing apply_patch result cannot free an unfinished write"
+        );
         // A completed patch handler result is a terminal observation.
         first
             .observed(Some(&serde_json::json!({"output":"patched"})))
@@ -625,24 +713,34 @@ mod tests {
         let home = root();
         fs::write(cwd.join("a"), "old\n").unwrap();
         let _writing = apply(&cwd, &home, "writer", "patch", "a").unwrap();
-        let reader = Guard::begin(
+        // An unusable shared journal must not prevent read-only calls,
+        // including while an unrelated write reservation is present.
+        let blocked_home = home.join("not-a-directory");
+        fs::write(&blocked_home, "cannot create a journal beneath a file").unwrap();
+        for (thread, call_id, input) in [
+            ("reader", "cat", r#"{"cmd":"cat a"}"#),
+            ("reader-2", "pwd", r#"{"cmd":"pwd"}"#),
+        ] {
+            Guard::offer_external(
+                &cwd,
+                Some(&blocked_home),
+                thread,
+                call_id,
+                "functions.exec_command",
+                input,
+            )
+            .unwrap();
+        }
+        Guard::settle_external_receipt(
             &cwd,
+            Some(&blocked_home),
             "reader",
-            "cat",
-            "functions.exec_command",
-            r#"{"cmd":"cat a"}"#,
+            "time",
+            "clock.curr_time",
+            None,
+            &serde_json::json!({"value":"read result"}),
         )
         .unwrap();
-        assert!(reader.ledger.is_none());
-        let other_reader = Guard::begin(
-            &cwd,
-            "reader-2",
-            "pwd",
-            "functions.exec_command",
-            r#"{"cmd":"pwd"}"#,
-        )
-        .unwrap();
-        assert!(other_reader.ledger.is_none());
         assert_eq!(
             native_effect::classify(
                 "functions.exec_command",
@@ -748,5 +846,93 @@ mod tests {
         let second = apply(&second_root, &home, "two", "update", "a").unwrap();
         assert_eq!(first.tool, "functions.apply_patch");
         assert_eq!(second.tool, "functions.apply_patch");
+    }
+
+    #[test]
+    fn unoffered_reservation_is_reclaimed_but_running_process_is_not() {
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let input = "*** Begin Patch\n*** Update File: a\n@@\n-old\n+new\n*** End Patch\n";
+        Guard::offer_external(
+            &cwd,
+            Some(&home),
+            "direct",
+            "one",
+            "functions.apply_patch",
+            input,
+        )
+        .unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "second", "two", "a").err().as_deref(),
+            Some("native_resource_busy")
+        );
+        assert_eq!(
+            Guard::reconcile_unoffered(
+                &cwd,
+                Some(&home),
+                "direct",
+                "one",
+                "functions.apply_patch",
+                input,
+            )
+            .err()
+            .as_deref(),
+            Some("native_effect_duplicate_unconfirmed"),
+            "same-process work cannot be mistaken for a crashed owner"
+        );
+        Ledger::at(&cwd, &home)
+            .unwrap()
+            .transact(|state| {
+                state.claims.get_mut("direct:one").unwrap().owner = Some(ProcessOwner {
+                    pid: std::process::id(),
+                    start: 0,
+                });
+                Ok(((), true))
+            })
+            .unwrap();
+        Guard::reconcile_unoffered(
+            &cwd,
+            Some(&home),
+            "direct",
+            "one",
+            "functions.apply_patch",
+            input,
+        )
+        .unwrap();
+        let mut second = apply(&cwd, &home, "second", "two", "a").unwrap();
+        second
+            .observed(Some(&serde_json::json!({"output":"patched"})))
+            .unwrap();
+
+        let mut running = Guard::begin_with(
+            &cwd,
+            "third",
+            "process",
+            "functions.exec_command",
+            r#"{"cmd":"sleep 30"}"#,
+            Ledger::at(&cwd, &home).unwrap(),
+        )
+        .unwrap();
+        running
+            .observed(Some(&serde_json::json!({
+                "output":"Process running with session ID 42\nOutput:\nstarted"
+            })))
+            .unwrap();
+        assert_eq!(
+            Guard::reconcile_unoffered(
+                &cwd,
+                Some(&home),
+                "third",
+                "process",
+                "functions.exec_command",
+                r#"{"cmd":"sleep 30"}"#,
+            )
+            .err()
+            .as_deref(),
+            Some("native_effect_duplicate_unconfirmed")
+        );
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
     }
 }
