@@ -1402,7 +1402,7 @@ fn read_focus_window(context: &Context) -> bool {
     metadata.is_file()
         && !metadata.file_type().is_symlink()
         && metadata.permissions().mode() & 0o7777 == PRIVATE_FILE_MODE
-        && read_bounded(&path).is_ok_and(|bytes| bytes == b"tmux\n" || bytes == b"window\n")
+        && read_bounded(&path).is_ok_and(|bytes| bytes == b"window\n")
 }
 
 fn publish_focus_window(context: &Context, enabled: bool) -> Result<(), ManagerError> {
@@ -2865,9 +2865,9 @@ mod tests {
         assert!(read_focus_window(&context));
         publish_focus_window(&context, true).unwrap();
         assert!(read_focus_window(&context));
-        // Old persisted focus records are passively readable without tmux support.
+        // Removed legacy setting is invalid and cannot silently select a window.
         fs::write(dir.join("focus-v1"), b"tmux\n").unwrap();
-        assert!(read_focus_window(&context));
+        assert!(!read_focus_window(&context));
         assert_eq!(fs::read(dir.join(NOTIFY_CONFIG)).unwrap(), original);
         let path = dir.join("focus-v1");
         assert_eq!(

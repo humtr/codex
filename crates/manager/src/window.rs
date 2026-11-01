@@ -140,7 +140,7 @@ pub(super) fn launch(
     let token = random()?;
     let name = format!("codex-{token}");
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
-    let path = prepare(context, profile, args, program, "window", &token)?;
+    let path = prepare(context, profile, args, program, &token)?;
     sync_directory(&directory).map_err(|_| ERROR)?;
     if !service(
         &name,
@@ -174,7 +174,6 @@ fn prepare(
     profile: Option<&ProfileTarget>,
     args: &[OsString],
     program: Option<&Path>,
-    purpose: &str,
     token: &str,
 ) -> Result<PathBuf, ManagerError> {
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
@@ -187,7 +186,7 @@ fn prepare(
         .map(|(key, value)| serde_json::json!([bytes(&key), bytes(&value)]))
         .collect();
     let pid = std::process::id();
-    let record = serde_json::json!({"schema":"codex-window-launch-v1","purpose":purpose,"pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"mode":"off","args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
+    let record = serde_json::json!({"schema":"codex-window-launch-v1","pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
     let directory = directory(context)?;
     prune_pending(&directory);
     let path = directory.join(format!("launch-{token}"));
@@ -246,10 +245,7 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
         // Exactly one starter can claim the launch; no hard link is used.
         rename_noreplace(&request, &consumed).map_err(|_| ERROR)?;
         let record = read_launch(&consumed)?;
-        if record["schema"] != "codex-window-launch-v1"
-            || record["name"] != format!("codex-{id}")
-            || record["purpose"] != "window"
-        {
+        if record["schema"] != "codex-window-launch-v1" || record["name"] != format!("codex-{id}") {
             return Err(ERROR);
         }
         let environment = record["env"].as_array().ok_or(ERROR)?;
@@ -300,9 +296,6 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
             .as_str()
             .map(|p| parse_target(&OsString::from(p)))
             .transpose()?;
-        if record["mode"] != "off" {
-            return Err(ERROR);
-        }
         // Clean before exec; only the small live route remains.
         fs::remove_file(&consumed).map_err(|_| ERROR)?;
         if record["program"].is_null() {

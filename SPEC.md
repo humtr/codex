@@ -904,10 +904,9 @@ cannot replace the originating terminal. Visible titles remain presentation.
 
 Manager owns `notify set --focus window|termux`. Default is window;
 `termux` selects Activity-only return. The private notifications/focus-v1
-contains `window\n` or `termux\n`. Existing `tmux\n` records remain
-readable as window for persisted-state compatibility, but the `tmux`
-command-line alias is no longer accepted. Absent state uses window;
-malformed/insecure state uses Activity-only return. For a canonical hook
+contains `window\n` or `termux\n`. The removed `tmux` setting
+is invalid in both stored records and command-line input. Absent state uses
+window; malformed/insecure state uses Activity-only return. For a canonical hook
 session_id in window mode, Manager uses installed Core's safely quoted
 private `__terminal-focus-v1 UUID` action; no AI executable is needed.
 Malformed or ambiguous IDs preserve the ordinary notification and cannot

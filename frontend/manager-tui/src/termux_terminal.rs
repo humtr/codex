@@ -130,12 +130,10 @@ mod tests {
     fn foreground_slot_updates_without_title_or_manager() {
         let mut slot = Slot::new().unwrap();
         let path = format!("/proc/self/fd/{}", slot.file.as_raw_fd());
-        assert!(
-            std::fs::read_link(&path)
-                .unwrap()
-                .to_string_lossy()
-                .ends_with(" (deleted)")
-        );
+        assert!(std::fs::read_link(&path)
+            .unwrap()
+            .to_string_lossy()
+            .ends_with(" (deleted)"));
         assert_eq!(slot.file.metadata().unwrap().mode() & 0o777, 0o600);
         assert_ne!(
             unsafe { libc::fcntl(slot.file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
@@ -193,30 +191,26 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();
         let test_name = std::thread::current().name().unwrap().to_owned();
-        for inside_tmux in [false, true] {
-            let mut command = Command::new(std::env::current_exe().unwrap());
-            command
-                .args(["--exact", &test_name, "--nocapture"])
-                .env("CODEX_TERMINAL_TEST_ROOT", &root)
-                .env("CODEX_PROFILE_CORE", &core)
-                .env_remove("TMUX")
-                .env_remove("TMUX_PANE");
-            if inside_tmux {
-                command.env("TMUX", "owned-fixture").env("TMUX_PANE", "%0");
-            }
-            let child = command.output().unwrap();
-            assert!(
-                child.status.success(),
-                "tmux={inside_tmux}: {}",
-                String::from_utf8_lossy(&child.stdout)
-            );
-            assert!(
-                String::from_utf8_lossy(&child.stdout).contains("1 passed; 0 failed;"),
-                "nonzero child gate required"
-            );
-            assert!(output.exists());
-            std::fs::remove_file(&output).unwrap();
-        }
+        // The Manager supports direct terminal registration only.
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &test_name, "--nocapture"])
+            .env("CODEX_TERMINAL_TEST_ROOT", &root)
+            .env("CODEX_PROFILE_CORE", &core)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success(),
+            "{}",
+            String::from_utf8_lossy(&child.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&child.stdout).contains("1 passed; 0 failed;"),
+            "nonzero child gate required"
+        );
+        assert!(output.exists());
+        std::fs::remove_file(&output).unwrap();
         std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o722)).unwrap();
         assert!(!register(&core, &slot.file));
         std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();

@@ -23,6 +23,5 @@ Do not reenable it merely to satisfy old tests. A future change would
 require a new product decision and an updated active SDD.
 
 Current functionality is implemented in `crates/manager/src/launch.rs`,
-`terminal.rs`, `window.rs` and `origin.rs`. Passive reading of historical
-`focus-v1` value `tmux\n` is a settings-data compatibility measure,
-not support for tmux launch or pane selection.
+`terminal.rs`, `window.rs` and `origin.rs`. Historical `focus-v1` value `tmux\n` is no longer accepted.
+This archive is reference material and provides no compatibility runtime.
