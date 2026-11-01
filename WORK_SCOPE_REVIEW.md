@@ -513,7 +513,7 @@ Codex-work와 오케스트레이션은 원래의 durable 기록/재개 기능을
 |1. `mcp.rs::http`, `operator.rs::http`, `runtime.rs::mcp_stdio`, local-function 호출자 | host `_meta`와 model arguments를 구분해 호출 문맥을 전달. 인증된 연결을 권한 기준으로 유지. anonymous session은 후보 문맥 조회에만 사용 | metadata 부재/타입 오류/다른 subject·connector·branch가 이전 Native 작업의 자동 선택으로 이어지지 않음. 양쪽 ingress의 같은 의미 검증 |
 |2. `operator.rs::{Selection,Inference,call,create/join/start,tools}`, `config.rs`, 기존 journal | 개발 모드와 추론 접속을 분리해 old reasoning API/enum/caller/codec을 함께 교체. Native 참가·도구·오케스트레이션은 진입점과 무관하게 integrated. Native는 기존 work/controller/receipt, standalone은 허용된 로컬 문맥 사용. 단독 고정은 서버에서 강제 | 양쪽 통합 개발 진입이 같은 작업 admission·지침·권한·도구·이벤트 절차를 통과. 원본 old direct 기록의 오해석·중복 모델 호출 없음. 잘못된 Native 호출은 dispatch 전 거절 |
 |3. `operator_native.rs::{Owner,Native,Pool}`와 Core의 app-server 준비 호출 | 검증된 socket/RPC/owner 수명주기 재사용. 로컬 준비에서 model routing/catalog·`thread/read`·rollout 의존을 분리. Native용 준비/원본 이력은 유지 | 인증/모델 catalog 없는 실제 Core 연결에서 로컬 I/O 성공. Native thread/turn 생성0. 현재 Pool::prepare 전체를 그대로 로컬 준비로 사용하지 않음 |
-|4. 기존 `operation.rs`와 로컬 I/O 소비부 | intent/result·동시 observer·불확실 효과 reconciliation 재사용. Core fs/command 원결과·process handle 반환. 허용 접근/승인과 작업 지침 전달. raw fs를 cwd 제한으로 오인하는 경로 금지 | 실제 수정·시험·긴 출력·PTY/Stop·응답 유실·재접속, 동일 호출 재전송 효과1회, 입력 변경 시 거절. 권한/응답 품질 축소 없음 |
+|4. 기존 `operation.rs`와 로컬 I/O 소비부 | intent/result·동시 observer·불확실 효과 reconciliation 재사용. Core command 원결과·process handle 반환; 파일 작업도 같은 명시적 Core 권한 프로필로 실행. 허용 접근/승인과 작업 지침 전달. raw fs를 cwd 제한으로 오인하는 경로 금지 | 실제 수정·시험·긴 출력·PTY/Stop·응답 유실·재접속, 동일 호출 재전송 효과1회, 입력 변경 시 거절. 권한/응답 품질 축소 없음 |
 |5. `mcp.rs`, `mcp_bridge.rs`, `app_bridge.js`와 등록/문서 | 같은 operation을 고정 도구 계약으로 노출. MCP/local function의 운반·caller-return 차이만 유지. JS는 앱 SDK와 렌더러 연결, Rust는 정책/상태/복구 소유 | 로컬/등록/실호스트 schema 일치. 실제 Linux 모델의 로컬 작업과 선택 Native 작업 비교; Android/웹은 각 해당 소비자 시험 |
 |6. Manager/TUI/알림 및 기존 자격검증 driver | Native 기록을 원할 때 기존 이력/CLI/알림 유지. 로컬 작업의 완료를 Native 이벤트로 만들지 않음. 알림 숨김·사후 기록 삭제로 대체하지 않음 | 같은 수정 과제의 결과·지침·도구·시험 충실도 비교, 저장/활성 TUI/물리 알림 각각 합격. 기존 운영 데이터와 활성 작업 보존 |
 
@@ -530,8 +530,13 @@ transfer를 명시적으로 변환하고 Provider21/Provider14 역변환을 제�
 metadata의 관련 작업 후보 표시, Core threadless 실행을 재사용한 local_context/local_execute/local_process와
 설정 기반 workflow_lock이 소스에 반영됐다. 실제 Android MCP→Provider→Core 시험과 모델의
 의도 선택·실호스트 시험 및 설치 활성화는 다른 경계이며 diagnostic만으로 전체 완료라고 하지 않는다. CURRENT가 최신 시험 상태를 소유한다.
-사용자의 빌드 묶음 방침에 따라 소스를 준비한 뒤 유효한 분량을 모아 실제 빌드·전체
-권한/품질 수용 시험을 수행한다. 설치·운영 활성화는 그 이후 별도 관찰한다.
+사용자가 요청한 완료지점에서 source2a837cc의 누적 릴리스 빌드를 수행했다. 새 Core·
+Manager·Provider·릴리스 도구와 입력이 같은 기존 TUI/runtime을 실제 Android에서 검증했다.
+같은 Linux ChatGPT 대화의 현재 일반 Thinking 응답도 새 MCP 스키마의 오류 안내를 받아
+인자를 바로잡고, 원문 입력·문맥 수락·도구 원결과·시험6개·최종 완료를 Native 작업1개에
+남겼다. 추가 primary 추론·단독 도구 우회는 없었다. 이 명시적 전환의 성공을 모든 모호한
+의도의 자동 판별로 확대하지 않는다. 실제 모델 시험과 별도의 synthetic-host 실시간 TUI
+시험은 구분하며, 설치·운영 활성화와 공개 배포도 별도다. 최신 근거·한계는 CURRENT를 따른다.
 
 ## 12. 이번 검토로 바뀌는 우선순위
 
@@ -543,14 +548,18 @@ metadata의 관련 작업 후보 표시, Core threadless 실행을 재사용한 
 stdio metadata 보존·실제 command 수명주기·raw API 경계 시험, 실제 Linux 앱/MCP 모델
 6요청·branch/restart와 이전 Android 원본 재대조, SPEC의 실행 의미 계약과 선정 설계다.
 초기 검토에서는 한시적 시험용 MCP/터널을 등록했고 제품 소스 구현/배포/빌드는 하지
-않았다. 이후 통합 개발의 추론 접속 명칭·변환과 Native 보조 요청 분리는 소스에
-반영·검증 중이며, 최신 완료/잔여 범위는 CURRENT를 따른다.
+않았다. 이후 통합 개발의 추론 접속 명칭·변환, Native 보조 요청 분리, threadless 단독
+MCP 도구, 고정 workflow admission과 인자 오류 안내를 소스에 반영하고 누적 빌드했다.
+Android 실행·비공개 패키지 수명주기 및 Linux 실제 모델의 명시적 전환도 통과했으며,
+최신 완료/잔여 범위는 CURRENT를 따른다.
 시험 driver와 원본 결과·Native 기록은 보존했고, 종료가 확인된 두 fixture의 payload는
 clean_development.py로 manifest 대조·보관 후 정리했다. 복원 기록은 같은 증거 루트의
 scope-fixture-payload-cleanup.jsonl과 clean-fixture-payload-cleanup.jsonl이다.
 추가 수명주기 fixture의 생성 payload6개도 종료·manifest·보관본 검증 후 약728MiB를
 회수했다. lifecycle-fixture-payload-cleanup.jsonl이 복원/제거 근거이며 원본 프로토콜과
 실행 파일 이외의 소스·결과·Native 상태는 보존했다.
-남은 제품 수용 경계는 정책 강제, 다른 계정·동시 작업, 선택적 두 고정 프로필의 호스트
-진입 제약, 전체 권한·도구/문맥 품질 동등성과 장기 process/재접속이다. 실제 호스트가
-session을 준다는 사실과 그 값으로 branch/work를 선택할 수 없다는 사실을 함께 반영한다.
+서버의 고정 workflow와 명시적 Core 프로필은 실제 admission·실행에서 검증했다. 남은
+제품 수용 경계는 다른 계정·동시/모호한 의도의 선택, standalone 렌더러 local-function
+진입, Native 턴별 승인·리뷰와의 차이, 실제 양쪽 화면의 장기 재접속 및 공개 배포·설치다.
+실제 호스트가 session을 준다는 사실과 그 값으로 branch/work를 선택할 수 없다는 사실을
+함께 반영한다.

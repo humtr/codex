@@ -110,9 +110,10 @@ and existing upstream fs/readFile, fs/writeFile and command/exec success with no
 thread/turn/inference/notification. A separate fresh home also passes without
 Native authentication, Provider configuration or a saved model catalog. These are
 Core/native API proofs, not a new ChatGPT MCP/local-function product acceptance.
-Proof root: ~/.cache/codex/acceptance/work-scope-review-20261031. User sessions,
-operating configuration and installed components are unchanged; no product
-release build or device activation.
+Proof root: ~/.cache/codex/acceptance/work-scope-review-20261031. That investigation
+did not change user sessions, operating configuration or installed components.
+The accumulated local release candidate is qualified separately below; device
+activation has not occurred.
 
 The latest requirement is selection without repeated manual prompting. Keep entry
 defaults, explicit task contexts and transitions; two connections do not remove
@@ -225,7 +226,7 @@ LINUX_INTEGRATED_TRANSITION snapshot/graph and the edited fixture are preserved.
 The owned Linux fixture's planned20-minute lifetime ends and its processes exit;
 its records are retained before a diagnostic-only restart. Production host and
 services remain untouched.
-Correction under qualification: action requirements now share one declaration
+The allocation-contract repair is implemented: action requirements share one declaration
 between schema and admission, with cause-specific pre-effect guidance, clear
 allocation→start separation, original-task instructions and AppHost/Core boundary.
 Arguments alone cannot change the requested workflow. Actual local HTTP and the
@@ -244,15 +245,64 @@ observation timed out. New connector creation is rejected with424 carrying the
 MCP gateway's429; no new model request is made. The previous trial Provider is
 also later observed absent; its exit cause is unobserved and is not claimed as
 the cause of429. Foreground trial processes are not assumed to survive recovery.
-Matching new-host schema and same-Chat actual-model requalification remain pending;
-source/native proof does not promote that failed transition to success.
-The user requests one accumulated product build at this completed local/native
-qualification milestone. Prepare a local candidate from the accepted source,
-including pending Core/Manager/TUI inputs, while the external trial is unavailable;
-public delivery and device activation remain separate gates.
+The subsequent accumulated candidate's actual-host proof below qualifies the
+repair. The original failed transition and gateway429 remain original failures;
+the later successful trial does not establish the earlier429's cause.
+
+**Accumulated local candidate: source2a837cc, built and qualified on Android.**
+Core, Manager, release-builder and ChatGPT Provider were built with the locked
+release profile, one compiler, debug information0 and incremental output disabled.
+The retained upstream0.166.0 runtime and source59b92d2 TUI are reused: their recipe/
+frontend inputs are unchanged at2a837cc, and the retained TUI bytes were verified.
+All five executables and their exact inputs remain outside mutable Cargo targets
+at ~/.cache/codex/acceptance/workflow-milestone-20261101/{bin,build-inputs.json}.
+This is a local candidate, not a publicly signed Full generation or an installed
+Provider upgrade. The operating Full131/Provider21 state remains unchanged.
+
+The new release Core/Manager pass actual --config, --profile and no-Native-login
+startup, retaining model/effort, saved defaults, sibling execution, Manager owner
+discovery and the original TUI final. All six owned server exits are kernel-
+confirmed (startup-android.json). The new release Provider's actual HTTP MCP→Core
+standalone suite passes file read/write/test, exact concurrent/settled retry,
+binary output, complete2MiB output, stdin/EOF, PTY resize, Stop and sibling
+preservation, commands beyond30s, restart uncertainty and configured admission.
+Native threads/rollouts/notification effects remain0 during its standalone phase
+(standalone-android.json). Integrated Android acceptance passes the existing
+same-source Operator service harness with the release Core/CLI Provider, actual
+TUI progress/final, title isolation, allocation diagnostics, cold continuation,
+automatic synthetic reviewer, compaction, questions, Stop/restart, dependencies
+and descendant controls (integrated-android.json). Its model host is synthetic.
+The new release builder/Core/Provider also pass signed private Base/Full package
+installation, localhost TLS download, rejection, authority/rollback and profile
+preservation:92/91 lifecycle steps (package-android.json). Private fixture signing
+does not qualify public delivery or change installed authority.
+
+Actual Linux ChatGPT/SDK/MCP now passes the same original Chat's explicit
+standalone→integrated transition with the release Provider/Core. The authenticated
+identity is unchanged; the owned tunnel is freshly observed running/ready/healthy,
+and the registered host's tools/list exposes all3 allocation contract conditions.
+One ordinary gpt-6-thinking/standard primary request (Pro0) initially makes two
+invalid allocations. The host rejects them through the declared allOf schema,
+before Provider admission; the model corrects those arguments and creates one
+attached work, starts it with the exact original user task, accepts its context
+receipt, records progress, reads/patches/tests through3 original Native tool
+results, preserves the four existing tests and passes all6 tests. Native work and
+the host stream complete, without standalone fallback or another primary model
+submission. One bounded saved-Chat read independently confirms the successful
+original final (linux-actual-model.json and retained private graph/Native records).
+The actual-model trial does not include a live TUI or physical handset observation;
+the separate synthetic-host Android suite above owns the live TUI proof.
+The owned diagnostic connector and tunnel have404 deletion readback; its isolated
+alias is removed. The Linux host/display, Provider and Native server have confirmed
+exit, and the identical fixture auth copy is removed. This batch's manifest/archive
+cleanup reclaims5991436288 allocated bytes (5.58GiB), retaining original source,
+graphs, operation/Native results, restoration logs and the candidate executables.
+Reusable compiler caches total14.55GiB, within the current15GiB budget.
 Standalone renderer local-function ingress has no implemented caller yet.
-Actual-model intent selection, per-turn approval/reviewer parity, signed packaging
-and device activation remain unqualified; local/backend success does not imply those boundaries passed.
+Ambiguous/different-account/concurrent intent selection, standalone per-turn
+approval/reviewer parity, matched public delivery and device activation remain
+unqualified. Standalone's implemented permission contract is an explicit standing
+Core profile; it is not a claim of Native turn-level reviewer parity.
 
 Additional bounded Android proof verifies installed Provider21 stdio preserves
 all7 concurrent synthetic request envelopes, including separate/missing metadata
@@ -293,11 +343,11 @@ After confirmed process exit, the standard manifest/archive cleaner reclaimed
 763633664 bytes of generated lifecycle payloads; original protocol/results and
 source remain, with lifecycle-fixture-payload-cleanup.jsonl for restoration.
 
-Build cadence: finish the invocation-startup build already running at source59b92d2
-and its required qualification. Subsequent source changes accumulate in the
-existing work order; do not start a product build/release for each change. Group
-build and delivery when a useful batch is ready, preserving the distinction
-between reviewed source and built, qualified or activated behavior.
+Build cadence: the requested accumulated source2a837cc build and its local
+qualification are complete. Subsequent source changes accumulate in the existing
+work order; do not start a product build/release for each change. Group build and
+delivery when a useful batch is ready, preserving the distinction between reviewed
+source and built, qualified, publicly delivered or activated behavior.
 
 **The device selects signed Full131/upstream0.166.0, with Manager and the matching
 enhanced TUI; previous is signed Base128.** Newly launched Codex clients use that
