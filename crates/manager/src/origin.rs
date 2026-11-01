@@ -1,9 +1,8 @@
-//! Existing Termux terminal references. Names and tmux IDs are not Android addresses.
+//! Existing Termux terminal references. Visible names and titles are not Android addresses.
 use super::*;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
 const SCHEMA: &str = "termux-terminal-origin-v1";
-pub(super) const OPTION: &str = "@termux_origin_v1";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Origin {
     pub handle: String,

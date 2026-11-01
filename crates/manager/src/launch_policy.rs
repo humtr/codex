@@ -56,7 +56,7 @@ pub(super) fn execute(
         return Ok(None);
     }
     if local && std::env::var_os(window::READY_ENV).is_none() {
-        return tmux_launch::automatic(context, upstream);
+        return launch::automatic(context, upstream);
     }
     Err(ERR_USAGE)
 }

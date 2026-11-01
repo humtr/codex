@@ -3,11 +3,8 @@ use super::{canonical_session_id, Context, ManagerError, ERR_USAGE};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
 
 const ERROR: ManagerError = ManagerError::operation("codex termux: terminal binding unavailable");
 
@@ -53,36 +50,6 @@ fn native(home: &Path, executable: &Path) -> bool {
     let parts: Vec<_> = relative.components().collect();
     (parts.len() == 2 && parts[1].as_os_str() == "runtime")
         || (parts.len() == 3 && parts[1].as_os_str() == "helpers" && parts[2].as_os_str() == "2")
-}
-
-fn tmux(socket: &Path, args: &[&str]) -> Result<String, ManagerError> {
-    let mut child = Command::new("tmux")
-        .arg("-u")
-        .arg("-S")
-        .arg(socket)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| ERROR)?;
-    let deadline = Instant::now() + Duration::from_millis(500);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => {
-                let output = child.wait_with_output().map_err(|_| ERROR)?;
-                return String::from_utf8(output.stdout)
-                    .map(|v| v.trim().to_owned())
-                    .map_err(|_| ERROR);
-            }
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(ERROR);
-            }
-        }
-    }
 }
 
 fn slot(
@@ -138,64 +105,6 @@ fn slot(
     Ok(content)
 }
 
-fn pane_runtime(
-    context: &Context,
-    parent: u32,
-    identity: (u32, u64),
-    root_pid: u32,
-    tty: &str,
-) -> Result<(u32, u64), ManagerError> {
-    let root_identity = process(root_pid)?;
-    let device = fs::metadata(tty).map_err(|_| ERROR)?.rdev();
-    if !tty.starts_with("/dev/pts/")
-        || device == 0
-        || fs::metadata(format!("/proc/{root_pid}/fd/0"))
-            .map_err(|_| ERROR)?
-            .rdev()
-            != device
-    {
-        return Err(ERROR);
-    }
-    if parent != root_pid {
-        if identity.0 != root_pid {
-            return Err(ERROR);
-        }
-        let bytes = fs::read(format!("/proc/{root_pid}/cmdline")).map_err(|_| ERROR)?;
-        let argv: Vec<_> = bytes.split(|b| *b == 0).filter(|v| !v.is_empty()).collect();
-        let supervisor = context.home.join(".config/ai/lib/ai_run.py");
-        if argv.len() != 3 || argv[1] != supervisor.as_os_str().as_encoded_bytes() {
-            return Err(ERROR);
-        }
-        let prefix = std::env::var_os("PREFIX").map(PathBuf::from).ok_or(ERROR)?;
-        if fs::read_link(format!("/proc/{root_pid}/exe")).map_err(|_| ERROR)?
-            != fs::canonicalize(prefix.join("bin/python3")).map_err(|_| ERROR)?
-        {
-            return Err(ERROR);
-        }
-        let plan: serde_json::Value = serde_json::from_slice(argv[2]).map_err(|_| ERROR)?;
-        if plan.get("auth_recovery").and_then(|v| v.as_bool()) != Some(true)
-            || !plan
-                .get("argv")
-                .and_then(|v| v.get(0))
-                .and_then(|v| v.as_str())
-                .is_some_and(|v| v == "codex" || Path::new(v) == prefix.join("bin/codex"))
-        {
-            return Err(ERROR);
-        }
-        let native_tty = fs::read_link(format!("/proc/{parent}/fd/0")).map_err(|_| ERROR)?;
-        if !native_tty.starts_with("/dev/pts") {
-            return Err(ERROR);
-        }
-    } else if fs::metadata(format!("/proc/{parent}/fd/0"))
-        .map_err(|_| ERROR)?
-        .rdev()
-        != device
-    {
-        return Err(ERROR);
-    }
-    Ok(root_identity)
-}
-
 pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
     let descriptor = args
         .first()
@@ -210,139 +119,75 @@ pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String
     let parent = process(std::process::id())?.0;
     let identity = process(parent)?;
     slot(context, parent, identity.1, descriptor)?;
-    if std::env::var_os("TMUX").is_none_or(|v| v.is_empty()) {
-        let route = if let Some(route) = super::window::inherited_route(context) {
-            route
-        } else {
-            let origin = super::origin::resolve().ok_or(ERROR)?;
-            if !super::origin::validate(&origin) {
-                return Err(ERROR);
-            }
-            serde_json::json!({"kind":"native","origin":serde_json::from_str::<serde_json::Value>(&origin.record()).map_err(|_| ERROR)?})
-        };
-        let metadata =
-            fs::metadata(format!("/proc/{parent}/fd/{descriptor}")).map_err(|_| ERROR)?;
-        let tty = fs::read_link(format!("/proc/{parent}/fd/0")).map_err(|_| ERROR)?;
-        if !tty.starts_with("/dev/pts") {
+    let route = if let Some(route) = super::window::inherited_route(context) {
+        route
+    } else {
+        let origin = super::origin::resolve().ok_or(ERROR)?;
+        if !super::origin::validate(&origin) {
             return Err(ERROR);
         }
-        let record = serde_json::json!({"schema":"codex-terminal-binding-v1","pid":parent,"start":identity.1,"fd":descriptor,"dev":metadata.dev(),"ino":metadata.ino(),"tty":tty,"route":route});
-        slot(context, parent, identity.1, descriptor)?;
-        let directory = super::window::directory(context)?;
-        prune(&directory);
-        let path = directory.join(format!("binding-{parent}-{}", identity.1));
-        match fs::symlink_metadata(&path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                super::write_new_record(&path, record.to_string().as_bytes())?;
+        serde_json::json!({"kind":"native","origin":serde_json::from_str::<serde_json::Value>(&origin.record()).map_err(|_| ERROR)?})
+    };
+    let metadata = fs::metadata(format!("/proc/{parent}/fd/{descriptor}")).map_err(|_| ERROR)?;
+    let tty = fs::read_link(format!("/proc/{parent}/fd/0")).map_err(|_| ERROR)?;
+    if !tty.starts_with("/dev/pts") {
+        return Err(ERROR);
+    }
+    let record = serde_json::json!({"schema":"codex-terminal-binding-v1","pid":parent,"start":identity.1,"fd":descriptor,"dev":metadata.dev(),"ino":metadata.ino(),"tty":tty,"route":route});
+    slot(context, parent, identity.1, descriptor)?;
+    let directory = super::window::directory(context)?;
+    prune(&directory);
+    let path = directory.join(format!("binding-{parent}-{}", identity.1));
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            super::write_new_record(&path, record.to_string().as_bytes())?;
+        }
+        Ok(_) => {
+            let previous = super::window::read(&path)?;
+            if previous.as_object().map(|v| v.len()) != record.as_object().map(|v| v.len())
+                || previous["schema"] != record["schema"]
+                || previous["pid"] != record["pid"]
+                || previous["start"] != record["start"]
+                || previous["tty"] != record["tty"]
+                || previous["route"] != record["route"]
+                || previous["fd"].as_u64().is_none_or(|v| v > 1048576)
+                || previous["dev"].as_u64().is_none()
+                || previous["ino"].as_u64().is_none()
+            {
+                return Err(ERROR);
             }
-            Ok(_) => {
-                let previous = super::window::read(&path)?;
-                if previous.as_object().map(|v| v.len()) != record.as_object().map(|v| v.len())
-                    || previous["schema"] != record["schema"]
-                    || previous["pid"] != record["pid"]
-                    || previous["start"] != record["start"]
-                    || previous["tty"] != record["tty"]
-                    || previous["route"] != record["route"]
-                    || previous["fd"].as_u64().is_none_or(|v| v > 1048576)
-                    || previous["dev"].as_u64().is_none()
-                    || previous["ino"].as_u64().is_none()
-                {
+            // Exec closes the old foreground FD while preserving PID/start.
+            // Publish the newly qualified FD without exposing a second target.
+            let temporary = directory.join(format!(
+                ".binding-{}-{}",
+                std::process::id(),
+                super::TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            super::write_new_record(&temporary, record.to_string().as_bytes())?;
+            let replaced = (|| {
+                slot(context, parent, identity.1, descriptor)?;
+                if super::window::read(&path)? != previous {
                     return Err(ERROR);
                 }
-                // Exec closes the old foreground FD while preserving PID/start.
-                // Publish the newly qualified FD without exposing a second target.
-                let temporary = directory.join(format!(
-                    ".binding-{}-{}",
-                    std::process::id(),
-                    super::TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                ));
-                super::write_new_record(&temporary, record.to_string().as_bytes())?;
-                let replaced = (|| {
-                    slot(context, parent, identity.1, descriptor)?;
-                    if super::window::read(&path)? != previous {
-                        return Err(ERROR);
-                    }
-                    fs::rename(&temporary, &path).map_err(|_| ERROR)
-                })();
-                if replaced.is_err() {
-                    let _ = fs::remove_file(temporary);
-                }
-                replaced?;
+                fs::rename(&temporary, &path).map_err(|_| ERROR)
+            })();
+            if replaced.is_err() {
+                let _ = fs::remove_file(temporary);
             }
-            Err(_) => return Err(ERROR),
+            replaced?;
         }
-        super::sync_directory(&directory).map_err(|_| ERROR)?;
-        return Ok(None);
+        Err(_) => return Err(ERROR),
     }
-    let pane = std::env::var("TMUX_PANE").map_err(|_| ERROR)?;
-    if !pane
-        .strip_prefix('%')
-        .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-    {
-        return Err(ERROR);
-    }
-    let environment = std::env::var("TMUX").map_err(|_| ERROR)?;
-    let socket = PathBuf::from(environment.rsplitn(3, ',').nth(2).ok_or(ERROR)?);
-    if !socket.is_absolute() {
-        return Err(ERROR);
-    }
-    let metadata = fs::metadata(&socket).map_err(|_| ERROR)?;
-    if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
-        return Err(ERROR);
-    }
-    let row = tmux(
-        &socket,
-        &[
-            "display-message",
-            "-p",
-            "-t",
-            &pane,
-            "#{pane_pid}:#{pane_dead}:#{pane_tty}",
-        ],
-    )?;
-    let fields: Vec<_> = row.split(':').collect();
-    if fields.len() != 3 {
-        return Err(ERROR);
-    }
-    let (root, dead, tty) = (fields[0], fields[1], fields[2]);
-    let root_pid: u32 = root.parse().map_err(|_| ERROR)?;
-    if dead != "0" {
-        return Err(ERROR);
-    }
-    let root_identity = pane_runtime(context, parent, identity, root_pid, tty)?;
-    let current_socket = fs::metadata(&socket).map_err(|_| ERROR)?;
-    if (current_socket.dev(), current_socket.ino()) != (metadata.dev(), metadata.ino())
-        || process(parent)? != identity
-        || process(root_pid)? != root_identity
-    {
-        return Err(ERROR);
-    }
-    let value = format!(
-        "{parent}:{}:{root_pid}:{}:{descriptor}",
-        identity.1, root_identity.1
-    );
-    let predicate = format!("#{{&&:#{{==:#{{pane_pid}},{root_pid}}},#{{==:#{{pane_dead}},0}}}}");
-    let command = format!(
-        "set-option -p -t {pane} @codex_terminal_binding_v1 '{value}' ; display-message -p bound"
-    );
-    if tmux(
-        &socket,
-        &["if-shell", "-F", "-t", &pane, &predicate, &command],
-    )? != "bound"
-    {
-        return Err(ERROR);
-    }
+    super::sync_directory(&directory).map_err(|_| ERROR)?;
     Ok(None)
 }
 
-pub(super) const ROUTE_OPTION: &str = "@codex_terminal_route_v1";
 struct Target {
     pid: u32,
     start: u64,
     fd: u32,
     route: serde_json::Value,
-    pane: Option<(PathBuf, String, u32, u64, u64, u64)>,
-    file: Option<(u64, u64, PathBuf)>,
+    file: (u64, u64, PathBuf),
 }
 pub(super) fn prune(directory: &Path) {
     let Ok(entries) = fs::read_dir(directory) else {
@@ -425,159 +270,11 @@ fn bare_targets(context: &Context, id: &str) -> Result<Vec<Target>, ManagerError
             start,
             fd,
             route: v["route"].clone(),
-            pane: None,
-            file: Some((dev, ino, PathBuf::from(tty))),
+            file: (dev, ino, PathBuf::from(tty)),
         };
         if valid_target(context, &target, id) {
             targets.push(target);
         }
-    }
-    Ok(targets)
-}
-fn tmux_targets(context: &Context, id: &str) -> Result<Vec<Target>, ManagerError> {
-    let mut targets = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    for entry in fs::read_dir("/proc").map_err(|_| ERROR)? {
-        if Instant::now() >= deadline {
-            return Err(ERROR);
-        }
-        let Ok(entry) = entry else { continue };
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let Ok(identity) = process(pid) else { continue };
-        let Ok(image) = fs::read_link(entry.path().join("exe")) else {
-            continue;
-        };
-        if !native(&context.home, &image) {
-            continue;
-        }
-        let Ok(environment) = fs::File::open(entry.path().join("environ")) else {
-            continue;
-        };
-        let mut bytes = Vec::new();
-        if environment.take(65537).read_to_end(&mut bytes).is_err() || bytes.len() > 65536 {
-            continue;
-        }
-        let variable = |key: &[u8]| {
-            bytes
-                .split(|b| *b == 0)
-                .find_map(|field| field.strip_prefix(key))
-        };
-        let Some(socket) = variable(b"TMUX=")
-            .and_then(|v| std::str::from_utf8(v).ok())
-            .and_then(|v| v.rsplitn(3, ',').nth(2))
-            .map(PathBuf::from)
-        else {
-            continue;
-        };
-        let Some(pane) = variable(b"TMUX_PANE=").and_then(|v| std::str::from_utf8(v).ok()) else {
-            continue;
-        };
-        if !pane
-            .strip_prefix('%')
-            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-            || !socket.is_absolute()
-        {
-            continue;
-        }
-        let Ok(metadata) = fs::metadata(&socket) else {
-            continue;
-        };
-        if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
-            continue;
-        }
-        let Ok(row) = tmux(
-            &socket,
-            &[
-                "display-message",
-                "-p",
-                "-t",
-                pane,
-                "#{pane_pid} #{pane_dead} #{pane_tty} #{@codex_terminal_binding_v1}",
-            ],
-        ) else {
-            continue;
-        };
-        let fields: Vec<_> = row.split_whitespace().collect();
-        if fields.len() != 4 || fields[1] != "0" {
-            continue;
-        }
-        let binding: Vec<u64> = fields[3]
-            .split(':')
-            .map(str::parse)
-            .collect::<Result<_, _>>()
-            .unwrap_or_default();
-        if binding.len() != 5
-            || binding[0] != u64::from(pid)
-            || binding[1] != identity.1
-            || binding[4] > 1048576
-        {
-            continue;
-        }
-        let Ok(root) = fields[0].parse::<u32>() else {
-            continue;
-        };
-        if binding[2] != u64::from(root)
-            || process(root).ok().map(|v| v.1) != Some(binding[3])
-            || (pid != root && identity.0 != root)
-        {
-            continue;
-        }
-        if pane_runtime(context, pid, identity, root, fields[2])
-            .ok()
-            .map(|v| v.1)
-            != Some(binding[3])
-        {
-            continue;
-        }
-        if slot(context, pid, identity.1, binding[4] as u32)
-            .ok()
-            .as_deref()
-            != Some(id)
-        {
-            continue;
-        }
-        let Ok(record) = tmux(
-            &socket,
-            &["show-options", "-qv", "-t", pane, super::origin::OPTION],
-        ) else {
-            continue;
-        };
-        let route = if let Some(origin) = super::origin::Origin::parse(&record) {
-            serde_json::json!({"kind":"native","origin":serde_json::from_str::<serde_json::Value>(&origin.record()).map_err(|_| ERROR)?})
-        } else {
-            let Ok(record) = tmux(&socket, &["show-options", "-qv", "-t", pane, ROUTE_OPTION])
-            else {
-                continue;
-            };
-            let Ok(route) = serde_json::from_str::<serde_json::Value>(&record) else {
-                continue;
-            };
-            if !super::window::valid_route(&route) {
-                continue;
-            }
-            route
-        };
-        targets.push(Target {
-            pid,
-            start: identity.1,
-            fd: binding[4] as u32,
-            route,
-            pane: Some((
-                socket,
-                pane.to_owned(),
-                root,
-                binding[3],
-                metadata.dev(),
-                metadata.ino(),
-            )),
-            file: None,
-        });
     }
     Ok(targets)
 }
@@ -589,54 +286,17 @@ fn valid_target(context: &Context, target: &Target, id: &str) -> bool {
     {
         return false;
     }
-    if let Some((dev, ino, tty)) = &target.file {
-        let Ok(m) = fs::metadata(format!("/proc/{}/fd/{}", target.pid, target.fd)) else {
-            return false;
-        };
-        if (m.dev(), m.ino()) != (*dev, *ino)
-            || fs::read_link(format!("/proc/{}/fd/0", target.pid))
-                .ok()
-                .as_ref()
-                != Some(tty)
-        {
-            return false;
-        }
-    }
-    if let Some((socket, pane, root, root_start, dev, ino)) = &target.pane {
-        let Ok(m) = fs::metadata(socket) else {
-            return false;
-        };
-        if (m.dev(), m.ino()) != (*dev, *ino)
-            || process(*root).ok().map(|p| p.1) != Some(*root_start)
-        {
-            return false;
-        }
-        let Ok(row) = tmux(
-            socket,
-            &[
-                "display-message",
-                "-p",
-                "-t",
-                pane,
-                "#{pane_pid}:#{pane_dead}:#{pane_tty}",
-            ],
-        ) else {
-            return false;
-        };
-        let fields: Vec<_> = row.split(':').collect();
-        if fields.len() != 3
-            || fields[0] != root.to_string()
-            || fields[1] != "0"
-            || process(target.pid)
-                .ok()
-                .and_then(|identity| {
-                    pane_runtime(context, target.pid, identity, *root, fields[2]).ok()
-                })
-                .map(|p| p.1)
-                != Some(*root_start)
-        {
-            return false;
-        }
+    let (dev, ino, tty) = &target.file;
+    let Ok(m) = fs::metadata(format!("/proc/{}/fd/{}", target.pid, target.fd)) else {
+        return false;
+    };
+    if (m.dev(), m.ino()) != (*dev, *ino)
+        || fs::read_link(format!("/proc/{}/fd/0", target.pid))
+            .ok()
+            .as_ref()
+            != Some(tty)
+    {
+        return false;
     }
     true
 }
@@ -655,7 +315,6 @@ pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<Strin
         .filter(|id| canonical_session_id(id))
         .ok_or(ERR_USAGE)?;
     let mut targets = bare_targets(context, id)?;
-    targets.extend(tmux_targets(context, id)?);
     if targets.len() != 1 {
         return Err(ERROR);
     }
@@ -670,15 +329,6 @@ pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<Strin
         }
     } else if !super::window::valid_route(&target.route) {
         return Err(ERROR);
-    }
-    if let Some((socket, pane, root, _, _, _)) = &target.pane {
-        let predicate = format!("#{{&&:#{{==:#{{pane_pid}},{root}}},#{{==:#{{pane_dead}},0}}}}");
-        let select = format!(
-            "select-window -t {pane} ; select-pane -t {pane} ; display-message -p selected"
-        );
-        if tmux(socket, &["if-shell", "-F", "-t", pane, &predicate, &select])? != "selected" {
-            return Err(ERROR);
-        }
     }
     if !valid_target(context, &target, id) {
         return Err(ERROR);

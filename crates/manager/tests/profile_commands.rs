@@ -1466,7 +1466,12 @@ fn native_completion_argv_delivers_once_ignores_stdin_and_respects_disabled_even
     fs::create_dir(&providers).unwrap();
     write_notification_provider(&providers, "termux-notification");
     let log = root.0.join("provider.log");
-    let configured = run_manager(&root.0, &core, &["notify", "set", "--focus", "tmux"], None);
+    let configured = run_manager(
+        &root.0,
+        &core,
+        &["notify", "set", "--focus", "window"],
+        None,
+    );
     assert!(configured.status.success());
     let settings = run_manager(&root.0, &core, &["notify", "show"], None).stdout;
     let payload = r#"{"type":"agent-turn-complete","thread-id":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","last-assistant-message":"\n completed\n normally\t","input-messages":["ignored-private-prompt"],"cwd":"/ignored-private-path"}"#;
@@ -1775,7 +1780,7 @@ fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_a
 }
 
 #[test]
-fn notification_tmux_click_uses_core_only_and_failure_never_creates_a_window() {
+fn notification_window_click_uses_core_only_and_failure_never_creates_a_window() {
     let root = TestRoot::new();
     let home = root.0.join("home ' $(touch injected)");
     fs::create_dir(&home).unwrap();
@@ -1786,7 +1791,7 @@ fn notification_tmux_click_uses_core_only_and_failure_never_creates_a_window() {
     fs::create_dir(&providers).unwrap();
     write_notification_provider(&providers, "termux-notification");
     let log = root.0.join("provider.log");
-    let configured = run_manager(&home, &core, &["notify", "set", "--focus", "tmux"], None);
+    let configured = run_manager(&home, &core, &["notify", "set", "--focus", "window"], None);
     assert!(configured.status.success());
     let shown = run_manager(&home, &core, &["notify", "show"], None);
     assert!(String::from_utf8(shown.stdout)

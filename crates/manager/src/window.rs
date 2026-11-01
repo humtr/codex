@@ -133,7 +133,6 @@ fn service(name: &str, program: &Path, args: &[&str], cwd: &Path) -> bool {
 pub(super) fn launch(
     context: &Context,
     profile: Option<&ProfileTarget>,
-    mode: &str,
     args: &[OsString],
     program: Option<&Path>,
 ) -> Result<Option<String>, ManagerError> {
@@ -141,7 +140,7 @@ pub(super) fn launch(
     let token = random()?;
     let name = format!("codex-{token}");
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
-    let path = prepare(context, profile, mode, args, program, "window", &token)?;
+    let path = prepare(context, profile, args, program, "window", &token)?;
     sync_directory(&directory).map_err(|_| ERROR)?;
     if !service(
         &name,
@@ -173,7 +172,6 @@ pub(super) fn launch(
 fn prepare(
     context: &Context,
     profile: Option<&ProfileTarget>,
-    mode: &str,
     args: &[OsString],
     program: Option<&Path>,
     purpose: &str,
@@ -189,22 +187,12 @@ fn prepare(
         .map(|(key, value)| serde_json::json!([bytes(&key), bytes(&value)]))
         .collect();
     let pid = std::process::id();
-    let record = serde_json::json!({"schema":"codex-window-launch-v1","purpose":purpose,"pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"mode":mode,"args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
+    let record = serde_json::json!({"schema":"codex-window-launch-v1","purpose":purpose,"pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"mode":"off","args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
     let directory = directory(context)?;
     prune_pending(&directory);
     let path = directory.join(format!("launch-{token}"));
     write_launch(&path, &record)?;
     Ok(path)
-}
-pub(super) fn execution(
-    context: &Context,
-    profile: Option<&ProfileTarget>,
-    args: &[OsString],
-    program: Option<&Path>,
-) -> Result<(String, PathBuf), ManagerError> {
-    let id = random()?;
-    let path = prepare(context, profile, "off", args, program, "exec", &id)?;
-    Ok((id, path))
 }
 fn prune_pending(directory: &Path) {
     let Ok(entries) = fs::read_dir(directory) else {
@@ -244,11 +232,7 @@ fn prune_pending(directory: &Path) {
         }
     }
 }
-pub(super) fn start(
-    context: &Context,
-    args: &[OsString],
-    window: bool,
-) -> Result<Option<String>, ManagerError> {
+pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
     let [id] = args else {
         return Err(ERR_USAGE);
     };
@@ -264,7 +248,7 @@ pub(super) fn start(
         let record = read_launch(&consumed)?;
         if record["schema"] != "codex-window-launch-v1"
             || record["name"] != format!("codex-{id}")
-            || record["purpose"] != if window { "window" } else { "exec" }
+            || record["purpose"] != "window"
         {
             return Err(ERROR);
         }
@@ -298,15 +282,13 @@ pub(super) fn start(
         if !tty.starts_with("/dev/pts") {
             return Err(ERROR);
         }
-        if window {
-            let route = serde_json::json!({"kind":"stock","name":format!("codex-{id}"),"pid":pid,"start":start,"tty":tty});
-            write_new_record(
-                &directory.join(format!("route-{id}")),
-                route.to_string().as_bytes(),
-            )?;
-            terminal::prune(&directory);
-            std::env::set_var(TOKEN_ENV, id);
-        }
+        let route = serde_json::json!({"kind":"stock","name":format!("codex-{id}"),"pid":pid,"start":start,"tty":tty});
+        write_new_record(
+            &directory.join(format!("route-{id}")),
+            route.to_string().as_bytes(),
+        )?;
+        terminal::prune(&directory);
+        std::env::set_var(TOKEN_ENV, id);
         std::env::set_var(READY_ENV, "1");
         let args = record["args"]
             .as_array()
@@ -318,21 +300,20 @@ pub(super) fn start(
             .as_str()
             .map(|p| parse_target(&OsString::from(p)))
             .transpose()?;
-        let mode = record["mode"]
-            .as_str()
-            .filter(|m| matches!(*m, "off" | "hidden" | "status" | "attach"))
-            .ok_or(ERROR)?;
+        if record["mode"] != "off" {
+            return Err(ERROR);
+        }
         // Clean before exec; only the small live route remains.
         fs::remove_file(&consumed).map_err(|_| ERROR)?;
         if record["program"].is_null() {
-            tmux_launch::execute(context, profile.as_ref(), mode, &args)
+            launch::execute(context, profile.as_ref(), &args)
         } else {
             let program = PathBuf::from(os(&record["program"])?);
-            tmux_launch::execute_command(context, &program, mode, &args)
+            launch::execute_command(&program, &args)
         }
     })();
     let _ = fs::remove_file(consumed);
-    if window && result.is_err() {
+    if result.is_err() {
         let _ = fs::remove_file(directory.join(format!("route-{id}")));
     }
     result

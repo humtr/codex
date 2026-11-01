@@ -6,13 +6,13 @@ mod profile_view;
 mod quota;
 mod quota_rpc;
 use profile_view::format_current;
+mod launch;
 mod launch_policy;
 mod origin;
 mod runtime_config;
 mod shared_profiles;
 mod task;
 mod terminal;
-mod tmux_launch;
 mod window;
 
 use std::ffi::{OsStr, OsString};
@@ -50,9 +50,7 @@ const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
 const HELP: &str = concat!(
-    "codex termux launch [--profile PROFILE_ID] [--tmux=off|hidden|status] [-- UPSTREAM_ARGS...]\n",
-    "codex termux attach SESSION\n",
-    "codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]\n",
+    "codex termux launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]\n",
     "codex termux profile list\n",
     "codex termux profile current\n",
     "codex termux profile create <PROFILE_ID>\n",
@@ -357,27 +355,19 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         if args.len() != 1 {
             return Err(ERR_USAGE);
         }
-        return Ok(Some(
-            "codex-terminal-launch-v1\ncontainer=off,hidden,status\n".to_owned(),
-        ));
+        return Ok(Some("codex-terminal-launch-v1\ncontainer=off\n".to_owned()));
     }
     if is_exact(args.first(), "__terminal-launch-command-v1") {
-        return tmux_launch::client(&capture_context()?, &args[1..]);
-    }
-    if is_exact(args.first(), "__terminal-exec-v1") {
-        return window::start(&capture_context()?, &args[1..], false);
+        return launch::client(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "__terminal-start-v1") {
-        return window::start(&capture_context()?, &args[1..], true);
+        return window::start(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "__terminal-auto-launch-v1") {
-        return tmux_launch::automatic(&capture_context()?, &args[1..]);
-    }
-    if is_exact(args.first(), "attach") {
-        return tmux_launch::attach(&capture_context()?, &args[1..]);
+        return launch::automatic(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "launch") {
-        return tmux_launch::launch(&capture_context()?, &args[1..], "off");
+        return launch::launch(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "__terminal-focus-v1") {
         return terminal::focus(&capture_context()?, &args[1..]);
@@ -419,9 +409,6 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         && (is_exact(args.get(1), "delete") || is_exact(args.get(1), "rename"))
     {
         return profile::run_lifecycle(&capture_context()?, &args[1..]);
-    }
-    if is_exact(args.first(), "tmux") {
-        return tmux_launch::run(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "task") {
         let command = task::parse(&args[1..])?;
@@ -597,7 +584,7 @@ fn parse_notify_set_args(args: &[OsString]) -> Result<NotifyPatch, ManagerError>
                 }
                 patch.focus_window = Some(match value.to_str() {
                     Some("termux") => false,
-                    Some("window" | "tmux") => true,
+                    Some("window") => true,
                     _ => return Err(ERR_USAGE),
                 });
             }
@@ -2878,6 +2865,9 @@ mod tests {
         assert!(read_focus_window(&context));
         publish_focus_window(&context, true).unwrap();
         assert!(read_focus_window(&context));
+        // Old persisted focus records are passively readable without tmux support.
+        fs::write(dir.join("focus-v1"), b"tmux\n").unwrap();
+        assert!(read_focus_window(&context));
         assert_eq!(fs::read(dir.join(NOTIFY_CONFIG)).unwrap(), original);
         let path = dir.join("focus-v1");
         assert_eq!(
@@ -2941,11 +2931,12 @@ mod tests {
             notification_action(&context)
         );
         assert!(!expected.contains("resume"));
-        let args = [OsString::from("--focus"), OsString::from("tmux")];
+        let args = [OsString::from("--focus"), OsString::from("window")];
         assert_eq!(
             parse_notify_set_args(&args).unwrap().focus_window,
             Some(true)
         );
+        assert!(parse_notify_set_args(&[args[0].clone(), OsString::from("tmux")]).is_err());
         assert!(parse_notify_set_args(&[args[0].clone(), OsString::from("invalid")]).is_err());
         assert!(parse_notify_set_args(&[
             args[0].clone(),

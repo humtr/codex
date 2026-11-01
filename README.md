@@ -572,7 +572,7 @@ and running clients are preserved. The temporary download is always cleaned.
 )
 ```
 
-## Profile selection and optional tmux
+## Profile selection and terminal return
 
 ### Login accounts and configuration profiles
 
@@ -603,26 +603,25 @@ requires Manager. See the
 ChatGPT profile. Package selection and explicit profile preparation are
 separate; neither upgrades an already running process.
 
-### Terminal selection and tmux
+### Terminal selection and window return
 
 ```sh
 codex termux launch
 codex termux launch --profile work -- resume
-codex termux launch --tmux=hidden
-codex termux launch --tmux=status --profile work
 ```
 
-Choose a profile with Up/Down and Enter; Escape or Ctrl-C cancels. Selection does
-not change the saved default. Default execution uses no tmux. Ordinary `codex`
-uses the same window routing with its usual account resolution and no picker.
-`codex termux tmux` is a shorthand for hidden tmux. tmux is optional for keeping
-work running while detached; detach with Ctrl-B then D. `tmux ls` lists sessions;
-`codex termux attach SESSION` reconnects detached Manager work and registers the
-new connection window without restarting Codex.
-Requesting another tmux container from inside tmux is refused; no extra pane or
-workload is created in that terminal. Use a separate Termux terminal for independent work.
-Changing execution mode requires a safe new launch, rather than migrating a live
-Codex process. Independent launches never share a workload or cover another launch.
+Choose a profile with Up/Down and Enter; Escape or Ctrl-C cancels. Selection
+does not change the saved default. Ordinary `codex` uses the same
+native/dedicated window routing with its usual account resolution and no
+picker. Notifications can return to the original live terminal without tmux.
+On stock Termux, Manager uses one named dedicated window per launch; on
+native-origin capable Termux, it uses the invoking window. Failure to prove
+an exact return does not restart or replace the workload.
+
+The previous Manager tmux container and attach integrations are not built.
+`--tmux=...`, `codex termux tmux`, and `codex termux attach` are unsupported.
+Its former implementation and tests are preserved for development reference
+at [Manager tmux notes](docs/development/manager-tmux/README.md).
 
 ## Notifications and Android delivery
 

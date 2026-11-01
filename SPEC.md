@@ -591,7 +591,7 @@ Copy the selected logical source/Markdown according to the upstream copy format,
 not a rendered terminal viewport. Soft wrapping introduces no extra spaces or
 newlines; intentional paragraphs, code indentation, Unicode and selected code
 blocks remain intact. Collapsed display does not truncate copied source. Verify
-Base and enhanced TUI, ordinary Termux and supported tmux paths, native clipboard/
+Base and enhanced TUI, ordinary Termux and supported native window paths, native clipboard/
 OSC52 routing, failure/cancel behavior and actual Android clipboard readback or
 paste. A successful helper exit or emitted terminal sequence alone does not
 establish that Android received the full content. Manual qualification prompts
@@ -831,93 +831,88 @@ installed Core obtains and activates only that signed adapted bundle.
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
-### Independent terminal return and optional tmux
+### Independent terminal return (Manager)
 
-Codex Manager owns Codex profile selection, launch convenience, notifications and
-foreground conversation binding. Core remains independently usable.
-The Core-to-Manager handoff removes inherited LD_PRELOAD and LD_LIBRARY_PATH,
-as ordinary upstream launch does, so the optional route cannot reintroduce an
-Android linker failure. Caller preferences and workload authentication remain intact.
-Manager routing must not reinterpret upstream argv or make ordinary execution
-depend on Android connectivity. AI consumes these contracts and owns its separate
-provider conveniences. The private __terminal-launch-command-v1 MODE -- PROGRAM
-ARGV... adapter routes an explicitly selected same-UID local executable through
-the same window/container path without interpreting provider authentication or
-profile semantics. A read-only __terminal-launch-capabilities-v1 query advertises
-this exact command grammar; older Managers retain their previous client path.
-AI passes its existing authentication supervisor intact, rather than replacing
-its recovery behavior with a second implementation. No new daemon, watcher or PTY management service is added.
+Codex Manager owns profile selection, launch convenience, notifications and
+foreground conversation binding. Core remains independently usable. The
+Core-to-Manager handoff strips inherited LD_PRELOAD and LD_LIBRARY_PATH as
+ordinary upstream launch does. Caller preferences and workload authentication
+remain intact. Manager routing must not reinterpret upstream argv or make
+ordinary execution depend on Android connectivity. AI owns its separate
+provider conveniences. No additional daemon, watcher, PTY manager or
+conversation execution authority is introduced.
 
-`codex termux launch [--profile PROFILE_ID] [--tmux=off|hidden|status]
-[-- UPSTREAM_ARGS...]` presents the existing profile inventory when no profile is
-explicitly selected. Up/down and Enter select; Esc/Ctrl-C cancel without work.
-An inherited external CODEX_HOME remains a distinct current-home choice. Explicit
-profiles use the existing profile contract. CWD, raw upstream argv and caller
-color preferences including absence are preserved. Default is tmux off.
-`codex termux tmux ...` remains a shorthand for the hidden tmux launch.
-A hidden/status container request inside an existing tmux client is rejected
-before profile selection, state publication or work. No nested tmux session,
-new tmux window/pane, implicit detach or replacement workload is created. Use
-the existing container or a separate Android terminal for an independent launch.
-AI follows the same refusal even when an older Manager lacks the adapter.
-Ordinary interactive Codex launches use the same optional window routing without
-showing a profile picker. Noninteractive and maintenance commands retain their
-ordinary execution behavior.
+The private `__terminal-launch-command-v1 off -- PROGRAM ARGV...` adapter routes
+an explicitly selected same-UID local executable through the same one-shot
+window path, without interpreting its authentication or profile semantics.
+`__terminal-launch-capabilities-v1` reports exactly
+`codex-terminal-launch-v1\ncontainer=off\n`. Unsupported containers,
+including `hidden` and `status`, fail as usage errors before starting work.
+AI passes its existing authentication supervisor intact. The Manager build
+does not include tmux session creation, attach, pane scanning or pane
+selection. Historical code and tests are retained only under
+`docs/development/manager-tmux/`, outside active Cargo sources and tests.
 
-Window capability and execution container are independent:
+`codex termux launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]` presents
+the existing profile inventory when no profile is explicitly selected.
+Up/down and Enter select; Esc/Ctrl-C cancel without work. An inherited external
+CODEX_HOME remains a distinct current-home choice. Explicit profiles use
+the existing profile contract. CWD, raw upstream argv and caller color
+preferences (including absence) are preserved. Ordinary interactive Codex
+launches use optional window routing without showing a profile picker.
+Noninteractive and maintenance commands retain ordinary execution behavior.
+`codex termux attach`, `codex termux tmux` and `--tmux=...` are unavailable
+in this build; they do not start or attach a session.
 
-| Android capability | tmux off (default) | tmux enabled |
-| --- | --- | --- |
-| Native origin/validate/focus API | Run in invoking terminal; return to it | Attach an independent tmux session there; return selects its pane and that terminal |
-| Confirmed unsupported native API, working AM socket | Create one uniquely named dedicated terminal per launch; run directly there | Create one uniquely named dedicated terminal per launch; attach tmux there |
-| Missing, failed or inconclusive AM capability | Keep ordinary execution usable; report exact return unavailable | Keep tmux usable; report exact return unavailable |
+For native Android origin/validate/focus support, run in the invoking
+terminal and return to that exact live terminal. For confirmed unsupported
+native API and working AM socket, create one uniquely named dedicated
+terminal per launch and run directly there. If AM support is missing, failed
+or inconclusive, ordinary execution remains usable and exact return is
+reported unavailable, without fabricating a successful return.
 
-The native extension uses the existing same-UID AM socket and app session table.
-Origin is resolved from the real socket peer ancestry. Validate/focus require the
-exact live handle/PID/kernel-start association. Closed, recycled or ambiguous
-references fail without creating a window. A transport acknowledgment alone is
-not semantic selection success. Names, titles and tmux IDs are not native addresses.
+The native extension uses the existing same-UID AM socket and app session
+table. Origin is resolved from actual socket peer ancestry. Validation and
+focus require an exact live handle, process ID and kernel start identity.
+Closed, recycled or ambiguous references fail without creating a window.
+Transport acknowledgment alone is not proof of terminal selection; visible
+names and titles are not native addresses.
 
-The stock-APK route uses RunCommandService shell_name and no-shell-with-name. Its
-immutable random launch name is separate from the visible title and conversation
-UUID. Initial construction is allowed once at launch; workload arguments and
-selected environment travel through a private, single-consumption local descriptor,
-not through notification actions. The same single-consumption descriptor carries
-raw argv and the caller environment into tmux, preventing old server environment
-from changing account selection or authentication. Opaque launch descriptors are
-limited to 64 KiB, private 0600, removed before execution and never logged; they
-may temporarily contain caller-supplied authentication environment. Permanent
-terminal bindings contain no such values. Native terminal identity variables are
-kept from the new terminal/container, not copied from another launch. Return revalidates the live launch root and
-foreground binding before selecting that name with an inert executable. It never
-contains a Codex start/resume/replay command. Stock API has no atomic focus-existing:
-manual rename or a target closing between validation and service selection can
-create an inert empty terminal instead of returning to the workload. This stock limitation must not be
-reported as equivalent to the native existing-handle guarantee. Failure must not
-retry construction or switch routes automatically.
+The stock-APK route uses RunCommandService shell_name and no-shell-with-name.
+Its immutable random launch name is separate from visible title and
+conversation UUID. Construction is allowed once at launch. Raw arguments,
+CWD and caller environment travel in a bounded, private, single-consumption
+local descriptor, never through notification actions; the descriptor is 0600,
+at most 64 KiB, removed before workload execution and never logged. It may
+temporarily contain caller authentication environment, while permanent
+terminal bindings never do. A new terminal retains its own identity
+variables. Return validates the live launch root and foreground binding
+before selecting the registered name with an inert executable; it never
+starts or resumes Codex. Stock API cannot atomically select an existing
+window: manual rename or a closing-window race can create an inert empty
+terminal. This is not equivalent to native existing-handle guarantees;
+failure must not retry construction or change routes automatically.
 
-The private process-bound record contains only process start identity, native
-foreground FD identity, terminal reference and optional tmux pane/socket identity.
-It is mode 0600 under the private Manager terminal directory, bounded and checked
-against actual live same-UID processes. It contains no conversation content,
-credentials or launch arguments. Dead records are pruned lazily. A notification
-resolves exactly one live foreground UUID; missing, ambiguous, closed or recycled
-targets refuse return. /new, /resume, /switch, profile changes and /title cannot
-replace the originating terminal. Visible titles remain presentation. Detached
-tmux work may be reattached through normal tmux commands.
-`codex termux attach SESSION` explicitly reattaches an unattached Manager-created
-session and binds return to the new connection terminal without restarting work;
-already attached or foreign sessions are rejected. Changing execution mode
-applies to a new safe launch, not migration of a running bare PTY.
+A private process-bound terminal record contains only the process start
+identity, native foreground FD identity and terminal route. It is mode 0600
+under the private Manager terminal directory, bounded and checked against
+live same-UID processes; it contains no conversation content, credentials
+or launch arguments. Dead records are pruned lazily. A notification resolves
+exactly one live foreground UUID. Missing, ambiguous, closed or recycled
+targets refuse return. /new, /resume, /switch, profile changes and /title
+cannot replace the originating terminal. Visible titles remain presentation.
 
-Manager owns `notify set --focus window|termux`; default is window. `tmux` is a
-legacy alias for window and existing `tmux\n` focus records remain accepted.
-The private notifications/focus-v1 contains `window\n` or `termux\n`.
-Absent state uses window; malformed/insecure state uses termux. A canonical hook
-session_id in window mode selects installed Core's safely quoted private Manager
-`__terminal-focus-v1 UUID` action. No AI executable is needed. Malformed or
-ambiguous IDs preserve the ordinary notification and cannot become shell input.
-Explicit termux mode brings the app forward without selecting a terminal.
+Manager owns `notify set --focus window|termux`. Default is window;
+`termux` selects Activity-only return. The private notifications/focus-v1
+contains `window\n` or `termux\n`. Existing `tmux\n` records remain
+readable as window for persisted-state compatibility, but the `tmux`
+command-line alias is no longer accepted. Absent state uses window;
+malformed/insecure state uses Activity-only return. For a canonical hook
+session_id in window mode, Manager uses installed Core's safely quoted
+private `__terminal-focus-v1 UUID` action; no AI executable is needed.
+Malformed or ambiguous IDs preserve the ordinary notification and cannot
+become shell input. Activity-only mode brings Termux forward without
+selecting a terminal.
 
 #### Optional terminal launch capability
 
@@ -932,7 +927,6 @@ unsupported argv uses the historical title-ID fallback. For `identity=native`,
 AI leaves the user's complete upstream terminal_title configuration unchanged;
 Manager's existing descriptor owns foreground UUID independent of `/title`.
 
-AI may use the same native origin reference for its optional tmux containers.
 Codex launch and notification identity come from Manager. AI must not override
 native terminal_title configuration when native foreground identity is supported,
 or introduce a competing Codex profile/window authority.
@@ -950,21 +944,17 @@ foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
-This registration applies to bare and tmux frontends alike; tmux environment
-variables cannot gate native foreground identity or notification return.
+This registration applies to native frontends in directly bound terminal PTYs;
+there is no Manager tmux socket, pane or process-tree discovery.
 Core forwards only that exact three-argument shape to its same-generation Manager.
-FD grammar and caller/pane authority remain Manager responsibilities. Ordinary
+FD grammar and caller/TTY authority remain Manager responsibilities. Ordinary
 Core dispatch and installed signed generations gain no terminal controller.
 Manager verifies its direct parent is a same-UID installed native frontend and its
-private unlinked foreground descriptor. Bare launches publish one bounded private
-process-binding record, with stable PID/start, FD inode and TTY plus the qualified
-Android route. In tmux, the same-UID socket and exact pane must contain that frontend
-directly or through the installed AI PTY supervisor. The existing pane-local
-@codex_terminal_binding_v1 holds native/root PID/start plus descriptor; the managed
-session holds its separately validated Android route. Foreground UUID always stays
-in the live descriptor, never a persistent conversation index. Selection rechecks
-process, FD, pane and window identity.
-A bare frontend re-exec may replace its own process binding: the prior private
+private unlinked foreground descriptor. Registration publishes one bounded private
+process-binding record with stable PID/start, FD inode, TTY and qualified Android
+route. Foreground UUID stays in the live descriptor, never a persistent conversation
+index. Selection rechecks process, FD, TTY and window identity.
+A frontend re-exec may replace its own process binding: the prior private
 record must have the same schema, PID/start, TTY and Android route, and the new
 unlinked descriptor must qualify against the current native image. Replacement is
 atomic; mismatched, foreign or malformed records remain untouched. This preserves
@@ -974,8 +964,8 @@ This command cannot rename a native Android terminal or start a workload.
 AI consumes this binding without rewriting it, reads the current full UUID from
 that qualified native process's descriptor, and rechecks it at the selection and
 Android dispatch boundaries. A thread change remains visible even if Manager
-registration later becomes unavailable; stale UUIDs cannot remain cached in tmux.
-With a binding present, malformed, stale or mismatching native/root/descriptor
+registration later becomes unavailable; AI must not cache stale UUIDs.
+With a binding present, malformed, stale or mismatching native-process/descriptor
 identity refuses focus; it never falls back to the title. Unbridged installed
 frontends retain the previous title qualification
 until the native producer is admitted. The bridge is independent of upstream
@@ -990,9 +980,7 @@ v1 has profiles, notifications, and a bounded active-task assistance family.
 ```text
 codex termux
 codex termux help
-codex termux launch [--profile PROFILE_ID] [--tmux=off|hidden|status] [-- UPSTREAM_ARGS...]
-codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
-codex termux attach SESSION
+codex termux launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
 codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
@@ -1525,7 +1513,7 @@ an upstream configuration route without requiring its model picker.
 | --- | --- | --- |
 | Upstream | Authentication, inference, tools, reviewer/approval engine, conversation schemas, thread/turn state, compaction, resume and writer locks | Our generation trust or Android window identity |
 | Core and release-builder | Qualified executable/environment/FD/socket binding, unsupported-sandbox enforcement, generic execution-home lease, one physical shared-layout binding, signed inventory, activation/retention/update/rollback, authenticated release identification and base diagnosis | Account selection/registry, notification policy, model/provider catalog interpretation, Chat transport or TUI interaction |
-| Manager | Account/config-profile convenience policy, task discovery/handoff UX, notification hooks/delivery, native window registration/return, optional tmux and title forwarding | Runtime pointer/trust mutation, another updater/executor, conversation storage/schema or model inference |
+| Manager | Account/config-profile convenience policy, task discovery/handoff UX, notification hooks/delivery, native window registration/return | Runtime pointer/trust mutation, another updater/executor, conversation storage/schema or model inference |
 | Maintained frontend | Narrow upstream UI integration for /switch, supported permissions, /model catalog/routing and title callbacks; upstream renders canonical transcripts | Provider login/transport/lifetime, generation mutation or a second backend supervisor |
 | Optional provider | Provider catalog/capabilities, auth context, request/tool-return transport, retry and owned-host lifetime | Core runtime selection, canonical conversation DB/writer ownership or native tool execution |
 
@@ -6942,8 +6930,7 @@ group\t<GROUP_ID>
 `notify show` emits the nine configuration `key=value` lines in this order:
 `channel`, `hooks`, `content-chars`, `preserve-newlines`, `toast-gravity`,
 `toast-short`, `toast-background`, `toast-color`, and `group`, followed by
-`focus=window|termux` from the separate focus record (`tmux` is a retained input
-alias). It emits no path, source detail, payload,
+`focus=window|termux` from the separate focus record. It emits no path, source detail, payload,
 environment, or credential. An absent record yields the defaults without
 creating Manager state. A malformed, symlinked, overlong, incorrectly-modeled,
 or conflicting record is an operation failure and is never replaced
@@ -7031,8 +7018,8 @@ independently. Manager emits no success text for the endpoint.
 Default window focus uses the admitted Manager's `__terminal-focus-v1 UUID`
 action for a canonical session identity. It resolves the live registered workload
 and revalidates its native terminal or stock dedicated-window route as defined in
-Section3; it never starts/resumes Codex or creates a replacement workload. tmux is
-optional and AI is not needed. A missing or invalid session identity uses the
+Section3; it never starts/resumes Codex or creates a replacement workload.
+AI and tmux are not needed. A missing or invalid session identity uses the
 Activity-only action. A valid identity with a stale/unavailable exact target must
 not guess another workload or construct a window to simulate successful return.
 
@@ -7071,17 +7058,14 @@ with a fixed error; all successful attempts return 0. Provider stdout/stderr and
 arbitrary input are never forwarded. Hook delivery retains its silent best-effort
 contract regardless of these outcomes.
 
-The Manager launch path creates an independent managed tmux session per launch
-when explicitly requested. Hidden/status selects that session's native bottom
-status-row visibility; title forwarding uses session-local set-titles with literal
-#{pane_title}. Upstream /title composes terminal display items and /rename changes
-the conversation name. Neither Manager nor an external AI wrapper is another
-title composer or conversation-identity authority. Existing unmanaged sessions,
-global tmux settings and independent launches remain unchanged. AI's separate
-convenience launcher consumes the supported window/container capability; it is not
-a dependency of Codex notifications. No cross-session shared-workload attachment,
-implicit live bare-to-tmux migration or title watcher is introduced. Caller color
-preferences remain per-launch; tmux owns TERM/TERM_PROGRAM.
+The Manager launch path does not create or manage tmux sessions; its
+historical implementation and qualification fixtures are development notes
+only, not product build inputs. Upstream /title composes terminal display
+items and /rename changes the conversation name. Neither Manager nor an
+external AI wrapper is another title composer or conversation-identity
+authority. Independent window launches do not share workloads or migrate
+live work to a different terminal. Caller color preferences remain
+per-launch.
 
 ### Core recovery authority
 

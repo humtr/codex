@@ -58,7 +58,7 @@ from pathlib import Path
 manager='''+repr(str(manager))+'''
 os.environ['CODEX_TERMUX_CORE_API']='codex-manager-core-v1'
 os.environ['CODEX_TERMUX_CORE_ENTRYPOINT']=os.path.abspath(sys.argv[0])
-if sys.argv[1:3] in (['termux','__terminal-start-v1'],['termux','__terminal-exec-v1']):
+if sys.argv[1:3] in (['termux','__terminal-start-v1'],):
  os.execv(manager,[manager,*sys.argv[2:]])
 if sys.argv[1:4]==['termux','profile','use']:
  name=sys.argv[4];os.environ['CODEX_HOME']=str(Path.home()/'.codex' if name=='default' else Path.home()/'.local/share/codex/manager/profiles'/name/'home');args=sys.argv[6:]
@@ -72,7 +72,7 @@ os.execv('''+repr(str(native))+''',['native'])
     text=cli.read_text().replace('o=json.loads(r) if False else None\nsys.stdout.buffer.write(r)', 'import json\no=json.loads(r);sys.stdout.write(o["stdout"]);sys.stderr.write(o["stderr"]);sys.exit(o["status"])');cli.write_text(text)
     (prefix/'bin/true').symlink_to(shutil.which('true'))
     (prefix/'bin/env').symlink_to(shutil.which('env'))
-    env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'TMUX_TMPDIR':str(root), 'TMUX':'','TMUX_PANE':'','TERM':'xterm-256color','CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(core),'FIXTURE_MANAGER':str(manager),'FIXTURE_SID':sid1,'OWNED_PRIVATE_AUTH':'synthetic-auth-retained'}
+    env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'TMUX':'','TMUX_PANE':'','TERM':'xterm-256color','CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(core),'FIXTURE_MANAGER':str(manager),'FIXTURE_SID':sid1,'OWNED_PRIVATE_AUTH':'synthetic-auth-retained'}
     for key in ('CODEX_HOME','NO_COLOR','CODEX_TERMUX_WINDOW_TOKEN','CODEX_TERMUX_WINDOW_READY'):env.pop(key,None)
     server=socket.socket(socket.AF_UNIX);server.bind(str(endpoint));server.listen();server.settimeout(.1)
     state={'mode':'native','operations':'origin,validate,focus,clipboard-read-image,clipboard-write-text,clipboard-release-image','windows':{},'requests':[],'errors':[]};stop=threading.Event();processes=[];fds=[]
@@ -131,7 +131,6 @@ os.execv('''+repr(str(native))+''',['native'])
         while select.select([master],[],[],0)[0]:
             data+=os.read(master,65536)
         return data
-    tsock=str(root/('tmux-'+str(os.getuid()))/'default')
     try:
         a,a_console,a_tty=start([str(manager),'launch','--profile','default','--',sid1]);r1=workloads(1)[0]
         b,b_console,b_tty=start([str(manager),'launch','--profile','default','--',sid2]);r2=workloads(2)[1]
@@ -181,23 +180,23 @@ os.execv('''+repr(str(native))+''',['native'])
         os.kill(r4['pid'],signal.SIGTERM);time.sleep(.05)
         print('PASS generic_client_one_shot_large_private_execution_plan')
 
-        launch,_,_=start([str(manager),'launch','--profile','default','--tmux=status','--',sid2]);assert launch.wait(timeout=8)==0
-        r5=workloads(5)[4];assert r5['tmux'] and r5['auth']=='synthetic-auth-retained' and len(state['windows'])==3
-        assert subprocess.check_output(['tmux','-S',tsock,'show-options','-v','-t','$0','status'],text=True).strip()=='on'
-        assert focus(sid2).returncode==0 and len(workloads(5))==5
-        print('PASS stock_tmux_status_separate_window_existing_pane_return')
-        rejected,_,_=start([str(manager),'attach','0']);assert rejected.wait(timeout=3)==1
-        client=next(p for p in state['windows'].values() if p.poll() is None)
-        client.terminate();client.wait(timeout=3);time.sleep(.1)
-        assert Path('/proc',str(r5['pid'])).exists()
-        attach,_,_=start([str(manager),'attach','0']);assert attach.wait(timeout=8)==0
-        assert focus(sid2).returncode==0 and len(workloads(5))==5 and len(state['windows'])==4
-        print('PASS detached_work_rebinds_new_terminal_without_relaunch')
+        assert run('__terminal-launch-capabilities-v1').stdout == b'codex-terminal-launch-v1\ncontainer=off\n'
+        for forbidden in (
+            ('__terminal-launch-command-v1','hidden','--',str(core)),
+            ('__terminal-launch-command-v1','status','--',str(core)),
+            ('launch','--tmux=status'),
+            ('launch','--tmux=off'),
+            ('tmux',),
+            ('attach','0'),
+            ('__terminal-exec-v1',),
+        ):
+            rejected=run(*forbidden)
+            assert rejected.returncode==2, (forbidden,rejected.returncode,rejected.stderr)
+        print('PASS tmux_commands_rejected_and_off_only_capability')
 
-        subprocess.run(['tmux','-S',tsock,'kill-server'],capture_output=True)
         time.sleep(.1);state['mode']='unavailable';before=calls()
         launch,_,_=start([str(manager),'launch','--profile','default']);assert launch.wait(timeout=8)==13
-        assert calls()==before and len(state['windows'])==4
+        assert calls()==before and len(state['windows'])==2, (calls(),before,len(state['windows']))
         print('PASS inconclusive_native_failure_no_constructor_fallback')
         state['mode']='native';state['operations']='origin,validate,focus'
         guarded,guarded_console,_=start([str(manager),'launch','--profile','default','--',sid1])
@@ -215,7 +214,6 @@ os.execv('''+repr(str(native))+''',['native'])
         print('PASS reexec_preserves_unknown_or_foreign_binding_without_replacement')
         assert not state['errors'],state['errors']
     finally:
-        subprocess.run(['tmux','-S',tsock,'kill-server'],capture_output=True)
         for process in processes:
             if process.poll() is None:
                 try:os.killpg(process.pid,signal.SIGTERM)
