@@ -104,9 +104,12 @@ The repository owns this development plane; it needs no external workflow skill.
   edits should stay simple; difficult architecture or diagnosis merits depth.
   No mandatory maximum effort, fixed leadership role or checkpoint cadence.
 - Own actual diff review and validation. Use collaborators only when the user
-  authorizes them; current preference is direct execution. No concurrent edits
-  in a shared worktree and no recurring checkpoint or planner layer.
-- Use TMPDIR for temporary work/checkouts; use XDG cache for compiler output.
+  authorizes them; current preference is direct execution. Shared-worktree edits
+  may run concurrently under SPEC.md's Native effect/resource conflict contract;
+  never overwrite or commit another work's changes. No recurring checkpoint or
+  planner layer.
+- Use an owned work-specific TMPDIR subtree for temporary work/checkouts;
+  use XDG cache for compiler output.
   Never put temporary projects or installed binaries under prj.
 - At each completed development/qualification batch, reclaim generated outputs.
   Preserve source, diffs, original results/native records and immutable current/

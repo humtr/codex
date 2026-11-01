@@ -1844,7 +1844,10 @@ Chat conversation/branch, host request and tool invocation have distinct identit
 A Chat can address several selected works; a work can retain successive or
 explicitly related source Chats. Neither one-Chat/one-thread nor one-Chat/one-agent
 is a global cardinality rule. At most one admitted controlling execution writes
-one work at a time. Parallel independent assignments use separate native scopes.
+one work at a time. Multiple independent works may share the same canonical
+repository and physical working tree; controller exclusivity is per work, not
+per workspace. Their actual effects follow the resource-aware concurrency
+contract below.
 
 A persistent development binding is established only for an explicit/verified
 existing development work and authorized source. It identifies account reference,
@@ -2728,10 +2731,12 @@ The coordinator releases dependent tasks after checking their results, not merel
 after stream silence. Review findings identify evidence and unresolved issues;
 the implementer returns corrections and the coordinator decides acceptance.
 
-Parallel writers require separate disposable workspaces/worktrees and native
-threads with declared write ownership; no concurrent edits in one working tree.
-The coordinator integrates reviewed diffs sequentially, resolves conflicts and
-records actual integrated checks. Parallel requests specify a finite concurrency
+Parallel assignments may use the same repository and physical worktree,
+including disjoint simultaneous writes and version-checked same-file edits,
+under the shared-repository Native concurrency contract below. Disposable
+worktrees are optional, not mandatory. Coordinators integrate conflicting
+candidate changes using verified resource/version preconditions and record
+actual integrated checks. Parallel requests specify a finite concurrency
 and inference/resource budget; admission respects native/host capacity and exposes
 queued tasks. Do not invent a fixed agent roster or run extra reviewers as an
 unpriced background policy. Serial execution remains available. Stop(task) fences
@@ -2739,6 +2744,153 @@ only that assignment; Stop(work tree) enumerates/cancels admitted descendants an
 reports each native/job/host confirmation. Partial failure leaves independent
 tasks/results inspectable; unknown children prevent whole-work success. These
 are product capabilities, not authorization to spawn development collaborators.
+
+**Shared-repository Native concurrency (required, including future orchestration).**
+A workspace is a verified working directory and authority boundary, not a
+repository-wide writer mutex. Independent top-level works, an orchestrator,
+reviewers and child workers may share the same repository, physical working tree,
+directory or nested paths. Work creation, attachment, reading, reasoning,
+status, reporting and coordination do not acquire a workspace write lease.
+Separate Git worktrees are an optional isolation choice, not a condition for
+parallel work. A work's sole current controller remains exclusive to that work;
+it is not the sole controller of the workspace.
+
+The existing Core/Provider service owns admission and effect settlement. Separate
+*work lifetime*, *Native execution-home/process ownership*, *filesystem mutation*
+and *shared external-resource effects*. The Provider may assess a requested effect
+but a Provider-only workspace check does not protect independent Core/CLI tools.
+The actual tool/effect boundary must enforce the same resource decision; do not
+create a second coordinator, daemon or duplicate execution path. The native
+workspace identity and permission checks remain in force. An authorized
+read-only effect must be genuinely read-only, not just annotated as such; a
+declared write set must be enforced or validated before publication. Keep
+requested write capability available rather than silently converting it to
+read-only work. No path-overlap rule may deny merely creating a second work.
+
+**Conflict classes and required outcomes.** Apply every relevant row to a
+compound operation. The strongest actual conflicting resource rule wins; absence
+of a known conflict is not proof that an opaque command is harmless.
+
+| Case | Concurrent situation | Required behavior |
+| --- | --- | --- |
+| NC-01 | Different work IDs in one repository, worktree or cwd; independent roots or parent/children | Admit both; per-work controller, history, return destination and budget remain distinct |
+| NC-02 | Read/read, including orchestrator inspection, source browsing, reviews and status | Run concurrently, regardless of equal or nested paths |
+| NC-03 | Live read during an unrelated write | Allow; label the view live, not an immutable snapshot |
+| NC-04 | Read requiring repeatable results during any write | Pin a revision/snapshot or verify a consistent set of content versions; retry or report unavailable consistency if neither succeeds, without blocking the entire repository |
+| NC-05 | Known writes to distinct files in the same directory, module or worktree | Run concurrently with independently enforced write sets |
+| NC-06 | Known writes to separate portions of one file | Permit parallel preparation and version-checked, nonoverlapping merge so both edits survive; order final publication, never permit two blind writes |
+| NC-07 | Same file, overlapping hunks or incompatible final content | Report conflict and require reconciliation; neither writer silently overwrites the other |
+| NC-08 | Same proposed content/effect and identical scoped operation identity and payload | Reuse the settled result only for the same authorized operation; a distinct call must validate current versions, even if its content matches |
+| NC-09 | Concurrent creation of the same name, removal versus edit, rename versus old/new-path access | Coordinate the actual path and affected parent directory entries; reject or reconcile conflicting effects |
+| NC-10 | Sibling creates/updates beneath a common directory | Permit independent names; coordinate the colliding directory entry, not the whole directory merely because its metadata changes |
+| NC-11 | Directory rename/delete, recursive changes, glob writes and changed permissions/ownership/attributes | Cover the actual descendant set and metadata effects; re-evaluate against concurrent uses |
+| NC-12 | Symlinks, hardlinks, relative paths, `..`, bind mounts and aliases | Compare verified physical targets, open inode identities and directory entries; revalidate at effect time against alias/path-swap bypasses |
+| NC-13 | Nested repositories, submodules and distinct worktrees of one repository | Treat overlapping files as shared resources and Git metadata according to its physical owner, not only textual paths |
+| NC-14 | Git working-file edits concurrent with `git status`, diff or read-only log queries | Permit; indicate a live view unless the caller requests a pinned snapshot |
+| NC-15 | Distinct worktree indexes/HEADs and unrelated Git refs | Permit independent operations where actual metadata/resources do not overlap |
+| NC-16 | Shared Git index, refs, locks, branch checkout, reset, merge, rebase or commit publication | Coordinate the specific index/ref/affected files; validate expected HEAD and index, and never include unrelated staged or working changes in a commit |
+| NC-17 | Independent builds, tests, code generation and temporary outputs | Run concurrently with per-work output directories and source-version evidence; do not serialize a repository just because two builds are running |
+| NC-18 | Shared compiler cache, package database, generated destination or artifact name | Respect that store's own concurrency semantics or arbitrate that named output; distinguish cache lock from source-tree lock |
+| NC-19 | `TMPDIR/aaa` and `TMPDIR/bbb` for unrelated tasks | Admit both; a task owns only its assigned subtree, never `TMPDIR` or another task's subtree |
+| NC-20 | An intentional shared temp path, cleanup or recursive deletion | Coordinate the exact shared target and any live descendants; do not remove unknown or other-owned outputs |
+| NC-21 | Independent reads/writes in different repositories with a common path ancestor | Admit except for actual common files, directory entries or external resource effects |
+| NC-22 | Environment HOME/config, persistent credentials, app host, installed runtime and shared sockets | Apply their existing distinct security, process and publication leases, not an incidental cwd/repository mutex |
+| NC-23 | Network publication, release tags, deployments and other irreversible external side effects | Require the corresponding target-specific ownership, authorization and idempotency; filesystem disjointness grants no extra authority |
+| NC-24 | Opaque shell command or tool with an unprovable mutation set | Stage it in an owned disposable view and verify/apply the resulting changes, or enforce an OS-level write scope; if neither is available, serialize only that effect against potentially conflicting writers |
+| NC-25 | Unmanaged external CLI/editor changing the same files | Do not claim invisible writers are prevented; use filesystem/version checks and applicable OS leases, and surface uncertainty when a safe commit cannot be proven |
+| NC-26 | Multiple inputs/tools within one Native work | Keep one current controller; admit independent effects according to the same resources and Native/host capacity, not one global workspace writer |
+| NC-27 | Different Native works with `waiting_native`, `stop_requested` or `reconciliation_required` records | Do not treat the record itself as a workspace lock; retain only unresolved *specific effects/resources* until their ownership and termination are reconciled |
+| NC-28 | Stop, crash, detached Chat, restarted host, stale PID or cancelled worker | Fence its future effects and reconcile observed processes, in-flight calls and resource leases; neither a timeout nor a terminal Chat alone proves a physical writer stopped |
+| NC-29 | Multiple simultaneous conflicts, retries and partial application | Order overlapping resources deterministically, preserve idempotent receipts, surface wait/conflict owners and avoid partial-success claims |
+
+Each NC-01 through NC-29 row is an independent, testable acceptance case.
+Compound commands satisfy every applicable row; acceptance must demonstrate
+admission of safe parallel effects and rejection or reconciliation of unsafe ones.
+
+**Minimal resource-aware execution contract.** Resolve a proposed Native effect
+to an access mode (read, bounded write or opaque), its verified physical resource
+set, a work/operation identity and any required base versions. Read and write
+authorization are distinct from scheduling. Reads with no requested consistency
+pin may observe live changes; repeatable reviews and tests use a pinned view
+when needed. For bounded writes, take only the necessary short resource leases,
+validate preconditions immediately before the visible mutation and commit the
+result with atomic replacement or an equivalently guarded application. Use
+content/version comparison and a three-way merge for independently prepared
+same-file changes when feasible; return a genuine conflict otherwise. An
+operation touching multiple outputs must identify partial effects and restore
+or reconcile them before claiming completion. Resource ordering must avoid
+deadlock. Admission must expose the precise conflicting effect/resource and an
+actionable wait, join, handoff or isolation option, without leaking unrelated
+private content.
+
+Resource identity distinguishes file contents/inodes, parent/name directory
+entries, path or inode metadata, Git index/refs, generated output/cache and
+external publication targets. One operation can touch several such identities.
+An idempotency identity is scoped to its authorized work/operation and exact
+payload; neither matching text nor a reused caller-provided string transfers
+another work's result or authority.
+
+A model's intended file list or a tool annotation alone does not enforce a
+write boundary. Arbitrary commands may create files, follow links, mutate Git
+metadata, call out to other programs or write outside cwd. Such effects require
+actual native/OS mediation, an isolated staging view with validated publication,
+or a bounded fallback lease while the uncertain command runs. That fallback
+may defer a *conflicting effect*, but must not prevent unrelated works from
+starting, inspecting, preparing edits or using their own temp subtrees. No
+unverified file-level concurrency guarantee is made for unmanaged writers.
+If a shared working tree is already being changed, version-checked publication
+must detect intervening mutations rather than overwrite them. A separate
+worktree remains a useful opt-in for high-risk opaque effects, never mandatory
+for routine independent edits in the same physical tree.
+
+Allocate each new work an owned `$TMPDIR/codex-native/<work-id>/` subtree
+(and distinct generated-output paths where necessary) without changing its
+actual selected repository cwd. Resume retains referenced outputs and may use a
+generation-scoped child directory; creation verifies exclusive ownership and
+non-aliasing paths. Work-local commands receive the owned subtree as their
+temporary root; no work claims `$TMPDIR` or the common `codex-native` parent.
+Cleanup only removes proven inactive, owned subtrees. Generated build targets,
+test scratch and temporary Git state must not alias another work's outputs
+merely because they use the same repository. Cache sharing is permitted when
+the cache's actual lock and publication protocol supports it. Existing Core
+execution-home directory leases,
+host stream ownership, authentication and installer/rollback fences are separate
+and must not be weakened by workspace concurrency.
+
+Orchestration is an optional future consumer of this shared Native work service,
+not a prerequisite for the concurrency contract. Its coordinator can inspect
+the same repository while multiple independent child workers read or edit
+different or overlapping portions of the same worktree. Each child has its own
+work/turn/operation identity, scoped authority and budget. Parent ownership
+does not override individual mutation conflicts; stopping one child does not
+cancel unrelated writers. The coordinator can review candidate changes and
+integrate them with the same verified publication path. Same-file overlapping
+edits may be prepared in parallel and integrated sequentially. A second
+scheduler, compulsory extra model call or mandatory disposable Git worktree is
+not introduced by this requirement.
+
+**Compatibility, recovery and acceptance.** Replace Provider's
+`native_workspace_writer_busy` ancestor/descendant work-record rejection with
+effect/resource-aware admission and use the same settlement proof in Core Native
+tool execution, status and recovery. Both explicit and default workspace
+selection obey one policy. Existing unconfirmed work records remain inspectable
+and their unsettled *effects* fenced; they cannot veto unrelated reads, creates
+or disjoint edits indefinitely. Legacy records without an enforceable resource
+claim must be reconciled against actual native/process effects before inferring
+a writer, not assumed to own the entire workspace forever.
+
+Qualify on real Native entrances and the same physical repository/worktree:
+two readers; live and pinned read against a writer; two disjoint file writers;
+same-file disjoint and overlapping hunks; create/delete/rename/metadata conflicts;
+symlink/hardlink/`..` aliases and nested repositories; simultaneous Git index/ref
+updates; builds with distinct and shared caches; sibling temp subtrees under a
+busy parent; broad/opaque commands; external CLI changes; one parent with several
+children and an observing coordinator; unknown/stopped/reconciliation work;
+duplicate calls, Stop/restart, partial failure and publication races. Verify both
+positive parallel admission and negative collision enforcement, actual content
+and source revisions, original Native receipts and no loss of existing controller,
+permission, host, account, installer or rollback protections. No simulated
+success or task-phase-only proof substitutes for these executed paths.
 
 Parallel assignment limits apply to siblings under an explicit parent work;
 independent top-level works do not share an anonymous global queue. Each root
@@ -3132,8 +3284,10 @@ confirmed after outstanding calls and the native turn settle. HTTP success or a
 saved report alone is not CLI visibility proof.
 For submitted inference, the Operator reconciles completion from the bound native
 turn, no owned jobs and the settled app lane when native terminal events arrive.
-Status and overlapping-workspace admission use that same rule; completion must
-not depend on a prior status read. Stop and newer native turns fence old observers.
+Status and effect/resource admission use that same settlement proof; task
+phase or overlapping workspace paths alone never imply a live writer, and
+completion must not depend on a prior status read. Stop and newer native turns
+fence old observers.
 Qualification CLI observers use the work's exact execution home as well as its
 verified backend socket. Isolated fixture homes explicitly select their generated
 Provider before model submission and preflight the native account requirement;
