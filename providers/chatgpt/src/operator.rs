@@ -29,6 +29,7 @@ const HANDOFF: &str = "Codex Chat context handoff v1\n";
 const ATTACHED_PROGRESS: &str = "Record and display every complete public progress message for this task verbatim in Native before publishing the same message in ChatGPT. On joining, also record public progress already shown for this task. Do not replace full public text with a shorter status, reduce reasoning or tool use, or expose hidden reasoning/private controls. If a native tool call's report already records that exact message, do not record it again with codex_report. Retry the same call_id and text after uncertain delivery. Submitted reports are not independently observed host messages.";
 const ATTACHED_COMPLETION: &str = "Record the complete public final answer and confirm settled Native completion. Prepare the full answer before codex_finish; after it succeeds, return exactly that same text in ChatGPT, without a second summary, additions or omissions. Preserve all requested detail and public progress; do not reduce reasoning or tool use. Never include private controller, return or service values in public text. private_control_in_public_text means nothing was admitted: remove only those private values and correct the same call_id. Exact admitted retries use the same call_id and text to recover settlement without emitting again. Submitted completion is not independently observed host provenance.";
 const LIMIT: usize = 16 * 1024 * 1024;
+const CALL_ID_LIMIT: usize = 160;
 pub(crate) const WORK_SCHEMA: &str = "termux-codex-operator-work-v3";
 const CHAT_CONTEXT_DOMAIN: &str = "operator-chat-context-v1";
 const SOURCE_ADMISSION_SCHEMA: &str = "codex-chatgpt-source-admission-v1";
@@ -1746,7 +1747,6 @@ impl Operator {
             "retry_after_seconds":RECONCILE_INTERVAL.as_secs(),"inference_submitted":false})
         };
         let conversation = text(&args, "conversation_id", 256)?;
-        text(&args, "call_id", 160)?;
         let (mut record, native) = self.binding(&args, false).await?;
         let binding = self
             .ensure_development_binding(&record)
@@ -2076,7 +2076,7 @@ impl Operator {
         if args["controller"].as_str() != Some(&record.capability) {
             return Err(Error("operator_controller_fenced"));
         }
-        let call = text(args, "call_id", 160)?;
+        let call = text(args, "call_id", CALL_ID_LIMIT)?;
         let body = text(args, "text", 256 * 1024)?;
         let fingerprint = digest(&(body, final_answer));
         if let Some((old, id)) = record.receipts.get(call) {
@@ -2563,7 +2563,7 @@ impl Operator {
                 }
                 let round = summary_round.ok_or(Error("native_round_not_ready"))?;
                 let identity = if args.get("call_id").is_some() {
-                    json!(["call", text(&args, "call_id", 160)?])
+                    json!(["call", text(&args, "call_id", CALL_ID_LIMIT)?])
                 } else {
                     json!(["round", round])
                 };
@@ -2738,7 +2738,8 @@ impl Operator {
     }
     async fn queue_input(&self, args: Value) -> Result<Value, Error> {
         let thread = text(&args, "thread_id", 256)?;
-        let call = text(&args, "call_id", 160)?;
+        // Source recovery also enters here from a persisted host record.
+        let call = text(&args, "call_id", CALL_ID_LIMIT)?;
         let message = text(&args, "text", 256 * 1024)?;
         let key = queue_key(thread, call);
         let fingerprint = digest(&args);
@@ -2844,7 +2845,7 @@ impl Operator {
             )
         ) && args.get("call_id").is_some()
         {
-            let call = text(&args, "call_id", 160)?;
+            let call = text(&args, "call_id", CALL_ID_LIMIT)?;
             let binding_control =
                 matches!(args["action"].as_str(), Some("bind" | "unbind" | "join"));
             let controller_scope = if binding_control {
@@ -3206,7 +3207,7 @@ impl Operator {
             Some("create" | "resume" | "fork") => {
                 let _mutation = self.session_mutations.lock().await;
                 let action = args["action"].as_str().unwrap();
-                let call = text(&args, "call_id", 160)?;
+                let call = args["call_id"].as_str().unwrap();
                 let key = digest(&("operator-session-call-v1", call));
                 let fingerprint = digest(&args);
                 if let Some(result) = operation::recover(
@@ -3491,9 +3492,8 @@ impl Operator {
             }
             Some("start" | "join") => {
                 let joining = args["action"] == "join";
-                if joining {
-                    text(&args, "call_id", 160)?;
-                    if [
+                if joining
+                    && [
                         "controller",
                         "inference",
                         "return_path",
@@ -3503,17 +3503,10 @@ impl Operator {
                     ]
                     .iter()
                     .any(|field| args.get(field).is_some())
-                    {
-                        return Err(Error("operator_arguments_invalid"));
-                    }
-                }
-                let task = text(&args, "task", 256 * 1024)?;
-                if args
-                    .get("mode")
-                    .is_some_and(|mode| !matches!(mode.as_str(), Some("default" | "plan")))
                 {
                     return Err(Error("operator_arguments_invalid"));
                 }
+                let task = text(&args, "task", 256 * 1024)?;
                 let (mut record, native) = self.binding(&args, false).await?;
                 let mut resumed = false;
                 if joining {
@@ -4934,7 +4927,7 @@ impl Operator {
         )
     }
     async fn handoff(&self, args: Value) -> Result<Value, Error> {
-        let call = text(&args, "call_id", 160)?;
+        let call = text(&args, "call_id", CALL_ID_LIMIT)?;
         let key = digest(&("operator-handoff-call-v1", call, &args["work_id"]));
         let fingerprint = digest(&args);
         if let Some(result) = operation::recover(
@@ -5378,7 +5371,14 @@ impl Operator {
                             this.call(&name, args).await
                         } {
                             Ok(value) => value,
-                            Err(error) => json!({"error":{"code":error.0}}),
+                            Err(error) => {
+                                let mut failure = json!({"error":{"code":error.0}});
+                                if let Some(message) = argument_guidance(error) {
+                                    failure["error"]["message"] = json!(message);
+                                    failure["error"]["executed"] = json!(false);
+                                }
+                                failure
+                            }
                         }
                     }
                     Err(error) => {
@@ -6130,6 +6130,42 @@ fn text<'a>(args: &'a Value, key: &str, max: usize) -> Result<&'a str, Error> {
         .filter(|v| !v.is_empty() && v.len() <= max)
         .ok_or(Error("operator_arguments_invalid"))
 }
+// One action contract feeds both the MCP declaration and admission, so clients
+// can correct invalid requests before any Native mutation is admitted.
+struct SessionArguments {
+    actions: &'static [&'static str],
+    when_present: &'static [&'static str],
+    required: &'static [&'static str],
+    forbidden: &'static [&'static str],
+    error: Error,
+    guidance: &'static str,
+}
+const SESSION_ARGUMENTS: &[SessionArguments] = &[
+    SessionArguments {
+        actions: &["create", "resume", "fork", "join", "queue", "chat_input", "source_join"],
+        when_present: &[], required: &["call_id"], forbidden: &[],
+        error: Error("session_call_id_required"),
+        guidance: "Rejected before effects. Supply a stable nonempty call_id (at most 160 bytes) and reuse it with identical arguments after uncertain delivery. For a new integrated task: create with call_id and inference=attached, then start with returned work_id/controller, task and a stable call_id. Read/accept codex_attach before tools. This is an argument error, not an AppHost failure; keep the selected workflow.",
+    },
+    SessionArguments {
+        actions: &["create", "resume", "fork"], when_present: &[], required: &[],
+        forbidden: &["task", "mode", "model", "effort"],
+        error: Error("session_allocation_only"),
+        guidance: "Rejected before effects. create/resume/fork only allocate or load Native work; omit task, mode, model and effort here. Start the task separately with action=start, returned work_id/controller, original complete task and a stable call_id. mode is only default/plan on start/join, never a workflow selector. For the already-running Chat response choose inference=attached and do not acquire a separate AppHost.",
+    },
+    SessionArguments {
+        actions: &["create", "resume", "fork"],
+        when_present: &["budget", "parent_work_id", "dependencies"],
+        required: &["role"], forbidden: &[], error: Error("assignment_role_required"),
+        guidance: "Rejected before effects. budget/parent/dependencies describe an explicit assignment and require role. For ordinary integrated work omit assignment fields; create with call_id and inference=attached, then start the task. Do not change to standalone because of invalid assignment arguments.",
+    },
+];
+fn argument_guidance(error: Error) -> Option<&'static str> {
+    SESSION_ARGUMENTS
+        .iter()
+        .find(|rule| rule.error == error)
+        .map(|rule| rule.guidance)
+}
 pub(crate) fn validate_arguments(
     declarations: &[Value],
     name: &str,
@@ -6153,6 +6189,33 @@ pub(crate) fn validate_arguments(
             .any(|key| !object.contains_key(key.as_str().unwrap()))
     {
         return Err(Error("operator_arguments_invalid"));
+    }
+    if name == "codex_sessions" {
+        for rule in SESSION_ARGUMENTS {
+            if !rule
+                .actions
+                .contains(&args["action"].as_str().unwrap_or(""))
+                || !rule.when_present.is_empty()
+                    && !rule
+                        .when_present
+                        .iter()
+                        .any(|key| object.contains_key(*key))
+            {
+                continue;
+            }
+            let missing = rule.required.iter().any(|key| {
+                if *key == "call_id" {
+                    args[*key]
+                        .as_str()
+                        .is_none_or(|value| value.is_empty() || value.len() > CALL_ID_LIMIT)
+                } else {
+                    !object.contains_key(*key)
+                }
+            });
+            if missing || rule.forbidden.iter().any(|key| object.contains_key(*key)) {
+                return Err(rule.error);
+            }
+        }
     }
     for (key, value) in object {
         let valid = match schema["properties"][key]["type"].as_str() {
@@ -6184,6 +6247,18 @@ pub(crate) fn tools() -> Vec<Value> {
         "list_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"offset":{"type":"integer","minimum":0},"filter":{"type":"string"}},"required":["account","offset","filter"],"additionalProperties":false})
         }
+        "call_id" => {
+            json!({"type":"string","minLength":1,"maxLength":CALL_ID_LIMIT,"description":"Stable logical request ID. REQUIRED for create/resume/fork/join/queue/chat_input/source_join. Reuse identical IDs/arguments after uncertain delivery; never omit it on allocation."})
+        }
+        "task" => {
+            json!({"type":"string","description":"Complete original user instruction for start/join/chat_input; preserve full text, do not summarize it. Allocation create/resume/fork does not accept or execute a task."})
+        }
+        "mode" => {
+            json!({"type":"string","enum":["default","plan"],"description":"Native collaboration mode on start/join only. This never selects standalone/integrated."})
+        }
+        "execution_home" => {
+            json!({"type":"string","description":"Optional explicit Native account home, not the workspace. Omit to keep the configured account; use workspace alone to choose a project directory."})
+        }
         "inference" => json!({"type":"string","enum":["attached","submitted"]}),
         "source_cursor" => {
             json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false})
@@ -6199,7 +6274,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"array","items":{"type":"string"},"maxItems":256,"uniqueItems":true})
         }
         "budget" => {
-            json!({"type":"object","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1},"max_native_calls":{"type":"integer","minimum":1},"max_elapsed_seconds":{"type":"integer","minimum":1}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
+            json!({"type":"object","description":"Explicit assignment budget, requiring role. Omit for ordinary integrated work.","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1},"max_native_calls":{"type":"integer","minimum":1},"max_elapsed_seconds":{"type":"integer","minimum":1}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
         }
         "answers" => {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
@@ -6211,9 +6286,9 @@ pub(crate) fn tools() -> Vec<Value> {
     };
     let controls = [
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
-        ("codex_host", "Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
+        ("codex_host", "Manage the optional Provider-owned ChatGPT AppHost, not Native Core. Attached inference from an already-running Chat does not require this host; ensure cannot repair invalid Native work arguments. Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
-        ("codex_sessions", "Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
+        ("codex_sessions", "Integrated Native development. For a NEW task in this already-running Chat: (1) create with required stable call_id and inference=attached; omit task/mode/model/effort and assignment fields. (2) start with returned work_id/controller, complete original task and a stable call_id. (3) read codex_attach and accept its receipt before tools. Allocation never starts a task. Native attached inference needs Core, not an extra AppHost or model request. On argument errors correct the specified fields and retain the requested workflow; do not fall back to standalone. For an existing task use join. Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
@@ -6236,8 +6311,19 @@ pub(crate) fn tools() -> Vec<Value> {
         }
         if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop","models"]})); properties.insert("refresh".into(),json!({"type":"boolean","description":"models only: false reads retained/configured metadata without acquiring the app; default true queries offered app choices"})); }
         if name=="codex_projects" { properties.insert("action".into(),json!({"type":"string","enum":["list","use"]})); }
-        json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,
-            "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false},
+        let mut schema=json!({"type":"object","properties":properties,
+            "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false});
+        if name == "codex_sessions" {
+            schema["allOf"]=SESSION_ARGUMENTS.iter().map(|rule| {
+                let mut condition=json!({"properties":{"action":{"enum":rule.actions}},"required":["action"]});
+                if !rule.when_present.is_empty() {
+                    condition["anyOf"]=rule.when_present.iter().map(|key|json!({"required":[key]})).collect();
+                }
+                let forbidden=rule.forbidden.iter().map(|key|((*key).to_owned(),json!(false))).collect::<serde_json::Map<_,_>>();
+                json!({"if":condition,"then":{"required":rule.required,"properties":forbidden}})
+            }).collect();
+        }
+        json!({"name":name,"description":description,"inputSchema":schema,
             "annotations":crate::mcp::tool_annotations(name)})
     }).chain(crate::local::tools()).collect()
 }
@@ -6304,7 +6390,12 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
             Ok(match value {
                 Ok(v) => json!({"content":[{"type":"text","text":v.to_string()}],"isError":false}),
                 Err(e) => {
-                    json!({"content":[{"type":"text","text":json!({"error":e.0}).to_string()}],"isError":true})
+                    let mut failure = json!({"error":e.0});
+                    if let Some(message) = argument_guidance(e) {
+                        failure["message"] = json!(message);
+                        failure["executed"] = json!(false);
+                    }
+                    json!({"content":[{"type":"text","text":failure.to_string()}],"isError":true})
                 }
             })
         }
@@ -6408,6 +6499,54 @@ mod local_tests {
         }
     }
 
+    #[test]
+    fn session_admission_guides_missing_ids_without_starting_or_switching_workflow() {
+        let catalog = tools();
+        for action in [
+            "create",
+            "resume",
+            "fork",
+            "join",
+            "queue",
+            "chat_input",
+            "source_join",
+        ] {
+            assert_eq!(
+                validate_arguments(&catalog, "codex_sessions", &json!({"action":action})),
+                Err(Error("session_call_id_required"))
+            );
+        }
+        assert!(validate_arguments(&catalog, "codex_sessions", &json!({"action":"list"})).is_ok());
+        let mut request =
+            json!({"action":"create","inference":"attached","call_id":"original-allocation"});
+        validate_arguments(&catalog, "codex_sessions", &request).unwrap();
+        for field in ["task", "mode", "model", "effort"] {
+            request[field] = json!(if field == "mode" {
+                "default"
+            } else {
+                "ignored-before-fix"
+            });
+            assert_eq!(
+                validate_arguments(&catalog, "codex_sessions", &request),
+                Err(Error("session_allocation_only"))
+            );
+            request.as_object_mut().unwrap().remove(field);
+        }
+        request["budget"] = json!({"max_app_starts":1,"max_elapsed_seconds":600,"max_native_calls":30,"max_parallel":1});
+        assert_eq!(
+            validate_arguments(&catalog, "codex_sessions", &request),
+            Err(Error("assignment_role_required"))
+        );
+        request["role"] = json!("explicit-worker");
+        validate_arguments(&catalog, "codex_sessions", &request).unwrap();
+        assert!(argument_guidance(Error("session_call_id_required"))
+            .unwrap()
+            .contains("Rejected before effects"));
+        assert!(argument_guidance(Error("session_allocation_only"))
+            .unwrap()
+            .contains("action=start"));
+        assert!(argument_guidance(Error("unrelated_host_failure")).is_none());
+    }
     fn fixture_record(root: &std::path::Path) -> Record {
         Record {
             schema: WORK_SCHEMA.into(),
@@ -6480,7 +6619,7 @@ mod local_tests {
             assert!(validate_arguments(
                 &catalog,
                 "codex_sessions",
-                &json!({"action":"create","inference":name})
+                &json!({"action":"create","inference":name,"call_id":"reject-invalid-inference"})
             )
             .is_err());
             assert!(serde_json::from_value::<Selection>(
@@ -6491,7 +6630,7 @@ mod local_tests {
         assert!(validate_arguments(
             &catalog,
             "codex_sessions",
-            &json!({"action":"create","reasoning":"direct"})
+            &json!({"action":"create","reasoning":"direct","call_id":"reject-old-field"})
         )
         .is_err());
         assert!(serde_json::from_value::<Selection>(

@@ -210,6 +210,46 @@ result; the later distinct cleanup record removes its verified payloads. Per-roo
 *-payload-cleanup*.jsonl files retain restoration records; source, original
 operation/native results and immutable candidates remain. Reusable compiler caches
 total about14.51GiB and are retained. Installed services/configuration are unchanged.
+Actual Linux app/SDK/MCP standalone implementation and natural follow-up now
+complete ordinary gpt-6-thinking/standard development: read AGENTS.md, preserve
+existing Rust code/tests, fix add, compile/run the test binary outside the
+workspace, then add zero/negative tests on a follow-up without repeating app or
+workflow names. Original saved Chat and private operation output confirm success;
+Native rollouts and notification callback effects remain0. Pro requests0.
+The first same-Chat integrated transition fails qualification: create proposals
+omit call_id, misplace task/mode/budget, then misinterpret generic argument errors
+as a missing AppHost and continue via standalone tools. That fallback's4 passing
+Rust tests are not a successful integrated transition. One explicit original
+saved-Chat read confirms the final and its incorrect rootfs explanation. Original
+LINUX_INTEGRATED_TRANSITION snapshot/graph and the edited fixture are preserved.
+The owned Linux fixture's planned20-minute lifetime ends and its processes exit;
+its records are retained before a diagnostic-only restart. Production host and
+services remain untouched.
+Correction under qualification: action requirements now share one declaration
+between schema and admission, with cause-specific pre-effect guidance, clear
+allocation→start separation, original-task instructions and AppHost/Core boundary.
+Arguments alone cannot change the requested workflow. Actual local HTTP and the
+full Android Native/TUI/cold/assignment suite pass the new pre-Core diagnostics
+(session-admission-android.json, fixture ob-q9lnkdfc). Library144 checks, the22
+affected Operator cases, Clippy and existing Python scope pass; invalid-inference
+cases now supply valid IDs so they still exercise their intended rejection.
+An injected missing-ID contract fault is detected and restored. Its first attempt
+fails compilation with File table overflow (ENFILE), not a passing mutation test;
+that original log/result remain and the post-recovery single-case retry detects
+the fault (session-admission-mutation.json). System file-table counters are denied
+and visible owned descriptors alone do not establish a leak; no system limit or
+user job was changed.
+The old diagnostic connector's deletion has explicit404 readback after its caller
+observation timed out. New connector creation is rejected with424 carrying the
+MCP gateway's429; no new model request is made. The previous trial Provider is
+also later observed absent; its exit cause is unobserved and is not claimed as
+the cause of429. Foreground trial processes are not assumed to survive recovery.
+Matching new-host schema and same-Chat actual-model requalification remain pending;
+source/native proof does not promote that failed transition to success.
+The user requests one accumulated product build at this completed local/native
+qualification milestone. Prepare a local candidate from the accepted source,
+including pending Core/Manager/TUI inputs, while the external trial is unavailable;
+public delivery and device activation remain separate gates.
 Standalone renderer local-function ingress has no implemented caller yet.
 Actual-model intent selection, per-turn approval/reviewer parity, signed packaging
 and device activation remain unqualified; local/backend success does not imply those boundaries passed.

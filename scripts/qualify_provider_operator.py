@@ -144,6 +144,17 @@ def probe(args):
             raise AssertionError('unauthenticated bootstrap accepted')
         except urllib.error.HTTPError as error:
             assert error.code == 401
+        # Invalid allocation must explain the actual pre-effect fault, never
+        # suggest acquiring an unrelated AppHost or switching workflow.
+        missing_id = rpc('codex_sessions', {'action': 'create'}, True)
+        assert missing_id['error'] == 'session_call_id_required' and missing_id['executed'] is False, missing_id
+        assert 'call_id' in missing_id['message'] and 'AppHost' in missing_id['message']
+        misplaced = rpc('codex_sessions', {'action': 'create', 'call_id': 'never-admitted', 'task': 'ignored before correction'}, True)
+        assert misplaced['error'] == 'session_allocation_only' and misplaced['executed'] is False, misplaced
+        assignment = rpc('codex_sessions', {'action': 'create', 'call_id': 'no-role', 'budget': {}}, True)
+        assert assignment['error'] == 'assignment_role_required' and assignment['executed'] is False, assignment
+        assert rpc('codex_sessions', {'action': 'list'})['work'] == []
+        assert server_paths(home) == [], 'invalid arguments acquired Core'
         saved_defaults = config_path.read_bytes()
         chat_a = {'openai/session': 'owned-qualification-chat-A', 'openai/subject': 'owned-subject-A'}
         chat_b = {'openai/session': 'owned-qualification-chat-B', 'openai/subject': 'owned-subject-A'}
@@ -867,6 +878,7 @@ def probe(args):
         args.report.write_text(json.dumps({'accepted': True, 'fixture': str(root), 'chat_submissions': 0,
             'same_thread': thread_before, 'both_entrances': True, 'physical_cli_markers': True,
             'tui_title_saved': True, 'auxiliary_registered_extra_work': False,
+            'allocation_argument_diagnostics_before_core': True,
             'chat_correlation': {'envelope_only':True,'inspection_did_not_select':True,'multiple_candidates_not_dispatch':True,'different_subject_hint_isolated':True,'restart_retained':True,'raw_identifiers_not_stored':True,'optional_write_failure_preserved_native_result':True},
             'terminal_with_pending_submission_did_not_dispatch': True,
             'settlement_resumed_same_chat': not cold_resume,

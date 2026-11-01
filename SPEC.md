@@ -1638,6 +1638,24 @@ anonymous ID. CURRENT records observed clients/lifetimes; new clients, account
 changes and unresolved fork semantics need their own qualification. Retain the
 separate original-source verification contract.
 
+Native work allocation and task execution are separate operations. The declarations
+and pre-effect validation share action-specific argument requirements: allocation
+(create/resume/fork), join, queue, chat_input and source_join require a stable
+nonempty call_id. Allocation does not accept task/model/effort/collaboration-mode
+arguments; send actual user instructions on start/join instead of silently ignoring
+them. Assignment budgets/parent/dependencies require an explicit role; ordinary
+work need not invent an assignment budget. Expose these conditions in the schema
+and field descriptions. Missing identifiers and misplaced task fields return
+cause-specific pre-effect errors with correction guidance. Reads do not gain an
+unused call_id requirement. An argument rejection does not justify changing the
+user's integrated intent to standalone development.
+
+Already-running ChatGPT inference can attach to Native Core without a separate
+Provider-owned ChatGPT AppHost. Host status/ensure concerns that optional app,
+not Core readiness or the validity of work-allocation arguments. Describe this
+boundary in the exposed tools. A model-reported fallback is a failed workflow
+qualification even when its standalone file edit/test succeeds.
+
 The integrated MCP work list may mark each row `chat_correlated` when its call
 carries host `_meta["openai/session"]`. Derive the private association from the
 persistent authenticated service owner and session/subject/organization tuple;

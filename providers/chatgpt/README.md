@@ -410,18 +410,20 @@ fixture. Compiler caches are disposable; accepted/current/rollback candidate
 artifacts stay outside them. No installed runtime or Chat state is cleaned by
 this development helper.
 
-| Usage | Path |
+| Workflow / inference | Path |
 | --- | --- |
-| Codex development | Native Codex -> Linux app API -> Provider work Chat -> MCP/local tools -> same native work |
-| ChatGPT direct development | Active ChatGPT response -> MCP -> native work; active ChatGPT response supplies intelligence |
-| ChatGPT general development | Active ChatGPT response -> MCP request/return -> the same Provider Codex path, including its app/session management |
+| Standalone (단독 개발) | Active ChatGPT response -> MCP local tools -> threadless Core I/O -> original Chat, without Native work/history |
+| Integrated / attached | Active ChatGPT response -> MCP Native work/tools -> same response; Native owns common execution/history |
+| Integrated / submitted | CLI or Chat -> selected Native work -> Provider-owned app inference -> MCP/local_function returns -> same Native work |
 
-MCP/local selects the inner tool return for an app-Provider work Chat. General
-development still enters through MCP; ordinary direct ChatGPT local injection is
-not an implemented equivalent. The Linux app is retained for useful authenticated
-session reuse/replacement. Replacing it with browser/DOM is not the next objective.
-Legacy service-wide `execution.mode` alone does not select the combined routing;
-the shared work interface binds the selected reasoning source per work.
+MCP/local_function selects the inner tool-return transport of Provider-owned
+integrated inference; it does not rename the workflow. Standalone renderer
+local-function ingress has no implemented caller yet. Linux AppHost acquisition
+is needed for Provider-owned app inference, while already-running ChatGPT can
+attach to Core without another app or model request. The existing service-wide
+execution.mode selects runtime wiring; per-work inference uses attached/submitted.
+Neither selects standalone development implicitly.
+
 Stable native work, one current controller, related Chat reuse, grounded handoff,
 original question/result return and model-free status are integration boundaries.
 
