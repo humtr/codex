@@ -17,6 +17,7 @@ mod local;
 pub mod mcp;
 pub mod mcp_bridge;
 pub mod mcp_stdio;
+mod native_effect;
 mod operation;
 pub mod operator;
 pub mod operator_native;

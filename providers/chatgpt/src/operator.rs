@@ -1010,10 +1010,11 @@ impl Operator {
         let id = random_id()?;
         let token = self
             .broker
-            .register(
+            .register_scoped(
                 &id,
                 request.map_or_else(BTreeMap::new, |v| v.tools.clone()),
                 false,
+                Some(&pool.workspace),
             )
             .await?;
         let record = Record {
@@ -1299,7 +1300,12 @@ impl Operator {
         self.broker.retire(&work.record.token, true).await?;
         work.record.token = self
             .broker
-            .register(&record.id, request.tools.clone(), false)
+            .register_scoped(
+                &record.id,
+                request.tools.clone(),
+                false,
+                Some(&pool.workspace),
+            )
             .await?;
         work.record.capability = random_id()?;
         work.record.generation += 1;
@@ -3675,7 +3681,12 @@ impl Operator {
                         let _ = self.broker.retire(&work.record.token, false).await;
                         work.record.token = self
                             .broker
-                            .register(&record.id, BTreeMap::new(), false)
+                            .register_scoped(
+                                &record.id,
+                                BTreeMap::new(),
+                                false,
+                                record.workspace.as_deref(),
+                            )
                             .await?;
                         work.record.accepted = false;
                     }
@@ -3749,7 +3760,12 @@ impl Operator {
                     work.record.phase = "native_compacting".into();
                     work.record.token = self
                         .broker
-                        .register(&record.id, BTreeMap::new(), false)
+                        .register_scoped(
+                            &record.id,
+                            BTreeMap::new(),
+                            false,
+                            record.workspace.as_deref(),
+                        )
                         .await?;
                     work.record.accepted = true;
                     self.persist(&work.record)?;
@@ -3920,7 +3936,12 @@ impl Operator {
                 work.record.origin = "chatgpt".into();
                 work.record.token = self
                     .broker
-                    .register(&record.id, BTreeMap::new(), false)
+                    .register_scoped(
+                        &record.id,
+                        BTreeMap::new(),
+                        false,
+                        record.workspace.as_deref(),
+                    )
                     .await?;
                 work.record.phase =
                     if record.phase == "completed" && state["thread"]["status"]["type"] == "idle" {
@@ -4631,6 +4652,7 @@ impl Operator {
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "native_observer_running":native_observer_running,
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
+            "native_effects":self.broker.effect_status(&record.id)?,
             "selection":record.selection,"workspace":record.workspace,"app_lane":app_lane,
             "development_binding":self.development_binding(&record)?,
             "source_admission":record.native_turn.as_deref().map(|turn|self.source_admission(&record,turn)).transpose()?.flatten(),
@@ -5514,7 +5536,12 @@ impl Operator {
             work.record.generation += 1;
             work.record.token = self
                 .broker
-                .register(&record.id, request.tools.clone(), false)
+                .register_scoped(
+                    &record.id,
+                    request.tools.clone(),
+                    false,
+                    record.workspace.as_deref(),
+                )
                 .await?;
             work.record.accepted = false;
             work.record.phase = "waiting_native".into();
@@ -5898,6 +5925,15 @@ impl Host for Operator {
             };
             if let Some(path) = path {
                 let thread = request.thread.clone();
+                if let Some(work) = &record {
+                    let completed = request
+                        .results()
+                        .map(|(id, value)| (id.to_owned(), value.clone()))
+                        .collect::<Vec<_>>();
+                    this.broker
+                        .settle_external_tools(&work.id, &completed)
+                        .await?;
+                }
                 let completion_cancel = CancellationToken::new();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
@@ -5943,12 +5979,30 @@ impl Host for Operator {
                 });
                 let (sender, mut receiver) = mpsc::channel(64);
                 let child_cancel = cancel.clone();
+                let effect_work = record.as_ref().map(|work| work.id.clone());
+                let effect_workspace = pool.workspace.clone();
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
                         if let Event::Tool(call) = &event {
                             if let Err(error) = this.admit_native_call(&thread, &call.id).await {
                                 child_cancel.cancel();
                                 return Err(error);
+                            }
+                            if let Some(work) = effect_work.as_deref() {
+                                if let Err(error) = this
+                                    .broker
+                                    .admit_external_tool(
+                                        work,
+                                        &call.id,
+                                        &call.tool.key(),
+                                        &call.input,
+                                        &effect_workspace,
+                                    )
+                                    .await
+                                {
+                                    child_cancel.cancel();
+                                    return Err(error);
+                                }
                             }
                         }
                         if events.send(event).await.is_err() {

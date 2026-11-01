@@ -4,6 +4,7 @@
 use crate::{
     context::digest,
     journal::{random_id, Journal},
+    native_effect::{self, Effect},
     protocol::{gateway_calls, Error, Tool},
 };
 use axum::{
@@ -17,6 +18,7 @@ use serde_json::{json, Value};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -456,10 +458,14 @@ struct Invocation {
     pub report: String,
     offered: bool,
     result: Option<Value>,
+    #[serde(default)]
+    effect: Option<Effect>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Turn {
     lane: String,
+    #[serde(default)]
+    workspace: Option<PathBuf>,
     tools: BTreeMap<String, Tool>,
     calls: BTreeMap<String, Invocation>,
     retired: bool,
@@ -493,6 +499,94 @@ struct Registry {
     // Admission survives payload eviction. Revoked entries retain only the
     // identities needed to retry an unfinished durable Stop.
     discovery: BTreeMap<String, DiscoveryAdmission>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct ClaimedEffect {
+    lane: String,
+    effect: Effect,
+    #[serde(default)]
+    session_id: Option<u64>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct ExternalEffectReceipt {
+    fingerprint: String,
+    name: String,
+    continuation: Option<u64>,
+    #[serde(default)]
+    settled: bool,
+}
+#[derive(Default, Serialize, Deserialize)]
+struct ActiveEffects {
+    claims: BTreeMap<String, ClaimedEffect>,
+    #[serde(default)]
+    external: BTreeMap<String, ExternalEffectReceipt>,
+}
+fn external_effect_id(lane: &str, tool_id: &str) -> String {
+    digest(&("upstream-native-effect-v1", lane, tool_id))
+}
+fn settle_effect(
+    claims: &mut ActiveEffects,
+    id: &str,
+    lane: &str,
+    name: &str,
+    continuation: Option<u64>,
+    result: &Value,
+) {
+    let (running, exited) = native_process_result(result);
+    if name == "functions.exec_command" && running.is_some() && !exited {
+        if let Some(claim) = claims.claims.get_mut(id) {
+            claim.session_id = running;
+        }
+        return;
+    }
+    if let Some(session) = continuation {
+        if exited {
+            claims
+                .claims
+                .retain(|_, held| !(held.lane == lane && held.session_id == Some(session)));
+        }
+    }
+    claims.claims.remove(id);
+}
+/// These markers originate in the native tool's own public execution result.
+/// An unrecognized or failed continuation does not establish process exit.
+fn native_process_result(value: &Value) -> (Option<u64>, bool) {
+    let output = value
+        .get("output")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("content").and_then(Value::as_str))
+        .map(str::to_owned)
+        .unwrap_or_else(|| value.to_string());
+    // The tool's status header precedes the "Output:" marker. Child process
+    // stdout is untrusted and can itself print status-looking strings: never
+    // allow that text to establish process exit or a new session lease.
+    let status = output
+        .split_once("\nOutput:\n")
+        .map(|(head, _)| head)
+        .or_else(|| output.split_once("\\nOutput:\\n").map(|(head, _)| head))
+        .unwrap_or(&output);
+    let session = status
+        .find("Process running with session ID ")
+        .and_then(|pos| {
+            status[pos + "Process running with session ID ".len()..]
+                .split(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|s| s.parse::<u64>().ok())
+        });
+    let exited = session.is_none()
+        && (status.contains("Process exited with code ")
+            || status.contains("Process exited with signal "));
+    (session, exited)
+}
+fn continued_process(name: &str, input: &str) -> Option<u64> {
+    (name == "functions.write_stdin")
+        .then(|| {
+            serde_json::from_str::<Value>(input)
+                .ok()?
+                .get("session_id")?
+                .as_u64()
+        })
+        .flatten()
 }
 impl Registry {
     fn source_admitted(&self, token: &str, lane: &str) -> bool {
@@ -530,6 +624,143 @@ pub struct Arguments {
     pub report: String,
 }
 impl Broker {
+    /// Bounded, account-private status data. Never export paths, file contents,
+    /// command text or authentication material from another work.
+    pub(crate) fn effect_status(&self, lane: &str) -> Result<Value, Error> {
+        let state: ActiveEffects = self
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))?
+            .unwrap_or_default();
+        let entries = state
+            .claims
+            .iter()
+            .map(|(id, held)| {
+                json!({"call":id,"owner_work":held.lane,
+                "resource_kind":match held.effect {
+                    Effect::Read => "read",
+                    Effect::Paths(_) => "bounded",
+                    Effect::Opaque => "opaque",
+                },
+                "process_session":held.session_id,
+                "owned":held.lane==lane,
+                "pending_result":true})
+            })
+            .collect::<Vec<_>>();
+        Ok(
+            json!({"active":entries,"unconfirmed_effects":state.claims.len(),
+            "external_call_receipts":state.external.len()}),
+        )
+    }
+    /// Provider-owned AppHost tools also execute in upstream Native, but do
+    /// not use MCP tool turns. Reserve before forwarding their actual Tool
+    /// event; release only on the *next* verified native result. No re-exec on
+    /// repeated/uncertain delivery IDs.
+    pub(crate) async fn admit_external_tool(
+        &self,
+        lane: &str,
+        id: &str,
+        name: &str,
+        input: &str,
+        workspace: &Path,
+    ) -> Result<(), Error> {
+        let _registry = self.registry.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error("mcp_turn_unavailable"));
+        }
+        let key = digest(&"native-effect-claims-v1");
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let resource_id = external_effect_id(lane, id);
+        let fingerprint = digest(&(name, input));
+        if let Some(previous) = state.external.get(&resource_id) {
+            return if previous.fingerprint == fingerprint {
+                Err(Error("native_effect_delivery_unconfirmed"))
+            } else {
+                Err(Error("native_effect_identity_changed"))
+            };
+        }
+        if state.external.len() >= 4096 {
+            return Err(Error("native_effect_receipt_limit"));
+        }
+        let root =
+            std::fs::canonicalize(workspace).map_err(|_| Error("native_workspace_unavailable"))?;
+        let effect = native_effect::classify(name, input, Some(&root));
+        let continuation = continued_process(name, input);
+        if state.claims.values().any(|held| {
+            native_effect::conflicts(&effect, &held.effect)
+                && !(continuation.is_some() && held.lane == lane && held.session_id == continuation)
+        }) {
+            return Err(Error("native_resource_busy"));
+        }
+        native_effect::can_offer(&effect, &root).map_err(Error)?;
+        let continuing_owned = continuation.is_some_and(|session| {
+            state
+                .claims
+                .values()
+                .any(|held| held.lane == lane && held.session_id == Some(session))
+        });
+        if effect != Effect::Read && !continuing_owned {
+            state.claims.insert(
+                resource_id.clone(),
+                ClaimedEffect {
+                    lane: lane.into(),
+                    effect,
+                    session_id: None,
+                },
+            );
+        }
+        state.external.insert(
+            resource_id,
+            ExternalEffectReceipt {
+                fingerprint,
+                name: name.into(),
+                continuation,
+                settled: false,
+            },
+        );
+        self.journal.write(&key, &state)?;
+        Ok(())
+    }
+
+    /// Canonical upstream tool output is the only ordinary settlement proof.
+    /// Stop, a lost Chat, provider restart and an idle process are not proof.
+    pub(crate) async fn settle_external_tools(
+        &self,
+        lane: &str,
+        results: &[(String, Value)],
+    ) -> Result<(), Error> {
+        if results.is_empty() {
+            return Ok(());
+        }
+        let _registry = self.registry.lock().await;
+        let key = digest(&"native-effect-claims-v1");
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let mut changed = false;
+        for (id, result) in results {
+            let effect_id = external_effect_id(lane, id);
+            if let Some(receipt) = state
+                .external
+                .get(&effect_id)
+                .filter(|v| !v.settled)
+                .cloned()
+            {
+                settle_effect(
+                    &mut state,
+                    &effect_id,
+                    lane,
+                    &receipt.name,
+                    receipt.continuation,
+                    result,
+                );
+                state.external.get_mut(&effect_id).unwrap().settled = true;
+                changed = true;
+            }
+        }
+        if changed {
+            self.journal.write(&key, &state)?;
+            self.changed.notify_waiters();
+        }
+        Ok(())
+    }
     pub fn new(journal: Arc<Journal>) -> Arc<Self> {
         Arc::new(Self {
             journal,
@@ -566,6 +797,22 @@ impl Broker {
         tools: BTreeMap<String, Tool>,
         source_bound: bool,
     ) -> Result<String, Error> {
+        self.register_scoped(lane, tools, source_bound, None).await
+    }
+    /// Capture the physical root once at Native work admission, not from
+    /// untrusted tool arguments. A missing root can admit only opaque writes.
+    pub async fn register_scoped(
+        &self,
+        lane: &str,
+        tools: BTreeMap<String, Tool>,
+        source_bound: bool,
+        workspace: Option<&Path>,
+    ) -> Result<String, Error> {
+        let workspace = workspace
+            .map(|path| {
+                std::fs::canonicalize(path).map_err(|_| Error("native_workspace_unavailable"))
+            })
+            .transpose()?;
         let mut registry = self.registry.lock().await;
         if self.closed.load(Ordering::Acquire) {
             return Err(Error("mcp_turn_unavailable"));
@@ -588,6 +835,7 @@ impl Broker {
         registry.reserve_payload(&token)?;
         let turn = Turn {
             lane: lane.into(),
+            workspace,
             tools,
             calls: BTreeMap::new(),
             retired: false,
@@ -881,6 +1129,7 @@ impl Broker {
             &turn.tools,
         )?;
         let mut next = turn.clone();
+        let effect = native_effect::classify(&args.name, &args.input, turn.workspace.as_deref());
         next.calls.insert(
             args.call_id.clone(),
             Invocation {
@@ -891,6 +1140,7 @@ impl Broker {
                 report: args.report.clone(),
                 offered: false,
                 result: None,
+                effect: Some(effect),
             },
         );
         self.persist(token, &next)?;
@@ -978,19 +1228,77 @@ impl Broker {
             .filter(|v| !v.retired)
             .ok_or(Error("mcp_turn_unavailable"))?;
         let mut next = turn.clone();
-        let calls = next
+        // The reservation journal is committed BEFORE a tool is offered to
+        // upstream, and released only AFTER upstream's result is journaled.
+        // A crash may leave a conservative unresolved claim, never an
+        // unrecorded still-running writer mistaken for a safe new operation.
+        let claims_key = digest(&"native-effect-claims-v1");
+        let mut claims: ActiveEffects = self.journal.read(&claims_key)?.unwrap_or_default();
+        let mut calls = Vec::new();
+        let mut changed = false;
+        let mut claims_changed = false;
+        for call in next
             .calls
             .values_mut()
             .filter(|v| !v.offered && v.result.is_none())
-            .take(32)
-            .map(|v| {
-                v.offered = true;
-                json!({"id":v.id,"name":v.name,"input":v.input,"report":v.report})
-            })
-            .collect::<Vec<_>>();
-        if !calls.is_empty() {
+        {
+            if calls.len() == 32 {
+                break;
+            }
+            let effect = call.effect.clone().unwrap_or(Effect::Opaque);
+            let continuation = continued_process(&call.name, &call.input);
+            if claims.claims.values().any(|held| {
+                native_effect::conflicts(&effect, &held.effect)
+                    && !(continuation.is_some()
+                        && held.lane == next.lane
+                        && held.session_id == continuation)
+            }) {
+                continue;
+            }
+            if let Effect::Paths(_) = &effect {
+                let verified = next
+                    .workspace
+                    .as_ref()
+                    .ok_or(Error("native_workspace_unavailable"))
+                    .and_then(|workspace| {
+                        native_effect::can_offer(&effect, workspace).map_err(Error)
+                    });
+                if let Err(reason) = verified {
+                    call.result = Some(json!({"error":reason.0,"executed":false}));
+                    changed = true;
+                    continue;
+                }
+            }
+            let continuing_owned = continuation.is_some_and(|session| {
+                claims
+                    .claims
+                    .values()
+                    .any(|held| held.lane == next.lane && held.session_id == Some(session))
+            });
+            if effect != Effect::Read && !continuing_owned {
+                claims.claims.insert(
+                    call.id.clone(),
+                    ClaimedEffect {
+                        lane: next.lane.clone(),
+                        effect,
+                        session_id: None,
+                    },
+                );
+                claims_changed = true;
+            }
+            call.offered = true;
+            changed = true;
+            calls.push(
+                json!({"id":call.id,"name":call.name,"input":call.input,"report":call.report}),
+            );
+        }
+        if claims_changed {
+            self.journal.write(&claims_key, &claims)?;
+        }
+        if changed {
             self.persist(token, &next)?;
             *turn = next;
+            self.changed.notify_waiters();
         }
         Ok(calls)
     }
@@ -1051,6 +1359,29 @@ impl Broker {
         prepare()?;
         self.persist(token, &next)?;
         *turn = next;
+        if !results.is_empty() {
+            let claims_key = digest(&"native-effect-claims-v1");
+            let mut claims: ActiveEffects = self.journal.read(&claims_key)?.unwrap_or_default();
+            let before = serde_json::to_vec(&claims).map_err(|_| Error("invalid_lane_record"))?;
+            for (id, result) in results {
+                let call = turn
+                    .calls
+                    .values()
+                    .find(|v| v.id == *id)
+                    .ok_or(Error("mcp_result_invalid"))?;
+                settle_effect(
+                    &mut claims,
+                    id,
+                    &turn.lane,
+                    &call.name,
+                    continued_process(&call.name, &call.input),
+                    result,
+                );
+            }
+            if before != serde_json::to_vec(&claims).map_err(|_| Error("invalid_lane_record"))? {
+                self.journal.write(&claims_key, &claims)?;
+            }
+        }
         self.changed.notify_waiters();
         Ok(())
     }
@@ -1330,4 +1661,445 @@ async fn http(State(broker): State<Arc<Broker>>, request: Request) -> Response {
         }
     };
     ([("cache-control", "no-store")], Json(body)).into_response()
+}
+
+#[cfg(test)]
+mod native_concurrency_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn nc_process_stdout_cannot_fake_exit_confirmation() {
+        assert_eq!(
+            native_process_result(&json!({"output":
+                "Chunk ID: abc\nProcess running with session ID 1200\nOutput:\nProcess exited with code 0\n"})),
+            (Some(1200), false)
+        );
+        assert_eq!(
+            native_process_result(&json!({"output":
+                "Chunk ID: abc\nProcess exited with code 0\nOutput:\nProcess running with session ID 1200\n"})),
+            (None, true)
+        );
+    }
+
+    fn fixture() -> (PathBuf, Arc<Journal>, BTreeMap<String, Tool>) {
+        let root = std::env::temp_dir().join(format!("broker-resource-{}", random_id().unwrap()));
+        fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let journal = Arc::new(Journal::open(&root.join("owner")).unwrap());
+        let catalog = crate::protocol::Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"test"}],
+                "tools":[
+                    {"type":"function","name":"functions.exec_command","parameters":{"type":"object"}},
+                    {"type":"function","name":"functions.write_stdin","parameters":{"type":"object"}},
+                    {"type":"custom","name":"functions.apply_patch","format":{"type":"text"}}
+                ]}),
+            &crate::config::Config::default(),
+            Some("native-effect-test"),
+        )
+        .unwrap()
+        .tools;
+        (root, journal, catalog)
+    }
+    fn patch(name: &str, old: &str, new: &str) -> Arguments {
+        Arguments {
+            call_id: format!("patch-{name}-{new}"),
+            name: "functions.apply_patch".into(),
+            input: format!(
+                "*** Begin Patch\n*** Update File: {name}\n@@\n-{old}\n+{new}\n*** End Patch\n"
+            ),
+            report: String::new(),
+        }
+    }
+    async fn accepted(broker: &Broker, token: &str, call: &Arguments) -> String {
+        broker.enqueue(token, call).await.unwrap();
+        let offered = broker.offer(token).await.unwrap();
+        assert_eq!(offered.len(), 1);
+        offered[0]["id"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn nc_distinct_writers_and_reads_are_parallel_nonoverlap_rebases() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\nbeta\ngamma\n").unwrap();
+        fs::write(root.join("other"), "separate\n").unwrap();
+        let broker = Broker::new(journal);
+        let one = broker
+            .register_scoped("one", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let two = broker
+            .register_scoped("two", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let three = broker
+            .register_scoped("three", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let first = patch("file", "alpha", "ALPHA");
+        let second = patch("file", "beta", "BETA");
+        let unrelated = patch("other", "separate", "SEPARATE");
+        let id_first = accepted(&broker, &one, &first).await;
+        broker.enqueue(&two, &second).await.unwrap();
+        assert!(
+            broker.offer(&two).await.unwrap().is_empty(),
+            "same-file publication serializes, not creation"
+        );
+        let id_unrelated = accepted(&broker, &three, &unrelated).await;
+        let read = Arguments {
+            call_id: "read".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"pwd"}).to_string(),
+            report: String::new(),
+        };
+        let read_id = accepted(&broker, &two, &read).await;
+        broker
+            .settle(&two, &[(read_id, json!("read"))])
+            .await
+            .unwrap();
+        fs::write(root.join("file"), "ALPHA\nbeta\ngamma\n").unwrap();
+        broker
+            .settle(&one, &[(id_first, json!("first"))])
+            .await
+            .unwrap();
+        let id_second = broker.offer(&two).await.unwrap();
+        assert_eq!(
+            id_second.len(),
+            1,
+            "second hunk can rebase without overwrite"
+        );
+        fs::write(root.join("file"), "ALPHA\nBETA\ngamma\n").unwrap();
+        broker
+            .settle(
+                &two,
+                &[(id_second[0]["id"].as_str().unwrap().into(), json!("second"))],
+            )
+            .await
+            .unwrap();
+        broker
+            .settle(&three, &[(id_unrelated, json!("other"))])
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("file")).unwrap(),
+            "ALPHA\nBETA\ngamma\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_overlap_conflict_and_original_receipt_are_preserved() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\nbeta\n").unwrap();
+        let broker = Broker::new(journal);
+        let one = broker
+            .register_scoped("one", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let two = broker
+            .register_scoped("two", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let first = patch("file", "alpha", "ALPHA");
+        let second = patch("file", "alpha", "changed");
+        let id_first = accepted(&broker, &one, &first).await;
+        broker.enqueue(&two, &second).await.unwrap();
+        assert!(broker.offer(&two).await.unwrap().is_empty());
+        fs::write(root.join("file"), "ALPHA\nbeta\n").unwrap();
+        broker
+            .settle(&one, &[(id_first, json!("original result"))])
+            .await
+            .unwrap();
+        assert!(broker.offer(&two).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&two, second.clone()).await.unwrap(),
+            json!({"error":"native_resource_version_conflict","executed":false})
+        );
+        assert_eq!(
+            broker.invoke(&one, first).await.unwrap(),
+            json!("original result"),
+            "identical call ID and payload reuses settled receipt"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("file")).unwrap(),
+            "ALPHA\nbeta\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_unknown_opaque_and_crashed_writer_claim_are_not_forgotten() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let one = broker
+            .register_scoped("one", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let second = patch("file", "alpha", "replacement");
+        let unknown = Arguments {
+            call_id: "unknown-shell".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"touch file && git add file"}).to_string(),
+            report: String::new(),
+        };
+        let opaque = accepted(&broker, &one, &unknown).await;
+        let two = broker
+            .register_scoped("two", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        broker.enqueue(&two, &second).await.unwrap();
+        assert!(broker.offer(&two).await.unwrap().is_empty());
+        broker
+            .settle(&one, &[(opaque, json!("done"))])
+            .await
+            .unwrap();
+        let offered = broker.offer(&two).await.unwrap();
+        assert_eq!(offered.len(), 1);
+        // Simulate process loss with a tool already offered but no result.
+        drop(broker);
+        let replacement = Broker::new(journal);
+        let third = replacement
+            .register_scoped("three", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let third_call = patch("file", "alpha", "other");
+        replacement.enqueue(&third, &third_call).await.unwrap();
+        assert!(replacement.offer(&third).await.unwrap().is_empty());
+        let stored: ActiveEffects = replacement
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))
+            .unwrap()
+            .unwrap();
+        assert!(stored
+            .claims
+            .contains_key(offered[0]["id"].as_str().unwrap()));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_opaque_async_process_keeps_claim_until_continuation_confirms_exit() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let owner = broker
+            .register_scoped("owner", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let other = broker
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let command = Arguments {
+            call_id: "started".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"sleep 300"}).to_string(),
+            report: String::new(),
+        };
+        let command_id = accepted(&broker, &owner, &command).await;
+        broker
+            .settle(
+                &owner,
+                &[(
+                    command_id.clone(),
+                    json!({"output":"Process running with session ID 1200"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let pending = patch("file", "alpha", "ALPHA");
+        broker.enqueue(&other, &pending).await.unwrap();
+        assert!(broker.offer(&other).await.unwrap().is_empty());
+        let poll = |id: &str| Arguments {
+            call_id: id.into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":1200,"chars":"","yield_time_ms":1000}).to_string(),
+            report: String::new(),
+        };
+        let first_poll = accepted(&broker, &owner, &poll("poll-one")).await;
+        broker
+            .settle(
+                &owner,
+                &[(
+                    first_poll,
+                    json!({"output":"Process running with session ID 1200"}),
+                )],
+            )
+            .await
+            .unwrap();
+        assert!(
+            broker.offer(&other).await.unwrap().is_empty(),
+            "poll is not a process-exit confirmation"
+        );
+        let final_poll = accepted(&broker, &owner, &poll("poll-final")).await;
+        broker
+            .settle(
+                &owner,
+                &[(final_poll, json!({"output":"Process exited with code 0"}))],
+            )
+            .await
+            .unwrap();
+        assert_eq!(broker.offer(&other).await.unwrap().len(), 1);
+        assert!(broker
+            .journal
+            .read::<ActiveEffects>(&digest(&"native-effect-claims-v1"))
+            .unwrap()
+            .unwrap()
+            .claims
+            .get(&command_id)
+            .is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_external_native_tool_and_mcp_tool_share_exact_resource_claims() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\nbeta\n").unwrap();
+        fs::write(root.join("other"), "other\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("direct", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let direct = patch("file", "alpha", "ALPHA");
+        let id = accepted(&broker, &token, &direct).await;
+        let overlapping = patch("file", "beta", "BETA");
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "app-host",
+                    "upstream-overlap",
+                    &overlapping.name,
+                    &overlapping.input,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        let separate = patch("other", "other", "OTHER");
+        broker
+            .admit_external_tool(
+                "app-host",
+                "upstream-independent",
+                &separate.name,
+                &separate.input,
+                &root,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "app-host",
+                    "upstream-independent",
+                    &separate.name,
+                    &separate.input,
+                    &root
+                )
+                .await,
+            Err(Error("native_effect_delivery_unconfirmed")),
+            "an uncertain original tool offer is never resent"
+        );
+        fs::write(root.join("file"), "ALPHA\nbeta\n").unwrap();
+        broker
+            .settle(&token, &[(id, json!("native completed"))])
+            .await
+            .unwrap();
+        broker
+            .admit_external_tool(
+                "app-host",
+                "upstream-overlap",
+                &overlapping.name,
+                &overlapping.input,
+                &root,
+            )
+            .await
+            .unwrap();
+        let restarted = Broker::new(journal);
+        assert_eq!(
+            restarted
+                .admit_external_tool(
+                    "app-host",
+                    "upstream-overlap",
+                    &overlapping.name,
+                    &overlapping.input,
+                    &root
+                )
+                .await,
+            Err(Error("native_effect_delivery_unconfirmed"))
+        );
+        restarted
+            .settle_external_tools(
+                "app-host",
+                &[
+                    (
+                        "upstream-overlap".into(),
+                        json!({"output":"Process exited with code 0"}),
+                    ),
+                    (
+                        "upstream-independent".into(),
+                        json!({"output":"Process exited with code 0"}),
+                    ),
+                ],
+            )
+            .await
+            .unwrap();
+        assert!(restarted
+            .journal
+            .read::<ActiveEffects>(&digest(&"native-effect-claims-v1"))
+            .unwrap()
+            .unwrap()
+            .claims
+            .is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_external_long_running_native_process_release_requires_exit() {
+        let (root, journal, _tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        broker
+            .admit_external_tool(
+                "owner",
+                "command",
+                "functions.exec_command",
+                &json!({"cmd":"sleep 300"}).to_string(),
+                &root,
+            )
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "owner",
+                &[(
+                    "command".into(),
+                    json!({"output":"Process running with session ID 2200"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let update = patch("file", "alpha", "ALPHA");
+        assert_eq!(
+            broker
+                .admit_external_tool("other", "write", &update.name, &update.input, &root)
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        let poll = json!({"session_id":2200,"chars":"","yield_time_ms":1000}).to_string();
+        broker
+            .admit_external_tool("owner", "poll", "functions.write_stdin", &poll, &root)
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "owner",
+                &[(
+                    "poll".into(),
+                    json!({"output":"Process exited with code 0"}),
+                )],
+            )
+            .await
+            .unwrap();
+        broker
+            .admit_external_tool("other", "write", &update.name, &update.input, &root)
+            .await
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
 }
