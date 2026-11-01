@@ -4,6 +4,7 @@ use crate::{
     config::Config,
     context::digest,
     journal::{private_directory, Journal},
+    native_claims::Guard as SharedNativeGuard,
     operation::{self, Operations},
     operator_native::{Native, Pool},
     protocol::Error,
@@ -16,6 +17,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -32,6 +34,7 @@ struct Output {
 struct Process {
     native: Arc<Native>,
     changed: Arc<Notify>,
+    effect_root: PathBuf,
 }
 pub(crate) struct Local {
     pool: Arc<Pool>,
@@ -123,6 +126,72 @@ impl Local {
             processes: Mutex::new(BTreeMap::new()),
         }))
     }
+    fn claim_thread(&self) -> String {
+        format!(
+            "standalone:{}",
+            self.context["context_id"].as_str().unwrap()
+        )
+    }
+    fn shared_guard_home(&self) -> Option<PathBuf> {
+        // Unit tests share the Broker's private ledger; production shares the
+        // account-level OS ledger with Direct MCP and AppHost tools.
+        #[cfg(test)]
+        {
+            Some(self.journal.root.join("native-shared-test"))
+        }
+        #[cfg(not(test))]
+        {
+            None
+        }
+    }
+    fn guard_error(reason: String) -> Error {
+        match reason.as_str() {
+            "native_resource_busy" => Error("native_resource_busy"),
+            "native_resource_version_conflict" => Error("native_resource_version_conflict"),
+            "native_effect_duplicate_unconfirmed" => Error("native_effect_duplicate_unconfirmed"),
+            "native_effect_identity_changed" => Error("native_effect_identity_changed"),
+            _ => Error("native_resource_shared_guard_failed"),
+        }
+    }
+    fn reserve_effect(&self, cwd: &Path, id: &str, fingerprint: &str) -> Result<(), Error> {
+        SharedNativeGuard::offer_external(
+            cwd,
+            self.shared_guard_home().as_deref(),
+            &self.claim_thread(),
+            id,
+            "local_execute",
+            fingerprint,
+        )
+        .map_err(Self::guard_error)
+    }
+    fn abort_effect(&self, cwd: &Path, id: &str, fingerprint: &str) -> Result<(), Error> {
+        SharedNativeGuard::abort_unoffered(
+            cwd,
+            self.shared_guard_home().as_deref(),
+            &self.claim_thread(),
+            id,
+            "local_execute",
+            fingerprint,
+        )
+        .map_err(Self::guard_error)
+    }
+    fn settle_effect(&self, cwd: &Path, id: &str, result: &Value) -> Result<(), Error> {
+        // Neither cancellation ACK, rejected admission, connection loss nor
+        // an unparseable Core reply proves that the writer process exited.
+        if result["state"] != "exited" {
+            return Ok(());
+        }
+        SharedNativeGuard::settle_external_receipt(
+            cwd,
+            self.shared_guard_home().as_deref(),
+            &self.claim_thread(),
+            id,
+            "local_execute",
+            None,
+            result,
+        )
+        .map_err(Self::guard_error)
+    }
     fn verify_context(&self, id: &str) -> Result<(), Error> {
         if self.context["context_id"].as_str() != Some(id) {
             return Err(Error("standalone_context_changed"));
@@ -180,6 +249,14 @@ impl Local {
     }
     async fn status(&self, process: &str, out: u64, err: u64) -> Result<Value, Error> {
         let record = self.record(process)?;
+        // Reconcile a crash after the result was journaled but before the
+        // physical claim was released. No command is dispatched again.
+        if let (Some(result), Some(root)) = (
+            record.get("result"),
+            record["context"]["effect_workspace"].as_str(),
+        ) {
+            self.settle_effect(Path::new(root), process, result)?;
+        }
         let active = self.processes.lock().await.contains_key(process);
         Ok(
             json!({"context_id":self.context["context_id"],"process_id":process,
@@ -222,6 +299,9 @@ impl Local {
                         Ok(Some(_)) | Err(Error("standalone_delivery_unknown")) => return this.status(&key,0,0).await,
                         Ok(None) => (), Err(error) => return Err(error),
                     }
+                    let cwd = input.cwd.clone().unwrap_or_else(||this.pool.workspace.to_string_lossy().into());
+                    let effect_root = std::fs::canonicalize(&cwd)
+                        .map_err(|_| Error("native_workspace_unavailable"))?;
                     let (sender, receiver) = mpsc::channel(64);
                     let native = this.pool.prepare_io(sender).await?;
                     private_directory(&this.journal.root.join("local-output"))?;
@@ -229,18 +309,40 @@ impl Local {
                         .custom_flags(libc::O_NOFOLLOW).open(this.output(&key,stream))
                         .map_err(|_|Error("standalone_output_unavailable"));
                     let stdout = open("stdout")?;
-                    let stderr = open("stderr")?;
+                    let stderr = match open("stderr") {
+                        Ok(file) => file,
+                        Err(error) => {
+                            drop(stdout);
+                            let _ = std::fs::remove_file(this.output(&key,"stdout"));
+                            native.close();
+                            return Err(error);
+                        }
+                    };
+                    // This is the same process-shared reservation used by
+                    // Broker-mediated Native tools, acquired before Core sees
+                    // command/exec. Unknown argv effects remain opaque.
+                    if let Err(error) = this.reserve_effect(&effect_root,&key,&fingerprint) {
+                        drop(stdout); drop(stderr);
+                        let _ = std::fs::remove_file(this.output(&key,"stdout"));
+                        let _ = std::fs::remove_file(this.output(&key,"stderr"));
+                        native.close();
+                        return Err(error);
+                    }
                     let mut params = json!({"command":input.command,"processId":key,
-                        "cwd":input.cwd.unwrap_or_else(||this.pool.workspace.to_string_lossy().into()),
+                        "cwd":cwd,
                         "tty":input.tty,"streamStdin":input.stream_stdin,"streamStdoutStderr":true,
                         "disableOutputCap":true,"disableTimeout":input.disable_timeout,
                         "permissionProfile":this.context["permission_profile"]});
                     if let Some(env)=input.env { params["env"]=json!(env); }
                     if let Some(timeout)=input.timeout_ms { params["timeoutMs"]=json!(timeout); }
                     if let Some(size)=input.size { params["size"]=json!(size); }
-                    operation::intent_with_context(&this.journal,&key,&fingerprint,
-                        json!({"context_id":input.context_id}))?;
-                    let process = Arc::new(Process {native,changed:Arc::new(Notify::new())});
+                    if let Err(error) = operation::intent_with_context(&this.journal,&key,&fingerprint,
+                        json!({"context_id":input.context_id,"effect_workspace":effect_root})) {
+                        this.abort_effect(&effect_root,&key,&fingerprint)?;
+                        native.close();
+                        return Err(error);
+                    }
+                    let process = Arc::new(Process {native,changed:Arc::new(Notify::new()),effect_root});
                     this.processes.lock().await.insert(key.clone(),process.clone());
                     let task=this.clone(); let id=key.clone();
                     tokio::spawn(async move {task.run(id,fingerprint,process,params,receiver,Output{stdout,stderr}).await;});
@@ -288,8 +390,15 @@ impl Local {
         process.native.close();
         let result =
             result.unwrap_or_else(|error| json!({"state":"delivery_unknown","error":error.0}));
-        if let Err(error) = operation::settle(&self.journal, &id, &fingerprint, &result) {
-            eprintln!("standalone_result_persistence_failed: {}", error.0);
+        match operation::settle(&self.journal, &id, &fingerprint, &result) {
+            Ok(()) => {
+                if let Err(error) = self.settle_effect(&process.effect_root, &id, &result) {
+                    // The settled journal retains enough identity to retry
+                    // release on the next local_process observation.
+                    eprintln!("standalone_resource_settlement_failed: {}", error.0);
+                }
+            }
+            Err(error) => eprintln!("standalone_result_persistence_failed: {}", error.0),
         }
         self.processes.lock().await.remove(&id);
         process.changed.notify_waiters();
@@ -502,6 +611,155 @@ mod tests {
         let local = Local::new(pool, journal, &config).unwrap();
         (root, local)
     }
+    #[test]
+    fn standalone_and_native_share_resource_admission_until_verified_exit() {
+        let (fixture, local) = fixture();
+        let cwd = fixture.0.join("workspace");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(cwd.join("target"), "old\n").unwrap();
+        let home = local.shared_guard_home();
+        let patch = "*** Begin Patch\n*** Update File: target\n@@\n-old\n+new\n*** End Patch\n";
+
+        SharedNativeGuard::offer_external(
+            &cwd,
+            home.as_deref(),
+            "native",
+            "patch",
+            "functions.apply_patch",
+            patch,
+        )
+        .unwrap();
+        assert_eq!(
+            local.reserve_effect(&cwd, "standalone", "command-fingerprint"),
+            Err(Error("native_resource_busy")),
+            "standalone command must not bypass an in-flight mediated write",
+        );
+        SharedNativeGuard::settle_external_receipt(
+            &cwd,
+            home.as_deref(),
+            "native",
+            "patch",
+            "functions.apply_patch",
+            None,
+            &json!({"output":"patched"}),
+        )
+        .unwrap();
+
+        local
+            .reserve_effect(&cwd, "standalone", "command-fingerprint")
+            .unwrap();
+        local
+            .settle_effect(&cwd, "standalone", &json!({"state":"delivery_unknown"}))
+            .unwrap();
+        assert_eq!(
+            SharedNativeGuard::offer_external(
+                &cwd,
+                home.as_deref(),
+                "native",
+                "second-patch",
+                "functions.apply_patch",
+                patch,
+            )
+            .err()
+            .as_deref(),
+            Some("native_resource_busy"),
+            "an unconfirmed Core reply cannot free the process-shared resource",
+        );
+        local
+            .settle_effect(&cwd, "standalone", &json!({"state":"rejected"}))
+            .unwrap();
+        assert_eq!(
+            SharedNativeGuard::offer_external(
+                &cwd,
+                home.as_deref(),
+                "native",
+                "second-patch",
+                "functions.apply_patch",
+                patch,
+            )
+            .err()
+            .as_deref(),
+            Some("native_resource_busy"),
+            "a rejected Core response alone cannot prove no process was launched",
+        );
+
+        local
+            .settle_effect(&cwd, "standalone", &json!({"state":"exited"}))
+            .unwrap();
+        SharedNativeGuard::offer_external(
+            &cwd,
+            home.as_deref(),
+            "native",
+            "second-patch",
+            "functions.apply_patch",
+            patch,
+        )
+        .unwrap();
+        assert_eq!(
+            local.reserve_effect(&cwd, "standalone", "command-fingerprint"),
+            Err(Error("native_resource_busy")),
+        );
+    }
+
+    #[tokio::test]
+    async fn persisted_core_exit_reconciles_claim_without_reexecuting_process() {
+        let (fixture, local) = fixture();
+        let cwd = fixture.0.join("workspace");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(cwd.join("target"), "old\n").unwrap();
+        let call_id = digest(&"recovered-command");
+        let call = call_id.as_str();
+        let fingerprint = "original-input";
+        local.reserve_effect(&cwd, call, fingerprint).unwrap();
+        operation::intent_with_context(
+            &local.journal,
+            call,
+            fingerprint,
+            json!({"context_id":local.context["context_id"],"effect_workspace":cwd}),
+        )
+        .unwrap();
+        operation::settle(
+            &local.journal, call, fingerprint,
+            &json!({"state":"exited","native_reply":{"result":{"exitCode":0,"stdout":"","stderr":""}}}),
+        )
+        .unwrap();
+        private_directory(&local.journal.root.join("local-output")).unwrap();
+        for stream in ["stdout", "stderr"] {
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(local.output(call, stream))
+                .unwrap();
+        }
+        let home = local.shared_guard_home();
+        let patch = "*** Begin Patch\n*** Update File: target\n@@\n-old\n+new\n*** End Patch\n";
+        assert_eq!(
+            SharedNativeGuard::offer_external(
+                &cwd,
+                home.as_deref(),
+                "integrated",
+                "patch",
+                "functions.apply_patch",
+                patch,
+            )
+            .err()
+            .as_deref(),
+            Some("native_resource_busy"),
+        );
+        let recovered = local.status(call, 0, 0).await.unwrap();
+        assert_eq!(recovered["state"], "exited");
+        SharedNativeGuard::offer_external(
+            &cwd,
+            home.as_deref(),
+            "integrated",
+            "patch",
+            "functions.apply_patch",
+            patch,
+        )
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn wrong_context_and_unknown_old_intent_cannot_dispatch_core() {
         let (_root, local) = fixture();

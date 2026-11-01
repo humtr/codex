@@ -32,6 +32,29 @@ remain outside Provider claims. Next: prove managed same-tree concurrency,
 work-specific temporary/output paths, Git and opaque effects at their actual
 execution boundary; do not install or claim full NC acceptance yet.
 
+Source correction (2026-11-02; NOT installed or device-qualified):
+standalone `local_execute` now offers its opaque command effect to the
+same process-shared Native resource ledger as Provider Direct MCP/AppHost and
+integrated tool calls before forwarding `command/exec` to Core. Concurrent
+bounded edits are rejected while an opaque standalone process is unresolved;
+unknown/rejected results and connection loss do not prove physical exit.
+Only a journaled, validated Core process-exit reply releases its reservation,
+and observing that durable local result repairs a post-journal/pre-release
+crash without re-execution. Local/Native arbitration and persisted-exit
+recovery have dedicated Rust regressions. On this source checkpoint, the
+Provider Rust library passes 168 tests (2 existing ignored, zero failures),
+with rustfmt and Clippy -D warnings green. The existing transport socket
+fixture needs an owned short TMPDIR to fit Android's Unix socket path limit.
+This is source-level proof, not an activated Android/native execution test.
+Core/Manager/TUI binaries and upstream execution ownership were not changed. Generic standalone shell
+commands remain opaque, so unrelated writes can still over-serialize.
+Unmediated CLI/TUI/external editors, OS-scoped opaque commands, Git
+index/HEAD/ref-specific admission, work-specific output enforcement and
+full NC-01..29 actual-path acceptance remain unverified or unprotected.
+A previously running installed Native work still prevented a new integrated
+work with `native_workspace_writer_busy`; this source correction does not
+activate a new runtime or resolve that installed restriction.
+
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 
