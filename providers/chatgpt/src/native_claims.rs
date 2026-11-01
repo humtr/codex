@@ -216,7 +216,7 @@ fn process_status(value: &serde_json::Value) -> (Option<u64>, bool) {
 
 impl Guard {
     /// Provider Direct/AppHost offers reserve the very same OS-backed
-    /// resources as independent Core/CLI/TUI dispatch. Provider keeps its
+    /// resources as other Provider-mediated routes. Provider keeps its
     /// original journal as the authoritative call/receipt owner.
     pub(crate) fn offer_external(
         cwd: &Path,

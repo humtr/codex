@@ -544,7 +544,7 @@ fn settle_effect(
     }
     // A response string without an observed Native exit is not proof that
     // a possibly backgrounded shell writer stopped. Keep BOTH the Provider
-    // journal and Core's shared claim until a real terminal receipt arrives.
+    // journal and the shared Provider claim until a real terminal receipt arrives.
     if name == "functions.exec_command" && !exited {
         return;
     }
@@ -636,7 +636,7 @@ impl Broker {
     fn shared_guard_home(&self) -> Option<PathBuf> {
         // A Provider unit test is not an installed execution host; its
         // disposable Journal has its own private, process-shareable ledger.
-        // Production Core and Provider use the same account-scoped ledger.
+        // Provider-mediated callers share the same account-scoped ledger.
         #[cfg(test)]
         {
             Some(self.journal.root.join("native-shared-test"))
@@ -2058,7 +2058,7 @@ mod native_concurrency_tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[tokio::test]
-    async fn nc_core_and_provider_both_consult_the_same_shared_journal() {
+    async fn nc_independent_mediated_callers_share_resource_claims() {
         let (root, journal, tools) = fixture();
         fs::write(root.join("file"), "alpha\n").unwrap();
         let broker = Broker::new(journal);
@@ -2067,8 +2067,8 @@ mod native_concurrency_tests {
         SharedNativeGuard::offer_external(
             &root,
             Some(&home),
-            "core-work",
-            "core-patch",
+            "mediated-work",
+            "mediated-patch",
             &direct.name,
             &direct.input,
         )
@@ -2080,7 +2080,7 @@ mod native_concurrency_tests {
         broker.enqueue(&token, &direct).await.unwrap();
         assert!(
             broker.offer(&token).await.unwrap().is_empty(),
-            "Provider must see an upstream Core claim not in Broker's journal"
+            "Provider must see a mediated claim not in Broker's journal"
         );
         let other = broker
             .admit_external_tool("app-host", "same-file", &direct.name, &direct.input, &root)
@@ -2088,13 +2088,13 @@ mod native_concurrency_tests {
         assert_eq!(
             other,
             Err(Error("native_resource_busy")),
-            "AppHost must also see that independently acquired Core claim"
+            "AppHost must see the independent mediated claim"
         );
         SharedNativeGuard::settle_external(
             &root,
             Some(&home),
-            "core-work",
-            "core-patch",
+            "mediated-work",
+            "mediated-patch",
             &direct.name,
             &direct.input,
             &json!("patched"),

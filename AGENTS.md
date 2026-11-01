@@ -41,6 +41,10 @@ The repository owns this development plane; it needs no external workflow skill.
 - Check branch, HEAD and user changes. Read only the contracts/code needed to
   resolve the task; widen the investigation when evidence shows a shared defect.
 - Change the product contract before implementing different public behavior.
+- SDD gate: check SPEC.md sections 4.5-4.6 before implementation and handoff
+  acceptance. Core/upstream changes require demonstrated Termux necessity;
+  optional Manager/Provider features cannot rewrite upstream Native execution.
+  Test results cannot override component ownership or SDD contracts.
 
 ## Design and implementation
 

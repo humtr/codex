@@ -2755,17 +2755,17 @@ Separate Git worktrees are an optional isolation choice, not a condition for
 parallel work. A work's sole current controller remains exclusive to that work;
 it is not the sole controller of the workspace.
 
-The existing Core/Provider service owns admission and effect settlement. Separate
-*work lifetime*, *Native execution-home/process ownership*, *filesystem mutation*
-and *shared external-resource effects*. The Provider may assess a requested effect
-but a Provider-only workspace check does not protect independent Core/CLI tools.
-The actual tool/effect boundary must enforce the same resource decision; do not
-create a second coordinator, daemon or duplicate execution path. The native
-workspace identity and permission checks remain in force. An authorized
-read-only effect must be genuinely read-only, not just annotated as such; a
-declared write set must be enforced or validated before publication. Keep
-requested write capability available rather than silently converting it to
-read-only work. No path-overlap rule may deny merely creating a second work.
+Upstream owns Native execution, approval, thread history and original results.
+Provider owns resource admission and effect settlement only for integrated
+works and tool calls it actually mediates; Manager offers optional task and
+orchestration conveniences. Core and release-builder own Termux compatibility
+and authenticated installation, not Native concurrency policy. A mediated
+tool boundary must enforce actual write scope and safe publication. Provider
+claims do not protect ordinary upstream CLI/TUI or outside editors: those
+paths require a proven supported upstream or scoped execution boundary, not
+optional coordination code injected into upstream ToolRegistry. Retain
+workspace and permission checks and authorized write capabilities; mere
+workspace overlap cannot deny work creation.
 
 **Conflict classes and required outcomes.** Apply every relevant row to a
 compound operation. The strongest actual conflicting resource rule wins; absence
@@ -2871,9 +2871,9 @@ not introduced by this requirement.
 
 **Compatibility, recovery and acceptance.** Replace Provider's
 `native_workspace_writer_busy` ancestor/descendant work-record rejection with
-effect/resource-aware admission and use the same settlement proof in Core Native
-tool execution, status and recovery. Both explicit and default workspace
-selection obey one policy. Existing unconfirmed work records remain inspectable
+effect/resource-aware admission, settlement and recovery for mediated Native
+tool calls. Unmediated upstream execution is not thereby protected. Both
+explicit and default workspace selection obey one policy. Existing unconfirmed work records remain inspectable
 and their unsettled *effects* fenced; they cannot veto unrelated reads, creates
 or disjoint edits indefinitely. Legacy records without an enforceable resource
 claim must be reconciled against actual native/process effects before inferring

@@ -23,6 +23,15 @@ this status rather than appending another session diary.
 
 ## Current status and next action
 
+Architecture correction (2026-11-01): SPEC sections 4.5-4.6 prevail.
+NC-01..29 same-tree behavior is retained. Stage 2 Provider effects and Stage 3
+Provider gate removal/resource ledger remain unqualified source. Stage 3's
+extra Core ToolRegistry concurrency injection and lock dependency were reverted:
+they violated thin Core ownership. Unmediated CLI/TUI and external editors
+remain outside Provider claims. Next: prove managed same-tree concurrency,
+work-specific temporary/output paths, Git and opaque effects at their actual
+execution boundary; do not install or claim full NC acceptance yet.
+
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 
@@ -3617,34 +3626,6 @@ Prefer native events/callbacks to periodic ChatGPT conversation crawling. Decide
 whether BTW is suitable for short bounded workers, operator side conversations or
 both only after these actual product-path probes, including ordinary ChatGPT input.
 
-### Follow-up: workspace execution ownership and parallel work
-
-native_workspace_writer_busy is not a one-process limit. The current Provider
-create/resume/fork admission in src/operator.rs rejects an explicitly supplied
-workspace when a tracked work is neither completed nor stopped and its workspace
-overlaps by ancestor/descendant. Before that check, native observation refreshes
-only running Provider works. Reconciliation-required or waiting Direct work can
-therefore prevent admission without this check proving an active workspace writer.
-Readonly journal inspection of the canonical38-work index found3 reconciliation-
-required Provider records and1 waiting_native Direct record overlapping prj/codex;
-historical duplicate records were excluded. No record/controller/process was
-stopped or rewritten. These states explain a reachable rejection but do not prove
-which caller/request failed or whether each native owner is currently writing.
-
-Recommended improvement: reuse/join the same development work for the same task;
-put independent parallel writers in separate disposable Git worktrees with reviewed
-integration. Separate conversation/work lifetime from actual mutation ownership.
-Reconcile actual native owners and cancellation/completion before granting a new
-writer; report the blocking work/phase and an actionable join/handoff or isolation
-choice. Investigate read-only work admission and a bounded mutation lease with
-change-precondition checks, preserving requested write capability and existing MCP
-annotation policy. The present work-record check is also not proof that an external
-CLI writer was discovered. Do not infer exclusivity from a Provider phase alone.
-Required proof includes no current native owner, a truly busy owner, abandoned/
-reconciliation state, Direct/Provider completion, readonly activity, overlapping
-paths and separate worktrees. Keep this concurrency improvement separate from the
-minimum update path unless it actually blocks that path.
-
 ### Budget policy
 
 75 and1000 were supplied per-assignment allowances, not global defaults. Original
@@ -3933,8 +3914,9 @@ New window-start and image-paste work must not delay the urgent restoration
 release. After1's required owners are stable,3/4 can use2's external-rate-limited
 waiting time. Input acceptance precedes related originality cleanup, then common
 Provider extraction. The numbers express priority; the prerequisites do not
-force unrelated work to wait for an unavailable optional feature. One shared
-worktree still has one writer and one heavy Android build. Do not turn an
+force unrelated work to wait for an unavailable optional feature. Independent
+same-tree writes and heavy Android builds need proven resource/output isolation.
+Do not turn an
 unverified host capability into an indefinite blocker for useful independent work.
 
 Termux process/memory/network observation, account/inference attribution, startup/
