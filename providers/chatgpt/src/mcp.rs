@@ -576,7 +576,9 @@ fn settle_effect(
     result: &Value,
 ) {
     let (running, exited) = native_process_result(result);
-    if name == "functions.exec_command" && running.is_some() && !exited {
+    let not_spawned =
+        name == "functions.exec_command" && crate::native_claims::verified_exec_not_spawned(result);
+    if name == "functions.exec_command" && running.is_some() && !exited && !not_spawned {
         if let Some(claim) = claims.claims.get_mut(id) {
             claim.session_id = running;
         }
@@ -585,7 +587,7 @@ fn settle_effect(
     // A response string without an observed Native exit is not proof that
     // a possibly backgrounded shell writer stopped. Keep BOTH the Provider
     // journal and the shared Provider claim until a real terminal receipt arrives.
-    if name == "functions.exec_command" && !exited {
+    if name == "functions.exec_command" && !exited && !not_spawned {
         return;
     }
     if let Some(session) = continuation {
@@ -2072,6 +2074,46 @@ mod native_concurrency_tests {
                 "Chunk ID: abc\nProcess exited with code 0\nOutput:\nProcess running with session ID 1200\n"})),
             (None, true)
         );
+    }
+
+    #[test]
+    fn nc_rejected_native_exec_releases_mirrored_claim_without_fake_stdout_release() {
+        let denied = json!({
+            "type":"function_call_output",
+            "output":"exec_command failed: CreateProcess { message: \"Rejected(\\\"The reviewed command was denied.\\\")\" }"
+        });
+        let claim = ClaimedEffect {
+            lane: "first".into(),
+            effect: Effect::Opaque,
+            session_id: None,
+            turn_token: Some("original-turn".into()),
+            continuations: BTreeMap::new(),
+        };
+        let mut state = ActiveEffects::default();
+        state.claims.insert("first-call".into(), claim.clone());
+        let synthetic_stdout = json!({
+            "type":"function_call_output",
+            "output":format!("Chunk ID: fixture\nProcess running with session ID 33\nOutput:\n{}",denied["output"].as_str().unwrap())
+        });
+        settle_effect(
+            &mut state,
+            "first-call",
+            "first",
+            "functions.exec_command",
+            None,
+            &synthetic_stdout,
+        );
+        assert_eq!(state.claims["first-call"].session_id, Some(33));
+        state.claims.insert("first-call".into(), claim);
+        settle_effect(
+            &mut state,
+            "first-call",
+            "first",
+            "functions.exec_command",
+            None,
+            &denied,
+        );
+        assert!(!state.claims.contains_key("first-call"));
     }
 
     fn fixture() -> (PathBuf, Arc<Journal>, BTreeMap<String, Tool>) {

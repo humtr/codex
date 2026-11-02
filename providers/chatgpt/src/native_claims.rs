@@ -269,6 +269,21 @@ fn process_status(value: &serde_json::Value) -> (Option<u64>, bool) {
     (running, exited)
 }
 
+/// A Native approval rejection returned by the exec handler before spawning
+/// is not a live shell. Match only the handler's own unframed failure envelope;
+/// ordinary stdout is always preceded by an execution status header and must
+/// never be allowed to forge this evidence.
+pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
+    value.get("type").and_then(serde_json::Value::as_str) == Some("function_call_output")
+        && value
+            .get("output")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|text| {
+                text.starts_with("exec_command failed: CreateProcess { message: \"Rejected(")
+                    && text.ends_with("\" }")
+            })
+}
+
 impl Guard {
     /// Reconcile only a Provider call that its authoritative journal still
     /// marks as *not offered*. No upstream handler may have received that
@@ -536,6 +551,8 @@ impl Guard {
             return Ok(());
         };
         let (running, exited) = process_status(result);
+        let not_spawned =
+            self.tool == "functions.exec_command" && verified_exec_not_spawned(result);
         let session = self.continuation;
         self.ledger.transact(|state| {
             if let Some(session) = session {
@@ -547,7 +564,8 @@ impl Guard {
                 }
                 return Ok(((), false));
             }
-            if self.tool == "functions.exec_command" && running.is_some() && !exited {
+            if self.tool == "functions.exec_command" && running.is_some() && !exited && !not_spawned
+            {
                 if let Some(claim) = state.claims.get_mut(&self.identity) {
                     claim.session = running;
                 }
@@ -555,7 +573,7 @@ impl Guard {
             }
             // An exec result without an identifiable exit or live session is
             // unresolved; only unambiguous terminal evidence frees that claim.
-            if self.tool == "functions.exec_command" && !exited {
+            if self.tool == "functions.exec_command" && !exited && !not_spawned {
                 return Ok(((), false));
             }
             Ok(((), state.claims.remove(&self.identity).is_some()))
@@ -580,6 +598,67 @@ mod tests {
             (742, false)
         );
         assert!(parse_process_identity("12 (malformed) Z").is_err());
+    }
+
+    #[test]
+    fn rejected_before_spawn_releases_opaque_writer_but_stdout_cannot_impersonate_it() {
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let denial = serde_json::json!({
+            "type":"function_call_output",
+            "output":"exec_command failed: CreateProcess { message: \"Rejected(\\\"The owned fixture command was denied.\\\")\" }"
+        });
+        assert!(verified_exec_not_spawned(&denial));
+        let output_as_stdout = serde_json::json!({
+            "type":"function_call_output",
+            "output": format!("Chunk ID: abc\nProcess running with session ID 81\nOutput:\n{}",denial["output"].as_str().unwrap())
+        });
+        assert!(!verified_exec_not_spawned(&output_as_stdout));
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut running = Guard::begin_with(
+            &cwd,
+            "one",
+            "exec",
+            "functions.exec_command",
+            r#"{"cmd":"printf unknown > a"}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        running.observed(Some(&output_as_stdout)).unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "two", "patch", "a").err().as_deref(),
+            Some("native_resource_busy")
+        );
+        let mut stopped = Guard::begin_with(
+            &cwd,
+            "one",
+            "poll",
+            "functions.write_stdin",
+            r#"{"session_id":81,"chars":""}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        stopped
+            .observed(Some(
+                &serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}),
+            ))
+            .unwrap();
+        let mut denied = Guard::begin_with(
+            &cwd,
+            "one",
+            "review-deny",
+            "functions.exec_command",
+            r#"{"cmd":"printf denied > a"}"#,
+            ledger,
+        )
+        .unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "two", "before", "a").err().as_deref(),
+            Some("native_resource_busy")
+        );
+        denied.observed(Some(&denial)).unwrap();
+        assert!(apply(&cwd, &home, "two", "after", "a").is_ok());
     }
 
     #[test]
