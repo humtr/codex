@@ -81,18 +81,35 @@ restart. A corrected PID parser and read-only candidate status check passed;
 a second cutover was launched as `run-cutover-v2.sh` with
 `result-v2.txt` and `cutover-v2.log` for independent verification.
 
-**The second cutover's result and exact running Provider executable were not
-read back** before the ChatGPT tool controller was fenced on restart. The
-authenticated host subsequently reported ready, but readiness does not prove
-which binary is running. The original offered/unreturned Native call remains
-preserved; new-work creation using the stale client `reasoning` field was
-rejected because the current Provider requires `inference=attached`.
-Read `result-v2.txt`, verify the real runit service PID/executable SHA, refresh
-the Linux ChatGPT client's captured TermuxBridge tools, and prove a fresh Native
-work before marking this runtime activation complete. If the client refresh
-cannot be triggered and observed through an available supported interface,
-report that unsatisfied acceptance gate rather than claiming a successful
-tool refresh or silently dropping the requested Native workflow.
+**The second cutover succeeded and was independently read back**:
+`result-v2.txt=success`, runit Provider PID `16319`, active binary
+`development/49af7c3.../codex-chatgpt-provider`, and the verified executable
+SHA-256 `ea39d84e155f385c45a56251f81384d6daa9074f0e1062569f8146d92d2f6f38`.
+The signed Full134 and Provider22 generations remain preserved. The first
+attempt's PID-parser fault and rollback evidence are retained.
+
+The existing **Linux ChatGPT connector refresh function is already implemented**
+in `scripts/d3_refresh.mjs` and was previously exercised at its owned D3
+qualification scope. It calls the app `refresh_actions` endpoint, invalidates
+the app query cache, then compares registered and live `tools/list` schemas
+and makes a read-only MCP call. This source is not a missing feature. The
+current production Provider hosts its ChatGPT app through an internal CDP
+pipe; all located historical D3/qualification `desktop-host.json` relay
+descriptors are stale after service restarts. An actual current owned app
+session/connector reference must be wired to that existing script before its
+refresh can be claimed for this production runtime. A stale-session invocation
+or server-only catalog read is not acceptance.
+
+The previous cached ChatGPT MCP declaration still exposes old `reasoning`
+arguments while the current source requires `inference=attached|submitted`.
+A create call using the old `reasoning` field was rejected. A separate
+new Native record was created with the selection omitted, then its turn
+started and context was accepted, but this does **not** demonstrate the
+required refreshed `inference=attached` end-to-end contract. Complete the
+owned Linux app client refresh using the existing function, verify its
+captured full schemas, and then test a newly selected attached Native
+create/start/attach/execute/finish. The older offered/unreturned call
+remains preserved. P0-1, A1 and NC-01..29 completion remain open.
 
 ### Post-restart NC-14 source acceptance (2026-11-02)
 
