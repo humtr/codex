@@ -214,12 +214,9 @@ fn is_simple_read_command(input: &str) -> bool {
     }) {
         return false;
     }
-    // Explicit non-login invocation suppresses additional shell startup effects.
-    // A login shell can evaluate user-controlled startup files and stays opaque.
-    if value
-        .get("login")
-        .is_some_and(|value| value.as_bool() != Some(false))
-    {
+    // The executor may start a login shell by default. Only an explicitly
+    // disabled login shell proves that startup files cannot mutate resources.
+    if value.get("login").and_then(serde_json::Value::as_bool) != Some(false) {
         return false;
     }
     let Some(command) = value.get("cmd").and_then(|v| v.as_str()) else {
@@ -525,7 +522,7 @@ mod tests {
         );
         assert_eq!(
             classify("functions.exec_command", r#"{"cmd":"pwd"}"#, Some(&root)),
-            Effect::Read
+            Effect::Opaque
         );
         assert_eq!(
             classify(
@@ -574,6 +571,8 @@ mod tests {
         assert_eq!(git_read, Effect::Read);
         assert!(!conflicts(&git_read, &Effect::Opaque));
         for unsafe_command in [
+            r#"{"cmd":"pwd"}"#,
+            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no"}"#,
             r#"{"cmd":"git status --porcelain=v1 --untracked-files=no","login":false}"#,
             r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":true}"#,
             r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no; touch unexpected","login":false}"#,

@@ -964,8 +964,8 @@ mod tests {
         let blocked_home = home.join("not-a-directory");
         fs::write(&blocked_home, "cannot create a journal beneath a file").unwrap();
         for (thread, call_id, input) in [
-            ("reader", "cat", r#"{"cmd":"cat a"}"#),
-            ("reader-2", "pwd", r#"{"cmd":"pwd"}"#),
+            ("reader", "cat", r#"{"cmd":"cat a","login":false}"#),
+            ("reader-2", "pwd", r#"{"cmd":"pwd","login":false}"#),
         ] {
             Guard::offer_external(
                 &cwd,

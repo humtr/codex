@@ -2413,7 +2413,7 @@ mod native_concurrency_tests {
         let read = Arguments {
             call_id: "read".into(),
             name: "functions.exec_command".into(),
-            input: json!({"cmd":"pwd"}).to_string(),
+            input: json!({"cmd":"pwd","login":false}).to_string(),
             report: String::new(),
         };
         let read_id = accepted(&broker, &two, &read).await;
