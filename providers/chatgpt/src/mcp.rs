@@ -507,6 +507,15 @@ struct ClaimedEffect {
     effect: Effect,
     #[serde(default)]
     session_id: Option<u64>,
+    // Link only Provider-mediated MCP calls to their original durable turn.
+    // Legacy claims without a token remain unresolved instead of being guessed away.
+    #[serde(default)]
+    turn_token: Option<String>,
+    // A polled process may finish in another Native turn after the original
+    // exec result was committed. Preserve each offered continuation's turn
+    // identity so its authoritative exit can be replayed after a crash.
+    #[serde(default)]
+    continuations: BTreeMap<String, String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct ExternalEffectReceipt {
@@ -517,6 +526,37 @@ struct ExternalEffectReceipt {
     settled: bool,
     #[serde(default)]
     workspace: Option<PathBuf>,
+    #[serde(default)]
+    lane: Option<String>,
+    // Minimal durable exit/session proof, not upstream output or secrets.
+    #[serde(default)]
+    completion: Option<ExternalCompletion>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct ExternalCompletion {
+    fingerprint: String,
+    running: Option<u64>,
+    exited: bool,
+}
+impl ExternalCompletion {
+    fn from_result(result: &Value) -> Self {
+        let (running, exited) = native_process_result(result);
+        Self {
+            fingerprint: digest(result),
+            running,
+            exited,
+        }
+    }
+
+    fn marker(&self) -> Value {
+        if let Some(session) = self.running {
+            json!({"output":format!("Process running with session ID {session}")})
+        } else if self.exited {
+            json!({"output":"Process exited with code 0"})
+        } else {
+            json!({})
+        }
+    }
 }
 #[derive(Default, Serialize, Deserialize)]
 struct ActiveEffects {
@@ -697,6 +737,7 @@ impl Broker {
         workspace: &Path,
     ) -> Result<(), Error> {
         let _registry = self.registry.lock().await;
+        self.reconcile_persisted_integrated_receipts()?;
         if self.closed.load(Ordering::Acquire) {
             return Err(Error("mcp_turn_unavailable"));
         }
@@ -759,6 +800,8 @@ impl Broker {
                     lane: lane.into(),
                     effect,
                     session_id: None,
+                    turn_token: None,
+                    continuations: BTreeMap::new(),
                 },
             );
         }
@@ -770,6 +813,8 @@ impl Broker {
                 continuation,
                 settled: false,
                 workspace: Some(root.clone()),
+                lane: Some(lane.into()),
+                completion: None,
             },
         );
         if let Err(error) = self.journal.write(&key, &state) {
@@ -803,48 +848,209 @@ impl Broker {
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut changed = false;
+        // Save a minimal result proof before touching the process-shared
+        // lease. A failed commit cannot free a writer that may be running.
         for (id, result) in results {
             let effect_id = external_effect_id(lane, id);
-            if let Some(receipt) = state
-                .external
-                .get(&effect_id)
-                .filter(|v| !v.settled)
-                .cloned()
-            {
-                // A verified upstream result may release the physical claim
-                // before this Provider-owned delivery receipt is committed.
-                // Reversing the order would make a journaled "settled" record
-                // skip a failed shared release on every subsequent retry.
-                if let Some(root) = receipt.workspace.as_ref() {
-                    SharedNativeGuard::settle_external_receipt(
-                        root,
-                        self.shared_guard_home().as_deref(),
-                        lane,
-                        &effect_id,
-                        &receipt.name,
-                        receipt.continuation,
-                        result,
-                    )
-                    .map_err(Self::shared_guard_error)?;
+            if let Some(receipt) = state.external.get_mut(&effect_id).filter(|v| !v.settled) {
+                // This trusted original lane and delivery ID also identifies
+                // receipts created before durable lane ownership was recorded.
+                // Never guess a lane from an arbitrary orphaned journal entry.
+                if receipt.lane.is_none() {
+                    receipt.lane = Some(lane.to_owned());
+                    changed = true;
                 }
-                settle_effect(
-                    &mut state,
-                    &effect_id,
-                    lane,
-                    &receipt.name,
-                    receipt.continuation,
-                    result,
-                );
-                state.external.get_mut(&effect_id).unwrap().settled = true;
-                changed = true;
+                let completion = ExternalCompletion::from_result(result);
+                if receipt
+                    .completion
+                    .as_ref()
+                    .is_some_and(|old| old.fingerprint != completion.fingerprint)
+                {
+                    return Err(Error("native_effect_result_changed"));
+                }
+                if receipt.completion.is_none() {
+                    receipt.completion = Some(completion);
+                    changed = true;
+                }
             }
         }
         if changed {
             self.journal.write(&key, &state)?;
+        }
+        self.reconcile_persisted_integrated_receipts()?;
+        if changed {
             self.changed.notify_waiters();
         }
         Ok(())
     }
+    /// An Integrated MCP receipt can commit immediately before the Provider process dies.
+    /// Reconcile only claims whose original offered call and result are both
+    /// durable. Never infer process exit from a work record or a departed PID.
+    fn reconcile_persisted_integrated_receipts(&self) -> Result<(), Error> {
+        let key = digest(&"native-effect-claims-v1");
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let before = serde_json::to_vec(&state).map_err(|_| Error("invalid_lane_record"))?;
+        let linked: Vec<_> = state
+            .claims
+            .iter()
+            .filter_map(|(id, claim)| {
+                claim
+                    .turn_token
+                    .as_ref()
+                    .map(|token| (id.clone(), token.clone(), claim.lane.clone()))
+            })
+            .collect();
+        for (id, token, lane) in linked {
+            let Some(turn) = self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", &token)))?
+            else {
+                continue;
+            };
+            if turn.lane != lane {
+                return Err(Error("native_effect_identity_changed"));
+            }
+            let Some(call) = turn
+                .calls
+                .values()
+                .find(|call| call.id == id && call.offered)
+            else {
+                continue;
+            };
+            let Some(result) = call.result.as_ref() else {
+                continue;
+            };
+            if let Some(workspace) = turn.workspace.as_deref() {
+                SharedNativeGuard::settle_external(
+                    workspace,
+                    self.shared_guard_home().as_deref(),
+                    &lane,
+                    &id,
+                    &call.name,
+                    &call.input,
+                    result,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
+            settle_effect(
+                &mut state,
+                &id,
+                &lane,
+                &call.name,
+                continued_process(&call.name, &call.input),
+                result,
+            );
+        }
+        // A running command may exit in a later write_stdin call. A crash
+        // after that call's result journal commit but before lease settlement
+        // must not leave its original process claim permanently stuck.
+        let continuations: Vec<_> = state
+            .claims
+            .iter()
+            .flat_map(|(original_id, held)| {
+                held.session_id.into_iter().flat_map(move |session| {
+                    held.continuations.iter().map(move |(id, token)| {
+                        (
+                            original_id.clone(),
+                            held.lane.clone(),
+                            session,
+                            id.clone(),
+                            token.clone(),
+                        )
+                    })
+                })
+            })
+            .collect();
+        for (original_id, lane, session, id, token) in continuations {
+            let Some(turn) = self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", &token)))?
+            else {
+                continue;
+            };
+            if turn.lane != lane {
+                return Err(Error("native_effect_identity_changed"));
+            }
+            let Some(call) = turn
+                .calls
+                .values()
+                .find(|call| call.id == id && call.offered)
+            else {
+                continue;
+            };
+            if call.name != "functions.write_stdin"
+                || continued_process(&call.name, &call.input) != Some(session)
+            {
+                return Err(Error("native_effect_identity_changed"));
+            }
+            let Some(result) = call.result.as_ref() else {
+                continue;
+            };
+            if let Some(workspace) = turn.workspace.as_deref() {
+                SharedNativeGuard::settle_external(
+                    workspace,
+                    self.shared_guard_home().as_deref(),
+                    &lane,
+                    &id,
+                    &call.name,
+                    &call.input,
+                    result,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
+            settle_effect(&mut state, &id, &lane, &call.name, Some(session), result);
+            if let Some(held) = state.claims.get_mut(&original_id) {
+                held.continuations.remove(&id);
+            }
+        }
+        let completed: Vec<_> = state
+            .external
+            .iter()
+            .filter_map(|(id, receipt)| {
+                (!receipt.settled)
+                    .then(|| {
+                        receipt
+                            .completion
+                            .as_ref()
+                            .map(|proof| (id.clone(), receipt.clone(), proof.marker()))
+                    })
+                    .flatten()
+            })
+            .collect();
+        for (id, receipt, result) in completed {
+            let Some(lane) = receipt.lane.as_deref() else {
+                // Historical receipts without a verified lane cannot be
+                // silently released after a restart.
+                continue;
+            };
+            if let Some(root) = receipt.workspace.as_deref() {
+                SharedNativeGuard::settle_external_receipt(
+                    root,
+                    self.shared_guard_home().as_deref(),
+                    lane,
+                    &id,
+                    &receipt.name,
+                    receipt.continuation,
+                    &result,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
+            settle_effect(
+                &mut state,
+                &id,
+                lane,
+                &receipt.name,
+                receipt.continuation,
+                &result,
+            );
+            state.external.get_mut(&id).unwrap().settled = true;
+        }
+        if before != serde_json::to_vec(&state).map_err(|_| Error("invalid_lane_record"))? {
+            self.journal.write(&key, &state)?;
+        }
+        Ok(())
+    }
+
     pub fn new(journal: Arc<Journal>) -> Arc<Self> {
         Arc::new(Self {
             journal,
@@ -1306,6 +1512,7 @@ impl Broker {
     }
     pub async fn offer(&self, token: &str) -> Result<Vec<Value>, Error> {
         let mut registry = self.registry.lock().await;
+        self.reconcile_persisted_integrated_receipts()?;
         let turns = &mut registry.turns;
         let turn = turns
             .get_mut(token)
@@ -1401,13 +1608,29 @@ impl Broker {
                         .values()
                         .any(|held| held.lane == next.lane && held.session_id == Some(session))
                 });
-                if effect != Effect::Read && !continuing_owned {
+                if continuing_owned {
+                    // Persist which *offered* follow-up owns a process session.
+                    // This association is written before forwarding the tool,
+                    // including when the follow-up is in a different Native turn.
+                    for held in claims.claims.values_mut() {
+                        if held.lane == next.lane && held.session_id == continuation {
+                            if let std::collections::btree_map::Entry::Vacant(item) =
+                                held.continuations.entry(call.id.clone())
+                            {
+                                item.insert(token.to_owned());
+                                claims_changed = true;
+                            }
+                        }
+                    }
+                } else if effect != Effect::Read {
                     claims.claims.insert(
                         call.id.clone(),
                         ClaimedEffect {
                             lane: next.lane.clone(),
                             effect,
                             session_id: None,
+                            turn_token: Some(token.to_owned()),
+                            continuations: BTreeMap::new(),
                         },
                     );
                     claims_changed = true;
@@ -1501,15 +1724,17 @@ impl Broker {
             }
             next.tools = catalog;
         }
-        // All-or-nothing catalog/result validation precedes any settlement.
-        // A verified Native result can release its shared resource before the
-        // Provider's receipt is persisted. If persistence fails, replaying the
-        // same original result is idempotent; the reverse order could strand
-        // the shared claim behind a journaled "completed" call.
+        // Validate the full batch, then persist its authoritative result BEFORE
+        // releasing the OS-shared claim. A failed journal commit must leave the
+        // old writer reserved. After a crash between these two operations, the
+        // next admission replays only this already-journaled receipt, never its
+        // original Native effect.
         prepare()?;
+        self.persist(token, &next)?;
+        *turn = next;
         for (id, result) in results {
-            if let Some(workspace) = next.workspace.as_deref() {
-                let call = next
+            if let Some(workspace) = turn.workspace.as_deref() {
+                let call = turn
                     .calls
                     .values()
                     .find(|v| v.id == *id)
@@ -1517,7 +1742,7 @@ impl Broker {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
-                    &next.lane,
+                    &turn.lane,
                     id,
                     &call.name,
                     &call.input,
@@ -1526,9 +1751,6 @@ impl Broker {
                 .map_err(Self::shared_guard_error)?;
             }
         }
-        // Durable call results precede waking the model.
-        self.persist(token, &next)?;
-        *turn = next;
         if !results.is_empty() {
             let claims_key = digest(&"native-effect-claims-v1");
             let mut claims: ActiveEffects = self.journal.read(&claims_key)?.unwrap_or_default();
@@ -2013,6 +2235,285 @@ mod native_concurrency_tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+    #[tokio::test]
+    async fn nc_existing_integrated_receipt_reconciles_with_original_lane() {
+        let (root, journal, _) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let patch = patch("file", "alpha", "ALPHA");
+        broker
+            .admit_external_tool("lane-one", "original", &patch.name, &patch.input, &root)
+            .await
+            .unwrap();
+        let id = external_effect_id("lane-one", "original");
+        let key = digest(&"native-effect-claims-v1");
+        let mut claims: ActiveEffects = journal.read(&key).unwrap().unwrap();
+        claims.external.get_mut(&id).unwrap().lane = None;
+        journal.write(&key, &claims).unwrap();
+        broker
+            .settle_external_tools(
+                "lane-one",
+                &[("original".into(), json!({"output":"patch applied"}))],
+            )
+            .await
+            .unwrap();
+        let settled: ActiveEffects = journal.read(&key).unwrap().unwrap();
+        assert!(settled.external[&id].settled);
+        assert_eq!(settled.external[&id].lane.as_deref(), Some("lane-one"));
+        broker
+            .admit_external_tool("lane-two", "competing", &patch.name, &patch.input, &root)
+            .await
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_apphost_persisted_result_reconciles_before_next_native_offer() {
+        let (root, journal, _) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let first = patch("file", "alpha", "ALPHA");
+        broker
+            .admit_external_tool("apphost-lane", "original", &first.name, &first.input, &root)
+            .await
+            .unwrap();
+        let resource_id = external_effect_id("apphost-lane", "original");
+        let key = digest(&"native-effect-claims-v1");
+        let mut claims: ActiveEffects = journal.read(&key).unwrap().unwrap();
+        assert!(!claims.external[&resource_id].settled);
+        // Simulate a process crash after the minimal completion proof reaches
+        // disk, but before the corresponding OS claim has been released.
+        claims.external.get_mut(&resource_id).unwrap().completion = Some(
+            ExternalCompletion::from_result(&json!({"output":"patch applied"})),
+        );
+        journal.write(&key, &claims).unwrap();
+        drop(broker);
+        let recovered = Broker::new(journal);
+        recovered
+            .admit_external_tool("second-lane", "competing", &first.name, &first.input, &root)
+            .await
+            .unwrap();
+        let reconciled: ActiveEffects = recovered.journal.read(&key).unwrap().unwrap();
+        assert!(reconciled.external[&resource_id].settled);
+        assert!(!reconciled.claims.contains_key(&resource_id));
+        assert_eq!(
+            recovered
+                .admit_external_tool("apphost-lane", "original", &first.name, &first.input, &root)
+                .await,
+            Err(Error("native_effect_delivery_unconfirmed")),
+            "the original AppHost call must not be forwarded a second time"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_failed_direct_receipt_commit_must_not_release_shared_writer() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let owner = broker
+            .register_scoped("one", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let command = patch("file", "alpha", "ALPHA");
+        let id = accepted(&broker, &owner, &command).await;
+        let key = digest(&("mcp-turn-v1", &owner));
+        let path = journal.root.join(format!("{key}.json"));
+        let saved = journal.root.join("saved-direct-turn");
+        fs::rename(&path, &saved).unwrap();
+        fs::create_dir(&path).unwrap();
+        let result = json!({"output":"patch applied"});
+        assert!(broker
+            .settle(&owner, &[(id.clone(), result.clone())])
+            .await
+            .is_err());
+        let home = broker.shared_guard_home().unwrap();
+        assert_eq!(
+            SharedNativeGuard::offer_external(
+                &root,
+                Some(&home),
+                "other",
+                "competing",
+                &command.name,
+                &command.input
+            )
+            .err()
+            .as_deref(),
+            Some("native_resource_busy"),
+            "a failed authoritative receipt commit cannot release its live writer"
+        );
+        fs::remove_dir(&path).unwrap();
+        fs::rename(&saved, &path).unwrap();
+        broker.settle(&owner, &[(id, result)]).await.unwrap();
+        SharedNativeGuard::offer_external(
+            &root,
+            Some(&home),
+            "other",
+            "competing",
+            &command.name,
+            &command.input,
+        )
+        .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_persisted_direct_result_reconciles_after_restart_without_reexecution() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let owner = broker
+            .register_scoped("one", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let command = patch("file", "alpha", "ALPHA");
+        let id = accepted(&broker, &owner, &command).await;
+        // Crash boundary: the authoritative result committed but the OS ledger
+        // has not yet observed it. Do not offer the original effect again.
+        {
+            let mut registry = broker.registry.lock().await;
+            let turn = registry.turns.get_mut(&owner).unwrap();
+            turn.calls.get_mut(&command.call_id).unwrap().result = Some(json!({"output":"done"}));
+            broker.persist(&owner, turn).unwrap();
+        }
+        drop(broker);
+        let recovered = Broker::new(journal);
+        let other = recovered
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        assert_eq!(
+            recovered.recorded_calls(&owner).unwrap()[0]["id"],
+            id,
+            "the original operation's journal and identity must survive restart"
+        );
+        let competing = patch("file", "alpha", "DIFFERENT");
+        recovered.enqueue(&other, &competing).await.unwrap();
+        let ids = recovered.offer(&other).await.unwrap();
+        assert_eq!(
+            ids.len(),
+            1,
+            "a journaled completion must reconcile its physical claim before the next offer"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_persisted_continuation_exit_reconciles_after_restart() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let owner = broker
+            .register_scoped("owner", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let exec = Arguments {
+            call_id: "exec".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"sleep 300"}).to_string(),
+            report: String::new(),
+        };
+        let exec_id = accepted(&broker, &owner, &exec).await;
+        broker
+            .settle(
+                &owner,
+                &[(
+                    exec_id,
+                    json!({"output":"Process running with session ID 83"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let poll = Arguments {
+            call_id: "poll".into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":83,"chars":"","yield_time_ms":1000}).to_string(),
+            report: String::new(),
+        };
+        let _poll_id = accepted(&broker, &owner, &poll).await;
+        // Simulate a crash after the continuation's terminal result was
+        // journaled, but before the physical process lease was settled.
+        {
+            let mut registry = broker.registry.lock().await;
+            let turn = registry.turns.get_mut(&owner).unwrap();
+            turn.calls.get_mut(&poll.call_id).unwrap().result =
+                Some(json!({"output":"Process exited with code 0"}));
+            broker.persist(&owner, turn).unwrap();
+        }
+        drop(broker);
+        let recovered = Broker::new(journal);
+        let other = recovered
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let edit = patch("file", "alpha", "ALPHA");
+        recovered.enqueue(&other, &edit).await.unwrap();
+        assert_eq!(
+            recovered.offer(&other).await.unwrap().len(),
+            1,
+            "persisted exit of a continuation must release its original process claim"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_continuation_exit_in_later_integrated_turn_recovers_original_lease() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let first_turn = broker
+            .register_scoped("integrated-work", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let original = Arguments {
+            call_id: "start".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"sleep 300"}).to_string(),
+            report: String::new(),
+        };
+        let id = accepted(&broker, &first_turn, &original).await;
+        broker
+            .settle(
+                &first_turn,
+                &[(id, json!({"output":"Process running with session ID 913"}))],
+            )
+            .await
+            .unwrap();
+        broker.retire(&first_turn, false).await.unwrap();
+        let later_turn = broker
+            .register_scoped("integrated-work", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let poll = Arguments {
+            call_id: "stop-confirmation".into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":913,"chars":"","yield_time_ms":1000}).to_string(),
+            report: String::new(),
+        };
+        accepted(&broker, &later_turn, &poll).await;
+        {
+            let mut registry = broker.registry.lock().await;
+            let turn = registry.turns.get_mut(&later_turn).unwrap();
+            turn.calls.get_mut(&poll.call_id).unwrap().result =
+                Some(json!({"output":"Process exited with code 0"}));
+            broker.persist(&later_turn, turn).unwrap();
+        }
+        drop(broker);
+        let recovered = Broker::new(journal);
+        let other = recovered
+            .register_scoped("other-work", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let competing = patch("file", "alpha", "ALPHA");
+        recovered.enqueue(&other, &competing).await.unwrap();
+        assert_eq!(
+            recovered.offer(&other).await.unwrap().len(),
+            1,
+            "a later integrated turn's exit must reconcile the original process claim"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn nc_overlap_conflict_and_original_receipt_are_preserved() {
         let (root, journal, tools) = fixture();

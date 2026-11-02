@@ -34,7 +34,7 @@ execution boundary; do not install or claim full NC acceptance yet.
 
 Source correction (2026-11-02; NOT installed or device-qualified):
 standalone `local_execute` now offers its opaque command effect to the
-same process-shared Native resource ledger as Provider Direct MCP/AppHost and
+same process-shared Native resource ledger as Provider Integrated MCP/Function and
 integrated tool calls before forwarding `command/exec` to Core. Concurrent
 bounded edits are rejected while an opaque standalone process is unresolved;
 unknown/rejected results and connection loss do not prove physical exit.
@@ -54,6 +54,25 @@ full NC-01..29 actual-path acceptance remain unverified or unprotected.
 A previously running installed Native work still prevented a new integrated
 work with `native_workspace_writer_busy`; this source correction does not
 activate a new runtime or resolve that installed restriction.
+
+Stage 4 source-level follow-up (2026-11-02; **not installed or full multi-Native
+qualified**): Integrated MCP and Function (`local_function`) delivery now persist their
+original completion evidence before releasing OS-shared resource reservations.
+The MCP path links the offered call to its durable Native turn, including
+continuations in a later turn; Function persists minimal completion
+proof and original lane identity. At new admission, committed results can
+reconcile shared claims after a crash without repeating Native execution.
+Original unresolved effects and old claims lacking trustworthy attribution
+stay reserved; standalone local_execute still shares this same ledger and
+requires a validated Core exit to release its opaque claim. Regression tests
+exercise failed journal writes, exact receipt/restart recovery, continued
+process exits, old Function records and standalone/integrated cross-path
+admission. Updated Provider all-target tests pass with 256 total test invocations
+(including 2 nested subprocess probes), 0 failures and 30 excluded; strict
+Clippy passes. These are Provider source and process-fixture proofs, **not**
+validated concurrent interactive Native works or deployed operating binaries.
+Git/index isolation, unmediated CLI/TUI, external editors, work-specific build
+outputs and complete NC-01..29 acceptance remain open.
 
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.

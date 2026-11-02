@@ -1558,8 +1558,13 @@ The workflow names are fixed as **standalone — 단독 개발** and
 **integrated — 통합 개발**. Standalone means ChatGPT standalone development;
 integrated means the common task/tool/control/history/orchestration workflow.
 Entrypoint, model and inference initiation do not redefine these modes.
-Provider remains the component name, not a workflow mode. MCP/local_function is
-transport. Do not retain direct/provider or current/managed as workflow aliases.
+Provider remains the component name, not a workflow mode. **MCP** and
+**Function** are tool-delivery routes, not workflow modes. Function is the
+user-facing name of the existing `local_function` transport through AppHost;
+`local_function` remains its internal protocol identifier. Neither transport
+selects standalone or integrated, creates a Native work by itself, or changes
+resource ownership. Do not retain direct/provider or current/managed as workflow
+aliases.
 CURRENT records implementation and qualification; this contract does not claim
 that the installed MCP already exposes a threadless local-tool surface.
 
