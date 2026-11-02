@@ -726,6 +726,43 @@ impl Broker {
             "external_call_receipts":state.external.len()}),
         )
     }
+    /// The caller has already persisted and independently verified a Native
+    /// Stop: its thread is terminal/idle and has no owned background terminals.
+    /// Unknown effects cannot be retired by Stop; only the original observed
+    /// process-session reservations for that same Native thread are eligible.
+    /// Release the shared ledger first, then the Provider mirror. A failed
+    /// mirror commit keeps conservative claims that a later confirmed Stop or
+    /// stopped-work claim can reconcile without executing a tool again.
+    pub(crate) async fn settle_stopped_processes(
+        &self,
+        lane: &str,
+        workspace: &Path,
+    ) -> Result<(), Error> {
+        let _registry = self.registry.lock().await;
+        let key = digest(&"native-effect-claims-v1");
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let sessions = state
+            .claims
+            .values()
+            .filter(|claim| claim.lane == lane)
+            .filter_map(|claim| claim.session_id)
+            .collect::<BTreeSet<_>>();
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        SharedNativeGuard::release_stopped_sessions(
+            workspace,
+            self.shared_guard_home().as_deref(),
+            lane,
+            &sessions,
+        )
+        .map_err(Self::shared_guard_error)?;
+        state.claims.retain(|_, claim| {
+            !(claim.lane == lane && claim.session_id.is_some_and(|id| sessions.contains(&id)))
+        });
+        self.journal.write(&key, &state)?;
+        Ok(())
+    }
     /// Provider-owned AppHost tools also execute in upstream Native, but do
     /// not use MCP tool turns. Reserve before forwarding their actual Tool
     /// event; release only on the *next* verified native result. No re-exec on
@@ -2114,6 +2151,75 @@ mod native_concurrency_tests {
             &denied,
         );
         assert!(!state.claims.contains_key("first-call"));
+    }
+
+    #[tokio::test]
+    async fn nc_confirmed_stop_releases_original_session_and_preserves_unconfirmed_effects() {
+        let (root, journal, _) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let running = r#"{"cmd":"sleep 30; printf result > file"}"#;
+        broker
+            .admit_external_tool("owner", "run", "functions.exec_command", running, &root)
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "owner",
+                &[(
+                    "run".into(),
+                    json!({"output":"Process running with session ID 83\nOutput:\n"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let contested = r#"{"cmd":"printf other > file"}"#;
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other",
+                    "blocked",
+                    "functions.exec_command",
+                    contested,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        broker
+            .settle_stopped_processes("other", &root)
+            .await
+            .unwrap();
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other",
+                    "blocked",
+                    "functions.exec_command",
+                    contested,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        broker
+            .settle_stopped_processes("owner", &root)
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("owner").unwrap()["unconfirmed_effects"],
+            0
+        );
+        broker
+            .admit_external_tool(
+                "other",
+                "blocked",
+                "functions.exec_command",
+                contested,
+                &root,
+            )
+            .await
+            .unwrap();
     }
 
     fn fixture() -> (PathBuf, Arc<Journal>, BTreeMap<String, Tool>) {

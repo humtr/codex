@@ -285,6 +285,32 @@ pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
 }
 
 impl Guard {
+    /// Called only after the authoritative Native thread reports a confirmed
+    /// Stop, idle/systemError and no owned background terminals. Release only
+    /// session IDs previously observed on this same thread; unknown effects
+    /// and other Native threads retain their reservations.
+    pub(crate) fn release_stopped_sessions(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        sessions: &std::collections::BTreeSet<u64>,
+    ) -> Result<(), String> {
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        let ledger = match private_test_home {
+            Some(home) => Ledger::at(cwd, home)?,
+            None => Ledger::new(cwd)?,
+        };
+        ledger.transact(|state| {
+            let before = state.claims.len();
+            state.claims.retain(|_, held| {
+                !(held.thread == thread && held.session.is_some_and(|id| sessions.contains(&id)))
+            });
+            Ok(((), state.claims.len() != before))
+        })
+    }
+
     /// Reconcile only a Provider call that its authoritative journal still
     /// marks as *not offered*. No upstream handler may have received that
     /// call. A crash between the shared claim and the offer journal commit can
@@ -868,6 +894,53 @@ mod tests {
         })))
         .unwrap();
         assert!(apply(&cwd, &home, "second", "patch", "a").is_ok());
+    }
+
+    #[test]
+    fn confirmed_stop_releases_only_the_original_thread_and_observed_session() {
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let mut running = Guard::begin_with(
+            &cwd,
+            "stopped-thread",
+            "exec",
+            "functions.exec_command",
+            r#"{"cmd":"sleep 30; printf output > a"}"#,
+            Ledger::at(&cwd, &home).unwrap(),
+        )
+        .unwrap();
+        running
+            .observed(Some(&serde_json::json!({
+                "output":"Process running with session ID 83\nOutput:\n"
+            })))
+            .unwrap();
+        let blocked = || apply(&cwd, &home, "other-thread", "patch", "a");
+        assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
+        Guard::release_stopped_sessions(
+            &cwd,
+            Some(&home),
+            "other-thread",
+            &[83].into_iter().collect(),
+        )
+        .unwrap();
+        assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
+        Guard::release_stopped_sessions(
+            &cwd,
+            Some(&home),
+            "stopped-thread",
+            &[84].into_iter().collect(),
+        )
+        .unwrap();
+        assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
+        Guard::release_stopped_sessions(
+            &cwd,
+            Some(&home),
+            "stopped-thread",
+            &[83].into_iter().collect(),
+        )
+        .unwrap();
+        assert!(blocked().is_ok());
     }
 
     #[test]

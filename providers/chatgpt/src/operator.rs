@@ -3838,6 +3838,20 @@ impl Operator {
                 {
                     return Err(Error("native_writer_unsettled"));
                 }
+                // Recover a confirmed Stop interrupted between the durable
+                // stopped-work record and release of its observed OS sessions.
+                // Never release an unknown/reconciliation-required execution.
+                if record.phase == "stopped" {
+                    self.broker
+                        .settle_stopped_processes(
+                            &record.id,
+                            record
+                                .workspace
+                                .as_deref()
+                                .ok_or(Error("native_workspace_unavailable"))?,
+                        )
+                        .await?;
+                }
                 let extension = if let Some(value) = args.get("budget") {
                     if !record
                         .selection
@@ -4895,6 +4909,7 @@ impl Operator {
         // Detach pending model observers without claiming uncertain calls executed.
         let _ = self.broker.retire(&record.token, true).await;
         let jobs = self.owned_jobs(&native, &record).await;
+        let mut stopped = false;
         {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&record.thread).unwrap();
@@ -4907,7 +4922,22 @@ impl Operator {
             {
                 work.record.phase = "stopped".into();
                 self.persist(&work.record)?;
+                stopped = true;
             }
+        }
+        if stopped {
+            // Both the Native thread and all its owned background terminals
+            // have been confirmed stopped. Only its previously observed
+            // process sessions may now relinquish shared writer reservations.
+            self.broker
+                .settle_stopped_processes(
+                    &record.id,
+                    record
+                        .workspace
+                        .as_deref()
+                        .ok_or(Error("native_workspace_unavailable"))?,
+                )
+                .await?;
         }
         Ok(
             json!({"fenced":true,"native_stop_requested":true,"native_stop_confirmed":confirmed,
