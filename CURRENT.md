@@ -1,12 +1,61 @@
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns implementation, qualification,
-delivery and the remaining work. The verified operating generation is signed
-Full131/upstream0.166.0 (source1da570d), activated through Core's signed update
-path after explicit selection of the Full channel. Previous is signed Base128.
+delivery and the remaining work. The actual current activation-state readback
+on 2026-11-02 selects signed Full134/upstream0.166.0
+(`local-relay-hosted-0-166-0-8290c62f19f6-s134`, source artifact digest
+`7821b77dda2e6283fb1f63f3165177a271da8833e857cf673c6ca1c9db3bfcc6`),
+with signed Full131 as previous. The activation record was last modified on
+2026-11-01 10:48 KST; this is a selected-generation readback, not a new
+signature/package integrity test or an activation performed in this batch.
 The user has authorized implementation of the finalized importance/
 dependency plan. Order1 capability restoration is underway; source changes,
 qualification and installed operation remain separate states below.
+
+## Device Provider activation (2026-11-02; local development image)
+
+Core remains on signed Full134/upstream0.166.0 (signed Full131 retained).
+The independently selected signed Provider generation remains Provider22
+(`chatgpt-2a837ccc4465-s22`), with its original executable retained.
+**Operating runit services now explicitly pin an unsigned, locally built
+development Provider** from source `78e3745c18364ebf086555b963198e2b9ba27764`.
+The candidate is independently inventoried (`candidate.json`, five verified
+files, `signed=false`, `device_qualified=false`); its ARM64 executable SHA-256
+is `fa6477c1586b213b4eeefbd66269545130539de9ba9258ad93607f069c6f552a`.
+This deliberate runit development activation is **not** a signed Provider23,
+a change to Core's signed generation selection, or full product acceptance.
+
+The original Provider22 PID 17004 was stopped through runit. The new Provider
+PID 30824, host keeper PID 30851 and tunnel PID 30865 were subsequently
+observed running. New Provider status verified the exact development image,
+its digest and ready host (no active app lanes). Native CLI profile preparation
+rebound the Provider executable; an actual local MCP stdio roundtrip passed
+`initialize`, `tools/list` (17 tools), and the source's new `inference` schema.
+The same connected ChatGPT Termux Bridge subsequently returned `codex_status`,
+accepted the **original** Native work's verified explicit controller claim and
+context acceptance, and ran `functions.exec_command` successfully without a
+new Native work or model inference. Its former controller was correctly fenced.
+Current ChatGPT captured tool metadata can still show older `reasoning` fields
+until the client refreshes; the new on-device MCP advertisement is verified,
+but refreshed ChatGPT tool capture/new-work creation is not yet accepted.
+
+Before activation the Provider full Rust suite, fmt and strict Clippy passed;
+the final stop-owner change passed three targeted Rust regressions and strict
+Clippy. The corrected Android Core+Provider native integration fixture passed
+end to end (`scripts/qualify_provider_operator.py`, `accepted=true`, zero real
+Chat model submissions), including reviewed denial, dependent child Native work,
+confirmed process Stop, stale-controller fencing, same-work recovery, restart,
+host failure and explicit takeover. Evidence is retained at
+`$PREFIX/tmp/p0-workid-native-jp8WZX` and `$PREFIX/tmp/ob-ubhyvvhg`.
+The runit change stopped tunnel/host/Provider, saved 654 top-level Provider state
+files, migrated the state from provider21 to attached-submitted, rebounded
+the profile, and restarted Provider/host/tunnel without tdev. A separate
+offline copy had also passed forward and reverse migration. Private rollback
+evidence/configuration and the exact old runit script are held at
+`~/.local/state/codex/provider-deployments/p0-20261102-78e3745/`; the
+activation has `result.txt=success` and required no rollback. None of this
+qualifies all NC-01..29, concurrent unmediated CLI/TUI effects, Git index/ref
+isolation, externally written files, or a signed final Provider release.
 
 Provider21/sourcee78d83a and wrapper tunnel recipe3236692 retain their separate
 maintenance/activation evidence below. Those earlier service/host/process
@@ -32,7 +81,7 @@ remain outside Provider claims. Next: prove managed same-tree concurrency,
 work-specific temporary/output paths, Git and opaque effects at their actual
 execution boundary; do not install or claim full NC acceptance yet.
 
-Source correction (2026-11-02; NOT installed or device-qualified):
+Source correction (2026-11-02; pre-activation source checkpoint):
 standalone `local_execute` now offers its opaque command effect to the
 same process-shared Native resource ledger as Provider Integrated MCP/Function and
 integrated tool calls before forwarding `command/exec` to Core. Concurrent
@@ -45,7 +94,8 @@ recovery have dedicated Rust regressions. On this source checkpoint, the
 Provider Rust library passes 168 tests (2 existing ignored, zero failures),
 with rustfmt and Clippy -D warnings green. The existing transport socket
 fixture needs an owned short TMPDIR to fit Android's Unix socket path limit.
-This is source-level proof, not an activated Android/native execution test.
+At this checkpoint proof was source-level; the later bounded device activation
+and Android native fixture results are reported above.
 Core/Manager/TUI binaries and upstream execution ownership were not changed. Generic standalone shell
 commands remain opaque, so unrelated writes can still over-serialize.
 Unmediated CLI/TUI/external editors, OS-scoped opaque commands, Git
@@ -55,8 +105,8 @@ A previously running installed Native work still prevented a new integrated
 work with `native_workspace_writer_busy`; this source correction does not
 activate a new runtime or resolve that installed restriction.
 
-Stage 4 source-level follow-up (2026-11-02; **not installed or full multi-Native
-qualified**): Integrated MCP and Function (`local_function`) delivery now persist their
+Stage 4 source-level follow-up (2026-11-02; **pre-activation checkpoint; not
+full multi-Native qualified**): Integrated MCP and Function (`local_function`) delivery now persist their
 original completion evidence before releasing OS-shared resource reservations.
 The MCP path links the offered call to its durable Native turn, including
 continuations in a later turn; Function persists minimal completion
@@ -74,17 +124,19 @@ validated concurrent interactive Native works or deployed operating binaries.
 Git/index isolation, unmediated CLI/TUI, external editors, work-specific build
 outputs and complete NC-01..29 acceptance remain open.
 
-Stage 5 bounded source correction (2026-11-02; **not installed or NC-28 fully
-accepted**): the shared Native resource ledger now recognizes an unreaped
+Stage 5 bounded source correction (2026-11-02; **now included in the development
+Provider, not NC-28 fully accepted**): the shared Native resource ledger now recognizes an unreaped
 zombie/dead process (`Z`/`X`) as departed when reconciling a claim that the
 original journal proves was **never offered** to a Native tool. Malformed or
 inaccessible process identity remains uncertain; already offered, ongoing or
 unattributed effects are not released by process death alone. An actual
 unreaped Android child and eleven ledger unit tests pass; the changed Provider
 passes its complete ordinary Rust suite, rustfmt, strict Clippy and diff checks.
-The installed Provider/Bridge still exposes the older `reasoning` allocation
-schema while the newer source expects `inference`; a same-tree `create` with
-the available old API was rejected before allocation. A completed-work join,
+The previously installed Provider/Bridge exposed the older `reasoning` allocation
+schema while the newer source expects `inference`; ChatGPT's captured schema
+has not yet been refreshed despite the new source's verified MCP advertisement.
+A same-tree `create` with the previously available old API was rejected before
+allocation. A completed-work join,
 context acceptance and Native file tools succeed, but that does **not** qualify
 new-work ownership or actual parallel integrated execution. Signed activation,
 Android/web/CLI A1, the other NC-28 interruptions and full NC-01..29 acceptance
