@@ -158,20 +158,24 @@ The repository owns this development plane; it needs no external workflow skill.
   disprove a later settings change; selected TUI settings and an already-running
   request may differ. State missing input provenance instead of attributing it
   to the user or claiming an unobserved cause.
-- After every live Core/Provider/MCP runtime replacement, include a real ChatGPT
-  client tool refresh in the same deployment workflow. Verify the running binary
-  and its MCP tools/list first, refresh the connected tools in the actual Linux
-  ChatGPT client (and each other client being qualified), then inspect the
-  client's newly captured tool arguments against the live advertised schema.
-  In particular, a server-side tools/list success does not repair a stale
-  client capture such as retired reasoning versus current inference.
-- The post-refresh acceptance gate must create/start a fresh Native work, accept
-  its context, execute a real tool, and settle the result through that refreshed
-  client. Preserve existing work receipts and rollback assets across service
-  restarts; never reuse a fenced controller. If the installed client has no
-  verified callable refresh path, clearly report the required client action
-  and keep the tool-refresh/live-work gate unfinished rather than claiming
-  deployment acceptance or silently using a stale schema.
+- After each live Core/Provider/MCP runtime replacement, use the **existing**
+  Linux ChatGPT connector refresh implementation in `scripts/d3_refresh.mjs`
+  (not a new API or a manual-only instruction). Run it with the verified
+  currently owned desktop CDP session, exact Termux Bridge connector reference,
+  deployed Provider binary and current Provider state. It calls the app's
+  `refresh_actions`, invalidates the app's connector/query caches, and compares
+  registered actions and live MCP `tools/list` with full input schemas;
+  a tool-name-only or server-only check does not satisfy the gate.
+- Do not reuse a stale qualification desktop descriptor for a newly restarted
+  production app. The operating Provider's internally owned CDP pipe differs
+  from the disposable D3 relay: first establish a supported, live owned
+  session that can execute the existing refresh function, without disturbing
+  user Chats or submitting model requests. Finish with new Native
+  create/start/attach/execute/finish through the refreshed client.
+- If that live client binding is unavailable, retain the refresh step as
+  **incomplete** with the precise missing connection. Never describe the
+  implemented function as nonexistent, accept the old `reasoning` declaration
+  in place of `inference`, or mark a deployment done without client refresh.
 - Select scripts/check.sh docs, python, rust, provider or full from the changed behavior.
   Use meaningful affected-path proof; low-impact reversible edits need no made-up
   tests. Runtime/state/security/installer changes and release candidates need
