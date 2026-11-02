@@ -209,9 +209,17 @@ fn is_simple_read_command(input: &str) -> bool {
     if arguments.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "cmd" | "workdir" | "yield_time_ms" | "max_output_tokens"
+            "cmd" | "workdir" | "yield_time_ms" | "max_output_tokens" | "login"
         )
     }) {
+        return false;
+    }
+    // Explicit non-login invocation suppresses additional shell startup effects.
+    // A login shell can evaluate user-controlled startup files and stays opaque.
+    if value
+        .get("login")
+        .is_some_and(|value| value.as_bool() != Some(false))
+    {
         return false;
     }
     let Some(command) = value.get("cmd").and_then(|v| v.as_str()) else {
@@ -224,6 +232,7 @@ fn is_simple_read_command(input: &str) -> bool {
             | "git rev-parse --show-toplevel"
             | "git branch --show-current"
             | "git log -1 --oneline"
+            | "git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no"
             | "ls"
             | "ls -la"
             | "ls -l"
@@ -546,6 +555,37 @@ mod tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn nc_git_live_status_and_explicit_nonlogin_read_can_coexist_with_writers() {
+        let root = temp();
+        assert_eq!(
+            classify(
+                "functions.exec_command",
+                r#"{"cmd":"pwd","login":false}"#,
+                Some(&root)
+            ),
+            Effect::Read
+        );
+        let git_read = classify(
+            "functions.exec_command",
+            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":false}"#,
+            Some(&root),
+        );
+        assert_eq!(git_read, Effect::Read);
+        assert!(!conflicts(&git_read, &Effect::Opaque));
+        for unsafe_command in [
+            r#"{"cmd":"git status --porcelain=v1 --untracked-files=no","login":false}"#,
+            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":true}"#,
+            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no; touch unexpected","login":false}"#,
+        ] {
+            assert_eq!(
+                classify("functions.exec_command", unsafe_command, Some(&root)),
+                Effect::Opaque,
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn nc_atomic_replace_and_verified_absolute_patch_target() {
         let root = temp();
