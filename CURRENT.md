@@ -74,6 +74,22 @@ validated concurrent interactive Native works or deployed operating binaries.
 Git/index isolation, unmediated CLI/TUI, external editors, work-specific build
 outputs and complete NC-01..29 acceptance remain open.
 
+Stage 5 bounded source correction (2026-11-02; **not installed or NC-28 fully
+accepted**): the shared Native resource ledger now recognizes an unreaped
+zombie/dead process (`Z`/`X`) as departed when reconciling a claim that the
+original journal proves was **never offered** to a Native tool. Malformed or
+inaccessible process identity remains uncertain; already offered, ongoing or
+unattributed effects are not released by process death alone. An actual
+unreaped Android child and eleven ledger unit tests pass; the changed Provider
+passes its complete ordinary Rust suite, rustfmt, strict Clippy and diff checks.
+The installed Provider/Bridge still exposes the older `reasoning` allocation
+schema while the newer source expects `inference`; a same-tree `create` with
+the available old API was rejected before allocation. A completed-work join,
+context acceptance and Native file tools succeed, but that does **not** qualify
+new-work ownership or actual parallel integrated execution. Signed activation,
+Android/web/CLI A1, the other NC-28 interruptions and full NC-01..29 acceptance
+remain open.
+
 The [consolidated plan and next-model handoff](#product-completion-scope-and-work-order)
 own execution order; implementation now follows that order.
 

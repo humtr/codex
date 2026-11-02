@@ -45,24 +45,39 @@ struct ProcessOwner {
     start: u64,
 }
 
-fn process_start(pid: u32) -> Result<u64, std::io::Error> {
+fn process_identity(pid: u32) -> Result<(u64, bool), std::io::Error> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat"))?;
-    stat.rsplit_once(')')
-        .and_then(|(_, rest)| rest.split_whitespace().nth(19))
+    parse_process_identity(&stat)
+}
+
+fn parse_process_identity(stat: &str) -> Result<(u64, bool), std::io::Error> {
+    let (_, rest) = stat
+        .rsplit_once(')')
+        .ok_or_else(|| std::io::Error::other("invalid process identity"))?;
+    let mut fields = rest.split_whitespace();
+    let state = fields
+        .next()
+        .ok_or_else(|| std::io::Error::other("invalid process identity"))?;
+    let start = fields
+        .nth(18)
         .and_then(|value| value.parse().ok())
-        .ok_or_else(|| std::io::Error::other("invalid process identity"))
+        .ok_or_else(|| std::io::Error::other("invalid process identity"))?;
+    // A zombie still has a /proc entry and its original start time, but
+    // cannot execute any more writes. Only unoffered claims use this proof.
+    Ok((start, matches!(state, "Z" | "X")))
 }
 
 impl ProcessOwner {
     fn current() -> Result<Self, String> {
         let pid = std::process::id();
-        let start = process_start(pid).map_err(|_| "native_resource_process_unavailable")?;
+        let (start, _) =
+            process_identity(pid).map_err(|_| "native_resource_process_unavailable")?;
         Ok(Self { pid, start })
     }
 
     fn departed(&self) -> bool {
-        match process_start(self.pid) {
-            Ok(start) => start != self.start,
+        match process_identity(self.pid) {
+            Ok((start, exited)) => start != self.start || exited,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
             // Permission errors or malformed /proc are not departure proof.
             Err(_) => false,
@@ -551,6 +566,85 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unreaped_process_exit_is_not_an_active_unoffered_owner() {
+        // The closing parenthesis belongs to comm, even if comm contains ')'.
+        let prefix = format!("12 (shell) worker) Z {} 742", vec!["0"; 18].join(" "));
+        assert_eq!(parse_process_identity(&prefix).unwrap(), (742, true));
+        assert_eq!(
+            parse_process_identity(&prefix.replacen(" Z ", " X ", 1)).unwrap(),
+            (742, true)
+        );
+        assert_eq!(
+            parse_process_identity(&prefix.replacen(" Z ", " S ", 1)).unwrap(),
+            (742, false)
+        );
+        assert!(parse_process_identity("12 (malformed) Z").is_err());
+    }
+
+    #[test]
+    fn zombie_owner_releases_only_a_verified_unoffered_claim() {
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let input = "*** Begin Patch\n*** Update File: a\n@@\n-old\n+new\n*** End Patch\n";
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let observed = (0..100).find_map(|_| {
+            let dead = process_identity(child.id()).ok().filter(|(_, dead)| *dead);
+            if dead.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            dead
+        });
+        let start = observed.expect("child must become unreaped zombie").0;
+        let thread = "orphaned";
+        let call_id = "unoffered";
+        let owner = ProcessOwner {
+            pid: child.id(),
+            start,
+        };
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let root = fs::canonicalize(&cwd).unwrap();
+        ledger
+            .transact(|state| {
+                state.claims.insert(
+                    format!("{thread}:{call_id}"),
+                    Entry {
+                        thread: thread.into(),
+                        fingerprint: fingerprint("functions.apply_patch", input, &root),
+                        effect: native_effect::classify(
+                            "functions.apply_patch",
+                            input,
+                            Some(&root),
+                        ),
+                        session: None,
+                        owner: Some(owner),
+                    },
+                );
+                Ok(((), true))
+            })
+            .unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "another", "before", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
+        Guard::reconcile_unoffered(
+            &cwd,
+            Some(&home),
+            thread,
+            call_id,
+            "functions.apply_patch",
+            input,
+        )
+        .unwrap();
+        child.wait().unwrap();
+        assert!(apply(&cwd, &home, "another", "after", "a").is_ok());
+    }
     fn root() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "native-ledger-test-{}-{}",
