@@ -111,6 +111,45 @@ captured full schemas, and then test a newly selected attached Native
 create/start/attach/execute/finish. The older offered/unreturned call
 remains preserved. P0-1, A1 and NC-01..29 completion remain open.
 
+### Deferred after P0 and full Native concurrency: production connector refresh
+
+**Decision (2026-11-02; planned, not implemented):** Complete the currently
+prioritized P0-1/P0-2 functionality and all Native concurrency NC-01..29
+implementation/acceptance (including stages 5 and 6) **before** normalizing the
+Linux ChatGPT connector refresh into the permanent product workflow. Do not
+interrupt those tasks or represent this deferred integration as already done.
+
+After that milestone, productize the existing behavior implemented by
+`scripts/d3_refresh.mjs`: move/refactor it into a supported, reusable
+build/release/runtime-activation workflow component whose module, command and
+artifact names describe **connector tool refresh / client metadata
+synchronization**, not historical D3 qualification or phase numbers. The
+D3-named script is existing implementation input, not the permanent product
+interface. Avoid maintaining two competing refresh implementations.
+
+A newly built Provider and its activated runtime must not leave ChatGPT's
+registered tools, client query/cache state or captured argument schemas stale.
+As part of the **official build-to-activation/deployment workflow**, automatically
+synchronize the owned connector's registered actions with the activated MCP
+producer, invalidate the Linux app's relevant caches, compare complete input
+schemas (not just tool names), and check a real read-only MCP call. Distinguish
+an inert source build from deployment: do not claim client freshness from a
+successful compilation or refresh an old running producer before activation.
+Keep the existing owner/account/connector checks, bounded failure and retry
+behavior, no duplicate mutation on an uncertain reply, no unintended model
+inference, original work/result history, selected signed generations and
+rollback safety.
+
+**Future acceptance:** a phase-neutral production command or module is invoked
+automatically by the supported build/deployment process when an updated
+runtime/tool catalog is activated; the live Linux ChatGPT client and registered
+Termux Bridge input schemas match the current Provider without a manual D3
+qualification command. Actual connected-client read and Native create/start/
+tool-result checks complete the relevant release gate. Existing manual
+qualification code may remain as historical evidence, but is not the product
+interface. This is follow-up work, not a new prerequisite for the current P0
+and Native concurrency implementation.
+
 ### Post-restart NC-14 source acceptance (2026-11-02)
 
 `rewrite/rust-core` source `807a21d` admits proven non-login Git status reads,
