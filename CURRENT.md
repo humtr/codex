@@ -57,6 +57,37 @@ activation has `result.txt=success` and required no rollback. None of this
 qualifies all NC-01..29, concurrent unmediated CLI/TUI effects, Git index/ref
 isolation, externally written files, or a signed final Provider release.
 
+### Post-restart NC-14 source acceptance (2026-11-02)
+
+`rewrite/rust-core` source `807a21d` admits proven non-login Git status reads,
+and `d3f3b1e` closes the omitted-login bypass: only an explicitly
+`login:false` shell can be classified as an inert Native read. An omitted or
+true login value and any unproven command remain opaque. The previous RED
+regression now passes, along with the shared-resource read/write tests. The
+Provider full Rust suite (183 library tests plus enabled integration tests),
+strict warning-free Clippy, formatting and diff checks pass. Original log:
+`$PREFIX/tmp/nc14-full-provider-85feft.log`.
+
+The rebuilt local Provider and installed signed Full134 Core/TUI passed the
+isolated Android Native end-to-end operator fixture, including tool receipts,
+approval and denial, continued turns, Stop/claim, restart, failures and original
+caller result return. `accepted=true`, `chat_submissions=0`. Evidence:
+`$PREFIX/tmp/nc14-android-kXAHZS/report.json` and
+`$PREFIX/tmp/ob-1jjhwlq9`. This is source and disposable Android device-path
+acceptance, **not** a signed Provider release or live activation: the operating
+runit Provider still uses its original `78e3745` development binary.
+
+The original attached work `b23e0aa8441c1b03c19d6869edfa456c456bf94817ff545d`
+is stopped after the Termux restart, with one offered/unreturned call and no
+active resource claims. Its upstream public history includes a completed
+command, but that Native item ID does not equal the unsettled Provider call ID.
+`claim` correctly refuses `operator_unreturned_calls_require_reconciliation`;
+do not replay or assume that call is settled based on process exit alone.
+Development continued via `join` on existing completed work
+`14f3515f2a9ddf081de735b36a9fb25624dd78f67f400f0e` without another
+model request. The earlier outstanding receipt and broader P0 ownership work
+remain open.
+
 Provider21/sourcee78d83a and wrapper tunnel recipe3236692 retain their separate
 maintenance/activation evidence below. Those earlier service/host/process
 observations are not fresh health checks after subsequent Termux exits. Original
