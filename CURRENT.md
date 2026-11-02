@@ -57,6 +57,43 @@ activation has `result.txt=success` and required no rollback. None of this
 qualifies all NC-01..29, concurrent unmediated CLI/TUI effects, Git index/ref
 isolation, externally written files, or a signed final Provider release.
 
+### Provider runtime cutover and client tool refresh (2026-11-02)
+
+Runtime deployment now includes the **consuming ChatGPT client tool refresh**
+before any post-update Native work can be accepted. The mandatory gate in
+[AGENTS.md](AGENTS.md) is build/source qualification -> independently retained
+candidate and rollback -> service restart and exact running-executable/health
+readback -> actual Linux ChatGPT client tool refresh -> freshly captured
+MCP schema inspection -> new Native create/start/attach/execute/finish through
+that client. A server-side `initialize`/`tools/list` pass alone is insufficient
+when the ChatGPT client still exposes old arguments.
+
+A new Provider release-mode development candidate was built from
+`49af7c391da7f1a392fe790a037a0c4469319374` with executable SHA-256
+`ea39d84e155f385c45a56251f81384d6daa9074f0e1062569f8146d92d2f6f38`.
+Its five package files were individually verified, without replacing signed
+Full134/Provider22. The deployment record is retained under
+`~/.local/state/codex/provider-deployments/p0-20261102-49af7c3/`,
+including a backup of 708 top-level Provider state files. Initial cutover
+recorded `ROLLED_BACK`: the verification script accidentally parsed the
+runit logging PID rather than the service PID, despite successful service
+restart. A corrected PID parser and read-only candidate status check passed;
+a second cutover was launched as `run-cutover-v2.sh` with
+`result-v2.txt` and `cutover-v2.log` for independent verification.
+
+**The second cutover's result and exact running Provider executable were not
+read back** before the ChatGPT tool controller was fenced on restart. The
+authenticated host subsequently reported ready, but readiness does not prove
+which binary is running. The original offered/unreturned Native call remains
+preserved; new-work creation using the stale client `reasoning` field was
+rejected because the current Provider requires `inference=attached`.
+Read `result-v2.txt`, verify the real runit service PID/executable SHA, refresh
+the Linux ChatGPT client's captured TermuxBridge tools, and prove a fresh Native
+work before marking this runtime activation complete. If the client refresh
+cannot be triggered and observed through an available supported interface,
+report that unsatisfied acceptance gate rather than claiming a successful
+tool refresh or silently dropping the requested Native workflow.
+
 ### Post-restart NC-14 source acceptance (2026-11-02)
 
 `rewrite/rust-core` source `807a21d` admits proven non-login Git status reads,
