@@ -158,6 +158,20 @@ The repository owns this development plane; it needs no external workflow skill.
   disprove a later settings change; selected TUI settings and an already-running
   request may differ. State missing input provenance instead of attributing it
   to the user or claiming an unobserved cause.
+- After every live Core/Provider/MCP runtime replacement, include a real ChatGPT
+  client tool refresh in the same deployment workflow. Verify the running binary
+  and its MCP tools/list first, refresh the connected tools in the actual Linux
+  ChatGPT client (and each other client being qualified), then inspect the
+  client's newly captured tool arguments against the live advertised schema.
+  In particular, a server-side tools/list success does not repair a stale
+  client capture such as retired reasoning versus current inference.
+- The post-refresh acceptance gate must create/start a fresh Native work, accept
+  its context, execute a real tool, and settle the result through that refreshed
+  client. Preserve existing work receipts and rollback assets across service
+  restarts; never reuse a fenced controller. If the installed client has no
+  verified callable refresh path, clearly report the required client action
+  and keep the tool-refresh/live-work gate unfinished rather than claiming
+  deployment acceptance or silently using a stale schema.
 - Select scripts/check.sh docs, python, rust, provider or full from the changed behavior.
   Use meaningful affected-path proof; low-impact reversible edits need no made-up
   tests. Runtime/state/security/installer changes and release candidates need
