@@ -567,6 +567,14 @@ struct ActiveEffects {
 fn external_effect_id(lane: &str, tool_id: &str) -> String {
     digest(&("upstream-native-effect-v1", lane, tool_id))
 }
+fn busy_effect_reply() -> Value {
+    json!({
+        "error":"native_resource_busy",
+        "executed":false,
+        "retryable":true,
+        "message":"Conflicting Native effect remains active. Inspect codex_status.native_effects, wait for its settlement, and submit a new call ID; this rejected logical call will not be dispatched later."
+    })
+}
 fn settle_effect(
     claims: &mut ActiveEffects,
     id: &str,
@@ -1591,6 +1599,11 @@ impl Broker {
                             && held.lane == next.lane
                             && held.session_id == continuation)
                 }) {
+                    // A tool caller has not registered an explicit wait/queue.
+                    // Persist a pre-effect conflict so it cannot be dispatched
+                    // minutes later after its original observer times out.
+                    call.result = Some(busy_effect_reply());
+                    changed = true;
                     continue;
                 }
                 if let Effect::Paths(_) = &effect {
@@ -1632,7 +1645,11 @@ impl Broker {
                             call.name.clone(),
                             call.input.clone(),
                         )),
-                        Err(reason) if reason == "native_resource_busy" => continue,
+                        Err(reason) if reason == "native_resource_busy" => {
+                            call.result = Some(busy_effect_reply());
+                            changed = true;
+                            continue;
+                        }
                         Err(reason) if reason == "native_resource_version_conflict" => {
                             call.result = Some(json!({"error":reason,"executed":false}));
                             changed = true;
@@ -2259,6 +2276,53 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn nc_conflicting_native_tool_returns_pre_effect_receipt_without_late_dispatch() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let owner = broker
+            .register_scoped("owner", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let contender = broker
+            .register_scoped("contender", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let first = patch("file", "alpha", "OWNER");
+        let original_id = accepted(&broker, &owner, &first).await;
+        let second = patch("file", "alpha", "SECOND");
+        broker.enqueue(&contender, &second).await.unwrap();
+        assert!(broker.offer(&contender).await.unwrap().is_empty());
+        let recorded: Turn = broker
+            .journal
+            .read(&digest(&("mcp-turn-v1", &contender)))
+            .unwrap()
+            .unwrap();
+        let call = &recorded.calls[&second.call_id];
+        assert!(!call.offered);
+        assert_eq!(
+            call.result.as_ref().unwrap()["error"],
+            "native_resource_busy"
+        );
+        assert_eq!(call.result.as_ref().unwrap()["executed"], false);
+        assert_eq!(call.result.as_ref().unwrap()["retryable"], true);
+        broker
+            .settle(
+                &owner,
+                &[(original_id, json!({"output":"Process exited with code 0"}))],
+            )
+            .await
+            .unwrap();
+        assert!(
+            broker.offer(&contender).await.unwrap().is_empty(),
+            "a pre-effect rejection cannot silently execute after the caller has left"
+        );
+        let retry = patch("file", "alpha", "RETRIED");
+        assert_eq!(broker.enqueue(&contender, &retry).await, Ok(()));
+        assert_eq!(broker.offer(&contender).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn nc_crashed_unoffered_external_reservation_can_be_recovered() {
         if let (Ok(cwd), Ok(home)) = (
             std::env::var("NATIVE_UNOFFERED_PROBE_CWD"),
@@ -2342,6 +2406,9 @@ mod native_concurrency_tests {
             broker.offer(&two).await.unwrap().is_empty(),
             "same-file publication serializes, not creation"
         );
+        let rejected = broker.invoke(&two, second.clone()).await.unwrap();
+        assert_eq!(rejected["error"], "native_resource_busy");
+        assert_eq!(rejected["executed"], false);
         let id_unrelated = accepted(&broker, &three, &unrelated).await;
         let read = Arguments {
             call_id: "read".into(),
@@ -2359,6 +2426,13 @@ mod native_concurrency_tests {
             .settle(&one, &[(id_first, json!("first"))])
             .await
             .unwrap();
+        assert!(
+            broker.offer(&two).await.unwrap().is_empty(),
+            "the rejected call cannot dispatch after resource release"
+        );
+        let mut retry = second;
+        retry.call_id = "second-hunk-after-owner-settled".into();
+        broker.enqueue(&two, &retry).await.unwrap();
         let id_second = broker.offer(&two).await.unwrap();
         assert_eq!(
             id_second.len(),
@@ -2687,7 +2761,16 @@ mod native_concurrency_tests {
             .unwrap();
         assert!(broker.offer(&two).await.unwrap().is_empty());
         assert_eq!(
-            broker.invoke(&two, second.clone()).await.unwrap(),
+            broker.invoke(&two, second.clone()).await.unwrap()["error"],
+            "native_resource_busy",
+            "the original conflict is an exact pre-effect receipt"
+        );
+        let mut retry = second.clone();
+        retry.call_id = "overlap-after-first-published".into();
+        broker.enqueue(&two, &retry).await.unwrap();
+        assert!(broker.offer(&two).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&two, retry).await.unwrap(),
             json!({"error":"native_resource_version_conflict","executed":false})
         );
         assert_eq!(
@@ -2735,6 +2818,13 @@ mod native_concurrency_tests {
             )
             .await
             .unwrap();
+        assert!(
+            broker.offer(&two).await.unwrap().is_empty(),
+            "a conflicted original call cannot be dispatched after process exit"
+        );
+        let mut retry = second;
+        retry.call_id = "after-opaque-exit".into();
+        broker.enqueue(&two, &retry).await.unwrap();
         let offered = broker.offer(&two).await.unwrap();
         assert_eq!(offered.len(), 1);
         // Simulate process loss with a tool already offered but no result.
@@ -2819,6 +2909,13 @@ mod native_concurrency_tests {
             )
             .await
             .unwrap();
+        assert!(
+            broker.offer(&other).await.unwrap().is_empty(),
+            "a rejected Native call must not run after a background session ends"
+        );
+        let mut retry = pending;
+        retry.call_id = "after-session-exit".into();
+        broker.enqueue(&other, &retry).await.unwrap();
         assert_eq!(broker.offer(&other).await.unwrap().len(), 1);
         assert!(!broker
             .journal
@@ -2872,6 +2969,13 @@ mod native_concurrency_tests {
             &json!("patched"),
         )
         .unwrap();
+        assert!(
+            broker.offer(&token).await.unwrap().is_empty(),
+            "the original rejected call must never be dispatched implicitly"
+        );
+        let mut retry = direct;
+        retry.call_id = "after-independent-mediation".into();
+        broker.enqueue(&token, &retry).await.unwrap();
         assert_eq!(broker.offer(&token).await.unwrap().len(), 1);
     }
     #[tokio::test]

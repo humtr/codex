@@ -2830,6 +2830,14 @@ or a bounded fallback lease while the uncertain command runs. That fallback
 may defer a *conflicting effect*, but must not prevent unrelated works from
 starting, inspecting, preparing edits or using their own temp subtrees. No
 unverified file-level concurrency guarantee is made for unmanaged writers.
+For an ordinary single Native tool request without an explicit durable wait or
+queue action, a conflicting resource lease must settle that original logical
+request with a persisted `executed=false`, retryable conflict response **before**
+the effect is forwarded. It must not silently execute later after the calling
+observer has timed out or departed. A caller may inspect current effect status
+and submit a new logical call after settlement; repeating the rejected call ID
+must return the original rejection, not dispatch a delayed effect. Deliberate
+durable queues have distinct explicit registration/consumption receipts.
 If a shared working tree is already being changed, version-checked publication
 must detect intervening mutations rather than overwrite them. A separate
 worktree remains a useful opt-in for high-risk opaque effects, never mandatory

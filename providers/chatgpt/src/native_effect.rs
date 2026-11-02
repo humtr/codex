@@ -310,6 +310,18 @@ impl FileEffect {
         }
         let bytes = fs::read(&real).map_err(|_| "native_resource_version_conflict")?;
         if version(&bytes) == self.base.as_deref().unwrap_or("") {
+            // An operation can be prepared after another writer has already
+            // committed. Its fresh version alone does not establish that the
+            // old-side patch text exists: reject an impossible patch before
+            // forwarding it as a Native effect. Repeated anchors are still
+            // left to upstream's ordinary contextual patch resolution.
+            if self.operation == FileOperation::Update {
+                let current =
+                    std::str::from_utf8(&bytes).map_err(|_| "native_resource_version_conflict")?;
+                if !self.anchors.iter().all(|anchor| current.contains(anchor)) {
+                    return Err("native_resource_version_conflict");
+                }
+            }
             return Ok(());
         }
         if self.operation != FileOperation::Update {
@@ -450,6 +462,28 @@ mod tests {
             can_offer(&change, &root),
             Err("native_resource_version_conflict")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn nc_new_patch_after_a_conflicting_writer_requires_live_old_hunk() {
+        let root = temp();
+        fs::write(root.join("file"), "ALPHA\nbeta\n").unwrap();
+        let stale = classify(
+            "functions.apply_patch",
+            &update("file", "alpha", "changed"),
+            Some(&root),
+        );
+        assert_eq!(
+            can_offer(&stale, &root),
+            Err("native_resource_version_conflict")
+        );
+        let valid = classify(
+            "functions.apply_patch",
+            &update("file", "beta", "BETA"),
+            Some(&root),
+        );
+        assert_eq!(can_offer(&valid, &root), Ok(()));
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
