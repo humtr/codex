@@ -252,7 +252,11 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
         .is_some_and(|v| v.contains("Chrome")));
     let until = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     let app = loop {
-        match host.client.app().await {
+        match host
+            .client
+            .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+            .await
+        {
             Ok(app) => break app,
             Err(_) if tokio::time::Instant::now() < until => {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await

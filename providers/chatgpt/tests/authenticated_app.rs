@@ -20,7 +20,10 @@ async fn project_sidebar_and_exact_resource_report_admission_flags_without_mutat
     .unwrap();
     let name = serde_json::json!(std::env::var("CHATGPT_PROVIDER_PROJECT_NAME").unwrap());
     let client = Client::connect(&descriptor).await.unwrap();
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     let result = app.evaluate(&format!(r#"(async()=>{{
       const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)throw Error('existing_bridge_required');
       const expected={expected},name={name},check=()=>{{const a=s.scope.get(s.shared.xNt);if(a.authLoading||a.accountLoading||a.accountId!==expected.account||a.userId!==expected.user||a.accountStructure!==expected.structure)throw Error('account_changed');return a;}};
@@ -44,7 +47,10 @@ async fn authenticated_app_exposes_current_identity_and_local_function_capabilit
     // An occupied legacy relay rejects this connection rather than displacing
     // its existing observer. Never retry, stop it or start a replacement here.
     let client = Client::connect(&descriptor).await.unwrap();
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     let expected = std::env::var_os("CODEX_PROVIDER_EXPECTED_IDENTITY")
         .map(|path| {
             serde_json::from_slice::<serde_json::Value>(
@@ -118,7 +124,10 @@ async fn actual_permission_reply_shape_is_intercepted_before_any_conversation_po
     let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
         .await
         .unwrap();
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     let result=app.evaluate(r#"(async()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)throw Error('existing_bridge_required');const lanes=[...s.lanes.values()];if(lanes.length!==1||!lanes[0].stopRequested)throw Error('stopped_fixture_required');const l=lanes[0],prompt=[...l.messages.values()].find(m=>m.metadata?.jit_plugin_data?.from_server?.type==='confirm_action');if(!prompt)throw Error('confirmation_required');let observed=null,failureCode=null;const saved=s.wire.streamPost;s.wire.streamPost=function(path,options){if(path!=='/f/conversation')return saved.call(this,path,options);const r=JSON.parse(options.body);observed={posts:0,intercepted:true,requestKeys:Object.keys(r),messageCount:r.messages?.length,roles:r.messages?.map(m=>m.author?.role),messages:r.messages?.map(m=>{const d=m.metadata??{},p=d.jit_plugin_data??d.elicitation_metadata?.plugin_data,t=p?.from_client?.target_message_id??d.codex_mcp_elicitation_response?.target_message_id,f=typeof t==='string'?l.messages.get(t):null;return {role:m.author?.role,metadataKeys:Object.keys(d),hasClientReply:!!p?.from_client,hasCodexReply:!!d.codex_mcp_elicitation_response,targetMatches:!!f,promptRole:f?.author?.role,promptType:(f?.metadata?.jit_plugin_data??f?.metadata?.elicitation_metadata?.plugin_data)?.from_server?.type,hasServerData:!!p?.from_server};})};throw Error('qualification_prepost_blocked');};try{try{await s.api.yRt(s.scope,{conversationId:l.localId,projectId:l.project,model:'gpt-6',prompt:'',thinkingEffort:null,isTemporaryChat:false,toolApproval:{action:'allow',targetMessageId:prompt.metadata.jit_plugin_data.from_server.body?.actions?.find(a=>a.allow_once||a.allow)?.allow_once?.target_message_id??prompt.metadata.jit_plugin_data.from_server.body?.actions?.find(a=>a.allow)?.allow?.target_message_id??prompt.id},requireResponseAcceptance:true});}catch(e){failureCode=['app_dispatch_replayed','project_membership_unconfirmed','Read-only mode blocks connector approvals','No stream available'].includes(e.message)?e.message:e.name==='TypeError'?String(e.message).replace(/[^a-zA-Z0-9 '.()_-]/g,'').slice(0,150):e.name;}return observed??{intercepted:false,posts:0,failureCode};}finally{if(s.wire.streamPost!==saved)s.wire.streamPost=saved;}})()"#).await.unwrap();
     println!("{result}");
     assert_eq!(result["intercepted"], true);
@@ -132,7 +141,10 @@ async fn actual_reveal_uses_the_apps_generic_thread_navigation() {
     let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
         .await
         .unwrap();
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     let result=app.evaluate(r#"(async()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];if(!s)throw Error('existing_bridge_required');const lanes=[...s.lanes.values()];if(lanes.length!==1||!lanes[0].stopRequested)throw Error('stopped_fixture_required');const l=lanes[0];try{await s.shared.N0t(s.scope,'/c/'+encodeURIComponent(l.serverId));}catch(e){return {navigationRequested:false,available:typeof s.api.P8t==='function',error:String(e.message).replace(/[^a-zA-Z0-9 '.()_-]/g,'').slice(0,160)}}return {navigationRequested:true,chatPosts:0,localKnown:true,serverKnown:typeof l.serverId==='string'};})()"#).await.unwrap();
     println!("{result}");
     assert_eq!(result["navigationRequested"], true);
@@ -145,7 +157,10 @@ async fn rejected_dispatch_flags_are_content_free() {
     let client = Client::connect(&Descriptor::read(std::path::Path::new(&path)).unwrap())
         .await
         .unwrap();
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     let result=app.evaluate(r#"(()=>{const s=globalThis[Symbol.for('termux.codex.app.bridge.v1')];return {lanes:s?[...s.lanes.values()].map(l=>({rejected:l.rejectedDispatch??null,dispatches:l.starts.size,roundStarts:l.roundStarts,hostReplies:l.hostReplyMessages,stopped:l.stopRequested===true,streamActive:l.streamActive===true,error:l.error,terminals:l.terminals,publicFinal:[...l.messages.values()].filter(m=>m.author?.role==='assistant'&&m.channel==='final'&&m.content?.content_type==='text'&&!m.metadata?.is_visually_hidden_from_conversation).map(m=>({length:m.content.parts?.join('').length,mentionsMcp:m.content.parts?.join('').toLowerCase().includes('mcp'),mentionsUnavailable:/unavailable|unable|cannot|can.t|unreachable|실패|없|불가/i.test(m.content.parts?.join(''))})),messages:[...l.messages.values()].filter(m=>['tool','assistant'].includes(m.author?.role)).map(m=>({role:m.author.role,channel:m.channel??null,contentType:m.content?.content_type??null,partsArray:Array.isArray(m.content?.parts),hidden:m.metadata?.is_visually_hidden_from_conversation===true,allRecipient:m.recipient==null||m.recipient==='all',hasPublicText:m.content?.parts?.some(p=>typeof p==='string'&&p.length>0)??false,hostType:m.metadata?.jit_plugin_data?.from_server?.type??null})),offeredTargetRoles:[...l.messages.values()].filter(m=>m.author?.role==='tool').flatMap(m=>(m.metadata?.jit_plugin_data?.from_server?.body?.actions??[]).flatMap(a=>['allow','allow_once','always_allow','deny'].filter(k=>a[k]?.target_message_id).map(k=>({action:k,role:l.messages.get(a[k].target_message_id)?.author?.role??null,sameConfirmation:a[k].target_message_id===m.id}))))})):[]};})()"#).await.unwrap();
     println!("{result}");
 }

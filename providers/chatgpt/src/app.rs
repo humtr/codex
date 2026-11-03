@@ -53,6 +53,7 @@ struct Connection {
     generation: String,
     app: App,
     initialized: bool,
+    composer: bool,
 }
 #[derive(Clone)]
 enum Source {
@@ -142,6 +143,14 @@ impl Bridge for Remote {
                 _ => unreachable!(),
             };
             let mut guard = connection.lock().await;
+            if !observation
+                && guard
+                    .as_ref()
+                    .is_some_and(|c| c.generation == generation && !c.composer)
+            {
+                let previous = guard.take().unwrap();
+                previous.app.detach().await?;
+            }
             if guard.as_ref().is_some_and(|c| c.generation != generation) {
                 // Reattach only to the newly verified owned host. Lane-level
                 // identity admission below decides whether a settled turn may
@@ -156,7 +165,14 @@ impl Bridge for Remote {
                 };
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 let app = loop {
-                    match client.app().await {
+                    match client
+                        .app(if observation {
+                            crate::cdp::AppSurface::Authentication
+                        } else {
+                            crate::cdp::AppSurface::Composer
+                        })
+                        .await
+                    {
                         Ok(app) => break app,
                         Err(Error("app_target_unavailable"))
                             if tokio::time::Instant::now() < until =>
@@ -170,6 +186,7 @@ impl Bridge for Remote {
                     generation: generation.clone(),
                     app,
                     initialized: false,
+                    composer: !observation,
                 });
             }
             if !observation

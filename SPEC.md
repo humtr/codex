@@ -4058,6 +4058,10 @@ Resolve `proot` and `Xvnc` from the Termux prefix, with fixed isolated arguments
 never interpret a configured shell command or bind the user's host home into the
 guest. No implicit app/rootfs installation or profile copying occurs. Preserve
 app home/authentication on shutdown; remove only owned temporary resources.
+Read-only app identity, host status and catalog observations may inspect a unique
+primary app page without a visible composer; they do not install writer hooks or
+grant inference admission. A later mutating operation must reacquire a verified
+composer surface. Home/Plugins navigation alone is not loss of authentication.
 A lost host with unsettled lanes is not permission to replay their requests.
 Bind each lane to the app's currently authenticated user/account/workspace and
 owned host generation using identifier-only app state, never a token dump. Check
