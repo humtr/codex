@@ -274,7 +274,7 @@ impl Bridge for Synthetic {
                     .join("model-adapter-fixture")
                     .exists()
                 {
-                    submitted.map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
+                    submitted.filter(|_| !self.path.parent().unwrap().join("hold-adapter-final").exists()).map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
                 } else if title && reviewer {
                     json!([{"id":"owned-title-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[json!({"title":"Owned integration title"}).to_string()]},"status":"finished_successfully","end_turn":true}])
                 } else if reviewer {

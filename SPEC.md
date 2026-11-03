@@ -2952,7 +2952,11 @@ host. Explicit ensure may start configured assets, without implicit downloading
 or login. Open/reveal displays the selected existing owner/Chat. Stop names its
 scope, preserves profile/Chats/user files and cannot kill an unrelated/shared host.
 Reconnect/connector refresh restores transport only after inspecting pending
-receipts; it does not resend tasks. Missing/expired/changed app APIs report their
+receipts; it does not resend tasks. MCP Broker owns admission and settlement for
+McpBridge-mediated Native calls. Operator forwards those already-reserved calls
+without reserving them again as external AppHost effects. Only local-function
+AppHost calls use Operator external-effect admission/settlement; work budgets
+and Native ownership validation still apply to both return paths. Missing/expired/changed app APIs report their
 specific unavailable capability. Viewer/login interactions remain optional and
 distinct from backend work; cosmetic noVNC changes are not a prerequisite.
 
@@ -3033,7 +3037,7 @@ must preserve recovery/provenance needed by admitted work.
 | codex_report/codex_finish | Work-scoped call_id and text/final fingerprint with current-controller admission; receipt intent precedes the one message emission. IDs remain reserved across generations; a new intended report needs a new ID. Retry observes that item and resumes applicable completion settlement; final-item presence alone is not completed work |
 | Session create/resume/fork | Existing caller call_id plus action/payload; durable creation intent/result; unknown native creation is reconciled, never dispatched again |
 | Session start/compact/claim/takeover | Add optional call_id for compatible exact retries, scoped to work/action/controller. New common clients supply it; old unkeyed clients retain conservative fenced behavior. Unknown mutation requires reconciliation |
-| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation |
+| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation. A starting_native generation returns pending_native_context; exact Native history-not-ready observation returns pending_native_history. Both are pending reads with accepted=false and no receipt; observe/retry without restarting the task or executing before its real context is available |
 | codex_answer | Work/controller plus native question request_id and answers fingerprint; one answer forwarding; unknown response is not permission to answer again |
 | codex_native_summary | Common clients supply a stable optional call_id, scoped to work/controller; record the admitted native inference round and summary fingerprint before one delivery. Legacy unkeyed input remains scoped to its admitted round. A duplicate keyed reply cannot answer a later round; Chat replacement remains separate |
 | codex_handoff | Existing work/call_id and full cursor/context/summary fingerprint; coalesce intent/generation transition, recover original receipt; uncertainty never creates another successor |

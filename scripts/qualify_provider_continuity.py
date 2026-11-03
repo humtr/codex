@@ -137,7 +137,7 @@ def probe(args):
             bound = {'work_id':created_before_tui['work_id'],'controller':started['controller']}
             wait(lambda:rpc('codex_status',{'work_id':bound['work_id']})['phase']=='running',
                  'Native-created work starts without a TUI')
-            context=rpc('codex_attach',bound)
+            context=wait(lambda: (value if (value:=rpc('codex_attach',bound)).get('receipt') else None), 'Native context receipt is ready')
             assert rpc('codex_attach',{**bound,'accept':context['receipt']})['accepted']
             rpc('codex_finish',{**bound,'call_id':'native-before-tui-final','text':'NATIVE_BEFORE_TUI_BASELINE'})
             assert rpc('codex_status',{'work_id':bound['work_id']})['phase']=='completed'
@@ -275,7 +275,7 @@ def probe(args):
                 busy = rpc('codex_sessions',{**command_args,'call_id':f'overlap-{index}'},True)
                 assert busy['error']=='native_writer_unsettled', busy
                 assert rpc('codex_tools',bound,True)['error']=='operator_controller_fenced'
-                context = rpc('codex_attach',bound)
+                context = wait(lambda: (value if (value:=rpc('codex_attach',bound)).get('receipt') else None), 'Native follow-up context receipt is ready')
                 assert context['accepted'] is False
                 assert f'BRIDGE_ORIGINAL_INPUT_{index}' in json.dumps(context['incremental_history'])
                 accepted = rpc('codex_attach',{**bound,'accept':context['receipt']})
