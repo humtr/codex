@@ -146,9 +146,11 @@ update authority is maintained.
   provider or turn an active/unknown task into an idle one.
   A newly persisted, idle conversation with no user turns may cross the provider
   boundary without a context checkpoint. If the qualified backend rejects full
-  history before its first message, accept only its exact recognized response
-  after a metadata read and a bounded, owned, stable native rollout containing
-  solely that thread's canonical session metadata prove it is empty. Account
+  history before its first message, recognize the exact qualified thread/read
+  and Paginated thread/turns/list not-materialized or list_turns-not-supported
+  response for that thread; accept emptiness only after a metadata read and a
+  bounded, owned, stable native rollout containing solely that thread's canonical
+  session metadata prove it is empty. Account
   directory aliases to the shared sessions root are valid after parent resolution
   and containment checks; the rollout leaf itself cannot be a symlink. Forked or
   inherited history, extra records, malformed/unsafe files and all other read

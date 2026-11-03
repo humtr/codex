@@ -285,6 +285,38 @@ jobs:
           cp "$original" "$source"
           cmp "$original" "$source"
           trap - EXIT
+      - name: Verify Paginated blank-history regression detects the old method filter
+        if: inputs.mutation_check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/tui/src/app/chat_model_reentry.rs
+          original="$RUNNER_TEMP/profile-tui-blank-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('codex-rs/tui/src/app/chat_model_reentry.rs')
+          text = path.read_text()
+          guard = 'matches!(method.as_str(), "thread/read" | "thread/turns/list")'
+          assert text.count(guard) == 1
+          path.write_text(text.replace(guard, 'method == "thread/read"'))
+          PYTHON
+          status=0
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models_blank_history_errors_are_exact_and_thread_bound)' > "$RUNNER_TEMP/profile-tui-blank-mutation.log" 2>&1 || status=$?
+          test "$status" -ne 0
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          text = Path(os.environ['RUNNER_TEMP'], 'profile-tui-blank-mutation.log').read_text()
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*1 tests? run:.*1 failed', text), text[-4000:]
+          assert 'left: false' in text and 'right: true' in text, text[-4000:]
+          PYTHON
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
       - name: Qualify retained upstream 0.162 features
         shell: bash
         run: |
@@ -369,6 +401,7 @@ jobs:
             ${{ runner.temp }}/profile-tui-focused.log
             ${{ runner.temp }}/profile-tui-mutation.log
             ${{ runner.temp }}/profile-tui-login-mutation.log
+            ${{ runner.temp }}/profile-tui-blank-mutation.log
             ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-linted.patch
