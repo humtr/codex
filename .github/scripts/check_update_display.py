@@ -7,9 +7,14 @@ from pathlib import Path
 from rald5_publication import parse_manifest
 
 
-def variants(current, target, component, publication, base_publication):
+def variants(current, target, component, publication, base_publication, *, prior_notes=False):
     old, old_files = parse_manifest(current)
     new, files = parse_manifest(target)
+    before = {name: (digest, mode) for name, digest, mode in old_files}
+    after = {name: (digest, mode) for name, digest, mode in files}
+
+    def changed(*paths):
+        return prior_notes or any(before.get(path) != after.get(path) for path in paths)
     edition = 'Full' if any(name == 'manager' for name, _, _ in files) else 'Base'
     previous = 'Full' if any(name == 'manager' for name, _, _ in old_files) else 'Base'
     prefix = f'Termux release: {previous} #{old["release_sequence"]}'
@@ -62,11 +67,13 @@ def variants(current, target, component, publication, base_publication):
                 component = 'Base #' + str(display['base_sequence']) if display.get('base_generation') else 'Full #' + new['release_sequence'] + ' package'
                 full.append(f'Core ({component}) · Published: ' + stamp(core))
             core_url = 'https://github.com/humtr/codex/releases/tag/' + display.get('base_generation', new['generation_id']) if display.get('base_generation') else url
-            full += notes(core, 'Core', core_url)
+            if changed('core', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1'):
+                full += notes(core, 'Core', core_url)
             for section, file, label in [('Manager', 'manager', 'Manager'), ('TUI', 'helpers/2', 'Enhanced TUI')]:
                 if any(name == file for name, _, _ in files):
                     full.append(f'{label} ({edition} #{new["release_sequence"]} package) · Published: ' + stamp(info))
-                    full += notes(info, section, url)
+                    if changed(file):
+                        full += notes(info, section, url)
             variants.append(full)
     return variants
 
@@ -83,6 +90,11 @@ if __name__ == '__main__':
     expected = [[plain[0], *detail, *plain[1:]] for detail in
                 variants(args.current, args.target, args.component, args.publication, args.base_publication)]
     if args.allow_legacy:
+        # The first update is executed by the retained previously shipped Core.
+        # Only that invocation may still emit unchanged component notes.
         expected.append(plain)
+        expected.extend([[plain[0], *detail, *plain[1:]] for detail in
+                         variants(args.current, args.target, args.component, args.publication,
+                                  args.base_publication, prior_notes=True)])
     actual = args.actual.read_text().splitlines()
     assert actual in expected, (actual, expected)

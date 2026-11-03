@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -40,6 +41,40 @@ def sha256(path: Path) -> str:
 
 
 class Rald5PublicationTests(unittest.TestCase):
+    def test_update_display_retains_dates_but_only_changed_component_notes(self):
+        from check_update_display import variants
+        self.build_signed(frontend=True)
+        current = self.signed / 'releases' / GENERATION / 'release.manifest'
+        target = self.root / 'target.manifest'
+        target.write_bytes(current.read_bytes())
+        display = self.root / 'display.json'
+        display.write_text(json.dumps({'display': {'release_date': '2026-11-03',
+            'base_sequence': 10, 'base_generation': 'local-base-display-10'}}))
+        publication = self.root / 'publication.json'
+        base = self.root / 'base.json'
+        info = {'tag_name': GENERATION, 'draft': False,
+                'published_at': '2026-11-03T02:12:23Z',
+                'body': '## Core\n- Core change.\n## Manager\n- Manager change.\n## TUI\n- TUI change.\n'}
+        publication.write_text(json.dumps(info))
+        base.write_text(json.dumps({**info, 'tag_name': 'local-base-display-10'}))
+        def outputs(**kwargs):
+            return ['\n'.join(lines) for lines in
+                    variants(current, target, display, publication, base, **kwargs)]
+        unchanged = outputs()
+        self.assertTrue(any('Published: 2026-11-03 11:12:23 KST' in text for text in unchanged))
+        self.assertTrue(any('Release date: 2026-11-03 (UTC)' in text for text in unchanged))
+        self.assertTrue(all('changes:' not in text and 'Full notes:' not in text for text in unchanged))
+        self.assertTrue(any('Manager change.' in text for text in outputs(prior_notes=True)))
+        for path, section in [('core', 'Core'), ('runtime', 'Core'), ('manager', 'Manager'), ('helpers/2', 'TUI')]:
+            rows = current.read_text().splitlines()
+            rows = ['\t'.join([*row.split('\t')[:2], 'b' * 64, row.split('\t')[3]])
+                    if row.startswith('file\t' + path + '\t') else row for row in rows]
+            target.write_text('\n'.join(rows) + '\n')
+            actual = outputs()
+            self.assertTrue(any(section + ' changes:' in text for text in actual), path)
+            for other in {'Core', 'Manager', 'TUI'} - {section}:
+                self.assertTrue(all(other + ' changes:' not in text for text in actual), (path, other))
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="rald5-publication-test-")
         self.root = Path(self.temp.name)

@@ -733,7 +733,7 @@ jobs:
           snapshot_publications() {
             local label="$1" output="$2" display_base_generation
             publication_args=()
-            if grep -Fq 'Core changes:' "$output"; then
+            if grep -Fq ' · Published:' "$output"; then
               GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$candidate" \
                 > "$root/$label-publication.json"
               publication_args=(--publication "$root/$label-publication.json")
