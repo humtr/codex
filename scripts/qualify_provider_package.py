@@ -369,8 +369,8 @@ def qualify(args):
                                         [launcher, 'update'])
                     finally:
                         no_login.rename(home / '.codex/auth.json')
-                    assert b'Provider chatgpt unchanged:' in unchanged.stdout
-                    assert b'Selected Provider fixture.' in unchanged.stdout
+                    assert 'Provider package: #1 · up to date'.encode() in unchanged.stdout
+                    assert b'Selected Provider fixture.' not in unchanged.stdout
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
                     assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
                     assert selection_path.read_bytes() == unchanged_selection
@@ -448,7 +448,7 @@ def qualify(args):
                     core_index_sig.write_bytes(b'x' * 64)
                     failed_core = run('failed Core candidate still permits independent Provider forward update',
                                       [launcher, 'update'], expected=1)
-                    assert b'Provider chatgpt selected:' in failed_core.stdout
+                    assert b'Provider package:' in failed_core.stdout
                     assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
                     assert sha(core_state) == core_before
                     core_index_sig.write_bytes(core_signature)
@@ -499,7 +499,7 @@ def qualify(args):
                     policy = run('Core rollback hold still permits independent Provider forward update',
                                  [launcher, 'update'], expected=1)
                     assert b'locally held after rollback' in policy.stderr
-                    assert b'Provider chatgpt selected:' in policy.stdout
+                    assert b'Provider package:' in policy.stdout
                     assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
                     assert core_state.read_bytes() == held_state and hold_path.exists()
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)

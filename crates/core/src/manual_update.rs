@@ -657,16 +657,18 @@ pub(super) fn finish(
     }
     presentation.clear_transient();
     presentation.show_release_details();
-    println!(
-        "{}",
-        release_display::upstream(
-            &latest.version,
-            latest.publication.as_ref(),
-            upstream_is_newer
-                || matches!(&outcome, SignedUpdateOutcome::Activated(active)
-                    if active.previous_version != active.current_version),
-        )
-    );
+    let upstream_changed = matches!(&outcome, SignedUpdateOutcome::Activated(active)
+        if active.previous_version != active.current_version);
+    if latest.version != *installed || upstream_changed || presentation.details {
+        println!(
+            "{}",
+            release_display::upstream(
+                &latest.version,
+                latest.publication.as_ref(),
+                upstream_is_newer || upstream_changed,
+            )
+        );
+    }
     if !upstream_is_newer {
         return Ok(Completion::Exit(0));
     }

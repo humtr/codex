@@ -7745,6 +7745,7 @@ struct UpdatePresentation {
     update_started: bool,
     release_details: Option<String>,
     release_details_printed: bool,
+    details: bool,
 }
 
 #[cfg(unix)]
@@ -7761,6 +7762,7 @@ impl UpdatePresentation {
             update_started: false,
             release_details: None,
             release_details_printed: false,
+            details: false,
         }
     }
 
@@ -9373,6 +9375,7 @@ fn acquire_remote_release_source(
             &acquisition_root.join("release.manifest"),
             current_release,
             &manifest,
+            presentation.details,
         ));
         if updating {
             presentation.begin_update(current_version, &candidate_version);
@@ -10173,6 +10176,7 @@ fn activate_signed_update_channel_with_hold_policy(
                     .join("release.manifest"),
                 &current_release,
                 &current_release,
+                presentation.details,
             ));
         }
         return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
@@ -12103,7 +12107,7 @@ fn rollback_signed_local_release(
 
 #[cfg(unix)]
 const UPDATE_USAGE: &str =
-    "usage: codex update [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
+    "usage: codex update [--details] [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
 #[cfg(unix)]
 fn print_update_usage() {
     println!("{UPDATE_USAGE}");
@@ -12112,6 +12116,9 @@ fn print_update_usage() {
     );
     println!("missing qualified artifacts: choose keep, local build or remote request; set CODEX_TERMUX_UPDATE_BUILD_POLICY for noninteractive use");
     println!("--no-wait requests/reuses the build and continues immediately; ordinary codex never requests a build");
+    println!(
+        "--details includes publication dates, component rows and package generation identifiers"
+    );
     println!("{}", rollback_guard::UPDATE_HOLD_CAPABILITY_LINE);
 }
 
@@ -12122,11 +12129,22 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 
 #[cfg(unix)]
 fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
+    let details = args.iter().any(|arg| arg == "--details");
+    let ordinary = args
+        .iter()
+        .all(|arg| matches!(arg.to_str(), Some("--details" | "--wait" | "--no-wait")))
+        && args.iter().filter(|arg| *arg == "--details").count() <= 1
+        && args
+            .iter()
+            .filter(|arg| *arg == "--wait" || *arg == "--no-wait")
+            .count()
+            <= 1;
     let force = args.len() == 1 && args[0] == OsStr::new("--force");
-    let no_wait = args.len() == 1 && args[0] == OsStr::new("--no-wait");
-    let wait = args.len() == 1 && args[0] == OsStr::new("--wait");
-    if args.is_empty() || force || no_wait || wait {
+    let no_wait = ordinary && args.iter().any(|arg| arg == "--no-wait");
+    let wait = ordinary && args.iter().any(|arg| arg == "--wait");
+    if ordinary || force {
         let mut presentation = UpdatePresentation::new();
+        presentation.details = details;
         let roots = match LocalCoreRoots::from_environment() {
             Ok(roots) => roots,
             Err(err) => {
@@ -12174,13 +12192,14 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
                 presentation.finish_signed_activation(&active.current_version);
             }
             presentation.clear_transient();
-            let provider_failed =
-                if let Err(error) = provider::execute(&roots, provider::Request::UpdateSelected) {
-                    presentation.fail(&LocalProductError::Provider(error));
-                    true
-                } else {
-                    false
-                };
+            let provider_failed = if let Err(error) =
+                provider::execute(&roots, provider::Request::UpdateSelected { details })
+            {
+                presentation.fail(&LocalProductError::Provider(error));
+                true
+            } else {
+                false
+            };
             return match result.and_then(|outcome| {
                 manual_update::finish(
                     &roots,
@@ -21192,6 +21211,8 @@ esac
             assert!(std::env::var_os(UPDATE_PROBE_REMOTE).is_none());
             if std::env::var(UPDATE_PROBE_FORCE).as_deref() == Ok("1") {
                 run_public_main([OsString::from("update"), OsString::from("--force")])
+            } else if std::env::var("CODEX_TEST_UPDATE_DETAILS").as_deref() == Ok("1") {
+                run_public_main([OsString::from("update"), OsString::from("--details")])
             } else {
                 run_public_main([OsString::from("update")])
             }
@@ -27930,7 +27951,7 @@ exit 0
             text.contains("Termux release: Base #1 -> Base #2"),
             "{text}"
         );
-        assert!(text.contains("Release date: 2026-10-17 (UTC)"), "{text}");
+        assert!(!text.contains("Release date:"), "{text}");
         assert_eq!(text.matches("Termux release:").count(), 1);
         let state = fixture
             .home
@@ -27967,14 +27988,7 @@ exit 0
             );
             let text = String::from_utf8(result.stdout).unwrap();
             assert!(text.contains("Termux release: Base #2"), "{text}");
-            assert!(
-                text.contains(if fault == "valid" {
-                    "Release date: 2026-10-17 (UTC)"
-                } else {
-                    "Release date: unavailable"
-                }),
-                "{text}"
-            );
+            assert!(!text.contains("Release date:"), "{text}");
             assert!(!text.contains('\u{1b}'));
             assert_eq!(std::fs::read(&state).unwrap(), before);
         }
@@ -28015,10 +28029,7 @@ exit 0
         );
         assert!(annotated.status.success(), "{:?}", annotated.stderr);
         let text = String::from_utf8(annotated.stdout).unwrap();
-        assert!(
-            text.contains("Published: 2026-10-29 02:04:05 KST (UTC+09:00)"),
-            "{text}"
-        );
+        assert!(!text.contains("Published:"), "{text}");
         assert!(!text.contains("Core changes:"), "{text}");
         assert!(!text.contains("A Provider-only change."));
         assert!(!std::fs::read_to_string(&fixture.curl_log)
@@ -28048,9 +28059,10 @@ exit 0
             .replacen(marker, &injected, 1)
             .replace(&fixture.index_url, DEFAULT_UPDATE_INDEX_URL);
         std::fs::write(&curl, public_curl).unwrap();
-        let run_manual = || {
+        let run_manual = |details: bool| {
             std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["tests::public_update_probe", "--exact", "--nocapture"])
+                .env("CODEX_TEST_UPDATE_DETAILS", if details { "1" } else { "0" })
                 .env(UPDATE_PROBE_ROLE, "1")
                 .env(UPDATE_PROBE_CHANNEL, "1")
                 .env_remove(UPDATE_INDEX_URL_ENV)
@@ -28064,15 +28076,22 @@ exit 0
                 .output()
                 .unwrap()
         };
-        let manual = run_manual();
+        let manual = run_manual(false);
         assert!(manual.status.success(), "{:?}", manual.stderr);
         let text = String::from_utf8(manual.stdout).unwrap();
+        assert!(!text.contains("Latest upstream Codex:"), "{text}");
+        let detailed = run_manual(true);
+        assert!(detailed.status.success(), "{:?}", detailed.stderr);
+        let detailed = String::from_utf8(detailed.stdout).unwrap();
         assert!(
-            text.contains(
-                "Latest upstream Codex: 9.9.9 · Published: 2026-10-29 02:04:05 KST (UTC+09:00)"
-            ),
-            "{text}"
+            detailed.contains("Latest upstream Codex: 9.9.9 · Published:"),
+            "{detailed}"
         );
+        assert!(
+            detailed.contains("Published: 2026-10-29 02:04:05 KST"),
+            "{detailed}"
+        );
+
         assert!(!text.contains("Official third change."));
         assert!(!text.contains("Fourth entry belongs"));
         assert!(!text.contains("https://github.com/openai/codex/releases/tag/rust-v9.9.9"));
@@ -28090,7 +28109,7 @@ exit 0
             .create(&provider_store)
             .unwrap();
         std::fs::write(&fixture.curl_log, "").unwrap();
-        let empty = run_manual();
+        let empty = run_manual(false);
         assert!(empty.status.success(), "{:?}", empty.stderr);
         assert!(!provider_store.join("selection").exists());
         assert!(!std::fs::read_to_string(&fixture.curl_log)
@@ -28189,7 +28208,7 @@ exit 0
                 std::fs::write(package.join("NOTICE.md"), "corrupt installed input").unwrap();
             }
             std::fs::write(&fixture.curl_log, "").unwrap();
-            let result = run_manual();
+            let result = run_manual(false);
             assert_eq!(
                 result.status.code(),
                 Some(if fault == "none" { 0 } else { 1 }),
@@ -28218,7 +28237,7 @@ exit 0
             );
             if fault == "none" {
                 let text = String::from_utf8(result.stdout).unwrap();
-                assert!(text.contains("Provider chatgpt unchanged:"), "{text}");
+                assert!(text.contains("Provider package: #1 · up to date"), "{text}");
                 assert!(!text.contains("Selected component update."), "{text}");
             }
             assert_eq!(
@@ -28234,16 +28253,15 @@ exit 0
         // authenticated Provider group still gets its explicit update attempt.
         std::fs::write(&fixture.signature_path, [0; 64]).unwrap();
         std::fs::write(&fixture.curl_log, "").unwrap();
-        let rejected_core = run_manual();
+        let rejected_core = run_manual(false);
         assert_eq!(
             rejected_core.status.code(),
             Some(1),
             "{:?}",
             rejected_core.stderr
         );
-        assert!(
-            String::from_utf8_lossy(&rejected_core.stdout).contains("Provider chatgpt unchanged:")
-        );
+        assert!(String::from_utf8_lossy(&rejected_core.stdout)
+            .contains("Provider package: #1 · up to date"));
         assert!(std::fs::read_to_string(&fixture.curl_log)
             .unwrap()
             .contains("/provider-index-v1"));
@@ -28259,7 +28277,7 @@ exit 0
         let signed_current = std::fs::read(&installed_signature).unwrap();
         std::fs::write(&installed_signature, [0; 64]).unwrap();
         std::fs::write(&fixture.curl_log, "").unwrap();
-        let invalid_current = run_manual();
+        let invalid_current = run_manual(false);
         assert_eq!(
             invalid_current.status.code(),
             Some(1),
@@ -28279,10 +28297,10 @@ exit 0
         assert!(rollback.status.success(), "{:?}", rollback.stderr);
         let held_state = std::fs::read(&state).unwrap();
         std::fs::write(&fixture.curl_log, "").unwrap();
-        let held = run_manual();
+        let held = run_manual(false);
         assert_eq!(held.status.code(), Some(1), "{:?}", held.stderr);
         assert_human_update_error_contains(&held.stderr, b"locally held after rollback");
-        assert!(String::from_utf8_lossy(&held.stdout).contains("Provider chatgpt unchanged:"));
+        assert!(String::from_utf8_lossy(&held.stdout).contains("Provider package: #1 · up to date"));
         assert!(std::fs::read_to_string(&fixture.curl_log)
             .unwrap()
             .contains("/provider-index-v1"));

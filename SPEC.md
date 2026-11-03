@@ -1039,8 +1039,8 @@ a TTY, output remains plain; when it is a TTY, Core removes only the inherited
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts exactly no arguments, `--wait`, `--no-wait`,
-`--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
+The Core-owned update surface accepts no arguments, `--details` optionally
+combined with one of `--wait`/`--no-wait`, either wait option alone, `--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
 after `update`. No top-level `codex rollback` command is introduced. A malformed
 invocation beginning with one of those Core selectors is a Core usage error. The no-argument
 form is the primary product path: it first tries the signed stable wrapper channel
@@ -1107,10 +1107,17 @@ surface and are not decorated as operational failures.
 One concise ordinary signed-update detail line names Base or Full and its signed
 release number, including the previous number when changing releases. Full also
 shows its exact base release number when authenticated display metadata exists.
-Explicit update also shows the latest official upstream version, the selected
-Termux edition and selected optional modules, with publication times. A short
+Default update output shows the selected Termux edition/base and each selected
+optional package once. A Provider result explicitly describes package installation;
+it does not imply service activation. Unchanged output omits immutable generation
+IDs, repeated component rows and publication timestamps. `codex update --details`
+retains publication dates, generation identifiers and component rows, and may be
+combined with `--wait` or `--no-wait`. Other update forms keep their existing
+argument scope. The latest upstream version is shown when it differs from the
+installed version, changed in this invocation, or details were requested; equality
+alone produces no duplicate upstream row. A short
 changelog is shown only for a component whose authenticated executable inputs
-change in this update; unchanged components retain their concise identity/date
+change in this update; unchanged components retain their concise package identity
 without repeating notes or full-note links. A Full repack alone does not count
 as a Core, Manager or TUI change when that component's signed bytes and modes
 are unchanged. Upstream notes are shown when a newer official version is

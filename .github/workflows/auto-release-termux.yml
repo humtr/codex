@@ -731,21 +731,19 @@ jobs:
           printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
           printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
           snapshot_publications() {
-            local label="$1" output="$2" display_base_generation
+            local label="$1" display_base_generation
             publication_args=()
-            if grep -Fq ' · Published:' "$output"; then
-              GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$candidate" \
-                > "$root/$label-publication.json"
-              publication_args=(--publication "$root/$label-publication.json")
-              display_base_generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["display"].get("base_generation") or "")' "$root/display/component-input-v1")"
-              if test -n "$display_base_generation"; then
-                GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$display_base_generation" \
-                  > "$root/$label-base-publication.json"
-                publication_args+=(--base-publication "$root/$label-base-publication.json")
-              fi
+            GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$candidate" \
+              > "$root/$label-publication.json"
+            publication_args=(--publication "$root/$label-publication.json")
+            display_base_generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["display"].get("base_generation") or "")' "$root/display/component-input-v1")"
+            if test -n "$display_base_generation"; then
+              GH_TOKEN='${{ github.token }}' gh api "repos/$GITHUB_REPOSITORY/releases/tags/$display_base_generation" \
+                > "$root/$label-base-publication.json"
+              publication_args+=(--base-publication "$root/$label-base-publication.json")
             fi
           }
-          snapshot_publications first "$RUNNER_TEMP/rald5-first-update.out"
+          snapshot_publications first
           python3 publication-source/.github/scripts/check_update_display.py \
             --plain "$RUNNER_TEMP/rald5-first-update.expected" --actual "$RUNNER_TEMP/rald5-first-update.out" \
             --component "$root/display/component-input-v1" --current "$root/$current/release.manifest" \
@@ -843,7 +841,7 @@ jobs:
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
-          snapshot_publications current "$RUNNER_TEMP/rald5-second-update.out"
+          snapshot_publications current
           python3 publication-source/.github/scripts/check_update_display.py \
             --plain "$RUNNER_TEMP/rald5-second-update.expected" --actual "$RUNNER_TEMP/rald5-second-update.out" \
             --component "$root/display/component-input-v1" --current "$root/$candidate/release.manifest" \

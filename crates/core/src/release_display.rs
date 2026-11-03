@@ -228,19 +228,32 @@ pub(super) fn provider_details(
     base: &str,
     generation: &str,
     sequence: u64,
-    include_changes: bool,
-) -> Option<String> {
-    if !public_origin(base, generation) {
-        return None;
-    }
-    let info = public_release(roots, generation);
+    changed: bool,
+    details: bool,
+) -> String {
+    let public = public_origin(base, generation);
+    let info = if public && (changed || details) {
+        public_release(roots, generation)
+    } else {
+        None
+    };
     let mut text = format!(
-        "Provider chatgpt: release #{sequence} · Published: {}",
-        info.as_ref()
-            .and_then(|v| v.at.as_deref())
-            .unwrap_or("unavailable")
+        "Provider package: #{sequence} · {}",
+        if changed {
+            "installed; service/profile bindings unchanged"
+        } else {
+            "up to date"
+        }
     );
-    if include_changes {
+    if details {
+        text.push_str(&format!(
+            "\n  Generation: {generation}\n  Published: {}",
+            info.as_ref()
+                .and_then(|v| v.at.as_deref())
+                .unwrap_or("unavailable")
+        ));
+    }
+    if changed && public {
         changes(
             &mut text,
             info.as_ref(),
@@ -248,7 +261,7 @@ pub(super) fn provider_details(
             &format!("https://github.com/humtr/codex/releases/tag/{generation}"),
         );
     }
-    Some(text)
+    text
 }
 
 pub(super) fn upstream(version: &str, info: Option<&Publication>, include_changes: bool) -> String {
@@ -418,6 +431,7 @@ fn render(
     display: Option<&Display>,
     publication: Option<&Publication>,
     core_publication: Option<&Publication>,
+    details: bool,
 ) -> String {
     let mut text = format!("Termux release: {}", label_of(current));
     if current.generation_id != target.generation_id {
@@ -429,13 +443,15 @@ fn render(
             None => text.push_str(" · Base: unavailable"),
         }
     }
-    if let Some(at) = publication.and_then(|info| info.at.as_ref()) {
-        text.push_str(&format!(" · Published: {at}"));
-    } else {
-        text.push_str(" · Release date: ");
-        match display {
-            Some(display) => text.push_str(&format!("{} (UTC)", display.date)),
-            None => text.push_str("unavailable"),
+    if details {
+        if let Some(at) = publication.and_then(|info| info.at.as_ref()) {
+            text.push_str(&format!(" · Published: {at}"));
+        } else {
+            text.push_str(" · Release date: ");
+            match display {
+                Some(display) => text.push_str(&format!("{} (UTC)", display.date)),
+                None => text.push_str("unavailable"),
+            }
         }
     }
     if publication.is_some() || core_publication.is_some() {
@@ -447,7 +463,7 @@ fn render(
             .and_then(|d| d.base_generation.as_deref())
             .map(|generation| format!("https://github.com/humtr/codex/releases/tag/{generation}"))
             .unwrap_or_else(|| url.clone());
-        if is_full(target) {
+        if details && is_full(target) {
             let component = display
                 .and_then(|d| d.base)
                 .map(|sequence| format!("Base #{sequence}"))
@@ -479,13 +495,15 @@ fn render(
             ("helpers/2", "Enhanced TUI", "TUI"),
         ] {
             if target.files.iter().any(|entry| entry.relative_path == file) {
-                text.push_str(&format!(
-                    "\n{label} ({} package) · Published: {}",
-                    label_of(target),
-                    publication
-                        .and_then(|info| info.at.as_deref())
-                        .unwrap_or("unavailable")
-                ));
+                if details {
+                    text.push_str(&format!(
+                        "\n{label} ({} package) · Published: {}",
+                        label_of(target),
+                        publication
+                            .and_then(|info| info.at.as_deref())
+                            .unwrap_or("unavailable")
+                    ));
+                }
                 if component_changed(current, target, &[file]) {
                     changes(&mut text, publication, section, &url);
                 }
@@ -501,6 +519,7 @@ pub(super) fn line(
     manifest_path: &std::path::Path,
     current: &LocalReleaseManifest,
     target: &LocalReleaseManifest,
+    details: bool,
 ) -> String {
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
@@ -546,8 +565,8 @@ pub(super) fn line(
     } else {
         None
     };
-    if !public_origin(&base.value, &target.generation_id) {
-        return render(current, target, display.as_ref(), None, None);
+    if !public_origin(&base.value, &target.generation_id) || (!details && current == target) {
+        return render(current, target, display.as_ref(), None, None, details);
     }
     let info = public_release(roots, &target.generation_id);
     let base_info = display
@@ -562,7 +581,14 @@ pub(super) fn line(
     } else {
         info.as_ref()
     };
-    render(current, target, display.as_ref(), info.as_ref(), core_info)
+    render(
+        current,
+        target,
+        display.as_ref(),
+        info.as_ref(),
+        core_info,
+        details,
+    )
 }
 
 #[cfg(test)]
@@ -651,7 +677,14 @@ mod tests {
             sha256: "b".repeat(64),
             mode: 0o755,
         });
-        let rendered = render(&manifest(false), &target, None, Some(&info), Some(&info));
+        let rendered = render(
+            &manifest(false),
+            &target,
+            None,
+            Some(&info),
+            Some(&info),
+            true,
+        );
         assert!(rendered.contains("2026-10-29 02:04:05 KST (UTC+09:00)"));
         assert!(rendered.contains("Core changes:\n  - New update display."));
         assert!(rendered.contains("Manager (Full #59 package)"));
@@ -675,14 +708,18 @@ mod tests {
                 mode: 0o755,
             });
         }
-        let unchanged = render(&current, &current, None, Some(&info), Some(&info));
+        let unchanged = render(&current, &current, None, Some(&info), Some(&info), true);
         assert!(unchanged.contains("Published:"));
         assert!(!unchanged.contains("changes:"));
         assert!(!unchanged.contains("Full notes:"));
+        let compact = render(&current, &current, None, Some(&info), Some(&info), false);
+        assert_eq!(compact, "Termux release: Full #59 · Base: unavailable");
         let mut repack = current.clone();
         repack.generation_id = "local-repacked".into();
         repack.release_sequence += 1;
-        assert!(!render(&current, &repack, None, Some(&info), Some(&info)).contains("changes:"));
+        assert!(
+            !render(&current, &repack, None, Some(&info), Some(&info), true).contains("changes:")
+        );
         for (path, section) in [
             ("core", "Core"),
             ("runtime", "Core"),
@@ -696,7 +733,10 @@ mod tests {
                 .find(|file| file.relative_path == path)
                 .unwrap()
                 .sha256 = "b".repeat(64);
-            let text = render(&current, &target, None, Some(&info), Some(&info));
+            let text = render(&current, &target, None, Some(&info), Some(&info), true);
+            let compact = render(&current, &target, None, Some(&info), Some(&info), false);
+            assert!(!compact.contains("Published:"));
+            assert!(compact.contains(&format!("{section} changes:")));
             for label in ["Core", "Manager", "TUI"] {
                 assert_eq!(
                     text.contains(&format!("{label} changes:")),
@@ -767,11 +807,11 @@ mod tests {
             base_generation: Some("local-base-owned".into()),
         };
         assert_eq!(
-            render(&previous, &target, Some(&info), None, None),
+            render(&previous, &target, Some(&info), None, None, true),
             "Termux release: Full #57 -> Full #59 · Base #58 · Release date: 2026-10-17 (UTC)"
         );
         assert_eq!(
-            render(&target, &target, None, None, None),
+            render(&target, &target, None, None, None, true),
             "Termux release: Full #59 · Base: unavailable · Release date: unavailable"
         );
         assert_eq!(
@@ -784,7 +824,8 @@ mod tests {
                     base_generation: None
                 }),
                 None,
-                None
+                None,
+                true
             ),
             "Termux release: Base #59 · Release date: 2026-10-17 (UTC)"
         );
