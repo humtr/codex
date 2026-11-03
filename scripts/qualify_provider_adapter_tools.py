@@ -94,7 +94,7 @@ def probe(args):
 
         token = wait(current_lease, 'McpBridge offered lease')
         catalog = rpc('native_catalog', {'turn_token': token})
-        name = next(name for name in catalog['tools'] if name.rsplit('.', 1)[-1] == 'exec_command')
+        name = next(name for name in catalog if name.rsplit('.', 1)[-1] == 'exec_command')
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as clients:
             for index in (1, 2):
