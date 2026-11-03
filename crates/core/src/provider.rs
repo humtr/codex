@@ -308,6 +308,7 @@ fn install(
             &index.release_base(),
             &manifest.generation,
             manifest.sequence,
+            true,
         ) {
             println!("{details}");
         }
@@ -475,6 +476,7 @@ fn install_remote(
                 &base.value,
                 &manifest.generation,
                 manifest.sequence,
+                true,
             ) {
                 println!("{details}");
             }
@@ -579,8 +581,8 @@ fn with_stable_index<T>(
             &acquisition.join("provider-index-v1.sig"),
         )?;
         let index = Index::parse(&read(&acquisition.join("provider-index-v1"), 4096)?)?;
-        if floor.is_some_and(|floor| index.sequence < floor) {
-            return Err("Provider stable index sequence rollback rejected".into());
+        if let Some(minimum) = floor.filter(|minimum| index.sequence < *minimum) {
+            return Err(format!("Provider stable index sequence rollback rejected (channel #{}, installed high-water #{minimum}); selected Provider preserved", index.sequence).into());
         }
         consume(index)
     })();
@@ -618,6 +620,7 @@ fn install_stable(
                         &index.release_base(),
                         &index.generation,
                         index.sequence,
+                        false,
                     ) {
                         println!("{details}");
                     }

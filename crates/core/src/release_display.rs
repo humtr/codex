@@ -228,6 +228,7 @@ pub(super) fn provider_details(
     base: &str,
     generation: &str,
     sequence: u64,
+    include_changes: bool,
 ) -> Option<String> {
     if !public_origin(base, generation) {
         return None;
@@ -239,26 +240,30 @@ pub(super) fn provider_details(
             .and_then(|v| v.at.as_deref())
             .unwrap_or("unavailable")
     );
-    changes(
-        &mut text,
-        info.as_ref(),
-        "Provider",
-        &format!("https://github.com/humtr/codex/releases/tag/{generation}"),
-    );
+    if include_changes {
+        changes(
+            &mut text,
+            info.as_ref(),
+            "Provider",
+            &format!("https://github.com/humtr/codex/releases/tag/{generation}"),
+        );
+    }
     Some(text)
 }
 
-pub(super) fn upstream(version: &str, info: Option<&Publication>) -> String {
+pub(super) fn upstream(version: &str, info: Option<&Publication>, include_changes: bool) -> String {
     let mut text = format!(
         "Latest upstream Codex: {version} · Published: {}",
         info.and_then(|v| v.at.as_deref()).unwrap_or("unavailable")
     );
-    changes(
-        &mut text,
-        info,
-        "Upstream",
-        &format!("https://github.com/openai/codex/releases/tag/rust-v{version}"),
-    );
+    if include_changes {
+        changes(
+            &mut text,
+            info,
+            "Upstream",
+            &format!("https://github.com/openai/codex/releases/tag/rust-v{version}"),
+        );
+    }
     text
 }
 
@@ -393,6 +398,20 @@ fn label_of(manifest: &LocalReleaseManifest) -> String {
     )
 }
 
+fn component_changed(
+    current: &LocalReleaseManifest,
+    target: &LocalReleaseManifest,
+    paths: &[&str],
+) -> bool {
+    paths.iter().any(|path| {
+        current
+            .files
+            .iter()
+            .find(|file| file.relative_path == *path)
+            != target.files.iter().find(|file| file.relative_path == *path)
+    })
+}
+
 fn render(
     current: &LocalReleaseManifest,
     target: &LocalReleaseManifest,
@@ -440,7 +459,21 @@ fn render(
                     .unwrap_or("unavailable")
             ));
         }
-        changes(&mut text, core_publication, "Core", &core_url);
+        // These are the Base executable inputs; the generation descriptor also
+        // changes for a Full-only repack and cannot identify a Core change.
+        if component_changed(
+            current,
+            target,
+            &[
+                "core",
+                "runtime",
+                "codex-code-mode-host",
+                "helpers/0",
+                "helpers/1",
+            ],
+        ) {
+            changes(&mut text, core_publication, "Core", &core_url);
+        }
         for (file, label, section) in [
             ("manager", "Manager", "Manager"),
             ("helpers/2", "Enhanced TUI", "TUI"),
@@ -453,7 +486,9 @@ fn render(
                         .and_then(|info| info.at.as_deref())
                         .unwrap_or("unavailable")
                 ));
-                changes(&mut text, publication, section, &url);
+                if component_changed(current, target, &[file]) {
+                    changes(&mut text, publication, section, &url);
+                }
             }
         }
     }
@@ -610,13 +645,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(missing, Publication::default());
-        let rendered = render(
-            &manifest(false),
-            &manifest(true),
-            None,
-            Some(&info),
-            Some(&info),
-        );
+        let mut target = manifest(true);
+        target.files.push(ReleaseFileEntry {
+            relative_path: "core".into(),
+            sha256: "b".repeat(64),
+            mode: 0o755,
+        });
+        let rendered = render(&manifest(false), &target, None, Some(&info), Some(&info));
         assert!(rendered.contains("2026-10-29 02:04:05 KST (UTC+09:00)"));
         assert!(rendered.contains("Core changes:\n  - New update display."));
         assert!(rendered.contains("Manager (Full #59 package)"));
@@ -627,6 +662,56 @@ mod tests {
             .collect::<String>();
         let complete = format!("{{{extras}\"tag_name\":\"old\",\"published_at\":null}}");
         assert!(publication(complete.as_bytes(), "old").is_some());
+    }
+
+    #[test]
+    fn changelogs_follow_changed_component_inputs_not_full_repack_or_repeat() {
+        let info = publication(br###"{"tag_name":"local-display-test","published_at":"2026-10-28T17:04:05Z","body":"## Core\n- Core update.\n## Manager\n- Manager update.\n## TUI\n- TUI update.\n## New Features\n- Upstream update.\n"}"###, "local-display-test").unwrap();
+        let mut current = manifest(true);
+        for path in ["core", "runtime", "helpers/2"] {
+            current.files.push(ReleaseFileEntry {
+                relative_path: path.into(),
+                sha256: "a".repeat(64),
+                mode: 0o755,
+            });
+        }
+        let unchanged = render(&current, &current, None, Some(&info), Some(&info));
+        assert!(unchanged.contains("Published:"));
+        assert!(!unchanged.contains("changes:"));
+        assert!(!unchanged.contains("Full notes:"));
+        let mut repack = current.clone();
+        repack.generation_id = "local-repacked".into();
+        repack.release_sequence += 1;
+        assert!(!render(&current, &repack, None, Some(&info), Some(&info)).contains("changes:"));
+        for (path, section) in [
+            ("core", "Core"),
+            ("runtime", "Core"),
+            ("manager", "Manager"),
+            ("helpers/2", "TUI"),
+        ] {
+            let mut target = repack.clone();
+            target
+                .files
+                .iter_mut()
+                .find(|file| file.relative_path == path)
+                .unwrap()
+                .sha256 = "b".repeat(64);
+            let text = render(&current, &target, None, Some(&info), Some(&info));
+            for label in ["Core", "Manager", "TUI"] {
+                assert_eq!(
+                    text.contains(&format!("{label} changes:")),
+                    label == section,
+                    "{path}: {text}"
+                );
+            }
+        }
+        let official = publication(
+            br###"{"tag_name":"rust-v0.166.0","body":"## New Features\n- Upstream update.\n"}"###,
+            "rust-v0.166.0",
+        )
+        .unwrap();
+        assert!(!upstream("0.166.0", Some(&official), false).contains("Upstream changes:"));
+        assert!(upstream("0.166.0", Some(&official), true).contains("Upstream update."));
     }
 
     #[test]

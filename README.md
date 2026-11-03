@@ -523,17 +523,23 @@ it starts publication instead of treating source readiness as a completed releas
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
 standalone Core/upstream edition; Full includes Manager/enhanced TUI. Publication
-timestamps use KST (UTC+09:00), with brief changes and links to the
-complete release notes. Upstream, Termux Core, bundled Manager/enhanced TUI and
-selected Provider information are distinguished. Provider availability is shown
-separately; `codex provider update chatgpt` performs its own update. Core update
-does not select a Provider package or restart its service merely to show information.
+timestamps use KST (UTC+09:00). Brief changes and complete-note links appear
+only for components changed by this update; a repeated current-version check
+retains identity/timestamps without repeating changelogs. Upstream notes appear
+when a newer official version is available or this update changed that version.
+Upstream, Termux Core, bundled Manager/enhanced TUI and selected Provider
+information are distinguished. Default manual update also updates an already
+selected Provider as an independent dependency group; it does not enroll an
+unselected Provider or restart its services. `codex provider update chatgpt`
+performs only that group. A stale signed channel below the installed Provider
+high-water mark is rejected while preserving the selection; repair the public
+channel rather than lowering the device's antirollback floor.
 When Full reuses a declared Base, Core shows the Base release's own publication
 time and notes. Manager/TUI dates identify their containing Full package,
 not invented independent module releases. Older signed preparation dates retain their UTC date when a full
 publication timestamp is unavailable. Missing optional information does not block
 a valid update. Ordinary startup performs none of these publication queries.
-An already-current update shows the same release information without reinstalling.
+An already-current update shows concise release information without reinstalling.
 
 Core/TUI updates install a new generation while existing clients retain their
 running executable; later launches use the selected generation. Provider's current

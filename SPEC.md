@@ -1108,8 +1108,14 @@ One concise ordinary signed-update detail line names Base or Full and its signed
 release number, including the previous number when changing releases. Full also
 shows its exact base release number when authenticated display metadata exists.
 Explicit update also shows the latest official upstream version, the selected
-Termux edition and selected optional modules, with publication times and a short
-component changelog. Installed and latest/available versions are distinct;
+Termux edition and selected optional modules, with publication times. A short
+changelog is shown only for a component whose authenticated executable inputs
+change in this update; unchanged components retain their concise identity/date
+without repeating notes or full-note links. A Full repack alone does not count
+as a Core, Manager or TUI change when that component's signed bytes and modes
+are unchanged. Upstream notes are shown when a newer official version is
+available or this invocation changed the installed upstream version. Exact-current
+updates repeat neither component nor upstream changelogs. Installed and latest/available versions are distinct;
 a default manual `codex update` updates an already selected Provider as a
 separate dependency group after the Core attempt and before any missing-upstream
 build choice or wait. Each group admits against its own authenticated current
@@ -1155,8 +1161,8 @@ generation, manifest digest and sequence match the admitted selection, verify th
 installed payload and return unchanged before fetching package controls, release
 notes or payloads. A matching label alone is insufficient; changed or corrupt
 input must not become an unchanged result. Default manual update additionally
-shows the authenticated selected Provider's
-publication/changelog even when unchanged; that optional publication read is not
+shows the authenticated selected Provider's publication identity/date when
+unchanged, without its changelog; that optional publication read is not
 package acquisition or selection authority. Explicit Provider update retains its
 unchanged fast path without publication requests. The Core release display no
 longer performs a separate informational Provider index lookup: the Provider update

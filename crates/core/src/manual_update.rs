@@ -659,7 +659,13 @@ pub(super) fn finish(
     presentation.show_release_details();
     println!(
         "{}",
-        release_display::upstream(&latest.version, latest.publication.as_ref())
+        release_display::upstream(
+            &latest.version,
+            latest.publication.as_ref(),
+            upstream_is_newer
+                || matches!(&outcome, SignedUpdateOutcome::Activated(active)
+                    if active.previous_version != active.current_version),
+        )
     );
     if !upstream_is_newer {
         return Ok(Completion::Exit(0));

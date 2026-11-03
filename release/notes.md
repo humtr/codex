@@ -1,6 +1,6 @@
 ## Core
-- Admit the qualified on-device source-build tuple for Codex 0.166.0 with Rust 1.99.1 and the pinned Termux SDK, including reuse of verified completed builds.
-- Preserve invocation configuration and the selected profile when preparing the shared native server, without changing saved defaults or live siblings.
+- Show changelogs only for changed components; repeated current-version checks retain publication times without repeating release notes.
+- Identify stale Provider channels with their actual sequence and installed high-water mark, while preserving the selected package and antirollback protection.
 
 ## Manager
 - Keep existing-terminal origin/focus available when Termux advertises additional clipboard operations.

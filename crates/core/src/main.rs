@@ -28019,10 +28019,7 @@ exit 0
             text.contains("Published: 2026-10-29 02:04:05 KST (UTC+09:00)"),
             "{text}"
         );
-        assert!(
-            text.contains("Core changes:\n  - Complete update details."),
-            "{text}"
-        );
+        assert!(!text.contains("Core changes:"), "{text}");
         assert!(!text.contains("A Provider-only change."));
         assert!(!std::fs::read_to_string(&fixture.curl_log)
             .unwrap()
@@ -28076,9 +28073,9 @@ exit 0
             ),
             "{text}"
         );
-        assert!(text.contains("Official third change."));
+        assert!(!text.contains("Official third change."));
         assert!(!text.contains("Fourth entry belongs"));
-        assert!(text.contains("https://github.com/openai/codex/releases/tag/rust-v9.9.9"));
+        assert!(!text.contains("https://github.com/openai/codex/releases/tag/rust-v9.9.9"));
         assert_eq!(std::fs::read(&state).unwrap(), before);
         // The same manual entrypoint owns selected optional updates. Unselected
         // stores, including an existing empty store, must never enroll a payload.
@@ -28176,9 +28173,15 @@ exit 0
         std::fs::write(&curl, script.replacen(marker, &routes, 1)).unwrap();
         let index_signature = std::fs::read(&provider_sig).unwrap();
         let notice = std::fs::read(package.join("NOTICE.md")).unwrap();
-        for fault in ["none", "index-signature", "local-bytes"] {
+        for fault in ["none", "index-signature", "local-bytes", "stale-index"] {
             std::fs::write(&provider_sig, &index_signature).unwrap();
             std::fs::write(package.join("NOTICE.md"), &notice).unwrap();
+            let expected_selection = if fault == "stale-index" {
+                provider_state.replace("high_water\t1", "high_water\t2")
+            } else {
+                provider_state.clone()
+            };
+            std::fs::write(&selection, &expected_selection).unwrap();
             if fault == "index-signature" {
                 std::fs::write(&provider_sig, [0; 64]).unwrap();
             }
@@ -28193,6 +28196,13 @@ exit 0
                 "{fault}: {:?}",
                 result.stderr
             );
+            if fault == "stale-index" {
+                let error = String::from_utf8_lossy(&result.stderr);
+                assert!(
+                    error.contains("channel #1, installed high-water #2"),
+                    "{error}"
+                );
+            }
             let requests = std::fs::read_to_string(&fixture.curl_log).unwrap();
             assert!(
                 requests.contains("/provider-index-v1"),
@@ -28209,16 +28219,17 @@ exit 0
             if fault == "none" {
                 let text = String::from_utf8(result.stdout).unwrap();
                 assert!(text.contains("Provider chatgpt unchanged:"), "{text}");
-                assert!(text.contains("Selected component update."), "{text}");
+                assert!(!text.contains("Selected component update."), "{text}");
             }
             assert_eq!(
                 std::fs::read(&selection).unwrap(),
-                provider_state.as_bytes()
+                expected_selection.as_bytes()
             );
             assert_eq!(std::fs::read(&state).unwrap(), before);
         }
         std::fs::write(&provider_sig, &index_signature).unwrap();
         std::fs::write(package.join("NOTICE.md"), &notice).unwrap();
+        std::fs::write(&selection, &provider_state).unwrap();
         // Failed Core admission remains a failure while the independent,
         // authenticated Provider group still gets its explicit update attempt.
         std::fs::write(&fixture.signature_path, [0; 64]).unwrap();
