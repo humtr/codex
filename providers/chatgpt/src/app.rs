@@ -21,6 +21,13 @@ pub trait Bridge: Send + Sync + 'static {
     fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
+    fn clear_unexecuted_stopped_calls(
+        &self,
+        _lane: String,
+        _committed_native_items: std::collections::BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<(), Error>> {
+        Box::pin(async { Ok(()) })
+    }
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>>;
     /// Read-only transport admission before common journal state is advanced.
     /// A known rejection is distinct from an uncertain dispatched operation.
@@ -447,6 +454,40 @@ fn new_turn(lane: &Lane, request: &Request) -> bool {
     }
 }
 
+// Bind a canceled round's submitted input without duplicating canonical history.
+// Count is in input items after removing transport-only tool declarations.
+#[derive(Clone, Serialize, Deserialize)]
+struct SubmittedInput {
+    count: usize,
+    digest: String,
+    dispatches_before: u64,
+}
+impl SubmittedInput {
+    fn items(request: &Request) -> Vec<&Value> {
+        request
+            .input
+            .iter()
+            .filter(|item| item["type"] != "additional_tools")
+            .collect()
+    }
+    fn capture(request: &Request, dispatches_before: u64) -> Self {
+        let items = Self::items(request);
+        Self {
+            count: items.len(),
+            digest: context::digest(&items),
+            dispatches_before,
+        }
+    }
+    fn has_appended_steer(&self, request: &Request) -> bool {
+        let items = Self::items(request);
+        items.len() > self.count
+            && context::digest(&&items[..self.count]) == self.digest
+            && items[self.count..]
+                .iter()
+                .any(|item| item["role"] == "user" && !context::context_only(item))
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Lane {
     native_thread: String,
@@ -455,6 +496,8 @@ struct Lane {
     phase: Phase,
     prefix: Prefix,
     request: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    submitted_input: Option<SubmittedInput>,
     turn: Option<String>,
     identity: Option<Identity>,
     user_input: String,
@@ -489,6 +532,24 @@ struct Lane {
     previous_chats: Vec<String>,
     #[serde(default)]
     rejected: u8,
+}
+pub(crate) fn lane_marker(journal: &Journal, thread: &str) -> Result<Option<String>, Error> {
+    let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
+        return Ok(None);
+    };
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    Ok(Some(lane.marker))
+}
+pub(crate) fn has_stopped_pending_calls(journal: &Journal, thread: &str) -> Result<bool, Error> {
+    let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
+        return Ok(false);
+    };
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    Ok(lane.phase == Phase::Stopped && !lane.pending.is_empty())
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct External {
@@ -770,6 +831,7 @@ impl Lane {
             phase: Phase::New,
             prefix: Prefix::default(),
             request: String::new(),
+            submitted_input: None,
             turn: None,
             identity: None,
             user_input: String::new(),
@@ -1338,8 +1400,36 @@ impl AppHost {
                 Err(Error("app_stop_acknowledged")) => {}
                 other => other?,
             }
+        } else {
+            self.bridge.fence_tools(lane.marker.clone()).await?;
         }
         Ok(lane.phase == Phase::Stopped)
+    }
+    pub(crate) async fn clear_unexecuted_stopped_calls(
+        &self,
+        thread: &str,
+        committed_native_items: &std::collections::BTreeSet<String>,
+    ) -> Result<(), Error> {
+        let key = context::digest(&thread);
+        let Some(mutex) = self.existing_lane(thread).await? else {
+            return Ok(());
+        };
+        let mut lane = tokio::time::timeout(Duration::from_secs(15), mutex.lock())
+            .await
+            .map_err(|_| Error("app_stop_unconfirmed"))?;
+        if lane.phase != Phase::Stopped {
+            return Ok(());
+        }
+        self.bridge
+            .clear_unexecuted_stopped_calls(lane.marker.clone(), committed_native_items.clone())
+            .await?;
+        let before = lane.pending.len();
+        lane.pending
+            .retain(|call| committed_native_items.contains(&call.id));
+        if lane.pending.len() != before {
+            self.journal.write(&key, &*lane)?;
+        }
+        Ok(())
     }
     pub async fn shutdown(&self) {
         let lanes = self
@@ -1783,18 +1873,52 @@ async fn exchange(
         if request_digest == lane.request {
             return Err(Error("previous_round_stopped"));
         }
-        if !new_turn(lane, request) {
+        let same_turn_steer = request.turn.is_some()
+            && lane.turn == request.turn
+            && lane
+                .submitted_input
+                .as_ref()
+                .is_some_and(|input| input.has_appended_steer(request))
+            && lane
+                .pending
+                .iter()
+                .all(|call| request.results().any(|(id, _)| id == call.id));
+        if !new_turn(lane, request) && !same_turn_steer {
             return Err(Error("new_native_turn_required"));
         }
-        // A new native turn owns its next submission. Preserve the old remote
-        // conversation, but rebuild from latest canonical native input after an
-        // acknowledged stop rather than guessing its partly streamed context.
-        bridge
-            .operation(json!({"op":"release","lane":lane.marker}))
-            .await?;
-        let identity = lane.identity.clone();
-        *lane = lane.successor(&request.thread)?;
-        lane.identity = identity;
+        if same_turn_steer {
+            let submitted = lane.submitted_input.as_ref().unwrap();
+            if lane.dispatches > submitted.dispatches_before {
+                // The App's network boundary observed this input. Resume its
+                // stopped conversation with only the appended Native input.
+                let mut resident = request.clone();
+                resident.input = SubmittedInput::items(request)[..submitted.count]
+                    .iter()
+                    .map(|item| (*item).clone())
+                    .collect();
+                lane.prefix.accept(&resident, &native_output(&lane.cached)?);
+                // Native can change settings while steering. Reassert the
+                // current policy/catalog rather than assuming it was sent.
+                lane.prefix.instructions.clear();
+                lane.prefix.tools.clear();
+                for call in &lane.pending {
+                    let result = request.results().find(|(id, _)| *id == call.id).unwrap().1;
+                    lane.confirmed
+                        .insert(call.id.clone(), context::digest(result));
+                }
+                lane.pending.clear();
+            }
+            lane.phase = Phase::Idle;
+        } else {
+            // A new Native turn rebuilds from canonical history after Stop.
+            // Its previous remote conversation remains retained.
+            bridge
+                .operation(json!({"op":"release","lane":lane.marker}))
+                .await?;
+            let identity = lane.identity.clone();
+            *lane = lane.successor(&request.thread)?;
+            lane.identity = identity;
+        }
         journal.write(key, lane)?;
     }
     if lane.phase == Phase::Opening {
@@ -1965,6 +2089,7 @@ async fn exchange(
             return stop_lane(bridge, journal, key, lane).await;
         }
         lane.request = request_digest;
+        lane.submitted_input = Some(SubmittedInput::capture(request, lane.dispatches));
         lane.turn = request.turn.clone();
         lane.user_input = user_input_identity(request);
         lane.round = random_id()?;
@@ -2679,6 +2804,38 @@ mod approval_tests {
         drop(host);
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn canceled_input_boundary_accepts_only_new_user_suffix() {
+        let mut original = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"original"}]}),
+            &crate::config::Config::default(),
+            Some("steer-boundary"),
+        )
+        .unwrap();
+        original.input.push(json!({"type":"function_call_output","call_id":"prior-call","output":"original result"}));
+        let boundary = SubmittedInput::capture(&original, 0);
+        assert!(!boundary.has_appended_steer(&original));
+        let mut continuation = original.clone();
+        continuation
+            .input
+            .insert(0, json!({"type":"additional_tools","tools":[]}));
+        continuation
+            .input
+            .push(json!({"role":"user","content":"new steer"}));
+        assert!(boundary.has_appended_steer(&continuation));
+        let mut changed = continuation.clone();
+        changed.input[1]["content"] = json!("rewritten original");
+        assert!(!boundary.has_appended_steer(&changed));
+        changed = continuation.clone();
+        changed.input[2]["output"] = json!("changed result");
+        assert!(!boundary.has_appended_steer(&changed));
+        let mut context_only = original.clone();
+        context_only
+            .input
+            .push(json!({"role":"developer","content":"policy only"}));
+        assert!(!boundary.has_appended_steer(&context_only));
+    }
+
     #[derive(Default)]
     struct SavedSourceState {
         commands: Vec<Value>,

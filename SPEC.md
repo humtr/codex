@@ -2034,6 +2034,24 @@ and canonical turn ID; if a prepared steer loses that turn before submission,
 keep the draft rather than
 silently convert it into an unsynchronized new turn. Unreconciled writer/effect
 state is never cleared by a TUI shortcut.
+Native may cancel and reissue a Provider request on the same canonical turn
+when accepting Steer. After a confirmed remote Stop, Provider may admit that
+continuation only when the previously submitted Native input is preserved as an
+exact prefix (excluding transport-only additional_tools declarations), a new
+non-context user input is appended, and any offered Native call has its result.
+Same-turn Steer retains its owned remote conversation and source references.
+The observed per-lane network dispatch counter, compared with its value at the
+original submission, determines whether that submitted prefix is already in Chat;
+only new input is sent after an observed dispatch. An undispatched request keeps
+the previous import cursor. This starts no Native turn and clears no broker
+effects/controllers. Exact retries,
+changed prior input, missing tool returns and unknown Stop remain fenced. Older
+lane records without the submitted-input boundary retain their refusal until a
+new admitted request records that boundary.
+MCP observes that same confirmed remote Stop before marking its transport round
+complete. It revokes the old tool lease and permits another input only without
+pending settlement, offered calls or unsettled broker effects. It preserves old
+receipts and effect claims; a Stop request alone never completes the round.
 
 Implementation and remaining qualification order:
 

@@ -38,6 +38,11 @@ pub(crate) fn source_lease(
     }
     Ok(value)
 }
+pub(crate) fn lane_token(journal: &Journal, marker: &str) -> Result<Option<String>, Error> {
+    Ok(journal
+        .read::<Lane>(&digest(&("mcp-lane-v1", marker)))?
+        .and_then(|lane| lane.token))
+}
 const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
 #[derive(Clone, Serialize, Deserialize)]
 struct Settlement {
@@ -111,6 +116,26 @@ async fn settle_round(
     next.settlement = None;
     journal.write(key, &next)?;
     *lane = next;
+    Ok(())
+}
+// Both direct snapshots and restored source observations can confirm Stop.
+// Revoke the old capability without forgetting unreturned Native effects.
+async fn observe_stopped_round(
+    lane: &mut Lane,
+    broker: &Broker,
+    journal: &Journal,
+    key: &str,
+    marker: &str,
+) -> Result<(), Error> {
+    broker.stop_lane(marker, lane.token.as_deref()).await?;
+    if !lane.complete && lane.settlement.is_none() && lane.offered.is_empty() {
+        if let Some(token) = &lane.token {
+            if !broker.has_unsettled_stopped_effects(&[marker], &[token])? {
+                lane.complete = true;
+                journal.write(key, &*lane)?;
+            }
+        }
+    }
     Ok(())
 }
 type Lanes = Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>;
@@ -267,6 +292,41 @@ impl Bridge for McpBridge {
                     recorded.as_ref().and_then(|lane| lane.token.as_deref()),
                 )
                 .await
+        })
+    }
+    fn clear_unexecuted_stopped_calls(
+        &self,
+        marker: String,
+        committed_native_items: std::collections::BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<(), Error>> {
+        let lanes = self.lanes.clone();
+        let journal = self.journal.clone();
+        Box::pin(async move {
+            let key = digest(&("mcp-lane-v1", &marker));
+            let mutex = lanes.lock().await.get(&marker).cloned();
+            if let Some(mutex) = mutex {
+                let mut lane = mutex.lock().await;
+                let before = lane.offered.len();
+                lane.offered.retain(|call| {
+                    call["id"]
+                        .as_str()
+                        .is_some_and(|id| committed_native_items.contains(id))
+                });
+                if lane.offered.len() != before {
+                    journal.write(&key, &*lane)?;
+                }
+            } else if let Some(mut lane) = journal.read::<Lane>(&key)? {
+                let before = lane.offered.len();
+                lane.offered.retain(|call| {
+                    call["id"]
+                        .as_str()
+                        .is_some_and(|id| committed_native_items.contains(id))
+                });
+                if lane.offered.len() != before {
+                    journal.write(&key, &lane)?;
+                }
+            }
+            Ok(())
         })
     }
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
@@ -557,6 +617,7 @@ impl Bridge for McpBridge {
             }
             let mut snapshot = remote.operation(command).await?;
             if snapshot["round"] == lane.real_round && snapshot["stopped"] == true {
+                observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
                 return Ok(snapshot);
             }
@@ -626,6 +687,7 @@ impl Bridge for McpBridge {
                 }
             }
             if snapshot["stopped"] == true {
+                observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
                 return Ok(snapshot);
             }
@@ -846,6 +908,61 @@ mod tests {
         };
         (root, journal, broker, lane)
     }
+    #[tokio::test]
+    async fn observed_stop_allows_new_input_only_after_native_calls_settle() {
+        struct Stopped;
+        impl Bridge for Stopped {
+            fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                assert_eq!(command["op"], "snapshot");
+                Box::pin(async { Ok(json!({"round":"physical-app-round","stopped":true})) })
+            }
+        }
+        for case in ["offered", "broker_pending", "settled"] {
+            let (_root, journal, broker, mut lane) = pending_settlement().await;
+            let marker = "owned-native-thread";
+            let key = digest(&("mcp-lane-v1", marker));
+            let token = lane.token.clone().unwrap();
+            if case == "settled" {
+                settle_round(&mut lane, &broker, &journal, &key)
+                    .await
+                    .unwrap();
+            } else {
+                lane.settlement = None;
+                if case == "broker_pending" {
+                    lane.offered.clear();
+                }
+            }
+            journal.write(&key, &lane).unwrap();
+            let bridge = McpBridge::new(
+                Arc::new(Stopped),
+                broker.clone(),
+                journal.clone(),
+                "Owned".into(),
+            )
+            .unwrap();
+            bridge
+                .lanes
+                .lock()
+                .await
+                .insert(marker.into(), Arc::new(Mutex::new(lane)));
+            let observed = bridge
+                .operation(json!({"op":"snapshot","lane":marker}))
+                .await
+                .unwrap();
+            assert_eq!(observed["stopped"], true);
+            let stored: Lane = journal.read(&key).unwrap().unwrap();
+            assert_eq!(stored.complete, case == "settled", "{case}");
+            assert_eq!(
+                broker.recorded_calls(&token).unwrap()[0]["settled"],
+                case == "settled"
+            );
+            assert_eq!(
+                broker.catalog(&token).await,
+                Err(Error("mcp_turn_unavailable"))
+            );
+        }
+    }
+
     #[tokio::test]
     async fn rejected_settlement_keeps_the_original_round_without_preparing_an_intent() {
         let (_root, journal, broker, mut lane) = pending_settlement().await;

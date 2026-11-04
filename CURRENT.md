@@ -4847,3 +4847,55 @@ also failed later with new_native_turn_required; its original result is retained
 not attributed to a separate Provider defect before candidate comparison.
 Evidence: ~/.cache/codex/acceptance/goal-defects-20261104/; fixture payloads are
 archived with removal/restore records. No paid model request or live replacement.
+
+
+### Active Steer actual-path batch (2026-11-04)
+
+Work continues in the isolated `fix/active-steer-20261104` worktree at
+`$TMPDIR/steer-batch-v8lgrrmr/source` (HEAD0898d56 plus the uncommitted Provider
+and qualifier changes). Reread AGENTS.md and review that actual diff after recovery.
+The original dirty workspace and operating services remain preserved.
+
+The actual Android input path exposed successive owning defects:
+AppHost refused a new request on the same Native turn; creating a successor Chat
+broke source identity; retaining Chat still hit MCP's active-round input fence.
+The candidate now records the submitted input boundary and pre-dispatch counter,
+keeps the original Chat/source binding and advances only an observed submitted
+prefix. Two confirmed-Stop observation paths share one MCP retirement function;
+it permits a new round only without pending settlement/offers/unsettled effects,
+revokes old capabilities and preserves receipts/claims. No Native executor or
+Core change is introduced.
+
+Actual Android Core/TUI/Native writer scenario passed with process exit0:
+`active-steer-candidate-v5.json` in the existing goal-defects evidence root.
+Both Steer inputs occur exactly once in the original Native turn, real Queue
+and Shift+Left edit work, and Steer has no false queue-edit hint. Original
+conversation/source identity is preserved by the exercised fixture. The Chat
+response is synthetic, model requests0, physical UI not observed. The Native
+fixture's exit was confirmed by pidfd (record in fixture `ct-e0juyn31`).
+Earlier failed runs remain retained, including the v4 `mcp_pending_new_input`
+caused by an earlier Stop return bypassing the first patch. Fixture payloads
+must be archived with the existing cleaner after inactive ownership checks.
+
+Frontend CI41818603656 compiled/executed144 tests:143 passed, the new regression
+failed because its image expectation omitted upstream's `[Image #1]` label.
+The correction also requires the Image item to remain present; it weakens no
+acceptance. Commit0898d56 published non-forced; CI41825716181 is running with
+mutation enabled. The retained frontend binary at source9668f11 is runtime-code
+identical to that test-only follow-up; it was used in Android v5.
+
+Provider's earlier clean recovery/alias candidate passed its full source gate
+(184 library tests plus integration, strict Clippy, release, Bun/Python). That
+result precedes the new Steer changes and does not qualify them. Final combined
+Provider gate passed with exit0 in `provider-steer-final-check-v2.log`:186 library
+tests/2 existing ignored, integration, strict Clippy, release and Bun/Python gates.
+Single build job and disabled incremental output reused the existing debug cache
+(12GiB observed). Both disposable targeted faults were detected and restored
+byte-for-byte (`steer-mutations.log`): removing the submitted-prefix check and
+removing confirmed-Stop round completion each failed its own regression.
+Actual Android Native tools/exact retry/reviewer, cold resume, Stop/recovery and
+controller checks also passed (`steer-operator-android.json`, exit0). Private
+signed package/TLS/rollback qualification is running in `steer-package-android.log`.
+Frontend CI41825716181 is still running. Public signed delivery, activation,
+full-schema D3 refresh and new connected Native work remain unfinished.
+Reserved Pro and live user works were untouched.

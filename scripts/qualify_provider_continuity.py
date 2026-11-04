@@ -19,6 +19,7 @@ import urllib.request
 
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN, fixture_auth
+from qualify_provider_d3 import stop_owned_pid
 from qualify_tasks import Ws
 from qualification_diagnostics import terminal_screen_lines
 
@@ -41,7 +42,8 @@ def probe(args):
         env.pop('OPENAI_API_KEY', None)
     config=home/'.codex/config.toml'
     config.write_text(config.read_text()+'\n[projects.'+json.dumps(str(root/'w'))+']\ntrust_level = "trusted"\n')
-    for name in ['owned-fixture', 'model-adapter-fixture', 'bound-source-fixture']:
+    for name in ['owned-fixture', 'model-adapter-fixture',
+                 'active-steer-fixture' if args.active_steer else 'bound-source-fixture']:
         (root / name).write_text('Owned synthetic saved-source continuity proof\n')
     if args.direct:
         (root / 'source-project-fixture').write_text('Owned project for explicit Provider route selection\n')
@@ -191,8 +193,13 @@ def probe(args):
             steer = 'ACTIVE_NATIVE_STEER_INPUT'
             steer_screen_start = len(screen)
             submit(steer)
-            wait(lambda: 'Messages to be submitted after next tool call' in frame(),
-                 'active Steer reaches Native pending input without the next-turn barrier')
+            def admitted(text):
+                pending = any('↳ '+text in line for line in terminal_screen_lines(display, wcwidth))
+                consumed = any(row['turnId']==turn and row['item']['type']=='userMessage'
+                               and text in json.dumps(row['item']) for row in history())
+                return pending or consumed
+            wait(lambda: admitted(steer),
+                 'active Steer reaches Native pending or consumed input without the next-turn barrier')
             first = frame()
             (root/'active-steer-visible.txt').write_text(first)
             assert steer in first and 'Synchronizing ChatGPT' not in first, first
@@ -210,9 +217,8 @@ def probe(args):
                  'Shift+Left restores the queued message into the composer')
             (root/'active-queue-edited-visible.txt').write_text(frame())
             os.write(master, b'\r')
-            wait(lambda: any('↳ '+queued in line for line in terminal_screen_lines(display, wcwidth))
-                 and 'Messages to be submitted after next tool call' in frame()
-                 and 'edit last queued message' not in frame(), 'edited Queue becomes active Steer')
+            wait(lambda: admitted(queued) and 'edit last queued message' not in frame(),
+                 'edited Queue becomes active Steer')
             active = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
             assert [row['id'] for row in active]==[row['id'] for row in before], active
             assert active[-1]['status']=='inProgress', active[-1]['status']
@@ -278,7 +284,6 @@ def probe(args):
                     (root/'stop-provider').unlink()
                     (root/'provider-ready.json').unlink()
                     if args.replace_native_owner:
-                        from qualify_provider_d3 import stop_owned_pid
                         paths=server_paths(home)
                         assert len(paths)==1, 'one completed owned Native server required'
                         retired_owner=int(paths[0].with_name('pid').read_text())
@@ -1026,6 +1031,8 @@ def probe(args):
             'actual_provider_cli_live_and_resumed_mouse_disclosure':bool(display),
             'actual_web_or_android_chat_client':False,'settled_provider_restart_same_saved_chat':bool(args.restart),'active_external_native_draft_serialization':bool(args.provider_binary and not args.direct),'direct_route_source_execution':bool(args.direct),'automatic_provider_reentry':bool(args.direct),'source_timeout_recovered':bool(args.source_timeout),'simultaneous_entrances_qualified':False},indent=2)+'\n')
     finally:
+        if args.active_steer:
+            (root / 'hold-adapter-final').unlink(missing_ok=True)
         try:
             (root / 'terminal.txt').write_text(screen)
             if display:
@@ -1045,7 +1052,11 @@ def probe(args):
                     pid=int(path.with_name('pid').read_text())
                     expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
                     if Path(f'/proc/{pid}/exe').resolve()==expected:
-                        os.kill(pid,signal.SIGTERM)
+                        if args.active_steer:
+                            stopped = stop_owned_pid(pid, expected)
+                            (root/'active-steer-native-exit.json').write_text(json.dumps(stopped)+'\n')
+                        else:
+                            os.kill(pid,signal.SIGTERM)
                 except (OSError,ValueError):
                     pass
             if master is not None:

@@ -530,6 +530,25 @@ enum Command {
     },
 }
 type Works = Arc<Mutex<BTreeMap<String, Work>>>;
+fn find_work<'a>(
+    journal: &Journal,
+    works: &'a BTreeMap<String, Work>,
+    requested: Option<&str>,
+) -> Result<Option<&'a Work>, Error> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    // An exact operator ID never depends on an unrelated AppHost lane record.
+    if let Some(work) = works.values().find(|work| work.record.id == requested) {
+        return Ok(Some(work));
+    }
+    for work in works.values() {
+        if crate::app::lane_marker(journal, &work.record.thread)?.as_deref() == Some(requested) {
+            return Ok(Some(work));
+        }
+    }
+    Ok(None)
+}
 struct LimitedBridge {
     remote: Arc<dyn Bridge>,
     works: Works,
@@ -1082,9 +1101,7 @@ impl Operator {
         require_controller: bool,
     ) -> Result<(Record, Arc<Native>), Error> {
         let works = self.works.lock().await;
-        let work = works
-            .values()
-            .find(|v| Some(v.record.id.as_str()) == args["work_id"].as_str())
+        let work = find_work(&self.journal, &works, args["work_id"].as_str())?
             .ok_or(Error("operator_work_unavailable"))?;
         let mut record = work.record.clone();
         if args.get("controller").is_some()
@@ -1491,6 +1508,100 @@ impl Operator {
             cursor = next;
         }
         Err(Error("native_history_read_bound"))
+    }
+    async fn all_native_item_ids(
+        native: &Native,
+        thread: &str,
+        has_native_turn: bool,
+    ) -> Result<std::collections::BTreeSet<String>, Error> {
+        let mut cursor = Value::Null;
+        let mut ids = std::collections::BTreeSet::new();
+        for _ in 0..4096 {
+            let response = match native
+                .call(
+                    "thread/items/list",
+                    json!({"threadId":thread,"limit":100,"cursor":cursor,"sortDirection":"asc"}),
+                )
+                .await
+            {
+                Ok(response) => response,
+                Err(Error("native_history_not_ready")) if !has_native_turn => {
+                    return Ok(std::collections::BTreeSet::new());
+                }
+                Err(error) => return Err(error),
+            };
+            let items = response["data"]
+                .as_array()
+                .ok_or(Error("native_history_unavailable"))?;
+            for row in items {
+                let item = &row["item"];
+                if !row["turnId"].is_string() || !item["type"].is_string() {
+                    return Err(Error("native_history_unavailable"));
+                }
+                if let Some(id) = item["id"].as_str() {
+                    ids.insert(id.to_owned());
+                }
+            }
+            let next = response["nextCursor"].clone();
+            if next.is_null() {
+                return Ok(ids);
+            }
+            if next == cursor {
+                return Err(Error("native_history_cursor_repeated"));
+            }
+            cursor = next;
+        }
+        Err(Error("native_history_read_bound"))
+    }
+    async fn reconcile_stopped_work_effects(
+        &self,
+        native: &Native,
+        record: &Record,
+    ) -> Result<(), Error> {
+        let workspace = record
+            .workspace
+            .as_deref()
+            .ok_or(Error("native_workspace_unavailable"))?;
+        let app_marker = crate::app::lane_marker(&self.journal, &record.thread)?;
+        let mut lanes = vec![record.id.as_str()];
+        if let Some(marker) = app_marker.as_deref() {
+            if !lanes.contains(&marker) {
+                lanes.push(marker);
+            }
+        }
+        for lane in &lanes {
+            self.broker
+                .settle_stopped_processes(lane, workspace)
+                .await?;
+        }
+        let mut tokens = vec![record.token.clone()];
+        if let Some(marker) = app_marker.as_deref() {
+            if let Some(token) = crate::mcp_bridge::lane_token(&self.journal, marker)? {
+                if !tokens.contains(&token) {
+                    tokens.push(token);
+                }
+            }
+        }
+        let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        if self
+            .broker
+            .has_unsettled_stopped_effects(&lanes, &token_refs)?
+            || crate::app::has_stopped_pending_calls(&self.journal, &record.thread)?
+        {
+            let committed =
+                Self::all_native_item_ids(native, &record.thread, record.native_turn.is_some())
+                    .await?;
+            self.broker
+                .reconcile_stopped_unexecuted(&lanes, &token_refs, &committed)
+                .await?;
+            self.mcp_host
+                .clear_unexecuted_stopped_calls(&record.thread, &committed)
+                .await?;
+            self.local_host
+                .clear_unexecuted_stopped_calls(&record.thread, &committed)
+                .await?;
+        }
+        Ok(())
     }
     fn cursor(history: &[Value]) -> Cursor {
         Cursor {
@@ -2190,9 +2301,7 @@ impl Operator {
         let summary_round = if name == "codex_native_summary" {
             let works = self.works.lock().await;
             Some(
-                works
-                    .values()
-                    .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+                find_work(&self.journal, &works, args["work_id"].as_str())?
                     .ok_or(Error("operator_work_unavailable"))?
                     .round
                     .clone(),
@@ -2970,9 +3079,7 @@ impl Operator {
     ) -> Result<tokio::sync::OwnedMutexGuard<()>, Error> {
         let lock = {
             let works = self.works.lock().await;
-            let work = works
-                .values()
-                .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+            let work = find_work(&self.journal, &works, args["work_id"].as_str())?
                 .ok_or(Error("operator_work_unavailable"))?;
             if work.stops_in_progress != 0 {
                 return Err(Error("operator_controller_fenced"));
@@ -2981,9 +3088,7 @@ impl Operator {
         };
         let admission = lock.lock_owned().await;
         let works = self.works.lock().await;
-        if works
-            .values()
-            .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+        if find_work(&self.journal, &works, args["work_id"].as_str())?
             .is_none_or(|work| work.stops_in_progress != 0)
         {
             return Err(Error("operator_controller_fenced"));
@@ -3840,7 +3945,9 @@ impl Operator {
                 let resumed = self
                     .resume_unloaded_native(&record, &native, receipt)
                     .await?;
-                let recovered = self.recovery_receipts(&native, &record).await?;
+                if record.phase != "stopped" {
+                    self.recovery_receipts(&native, &record).await?;
+                }
                 // Restart recovers the same thread at a settled native boundary only.
                 let state = native
                     .call(
@@ -3856,19 +3963,14 @@ impl Operator {
                     return Err(Error("native_writer_unsettled"));
                 }
                 // Recover a confirmed Stop interrupted between the durable
-                // stopped-work record and release of its observed OS sessions.
-                // Never release an unknown/reconciliation-required execution.
+                // stopped-work record and release of its observed OS sessions
+                // or unexecuted offered calls. Never release an unknown/
+                // reconciliation-required execution.
                 if record.phase == "stopped" {
-                    self.broker
-                        .settle_stopped_processes(
-                            &record.id,
-                            record
-                                .workspace
-                                .as_deref()
-                                .ok_or(Error("native_workspace_unavailable"))?,
-                        )
+                    self.reconcile_stopped_work_effects(&native, &record)
                         .await?;
                 }
+                let recovered = self.recovery_receipts(&native, &record).await?;
                 let extension = if let Some(value) = args.get("budget") {
                     if !record
                         .selection
@@ -4636,21 +4738,35 @@ impl Operator {
             .filter(|v| v["params"]["threadId"] == record.thread)
             .cloned()
             .collect::<Vec<_>>();
-        let native_observer_running = {
+        let (native_observer_running, lane_owners) = {
             let works = self.works.lock().await;
             let work = works.get(&record.thread).unwrap();
             if !same_native_round(&record, &work.record) || record.phase != work.record.phase {
                 return Err(Error("native_observation_superseded"));
             }
-            work.completion_observer
-                .as_ref()
-                .is_some_and(|observer| !observer.is_cancelled())
+            let mut owners = BTreeMap::new();
+            for item in works.values() {
+                if let Some(marker) = crate::app::lane_marker(&self.journal, &item.record.thread)? {
+                    owners.insert(marker, item.record.id.clone());
+                }
+            }
+            (
+                work.completion_observer
+                    .as_ref()
+                    .is_some_and(|observer| !observer.is_cancelled()),
+                owners,
+            )
         };
+        let app_marker = crate::app::lane_marker(&self.journal, &record.thread)?;
+        let mut owned_lanes = vec![record.id.as_str()];
+        if let Some(marker) = app_marker.as_deref() {
+            owned_lanes.push(marker);
+        }
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "native_observer_running":native_observer_running,
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
-            "native_effects":self.broker.effect_status(&record.id)?,
+            "native_effects":self.broker.effect_status_with_owners(&owned_lanes, &lane_owners)?,
             "selection":record.selection,"workspace":record.workspace,"app_lane":app_lane,
             "development_binding":self.development_binding(&record)?,
             "source_admission":record.native_turn.as_deref().map(|turn|self.source_admission(&record,turn)).transpose()?.flatten(),
@@ -4945,15 +5061,9 @@ impl Operator {
         if stopped {
             // Both the Native thread and all its owned background terminals
             // have been confirmed stopped. Only its previously observed
-            // process sessions may now relinquish shared writer reservations.
-            self.broker
-                .settle_stopped_processes(
-                    &record.id,
-                    record
-                        .workspace
-                        .as_deref()
-                        .ok_or(Error("native_workspace_unavailable"))?,
-                )
+            // process sessions and offered calls proven absent from Native
+            // thread items may now relinquish shared writer reservations.
+            self.reconcile_stopped_work_effects(&native, &record)
                 .await?;
         }
         Ok(
@@ -6652,6 +6762,52 @@ mod local_tests {
             workspace: None,
             assignment: None,
         }
+    }
+
+    #[test]
+    fn work_alias_lookup_reports_corrupt_lane_without_fencing_exact_work_id() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("work-alias-{}", random_id().unwrap())));
+        let journal = Journal::open(&root.0).unwrap();
+        let record = fixture_record(&root.0);
+        let mut works = BTreeMap::new();
+        works.insert(
+            record.thread.clone(),
+            Work {
+                record: record.clone(),
+                active: None,
+                request: None,
+                round: String::new(),
+                checkpoint: None,
+                driver_lock: Arc::new(Mutex::new(())),
+                native_admission: Arc::new(Mutex::new(())),
+                stops_in_progress: 0,
+                app_cancel: None,
+                completion_observer: None,
+            },
+        );
+        assert!(find_work(&journal, &works, Some(&record.id))
+            .unwrap()
+            .is_some());
+        assert!(find_work(&journal, &works, Some("missing"))
+            .unwrap()
+            .is_none());
+
+        journal
+            .write(&digest(&record.thread), &json!({"invalid":"lane"}))
+            .unwrap();
+        assert_eq!(
+            find_work(&journal, &works, Some("lane-alias")).err(),
+            Some(Error("invalid_lane_record"))
+        );
+        assert!(find_work(&journal, &works, Some(&record.id))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
