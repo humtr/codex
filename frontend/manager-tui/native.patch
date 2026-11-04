@@ -2038,7 +2038,7 @@ index 4b77a77..7d38d49 100644
                  } else if scenario == "disconnect" {
                      chat.pause_for_disconnect();
                      chat.reconnect_failed();
-@@ -2905,16 +2905,164 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2905,16 +2905,170 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 80))
                              .replace('◦', "•")
                      );
@@ -2200,9 +2200,15 @@ index 4b77a77..7d38d49 100644
 +            assert_no_submit_op(&mut operations);
 +            assert_eq!(chat.bottom_pane.composer_text(), "steer instruction");
 +        } else {
++            let expected_text = if with_image {
++                "[Image #1] steer instruction"
++            } else {
++                "steer instruction"
++            };
 +            assert_matches!(next_submit_op(&mut operations), Op::UserTurn { items, .. }
 +                if items.iter().any(|item| matches!(item, UserInput::Text { text, .. }
-+                    if text == "steer instruction")));
++                    if text == expected_text))
++                && items.iter().any(|item| matches!(item, UserInput::Image { .. })) == with_image);
 +        }
 +    }
 +}
