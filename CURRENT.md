@@ -1,5 +1,3 @@
-<!-- Active Steer qualification candidate: source only. -->
-
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns implementation, qualification,
@@ -4839,3 +4837,13 @@ barrier predicate in disposable source. Exact upstream assembly, patch scope,
 assembled regression syntax/format and workflow syntax pass. Compiled tests,
 mutation execution, Android UI and signed delivery are pending; no live repair
 or activation is claimed. Development authority remains AGENTS.md and SPEC4.5-4.6.
+
+Native ARM CI41818603656 is running at9668f11 with mutation_check=true.
+The existing Android continuity qualifier adds --active-steer for actual Core/TUI
+and writer behavior with a held synthetic Chat response, explicit Queue and
+Shift+Left. The accepted old frontend failed the transient synchronization-preview
+assertion; candidate Android execution remains pending. An earlier baseline run
+also failed later with new_native_turn_required; its original result is retained,
+not attributed to a separate Provider defect before candidate comparison.
+Evidence: ~/.cache/codex/acceptance/goal-defects-20261104/; fixture payloads are
+archived with removal/restore records. No paid model request or live replacement.
