@@ -48,7 +48,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@0814be7b51ddb058d3791b36275bb18487bee86c
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@29baba056c5d38e12eaecc6b42d7b5867327082d
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: base
@@ -62,7 +62,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@0814be7b51ddb058d3791b36275bb18487bee86c
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@29baba056c5d38e12eaecc6b42d7b5867327082d
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       release_variant: full
