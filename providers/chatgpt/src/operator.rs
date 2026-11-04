@@ -502,6 +502,10 @@ struct Cursor {
     count: usize,
     digest: String,
 }
+struct AppRound {
+    cancel: CancellationToken,
+    retired: CancellationToken,
+}
 struct Work {
     record: Record,
     active: Option<mpsc::Sender<Command>>,
@@ -511,7 +515,7 @@ struct Work {
     driver_lock: Arc<Mutex<()>>,
     native_admission: Arc<Mutex<()>>,
     stops_in_progress: usize,
-    app_cancel: Option<CancellationToken>,
+    app_round: Option<AppRound>,
     completion_observer: Option<CancellationToken>,
 }
 enum Command {
@@ -690,10 +694,26 @@ fn admit_app_round(work: &Work, snapshot: &Record, turn: Option<&str>) -> Result
     {
         return Err(Error("operator_controller_fenced"));
     }
-    if work.app_cancel.is_some() {
+    if work.app_round.is_some() {
         return Err(Error("native_lane_busy"));
     }
     Ok(())
+}
+
+// Cancellation closes the native response before AppHost's Stop cleanup returns.
+// Wait only for that same turn's retiring task; ordinary concurrent requests keep
+// the existing busy response. Admission is repeated after the task retires.
+fn retiring_app_round(
+    work: &Work,
+    snapshot: &Record,
+    turn: Option<&str>,
+) -> Option<CancellationToken> {
+    let round = work.app_round.as_ref()?;
+    (turn.is_some()
+        && turn == work.record.native_turn.as_deref()
+        && round.cancel.is_cancelled()
+        && admit_app_round(work, snapshot, turn) == Err(Error("native_lane_busy")))
+    .then(|| round.retired.clone())
 }
 
 fn app_lane_requires_host_stop(lane: &Value) -> bool {
@@ -775,7 +795,7 @@ impl Operator {
                     driver_lock: Arc::new(Mutex::new(())),
                     native_admission: Arc::new(Mutex::new(())),
                     stops_in_progress: 0,
-                    app_cancel: None,
+                    app_round: None,
                     completion_observer: None,
                 },
             );
@@ -1086,7 +1106,7 @@ impl Operator {
                 driver_lock: Arc::new(Mutex::new(())),
                 native_admission: Arc::new(Mutex::new(())),
                 stops_in_progress: 0,
-                app_cancel: None,
+                app_round: None,
                 completion_observer: None,
             },
         );
@@ -1283,7 +1303,7 @@ impl Operator {
             || work.stops_in_progress != 0
             || work.record.phase == "stop_requested"
             || work.active.is_some()
-            || work.app_cancel.is_some()
+            || work.app_round.is_some()
             || !work.record.pending.is_empty()
         {
             return Err(Error("native_owner_reconciliation_required"));
@@ -1831,7 +1851,7 @@ impl Operator {
         if !same_native_round(&record, &work.record)
             || work.record.phase != "completed"
             || work.stops_in_progress != 0
-            || work.app_cancel.is_some()
+            || work.app_round.is_some()
             || work.active.is_some()
         {
             return Err(Error("operator_controller_fenced"));
@@ -1992,7 +2012,7 @@ impl Operator {
             if !same_native_round(&record, &work.record)
                 || work.record.phase != "running"
                 || work.stops_in_progress != 0
-                || work.app_cancel.is_none()
+                || work.app_round.is_none()
                 || !self
                     .development_binding(&record)?
                     .is_some_and(|binding| binding.enabled)
@@ -2022,7 +2042,7 @@ impl Operator {
                 if !same_native_round(&record, &work.record)
                     || work.record.phase != "running"
                     || work.stops_in_progress != 0
-                    || work.app_cancel.is_none()
+                    || work.app_round.is_none()
                     || !self
                         .development_binding(&record)?
                         .is_some_and(|binding| binding.enabled)
@@ -2467,7 +2487,7 @@ impl Operator {
                 let action = text(&args, "action", 16)?;
                 if action == "stop"
                     && self.works.lock().await.values().any(|work| {
-                        work.app_cancel.is_some()
+                        work.app_round.is_some()
                             || work
                                 .record
                                 .selection
@@ -3224,8 +3244,8 @@ impl Operator {
                     {
                         work.record.accepted = false;
                         work.record.phase = "stop_requested".into();
-                        if let Some(cancel) = &work.app_cancel {
-                            cancel.cancel();
+                        if let Some(round) = &work.app_round {
+                            round.cancel.cancel();
                         }
                         self.persist(&work.record)?;
                     }
@@ -3744,7 +3764,7 @@ impl Operator {
                         || work.record.execution != record.execution
                         || (joining || owner_changed)
                             && (work.active.is_some()
-                                || work.app_cancel.is_some()
+                                || work.app_round.is_some()
                                 || !work.record.pending.is_empty())
                     {
                         return Err(Error("native_start_reconciliation_required"));
@@ -4359,7 +4379,7 @@ impl Operator {
                         if !same_native_round(&record, &work.record)
                             || !matches!(work.record.phase.as_str(), "completed" | "interrupted")
                             || work.stops_in_progress != 0
-                            || work.app_cancel.is_some()
+                            || work.app_round.is_some()
                         {
                             return Err(Error("bound_chat_observation_superseded"));
                         }
@@ -4397,7 +4417,7 @@ impl Operator {
                         if !same_native_round(&record, &work.record)
                             || !matches!(work.record.phase.as_str(), "completed" | "interrupted")
                             || work.stops_in_progress != 0
-                            || work.app_cancel.is_some()
+                            || work.app_round.is_some()
                         {
                             return Err(Error("bound_chat_observation_superseded"));
                         }
@@ -4491,7 +4511,7 @@ impl Operator {
                     work.record.phase.as_str(),
                     "running" | "completed" | "interrupted"
                 )
-                || work.app_cancel.is_some()
+                || work.app_round.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
@@ -4517,7 +4537,7 @@ impl Operator {
                     work.record.phase.as_str(),
                     "running" | "completed" | "interrupted"
                 )
-                || work.app_cancel.is_some()
+                || work.app_round.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
@@ -4545,7 +4565,7 @@ impl Operator {
                     work.record.phase.as_str(),
                     "running" | "completed" | "interrupted"
                 )
-                || work.app_cancel.is_some()
+                || work.app_round.is_some()
                 || work.stops_in_progress != 0
             {
                 return Err(Error("bound_chat_observation_superseded"));
@@ -4586,7 +4606,7 @@ impl Operator {
                 if !same_native_round(&record, &work.record)
                     || work.record.phase != "interrupted"
                     || work.stops_in_progress != 0
-                    || work.app_cancel.is_some()
+                    || work.app_round.is_some()
                 {
                     return Err(Error("bound_chat_observation_superseded"));
                 }
@@ -4616,7 +4636,7 @@ impl Operator {
             if !same_native_round(&record, &work.record)
                 || work.record.phase != "interrupted"
                 || work.stops_in_progress != 0
-                || work.app_cancel.is_some()
+                || work.app_round.is_some()
             {
                 return Err(Error("bound_chat_observation_superseded"));
             }
@@ -4922,8 +4942,8 @@ impl Operator {
             if let Some(observer) = work.completion_observer.take() {
                 observer.cancel();
             }
-            if let Some(cancel) = &work.app_cancel {
-                cancel.cancel();
+            if let Some(round) = &work.app_round {
+                round.cancel.cancel();
             }
             work.record.phase = "stop_requested".into();
             self.persist(&work.record)?;
@@ -6029,6 +6049,27 @@ impl Host for Operator {
                 );
             }
             if let Some(prior) = &record {
+                let retirement = {
+                    let works = this.works.lock().await;
+                    works
+                        .get(&request.thread)
+                        .and_then(|work| retiring_app_round(work, prior, request.turn.as_deref()))
+                };
+                if let Some(retirement) = retirement {
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => return Err(Error("cancelled_before_dispatch")),
+                        _ = retirement.cancelled() => {}
+                    }
+                    record = this
+                        .works
+                        .lock()
+                        .await
+                        .get(&request.thread)
+                        .map(|work| work.record.clone());
+                }
+            }
+            if let Some(prior) = &record {
                 this.admit_native_round(prior, &request, &native, &pool)
                     .await?;
                 record = this
@@ -6063,13 +6104,21 @@ impl Host for Operator {
                     this.broker.settle_external_tools(work, &completed).await?;
                 }
                 let completion_cancel = CancellationToken::new();
+                let retired = CancellationToken::new();
+                let _retirement = retired.clone().drop_guard();
                 if let Some(record) = &mut record {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
                     // Check and reserve under one lock: Stop cannot fence a
                     // work between admission and installation of its cancel.
+                    if cancel.is_cancelled() {
+                        return Err(Error("cancelled_before_dispatch"));
+                    }
                     admit_app_round(work, record, request.turn.as_deref())?;
-                    work.app_cancel = Some(cancel.clone());
+                    work.app_round = Some(AppRound {
+                        cancel: cancel.clone(),
+                        retired,
+                    });
                     work.record.accepted = false;
                     work.request = Some(request.clone());
                     work.record.native_turn = request.turn.clone();
@@ -6151,9 +6200,11 @@ impl Host for Operator {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
                     if same_native_round(record, &work.record) {
-                        work.app_cancel = None;
+                        work.app_round = None;
                         if work.stops_in_progress == 0 && work.record.phase == "running" {
-                            work.record.phase = if result.is_ok() {
+                            work.record.phase = if result.is_ok()
+                                || result == Err(Error("cancelled_before_dispatch"))
+                            {
                                 "running"
                             } else if result == Err(Error("bound_chat_turn_interrupted")) {
                                 "interrupted"
@@ -6787,7 +6838,7 @@ mod local_tests {
                 driver_lock: Arc::new(Mutex::new(())),
                 native_admission: Arc::new(Mutex::new(())),
                 stops_in_progress: 0,
-                app_cancel: None,
+                app_round: None,
                 completion_observer: None,
             },
         );
@@ -7083,8 +7134,8 @@ mod local_tests {
         }
     }
 
-    #[test]
-    fn app_admission_respects_stop_busy_and_obsolete_rounds() {
+    #[tokio::test]
+    async fn app_admission_respects_stop_busy_and_obsolete_rounds() {
         let mut record = fixture_record(std::path::Path::new("/owned"));
         record.phase = "running".into();
         record.native_turn = Some("previous".into());
@@ -7097,7 +7148,7 @@ mod local_tests {
             driver_lock: Arc::new(Mutex::new(())),
             native_admission: Arc::new(Mutex::new(())),
             stops_in_progress: 0,
-            app_cancel: None,
+            app_round: None,
             completion_observer: None,
         };
         assert!(admit_app_round(&work, &record, Some("next")).is_ok());
@@ -7118,12 +7169,36 @@ mod local_tests {
             Err(Error("operator_controller_fenced"))
         );
         assert!(admit_app_round(&work, &record, Some("next")).is_ok());
-        work.app_cancel = Some(CancellationToken::new());
+        work.record.phase = "running".into();
+        let round_cancel = CancellationToken::new();
+        let retired = CancellationToken::new();
+        let retirement_guard = retired.clone().drop_guard();
+        work.app_round = Some(AppRound {
+            cancel: round_cancel.clone(),
+            retired,
+        });
         assert_eq!(
             admit_app_round(&work, &record, Some("next")),
             Err(Error("native_lane_busy"))
         );
-        work.app_cancel = None;
+        assert!(retiring_app_round(&work, &record, Some("previous")).is_none());
+        round_cancel.cancel();
+        assert!(retiring_app_round(&work, &record, Some("next")).is_none());
+        let mut retirement = Box::pin(
+            retiring_app_round(&work, &record, Some("previous"))
+                .unwrap()
+                .cancelled_owned(),
+        );
+        assert!(futures_util::poll!(&mut retirement).is_pending());
+        work.stops_in_progress = 1;
+        assert!(retiring_app_round(&work, &record, Some("previous")).is_none());
+        work.stops_in_progress = 0;
+        let mut obsolete = record.clone();
+        obsolete.capability = "obsolete".into();
+        assert!(retiring_app_round(&work, &obsolete, Some("previous")).is_none());
+        drop(retirement_guard);
+        retirement.await;
+        work.app_round = None;
         work.record.native_turn = Some("already-newer".into());
         assert_eq!(
             admit_app_round(&work, &record, Some("next")),

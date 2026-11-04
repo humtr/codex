@@ -7,100 +7,64 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Current baseline and takeover verdict
 
-### P0: Active Steer blocked by ChatGPT input synchronization (2026-11-04)
+### P0: Active Steer batch — final artifact race under repair
 
-User-visible failure: adding an instruction while a Native/ChatGPT turn was
-running produced `ChatGPT input synchronization failed:
-operator_reconciliation_required; draft retained`. This is a refusal of the new
-input, not proof of a completed Stop or a lost draft. The Jan operating Provider
-still records two recent Codex-origin works (`01a1a4ef-732c-7841-975c-4cda5a905472`
-and `01a1a57f-3cff-7510-adc8-73c61c56e687`) as
-`reconciliation_required`: its status reports `native_status=notLoaded` and
-AppHost `phase=stopped`, `pending_native_calls=1`, `unconfirmed_effects=1`.
-Neither original writer/effect nor the old screen has been reclaimed; there was
-no live service restart, claim, forced Stop, or input replay in this investigation.
+Final artifact recheck exposed another race: Android fixturect-1ufwp_vx
+consumed both Steers once on the original turn, then failed with native_lane_busy.
+Provider24 publication proves only its recorded scope; Full delivery remains open.
+The isolated source has an Operator retirement fix and a held-Stop Android
+regression. That forced race passed atct-emjotfsd with the new artifact. Diagnostic
+output confirmed both busy observations belonged to canceled Operator rounds;
+the temporary STEER_DIAG code is now removed. Mutation/full Provider acceptance
+and a final diagnostic-free Android run remain required before Provider25 signing.
+Original failure is active-steer-release-candidate.log plus fixture native records.
 
-Source defect identified: the maintained TUI's common input-preparation path
-unconditionally used the **next-turn** Provider synchronization barrier for an
-already-running Steer. It can wait until the wrong boundary or refuse the Steer
-when old work is unreconciled. The source/patch candidate now submits text Steer
-directly through upstream's active Native writer, and prepares image Steer
-without invoking that next-turn barrier; an image draft whose active turn ends
-before preparation finishes is retained. New-turn synchronization and Provider's
-unreconciled-effect fence remain unchanged. A targeted TUI regression covers
-text/image Steer and idle preflight/cancel. **Source candidate only**: compiled
-test, mutation, installed TUI, the original stuck-work recovery, physical UI,
-and combined release/client gates remain unverified. Do not count this as a live
-session repair or a signed release.
+The maintained TUI no longer sends active Steer through the next-turn Provider
+synchronization barrier. Upstream's original Native writer consumes it. Image
+preparation retains its draft if the destination turn changes. Provider AppHost
+retains the original remote Chat/source identity and accepts same-turn reentry
+only with an unchanged submitted prefix, newly appended user input and required
+Native results. MCP retires a confirmed stopped round only after settlement;
+old capabilities are revoked and existing claims/receipts remain intact.
+No Core or upstream Native executor was added (SPEC.md4.5–4.6).
 
-Boundary recheck (2026-11-04): `SPEC.md` 4.5-4.6 and the assembled patch were
-reviewed against the actual Steer and Native owner paths. The P0 delta changes
-maintained TUI input preparation and the TUI input-submission integration, not
-upstream Native thread/writer execution or Termux Core. The pre-existing patch
-does change upstream TUI source and one upstream Core **configuration** file:
-`model_catalog_source` retains raw catalog bytes consumed by the owned frontend
-backend binding; it is not an added Native executor. Thus this is narrow UI
-integration, **not** a claim of byte-identical upstream TUI/Core sources.
-The unrelated dirty `crates/core` edits concern update presentation, not P0.
-Frontend assembler tests (10), owned Rust formatting and `git diff --check`
-passed; a compiled Steer regression and installed-UI behavior have not passed.
-The exact upstream `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856` also accepted
-the patch in a clean read-only apply check. A disposable clone assembled all
-20 owned TUI sources; scope checking, all 65 upstream slash-command aliases,
-and upstream diff whitespace passed. The local offline focused Rust test
-stopped **before compilation** (Cargo exit 101): `rusty_v8` requires an
-uncached `third_party/icu` Git submodule. No Rust test was executed or counted
-green; the compiled regression and actual Android path remain batch gates.
+The implementation/release worktree is
+`$TMPDIR/steer-batch-v8lgrrmr/source`; frontend recipe807aba6 is published on
+rewrite/rust-core. The original dirty0814be7b workspace is preserved. After
+recovery reread AGENTS.md and inspect that actual worktree/diff before editing.
 
-Resumption review (2026-11-04): the hosted focused-test filter omitted
-`active_chat_provider_steer_uses_native_input_without_synchronization`; it now
-selects that regression explicitly. The optional mutation gate restores the old
-next-turn synchronization predicate in disposable `input_submission.rs`, requires
-one executed test to fail at the direct-text-Steer assertion, restores the source
-and retains its log. This is wired source, not an executed mutation result.
-Review also found the existing regression patch hunk declared one fewer output
-line than it contained, dropping its closing brace on assembly. The hunk count
-is corrected. Fresh assembly on exact upstream `6ff1e1ca...`, scope checking and
-Rust parsing/formatting of the assembled regression file now pass. Workflow YAML,
-shell/embedded Python syntax and fault-guard applicability/restoration pass;
-`scripts/check.sh docs` and `git diff --check` pass. No compiler, live runtime,
-original stuck work or Pro request was started. Evidence:
-`~/.cache/codex/acceptance/goal-defects-20261104/steer-ci-static.log` and
-`steer-ci-work-root.txt`; disposable source is retained there, with no generated
-executables. Compiled/mutation execution and Android/client/release gates remain
-open.
+Provider combined gate passed:186 library tests plus integration, strict Clippy,
+release and Bun/Python checks. Both targeted faults failed their regressions and
+were restored in disposable source. Actual Android Native operator/cold resume/
+Stop/recovery, package/TLS/rollback and all three compositions passed. Actual
+Android Core/TUI active Steer plus real Queue/Shift+Left passed with both inputs
+exactly once on the original Native turn and no false queue-edit hint. Chat
+responses were synthetic; no paid model or physical UI observation is claimed.
+Failed baseline/candidate results remain in the goal-defects-20261104 evidence
+root, alongside accepted v5, mutation results and payload archive/restore records.
 
-Active batch resumed at the user's request rather than stopping at static proof.
-An isolated worktree over accepted source `0c2a567` contains only the Steer
-contract/frontend/CI delta, committed as `9668f112dcc02941c9373b575ac74567abc6148f`
-on `fix/active-steer-20261104`. Ordinary Git publication failed with GitHub
-`commit_refs`/HTTP500 errors; Git Data API publication produced the identical
-tree and commit, and created the branch without force. Native ARM CI
-`41818603656` is running with `mutation_check=true`; its result is pending.
-The existing Android continuity qualifier now has an isolated `--active-steer`
-scenario using its retained synthetic service and actual Core/TUI/writer: hold
-the response, send Steer, exercise actual Queue/Shift+Left, then require both
-instructions exactly once on the original Native turn. The accepted old raw TUI
-from `publish-current/frontend/codex` fails the transient synchronization-preview
-assertion on Android (not physical UI). An earlier run reached Queue editing but
-failed with `new_native_turn_required`; preserve that original result and compare
-the candidate before attributing a separate Provider defect. Original logs are
-`active-steer-baseline.log` and `active-steer-baseline-preview.log` under the
-existing goal-defects evidence root. Fixture payload removal/restore records are
-retained there; the second failed fixture needed an identity-checked pidfd KILL
-after the existing TERM-only cleanup left its runtime live. User services and
-the original works were untouched. Read-only live work/status rechecks still
-show both original Steer works in `reconciliation_required` with `notLoaded`.
-No new paid model request, live replacement or signed delivery is claimed.
+Official TUI CI41834657202 passed144 focused tests, upstream features and lint.
+The expected release count was corrected from143 to144 at807aba6; the required
+mutation-enabled run41842123715 is in progress on that exact source. Earlier two
+runs failed image-label test expectations; their original logs are retained.
+Provider/source acceptance at88ec196 passed, as did current807aba6 source/Core.
 
-**P2 deferred UI diagnosis:** while in Steer (not explicitly queueing), the
-`Shift+Left` edit-queued-message hint briefly appears. The maintained patch
-currently surfaces `pending_input_submission` in the queue preview and edit
-condition; this is a concrete integration hypothesis, **not** proof that upstream
-alone, Provider, or normal queued-input behavior caused the user's observed
-flash. Reproduce in both active Steer and real Queue with exact installed Core/TUI
-and no unnecessary runtime transition. Establish which component owns the hint,
-its display predicate and expected edit action; then fix/test only if incorrect.
+Signed Provider24 (`chatgpt-88ec196a244d-s24`) passed signing CI41839126238,
+complete public readback and14 disposable Android install/dispatch/reinstall/
+rollback steps. It was promoted non-forced at mainf36064f. The first consumer
+failed only its final process oracle because it included a transient MCP request;
+the corrected lifetime check protects actual service/tunnel owners and passed.
+See `provider24-public-consumer.json` and `provider24-promotion.json` in the
+existing evidence root. Full publication and device activation remain separate.
+
+Original works5c43343f... and385d5be4... still report reconciliation_required /
+notLoaded on current read-only status. Neither was stopped, claimed or replayed.
+The historical desktop descriptor's process identities validate, but its single
+CDP connection returns HTTP409 (Owned connection in use). A usable currently
+owned connection for existing scripts/d3_refresh.mjs is still missing; do not
+claim client refresh or live repair. Core Full144, selected Provider23 and the
+operating Jan52eb22fd development image have not been replaced by this batch.
+The reserved Pro trial remains untouched.
 
 Reconciled on 2026-11-03 against Git, both original local rollouts, installed
 selection records, running executable identities, Provider journals and actual
@@ -782,61 +746,3 @@ signed publication, runtime activation and post-replacement client refresh must
 be reported separately; unfinished work stays unfinished.
 Build/source, signed delivery, device activation and physical UI observations
 must stay separate in the final handoff.
-
-
-### Active Steer actual-path batch (2026-11-04)
-
-Work continues in the isolated `fix/active-steer-20261104` worktree at
-`$TMPDIR/steer-batch-v8lgrrmr/source` (Provider candidate0a074db; test-only frontend follow-updb307ec). Reread AGENTS.md and review that actual diff after recovery.
-The original dirty workspace and operating services remain preserved.
-
-The actual Android input path exposed successive owning defects:
-AppHost refused a new request on the same Native turn; creating a successor Chat
-broke source identity; retaining Chat still hit MCP's active-round input fence.
-The candidate now records the submitted input boundary and pre-dispatch counter,
-keeps the original Chat/source binding and advances only an observed submitted
-prefix. Two confirmed-Stop observation paths share one MCP retirement function;
-it permits a new round only without pending settlement/offers/unsettled effects,
-revokes old capabilities and preserves receipts/claims. No Native executor or
-Core change is introduced.
-
-Actual Android Core/TUI/Native writer scenario passed with process exit0:
-`active-steer-candidate-v5.json` in the existing goal-defects evidence root.
-Both Steer inputs occur exactly once in the original Native turn, real Queue
-and Shift+Left edit work, and Steer has no false queue-edit hint. Original
-conversation/source identity is preserved by the exercised fixture. The Chat
-response is synthetic, model requests0, physical UI not observed. The Native
-fixture's exit was confirmed by pidfd (record in fixture `ct-e0juyn31`).
-Earlier failed runs remain retained, including the v4 `mcp_pending_new_input`
-caused by an earlier Stop return bypassing the first patch. Fixture payloads
-must be archived with the existing cleaner after inactive ownership checks.
-
-Frontend CI41818603656 compiled/executed144 tests:143 passed, the new regression
-failed because its image expectation omitted upstream's `[Image #1]` label.
-The correction also requires the Image item to remain present; it weakens no
-acceptance. Commit0898d56 published non-forced; CI41825716181 is running with
-mutation enabled. The retained frontend binary at source9668f11 is runtime-code
-identical to that test-only follow-up; it was used in Android v5.
-
-Provider's earlier clean recovery/alias candidate passed its full source gate
-(184 library tests plus integration, strict Clippy, release, Bun/Python). That
-result precedes the new Steer changes and does not qualify them. Final combined
-Provider gate passed with exit0 in `provider-steer-final-check-v2.log`:186 library
-tests/2 existing ignored, integration, strict Clippy, release and Bun/Python gates.
-Single build job and disabled incremental output reused the existing debug cache
-(12GiB observed). Both disposable targeted faults were detected and restored
-byte-for-byte (`steer-mutations.log`): removing the submitted-prefix check and
-removing confirmed-Stop round completion each failed its own regression.
-Actual Android Native tools/exact retry/reviewer, cold resume, Stop/recovery and
-controller checks also passed (`steer-operator-android.json`, exit0). Private
-signed package/TLS/rollback qualification passed (`steer-package-android.json`),
-as did all three installed compositions (`steer-compositions-android.json`).
-Official source CI41833618324 and Provider CI41833618355 passed at0a074db.
-Frontend CI41825716181 failed solely on the restored image label expectation;
-follow-updb307ec compares the complete original draft. The known-failing
-replacement41833619287 was cancelled before acceptance. Official frontend
-CI41834657202 is running without mutation to retain its reusable compile cache;
-its mutation-enabled follow-up remains required. Provider source0a074db and
-frontend test follow-updb307ec were promoted non-forced on rewrite/rust-core. Public signed delivery, activation,
-full-schema D3 refresh and new connected Native work remain unfinished.
-Reserved Pro and live user works were untouched.

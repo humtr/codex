@@ -2035,7 +2035,12 @@ keep the draft rather than
 silently convert it into an unsynchronized new turn. Unreconciled writer/effect
 state is never cleared by a TUI shortcut.
 Native may cancel and reissue a Provider request on the same canonical turn
-when accepting Steer. After a confirmed remote Stop, Provider may admit that
+when accepting Steer. A successor on that same known turn waits for the canceled
+request's Operator task to retire before reserving its AppHost slot. Retirement
+is not remote Stop or effect settlement: all existing admission and confirmed-Stop
+checks still apply afterwards. An uncanceled concurrent request remains busy;
+Stop/controller fences and cancellation of the waiting successor remain effective.
+After a confirmed remote Stop, Provider may admit that
 continuation only when the previously submitted Native input is preserved as an
 exact prefix (excluding transport-only additional_tools declarations), a new
 non-context user input is appended, and any offered Native call has its result.

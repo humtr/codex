@@ -372,7 +372,16 @@ impl Bridge for Synthetic {
             }
             _ => return Box::pin(async { Err(Error("unexpected_synthetic_operation")) }),
         };
-        Box::pin(async move { Ok(value) })
+        let stop_gate = (command["op"] == "stop")
+            .then(|| self.path.parent().unwrap().join("hold-adapter-stop"));
+        Box::pin(async move {
+            if let Some(gate) = stop_gate {
+                while gate.exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }
+            Ok(value)
+        })
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

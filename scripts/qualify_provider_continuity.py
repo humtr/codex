@@ -52,6 +52,7 @@ def probe(args):
     env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
     if args.active_steer:
         (root / 'hold-adapter-final').touch()
+        (root / 'hold-adapter-stop').touch()
     output = (root / 'provider-test.log').open('wb')
     service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
         'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
@@ -190,6 +191,7 @@ def probe(args):
             turn = before[-1]['id']
             def frame():
                 return '\n'.join(terminal_screen_lines(display, wcwidth))
+            initial_submit = next(row for row in bridge_commands() if row['op']=='submit')
             steer = 'ACTIVE_NATIVE_STEER_INPUT'
             steer_screen_start = len(screen)
             submit(steer)
@@ -200,6 +202,8 @@ def probe(args):
                 return pending or consumed
             wait(lambda: admitted(steer),
                  'active Steer reaches Native pending or consumed input without the next-turn barrier')
+            wait(lambda: any(row['op']=='stop' and row['lane']==initial_submit['lane']
+                             for row in bridge_commands()), 'canceled predecessor reaches held Stop')
             first = frame()
             (root/'active-steer-visible.txt').write_text(first)
             assert steer in first and 'Synchronizing ChatGPT' not in first, first
@@ -222,6 +226,9 @@ def probe(args):
             active = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
             assert [row['id'] for row in active]==[row['id'] for row in before], active
             assert active[-1]['status']=='inProgress', active[-1]['status']
+            assert sum(row['op']=='submit' and row['lane']==initial_submit['lane']
+                       for row in bridge_commands())==1, 'successor dispatched before predecessor Stop returned'
+            (root/'hold-adapter-stop').unlink()
             (root/'hold-adapter-final').unlink()
             wait(lambda: rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed',
                  'same Native turn consumes Steers and completes')
@@ -235,7 +242,7 @@ def probe(args):
             assert 'ChatGPT input synchronization failed' not in screen, screen[-4000:]
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
                 'turn_id':turn,'active_steer_same_native_turn':True,
-                'explicit_queue_edit_then_steer':True,'steer_has_no_queue_edit_hint':True,
+                'explicit_queue_edit_then_steer':True,'canceled_predecessor_retirement':True,'steer_has_no_queue_edit_hint':True,
                 'actual_android_core_and_tui':True,'synthetic_chat_response':True,
                 'real_model_requests':0,'physical_ui_observed':False},indent=2)+'\n')
             return
@@ -1032,6 +1039,7 @@ def probe(args):
             'actual_web_or_android_chat_client':False,'settled_provider_restart_same_saved_chat':bool(args.restart),'active_external_native_draft_serialization':bool(args.provider_binary and not args.direct),'direct_route_source_execution':bool(args.direct),'automatic_provider_reentry':bool(args.direct),'source_timeout_recovered':bool(args.source_timeout),'simultaneous_entrances_qualified':False},indent=2)+'\n')
     finally:
         if args.active_steer:
+            (root / 'hold-adapter-stop').unlink(missing_ok=True)
             (root / 'hold-adapter-final').unlink(missing_ok=True)
         try:
             (root / 'terminal.txt').write_text(screen)

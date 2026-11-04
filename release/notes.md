@@ -10,5 +10,5 @@
 - Send active ChatGPT Steer to the original Native turn without waiting at the next-turn synchronization barrier; retain image drafts when their destination changes.
 
 ## Provider
-- Resume same-turn Native Steer on its owned Chat after confirmed Stop, preserving input/source identity and tool/effect fences.
+- Resume same-turn Native Steer on its owned Chat after canceled-request cleanup and confirmed Stop, preserving input/source identity and tool/effect fences.
 - Reconcile proven unexecuted offered calls after Native Stop and report work/lane alias failures with their original cause.
