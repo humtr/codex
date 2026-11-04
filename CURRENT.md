@@ -9,15 +9,12 @@ delivery and device activation. None substitutes for the next boundary.
 
 ### P0: Active Steer batch — final artifact race under repair
 
-Final artifact recheck exposed another race: Android fixturect-1ufwp_vx
-consumed both Steers once on the original turn, then failed with native_lane_busy.
-Provider24 publication proves only its recorded scope; Full delivery remains open.
-The isolated source has an Operator retirement fix and a held-Stop Android
-regression. That forced race passed atct-emjotfsd with the new artifact. Diagnostic
-output confirmed both busy observations belonged to canceled Operator rounds;
-the temporary STEER_DIAG code is now removed. Mutation/full Provider acceptance
-and a final diagnostic-free Android run remain required before Provider25 signing.
-Original failure is active-steer-release-candidate.log plus fixture native records.
+The final artifact recheck exposed native_lane_busy during two rapid Steers.
+Operator now distinguishes canceled requests from retired tasks and waits for
+same-turn cleanup, then revalidates existing Stop/controller/input/effect fences.
+The failure record and diagnostic evidence are retained; all temporary diagnosis
+code was removed before final acceptance. The clean work and source history are
+in the isolated worktree named below; original dirty user work is preserved.
 
 The maintained TUI no longer sends active Steer through the next-turn Provider
 synchronization barrier. Upstream's original Native writer consumes it. Image
@@ -43,20 +40,31 @@ responses were synthetic; no paid model or physical UI observation is claimed.
 Failed baseline/candidate results remain in the goal-defects-20261104 evidence
 root, alongside accepted v5, mutation results and payload archive/restore records.
 
-The four-fault native job needs a120-minute budget: normal CI41834657202
-used49 minutes, the new Steer fault used13m42s, and the three retained faults in
-41750031338 each used14–15 minutes. Their total exceeds the inherited90-minute
-limit. Current807aba6 run41842123715 passed its144-test baseline and Steer fault,
-but is being replaced before its known-insufficient deadline. All fault tests,
-restoration assertions and final gates remain; the workflow budget alone changes.
-Because the native admission recipe binds the whole workflow, a new exact-source
-run is required; neither a passed step nor a canceled job qualifies its artifact.
+Frontend build/test evidence is reused from the successful native run41834657202
+atdb307ec:144 actual focused tests, retained upstream features, format/lint patches
+and artifacte286df94 all agree. The later expected-count correction143→144 and
+job budget90→120 do not change compiled inputs. The existing qualifier now
+normalizes only these acceptance/scheduling metadata; it still checks the retained
+log against the current144 requirement and rejects changed commands, source,
+toolchains, dependency audit, artifacts, failed or incomplete runs. The actual
+retained artifact passed this qualifier; focused reuse/controller tests and an
+injected restoration of the old false rejection passed/detected as required.
+This corrects the earlier claim that the whole native build must restart.
+The user's objection stopped the unnecessary replacement run41850957815.
+Run41842123715 had passed its144-test baseline and the targeted Steer mutation
+(test fails under the old barrier, source restored); its overall canceled status
+is retained and never used as successful build authority. Legacy unchanged fault
+checks are not repeated solely because a new check was added.
 
-Official TUI CI41834657202 passed144 focused tests, upstream features and lint.
-The expected release count was corrected from143 to144 at807aba6; the required
-mutation-enabled run41842123715 is in progress on that exact source. Earlier two
-runs failed image-label test expectations; their original logs are retained.
-Provider/source acceptance at88ec196 passed, as did current807aba6 source/Core.
+Provider retirement fixda5bf62 passed official source/Core/Provider CI and the
+local full Provider gate (186 library tests, integration, strict Clippy, release,
+Bun/Python). The diagnostic-free artifact8a392dee and new fronte286df94 passed
+the held-Stop Android Steer/Queue/edit scenario (ct-kt03ievl), Native operator/
+cold resume/Stop/recovery, signed package/real TLS and all three compositions.
+The targeted fault replacing task retirement with cancellation failed its
+regression and was restored byte-for-byte. Synthetic Chat, zero model requests;
+physical UI and operating service activation are still distinct. Provider25
+signing/public delivery remain pending; Provider24 is preserved.
 
 Signed Provider24 (`chatgpt-88ec196a244d-s24`) passed signing CI41839126238,
 complete public readback and14 disposable Android install/dispatch/reinstall/

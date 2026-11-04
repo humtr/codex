@@ -122,6 +122,43 @@ class NativeArtifactTests(unittest.TestCase):
                 if fault is None:
                     self.assertEqual(result.stdout, "manager_tui_sha256\t" + digest + "\n")
 
+    def test_reuse_scheduling_and_count_metadata_still_requires_current_actual_proof(self):
+        for fault in [None, "count", "command", "timeout-expression"]:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
+                fixture = list(self.fixture(Path(temp)))
+                source, artifact, _, old_sha, _, run, run_file = fixture
+                def commit():
+                    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+                    subprocess.run(["git", "-C", str(source), "-c", "user.name=Owned",
+                                    "-c", "user.email=owned@example.invalid", "commit", "-m", "metadata"],
+                                   check=True, capture_output=True)
+                    return subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+                release = source / "release/upstream.json"
+                current = json.loads(release.read_text())
+                qualified = json.loads(release.read_text())
+                qualified["qualification"]["focused_tests"] -= 1
+                release.write_text(json.dumps(qualified))
+                workflow = source / qualifier.INPUTS[0]
+                workflow.write_text('jobs:\n  upstream-baseline:\n    timeout-minutes: 90\n'
+                                    '    steps:\n      - run: echo build\n')
+                sha = commit()
+                fixture[3] = sha
+                run["head_sha"] = sha
+                run_file.write_text(json.dumps(run))
+                path = artifact / "source.txt"
+                path.write_text(path.read_text().replace(old_sha, sha))
+                if fault == "count":
+                    current["qualification"]["focused_tests"] -= 1
+                release.write_text(json.dumps(current))
+                workflow.write_text(workflow.read_text().replace('90', '120'))
+                if fault == "command":
+                    workflow.write_text(workflow.read_text().replace('echo build', 'echo changed'))
+                if fault == "timeout-expression":
+                    workflow.write_text(workflow.read_text().replace('120', '${{ inputs.budget }}'))
+                commit()
+                result = self.invoke(fixture)
+                self.assertEqual(result.returncode == 0, fault is None, result.stderr)
+
     def test_actual_cli_refuses_missing_extra_symlink_and_directory_artifacts_or_proof(self):
         cases = ["missing-" + name for name in sorted(qualifier.FILES)]
         cases += ["extra", "symlink", "directory", "artifact-root", "proof-root", "proof-file"]

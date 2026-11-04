@@ -18,6 +18,18 @@ class QualificationSignalTests(unittest.TestCase):
                     changed.replace('jobs:\n','env:\n  EVENT: ${{ inputs.value }}\njobs:\n')]:
             self.assertNotEqual(native_recipe(original),native_recipe(bad))
 
+    def test_native_job_budget_reuses_commands_but_not_expressions_or_build_settings(self):
+        original = ('jobs:\n  upstream-baseline:\n    runs-on: ubuntu-24.04-arm\n'
+                    '    timeout-minutes: 90\n    steps:\n      - run: echo build\n')
+        changed = original.replace('    timeout-minutes: 90',
+                                   '    # Four mutation rebuilds.\n    timeout-minutes: 120')
+        self.assertEqual(native_recipe(original), native_recipe(changed))
+        for bad in [changed.replace('echo build', 'echo changed'),
+                    changed.replace('120', '${{ inputs.budget }}'),
+                    changed.replace('echo build', 'echo timeout-minutes'),
+                    changed.replace('ubuntu-24.04-arm', 'ubuntu-latest')]:
+            self.assertNotEqual(native_recipe(original), native_recipe(bad))
+
     def test_all_qualification_workflows_use_the_same_relay_and_only_controller_starts_native(self):
         for name,dependency in [('rald7-full-acceptance.yml','accepted'),('core-runtime-qualification.yml','qualify'),('manager-tui-native.yml','upstream-baseline')]:
             text=(ROOT/'.github/workflows'/name).read_text()

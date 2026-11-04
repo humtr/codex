@@ -67,7 +67,11 @@ def verify_recipe(source, source_sha):
     with tempfile.TemporaryDirectory(prefix='native-input-') as temporary:
         path = Path(temporary) / 'upstream.json'
         path.write_bytes(qualified_input)
-        if build_recipe(load_release(path)) != build_recipe(inputs):
+        qualified = load_release(path)
+        # This is a proof requirement, not a compiler input. verify() checks the
+        # retained executed-test log against the current count after recipe reuse.
+        qualified['qualification']['focused_tests'] = inputs['qualification']['focused_tests']
+        if build_recipe(qualified) != build_recipe(inputs):
             raise ValueError('native release recipe differs from qualified source')
 
 def verify(args):

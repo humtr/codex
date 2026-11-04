@@ -27,13 +27,24 @@ def signal_job(dependency, legacy=False):
 
 
 def native_recipe(workflow):
-    # Only this exact, isolated trailing notification job is outside the build
-    # recipe. Global settings and every build/test step remain byte-bound.
+    # Isolated notification and scheduling metadata do not change built bytes.
+    # Build settings and every build/test step remain byte-bound.
     for legacy in (False, True):
         tail = signal_job('upstream-baseline', legacy=legacy)
         if workflow.endswith(tail):
             workflow = workflow[:-len(tail)]
             break
+    job = re.search(r'(?m)^  upstream-baseline:\n', workflow)
+    if job:
+        rest = workflow[job.end():]
+        next_job = re.search(r'(?m)^  [A-Za-z0-9_-]+:\s*\n', rest)
+        end = job.end() + next_job.start() if next_job else len(workflow)
+        body = workflow[job.end():end]
+        # Only the literal budget of this known job, including its YAML comments.
+        # Expressions or command references to that field stay byte-bound.
+        if body.count('timeout-minutes') == 1:
+            body = re.sub(r'(?m)^(?:    #[^\n]*\n)*    timeout-minutes: [1-9][0-9]*\n', '', body)
+            workflow = workflow[:job.end()] + body + workflow[end:]
     # Subscription syntax is metadata only when no build/test command consumes
     # event/dispatch input. Future input-dependent recipes retain the whole file.
     match = re.search(r'(?m)^on:\n(?:[ \t].*\n|\n)*?(?=^permissions:)', workflow)

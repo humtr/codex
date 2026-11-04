@@ -4600,8 +4600,15 @@ only enqueue the accepted-input workflow with its run ID; it has no content-writ
 permission or signing key. The receiver waits for that run to finish, then checks
 owned exact-source qualification independently. Completion delivery is not proof.
 Native trigger metadata and the exact isolated relay are excluded from recipe
-comparison only while build/test code consumes no event/dispatch input; global
-settings and all actual build/test steps remain bound. Native builds start through
+comparison only while build/test code consumes no event/dispatch input. The literal
+wall-clock budget of the native build job is scheduling metadata, not a compiler
+input. Its change alone may reuse a completed successful run; it cannot admit a
+failed, canceled or incomplete run. Other global build settings and every build/
+test command remain bound. The required focused-test count is an acceptance
+criterion: reuse checks the retained log against the current required count,
+without treating an earlier misdeclared count as a source change. Source blobs,
+upstream/toolchains, dependency audit, executed tests, lint and artifact identity
+must still agree. Native builds start through
 the accepted-input controller, reusing a matching build already in progress.
 
 Provider-only source changes under providers/chatgpt use the independent optional
