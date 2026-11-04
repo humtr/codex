@@ -2028,6 +2028,12 @@ never run in the background. `synchronize` is solely the Native input barrier
 used by CLI: it waits for an admitted attached/source execution, without saved-Chat
 retrieval. Completion observers consume Native lifecycle events/recovery reads
 only. A development binding does not enable a periodic remote history reader.
+The CLI barrier applies to starting a next turn, not to steering an already
+observed running Native turn. Active-turn steering uses upstream's current writer
+and canonical turn ID; if a prepared steer loses that turn before submission,
+keep the draft rather than
+silently convert it into an unsynchronized new turn. Unreconciled writer/effect
+state is never cleared by a TUI shortcut.
 
 Implementation and remaining qualification order:
 

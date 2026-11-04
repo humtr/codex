@@ -18,6 +18,7 @@ pub(super) struct PendingInputSubmission {
     source: UserMessageSource,
     thread: Option<ThreadId>,
     pub(super) chat_provider: bool,
+    steering_turn: Option<String>,
     pub(super) label: &'static str,
     result: oneshot::Receiver<Result<Vec<UserInput>, String>>,
 }
@@ -42,9 +43,14 @@ impl ChatWidget {
         let id = uuid::Uuid::new_v4();
         let thread = self.thread_id();
         let chat_provider = self.needs_chat_synchronization();
+        // Upstream owns steering on a confirmed active Native turn. Only a
+        // next turn needs the Provider barrier against an external Chat input.
+        let steering_turn = (chat_provider && self.turn_lifecycle.agent_turn_running)
+            .then(|| self.turn_lifecycle.last_turn_id.clone())
+            .flatten();
         #[cfg(unix)]
-        let provider =
-            chat_provider.then(|| crate::termux_chat_models::installed_command(&self.config));
+        let provider = (steering_turn.is_none() && chat_provider)
+            .then(|| crate::termux_chat_models::installed_command(&self.config));
         let snapshot_images = self.snapshot_local_images;
         let images = message.local_images.clone();
         let remote_bytes = message.remote_image_urls.iter().map(String::len).sum();
@@ -105,11 +111,12 @@ impl ChatWidget {
             source,
             thread,
             chat_provider,
-            label: if chat_provider {
+            label: if chat_provider && steering_turn.is_none() {
                 "Synchronizing ChatGPT"
             } else {
                 "Preparing images"
             },
+            steering_turn,
             result,
         });
         self.refresh_pending_input_preview();
@@ -129,6 +136,9 @@ impl ChatWidget {
             .unwrap_or_else(|error| Err(format!("Failed to prepare input: {error}")));
         let prepared = if pending.thread != self.thread_id()
             || pending.chat_provider != self.needs_chat_synchronization()
+            || pending.steering_turn.is_some()
+                && (!self.turn_lifecycle.agent_turn_running
+                    || pending.steering_turn != self.turn_lifecycle.last_turn_id)
         {
             Err("Input destination changed during preparation; draft retained".into())
         } else {

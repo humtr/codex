@@ -1507,7 +1507,7 @@ index 7d0c740..51cd471 100644
                      ..QueuedUserMessage::new(
                          user_message,
                          match shell_escape_policy {
-@@ -275,10 +275,12 @@ impl ChatWidget {
+@@ -275,10 +275,14 @@ impl ChatWidget {
              });
          }
 
@@ -1518,7 +1518,9 @@ index 7d0c740..51cd471 100644
 +        if let Some(prepared_input) = prepared_input {
 +            items.extend(prepared_input);
 +        } else if (self.snapshot_local_images && !local_images.is_empty())
-+            || self.needs_chat_synchronization()
++            || (self.needs_chat_synchronization()
++                && (!self.turn_lifecycle.agent_turn_running
++                    || self.turn_lifecycle.last_turn_id.is_none()))
 +        {
 +            self.prepare_input_submission(
                  UserMessage {
@@ -2036,7 +2038,7 @@ index 4b77a77..7d38d49 100644
                  } else if scenario == "disconnect" {
                      chat.pause_for_disconnect();
                      chat.reconnect_failed();
-@@ -2905,16 +2905,120 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2905,16 +2905,164 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 80))
                              .replace('◦', "•")
                      );
@@ -2088,9 +2090,6 @@ index 4b77a77..7d38d49 100644
 +            codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
 +        chat.config.model_provider_id = crate::termux_chat_models::PROVIDER.into();
 +        chat.thread_id = Some(ThreadId::new());
-+        if scenario == "cancel" {
-+            handle_turn_started(&mut chat, "external-source");
-+        }
 +        let image = root.path().join("image.png");
 +        image::RgbImage::new(2, 2).save(&image).unwrap();
 +        chat.handle_paste(image.display().to_string());
@@ -2118,10 +2117,7 @@ index 4b77a77..7d38d49 100644
 +        assert!(chat.pending_input_submission.is_some());
 +        if scenario == "cancel" {
 +            chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-+            assert!(
-+                chat.turn_lifecycle.agent_turn_running,
-+                "cancel the draft before interrupting the existing source turn"
-+            );
++            assert!(!chat.turn_lifecycle.agent_turn_running);
 +        } else {
 +            std::fs::write(root.path().join(scenario), "").unwrap();
 +            tokio::time::timeout(Duration::from_secs(5), async {
@@ -2158,6 +2154,56 @@ index 4b77a77..7d38d49 100644
 +            );
 +        }
 +        assert!(chat.pending_input_submission.is_none());
++    }
++}
++
++#[cfg(unix)]
++#[tokio::test(flavor = "multi_thread")]
++async fn active_chat_provider_steer_uses_native_input_without_synchronization() {
++    for (with_image, replaced_turn) in [(false, false), (true, false), (true, true)] {
++        let root = tempfile::tempdir().unwrap();
++        let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
++        chat.config.model_provider_id = crate::termux_chat_models::PROVIDER.into();
++        chat.thread_id = Some(ThreadId::new());
++        handle_turn_started(&mut chat, "live-turn");
++        if with_image {
++            chat.snapshot_local_images = true;
++            let image = root.path().join("image.png");
++            image::RgbImage::new(2, 2).save(&image).unwrap();
++            chat.handle_paste(image.display().to_string());
++        }
++        chat.handle_paste("steer instruction".into());
++        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++        if with_image {
++            assert!(chat.pending_input_submission.is_some());
++            tokio::time::timeout(Duration::from_secs(5), async {
++                loop {
++                    if let AppEvent::InputPrepared(id) = events.recv().await.unwrap() {
++                        if replaced_turn {
++                            // The original steer must not become input for a later turn.
++                            chat.turn_lifecycle.last_turn_id = Some("replacement-turn".into());
++                        }
++                        chat.on_input_prepared(id);
++                        break;
++                    }
++                }
++            })
++            .await
++            .expect("image preparation completes without a Provider barrier");
++        } else {
++            assert!(
++                chat.pending_input_submission.is_none(),
++                "active text Steer must submit directly to Native"
++            );
++        }
++        if replaced_turn {
++            assert_no_submit_op(&mut operations);
++            assert_eq!(chat.bottom_pane.composer_text(), "steer instruction");
++        } else {
++            assert_matches!(next_submit_op(&mut operations), Op::UserTurn { items, .. }
++                if items.iter().any(|item| matches!(item, UserInput::Text { text, .. }
++                    if text == "steer instruction")));
++        }
 +    }
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs b/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs

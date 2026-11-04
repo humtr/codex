@@ -1,3 +1,5 @@
+<!-- Active Steer qualification candidate: source only. -->
+
 # Operating state and product completion
 
 SPEC owns product behavior; this file owns implementation, qualification,
@@ -4826,3 +4828,14 @@ Arbitrary provenance remains open. Each result retains its actual inputs,
 environment and limitations. Remaining acceptance is the matrix above.
 Provider21/Full121 public activation is complete, whereas full A1, signed tunnel
 distribution and independent-child scenario10 remain open.
+
+## Active Steer candidate qualification (2026-11-04)
+
+Active Native Steer bypasses the next-turn Provider synchronization barrier.
+Image preparation preserves its original turn destination and retains the draft
+when that turn changes. Next-turn synchronization and effect reconciliation remain
+unchanged. The hosted gate selects the Steer regression and injects the old
+barrier predicate in disposable source. Exact upstream assembly, patch scope,
+assembled regression syntax/format and workflow syntax pass. Compiled tests,
+mutation execution, Android UI and signed delivery are pending; no live repair
+or activation is claimed. Development authority remains AGENTS.md and SPEC4.5-4.6.
