@@ -7,9 +7,8 @@
 - Ignore confirmed retired server records during task discovery while retaining live writer and process identity checks.
 
 ## TUI
-- Restore the enhanced TUI on upstream 0.166, including account switching and supported permissions.
-- Confirm Android clipboard writes through the existing Termux socket, preserving full response text for /copy and Ctrl+O.
-- Carry the resolved invocation settings to Core so the UI and native input admission use the same provider.
+- Send active ChatGPT Steer to the original Native turn without waiting at the next-turn synchronization barrier; retain image drafts when their destination changes.
 
 ## Provider
-- Read invocation-configured native owner records and supply the selected ChatGPT route when preparing execution through Core. Provider packages retain their independent qualification and update channel.
+- Resume same-turn Native Steer on its owned Chat after confirmed Stop, preserving input/source identity and tool/effect fences.
+- Reconcile proven unexecuted offered calls after Native Stop and report work/lane alias failures with their original cause.
