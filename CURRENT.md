@@ -7,103 +7,96 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Current baseline and takeover verdict
 
-### P0: Active Steer batch — final artifact race under repair
+### P0: Active Steer batch — delivered and Jan service activated
 
-The final artifact recheck exposed native_lane_busy during two rapid Steers.
-Operator now distinguishes canceled requests from retired tasks and waits for
-same-turn cleanup, then revalidates existing Stop/controller/input/effect fences.
-The failure record and diagnostic evidence are retained; all temporary diagnosis
-code was removed before final acceptance. The clean work and source history are
-in the isolated worktree named below; original dirty user work is preserved.
+The maintained TUI sends active Steer through upstream's original Native writer.
+Image preparation retains its draft if the destination turn changes. Provider
+AppHost owns same-Chat continuation and validates the original submitted prefix,
+new user input and required Native results. Operator waits for a canceled
+predecessor task to retire before admitting its successor, then revalidates the
+existing Stop/controller/input/effect fences. MCP owns confirmed-Stop settlement
+and capability retirement. No Core or upstream Native executor was added
+(SPEC.md4.5–4.6); temporary diagnosis code was removed.
 
-The maintained TUI no longer sends active Steer through the next-turn Provider
-synchronization barrier. Upstream's original Native writer consumes it. Image
-preparation retains its draft if the destination turn changes. Provider AppHost
-retains the original remote Chat/source identity and accepts same-turn reentry
-only with an unchanged submitted prefix, newly appended user input and required
-Native results. MCP retires a confirmed stopped round only after settlement;
-old capabilities are revoked and existing claims/receipts remain intact.
-No Core or upstream Native executor was added (SPEC.md4.5–4.6).
+The accepted release source is e8e2c1b; Provider source is da5bf62. Clean work is
+in `$TMPDIR/steer-batch-v8lgrrmr/source`. The original dirty0814be7b workspace,
+including unrelated account-management work, remains preserved. After recovery
+reread AGENTS.md and inspect the actual branch, diff and unresolved findings.
 
-The implementation/release worktree is
-`$TMPDIR/steer-batch-v8lgrrmr/source`; frontend recipe807aba6 is published on
-rewrite/rust-core. The original dirty0814be7b workspace is preserved. After
-recovery reread AGENTS.md and inspect that actual worktree/diff before editing.
+Frontend evidence reuses successful native run41834657202 atdb307ec:144 actual
+focused tests, upstream features, format/lint and artifacte286df94. Expected-count
+correction143→144 and literal job-budget90→120 do not change compiled inputs.
+The qualifier checks the retained log against the current count and still binds
+source, commands, toolchains, dependency audit, successful run and artifact.
+Reuse/controller regressions and the targeted false-rejection mutation passed.
+Unnecessary rerun41850957815 was canceled at the user's objection; canceled
+run41842123715 retains its successful baseline/Steer-fault step but is not used
+as successful build authority. No unchanged native CI is restarted.
 
-Provider combined gate passed:186 library tests plus integration, strict Clippy,
-release and Bun/Python checks. Both targeted faults failed their regressions and
-were restored in disposable source. Actual Android Native operator/cold resume/
-Stop/recovery, package/TLS/rollback and all three compositions passed. Actual
-Android Core/TUI active Steer plus real Queue/Shift+Left passed with both inputs
-exactly once on the original Native turn and no false queue-edit hint. Chat
-responses were synthetic; no paid model or physical UI observation is claimed.
-Failed baseline/candidate results remain in the goal-defects-20261104 evidence
-root, alongside accepted v5, mutation results and payload archive/restore records.
+Provider's full gate passed186 library tests plus integration, strict Clippy,
+release and Bun/Python checks. The cancellation-versus-retirement fault failed
+its regression and was restored byte-for-byte. Diagnostic-free Provider8a392dee
+and frontende286df94 passed actual Android held-Stop Steer, Queue/Shift+Left,
+Native tools/cold resume/Stop/control, signed package/TLS/rollback and Base,
+Manager-without-TUI and Full compositions. Both Steers occurred once on the
+original Native turn, without a false queue-edit hint. Chat responses in these
+fixtures were synthetic; no paid model or physical UI observation is claimed.
 
-Frontend build/test evidence is reused from the successful native run41834657202
-atdb307ec:144 actual focused tests, retained upstream features, format/lint patches
-and artifacte286df94 all agree. The later expected-count correction143→144 and
-job budget90→120 do not change compiled inputs. The existing qualifier now
-normalizes only these acceptance/scheduling metadata; it still checks the retained
-log against the current144 requirement and rejects changed commands, source,
-toolchains, dependency audit, artifacts, failed or incomplete runs. The actual
-retained artifact passed this qualifier; focused reuse/controller tests and an
-injected restoration of the old false rejection passed/detected as required.
-This corrects the earlier claim that the whole native build must restart.
-The user's objection stopped the unnecessary replacement run41850957815.
-Run41842123715 had passed its144-test baseline and the targeted Steer mutation
-(test fails under the old barrier, source restored); its overall canceled status
-is retained and never used as successful build authority. Legacy unchanged fault
-checks are not repeated solely because a new check was added.
+Provider25 is signed, completely publicly read back and accepted by14 disposable
+Android consumer steps, then promoted non-forced at maind64e70e. Signing
+run41854609332 failed only release creation with403; the existing owner published
+the retained, reverified signed assets without rebuilding/resigning. Its failed
+workflow status is preserved. Full publication41858194993 succeeded with the
+same accepted source/frontend after re-evaluating the independently changed main
+pointer. Base147 and Full148 passed public readback, disposable update/rollback
+and non-forced promotion. Public assets and previous generations are retained.
 
-Provider retirement fixda5bf62 passed official source/Core/Provider CI and the
-local full Provider gate (186 library tests, integration, strict Clippy, release,
-Bun/Python). The diagnostic-free artifact8a392dee and new fronte286df94 passed
-the held-Stop Android Steer/Queue/edit scenario (ct-kt03ievl), Native operator/
-cold resume/Stop/recovery, signed package/real TLS and all three compositions.
-The targeted fault replacing task retirement with cancellation failed its
-regression and was restored byte-for-byte. Synthetic Chat, zero model requests;
-physical UI and operating service activation are still distinct. Provider25
-signing/public delivery remain pending; Provider24 is preserved.
+The device updater selected Full148/Base147 and signed Provider25, exited0 and
+passed installed version/readback checks. At that package boundary31 protected
+files and all4 operating Provider owners were preserved. The subsequent bounded
+Jan activation deliberately changed its runit executable, the same tunnel's MCP
+command and only the authentication executable field in8 referencing profiles.
+Original configuration bytes are retained under the owned live-cutover root.
+The default Provider and existing Native/app/browser owners were preserved.
 
-Signed Provider24 (`chatgpt-88ec196a244d-s24`) passed signing CI41839126238,
-complete public readback and14 disposable Android install/dispatch/reinstall/
-rollback steps. It was promoted non-forced at mainf36064f. The first consumer
-failed only its final process oracle because it included a transient MCP request;
-the corrected lifetime check protects actual service/tunnel owners and passed.
-See `provider24-public-consumer.json` and `provider24-promotion.json` in the
-existing evidence root. Full publication and device activation remain separate.
+The CDP409 was competition for a single connection already owned by the old Jan
+Provider. Serial maintenance stopped that service, used the existing temporary
+qualification relay for canonical `scripts/d3_refresh.mjs`, then stopped the
+relay with confirmed kernel exit. Signed Provider25 now owns the original direct
+app connection; no permanent relay or new refresh API was added. The refresh
+called app refresh_actions, invalidated client caches and verified all17 complete
+registered/MCP input schemas, including inference. A new connected Native work
+completed create/start/attach/context acceptance/tools, command execution, exact
+retry, independent readback and finish. The append happened once; final Native
+status is idle/completed with no pending calls or unconfirmed effects.
 
-Original works5c43343f... and385d5be4... still report reconciliation_required /
-notLoaded on current read-only status. Neither was stopped, claimed or replayed.
-The historical desktop descriptor's process identities validate, but its single
-CDP connection returns HTTP409 (Owned connection in use). A usable currently
-owned connection for existing scripts/d3_refresh.mjs is still missing; do not
-claim client refresh or live repair. Core Full144, selected Provider23 and the
-operating Jan52eb22fd development image have not been replaced by this batch.
-The reserved Pro trial remains untouched.
+Evidence is under
+`~/.cache/codex/acceptance/goal-defects-20261104/`: final Android/mutation/public
+consumer results, `device-update-final-after.json`, `d3-provider25-live.log` and
+`provider25-connected-native-final.json`. Earlier failure records remain
+historical observations, including `live-client-remaining-boundary.json`; they
+are superseded by the successful activation/refresh/Native evidence above.
+Manifest-owned inactive fixture payloads were archived with restore records;
+compiler cache remains within the15GiB budget.
 
-Reconciled on 2026-11-03 against Git, both original local rollouts, installed
-selection records, running executable identities, Provider journals and actual
-Native thread/turn results. The product is operational in qualified scopes;
-**P0-1/P0-2 and the complete NC-01..29 matrix are not universally accepted.**
-Completed work is retained; the remaining work below is not a request to rebuild
-those features from scratch.
+Original works5c43343f...,385d5be4... and a65b56a1... remain
+reconciliation_required/notLoaded on their last observation. They were not
+stopped, claimed or replayed. This batch repairs the current connected path; it
+does not claim recovery of those original turns or universal P0/NC-01..29
+acceptance. The reserved Pro trial and user chats/credentials/jobs are untouched.
 
 | Boundary | Verified state | Qualification limit |
 | --- | --- | --- |
-| Repository | `rewrite/rust-core`; takeover started at `f2084f3`; subsequent remote documentation `605c9b5` integrated without rewriting history | Git HEAD is not the installed release |
-| Selected Core | Full144 / Base143 / upstream0.166.0, `local-relay-hosted-0-166-0-0c2a567bb06f-s144`; previous Full142 retained | Current `activation-state` v3 readback; running app-server image also matches Full144. Physical UI observation remains separate |
-| Selected optional Provider | Signed Provider23, `chatgpt-0c2a567bb06f-s23`, high-water23; previous22/21 retained | Independent package selection, not the running process |
-| Running Provider (`janmori101`) | Development image `development/p0-effect-reconcile-29baba0-52eb22fd/codex-chatgpt-provider`, executable SHA256 `52eb22fd85423cf5aa718d1133d2b033dedf9d692425c33cdd3ec8325c991f31` (default `chatgpt` service retains `2328b656...`) | Unsigned dirty-source build with confirmed-Stop unexecuted MCP call settlement and `lane.marker` owner mapping; not a signed Provider24 |
-| Public Provider stable | Signed channel23 and public release `chatgpt-0c2a567bb06f-s23`; previous signed22 retained | Promoted at main `3cfd0209a06103a3ba0a68c04f29b86e0d957d8e`; operating `janmori101` service uses the newer development image above |
-| Linux ChatGPT consumer | Existing `scripts/d3_refresh.mjs` succeeded on the live `janmori101` desktop session (`ld-tqo0snje`) and `@TermuxBridge` (`asdk_app_6ae9d933635081919b50090c57464b81`); registered actions and live MCP full schemas match all17 tools (`inference=["attached","submitted"]`) | Actual SDK client path, not a physical Android UI observation or proof of autonomous model tool choice |
-| New Native client work | `0d212e415b87ee75179874529533223fec6dc7272256464a` (`thread_id=01a1a4d6-6237-7763-a547-4c3e21e8fadc`): create, start, read/accept context, discover, report, two commands, exact retry, repository read, final, status/history all succeeded with `unconfirmed_effects=0` | Attached reasoning, zero additional model requests; no claim about simultaneous physical Android/TUI pixels |
+| Accepted source | rewrite/rust-core e8e2c1b; Provider da5bf62 | Original dirty0814 workspace is independent |
+| Selected Core | Full148 / Base147 / upstream0.166.0, local-relay-hosted-0-166-0-e8e2c1b2e10d-s148; previous Full144 retained | Selection is distinct from existing retained Native server144 and physical UI |
+| Selected optional Provider | Signed Provider25, chatgpt-da5bf622bc49-s25 | Package selection and running process were checked separately |
+| Operating Jan Provider/MCP | Both executables are installed signed Provider25, SHA2568a392dee5143966f63624eeb32c89417a012b4bae2474c2035ead7c55438efb3; same tunnel and app session | Default chatgpt service retains its2328b656 development image |
+| Linux ChatGPT consumer | Canonical d3_refresh on the live owned Jan desktop and @TermuxBridge asdk_app_6ae9d933635081919b50090c57464b81;17 complete schemas agree | Actual client API path; no physical UI observation or autonomous model-choice claim |
+| New Native work | 2d7a652d6c357e6bb14642adced0170d1930198586a14284; thread01a1a76d-952c-7e41-8db9-4ff21d226ffd; completed and idle | Attached inference, zero additional model requests; two Native commands, exact retry, one append |
 
-The previous CURRENT front page's Full134 / 78e / 49af operating claims are
-superseded by these readbacks. Those generations and original rollback evidence
-remain preserved. Run-time PIDs are deliberately not enduring product identity;
-revalidate image/start-time before any further live action.
+The historical takeover sections below retain earlier evidence and unresolved
+scope. The current table supersedes their older operating-generation claims.
+Revalidate process image/start-time before another live action.
 
 ### Actual handoff boundary and subsequent integration
 
