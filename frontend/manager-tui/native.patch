@@ -2038,7 +2038,7 @@ index 4b77a77..7d38d49 100644
                  } else if scenario == "disconnect" {
                      chat.pause_for_disconnect();
                      chat.reconnect_failed();
-@@ -2905,16 +2905,170 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2905,16 +2905,174 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 80))
                              .replace('◦', "•")
                      );
@@ -2173,6 +2173,7 @@ index 4b77a77..7d38d49 100644
 +            chat.handle_paste(image.display().to_string());
 +        }
 +        chat.handle_paste("steer instruction".into());
++        let original = chat.bottom_pane.composer_draft_snapshot();
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 +        if with_image {
 +            assert!(chat.pending_input_submission.is_some());
@@ -2198,7 +2199,10 @@ index 4b77a77..7d38d49 100644
 +        }
 +        if replaced_turn {
 +            assert_no_submit_op(&mut operations);
-+            assert_eq!(chat.bottom_pane.composer_text(), "steer instruction");
++            let restored = chat.bottom_pane.composer_draft_snapshot();
++            assert_eq!(restored.text, original.text);
++            assert_eq!(restored.text_elements, original.text_elements);
++            assert_eq!(restored.local_images, original.local_images);
 +        } else {
 +            let expected_text = if with_image {
 +                "[Image #1] steer instruction"
