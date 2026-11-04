@@ -43,6 +43,15 @@ responses were synthetic; no paid model or physical UI observation is claimed.
 Failed baseline/candidate results remain in the goal-defects-20261104 evidence
 root, alongside accepted v5, mutation results and payload archive/restore records.
 
+The four-fault native job needs a120-minute budget: normal CI41834657202
+used49 minutes, the new Steer fault used13m42s, and the three retained faults in
+41750031338 each used14–15 minutes. Their total exceeds the inherited90-minute
+limit. Current807aba6 run41842123715 passed its144-test baseline and Steer fault,
+but is being replaced before its known-insufficient deadline. All fault tests,
+restoration assertions and final gates remain; the workflow budget alone changes.
+Because the native admission recipe binds the whole workflow, a new exact-source
+run is required; neither a passed step nor a canceled job qualifies its artifact.
+
 Official TUI CI41834657202 passed144 focused tests, upstream features and lint.
 The expected release count was corrected from143 to144 at807aba6; the required
 mutation-enabled run41842123715 is in progress on that exact source. Earlier two
