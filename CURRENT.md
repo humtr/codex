@@ -59,7 +59,8 @@ The hosted gate includes settings, real-terminal, warm/cold resume, storage and
 catalog failures, compaction, Guardian, client, initialize and config tests plus
 three targeted Native fault checks. Follow the feature branch's latest
 manager-tui-native workflow for current qualification rather than reuse a run
-from an older source. No production runtime was replaced. TUI intent wiring,
+from an older source. The signed Native is unchanged; the bounded compatible
+Provider app/auth trial is described below. TUI intent wiring,
 portable compaction, app binding/connector refresh and actual cross-entrance
 inference remain unfinished. Do not treat this source candidate as connectivity
 repair or deployment. Original dirty0814be7b work and earlier isolated sources
