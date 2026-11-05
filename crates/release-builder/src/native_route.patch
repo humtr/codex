@@ -14131,7 +14131,7 @@ index 8badd11..27bfc06 100644
      Ok(())
  }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b1..2722e61 100644
+index ab688b1..0728321 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 @@ -774,3 +774,558 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
@@ -14169,7 +14169,7 @@ index ab688b1..2722e61 100644
 +    ])
 +    .await;
 +    let home = TempDir::new()?;
-+    MockResponsesConfig::new(first.uri())
++    MockResponsesConfig::new(&first.uri())
 +        .with_sandbox_mode("danger-full-access")
 +        .enable_feature(codex_features::Feature::UnifiedExec)
 +        .with_provider_config("supports_websockets = false")
@@ -14384,7 +14384,7 @@ index ab688b1..2722e61 100644
 +    let first = responses::start_mock_server().await;
 +    let second = responses::start_mock_server().await;
 +    let home = TempDir::new()?;
-+    MockResponsesConfig::new(first.uri())
++    MockResponsesConfig::new(&first.uri())
 +        .with_provider_config("supports_websockets = false")
 +        .with_extra_config(&format!("[model_providers.alternate]\nname = 'Alternate'\nbase_url = '{}/v1'\nwire_api = 'responses'\nrequires_openai_auth = false\nsupports_websockets = false\n", second.uri()))
 +        .write(home.path())?;
@@ -14617,7 +14617,7 @@ index ab688b1..2722e61 100644
 +    let first = responses::start_mock_server().await;
 +    let second = responses::start_mock_server().await;
 +    let home = TempDir::new()?;
-+    MockResponsesConfig::new(first.uri())
++    MockResponsesConfig::new(&first.uri())
 +        .with_provider_config("supports_websockets = false")
 +        .with_extra_config(&format!("[model_providers.alternate]\nname = 'Alternate'\nbase_url = '{}/v1'\nwire_api = 'responses'\nrequires_openai_auth = false\nsupports_websockets = false\n", second.uri()))
 +        .write(home.path())?;
