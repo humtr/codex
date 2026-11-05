@@ -383,7 +383,7 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 1ef252d..0ee1351 100644
+index 1ef252d..7b64e7e 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
@@ -491,9 +491,9 @@ index 1ef252d..0ee1351 100644
 +                        },
 +                    )
 +                    .await
-+                    .map_err(|error| match error {
-+                        codex_protocol::error::CodexErr::InvalidRequest(message) => {
-+                            invalid_request(message)
++                    .map_err(|error| match error.details() {
++                        CodexErrorDetails::InvalidRequest(message) => {
++                            invalid_request(message.clone())
 +                        }
 +                        error => {
 +                            internal_error(format!("failed to change model provider: {error}"))
@@ -545,6 +545,15 @@ index 1ef252d..0ee1351 100644
                  .await
                  .map_err(|err| config_load_error(&err))?;
              let redact_resume_payloads =
+@@ -6577,7 +6638,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
+ fn thread_store_mutation_error(operation: &str, err: ThreadStoreError) -> JSONRPCErrorError {
+     match err {
+         ThreadStoreError::InvalidRequest { message } | ThreadStoreError::Conflict { message } => {
+-            invalid_request(message)
++            invalid_request(message.clone())
+         }
+         ThreadStoreError::Unsupported {
+             operation: unsupported_operation,
 diff --git a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
 index be77be3..a2f5b5a 100644
 --- a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
@@ -559,7 +568,7 @@ index be77be3..a2f5b5a 100644
              .map_err(|error| config_load_error(&error))?;
          let submission = self
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
-index f310c4a..1fb7dc8 100644
+index f310c4a..22abb72 100644
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
 @@ -338,7 +338,7 @@ impl TurnRequestProcessor {
@@ -610,7 +619,7 @@ index f310c4a..1fb7dc8 100644
          let cwd = resolve_request_cwd(params.cwd)?;
          let environment_override = self
              .build_environment_override(
-@@ -957,7 +980,17 @@ impl TurnRequestProcessor {
+@@ -957,7 +980,15 @@ impl TurnRequestProcessor {
              )
              .await?;
  
@@ -619,17 +628,15 @@ index f310c4a..1fb7dc8 100644
 +            thread
 +                .update_model_provider(config, thread_settings)
 +                .await
-+                .map_err(|error| match error {
-+                    codex_protocol::error::CodexErr::InvalidRequest(message) => {
-+                        invalid_request(message)
-+                    }
++                .map_err(|error| match error.details() {
++                    CodexErrorDetails::InvalidRequest(message) => invalid_request(message.clone()),
 +                    error => internal_error(format!("failed to change model provider: {error}")),
 +                })?;
 +        } else if thread_settings != codex_protocol::protocol::ThreadSettingsOverrides::default() {
              self.submit_core_op(
                  request_id,
                  thread.as_ref(),
-@@ -1037,7 +1070,7 @@ impl TurnRequestProcessor {
+@@ -1037,7 +1068,7 @@ impl TurnRequestProcessor {
          self.ensure_direct_input_allowed(request_id, thread.as_ref())
              .await?;
          self.config_manager
