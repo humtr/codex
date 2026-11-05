@@ -19,6 +19,15 @@ for(const [status,code] of [[429,'app_model_catalog_rate_limited'],[401,'app_mod
  await expect(bridge({op:'model_catalog',owner:'reader',readOnlyContext:true,bindings})).rejects.toThrow(code);
  expect(f.sent).toHaveLength(0);expect(f.created).toBe(0);expect(globalThis[slot]).toBeUndefined();
 }));
+for(const authMethod of ['chatgpt','chatgptAuthTokens'])for(const returnPath of ['local_function','mcp'])test(`installed ChatGPT auth methods reach the app wire: ${authMethod}/${returnPath}`,async()=>fixture(async({f,bindings})=>{
+ f.authMethod=authMethod;
+ await bridge({op:'init',owner:'owned',returnPath,bindings});
+ await bridge({op:'open',owner:'owned',lane:'auth',signature:{name:'native_gateway'}});
+ await bridge({op:'submit',owner:'owned',lane:'auth',round:'first',messages:[{role:'user',text:'Continue existing work'}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(1);
+ expect(f.sent[0].messages.some(message=>message.content?.parts?.includes('Continue existing work'))).toBe(true);
+ expect((await bridge({op:'identity',owner:'owned',lane:'auth'})).account).toBe('account');
+}));
 test('source references retain actual wire user IDs and clear them for an observed external response',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  await bridge({op:'open',owner:'owned',lane:'source',signature:{name:'unused'}});
@@ -311,7 +320,7 @@ async function fixture(run){
  export function bRt(scope,{callId,conversationId,isTemporaryChat,model,onServerThreadIdChange,result,thinkingEffort,toolName}){return yRt(scope,{conversationId,isTemporaryChat,model,onServerThreadIdChange,thinkingEffort,userCompletionMessages:{message:{id:'tool-reply',author:{role:'tool'},content:{text:JSON.stringify({call_id:callId,result,tool:toolName})}}}});}
  `);
  writeFileSync(join(root,'shared.mjs'),`export const HAt={kind:'gate'},xNt={kind:'identity'};export function N0t(_scope,path){globalThis.appBridgeFixture.revealed=path;}export const $wt=globalThis.appBridgeFixture.wire;`);
- const scope={get(node){return node.kind==='conversation'?{data:{current_node:f.queryHead}}:node.kind==='catalog'?{data:f.catalog}:node.kind==='selection'?f.selection:node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{async getOrFetch(node){f.queries.push(node.kind);}}};
+ const scope={get(node){return node.kind==='conversation'?{data:{current_node:f.queryHead}}:node.kind==='catalog'?{data:f.catalog}:node.kind==='selection'?f.selection:node.kind==='client'?client:node.kind==='messages'?f.nodes:node.kind==='status'?(f.activity??(f.active?'streaming':'idle')):node.kind==='gate'?f.gate:node.kind==='identity'?{authLoading:f.authLoading,authMethod:f.authMethod??'chatgpt',accountId:'account',authenticatedAccountId:'account',accountUserId:'user__personal',userId:'user',authenticatedUserId:'user',accountStructure:'personal',email:'not-exported',accessToken:'never-export'}:{};},set(){},node:{},chain:{},query:{async getOrFetch(node){f.queries.push(node.kind);}}};
  f.scope=scope;
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:f.scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};

@@ -3,6 +3,12 @@
 async function termuxCodexBridge(command) {
   const slot = Symbol.for('termux.codex.app.bridge.v1');
   const fail = code => { throw Error(code); };
+  // Both modes are emitted by this app's Native authentication producer.
+  const chatAuth=auth=>auth && !auth.authLoading && !auth.accountLoading &&
+    ['chatgpt','chatgptAuthTokens'].includes(auth.authMethod) &&
+    typeof auth.accountId==='string' && auth.accountId && auth.accountId===auth.authenticatedAccountId &&
+    typeof auth.userId==='string' && auth.userId && auth.userId===auth.authenticatedUserId &&
+    ['personal','workspace'].includes(auth.accountStructure);
   const failureCode=(lane,fallback)=>['assignment_app_budget_exhausted','assignment_time_budget_exhausted'].includes(lane.admissionCause)?lane.admissionCause:fallback;
   const completion=lane=>{
     const epoch=lane.epoch,serial=(lane.streamSerial??0)+1;
@@ -162,7 +168,7 @@ async function termuxCodexBridge(command) {
       const rejectDispatch=code=>{lane.rejectedBeforeDispatch=true;lane.admissionCause=code;if(!lane.priorStreamUnsettled)lane.streamActive=false;fail(code);};
       if(lane.stopRequested)rejectDispatch('app_dispatch_stopped');
       const auth=appScope()?.get(state.shared.xNt);
-      if(!auth||auth.authLoading||auth.accountLoading||auth.authMethod!=='chatgpt'||auth.accountId!==auth.authenticatedAccountId||auth.userId!==auth.authenticatedUserId||auth.accountId!==lane.accountIdentity.account||auth.userId!==lane.accountIdentity.user||auth.accountStructure!==lane.accountIdentity.structure)rejectDispatch('app_account_changed');
+      if(!chatAuth(auth)||auth.accountId!==lane.accountIdentity.account||auth.userId!==lane.accountIdentity.user||auth.accountStructure!==lane.accountIdentity.structure)rejectDispatch('app_account_changed');
       const bootstrap=lane.nonUserBootstrap===true && (lane.signature.name==='operator_no_local_tools'||/^operator_local_[0-9a-f]{48}$/.test(lane.signature.name)) && !lane.priorStreamUnsettled && roles.length>0 && roles.every(role=>role==='system');
       const reply=request.messages?.length===1?request.messages[0]:null;
       const metadata=reply?.metadata,plugin=metadata?.jit_plugin_data??metadata?.elicitation_metadata?.plugin_data;
@@ -212,10 +218,7 @@ async function termuxCodexBridge(command) {
   const identity = (scope=state.scope) => {
     const auth=scope.get(state.shared.xNt);
     if(auth?.authLoading||auth?.accountLoading)fail('app_auth_loading');
-    if (!auth || auth.authLoading || auth.accountLoading || auth.authMethod!=='chatgpt' ||
-        typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
-        typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||
-        !['personal','workspace'].includes(auth.accountStructure)) fail('app_auth_context_unavailable');
+    if (!chatAuth(auth)) fail('app_auth_context_unavailable');
     return {account:auth.accountId,user:auth.userId,structure:auth.accountStructure};
   };
   // Retrieval pacing is shared transport metadata, separate from lane ownership.

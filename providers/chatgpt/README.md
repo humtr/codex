@@ -242,6 +242,9 @@ the official app login in that UI, then inspect:
 codex provider chatgpt host status
 ```
 
+The app binding accepts the installed app's `chatgpt` and `chatgptAuthTokens`
+authentication modes through one identity predicate. Both require the selected
+and authenticated account/user to match before discovery and wire dispatch.
 The app must report ready in the intended account. Opening a window or receiving
 a successful Android intent alone does not establish that. A cold app can be
 unready while initializing; inspect its current state rather than repeatedly
