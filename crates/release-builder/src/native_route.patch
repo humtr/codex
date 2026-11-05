@@ -383,7 +383,7 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 1ef252d..7b64e7e 100644
+index 1ef252d..a24b9a8 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
@@ -483,7 +483,7 @@ index 1ef252d..7b64e7e 100644
 +                existing_thread
 +                    .update_model_provider(
 +                        Arc::new(destination),
-+                        CodexThreadSettingsOverrides {
++                        codex_protocol::protocol::ThreadSettingsOverrides {
 +                            model,
 +                            effort: effort.map(Some),
 +                            service_tier: params.service_tier.clone(),
