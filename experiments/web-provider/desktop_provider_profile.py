@@ -77,7 +77,7 @@ def install(server,codex_home,template,runtime=None):
     binding=data/'server.json';write(binding,value)
     model=json.loads(template.read_text())['models'][0]
     model.update({'slug':value['model'],'display_name':'ChatGPT · Instant','description':'Actual ChatGPT Chat mode through the local Linux desktop bridge (experimental)',
-                  'context_window':32768,'max_context_window':32768,'auto_compact_token_limit':None,
+                  'context_window':1000000,'max_context_window':1000000,'auto_compact_token_limit':None,
                   'prefer_websockets':False,'supports_reasoning_effort_updates':False,'default_reasoning_level':'none',
                   'supported_reasoning_levels':[{'effort':'none','description':'ChatGPT Instant'}],
                   'tool_mode':'direct','multi_agent_version':'v1','model_messages':{'instructions_template':'You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.','instructions_variables':None},'input_modalities':['text'],'supports_search_tool':True,'visibility':'hide','supported_in_api':True})

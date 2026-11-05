@@ -1,0 +1,13 @@
+--- novnc/app/ui.js
++++ novnc/app/ui.js
+@@ -107,8 +107,6 @@
+         }
+ 
+-        // Restore control bar position
+-        if (WebUtil.readSetting('controlbar_pos') === 'right') {
+-            UI.toggleControlbarSide();
+-        }
++        // Start the mobile desktop controls on the right.
++        UI.toggleControlbarSide();
+ 
+         UI.initFullscreen();
