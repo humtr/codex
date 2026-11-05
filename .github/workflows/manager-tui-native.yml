@@ -205,23 +205,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd upstream/codex-rs
+          cd upstream
+          # Reuse upstream test runner, profile and stack settings from its justfile.
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
           for scope in model_provider compact guardian; do
-            cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib "$scope" -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-core-$scope.log"
+            just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E "test($scope)" 2>&1 | tee "$RUNNER_TEMP/native-provider-core-$scope.log"
           done
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib provider_tests -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite initialize -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib -E 'test(provider_tests)' 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
           python3 - <<'PYTHON'
           import os, re
           from pathlib import Path
           root = Path(os.environ['RUNNER_TEMP'])
           for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config', 'api', 'initialize']:
               text = (root / f'native-provider-{name}.log').read_text()
-              assert re.search(r'test result: ok\. [1-9][0-9]* passed', text), name + ': required tests did not pass'
+              text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+              summary = re.search(r'Summary\s*\[[^\]]+\]\s*([1-9][0-9]*) tests? run: ([1-9][0-9]*) passed(?:, [0-9]+ skipped)?\s*$', text)
+              assert summary and summary[1] == summary[2], name + ': required tests did not pass'
           PYTHON
       - name: Verify destination catalog regression
         id: native-catalog-mutation
@@ -229,14 +232,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd upstream/codex-rs
-          source=core/src/thread_manager.rs
+          cd upstream
+          source=codex-rs/core/src/thread_manager.rs
           original="$RUNNER_TEMP/native-provider-catalog-original.rs"
           cp "$source" "$original"
           trap 'cp "$original" "$source"' EXIT
           python3 - <<'PYTHON'
           from pathlib import Path
-          path = Path('core/src/thread_manager.rs')
+          path = Path('codex-rs/core/src/thread_manager.rs')
           text = path.read_text()
           start = text.index('        let models_manager = if ', text.index('async fn spawn_thread('))
           end = text.index('        let spawn_result = Session::spawn(', start)
@@ -245,35 +248,36 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
           set +e
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider_binding_keeps_originators_and_selects_destination_catalog -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-mutation.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E 'test(model_provider_binding_keeps_originators_and_selects_destination_catalog)' 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-mutation.log"
           result=${PIPESTATUS[0]}
           set -e
           test "$result" -ne 0
           python3 - <<'PYTHON'
-          import os
+          import os, re
           from pathlib import Path
           text = Path(os.environ['RUNNER_TEMP'], 'native-provider-catalog-mutation.log').read_text()
-          assert 'test result: FAILED' in text, text[-6000:]
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*[1-9][0-9]* tests? run:.*[1-9][0-9]* failed', text), text[-6000:]
           assert 'the destination catalog must replace the former binding' in text, text[-6000:]
           PYTHON
           cp "$original" "$source"
           cmp "$original" "$source"
           trap - EXIT
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider_binding_keeps_originators_and_selects_destination_catalog -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-restored.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E 'test(model_provider_binding_keeps_originators_and_selects_destination_catalog)' 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-restored.log"
       - name: Verify provider runtime binding regression
         id: native-route-mutation
         if: ${{ inputs.native_transition_mutation_check }}
         shell: bash
         run: |
           set -euo pipefail
-          cd upstream/codex-rs
-          source=core/src/session/mod.rs
+          cd upstream
+          source=codex-rs/core/src/session/mod.rs
           original="$RUNNER_TEMP/native-provider-original.rs"
           cp "$source" "$original"
           trap 'cp "$original" "$source"' EXIT
           python3 - <<'PYTHON'
           from pathlib import Path
-          path = Path('core/src/session/mod.rs')
+          path = Path('codex-rs/core/src/session/mod.rs')
           text = path.read_text()
           needle = 'self.services.inference.store(Arc::clone(runtime));'
           assert text.count(needle) == 1
@@ -282,21 +286,22 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
           set +e
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider_roundtrip_preserves_jobs_history_observers_and_siblings -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-mutation.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-mutation.log"
           result=${PIPESTATUS[0]}
           set -e
           test "$result" -ne 0
           python3 - <<'PYTHON'
-          import os
+          import os, re
           from pathlib import Path
           text = Path(os.environ['RUNNER_TEMP'], 'native-provider-mutation.log').read_text()
-          assert 'test result: FAILED' in text, text[-6000:]
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*[1-9][0-9]* tests? run:.*[1-9][0-9]* failed', text), text[-6000:]
           assert 'selected route did not receive the continuation' in text, text[-6000:]
           PYTHON
           cp "$original" "$source"
           cmp "$original" "$source"
           trap - EXIT
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider_roundtrip_preserves_jobs_history_observers_and_siblings -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
       - name: Upload unsigned frontend candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

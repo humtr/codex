@@ -2012,7 +2012,7 @@ index 3f98917..0b5e4b2 100644
          SessionSource::Exec,
          session.services.turn_environments.environment_manager(),
 diff --git a/codex-rs/core/src/guardian/tests.rs b/codex-rs/core/src/guardian/tests.rs
-index b09c543..9cdeffd 100644
+index b09c543..037c349 100644
 --- a/codex-rs/core/src/guardian/tests.rs
 +++ b/codex-rs/core/src/guardian/tests.rs
 @@ -174,10 +174,7 @@ async fn guardian_test_session_turn_and_rx(
@@ -2036,6 +2036,15 @@ index b09c543..9cdeffd 100644
      crate::guardian::test_host::install(&session, &config);
      turn.config = Arc::clone(&config);
      turn.provider = create_model_provider(config.model_provider.clone(), turn.auth_manager.clone());
+@@ -1878,7 +1875,7 @@ async fn guardian_reuse_respects_effective_policy_and_personality_opt_out(
+             .collect(),
+     )
+     .await;
+-    let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
++    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
+     Arc::make_mut(&mut Arc::get_mut(&mut turn).expect("unshared turn").config)
+         .guardian_policy_config = configured_policy.map(str::to_owned);
+     let mut captured = GuardianReviewContext::from(&turn);
 @@ -1893,14 +1890,12 @@ async fn guardian_reuse_respects_effective_policy_and_personality_opt_out(
      }))?);
      captured.personality = Some(codex_protocol::config_types::Personality::Friendly);
@@ -2053,7 +2062,13 @@ index b09c543..9cdeffd 100644
      seed_guardian_parent_history(&session, &turn).await;
  
      let mut changed_policy = captured.clone();
-@@ -1988,14 +1983,12 @@ async fn guardian_request_model_for_auto_review(
+@@ -1983,19 +1978,17 @@ async fn guardian_request_model_for_auto_review(
+     )
+     .await;
+ 
+-    let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
++    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
+     match catalog {
          GuardianTestCatalog::Bundled => {}
          GuardianTestCatalog::Explicit => {
              let auth_manager = Arc::clone(&session.services.auth_manager);
@@ -2092,8 +2107,12 @@ index b09c543..9cdeffd 100644
      crate::guardian::test_host::install(&session, &config);
      let memory_extension = Arc::new(GuardianMemoryContextProbe);
      let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
-@@ -2499,21 +2490,21 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
-     let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
+@@ -2496,24 +2487,24 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
+     )
+     .await;
+ 
+-    let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
++    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
      let mut reviewer_model = session
          .services
 +        .inference
@@ -2118,7 +2137,17 @@ index b09c543..9cdeffd 100644
      let turn_mut = Arc::get_mut(&mut turn).expect("turn should be unique");
      update_turn_settings_for_test(turn_mut, |settings| {
          Arc::make_mut(&mut settings.model_info).auto_review_model_override =
-@@ -3060,10 +3051,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() ->
+@@ -3050,8 +3041,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() ->
+     )
+     .await;
+ 
+-    let (mut session, mut turn, rx) =
+-        crate::session::tests::make_session_and_context_with_rx().await;
++    let (session, mut turn, rx) = crate::session::tests::make_session_and_context_with_rx().await;
+     let mut config = (*turn.config).clone();
+     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+     let config = Arc::new(config);
+@@ -3060,10 +3050,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() ->
          Arc::clone(&session.services.auth_manager),
          config.model_provider.clone(),
      );
@@ -2130,9 +2159,12 @@ index b09c543..9cdeffd 100644
      crate::guardian::test_host::install(&session, &config);
      let turn_mut = Arc::get_mut(&mut turn).expect("turn should be uniquely owned");
      turn_mut.config = Arc::clone(&config);
-@@ -3960,14 +3948,12 @@ async fn guardian_review_session_config_clears_context_overrides_for_distinct_ef
+@@ -3958,16 +3945,14 @@ async fn guardian_review_session_config_preserves_parent_network_proxy() {
+ #[tokio::test]
+ async fn guardian_review_session_config_clears_context_overrides_for_distinct_effective_model() {
      let server = start_mock_server().await;
-     let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
+-    let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
++    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
      let auth_manager = Arc::clone(&session.services.auth_manager);
 -    Arc::get_mut(&mut session)
 -        .expect("unique session")
@@ -2147,8 +2179,12 @@ index b09c543..9cdeffd 100644
      crate::guardian::test_host::install(&session, &turn.config);
      let mut config = (*turn.config).clone();
      config.model = Some("codex-auto-review".to_string());
-@@ -3998,16 +3984,14 @@ async fn guardian_review_session_config_preserves_context_overrides_for_same_eff
-     let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
+@@ -3995,19 +3980,17 @@ async fn guardian_review_session_config_clears_context_overrides_for_distinct_ef
+ #[tokio::test]
+ async fn guardian_review_session_config_preserves_context_overrides_for_same_effective_model() {
+     let server = start_mock_server().await;
+-    let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
++    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
      let parent_model = turn.model_info().as_ref().clone();
      let auth_manager = Arc::clone(&session.services.auth_manager);
 -    Arc::get_mut(&mut session)
@@ -3251,7 +3287,7 @@ index 68022ae..db74a67 100644
          Arc::clone(&session),
          Arc::clone(&primary),
 diff --git a/codex-rs/core/src/session/tests/guardian_tests.rs b/codex-rs/core/src/session/tests/guardian_tests.rs
-index 971f4ba..0ecbd6a 100644
+index 971f4ba..d7b55da 100644
 --- a/codex-rs/core/src/session/tests/guardian_tests.rs
 +++ b/codex-rs/core/src/session/tests/guardian_tests.rs
 @@ -199,7 +199,7 @@ async fn request_permissions_routes_to_guardian_when_reviewer_is_enabled() {
@@ -3272,6 +3308,15 @@ index 971f4ba..0ecbd6a 100644
      crate::guardian::test_host::install(&session, &config);
      turn_context_raw.config = Arc::clone(&config);
      turn_context_raw.provider = create_model_provider(
+@@ -419,7 +419,7 @@ async fn request_permissions_guardian_review_stops_when_cancelled(
+     )
+     .await;
+ 
+-    let (mut session, mut turn_context, rx_event) = make_session_and_context_with_rx().await;
++    let (session, mut turn_context, rx_event) = make_session_and_context_with_rx().await;
+     let active_turn = ActiveTurn::default();
+     *session.active_turn.lock().await = Some(active_turn);
+     let turn_context_raw = Arc::get_mut(&mut turn_context).expect("single turn context ref");
 @@ -441,10 +441,7 @@ async fn request_permissions_guardian_review_stops_when_cancelled(
          Arc::clone(&session.services.auth_manager),
          config.model_provider.clone(),

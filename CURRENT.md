@@ -25,22 +25,24 @@ assembler preserves the prepared tree and index.
 Source assembly and focused build-input/assembler tests passed; the assembler's
 prepared-source preservation regression failed under its injected fault and passed
 after restoration. The repository Rust suite and Clippy passed (the existing
-ignored test remains unqualified). Native compilation and the new public
-settings/real-terminal/warm-resume/cold-resume/failure tests are not yet qualified;
-local offline compilation stopped at missing V8 source dependencies. Hosted run
-41969695402 exposed missing captures in derived turns and invalid visibility and
-Debug dependencies; the candidate fixes those findings. Run41976286693 is the next
-compile attempt, not accepted evidence for later source changes.
-Warm explicit route selection now submits the same Native operation. Route replies
-also check first materialization and append failure before claiming persistence;
-new empty-thread and real storage-collision cases still need execution.
-The hosted Native gate now includes these tests and a focused optional runtime
-binding mutation check. No production runtime was replaced. TUI intent wiring,
-portable compaction, app binding/connector refresh and actual
-cross-entrance inference remain unfinished. Do not treat this source candidate as
-connectivity repair or deployment. Original dirty
-0814be7b work and the earlier isolated source/diffs remain preserved. Reread
-AGENTS.md after recovery and inspect the actual proposal diff.
+ignored test remains unqualified). Hosted qualification of24abf1e built the actual
+Native CLI and all Core unit tests successfully. Execution then failed with a
+stack overflow in the catalog-binding test: the added gate bypassed upstream's
+`just test`, which supplies Nextest and its8MiB test stack. The gate now reuses
+that existing runner and requires positive passed-test summaries; both disposable
+Native fault checks use the same path. This execution is not yet accepted.
+Warm explicit route selection submits the same Native operation. Route replies
+check materialization, event append and flush before claiming persistence.
+The hosted gate includes settings, real-terminal, warm/cold resume, storage and
+catalog failures, compaction, Guardian, client, initialize and config tests plus
+two targeted Native fault checks. Follow the feature branch's latest
+manager-tui-native workflow for current qualification rather than reuse a run
+from an older source. No production runtime was replaced. TUI intent wiring,
+portable compaction, app binding/connector refresh and actual cross-entrance
+inference remain unfinished. Do not treat this source candidate as connectivity
+repair or deployment. Original dirty0814be7b work and earlier isolated sources
+and diffs remain preserved. Reread AGENTS.md after recovery and inspect the actual
+proposal diff.
 
 The current owned service responds, while its app observation reports
 app_auth_context_unavailable and ready=false. Exact installed app source exposes
@@ -64,20 +66,14 @@ now shares the existing producer fixture, and all8 release-component tests pass.
 Native selection waits on the existing finishing-turn completion signal before
 rechecking admission. Initial materialization belongs to preparation, so a known
 storage failure leaves the previous route selected; only an append/flush failure
-after selection reports unconfirmed persistence. These later source changes still
-require Native execution proof. The CLI build of b8217e6 passed in run41979158913;
-its Native test stage cannot qualify source changed after that commit.
-The Native unit build then exposed11 test-fixture writes through immutable
-snapshots. Those were fixed, and20 duplicated test snapshot setters are now one
-test-only setup operation. Same-binding thread startup retains its supplied model
-manager, including originator selection; differing provider/catalog/discovery
-inputs create a destination manager. The config-less test constructor retains its
-explicitly supplied manager; public API qualification exercises the production
+after selection reports unconfirmed persistence. These changes still require Native execution proof.
+Same-binding thread startup retains its supplied model manager, including
+originator selection; differing provider/catalog/discovery or authentication
+owners create a destination manager. The config-less test constructor retains
+its explicitly supplied manager; public API qualification exercises the production
 constructor. The existing originator test now also checks a different real local
-models endpoint. Run41984608272 is the active source qualification, including
-compaction/Guardian/client/initialize/config tests and both targeted Native fault
-checks. Run41981512139 was cancelled because it still contained the already-known
-fixture errors. No tests were removed or skipped to conceal those failures.
+models endpoint. Twenty test fixture setters share one test-only snapshot setup
+operation. No tests were removed or skipped to conceal compile/runtime failures.
 
 ### Outcome and ownership decisions
 
