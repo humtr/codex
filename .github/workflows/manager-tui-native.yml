@@ -166,6 +166,17 @@ jobs:
           git add -N codex-rs/tui
           git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
           python3 ../experiment/frontend/manager-tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+      - name: Verify generated Native protocol contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          export CODEX_APP_SERVER_SCHEMA_ROOT="$RUNNER_TEMP/native-protocol-schema"
+          for experimental in 0 1; do
+            CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL="$experimental" just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-protocol --lib --run-ignored only -E 'test(=schema_fixtures_tests::write_schema_fixtures_from_env)' 2>&1 | tee "$RUNNER_TEMP/native-provider-schema-$experimental.log"
+          done
+          tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C "$CODEX_APP_SERVER_SCHEMA_ROOT" .
+          diff -rq codex-rs/app-server-protocol/schema "$CODEX_APP_SERVER_SCHEMA_ROOT" | tee "$RUNNER_TEMP/native-provider-schema-diff.log"
       - name: Build actual patched CLI with pinned external dependencies
         shell: bash
         run: |
@@ -540,6 +551,7 @@ jobs:
           name: manager-tui-native-proof
           path: |
             ${{ runner.temp }}/native-provider-*.log
+            ${{ runner.temp }}/native-protocol-generated.tar.gz
             ${{ runner.temp }}/profile-tui-focused.log
             ${{ runner.temp }}/profile-tui-mutation.log
             ${{ runner.temp }}/profile-tui-login-mutation.log
