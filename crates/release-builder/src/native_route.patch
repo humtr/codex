@@ -417,7 +417,7 @@ index be77be3..a2f5b5a 100644
              .map_err(|error| config_load_error(&error))?;
          let submission = self
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
-index f310c4a..28ff4e7 100644
+index f310c4a..e7e3ec9 100644
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
 @@ -338,7 +338,7 @@ impl TurnRequestProcessor {
@@ -459,7 +459,7 @@ index f310c4a..28ff4e7 100644
 +                .is_some_and(|config| config.contains_key("model_catalog_json"));
 +            let mut destination = self
 +                .config_manager
-+                .load_for_cwd(
++                .load_for_resume(
 +                    params.config,
 +                    codex_core::config::ConfigOverrides {
 +                        model_provider: Some(provider.clone()),
@@ -1915,10 +1915,24 @@ index 65aa293..046d025 100644
      let mut retry_state = ResponsesStreamRetryState {
          retries: 1,
 diff --git a/codex-rs/core/src/session/async_compaction.rs b/codex-rs/core/src/session/async_compaction.rs
-index 8a1ec32..462002b 100644
+index 8a1ec32..946a737 100644
 --- a/codex-rs/core/src/session/async_compaction.rs
 +++ b/codex-rs/core/src/session/async_compaction.rs
-@@ -96,7 +96,13 @@ pub(super) async fn maybe_start(
+@@ -38,6 +38,13 @@ pub(crate) struct AsyncCompactionState {
+     shutdown_cancellation: CancellationToken,
+ }
+ 
++impl AsyncCompactionState {
++    pub(super) fn invalidate_candidate(&mut self) {
++        self.result = None;
++        self.last_attempt = None;
++    }
++}
++
+ pub(super) fn enabled(turn_context: &TurnContext) -> bool {
+     turn_context
+         .config
+@@ -96,7 +103,13 @@ pub(super) async fn maybe_start(
              || state.shutting_down
              || state.async_compaction.last_attempt.as_ref() == Some(&attempt)
              || state.history.annotated_items().is_empty()
@@ -1933,7 +1947,7 @@ index 8a1ec32..462002b 100644
          {
              return;
          }
-@@ -187,7 +193,13 @@ pub(crate) async fn wait_for_pending(
+@@ -187,7 +200,13 @@ pub(crate) async fn wait_for_pending(
          if attempt.history_version != state.history.history_version()
              || attempt.model_slug != model.slug
              || attempt.compaction_hash != model.comp_hash
@@ -2008,7 +2022,7 @@ index 128bc7d..decefe4 100644
                          Err(error) => {
                              let message = format!("invalid thread settings override: {error}");
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index cc418ca..d6bf375 100644
+index cc418ca..7445a2f 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -1089,6 +1089,7 @@ impl SessionIo {
@@ -2035,20 +2049,19 @@ index cc418ca..d6bf375 100644
              id: turn_id,
              op: Op::RecoverTurn {
                  thread_settings,
-@@ -2104,6 +2107,12 @@ impl Session {
+@@ -2104,6 +2107,11 @@ impl Session {
                      .turn_environments
                      .update_configured_selections(&updated.environments);
              }
 +            if let Some((_, runtime)) = &updates.model_provider {
 +                self.services.inference.store(Arc::clone(runtime));
 +                state.startup_prewarm = None;
-+                state.async_compaction.result = None;
-+                state.async_compaction.last_attempt = None;
++                state.async_compaction.invalidate_candidate();
 +            }
              state.session_configuration = updated;
              if root_service_tier_changed {
                  self.services.agent_control.propagate_config_update(
-@@ -2120,6 +2129,7 @@ impl Session {
+@@ -2120,6 +2128,7 @@ impl Session {
                  .then(|| self.build_effective_session_config(&state.session_configuration));
              let commit = SessionSettingsCommit {
                  configuration: state.session_configuration.clone(),
@@ -2056,7 +2069,7 @@ index cc418ca..d6bf375 100644
                  snapshot: state
                      .session_configuration
                      .thread_settings_snapshot(&state.session_configuration.environments),
-@@ -2165,12 +2175,19 @@ impl Session {
+@@ -2165,12 +2174,19 @@ impl Session {
          &self,
          updates: &SessionSettingsUpdate,
      ) -> ConstraintResult<ThreadConfigSnapshot> {
@@ -2079,7 +2092,7 @@ index cc418ca..d6bf375 100644
              .await)
      }
  
-@@ -2179,10 +2196,14 @@ impl Session {
+@@ -2179,10 +2195,14 @@ impl Session {
      }
  
      pub(crate) async fn resume_config_snapshot(&self) -> (ThreadConfigSnapshot, Option<String>) {
@@ -2096,7 +2109,7 @@ index cc418ca..d6bf375 100644
              .await;
          (snapshot, selected_service_tier)
      }
-@@ -2268,10 +2289,11 @@ impl Session {
+@@ -2268,10 +2288,11 @@ impl Session {
          TurnEnvironmentSnapshot,
          ReasoningEffortPin,
      ) {
@@ -2109,7 +2122,7 @@ index cc418ca..d6bf375 100644
                  self.services.turn_environments.snapshot_now(),
                  state.reasoning_effort_pin.clone(),
              )
-@@ -2281,7 +2303,7 @@ impl Session {
+@@ -2281,7 +2302,7 @@ impl Session {
              let model = configuration
                  .step_settings
                  .resolve_model_info(
@@ -2118,7 +2131,7 @@ index cc418ca..d6bf375 100644
                      &configuration.model_info_overrides,
                  )
                  .await;
-@@ -2299,8 +2321,12 @@ impl Session {
+@@ -2299,8 +2320,12 @@ impl Session {
          }
          (
              config,
@@ -2133,7 +2146,7 @@ index cc418ca..d6bf375 100644
              configuration.windows_sandbox_level,
              environments,
              reasoning_effort_pin,
-@@ -4471,7 +4497,12 @@ impl Session {
+@@ -4471,7 +4496,12 @@ impl Session {
                      // Validate immediately before slicing and replacing the captured prefix.
                      if state.history.history_version() != prefix.generation
                          || state.history.annotated_items().len() < prefix.len
@@ -2446,23 +2459,47 @@ index 094b59d..28acdfc 100644
              turn_extension_init: None,
              op: Op::TurnSettings {
 diff --git a/codex-rs/core/src/session/submission.rs b/codex-rs/core/src/session/submission.rs
-index 01f5255..496e9e8 100644
+index 01f5255..8ef6129 100644
 --- a/codex-rs/core/src/session/submission.rs
 +++ b/codex-rs/core/src/session/submission.rs
-@@ -5,10 +5,12 @@ use codex_protocol::protocol::Op;
+@@ -5,10 +5,10 @@ use codex_protocol::protocol::Op;
  use codex_protocol::protocol::W3cTraceContext;
  use tokio::sync::OwnedRwLockReadGuard;
  
 -#[derive(Debug)]
-+#[derive(derive_more::Debug)]
  pub(crate) struct Submission {
      pub id: String,
      pub op: Op,
-+    #[debug(skip)]
 +    pub model_provider_config: Option<std::sync::Arc<crate::config::Config>>,
      /// Accepted with settings, never separately from the request that supplied them.
      pub turn_extension_init: Option<ExtensionDataInit>,
      /// Optional W3C trace carrier propagated across async submission handoffs.
+@@ -20,3 +20,25 @@ pub(crate) struct Submission {
+     /// Owns delivery until dispatch; failed or abandoned submissions discard it.
+     pub message_delivery: Option<crate::agent_communication::MessageDelivery>,
+ }
++
++impl std::fmt::Debug for Submission {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("Submission")
++            .field("id", &self.id)
++            .field("op", &self.op)
++            .field(
++                "model_provider",
++                &self
++                    .model_provider_config
++                    .as_ref()
++                    .map(|config| &config.model_provider_id),
++            )
++            .field("turn_extension_init", &self.turn_extension_init)
++            .field("trace", &self.trace)
++            .field("parent_turn_id", &self.parent_turn_id)
++            .field("root_turn_id", &self.root_turn_id)
++            .field("residency_guard", &self.residency_guard)
++            .field("message_delivery", &self.message_delivery)
++            .finish()
++    }
++}
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
 index 68022ae..db74a67 100644
 --- a/codex-rs/core/src/session/tests.rs
@@ -2926,7 +2963,7 @@ index e4a092e..faafabb 100644
                      .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
                      .await;
 diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
-index a25dd60..9d1832c 100644
+index a25dd60..7337e54 100644
 --- a/codex-rs/core/src/session/turn_context.rs
 +++ b/codex-rs/core/src/session/turn_context.rs
 @@ -345,6 +345,7 @@ pub struct TurnContext {
@@ -2937,7 +2974,23 @@ index a25dd60..9d1832c 100644
      pub(crate) session_source: SessionSource,
      pub(crate) history_mode: ThreadHistoryMode,
      pub(crate) parent_thread_id: Option<ThreadId>,
-@@ -1045,7 +1046,7 @@ impl Session {
+@@ -429,6 +430,7 @@ impl TurnContext {
+                 && !has_explicit_settings(&config),
+             config,
+             auth_manager: self.auth_manager.clone(),
++            inference: Arc::clone(&self.inference),
+             initial_settings: Arc::clone(&step_settings),
+             disabled_plugin_ids: self.disabled_plugin_ids.clone(),
+             active_host_plugin_identities: None,
+@@ -840,6 +842,7 @@ impl TurnContext {
+             configured_token_budget: self.configured_token_budget.clone(),
+             use_model_token_budget_defaults: self.use_model_token_budget_defaults,
+             auth_manager: self.auth_manager.clone(),
++            inference: Arc::clone(&self.inference),
+             initial_settings: Arc::clone(&step_settings),
+             disabled_plugin_ids: self.disabled_plugin_ids.clone(),
+             active_host_plugin_identities: self.active_host_plugin_identities.clone(),
+@@ -1045,7 +1048,7 @@ impl Session {
          multi_agent_version: MultiAgentVersion,
          per_turn_config: Config,
          step_settings: Arc<ResolvedStepSettings>,
@@ -2946,7 +2999,7 @@ index a25dd60..9d1832c 100644
          network: Option<NetworkProxy>,
          environments: TurnEnvironmentSnapshot,
          cwd: AbsolutePathBuf,
-@@ -1055,7 +1056,10 @@ impl Session {
+@@ -1055,7 +1058,10 @@ impl Session {
          let model_info = &step_settings.model_info;
          let session_telemetry_for_context = step_settings.telemetry(session_telemetry);
          let session_source = session_configuration.session_source.clone();
@@ -2958,7 +3011,7 @@ index a25dd60..9d1832c 100644
  
          let mut per_turn_config = per_turn_config;
          let configured_token_budget = per_turn_config.token_budget.clone();
-@@ -1130,6 +1134,7 @@ impl Session {
+@@ -1130,6 +1136,7 @@ impl Session {
              next_step_settings: ArcSwap::from(step_settings),
              session_telemetry: session_telemetry_for_context,
              provider,
@@ -2966,7 +3019,7 @@ index a25dd60..9d1832c 100644
              session_source,
              history_mode: session_configuration.history_mode,
              parent_thread_id: session_configuration.parent_thread_id,
-@@ -1210,7 +1215,8 @@ impl Session {
+@@ -1210,7 +1217,8 @@ impl Session {
              Arc::make_mut(&mut configuration.step_settings).service_tier = Some(service_tier);
          }
          if !crate::guardian::is_basic_session_source(&configuration.session_source) {
@@ -2976,7 +3029,7 @@ index a25dd60..9d1832c 100644
                  .models_manager
                  .refresh_after_auth_change(
                      self.build_effective_session_config(&configuration)
-@@ -1220,7 +1226,13 @@ impl Session {
+@@ -1220,7 +1228,13 @@ impl Session {
          }
          let turn_environments = self.activate_turn_environments(&configuration).await;
          let turn_context = self
@@ -2991,7 +3044,7 @@ index a25dd60..9d1832c 100644
              .await;
          Ok(Some((turn_context, commit.snapshot)))
      }
-@@ -1230,6 +1242,7 @@ impl Session {
+@@ -1230,6 +1244,7 @@ impl Session {
          &self,
          sub_id: String,
          session_configuration: SessionConfiguration,
@@ -2999,7 +3052,7 @@ index a25dd60..9d1832c 100644
          turn_environments: TurnEnvironmentSnapshot,
          options: NewTurnContextOptions,
      ) -> Arc<TurnContext> {
-@@ -1237,6 +1250,7 @@ impl Session {
+@@ -1237,6 +1252,7 @@ impl Session {
          Box::pin(self.new_turn_context_from_configuration(
              sub_id,
              session_configuration,
@@ -3007,7 +3060,7 @@ index a25dd60..9d1832c 100644
              turn_environments,
              options,
              TurnContextBuildMode::Full,
-@@ -1249,11 +1263,13 @@ impl Session {
+@@ -1249,11 +1265,13 @@ impl Session {
          &self,
          sub_id: String,
          session_configuration: SessionConfiguration,
@@ -3021,7 +3074,7 @@ index a25dd60..9d1832c 100644
              turn_environments,
              NewTurnContextOptions::default(),
              TurnContextBuildMode::StartupPrewarm,
-@@ -1267,6 +1283,7 @@ impl Session {
+@@ -1267,6 +1285,7 @@ impl Session {
          &self,
          sub_id: String,
          session_configuration: SessionConfiguration,
@@ -3029,7 +3082,7 @@ index a25dd60..9d1832c 100644
          turn_environments: TurnEnvironmentSnapshot,
          options: NewTurnContextOptions,
          build_mode: TurnContextBuildMode,
-@@ -1286,7 +1303,7 @@ impl Session {
+@@ -1286,7 +1305,7 @@ impl Session {
          let model_info = session_configuration
              .step_settings
              .resolve_model_info(
@@ -3038,7 +3091,7 @@ index a25dd60..9d1832c 100644
                  &session_configuration.model_info_overrides,
              )
              .await;
-@@ -1354,7 +1371,7 @@ impl Session {
+@@ -1354,7 +1373,7 @@ impl Session {
              multi_agent_version,
              per_turn_config,
              step_settings,
@@ -3047,7 +3100,7 @@ index a25dd60..9d1832c 100644
              self.services
                  .network_proxy
                  .load_full()
-@@ -1458,11 +1475,12 @@ impl Session {
+@@ -1458,11 +1477,12 @@ impl Session {
      }
  
      async fn new_default_turn_for(&self, build_mode: TurnContextBuildMode) -> Arc<TurnContext> {
@@ -3061,7 +3114,7 @@ index a25dd60..9d1832c 100644
              turn_environments,
              NewTurnContextOptions::default(),
              build_mode,
-@@ -1477,8 +1495,8 @@ impl Session {
+@@ -1477,8 +1497,8 @@ impl Session {
          sub_id: String,
          options: NewTurnContextOptions,
      ) -> Arc<TurnContext> {
@@ -3072,7 +3125,7 @@ index a25dd60..9d1832c 100644
              .await
      }
  
-@@ -1487,27 +1505,39 @@ impl Session {
+@@ -1487,27 +1507,39 @@ impl Session {
          &self,
          sub_id: String,
          session_configuration: SessionConfiguration,
