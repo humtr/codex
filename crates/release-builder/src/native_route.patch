@@ -13399,7 +13399,7 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 1ef252d..a24b9a8 100644
+index 1ef252d..e4bb060 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
@@ -13445,7 +13445,22 @@ index 1ef252d..a24b9a8 100644
                      .await
                      .map_err(|err| config_load_error(&err))?;
                  *prepared_config = Some(PreparedResumeConfig {
-@@ -4692,10 +4667,95 @@ impl ThreadRequestProcessor {
+@@ -4649,6 +4624,14 @@ impl ThreadRequestProcessor {
+         } else if let Ok(existing_thread_id) = ThreadId::from_string(&params.thread_id)
+             && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
+         {
++            // The live writer can precede its rollout. Resume needs a durable
++            // stored view, not a replacement session or a synthetic first turn.
++            if existing_thread.rollout_path().is_some() {
++                self.thread_store
++                    .persist_thread(existing_thread_id, PersistContext::Standard)
++                    .await
++                    .map_err(thread_store_resume_read_error)?;
++            }
+             let source_thread = self
+                 .read_stored_thread_for_resume(
+                     &params.thread_id,
+@@ -4692,10 +4675,95 @@ impl ThreadRequestProcessor {
                      active_path.display()
                  )));
              }
@@ -13542,7 +13557,7 @@ index 1ef252d..a24b9a8 100644
                  &config_snapshot,
                  selected_service_tier.as_deref(),
              );
-@@ -4716,7 +4776,8 @@ impl ThreadRequestProcessor {
+@@ -4716,7 +4784,8 @@ impl ThreadRequestProcessor {
                  if can_accept_direct_input(
                      existing_thread.multi_agent_version(),
                      &config_snapshot.session_source,
@@ -13552,7 +13567,7 @@ index 1ef252d..a24b9a8 100644
                      && matches!(loaded_status, ThreadStatus::Idle)
                      && !is_running
                  {
-@@ -4749,7 +4810,7 @@ impl ThreadRequestProcessor {
+@@ -4749,7 +4818,7 @@ impl ThreadRequestProcessor {
                  );
              }
              self.config_manager
@@ -13561,7 +13576,7 @@ index 1ef252d..a24b9a8 100644
                  .await
                  .map_err(|err| config_load_error(&err))?;
              let redact_resume_payloads =
-@@ -6577,7 +6638,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
+@@ -6577,7 +6646,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
  fn thread_store_mutation_error(operation: &str, err: ThreadStoreError) -> JSONRPCErrorError {
      match err {
          ThreadStoreError::InvalidRequest { message } | ThreadStoreError::Conflict { message } => {
@@ -13805,6 +13820,316 @@ index f5bda49..2dca8a5 100644
      Ok(())
  }
  
+diff --git a/codex-rs/app-server/tests/suite/v2/thread_resume.rs b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
+index 8badd11..27bfc06 100644
+--- a/codex-rs/app-server/tests/suite/v2/thread_resume.rs
++++ b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
+@@ -6783,12 +6783,103 @@ async fn setup_rollout_fixture(codex_home: &Path, server_uri: &str) -> Result<Ro
+     })
+ }
+ 
++#[test_case::test_case(ThreadHistoryMode::Legacy, false; "legacy_empty")]
++#[test_case::test_case(ThreadHistoryMode::Paginated, false; "paginated_empty")]
++#[test_case::test_case(ThreadHistoryMode::Legacy, true; "legacy_storage_failure")]
++#[test_case::test_case(ThreadHistoryMode::Paginated, true; "paginated_storage_failure")]
++#[tokio::test]
++async fn model_provider_resume_empty_live_thread_preserves_writer_and_observers(
++    history_mode: ThreadHistoryMode,
++    storage_failure: bool,
++) -> Result<()> {
++    use super::connection_handling_websocket::connect_websocket;
++    use super::connection_handling_websocket::read_error_for_id;
++    use super::connection_handling_websocket::read_notification_for_method;
++    use super::connection_handling_websocket::read_response_and_notification_for_method;
++    use super::connection_handling_websocket::read_response_for_id;
++    use super::connection_handling_websocket::send_initialize_request;
++    use super::connection_handling_websocket::send_request;
++    use super::connection_handling_websocket::spawn_websocket_server;
++
++    let server = create_mock_responses_server_repeating_assistant("No inference expected").await;
++    let home = TempDir::new()?;
++    mock_responses_config(&server.uri()).write(home.path())?;
++    let (mut process, address) = spawn_websocket_server(home.path()).await?;
++    let mut writer = connect_websocket(address).await?;
++    let mut observer = connect_websocket(address).await?;
++    for (client, name) in [(&mut writer, "original"), (&mut observer, "observer")] {
++        send_initialize_request(client, 1, name).await?;
++        read_response_for_id(client, 1).await?;
++    }
++    send_request(
++        &mut writer,
++        "thread/start",
++        2,
++        Some(serde_json::to_value(ThreadStartParams {
++            history_mode: Some(history_mode),
++            ..Default::default()
++        })?),
++    )
++    .await?;
++    let started: ThreadStartResponse =
++        serde_json::from_value(read_response_for_id(&mut writer, 2).await?.result)?;
++    let thread = started.thread.id;
++    let session = started.thread.session_id;
++    let path = started.thread.path.expect("persistent rollout path");
++    assert!(
++        !path.exists(),
++        "resume must exercise a live unmaterialized writer"
++    );
++    let params = json!({"threadId": thread, "excludeTurns": true});
++    if storage_failure {
++        std::fs::create_dir_all(&path)?;
++        send_request(&mut observer, "thread/resume", 3, Some(params.clone())).await?;
++        let error = read_error_for_id(&mut observer, 3).await?;
++        std::fs::remove_dir(&path)?;
++        assert_eq!(error.error.code, -32603, "{error:?}");
++    }
++    send_request(&mut observer, "thread/resume", 4, Some(params)).await?;
++    let resumed: ThreadResumeResponse =
++        serde_json::from_value(read_response_for_id(&mut observer, 4).await?.result)?;
++    assert_eq!(resumed.thread.id, thread);
++    assert_eq!(resumed.thread.session_id, session);
++    assert_eq!(resumed.model_provider, "mock_provider");
++    assert!(resumed.thread.turns.is_empty());
++    assert!(path.is_file());
++    send_request(
++        &mut observer,
++        "thread/settings/update",
++        5,
++        Some(json!({"threadId": thread, "model": "mock-model-updated"})),
++    )
++    .await?;
++    let (_, observed) =
++        read_response_and_notification_for_method(&mut observer, 5, "thread/settings/updated")
++            .await?;
++    let original = read_notification_for_method(&mut writer, "thread/settings/updated").await?;
++    assert_eq!(original.params, observed.params);
++    assert_eq!(
++        observed.params.as_ref().unwrap()["threadSettings"]["model"],
++        "mock-model-updated"
++    );
++    assert!(
++        server
++            .received_requests()
++            .await
++            .unwrap()
++            .iter()
++            .all(|request| { !request.url.path().ends_with("/responses") })
++    );
++    process.kill().await?;
++    Ok(())
++}
++
+ #[test_case::test_case(false, false; "missing_definition_config_override")]
+ #[test_case::test_case(false, true; "missing_definition_typed_override")]
+ #[test_case::test_case(true, false; "policy_conflict_config_override")]
+ #[test_case::test_case(true, true; "policy_conflict_typed_override")]
+ #[tokio::test]
+-async fn thread_resume_returns_provider_error_even_with_provider_override(
++async fn model_provider_resume_validates_saved_route_and_explicit_destination(
+     policy_conflict: bool,
+     typed_override: bool,
+ ) -> Result<()> {
+@@ -6885,7 +6976,7 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
+         .await?;
+     let read: codex_app_server_protocol::ThreadReadResponse = client.read_response(id).await?;
+     assert_eq!(read.thread.model_provider, "old_provider");
+-    // Provider overrides must not bypass admission for the saved provider.
++    // An explicit destination validates that route, not obsolete source credentials.
+     let id = client
+         .send_thread_resume_request(ThreadResumeParams {
+             thread_id,
+@@ -6897,22 +6988,43 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
+             ..Default::default()
+         })
+         .await?;
+-    let error = client
+-        .read_stream_until_error_message(RequestId::Integer(id))
++    let resumed: ThreadResumeResponse = client.read_response(id).await?;
++    assert_eq!(resumed.model_provider, "mock_provider");
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: resumed.thread.id,
++            input: vec![UserInput::Text {
++                text: "continue on the explicit destination".into(),
++                text_elements: Vec::new(),
++            }],
++            ..Default::default()
++        })
+         .await?;
+-    assert_eq!(error.error.data, Some(serde_json::to_value(expected)?));
++    assert!(
++        server
++            .received_requests()
++            .await
++            .unwrap()
++            .iter()
++            .any(|request| {
++                request.url.path().ends_with("/responses")
++                    && String::from_utf8_lossy(&request.body)
++                        .contains("continue on the explicit destination")
++            })
++    );
+     Ok(())
+ }
+ 
+ #[test_case::test_case(false; "missing_definition")]
+-#[test_case::test_case(true; "provider_mismatch")]
++#[test_case::test_case(true; "different_default")]
+ #[tokio::test]
+-async fn thread_resume_recovers_after_provider_configuration_is_restored(
++async fn model_provider_resume_retains_saved_route_after_definition_recovery(
+     configured: bool,
+ ) -> Result<()> {
+-    let server = create_mock_responses_server_repeating_assistant("Done").await;
++    let default_server = create_mock_responses_server_repeating_assistant("Wrong route").await;
++    let saved_server = create_mock_responses_server_repeating_assistant("Saved route").await;
+     let home = TempDir::new()?;
+-    mock_responses_config(&server.uri()).write(home.path())?;
++    mock_responses_config(&default_server.uri()).write(home.path())?;
+     let thread_id = create_fake_rollout(
+         home.path(),
+         "2025-01-05T12-00-00",
+@@ -6922,81 +7034,77 @@ async fn thread_resume_recovers_after_provider_configuration_is_restored(
+         /*git_info*/ None,
+     )?;
+     let config_path = home.path().join("config.toml");
++    let config = std::fs::read_to_string(&config_path)?;
++    let saved_uri = saved_server.uri();
++    let restored = format!(
++        "{config}\n[model_providers.old_provider]\nname = 'Original provider'\nbase_url = '{saved_uri}/v1'\nsupports_websockets = false\n"
++    );
+     if configured {
+-        let config = std::fs::read_to_string(&config_path)?;
+-        let server_uri = server.uri();
+-        std::fs::write(
+-            &config_path,
+-            format!(
+-                "{config}\n[model_providers.old_provider]\nname = 'Original provider'\nbase_url = '{server_uri}/v1'\n"
+-            ),
+-        )?;
++        std::fs::write(&config_path, &restored)?;
+     }
+     let mut client = TestAppServer::builder()
+         .with_codex_home(home.path())
+         .build_initialized()
+         .await?;
+     let params = ThreadResumeParams {
+-        thread_id,
++        thread_id: thread_id.clone(),
+         ..Default::default()
+     };
+-    let id = client.send_thread_resume_request(params.clone()).await?;
+-    let error = client
+-        .read_stream_until_error_message(RequestId::Integer(id))
+-        .await?;
+-    assert_eq!(
+-        error
+-            .error
+-            .data
+-            .as_ref()
+-            .expect("provider error should include structured data")["type"],
+-        if configured {
+-            "modelProviderMismatch"
+-        } else {
+-            "modelProviderNotConfigured"
+-        }
+-    );
+-    if configured {
+-        for overrides in [
+-            ThreadResumeParams {
+-                model_provider: Some("mock_provider".into()),
+-                ..params.clone()
+-            },
+-            ThreadResumeParams {
+-                config: Some(std::collections::HashMap::from([(
+-                    "model_provider".into(),
+-                    json!("mock_provider"),
+-                )])),
+-                ..params.clone()
+-            },
+-        ] {
+-            let id = client.send_thread_resume_request(overrides).await?;
+-            let overridden = client
+-                .read_stream_until_error_message(RequestId::Integer(id))
+-                .await?;
+-            assert_eq!(overridden.error, error.error);
+-        }
++    if !configured {
++        let id = client.send_thread_resume_request(params.clone()).await?;
++        let error = client
++            .read_stream_until_error_message(RequestId::Integer(id))
++            .await?;
++        assert_eq!(
++            error.error.data,
++            Some(serde_json::to_value(
++                codex_app_server_protocol::ModelProviderError::ModelProviderNotConfigured {
++                    model_provider: "old_provider".into(),
++                },
++            )?),
++        );
++        let id = client
++            .send_thread_read_request(ThreadReadParams {
++                thread_id: thread_id.clone(),
++                include_turns: true,
++            })
++            .await?;
++        let read: ThreadReadResponse = client.read_response(id).await?;
++        assert_eq!(read.thread.model_provider, "old_provider");
++        std::fs::write(&config_path, restored)?;
+     }
+-    let id = client
+-        .send_raw_request(
+-            "thread/read",
+-            Some(json!({"threadId": params.thread_id, "includeTurns": true})),
+-        )
+-        .await?;
+-    let read: codex_app_server_protocol::ThreadReadResponse = client.read_response(id).await?;
+-    assert_eq!(read.thread.model_provider, "old_provider");
+-    let config = std::fs::read_to_string(&config_path)?;
+-    let restored = if configured {
+-        config.replace(
+-            "model_provider = \"mock_provider\"",
+-            "model_provider = \"old_provider\"",
+-        )
+-    } else {
+-        config.replace("mock_provider", "old_provider")
+-    };
+-    std::fs::write(config_path, restored)?;
+     let id = client.send_thread_resume_request(params).await?;
+     let resumed: ThreadResumeResponse = client.read_response(id).await?;
+     assert_eq!(resumed.model_provider, "old_provider");
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id,
++            input: vec![UserInput::Text {
++                text: "continue saved route under another process default".into(),
++                text_elements: Vec::new(),
++            }],
++            ..Default::default()
++        })
++        .await?;
++    assert!(
++        default_server
++            .received_requests()
++            .await
++            .unwrap()
++            .iter()
++            .all(|request| { !request.url.path().ends_with("/responses") })
++    );
++    assert!(
++        saved_server
++            .received_requests()
++            .await
++            .unwrap()
++            .iter()
++            .any(|request| {
++                request.url.path().ends_with("/responses")
++                    && String::from_utf8_lossy(&request.body)
++                        .contains("continue saved route under another process default")
++            })
++    );
+     Ok(())
+ }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 index ab688b1..2722e61 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs

@@ -1523,6 +1523,29 @@ read its permitted history; requirements on destination use and history access
 remain enforced. If decoding or summarizing old context actually requires that
 source, expose that dependency separately. Do not treat past provenance as an
 active inference credential or silently replace the chosen model.
+Provider control validates Native thread identity, execution home and workspace
+independently of its selected model route. Reading or controlling already admitted
+work must not require the Provider's inference route. Admission of a primary
+inference request to Provider still verifies that Native selected that route;
+moving this check must not admit stale requests from another route.
+Resolve a live thread through its verified Native rendezvous before preparing a
+server from saved provider metadata. A newly started thread can have a live writer
+before its rollout exists. Only a thread without a live owner uses cold metadata
+and server preparation; retain the execution-home and writer-authority checks.
+Native resume checkpoints a live persistent thread before reading its stored
+view, even before the first turn. This starts no inference and preserves the
+writer and observers. Storage failure is reported without replacing that writer;
+ephemeral threads are not made persistent as a side effect of resume.
+Provider catalog and transport overrides belong to new configured work or
+an explicit Provider inference start. Attaching to an existing Native task retains that
+task's route and metadata; control/default-I/O preparation must not inject the
+Provider catalog into another route.
+Starting or joining explicitly selected attached/submitted Provider inference
+selects its configured route through Native before turn admission. Allocation or
+observation alone does not change an existing route. Reuse the verified live writer
+for this selection; require its advertised transition capability before sending
+route fields to an older server. Attached inference still starts no second primary
+Chat request. An unsupported transition is rejected before admitting user input.
 Existing Native settings events/persistence are preferred over a Provider route
 ledger. Native owns the transition and observer binding even if a qualified
 implementation must reconnect a backend. Clients do not independently restart

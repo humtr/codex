@@ -7,7 +7,7 @@ on:
         type: boolean
         default: false
       native_transition_mutation_check:
-        description: Verify provider route commit with a disposable Native runtime-binding fault
+        description: Verify route catalog, runtime binding and live-resume persistence with disposable faults
         type: boolean
         default: false
 permissions:
@@ -190,7 +190,7 @@ jobs:
           done
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib -E 'test(provider_tests)' 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider) | test(thread_resume_checkpoints_settings) | test(thread_resume_does_not_checkpoint_unchanged_settings) | test(thread_resume_with_overrides_preserves_recency)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
           python3 - <<'PYTHON'
           import os, re
@@ -278,6 +278,41 @@ jobs:
           cmp "$original" "$source"
           trap - EXIT
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
+      - name: Verify empty live-thread resume regression
+        if: ${{ inputs.native_transition_mutation_check }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/app-server/src/request_processors/thread_processor.rs
+          original="$RUNNER_TEMP/native-resume-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('codex-rs/app-server/src/request_processors/thread_processor.rs')
+          text = path.read_text()
+          start = text.index('            // The live writer can precede its rollout.')
+          end = text.index('            let source_thread = self', start)
+          path.write_text(text[:start] + text[end:])
+          PYTHON
+          set +e
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider_resume_empty_live_thread_preserves_writer_and_observers)' 2>&1 | tee "$RUNNER_TEMP/native-provider-resume-mutation.log"
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          text = Path(os.environ['RUNNER_TEMP'], 'native-provider-resume-mutation.log').read_text()
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          assert re.search(r'Summary\s*\[[^\]]+\]\s*[1-9][0-9]* tests? run:.*[1-9][0-9]* failed', text), text[-6000:]
+          assert 'no rollout found for thread id' in text, text[-6000:]
+          PYTHON
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider_resume_empty_live_thread_preserves_writer_and_observers)' 2>&1 | tee "$RUNNER_TEMP/native-provider-resume-restored.log"
       - name: Build actual patched CLI with pinned external dependencies
         shell: bash
         run: |
