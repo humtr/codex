@@ -13676,6 +13676,29 @@ index f310c4a..22abb72 100644
              .await
              .map_err(|error| config_load_error(&error))?;
  
+diff --git a/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs b/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs
+index e083aaa..6777ca0 100644
+--- a/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs
++++ b/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs
+@@ -831,10 +831,14 @@ pub(super) async fn read_response_for_id(
+     let target_id = RequestId::Integer(id);
+     loop {
+         let message = read_jsonrpc_message(stream).await?;
+-        if let JSONRPCMessage::Response(response) = message
+-            && response.id == target_id
+-        {
+-            return Ok(response);
++        match message {
++            JSONRPCMessage::Response(response) if response.id == target_id => {
++                return Ok(response);
++            }
++            JSONRPCMessage::Error(error) if error.id == target_id => {
++                bail!("unexpected error for request {id}: {error:?}");
++            }
++            _ => {}
+         }
+     }
+ }
 diff --git a/codex-rs/app-server/tests/suite/v2/initialize.rs b/codex-rs/app-server/tests/suite/v2/initialize.rs
 index 1ba0f26..492b354 100644
 --- a/codex-rs/app-server/tests/suite/v2/initialize.rs
@@ -13821,10 +13844,10 @@ index f5bda49..2dca8a5 100644
  }
  
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_resume.rs b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
-index 8badd11..27bfc06 100644
+index 8badd11..bf88cb2 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_resume.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
-@@ -6783,12 +6783,103 @@ async fn setup_rollout_fixture(codex_home: &Path, server_uri: &str) -> Result<Ro
+@@ -6783,12 +6783,111 @@ async fn setup_rollout_fixture(codex_home: &Path, server_uri: &str) -> Result<Ro
      })
  }
  
@@ -13842,7 +13865,6 @@ index 8badd11..27bfc06 100644
 +    use super::connection_handling_websocket::read_notification_for_method;
 +    use super::connection_handling_websocket::read_response_and_notification_for_method;
 +    use super::connection_handling_websocket::read_response_for_id;
-+    use super::connection_handling_websocket::send_initialize_request;
 +    use super::connection_handling_websocket::send_request;
 +    use super::connection_handling_websocket::spawn_websocket_server;
 +
@@ -13853,7 +13875,16 @@ index 8badd11..27bfc06 100644
 +    let mut writer = connect_websocket(address).await?;
 +    let mut observer = connect_websocket(address).await?;
 +    for (client, name) in [(&mut writer, "original"), (&mut observer, "observer")] {
-+        send_initialize_request(client, 1, name).await?;
++        send_request(
++            client,
++            "initialize",
++            1,
++            Some(json!({
++                "clientInfo": {"name": name, "version": "test"},
++                "capabilities": {"experimentalApi": true},
++            })),
++        )
++        .await?;
 +        read_response_for_id(client, 1).await?;
 +    }
 +    send_request(
@@ -13929,7 +13960,7 @@ index 8badd11..27bfc06 100644
      policy_conflict: bool,
      typed_override: bool,
  ) -> Result<()> {
-@@ -6885,7 +6976,7 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
+@@ -6885,7 +6984,7 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
          .await?;
      let read: codex_app_server_protocol::ThreadReadResponse = client.read_response(id).await?;
      assert_eq!(read.thread.model_provider, "old_provider");
@@ -13938,7 +13969,7 @@ index 8badd11..27bfc06 100644
      let id = client
          .send_thread_resume_request(ThreadResumeParams {
              thread_id,
-@@ -6897,22 +6988,43 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
+@@ -6897,22 +6996,43 @@ async fn thread_resume_returns_provider_error_even_with_provider_override(
              ..Default::default()
          })
          .await?;
@@ -13989,7 +14020,7 @@ index 8badd11..27bfc06 100644
      let thread_id = create_fake_rollout(
          home.path(),
          "2025-01-05T12-00-00",
-@@ -6922,81 +7034,77 @@ async fn thread_resume_recovers_after_provider_configuration_is_restored(
+@@ -6922,81 +7042,77 @@ async fn thread_resume_recovers_after_provider_configuration_is_restored(
          /*git_info*/ None,
      )?;
      let config_path = home.path().join("config.toml");
