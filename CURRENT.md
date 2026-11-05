@@ -8,12 +8,28 @@ delivery and device activation. None substitutes for the next boundary.
 ## Current architecture review and operating boundary
 
 The architecture review has revised responsibility and user-flow contracts in
-SPEC, AGENTS, README and Provider operations documentation. Implementation follows
-the reviewed dependencies below; no runtime change is part of this batch.
-The design worktree is
+SPEC, AGENTS, README and Provider operations documentation. The design worktree is
 $TMPDIR/connectivity-repair-70jt4h2u/architecture on
 design/entry-architecture-20261105 over f8d1a7f. It contains the revised architecture
-contract and review, not an implemented Native interface or deployment. Original dirty
+contract and review. Implementation is now in
+$TMPDIR/connectivity-repair-70jt4h2u/implementation on
+fix/native-route-transition-20261105. Its common release-builder Native patch
+introduces per-thread route/client/catalog updates through the existing settings
+submission, settings event and rollout path; input no longer requires matching the
+server default. Turns retain a coherent runtime snapshot. Destination validation
+precedes admission and background terminals/executor state remain owned by Native.
+The initialize capability distinguishes this interface from older same-version
+servers. Common preparation feeds runtime and frontend builds once; the TUI
+assembler preserves the prepared tree and index.
+
+Source assembly and focused build-input/assembler tests passed. Native compilation
+and the new public settings/real-terminal/cold-resume/failure tests are not yet
+qualified; local offline compilation stopped at missing V8 source dependencies.
+The hosted Native gate now includes these tests and a focused optional runtime
+binding mutation check. No production runtime was replaced. TUI intent wiring,
+warm explicit resume, portable compaction, app binding/connector refresh and actual
+cross-entrance inference remain unfinished. Do not treat this source candidate as
+connectivity repair or deployment. Original dirty
 0814be7b work and the earlier isolated source/diffs remain preserved. Reread
 AGENTS.md after recovery and inspect the actual proposal diff.
 

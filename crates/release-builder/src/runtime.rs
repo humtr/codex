@@ -478,6 +478,7 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         request.source,
         &recipe.upstream.version,
         &recipe.upstream.source,
+        true,
     )?;
     report(&request.output.join("preparation.json"), &preparation)?;
     println!("[runtime] audit unchanged external dependencies");

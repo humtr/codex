@@ -8,6 +8,24 @@ from apply import apply, check_scope
 
 
 class AssemblyTests(unittest.TestCase):
+    def test_rebase_retains_prepared_native_changes_and_real_index(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            upstream, package, target = self.fixture(Path(temporary))
+            path = target / 'lib.rs'
+            original = ''.join(f'line {i}\n' for i in range(12))
+            path.write_text(original)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(upstream), *args])
+            git('add', '.')
+            git('-c', 'user.name=Owned', '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'official')
+            index = git('write-tree')
+            path.write_text(original.replace('line 6', 'integration'))
+            (package / 'native.patch').write_bytes(git('diff', '--binary'))
+            path.write_text(original.replace('line 3', 'prepared Native'))
+            self.assertEqual(apply(upstream, package), 1)
+            self.assertEqual(path.read_text(), original.replace('line 3', 'prepared Native').replace('line 6', 'integration'))
+            self.assertEqual(git('write-tree'), index)
+
     def test_rebase_locates_changed_context_and_conflict_leaves_tree_and_index_unchanged(self):
         for conflict in [False, True]:
             with self.subTest(conflict=conflict), tempfile.TemporaryDirectory() as temporary:
@@ -51,23 +69,24 @@ class AssemblyTests(unittest.TestCase):
             config.parent.mkdir()
             config.write_text('complete catalog source\n')
             (upstream / 'codex-rs/Cargo.lock').write_text('normalized release workspace\n')
-            check_scope(upstream)
+            native_files = {b'codex-rs/core/src/config/mod.rs'}
+            check_scope(upstream, native_files)
             for path in [core, outside, core.parent / 'new.rs', upstream / 'new.rs']:
                 with self.subTest(path=path.relative_to(upstream)):
                     before = path.read_bytes() if path.exists() else None
                     path.write_text('unrelated change\n')
                     with self.assertRaises(ValueError):
-                        check_scope(upstream)
+                        check_scope(upstream, native_files)
                     if before is None:
                         path.unlink()
                     else:
                         path.write_bytes(before)
-            check_scope(upstream)
+            check_scope(upstream, native_files)
             # Moving an unrelated source into TUI must still expose its deletion.
             outside.rename(target / 'moved.rs')
             subprocess.run(['git', '-C', str(upstream), 'add', '-A'], check=True)
             with self.assertRaises(ValueError):
-                check_scope(upstream)
+                check_scope(upstream, native_files)
 
     def fixture(self, root):
         upstream, package = root / 'upstream', root / 'package'

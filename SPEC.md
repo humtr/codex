@@ -272,11 +272,11 @@ update authority is maintained.
   Do not flatten a selected profile into CLI values or substitute a different
   execution home to work around missing upstream profile propagation.
   Provider-created ChatGPT work also supplies its selected provider and owned
-  provider definition through this Core startup interface. Per-thread routing
-  alone does not establish the server's effective provider for input admission.
-  Cold continuation reads the original thread's provider through Native metadata
-  before preparing its execution server; it must preserve other native providers
-  for queue/resume/fork and must not rewrite the execution home's saved defaults.
+  provider definition through this Core startup interface. Native admits input
+  against the thread's effective route and current managed policy, rather than
+  requiring that route to match the server default. Cold continuation restores
+  the saved effective route unless explicitly changed; it must preserve other
+  native providers for queue/resume/fork and must not rewrite saved defaults.
   The Core-owned local target bypasses the TUI's upstream daemon auto-start and
   package/feature recovery paths, including before the resolved server exists.
   Only Core's coordinator may materialize that target; a missing socket is not
@@ -626,11 +626,16 @@ to the exact successful source. Final build inputs and artifact proof still
 include the complete assembled TUI diff; no source is downloaded or modified at
 device launch. This source organization does not change public behavior or relax
 the upstream-Core/dependency, executable, lint or native behavior gates.
+Common Native source preparation belongs to release-builder and is consumed by
+both runtime and frontend builds. The enhanced frontend requests
+`prepare-source --frontend provided` so the common implementation is applied
+once and its own TUI supplies presentation. The assembler consumes that exact
+preparation's declared source paths and preserves them during three-way merging.
 The upstream start function delegates resolved-catalog binding to the owned
-frontend adapter. The App provider-transition hook owns active-work guards,
-thread persistence and same-terminal re-entry; provider/profile routing and
-configuration composition live in the owned model module without App or server
-lifecycle access. Existing permission/reviewer inheritance, local profile
+frontend adapter. Native owns provider-transition admission, persistence and
+observer continuity; App sends user intent and renders the resulting settings.
+Provider/profile configuration composition does not acquire execution or server
+lifecycle authority. Existing permission/reviewer inheritance, local profile
 precedence, installed-route validation and model admission remain unchanged.
 
 - The sole added public slash name is `/switch`, for Manager execution-home
@@ -1531,7 +1536,19 @@ that recovers committed intervening events. Selection itself submits no primary
 inference, replays no user prompt and does not stop an unrelated thread. A failed
 preparation leaves the previous selection and draft usable; an uncertain commit
 is recovered from Native rather than guessed or retried as a new user turn.
-This is a required operation, not a claim that the current settings API supports it.
+The maintained Native interface extends `thread/settings/update` with optional
+`modelProvider` and `config`. The latter is admitted only with a route selection
+and accepts destination `model_providers` and `model_catalog_json`, not executor
+or permission overrides. Omitted catalog preserves same-route metadata and clears
+the former route's catalog when changing routes. Managed policy is revalidated.
+`initialize.modelProviderUpdates` explicitly advertises support; absence means
+unsupported even when the upstream version matches. Clients must not interpret
+an older server's ignored unknown fields as successful route selection.
+Selection is serialized with Native input and requires a settled turn, including
+reservations and realtime work; background terminals are preserved. A successful
+route reply follows the settings event and rollout flush. A failure after selection
+is reported as unconfirmed persistence and must be reconciled from Native state.
+Configuration definitions remain configuration, not credentials copied into history.
 The route's request client/catalog can change without replacing the tool executor.
 Preserve background terminals/jobs, permissions, approvals and original result
 bindings. Thread-idle alone does not prove there are no owned jobs. Recreating a

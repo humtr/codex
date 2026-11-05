@@ -1,0 +1,3385 @@
+diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
+index e7df794..d7fb0f2 100644
+--- a/codex-rs/app-server-client/src/lib.rs
++++ b/codex-rs/app-server-client/src/lib.rs
+@@ -751,6 +751,15 @@ impl AppServerRequestHandle {
+ }
+ 
+ impl AppServerClient {
++    /// Unknown/older remote backends must not silently ignore a requested route change.
++    pub fn supports_model_provider_updates(&self) -> bool {
++        match self {
++            Self::InProcess(_) => true,
++            Self::Remote(client) => client.supports_model_provider_updates(),
++            Self::Cloud(_) => false,
++        }
++    }
++
+     /// App-server platform family, which can differ from the executor's platform.
+     /// Older remote servers may omit this metadata.
+     pub fn platform_family(&self) -> Option<&str> {
+@@ -1241,6 +1250,7 @@ mod tests {
+             client,
+         } = start_test_client(SessionSource::Exec).await;
+         let client = AppServerClient::InProcess(client);
++        assert!(client.supports_model_provider_updates());
+         assert_eq!(
+             (client.platform_family(), client.platform_os()),
+             (Some(std::env::consts::FAMILY), Some(std::env::consts::OS))
+@@ -1451,6 +1461,10 @@ mod tests {
+                 (client.platform_family(), client.platform_os()),
+                 (family, os)
+             );
++            assert!(
++                !client.supports_model_provider_updates(),
++                "old metadata is not transition support"
++            );
+             client.shutdown().await.expect("shutdown should complete");
+         }
+     }
+diff --git a/codex-rs/app-server-client/src/remote.rs b/codex-rs/app-server-client/src/remote.rs
+index ad8d28b..d9b6d90 100644
+--- a/codex-rs/app-server-client/src/remote.rs
++++ b/codex-rs/app-server-client/src/remote.rs
+@@ -154,6 +154,7 @@ enum RemoteClientCommand {
+ 
+ #[derive(Default)]
+ struct RemoteServerMetadata {
++    model_provider_updates: bool,
+     server_version: Option<String>,
+     codex_home: Option<String>,
+     platform_family: Option<String>,
+@@ -222,6 +223,10 @@ impl RemoteAppServerClient {
+         }
+     }
+ 
++    pub fn supports_model_provider_updates(&self) -> bool {
++        self.metadata.model_provider_updates
++    }
++
+     pub fn server_version(&self) -> Option<&str> {
+         self.metadata.server_version.as_deref()
+     }
+@@ -895,6 +900,8 @@ where
+                                 .and_then(serde_json::Value::as_str)
+                                 .filter(|codex_home| !codex_home.is_empty())
+                                 .map(str::to_string);
++                            metadata.model_provider_updates = response.result.get("modelProviderUpdates")
++                                .and_then(serde_json::Value::as_bool).unwrap_or(false);
+                             metadata.platform_family = response.result.get("platformFamily")
+                                 .and_then(serde_json::Value::as_str).map(str::to_string);
+                             metadata.platform_os = response.result.get("platformOs")
+diff --git a/codex-rs/app-server-protocol/src/protocol/v1.rs b/codex-rs/app-server-protocol/src/protocol/v1.rs
+index 7d05fb1..5f4b772 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v1.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v1.rs
+@@ -72,6 +72,10 @@ pub struct InitializeCapabilities {
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ pub struct InitializeResponse {
++    /// This server accepts modelProvider/config in thread/settings/update.
++    /// Older servers omit this field and do not support provider transitions.
++    #[serde(default)]
++    pub model_provider_updates: bool,
+     pub user_agent: String,
+     /// Absolute path to the server's $CODEX_HOME directory.
+     pub codex_home: AbsolutePathBuf,
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
+index 1279bb8..a63c754 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
+@@ -235,6 +235,12 @@ impl ThreadStartResponse {
+ #[ts(export_to = "v2/")]
+ pub struct ThreadSettingsUpdateParams {
+     pub thread_id: String,
++    /// Select a configured inference provider for this settled thread.
++    #[ts(optional = nullable)]
++    pub model_provider: Option<String>,
++    /// Route definitions/catalog overrides, accepted only with modelProvider.
++    #[ts(optional = nullable)]
++    pub config: Option<HashMap<String, serde_json::Value>>,
+     /// Replace this thread's disabled plugin IDs.
+     /// Omitted/null preserves the list; [] clears it.
+     #[ts(optional = nullable)]
+diff --git a/codex-rs/app-server-transport/src/transport/mod.rs b/codex-rs/app-server-transport/src/transport/mod.rs
+index cd75578..28b1eb7 100644
+--- a/codex-rs/app-server-transport/src/transport/mod.rs
++++ b/codex-rs/app-server-transport/src/transport/mod.rs
+@@ -382,6 +382,7 @@ mod tests {
+             id: RequestId::Integer(7),
+             result: Box::new(ClientResponsePayload::Initialize(
+                 codex_app_server_protocol::InitializeResponse {
++                    model_provider_updates: true,
+                     user_agent: "codex-test-agent".to_string(),
+                     codex_home,
+                     platform_family: "unix".to_string(),
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
+index 3b2406b..bfb2c94 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
+@@ -136,6 +136,7 @@ fn invalid_response_becomes_remote_control_jsonrpc_error() {
+             message: Box::new(OutgoingMessage::Response(OutgoingResponse {
+                 id: RequestId::Integer(7),
+                 result: Box::new(ClientResponsePayload::Initialize(InitializeResponse {
++                    model_provider_updates: true,
+                     user_agent: "codex-test-agent".to_string(),
+                     codex_home,
+                     platform_family: "unix".to_string(),
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
+index 8cd8793..fd46ab2 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
+@@ -1890,6 +1890,7 @@ async fn remote_control_http_mode_enrolls_before_connecting() {
+                 result: Box::new(
+                     codex_app_server_protocol::ClientResponsePayload::Initialize(
+                         codex_app_server_protocol::InitializeResponse {
++                            model_provider_updates: true,
+                             user_agent: "codex-test-agent".to_string(),
+                             codex_home: codex_home.path().abs(),
+                             platform_family: "test-family".to_string(),
+diff --git a/codex-rs/app-server/src/config_manager.rs b/codex-rs/app-server/src/config_manager.rs
+index 461920b..93bbfd7 100644
+--- a/codex-rs/app-server/src/config_manager.rs
++++ b/codex-rs/app-server/src/config_manager.rs
+@@ -430,27 +430,6 @@ impl ConfigManager {
+         Ok(CloudStartupConfig { bootstrap, config })
+     }
+ 
+-    /// Admits resumed threads and input only on the currently selected provider.
+-    pub(crate) async fn check_thread_model_provider_for_input(
+-        &self,
+-        current: &Config,
+-    ) -> std::io::Result<()> {
+-        self.check_thread_model_provider(current).await?;
+-        let configured = self
+-            .load_latest_config(Some(current.cwd.to_path_buf()))
+-            .await?;
+-        if current.model_provider_id != configured.model_provider_id {
+-            return Err(std::io::Error::new(
+-                std::io::ErrorKind::InvalidInput,
+-                ModelProviderError::ModelProviderMismatch {
+-                    model_provider: current.model_provider_id.clone(),
+-                    current_model_provider: configured.model_provider_id,
+-                },
+-            ));
+-        }
+-        Ok(())
+-    }
+-
+     /// Installs local policy before cloud access; failed policy loads block traffic while
+     /// non-strict startup remains available for configuration repair.
+     pub(crate) async fn load_startup_config(
+@@ -535,10 +514,9 @@ impl ConfigManager {
+         })
+     }
+ 
+-    /// Validates saved and requested providers before resume overrides or policy can replace them.
++    /// Validates the selected route before managed policy can replace an explicit override.
+     pub(crate) async fn load_for_resume(
+         &self,
+-        saved_provider: Option<&str>,
+         request_overrides: Option<HashMap<String, serde_json::Value>>,
+         typesafe_overrides: ConfigOverrides,
+         cwd: Option<PathBuf>,
+@@ -550,63 +528,38 @@ impl ConfigManager {
+                 .and_then(serde_json::Value::as_str)
+                 .map(str::to_owned)
+         });
+-        // Resolve the selection before the saved provider is applied as a resume override.
+-        let current_provider = self
+-            .load_latest_config(typesafe_overrides.cwd.clone().or_else(|| cwd.clone()))
+-            .await
+-            .map(|config| config.model_provider_id);
+         self.load_with_validation(
+             &self.current_cli_overrides(),
+             request_overrides,
+             typesafe_overrides,
+             cwd,
+             |config, _overrides, layers| {
+-                let requested_provider = requested_provider
++                let provider = requested_provider
+                     .as_deref()
+                     .or(config.model_provider.as_deref())
+                     .unwrap_or("openai");
+-                // Validate the saved route even when a client sends a provider override.
+-                for provider in [
+-                    saved_provider.unwrap_or(requested_provider),
+-                    requested_provider,
+-                ] {
+-                    if let Some(required) = layers.required_model_provider()
+-                        && required != provider
+-                    {
+-                        return Err(std::io::Error::new(
+-                            std::io::ErrorKind::PermissionDenied,
+-                            ModelProviderError::ModelProviderPolicyConflict {
+-                                model_provider: provider.to_owned(),
+-                                required_model_provider: required.to_owned(),
+-                            },
+-                        ));
+-                    }
+-                    if !config.model_providers.contains_key(provider)
+-                        && !built_in_model_providers(config.openai_base_url.clone())
+-                            .contains_key(provider)
+-                    {
+-                        return Err(std::io::Error::new(
+-                            std::io::ErrorKind::NotFound,
+-                            ModelProviderError::ModelProviderNotConfigured {
+-                                model_provider: provider.to_owned(),
+-                            },
+-                        ));
+-                    }
++                // History provenance does not require a still-usable source route.
++                if let Some(required) = layers.required_model_provider()
++                    && required != provider
++                {
++                    return Err(std::io::Error::new(
++                        std::io::ErrorKind::PermissionDenied,
++                        ModelProviderError::ModelProviderPolicyConflict {
++                            model_provider: provider.to_owned(),
++                            required_model_provider: required.to_owned(),
++                        },
++                    ));
+                 }
+-                let current_provider = current_provider?;
+-                for provider in [
+-                    saved_provider.unwrap_or(requested_provider),
+-                    requested_provider,
+-                ] {
+-                    if provider != current_provider {
+-                        return Err(std::io::Error::new(
+-                            std::io::ErrorKind::InvalidInput,
+-                            ModelProviderError::ModelProviderMismatch {
+-                                model_provider: provider.to_owned(),
+-                                current_model_provider: current_provider,
+-                            },
+-                        ));
+-                    }
++                if !config.model_providers.contains_key(provider)
++                    && !built_in_model_providers(config.openai_base_url.clone())
++                        .contains_key(provider)
++                {
++                    return Err(std::io::Error::new(
++                        std::io::ErrorKind::NotFound,
++                        ModelProviderError::ModelProviderNotConfigured {
++                            model_provider: provider.to_owned(),
++                        },
++                    ));
+                 }
+                 Ok(())
+             },
+diff --git a/codex-rs/app-server/src/config_manager_provider_tests.rs b/codex-rs/app-server/src/config_manager_provider_tests.rs
+index 1f2129d..4738d78 100644
+--- a/codex-rs/app-server/src/config_manager_provider_tests.rs
++++ b/codex-rs/app-server/src/config_manager_provider_tests.rs
+@@ -1,4 +1,4 @@
+-//! Checks retained providers against managed policy and the current provider selection.
++//! Checks retained per-thread routes against managed policy.
+ 
+ use super::*;
+ use anyhow::Result;
+@@ -262,11 +262,14 @@ async fn catalog_reload_uses_latest_model_provider() -> Result<()> {
+     Ok(())
+ }
+ 
+-/// Invocation overrides and selected profiles still define the current provider.
++/// Invocation defaults do not revoke an already validated per-thread route.
+ #[test_case("model_provider", "gateway"; "explicit_provider")]
+ #[test_case("profile", "gateway-profile"; "selected_profile")]
+ #[tokio::test]
+-async fn input_provider_check_uses_effective_selection(key: &str, value: &str) -> Result<()> {
++async fn input_provider_check_retains_route_across_different_defaults(
++    key: &str,
++    value: &str,
++) -> Result<()> {
+     let home = tempdir()?;
+     std::fs::write(
+         home.path().join("config.toml"),
+@@ -300,23 +303,11 @@ name = "Gateway"
+         .load_latest_config(Some(home.path().to_path_buf()))
+         .await?;
+     assert_eq!(current.model_provider_id, "gateway");
+-    manager
+-        .check_thread_model_provider_for_input(&current)
+-        .await?;
++    manager.check_thread_model_provider(&current).await?;
+     let default_manager =
+         ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
+-    let error = default_manager
+-        .check_thread_model_provider_for_input(&current)
+-        .await
+-        .unwrap_err();
+-    assert_eq!(
+-        error
+-            .get_ref()
+-            .and_then(|error| error.downcast_ref::<ModelProviderError>()),
+-        Some(&ModelProviderError::ModelProviderMismatch {
+-            model_provider: "gateway".into(),
+-            current_model_provider: "openai".into(),
+-        })
+-    );
++    default_manager
++        .check_thread_model_provider(&current)
++        .await?;
+     Ok(())
+ }
+diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+index 6259cf7..8485432 100644
+--- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
++++ b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+@@ -208,6 +208,7 @@ impl InitializeRequestProcessor {
+ 
+         let user_agent = get_codex_user_agent();
+         let response = InitializeResponse {
++            model_provider_updates: true,
+             user_agent,
+             codex_home,
+             platform_family: std::env::consts::FAMILY.to_string(),
+diff --git a/codex-rs/app-server/src/request_processors/thread_goal_processor.rs b/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
+index 82aeaf7..bada44d 100644
+--- a/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
+@@ -162,7 +162,7 @@ impl ThreadGoalRequestProcessor {
+             && let Ok(thread) = self.thread_manager.get_thread(thread_id).await
+         {
+             self.config_manager
+-                .check_thread_model_provider_for_input(thread.config().await.as_ref())
++                .check_thread_model_provider(thread.config().await.as_ref())
+                 .await
+                 .map_err(|error| config_load_error(&error))?;
+         }
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 1ef252d..a5c1e0d 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
+         let (_, thread) = self.load_thread(&thread_id).await?;
+         ensure_direct_input_allowed(thread.as_ref()).await?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+         self.submit_core_op(request_id, thread.as_ref(), Op::Compact)
+@@ -4265,32 +4265,7 @@ impl ThreadRequestProcessor {
+                 drop(_thread_list_state_permit);
+                 let config = self
+                     .config_manager
+-                    .load_for_resume(
+-                        resume_source_thread
+-                            .as_ref()
+-                            .map(|thread| thread.model_provider.as_str())
+-                            .filter(|provider| !provider.is_empty())
+-                            .or_else(|| {
+-                                config_state
+-                                    .persisted_metadata
+-                                    .as_ref()
+-                                    .map(|metadata| metadata.model_provider.as_str())
+-                            })
+-                            .or_else(|| match &thread_history {
+-                                InitialHistory::Resumed(resumed) => {
+-                                    resumed.history.iter().find_map(|item| match item {
+-                                        RolloutItem::SessionMeta(meta) => {
+-                                            meta.meta.model_provider.as_deref()
+-                                        }
+-                                        _ => None,
+-                                    })
+-                                }
+-                                _ => None,
+-                            }),
+-                        request_overrides,
+-                        typesafe_overrides,
+-                        history_cwd,
+-                    )
++                    .load_for_resume(request_overrides, typesafe_overrides, history_cwd)
+                     .await
+                     .map_err(|err| config_load_error(&err))?;
+                 *prepared_config = Some(PreparedResumeConfig {
+@@ -4749,7 +4724,7 @@ impl ThreadRequestProcessor {
+                 );
+             }
+             self.config_manager
+-                .check_thread_model_provider_for_input(existing_thread.config().await.as_ref())
++                .check_thread_model_provider(existing_thread.config().await.as_ref())
+                 .await
+                 .map_err(|err| config_load_error(&err))?;
+             let redact_resume_payloads =
+diff --git a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
+index be77be3..a2f5b5a 100644
+--- a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
+@@ -193,7 +193,7 @@ impl ThreadQueueRequestProcessor {
+         let thread = loaded_thread
+             .ok_or_else(|| invalid_request("resume the thread before starting a queued message"))?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+         let submission = self
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+index f310c4a..28ff4e7 100644
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -338,7 +338,7 @@ impl TurnRequestProcessor {
+         self.ensure_direct_input_allowed(request_id, thread.as_ref())
+             .await?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+         let (review_request, display_text) = Self::review_request_from_target(params.target)?;
+@@ -508,7 +508,7 @@ impl TurnRequestProcessor {
+         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
+             .await?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+         if let Some(tool_output) = &params.tool_output {
+@@ -927,6 +927,60 @@ impl TurnRequestProcessor {
+         let (_, thread) = self.load_thread(&params.thread_id).await?;
+         self.ensure_direct_input_allowed(request_id, thread.as_ref())
+             .await?;
++        let provider_config = if let Some(provider) = params.model_provider.as_ref() {
++            if params.config.as_ref().is_some_and(|config| {
++                config
++                    .keys()
++                    .any(|key| !matches!(key.as_str(), "model_providers" | "model_catalog_json"))
++            }) {
++                return Err(invalid_request(
++                    "provider config accepts only route definitions and model_catalog_json",
++                ));
++            }
++            let current = thread.config().await;
++            let explicit_catalog = params
++                .config
++                .as_ref()
++                .is_some_and(|config| config.contains_key("model_catalog_json"));
++            let mut destination = self
++                .config_manager
++                .load_for_cwd(
++                    params.config,
++                    codex_core::config::ConfigOverrides {
++                        model_provider: Some(provider.clone()),
++                        model: params.model.clone(),
++                        cwd: Some(current.cwd.to_path_buf()),
++                        ..Default::default()
++                    },
++                    None,
++                )
++                .await
++                .map_err(|error| config_load_error(&error))?;
++            self.config_manager
++                .check_thread_model_provider(&destination)
++                .await
++                .map_err(|error| config_load_error(&error))?;
++            // A startup catalog is not the destination's catalog. Omission preserves
++            // same-provider metadata, while a new provider can use native discovery.
++            if !explicit_catalog {
++                destination.model_catalog = if current.model_provider_id == *provider {
++                    current.model_catalog.clone()
++                } else {
++                    None
++                };
++                destination.model_catalog_source = if current.model_provider_id == *provider {
++                    current.model_catalog_source.clone()
++                } else {
++                    None
++                };
++            }
++            Some(Arc::new(destination))
++        } else {
++            if params.config.is_some() {
++                return Err(invalid_request("provider config requires modelProvider"));
++            }
++            None
++        };
+         let cwd = resolve_request_cwd(params.cwd)?;
+         let environment_override = self
+             .build_environment_override(
+@@ -957,7 +1011,17 @@ impl TurnRequestProcessor {
+             )
+             .await?;
+ 
+-        if thread_settings != codex_protocol::protocol::ThreadSettingsOverrides::default() {
++        if let Some(config) = provider_config {
++            thread
++                .update_model_provider(config, thread_settings)
++                .await
++                .map_err(|error| match error {
++                    codex_protocol::error::CodexErr::InvalidRequest(message) => {
++                        invalid_request(message)
++                    }
++                    error => internal_error(format!("failed to change model provider: {error}")),
++                })?;
++        } else if thread_settings != codex_protocol::protocol::ThreadSettingsOverrides::default() {
+             self.submit_core_op(
+                 request_id,
+                 thread.as_ref(),
+@@ -1037,7 +1101,7 @@ impl TurnRequestProcessor {
+         self.ensure_direct_input_allowed(request_id, thread.as_ref())
+             .await?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+ 
+diff --git a/codex-rs/app-server/tests/suite/v2/initialize.rs b/codex-rs/app-server/tests/suite/v2/initialize.rs
+index 1ba0f26..492b354 100644
+--- a/codex-rs/app-server/tests/suite/v2/initialize.rs
++++ b/codex-rs/app-server/tests/suite/v2/initialize.rs
+@@ -55,6 +55,7 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
+         anyhow::bail!("expected initialize response, got {message:?}");
+     };
+     let InitializeResponse {
++        model_provider_updates,
+         user_agent,
+         codex_home: response_codex_home,
+         platform_family,
+@@ -65,6 +66,7 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
+     assert_eq!(response_codex_home, expected_codex_home);
+     assert_eq!(platform_family, std::env::consts::FAMILY);
+     assert_eq!(platform_os, std::env::consts::OS);
++    assert!(model_provider_updates);
+     Ok(())
+ }
+ 
+@@ -167,6 +169,7 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
+         anyhow::bail!("expected initialize response, got {message:?}");
+     };
+     let InitializeResponse {
++        model_provider_updates,
+         user_agent,
+         codex_home: response_codex_home,
+         platform_family,
+@@ -177,6 +180,7 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
+     assert_eq!(response_codex_home, expected_codex_home);
+     assert_eq!(platform_family, std::env::consts::FAMILY);
+     assert_eq!(platform_os, std::env::consts::OS);
++    assert!(model_provider_updates);
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
+index f5bda49..2dca8a5 100644
+--- a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
++++ b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
+@@ -42,7 +42,6 @@ use wiremock::MockServer;
+ 
+ #[test_case("other"; "selection_changes")]
+ #[test_case("gateway"; "definition_changes")]
+-#[test_case("default"; "default_selection_changes")]
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn provider_requirement_changes_reject_inputs_to_existing_threads(
+     required_selection: &str,
+@@ -79,17 +78,7 @@ base_url = "{}/v1"
+         other.uri(),
+     );
+     let requirements_path = home.path().join("requirements.toml");
+-    if required_selection == "default" {
+-        std::fs::write(
+-            &requirements_path,
+-            requirements.replace("model_provider = \"gateway\"", ""),
+-        )?;
+-        let path = home.path().join("config.toml");
+-        let config = std::fs::read_to_string(&path)?;
+-        std::fs::write(path, config.replace("mock_provider", "gateway"))?;
+-    } else {
+-        std::fs::write(&requirements_path, &requirements)?;
+-    }
++    std::fs::write(&requirements_path, &requirements)?;
+     let mut server = TestAppServer::builder()
+         .with_codex_home(home.path())
+         .with_json_logging("warn")
+@@ -136,24 +125,12 @@ base_url = "{}/v1"
+     } else {
+         requirements.replace(gateway.uri(), &other.uri())
+     };
+-    let provider_error = if required_selection == "default" {
+-        let path = home.path().join("config.toml");
+-        let config = std::fs::read_to_string(&path)?;
+-        std::fs::write(
+-            path,
+-            config.replace("model_provider = \"gateway\"", "model_provider = \"other\""),
+-        )?;
+-        codex_app_server_protocol::ModelProviderError::ModelProviderMismatch {
+-            model_provider: "gateway".into(),
+-            current_model_provider: "other".into(),
+-        }
+-    } else {
+-        std::fs::write(requirements_path, updated)?;
++    std::fs::write(requirements_path, updated)?;
++    let provider_error =
+         codex_app_server_protocol::ModelProviderError::ModelProviderPolicyConflict {
+             model_provider: "gateway".into(),
+             required_model_provider: required_selection.into(),
+-        }
+-    };
++        };
+     let expected_error = JSONRPCErrorError {
+         code: -32600,
+         message: provider_error.to_string(),
+@@ -283,7 +260,7 @@ base_url = "{}/v1"
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn provider_selection_can_be_restored_for_existing_threads() -> Result<()> {
++async fn provider_selection_survives_changed_defaults_for_existing_threads() -> Result<()> {
+     let provider = MockServer::start().await;
+     let home = TempDir::new()?;
+     MockResponsesConfig::new(&provider.uri()).write(home.path())?;
+@@ -314,20 +291,12 @@ async fn provider_selection_can_be_restored_for_existing_threads() -> Result<()>
+         }],
+         ..Default::default()
+     };
+-    let id = server.send_turn_start_request(params.clone()).await?;
+-    let error = server
+-        .read_stream_until_error_message(RequestId::Integer(id))
++    let id = server.send_turn_start_request(params).await?;
++    let _: TurnStartResponse = server.read_response(id).await?;
++    server
++        .read_stream_until_notification_message("turn/completed")
+         .await?;
+-    assert_eq!(
+-        error.error.data,
+-        Some(serde_json::to_value(
+-            codex_app_server_protocol::ModelProviderError::ModelProviderMismatch {
+-                model_provider: "mock_provider".into(),
+-                current_model_provider: "openai".into(),
+-            }
+-        )?)
+-    );
+-    assert!(requests.requests().is_empty());
++    assert_eq!(requests.requests().len(), 1);
+     let id = server
+         .send_raw_request(
+             "thread/read",
+@@ -336,13 +305,6 @@ async fn provider_selection_can_be_restored_for_existing_threads() -> Result<()>
+         .await?;
+     let read: codex_app_server_protocol::ThreadReadResponse = server.read_response(id).await?;
+     assert_eq!(read.thread.model_provider, "mock_provider");
+-    std::fs::write(path, original)?;
+-    let id = server.send_turn_start_request(params).await?;
+-    let _: TurnStartResponse = server.read_response(id).await?;
+-    server
+-        .read_stream_until_notification_message("turn/completed")
+-        .await?;
+-    assert_eq!(requests.requests().len(), 1);
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
+index ab688b1..a7c5309 100644
+--- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
++++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
+@@ -774,3 +774,440 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
+     }
+     Ok(())
+ }
++
++#[test_case(ThreadHistoryMode::Legacy; "legacy")]
++#[test_case(ThreadHistoryMode::Paginated; "paginated")]
++#[tokio::test]
++async fn model_provider_roundtrip_preserves_jobs_history_observers_and_siblings(
++    history_mode: ThreadHistoryMode,
++) -> Result<()> {
++    let initial = responses::sse(vec![
++        responses::ev_response_created("start-job"),
++        responses::ev_function_call(
++            "start-job",
++            "exec_command",
++            &json!({
++                "cmd": "read value; printf 'SURVIVED:%s\\n' \"$value\"",
++                "tty": true, "yield_time_ms": 1000, "max_output_tokens": 2000,
++            })
++            .to_string(),
++        ),
++        responses::ev_completed("start-job"),
++    ]);
++    let first = create_mock_responses_server_sequence_unchecked(vec![
++        initial,
++        create_final_assistant_message_sse_response("job admitted")?,
++        create_final_assistant_message_sse_response("sibling unchanged")?,
++        create_final_assistant_message_sse_response("returned to original route")?,
++    ])
++    .await;
++    let home = TempDir::new()?;
++    MockResponsesConfig::new(first.uri())
++        .with_sandbox_mode("danger-full-access")
++        .enable_feature(codex_features::Feature::UnifiedExec)
++        .with_provider_config("supports_websockets = false")
++        .write(home.path())?;
++    let mut client = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let started = client
++        .start_thread(ThreadStartParams {
++            history_mode: Some(history_mode),
++            ..Default::default()
++        })
++        .await?;
++    let thread = started.thread.id;
++    let sibling = client
++        .start_thread(ThreadStartParams::default())
++        .await?
++        .thread
++        .id;
++    let input = || {
++        vec![V2UserInput::Text {
++            text: "continue this work".into(),
++            text_elements: Vec::new(),
++        }]
++    };
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread.clone(),
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    let before: codex_app_server_protocol::ThreadBackgroundTerminalsListResponse = client
++        .request(|request_id| ClientRequest::ThreadBackgroundTerminalsList {
++            request_id,
++            params: codex_app_server_protocol::ThreadBackgroundTerminalsListParams {
++                thread_id: thread.clone(),
++                cursor: None,
++                limit: None,
++            },
++        })
++        .await?;
++    assert_eq!(
++        before.data.len(),
++        1,
++        "the first route must own a real running terminal"
++    );
++    let process = before.data[0].process_id.clone();
++    let finish_job = responses::sse(vec![
++        responses::ev_response_created("finish-job"),
++        responses::ev_function_call("finish-job", "write_stdin", &json!({
++            "session_id": process.parse::<i32>()?, "chars": "continued\n", "yield_time_ms": 1000, "max_output_tokens": 2000,
++        }).to_string()),
++        responses::ev_completed("finish-job"),
++    ]);
++    let second = create_mock_responses_server_sequence_unchecked(vec![
++        finish_job,
++        create_final_assistant_message_sse_response("second route completed original job")?,
++    ])
++    .await;
++    let sent_before_selection = received_response_bodies(&first).await?.len();
++    send_thread_settings_update(
++        &mut client,
++        ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("alternate".into()),
++            config: Some(std::collections::HashMap::from([(
++                "model_providers".to_string(),
++                json!({"alternate": {
++                    "name": "Alternate", "base_url": format!("{}/v1", second.uri()),
++                    "wire_api": "responses", "requires_openai_auth": false,
++                    "supports_websockets": false,
++                }}),
++            )])),
++            ..Default::default()
++        },
++    )
++    .await?;
++    // Keep the original client subscription. No resume/restart is used to recover notifications.
++    let changed = timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_matching_notification("provider transition", |notification| {
++            notification.method == "thread/settings/updated"
++                && notification.params.as_ref().is_some_and(|params| {
++                    params["threadId"] == thread
++                        && params["threadSettings"]["modelProvider"] == "alternate"
++                })
++        }),
++    )
++    .await??;
++    assert_eq!(changed.method, "thread/settings/updated");
++    assert_eq!(
++        received_response_bodies(&first).await?.len(),
++        sent_before_selection
++    );
++    assert!(
++        received_response_bodies(&second).await?.is_empty(),
++        "selection must submit no inference"
++    );
++    let after: codex_app_server_protocol::ThreadBackgroundTerminalsListResponse = client
++        .request(|request_id| ClientRequest::ThreadBackgroundTerminalsList {
++            request_id,
++            params: codex_app_server_protocol::ThreadBackgroundTerminalsListParams {
++                thread_id: thread.clone(),
++                cursor: None,
++                limit: None,
++            },
++        })
++        .await?;
++    assert_eq!(after.data[0].process_id, process);
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread.clone(),
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    let requests = received_response_bodies(&second).await?;
++    assert_eq!(
++        requests.len(),
++        2,
++        "selected route did not receive the continuation"
++    );
++    let returned = requests[1]["input"].to_string();
++    assert!(
++        returned.contains("SURVIVED:continued"),
++        "the new route must receive the original terminal's real output: {returned}"
++    );
++    assert!(returned.contains("Process exited with code 0"));
++    // A sibling still uses its original route while this thread uses the alternate.
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: sibling,
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    assert_eq!(received_response_bodies(&first).await?.len(), 3);
++    send_thread_settings_update(
++        &mut client,
++        ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("mock_provider".into()),
++            ..Default::default()
++        },
++    )
++    .await?;
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread.clone(),
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    assert_eq!(received_response_bodies(&first).await?.len(), 4);
++    assert_eq!(received_response_bodies(&second).await?.len(), 2);
++    let history: ThreadReadResponse = client
++        .request(|request_id| ClientRequest::ThreadRead {
++            request_id,
++            params: ThreadReadParams {
++                thread_id: thread.clone(),
++                include_turns: false,
++            },
++        })
++        .await?;
++    assert_eq!(history.thread.id, thread);
++    assert_eq!(history.thread.model_provider, "mock_provider");
++    let turns: codex_app_server_protocol::ThreadTurnsListResponse = client
++        .request(|request_id| ClientRequest::ThreadTurnsList {
++            request_id,
++            params: codex_app_server_protocol::ThreadTurnsListParams {
++                thread_id: thread.clone(),
++                cursor: None,
++                limit: Some(10),
++                sort_direction: None,
++                items_view: Some(codex_app_server_protocol::TurnItemsView::Full),
++            },
++        })
++        .await?;
++    assert_eq!(turns.data.len(), 3);
++    let recorded = serde_json::to_string(&turns)?;
++    assert!(recorded.contains("second route completed original job"));
++    assert!(recorded.contains("returned to original route"));
++    Ok(())
++}
++
++#[tokio::test]
++async fn model_provider_selection_survives_cold_resume_without_another_turn() -> Result<()> {
++    let first = responses::start_mock_server().await;
++    let second = responses::start_mock_server().await;
++    let home = TempDir::new()?;
++    MockResponsesConfig::new(first.uri())
++        .with_provider_config("supports_websockets = false")
++        .with_extra_config(&format!("[model_providers.alternate]\nname = 'Alternate'\nbase_url = '{}/v1'\nwire_api = 'responses'\nrequires_openai_auth = false\nsupports_websockets = false\n", second.uri()))
++        .write(home.path())?;
++    responses::mount_sse_once(
++        &first,
++        create_final_assistant_message_sse_response("original turn")?,
++    )
++    .await;
++    let mut client = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let thread = start_thread(&mut client).await?.thread.id;
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread.clone(),
++            input: vec![V2UserInput::Text {
++                text: "original task".into(),
++                text_elements: Vec::new(),
++            }],
++            ..Default::default()
++        })
++        .await?;
++    send_thread_settings_update(
++        &mut client,
++        ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("alternate".into()),
++            ..Default::default()
++        },
++    )
++    .await?;
++    timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_matching_notification("provider selected", |notification| {
++            notification.method == "thread/settings/updated"
++                && notification
++                    .params
++                    .as_ref()
++                    .is_some_and(|params| params["threadSettings"]["modelProvider"] == "alternate")
++        }),
++    )
++    .await??;
++    drop(client);
++    let mut resumed = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let response: ThreadResumeResponse = resumed
++        .request(|request_id| ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert_eq!(response.thread.id, thread);
++    assert_eq!(response.model_provider, "alternate");
++    responses::mount_sse_once(
++        &second,
++        create_final_assistant_message_sse_response("resumed alternate")?,
++    )
++    .await;
++    resumed
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread,
++            input: vec![V2UserInput::Text {
++                text: "continue after restart".into(),
++                text_elements: Vec::new(),
++            }],
++            ..Default::default()
++        })
++        .await?;
++    assert_eq!(received_response_bodies(&first).await?.len(), 1);
++    let requests = received_response_bodies(&second).await?;
++    assert_eq!(requests.len(), 1);
++    assert!(requests[0]["input"].to_string().contains("original task"));
++    Ok(())
++}
++
++#[tokio::test]
++async fn model_provider_invalid_catalog_keeps_the_original_route() -> Result<()> {
++    let server = responses::start_mock_server().await;
++    let home = TempDir::new()?;
++    create_config_toml(home.path(), &server.uri())?;
++    let mut client = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let thread = start_thread(&mut client).await?.thread.id;
++    let malformed = home.path().join("invalid-catalog.json");
++    std::fs::write(&malformed, "{\"models\": [{}]}")?;
++    let request_id = client
++        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("mock_provider".into()),
++            config: Some(std::collections::HashMap::from([(
++                "model_catalog_json".into(),
++                json!(malformed),
++            )])),
++            ..Default::default()
++        })
++        .await?;
++    let error = timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_error_message(RequestId::Integer(request_id)),
++    )
++    .await??;
++    assert!(
++        error.error.message.contains("model_catalog_json"),
++        "{error:?}"
++    );
++    responses::mount_sse_once(
++        &server,
++        create_final_assistant_message_sse_response("unchanged route")?,
++    )
++    .await;
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread.clone(),
++            input: vec![V2UserInput::Text {
++                text: "still usable".into(),
++                text_elements: Vec::new(),
++            }],
++            ..Default::default()
++        })
++        .await?;
++    assert_eq!(received_response_bodies(&server).await?.len(), 1);
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn model_provider_definition_change_refuses_active_turn_and_rebinds_when_settled()
++-> Result<()> {
++    use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
++    let (release, gate) = tokio::sync::oneshot::channel();
++    let (first, _) = start_streaming_sse_server(vec![vec![
++        StreamingSseChunk {
++            gate: None,
++            body: responses::sse(vec![responses::ev_response_created("active")]),
++        },
++        StreamingSseChunk {
++            gate: Some(gate),
++            body: responses::sse(vec![responses::ev_completed("active")]),
++        },
++    ]])
++    .await;
++    let second = responses::start_mock_server().await;
++    let home = TempDir::new()?;
++    create_config_toml(home.path(), first.uri())?;
++    let mut client = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let thread = start_thread(&mut client).await?.thread.id;
++    let input = || {
++        vec![V2UserInput::Text {
++            text: "continue".into(),
++            text_elements: Vec::new(),
++        }]
++    };
++    let request = client
++        .send_turn_start_request(TurnStartParams {
++            thread_id: thread.clone(),
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    let _: TurnStartResponse = client.read_response(request).await?;
++    timeout(DEFAULT_TIMEOUT, first.wait_for_request_count(1)).await?;
++    let config = std::collections::HashMap::from([(
++        "model_providers".into(),
++        json!({"mock_provider": {
++            "name": "Replacement definition", "base_url": format!("{}/v1",second.uri()), "wire_api": "responses", "requires_openai_auth": false, "supports_websockets": false,
++        }}),
++    )]);
++    let select = ThreadSettingsUpdateParams {
++        thread_id: thread.clone(),
++        model_provider: Some("mock_provider".into()),
++        config: Some(config),
++        ..Default::default()
++    };
++    let request = client
++        .send_thread_settings_update_request(select.clone())
++        .await?;
++    let error = timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_error_message(RequestId::Integer(request)),
++    )
++    .await??;
++    assert!(error.error.message.contains("settled turn"), "{error:?}");
++    assert!(received_response_bodies(&second).await?.is_empty());
++    release.send(()).expect("original response still waiting");
++    timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_notification_message("turn/completed"),
++    )
++    .await??;
++    send_thread_settings_update(&mut client, select).await?;
++    responses::mount_sse_once(
++        &second,
++        create_final_assistant_message_sse_response("replacement route")?,
++    )
++    .await;
++    client
++        .start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: thread,
++            input: input(),
++            ..Default::default()
++        })
++        .await?;
++    assert_eq!(received_response_bodies(&second).await?.len(), 1);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
+index 3d56d7e..43aaddf 100644
+--- a/codex-rs/core/src/agent/child_config.rs
++++ b/codex-rs/core/src/agent/child_config.rs
+@@ -219,6 +219,8 @@ async fn apply_requested_spawn_agent_model_overrides(
+     if let Some(requested_model) = requested_model {
+         let available_models = session
+             .services
++            .inference
++            .load()
+             .models_manager
+             .list_models(RefreshStrategy::Offline, config.http_client_factory())
+             .await;
+@@ -229,6 +231,8 @@ async fn apply_requested_spawn_agent_model_overrides(
+         )?;
+         let selected_model_info = session
+             .services
++            .inference
++            .load()
+             .models_manager
+             .get_model_info(&selected_model_name, &config.to_models_manager_config())
+             .await;
+@@ -278,6 +282,8 @@ pub(crate) async fn apply_spawn_agent_service_tier(
+     })?;
+     let model_info = session
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info(model.as_str(), &config.to_models_manager_config())
+         .await;
+@@ -309,6 +315,8 @@ async fn apply_spawn_agent_role(
+     })?;
+     let model_info = session
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info(&model, &config.to_models_manager_config())
+         .await;
+diff --git a/codex-rs/core/src/agent/control/spawn.rs b/codex-rs/core/src/agent/control/spawn.rs
+index 9f1660c..df78a97 100644
+--- a/codex-rs/core/src/agent/control/spawn.rs
++++ b/codex-rs/core/src/agent/control/spawn.rs
+@@ -519,7 +519,9 @@ impl LocalAgentControl {
+             parent
+                 .session
+                 .services
+-                .model_client
++                .inference
++                .load()
++                .client
+                 .prompt_cache_key_policy()
+         });
+         let inherited_instructions = if let Some(parent) = inherited_parent {
+diff --git a/codex-rs/core/src/agent/control_tests.rs b/codex-rs/core/src/agent/control_tests.rs
+index 86eaf38..be07561 100644
+--- a/codex-rs/core/src/agent/control_tests.rs
++++ b/codex-rs/core/src/agent/control_tests.rs
+@@ -508,7 +508,9 @@ async fn mcp_attribution_in_constructed_request(thread: &CodexThread) -> McpAttr
+     let request = thread
+         .session
+         .services
+-        .model_client
++        .inference
++        .load()
++        .client
+         .build_responses_request(
+             &prompt,
+             &step_context.settings.model_info,
+diff --git a/codex-rs/core/src/agent/host/spawn.rs b/codex-rs/core/src/agent/host/spawn.rs
+index 9f539fe..eb8f511 100644
+--- a/codex-rs/core/src/agent/host/spawn.rs
++++ b/codex-rs/core/src/agent/host/spawn.rs
+@@ -148,7 +148,9 @@ pub(super) async fn prepare_spawn(
+         prompt_cache_key: parent
+             .session
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .prompt_cache_key_policy(),
+         ..StartThreadOptions::new(config)
+     };
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 2ac9b93..c480231 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -737,6 +737,36 @@ impl ModelClient {
+         }
+     }
+ 
++    /// Prepare another provider without carrying its predecessor's transport/cache state.
++    pub(crate) fn with_provider(&self, provider: ModelProviderInfo) -> Self {
++        let state = &self.state;
++        let fresh = Self::new(
++            self.auth_manager(),
++            self.agent_identity_policy,
++            state.thread_id,
++            provider,
++            state.session_source.clone(),
++            state.originator.clone(),
++            state.model_verbosity,
++            state.content_item_kinds_enabled,
++            state.reasoning_effort_override_enabled,
++            state.enable_request_compression,
++            state.include_timing_metrics,
++            state.beta_features_header.clone(),
++            state.concurrent_reasoning_summaries_enabled,
++            state.output_token_replay_enabled,
++            state.attestation_provider.clone(),
++            self.http_client_factory.clone(),
++            state.workspace_routing.clone(),
++            self.request_contributors.clone(),
++        );
++        Self {
++            state: fresh.state,
++            restored_history: true,
++            ..self.clone()
++        }
++    }
++
+     /// Creates a fresh turn-scoped streaming session.
+     ///
+     /// This constructor does not perform network I/O itself; the session opens a websocket lazily
+diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
+index d4227af..cfbf15e 100644
+--- a/codex-rs/core/src/codex_delegate.rs
++++ b/codex-rs/core/src/codex_delegate.rs
+@@ -76,7 +76,9 @@ pub(crate) async fn run_codex_thread_interactive(
+     config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
+     config.model_provider.supports_websockets &= parent_session
+         .services
+-        .model_client
++        .inference
++        .load()
++        .client
+         .responses_websocket_enabled();
+ 
+     let conversation_history = initial_history.unwrap_or(InitialHistory::New);
+@@ -108,7 +110,9 @@ pub(crate) async fn run_codex_thread_interactive(
+         config,
+         prompt_cache_key: parent_session
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .prompt_cache_key_policy(),
+         allow_provider_model_fallback: false,
+         instructions,
+@@ -305,6 +309,7 @@ pub(crate) async fn run_codex_thread_one_shot(
+             if should_shutdown {
+                 let _ = ops_tx
+                     .send(Submission {
++                        model_provider_config: None,
+                         id: "shutdown".to_string(),
+                         op: Op::Shutdown {},
+                         turn_extension_init: None,
+diff --git a/codex-rs/core/src/codex_delegate_tests.rs b/codex-rs/core/src/codex_delegate_tests.rs
+index 26e780e..351bcfa 100644
+--- a/codex-rs/core/src/codex_delegate_tests.rs
++++ b/codex-rs/core/src/codex_delegate_tests.rs
+@@ -151,6 +151,7 @@ async fn forward_ops_preserves_submission_trace_context() {
+     let forward = tokio::spawn(forward_ops(Arc::clone(&io), rx_ops, cancel));
+ 
+     let submission = Submission {
++        model_provider_config: None,
+         id: "sub-1".to_string(),
+         op: Op::Interrupt,
+         turn_extension_init: None,
+@@ -213,7 +214,7 @@ async fn run_codex_thread_interactive_respects_pre_cancelled_spawn() {
+             run_codex_thread_interactive(
+                 config,
+                 Arc::clone(&parent_session.services.auth_manager),
+-                Arc::clone(&parent_session.services.models_manager),
++                Arc::clone(&parent_session.services.inference.load().models_manager),
+                 parent_session,
+                 parent_ctx,
+                 parent_environments,
+@@ -278,7 +279,7 @@ async fn delegate_start_analytics_honors_child_opt_out_with_enabled_parent() {
+         let (session, io) = run_codex_thread_interactive(
+             config,
+             Arc::clone(&parent_session.services.auth_manager),
+-            Arc::clone(&parent_session.services.models_manager),
++            Arc::clone(&parent_session.services.inference.load().models_manager),
+             Arc::clone(&parent_session),
+             Arc::clone(&parent_ctx),
+             parent_ctx.initial_environments.clone(),
+@@ -379,7 +380,7 @@ async fn delegate_isolation_does_not_depend_on_attribution() {
+         let (session, io) = run_codex_thread_interactive(
+             config,
+             Arc::clone(&parent_session.services.auth_manager),
+-            Arc::clone(&parent_session.services.models_manager),
++            Arc::clone(&parent_session.services.inference.load().models_manager),
+             Arc::clone(&parent_session),
+             Arc::clone(&parent_ctx),
+             parent_environments.clone(),
+@@ -445,7 +446,7 @@ async fn run_codex_thread_interactive_rejects_approval_policy_that_can_prompt()
+     let result = run_codex_thread_interactive(
+         config,
+         Arc::clone(&parent_session.services.auth_manager),
+-        Arc::clone(&parent_session.services.models_manager),
++        Arc::clone(&parent_session.services.inference.load().models_manager),
+         parent_session,
+         parent_ctx,
+         parent_environments,
+@@ -479,7 +480,7 @@ async fn tree_shutdown_waits_for_private_delegate() {
+     let (_, io) = run_codex_thread_interactive(
+         config,
+         Arc::clone(&parent.services.auth_manager),
+-        Arc::clone(&parent.services.models_manager),
++        Arc::clone(&parent.services.inference.load().models_manager),
+         Arc::clone(&parent),
+         Arc::clone(&context),
+         context.initial_environments.clone(),
+diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
+index 968d331..f5a7ce6 100644
+--- a/codex-rs/core/src/codex_thread.rs
++++ b/codex-rs/core/src/codex_thread.rs
+@@ -595,6 +595,7 @@ impl CodexThread {
+         self.io
+             .tx_sub
+             .send(Submission {
++                model_provider_config: None,
+                 id: new_submission_id(),
+                 op: Op::SuspendTurnAndShutdown { reply },
+                 turn_extension_init: None,
+@@ -757,6 +758,32 @@ impl CodexThread {
+         result.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+     }
+ 
++    /// Queues a validated per-thread route and waits for Native admission.
++    pub async fn update_model_provider(
++        &self,
++        config: Arc<crate::config::Config>,
++        thread_settings: ThreadSettingsOverrides,
++    ) -> CodexResult<()> {
++        let (reply, result) = oneshot::channel();
++        self.io
++            .submit_with_id(Submission {
++                id: new_submission_id(),
++                op: Op::ThreadSettings {
++                    thread_settings,
++                    reply: Some(reply),
++                },
++                model_provider_config: Some(config),
++                turn_extension_init: None,
++                trace: None,
++                parent_turn_id: None,
++                root_turn_id: None,
++                residency_guard: None,
++                message_delivery: None,
++            })
++            .await?;
++        result.await.unwrap_or(Err(CodexErr::InternalAgentDied))
++    }
++
+     /// Restores thread-owned mutable settings captured from another loaded runtime.
+     ///
+     /// Runtime replacement uses this after resume so clients keep their current thread settings
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index 2f6a91d..4e5fa24 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -294,7 +294,7 @@ async fn run_compact_task_inner_impl(
+     let mut retries = 0;
+     // Reuse one client session so turn-scoped state (sticky routing and websocket incremental
+     // request tracking) survives retries within this compact turn.
+-    let mut client_session = sess.services.model_client.new_session();
++    let mut client_session = turn_context.inference.client.new_session();
+     let compaction_response = loop {
+         // Clone is required because of the loop
+         let mut turn_input = history
+diff --git a/codex-rs/core/src/compact_remote_v2.rs b/codex-rs/core/src/compact_remote_v2.rs
+index 85a3e6c..f81dfb8 100644
+--- a/codex-rs/core/src/compact_remote_v2.rs
++++ b/codex-rs/core/src/compact_remote_v2.rs
+@@ -301,7 +301,7 @@ async fn run_remote_compaction_request_v2(
+             let trace = InferenceTraceContext::disabled();
+             // Replay the routing token without letting this request change foreground routing.
+             let turn_state = Arc::new(turn_state.map(OnceLock::from).unwrap_or_default());
+-            let http_executor = ResponsesHttpExecutor::new(&sess.services.model_client);
++            let http_executor = ResponsesHttpExecutor::new(&turn_context.inference.client);
+             let stream = tokio::select! {
+                 biased;
+                 _ = cancellation.cancelled() => return Err(CodexErr::TurnAborted),
+diff --git a/codex-rs/core/src/compact_remote_v2_attempt.rs b/codex-rs/core/src/compact_remote_v2_attempt.rs
+index 93f09af..61da979 100644
+--- a/codex-rs/core/src/compact_remote_v2_attempt.rs
++++ b/codex-rs/core/src/compact_remote_v2_attempt.rs
+@@ -144,7 +144,7 @@ pub(super) async fn run_remote_compact_v2_attempt(
+                 .executed_tool_calls
+                 .attach_to_compaction_prompt(&mut input);
+             let client_session = client_session.unwrap_or_else(|| {
+-                owned_client_session.insert(sess.services.model_client.new_session())
++                owned_client_session.insert(turn_context.inference.client.new_session())
+             });
+             (
+                 model_info,
+diff --git a/codex-rs/core/src/compact_remote_v2_installation_tests.rs b/codex-rs/core/src/compact_remote_v2_installation_tests.rs
+index 5f9e290..51c1859 100644
+--- a/codex-rs/core/src/compact_remote_v2_installation_tests.rs
++++ b/codex-rs/core/src/compact_remote_v2_installation_tests.rs
+@@ -67,7 +67,12 @@ async fn prepared_prefix_rejection_respects_caller_intent(
+     sess.replace_history(vec![original.clone()], /*reference_context_item*/ None)
+         .await;
+     let history = sess.clone_history().await;
+-    let auth = sess.services.model_client.auth_owner_generation();
++    let auth = sess
++        .services
++        .inference
++        .load()
++        .client
++        .auth_owner_generation();
+     let mut candidate = BackgroundCompactionCandidate {
+         prefix: CompactionPrefix {
+             generation: history.history_version(),
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index eb949b8..b5618e0 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -1066,6 +1066,10 @@ pub struct Config {
+     /// When set, this replaces the bundled catalog for the current process.
+     pub model_catalog: Option<ModelsResponse>,
+ 
++    /// Complete source bytes used to configure a Core-owned backend. Typed UI
++    /// metadata can omit fields and insert defaults during deserialization.
++    pub model_catalog_source: Option<Vec<u8>>,
++
+     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
+     pub model_verbosity: Option<Verbosity>,
+ 
+@@ -2254,7 +2258,7 @@ pub fn validate_feature_requirements_for_config_toml(
+     managed_features::validate_feature_requirements_in_config_toml(cfg, feature_requirements)
+ }
+ 
+-fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> {
++fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<(ModelsResponse, Vec<u8>)> {
+     let file_contents = std::fs::read_to_string(path)?;
+     let catalog = serde_json::from_str::<ModelsResponse>(&file_contents).map_err(|err| {
+         std::io::Error::new(
+@@ -2274,15 +2278,19 @@ fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse>
+             ),
+         ));
+     }
+-    Ok(catalog)
++    Ok((catalog, file_contents.into_bytes()))
+ }
+ 
+ fn load_model_catalog(
+     model_catalog_json: Option<AbsolutePathBuf>,
+-) -> std::io::Result<Option<ModelsResponse>> {
+-    model_catalog_json
+-        .map(|path| load_catalog_json(&path))
+-        .transpose()
++) -> std::io::Result<(Option<ModelsResponse>, Option<Vec<u8>>)> {
++    match model_catalog_json {
++        Some(path) => {
++            let (catalog, source) = load_catalog_json(&path)?;
++            Ok((Some(catalog), Some(source)))
++        }
++        None => Ok((None, None)),
++    }
+ }
+ 
+ fn filter_mcp_servers_by_requirements(
+@@ -4312,7 +4320,7 @@ impl Config {
+         let review_model = override_review_model.or(cfg.review_model);
+ 
+         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
+-        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
++        let (model_catalog, model_catalog_source) = load_model_catalog(cfg.model_catalog_json.clone())?;
+ 
+         let log_dir = cfg
+             .log_dir
+@@ -4682,6 +4690,7 @@ impl Config {
+             plan_mode_reasoning_effort: cfg.plan_mode_reasoning_effort,
+             model_reasoning_summary: cfg.model_reasoning_summary,
+             model_catalog,
++            model_catalog_source,
+             model_verbosity: cfg.model_verbosity,
+             chatgpt_base_url_is_explicit,
+             chatgpt_base_url: cfg
+diff --git a/codex-rs/core/src/guardian/input_budget.rs b/codex-rs/core/src/guardian/input_budget.rs
+index cc3b5ec..b4fc967 100644
+--- a/codex-rs/core/src/guardian/input_budget.rs
++++ b/codex-rs/core/src/guardian/input_budget.rs
+@@ -164,17 +164,22 @@ pub(crate) async fn finalize(
+         session.get_prompt_base_instructions().await,
+         session.current_window_uses_incremental_tools(step).await,
+     );
+-    let request = session.services.model_client.build_responses_request(
+-        &prompt,
+-        model,
+-        /*effort*/ None,
+-        ReasoningSummary::None,
+-        /*service_tier*/ None,
+-        &session
+-            .responses_metadata(step, CodexResponsesRequestKind::Turn)
+-            .await,
+-        /*include_internal*/ true,
+-    )?;
++    let request = session
++        .services
++        .inference
++        .load()
++        .client
++        .build_responses_request(
++            &prompt,
++            model,
++            /*effort*/ None,
++            ReasoningSummary::None,
++            /*service_tier*/ None,
++            &session
++                .responses_metadata(step, CodexResponsesRequestKind::Turn)
++                .await,
++            /*include_internal*/ true,
++        )?;
+     let mut existing = super::request_budget::estimate_request_tokens(&request)
+         .max(usize::try_from(session.get_total_token_usage().await).unwrap_or(usize::MAX));
+     // These reminders are appended after the accepted input. Reserve their full
+diff --git a/codex-rs/core/src/guardian/request_budget.rs b/codex-rs/core/src/guardian/request_budget.rs
+index d1cf8d6..5b7caf1 100644
+--- a/codex-rs/core/src/guardian/request_budget.rs
++++ b/codex-rs/core/src/guardian/request_budget.rs
+@@ -69,15 +69,20 @@ pub(crate) async fn prepare_prompt(
+         .as_ref()
+         .filter(|retained| retained.history_version != history_version)
+     {
+-        let baseline = session.services.model_client.build_responses_request(
+-            prompt,
+-            model,
+-            /*effort*/ None,
+-            codex_protocol::config_types::ReasoningSummary::None,
+-            /*service_tier*/ None,
+-            metadata,
+-            /*include_internal*/ true,
+-        )?;
++        let baseline = session
++            .services
++            .inference
++            .load()
++            .client
++            .build_responses_request(
++                prompt,
++                model,
++                /*effort*/ None,
++                codex_protocol::config_types::ReasoningSummary::None,
++                /*service_tier*/ None,
++                metadata,
++                /*include_internal*/ true,
++            )?;
+         let mut context = retained.context.clone();
+         codex_guardian_context::prepare_sync_delivery(
+             &mut context,
+@@ -147,15 +152,20 @@ pub(crate) async fn prepare_prompt(
+             .input
+             .extend(restored.iter().map(|envelope| envelope.item.clone()));
+     }
+-    let request = session.services.model_client.build_responses_request(
+-        prompt,
+-        model,
+-        /*effort*/ None,
+-        codex_protocol::config_types::ReasoningSummary::None,
+-        /*service_tier*/ None,
+-        metadata,
+-        /*include_internal*/ true,
+-    )?;
++    let request = session
++        .services
++        .inference
++        .load()
++        .client
++        .build_responses_request(
++            prompt,
++            model,
++            /*effort*/ None,
++            codex_protocol::config_types::ReasoningSummary::None,
++            /*service_tier*/ None,
++            metadata,
++            /*include_internal*/ true,
++        )?;
+     let total = estimate_request_tokens(&request);
+     if total > maximum {
+         session
+diff --git a/codex-rs/core/src/guardian/request_budget_tests.rs b/codex-rs/core/src/guardian/request_budget_tests.rs
+index 0a0a049..9fb258c 100644
+--- a/codex-rs/core/src/guardian/request_budget_tests.rs
++++ b/codex-rs/core/src/guardian/request_budget_tests.rs
+@@ -66,7 +66,9 @@ async fn request_histogram_counts_admitted_steps_without_counting_retry_preparat
+             .await;
+         let request = session
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .build_responses_request(
+                 &prompt,
+                 &step.settings.model_info,
+diff --git a/codex-rs/core/src/guardian/review_session.rs b/codex-rs/core/src/guardian/review_session.rs
+index 65005cc..577302e 100644
+--- a/codex-rs/core/src/guardian/review_session.rs
++++ b/codex-rs/core/src/guardian/review_session.rs
+@@ -242,6 +242,8 @@ async fn run_review_on_session(
+     let model_info = params
+         .parent_session
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info(
+             review_model.model.as_str(),
+diff --git a/codex-rs/core/src/guardian/review_session_setup.rs b/codex-rs/core/src/guardian/review_session_setup.rs
+index 64955ba..4d3bc4c 100644
+--- a/codex-rs/core/src/guardian/review_session_setup.rs
++++ b/codex-rs/core/src/guardian/review_session_setup.rs
+@@ -107,10 +107,18 @@ impl PreparedGuardianContext {
+         config.model_provider.supports_websockets &= self
+             .parent
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .responses_websocket_enabled();
+         let options = crate::StartThreadOptions {
+-            prompt_cache_key: self.parent.services.model_client.prompt_cache_key_policy(),
++            prompt_cache_key: self
++                .parent
++                .services
++                .inference
++                .load()
++                .client
++                .prompt_cache_key_policy(),
+             history_mode: Some(codex_protocol::protocol::ThreadHistoryMode::Paginated),
+             internal_parent: Some(crate::thread_manager::InternalSessionParent {
+                 thread_id: self.parent.thread_id(),
+diff --git a/codex-rs/core/src/guardian/reviewer_config.rs b/codex-rs/core/src/guardian/reviewer_config.rs
+index e6f0d5a..e3415a4 100644
+--- a/codex-rs/core/src/guardian/reviewer_config.rs
++++ b/codex-rs/core/src/guardian/reviewer_config.rs
+@@ -107,7 +107,7 @@ pub(crate) async fn resolve_review_model(
+         // The session retains the task through waiter cancellation. Dropping the
+         // session aborts unfinished work; a failed fetch still completes the attempt.
+         let refresh = session.services.session_extension_data.get_or_init(|| {
+-            let manager = Arc::clone(&session.services.models_manager);
++            let manager = Arc::clone(&session.services.inference.load().models_manager);
+             let http_client_factory = turn.config.http_client_factory();
+             let task = AbortOnDropHandle::new(tokio::spawn(async move {
+                 manager
+@@ -137,7 +137,7 @@ async fn resolve_review_model_from_catalog(
+ ) {
+     let turn = context.turn();
+     // Keep a successful refresh even if writing it to the disk cache failed.
+-    let models_manager = &session.services.models_manager;
++    let models_manager = &session.services.inference.load().models_manager;
+     let catalog = models_manager
+         .model_catalog_with_origins(RefreshStrategy::InMemory, turn.config.http_client_factory())
+         .await;
+@@ -167,6 +167,8 @@ async fn resolve_review_model_from_catalog(
+             Arc::new(
+                 session
+                     .services
++                    .inference
++                    .load()
+                     .models_manager
+                     .get_model_info(
+                         review_model.model.as_str(),
+diff --git a/codex-rs/core/src/guardian/test_host.rs b/codex-rs/core/src/guardian/test_host.rs
+index 3f98917..0b5e4b2 100644
+--- a/codex-rs/core/src/guardian/test_host.rs
++++ b/codex-rs/core/src/guardian/test_host.rs
+@@ -28,7 +28,7 @@ pub(crate) fn install(session: &Session, config: &Config) {
+     let manager = Arc::new(crate::ThreadManager::new(
+         config,
+         Arc::clone(&session.services.auth_manager),
+-        Arc::clone(&session.services.models_manager),
++        Arc::clone(&session.services.inference.load().models_manager),
+         crate::CodexAppsToolsCache::default(),
+         SessionSource::Exec,
+         session.services.turn_environments.environment_manager(),
+diff --git a/codex-rs/core/src/guardian/tests.rs b/codex-rs/core/src/guardian/tests.rs
+index b09c543..c0ac96e 100644
+--- a/codex-rs/core/src/guardian/tests.rs
++++ b/codex-rs/core/src/guardian/tests.rs
+@@ -177,6 +177,8 @@ async fn guardian_test_session_turn_and_rx(
+     Arc::get_mut(&mut session)
+         .expect("session should be uniquely owned")
+         .services
++        .inference
++        .load()
+         .models_manager = models_manager;
+     crate::guardian::test_host::install(&session, &config);
+     let turn_mut = Arc::get_mut(&mut turn).expect("turn should be uniquely owned");
+@@ -294,7 +296,12 @@ async fn guardian_test_session_and_turn_with_base_url(
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     crate::guardian::test_host::install(&session, &config);
+     turn.config = Arc::clone(&config);
+     turn.provider = create_model_provider(config.model_provider.clone(), turn.auth_manager.clone());
+@@ -1896,6 +1903,8 @@ async fn guardian_reuse_respects_effective_policy_and_personality_opt_out(
+     Arc::get_mut(&mut session)
+         .expect("unshared session")
+         .services
++        .inference
++        .load()
+         .models_manager = Arc::new(StaticModelsManager::new(
+         /*auth_manager*/ None,
+         ModelsResponse { models: vec![] },
+@@ -1991,6 +2000,8 @@ async fn guardian_request_model_for_auto_review(
+             Arc::get_mut(&mut session)
+                 .expect("unique session")
+                 .services
++                .inference
++                .load()
+                 .models_manager = Arc::new(StaticModelsManager::new(
+                 Some(auth_manager),
+                 codex_models_manager::bundled_models_response().expect("valid catalog"),
+@@ -2011,6 +2022,8 @@ async fn guardian_request_model_for_auto_review(
+             Arc::get_mut(&mut session)
+                 .expect("session should be unique")
+                 .services
++                .inference
++                .load()
+                 .models_manager = Arc::new(models_manager);
+             crate::guardian::test_host::install(&session, &turn.config);
+         }
+@@ -2226,7 +2239,12 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     crate::guardian::test_host::install(&session, &config);
+     let memory_extension = Arc::new(GuardianMemoryContextProbe);
+     let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
+@@ -2499,6 +2517,8 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
+     let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
+     let mut reviewer_model = session
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info("codex-auto-review", &turn.config.to_models_manager_config())
+         .await;
+@@ -2507,6 +2527,8 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
+     Arc::get_mut(&mut session)
+         .expect("unshared session")
+         .services
++        .inference
++        .load()
+         .models_manager = Arc::new(StaticModelsManager::new(
+         Some(auth_manager),
+         ModelsResponse {
+@@ -3063,6 +3085,8 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() ->
+     Arc::get_mut(&mut session)
+         .expect("session should be uniquely owned")
+         .services
++        .inference
++        .load()
+         .models_manager = models_manager;
+     crate::guardian::test_host::install(&session, &config);
+     let turn_mut = Arc::get_mut(&mut turn).expect("turn should be uniquely owned");
+@@ -3963,6 +3987,8 @@ async fn guardian_review_session_config_clears_context_overrides_for_distinct_ef
+     Arc::get_mut(&mut session)
+         .expect("unique session")
+         .services
++        .inference
++        .load()
+         .models_manager = Arc::new(StaticModelsManager::new(
+         Some(auth_manager),
+         codex_models_manager::bundled_models_response().expect("valid catalog"),
+@@ -4001,6 +4027,8 @@ async fn guardian_review_session_config_preserves_context_overrides_for_same_eff
+     Arc::get_mut(&mut session)
+         .expect("session should be unique")
+         .services
++        .inference
++        .load()
+         .models_manager = Arc::new(StaticModelsManager::new(
+         Some(auth_manager),
+         ModelsResponse {
+diff --git a/codex-rs/core/src/mcp_tool_call_tests.rs b/codex-rs/core/src/mcp_tool_call_tests.rs
+index 9f4ef92..4344862 100644
+--- a/codex-rs/core/src/mcp_tool_call_tests.rs
++++ b/codex-rs/core/src/mcp_tool_call_tests.rs
+@@ -2892,7 +2892,12 @@ async fn guardian_mode_skips_auto_when_annotations_do_not_require_approval() {
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     turn_context.config = Arc::clone(&config);
+     turn_context.provider = create_model_provider(
+         config.model_provider.clone(),
+@@ -3232,7 +3237,12 @@ async fn strict_auto_review_forces_guardian_for_mcp_policy_skip() {
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     turn_context.config = Arc::clone(&config);
+     turn_context.provider = create_model_provider(
+         config.model_provider.clone(),
+@@ -3605,7 +3615,12 @@ async fn approve_mode_skips_guardian_in_every_permission_mode() {
+             Arc::clone(&session.services.auth_manager),
+             config.model_provider.clone(),
+         );
+-        session.services.models_manager = models_manager;
++        session.services.inference.rcu(|old| {
++            Arc::new(crate::state::InferenceRuntime {
++                client: old.client.clone(),
++                models_manager: models_manager.clone(),
++            })
++        });
+         turn_context.config = Arc::clone(&config);
+         turn_context.provider = create_model_provider(
+             config.model_provider.clone(),
+diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
+index b689988..a9b5dd4 100644
+--- a/codex-rs/core/src/realtime_conversation.rs
++++ b/codex-rs/core/src/realtime_conversation.rs
+@@ -1358,7 +1358,9 @@ async fn prepare_realtime_start(
+     let provider = sess.provider().await;
+     let auth_manager = sess
+         .services
+-        .model_client
++        .inference
++        .load()
++        .client
+         .auth_manager()
+         .unwrap_or_else(|| Arc::clone(&sess.services.auth_manager));
+     let config = sess.get_config().await;
+@@ -1753,7 +1755,7 @@ async fn handle_start_inner(
+         codex_response_handoff_channel_prefixes,
+         realtime_call_api_provider,
+         session_config,
+-        model_client: sess.services.model_client.clone(),
++        model_client: sess.services.inference.load().client.clone(),
+         sdp,
+         existing_call_id,
+     };
+diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
+index 6a42146..fc5bfe3 100644
+--- a/codex-rs/core/src/responses_retry.rs
++++ b/codex-rs/core/src/responses_retry.rs
+@@ -147,7 +147,12 @@ pub(crate) async fn handle_response_stream_error(
+         // transient reconnect messages. In debug builds, keep full visibility for diagnosis.
+         let report_error = retry_count > 1
+             || cfg!(debug_assertions)
+-            || !sess.services.model_client.responses_websocket_enabled();
++            || !sess
++                .services
++                .inference
++                .load()
++                .client
++                .responses_websocket_enabled();
+         if report_error {
+             // Surface retry information to any UI/front-end so the user understands what is
+             // happening instead of staring at a seemingly frozen screen.
+diff --git a/codex-rs/core/src/responses_retry_tests.rs b/codex-rs/core/src/responses_retry_tests.rs
+index 65aa293..046d025 100644
+--- a/codex-rs/core/src/responses_retry_tests.rs
++++ b/codex-rs/core/src/responses_retry_tests.rs
+@@ -60,7 +60,7 @@ async fn stream_retry_preserves_deadline_across_delayed_notification() {
+     let (mut session, turn_context) = make_session_and_context().await;
+     let step_context = StepContext::for_test(Arc::new(turn_context));
+     session.realtime_history = Some(Mutex::new(RealtimeHistoryState::default()));
+-    let mut client_session = session.services.model_client.new_session();
++    let mut client_session = session.services.inference.load().client.new_session();
+     // The second retry emits a notification even when release builds hide the first.
+     let mut retry_state = ResponsesStreamRetryState {
+         retries: 1,
+diff --git a/codex-rs/core/src/session/async_compaction.rs b/codex-rs/core/src/session/async_compaction.rs
+index 8a1ec32..462002b 100644
+--- a/codex-rs/core/src/session/async_compaction.rs
++++ b/codex-rs/core/src/session/async_compaction.rs
+@@ -96,7 +96,13 @@ pub(super) async fn maybe_start(
+             || state.shutting_down
+             || state.async_compaction.last_attempt.as_ref() == Some(&attempt)
+             || state.history.annotated_items().is_empty()
+-            || sess.services.model_client.auth_owner_generation() != auth_owner_generation
++            || sess
++                .services
++                .inference
++                .load()
++                .client
++                .auth_owner_generation()
++                != auth_owner_generation
+         {
+             return;
+         }
+@@ -187,7 +193,13 @@ pub(crate) async fn wait_for_pending(
+         if attempt.history_version != state.history.history_version()
+             || attempt.model_slug != model.slug
+             || attempt.compaction_hash != model.comp_hash
+-            || attempt.auth_owner_generation != sess.services.model_client.auth_owner_generation()
++            || attempt.auth_owner_generation
++                != sess
++                    .services
++                    .inference
++                    .load()
++                    .client
++                    .auth_owner_generation()
+         {
+             return None;
+         }
+diff --git a/codex-rs/core/src/session/async_compaction_tests.rs b/codex-rs/core/src/session/async_compaction_tests.rs
+index d73b96c..6095c45 100644
+--- a/codex-rs/core/src/session/async_compaction_tests.rs
++++ b/codex-rs/core/src/session/async_compaction_tests.rs
+@@ -73,7 +73,12 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
+     let world_state = Arc::new(WorldState::default());
+     let cancelled = CancellationToken::new();
+     cancelled.cancel();
+-    let auth = sess.services.model_client.auth_owner_generation();
++    let auth = sess
++        .services
++        .inference
++        .load()
++        .client
++        .auth_owner_generation();
+     maybe_start(
+         &sess,
+         &step,
+@@ -125,7 +130,7 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
+     match trigger {
+         CompactionTrigger::Auto => {
+             let candidate = take_ready(&sess, &turn).await.expect("published candidate");
+-            let mut client_session = sess.services.model_client.new_session();
++            let mut client_session = sess.services.inference.load().client.new_session();
+             assert!(
+                 crate::compact_remote_v2::run_inline_remote_auto_compact_task(
+                     Arc::clone(&sess),
+diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
+index 128bc7d..decefe4 100644
+--- a/codex-rs/core/src/session/handlers.rs
++++ b/codex-rs/core/src/session/handlers.rs
+@@ -616,13 +616,22 @@ pub(super) async fn submission_loop(
+                         request: thread_settings,
+                         turn_extension_init: sub.turn_extension_init,
+                     };
+-                    match thread_settings::update(&sess, thread_settings).await {
++                    let route_changed = sub.model_provider_config.is_some();
++                    match thread_settings::update(&sess, thread_settings, sub.model_provider_config)
++                        .await
++                    {
+                         Ok(snapshot) => {
+-                            // Reply first: the caller may hold a lock its event consumer needs.
+-                            if let Some(reply) = reply {
+-                                let _ = reply.send(Ok(()));
++                            if route_changed {
++                                thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
++                                let result = sess.flush_rollout().await.map_err(|error| CodexErr::Fatal(format!(
++                                    "model provider selected but persistence is unconfirmed: {error}"
++                                )));
++                                if let Some(reply) = reply { let _ = reply.send(result); }
++                            } else {
++                                // Existing callers may hold a lock the event consumer needs.
++                                if let Some(reply) = reply { let _ = reply.send(Ok(())); }
++                                thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
+                             }
+-                            thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
+                         }
+                         Err(error) => {
+                             let message = format!("invalid thread settings override: {error}");
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index cc418ca..d6bf375 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -1089,6 +1089,7 @@ impl SessionIo {
+             turn_extension_init,
+         } = op.into();
+         let sub = Submission {
++            model_provider_config: None,
+             id: id.clone(),
+             op,
+             turn_extension_init,
+@@ -1131,6 +1132,7 @@ impl SessionIo {
+         } = request.into();
+         let trace = request.trace.take();
+         self.submit_with_id(Submission {
++            model_provider_config: None,
+             id,
+             op: Op::TurnInput {
+                 request: Box::new(request),
+@@ -1158,6 +1160,7 @@ impl SessionIo {
+     ) -> CodexResult<TurnInputSubmission> {
+         let (reply_tx, reply_rx) = oneshot::channel();
+         self.submit_with_id(Submission {
++            model_provider_config: None,
+             id: turn_id,
+             op: Op::RecoverTurn {
+                 thread_settings,
+@@ -2104,6 +2107,12 @@ impl Session {
+                     .turn_environments
+                     .update_configured_selections(&updated.environments);
+             }
++            if let Some((_, runtime)) = &updates.model_provider {
++                self.services.inference.store(Arc::clone(runtime));
++                state.startup_prewarm = None;
++                state.async_compaction.result = None;
++                state.async_compaction.last_attempt = None;
++            }
+             state.session_configuration = updated;
+             if root_service_tier_changed {
+                 self.services.agent_control.propagate_config_update(
+@@ -2120,6 +2129,7 @@ impl Session {
+                 .then(|| self.build_effective_session_config(&state.session_configuration));
+             let commit = SessionSettingsCommit {
+                 configuration: state.session_configuration.clone(),
++                inference: self.services.inference.load_full(),
+                 snapshot: state
+                     .session_configuration
+                     .thread_settings_snapshot(&state.session_configuration.environments),
+@@ -2165,12 +2175,19 @@ impl Session {
+         &self,
+         updates: &SessionSettingsUpdate,
+     ) -> ConstraintResult<ThreadConfigSnapshot> {
+-        let configuration = {
++        let (configuration, inference) = {
+             let state = self.state.lock().await;
+-            self.apply_session_settings(&state.session_configuration, updates)?
++            (
++                self.apply_session_settings(&state.session_configuration, updates)?,
++                self.services.inference.load_full(),
++            )
+         };
+         Ok(self
+-            .effective_thread_config_snapshot(&configuration, configuration.environments.clone())
++            .effective_thread_config_snapshot(
++                &configuration,
++                &inference.models_manager,
++                configuration.environments.clone(),
++            )
+             .await)
+     }
+ 
+@@ -2179,10 +2196,14 @@ impl Session {
+     }
+ 
+     pub(crate) async fn resume_config_snapshot(&self) -> (ThreadConfigSnapshot, Option<String>) {
+-        let configuration = self.state.lock().await.session_configuration.clone();
++        let (configuration, inference) = self.configuration_snapshot().await;
+         let selected_service_tier = configuration.step_settings.service_tier.clone();
+         let snapshot = self
+-            .effective_thread_config_snapshot(&configuration, configuration.environments.clone())
++            .effective_thread_config_snapshot(
++                &configuration,
++                &inference.models_manager,
++                configuration.environments.clone(),
++            )
+             .await;
+         (snapshot, selected_service_tier)
+     }
+@@ -2268,10 +2289,11 @@ impl Session {
+         TurnEnvironmentSnapshot,
+         ReasoningEffortPin,
+     ) {
+-        let (configuration, environments, mut reasoning_effort_pin) = {
++        let (configuration, inference, environments, mut reasoning_effort_pin) = {
+             let state = self.state.lock().await;
+             (
+                 state.session_configuration.clone(),
++                self.services.inference.load_full(),
+                 self.services.turn_environments.snapshot_now(),
+                 state.reasoning_effort_pin.clone(),
+             )
+@@ -2281,7 +2303,7 @@ impl Session {
+             let model = configuration
+                 .step_settings
+                 .resolve_model_info(
+-                    self.services.models_manager.as_ref(),
++                    inference.models_manager.as_ref(),
+                     &configuration.model_info_overrides,
+                 )
+                 .await;
+@@ -2299,8 +2321,12 @@ impl Session {
+         }
+         (
+             config,
+-            self.effective_thread_config_snapshot(&configuration, environments.all_selections())
+-                .await,
++            self.effective_thread_config_snapshot(
++                &configuration,
++                &inference.models_manager,
++                environments.all_selections(),
++            )
++            .await,
+             configuration.windows_sandbox_level,
+             environments,
+             reasoning_effort_pin,
+@@ -4471,7 +4497,12 @@ impl Session {
+                     // Validate immediately before slicing and replacing the captured prefix.
+                     if state.history.history_version() != prefix.generation
+                         || state.history.annotated_items().len() < prefix.len
+-                        || self.services.model_client.auth_owner_generation()
++                        || self
++                            .services
++                            .inference
++                            .load()
++                            .client
++                            .auth_owner_generation()
+                             != prefix.auth_owner_generation
+                     {
+                         return false;
+diff --git a/codex-rs/core/src/session/reasoning_effort.rs b/codex-rs/core/src/session/reasoning_effort.rs
+index 4cb9a53..929ae80 100644
+--- a/codex-rs/core/src/session/reasoning_effort.rs
++++ b/codex-rs/core/src/session/reasoning_effort.rs
+@@ -99,7 +99,9 @@ impl Session {
+         let selected_effort = settings.reasoning_effort().cloned();
+         if !self
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .reasoning_effort_override_enabled(&settings.model_info)
+         {
+             if usage == RequestEffortUsage::Sampling {
+@@ -140,7 +142,9 @@ impl Session {
+     ) -> Option<ReasoningEffort> {
+         if !self
+             .services
+-            .model_client
++            .inference
++            .load()
++            .client
+             .reasoning_effort_override_enabled(&settings.model_info)
+         {
+             return None;
+diff --git a/codex-rs/core/src/session/review.rs b/codex-rs/core/src/session/review.rs
+index e93643f..db3f706 100644
+--- a/codex-rs/core/src/session/review.rs
++++ b/codex-rs/core/src/session/review.rs
+@@ -15,6 +15,8 @@ pub(super) async fn spawn_review_thread(
+         .unwrap_or_else(|| parent_turn_context.model_info().slug.clone());
+     let available_models = sess
+         .services
++        .inference
++        .load()
+         .models_manager
+         .list_models(
+             RefreshStrategy::OnlineIfUncached,
+@@ -23,6 +25,8 @@ pub(super) async fn spawn_review_thread(
+         .await;
+     let review_model_info = sess
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info(&model, &config.to_models_manager_config())
+         .await;
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index a41f147..4a830ca 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -414,6 +414,27 @@ impl SessionConfiguration {
+         current_environments: &[TurnEnvironmentSelection],
+     ) -> ConstraintResult<Self> {
+         let mut next_configuration = self.clone();
++        if let Some((destination, runtime)) = &updates.model_provider {
++            let mut config = self.original_config_do_not_use.as_ref().clone();
++            config
++                .model_provider_id
++                .clone_from(&destination.model_provider_id);
++            config
++                .model_provider
++                .clone_from(&destination.model_provider);
++            config
++                .model_providers
++                .clone_from(&destination.model_providers);
++            config.model_catalog.clone_from(&destination.model_catalog);
++            config
++                .model_catalog_source
++                .clone_from(&destination.model_catalog_source);
++            config.config_layer_stack = destination.config_layer_stack.clone();
++            next_configuration.model_info_overrides = config.to_models_manager_config().into();
++            next_configuration.provider =
++                create_model_provider(config.model_provider.clone(), runtime.client.auth_manager());
++            next_configuration.original_config_do_not_use = Arc::new(config);
++        }
+         if let Some(turn_extension_init) = &updates.turn_extension_init {
+             next_configuration.turn_extension_init = turn_extension_init.clone();
+         }
+@@ -611,11 +632,13 @@ impl SessionConfiguration {
+ /// The configuration and public snapshot published by one settings commit.
+ pub(crate) struct SessionSettingsCommit {
+     pub(crate) configuration: SessionConfiguration,
++    pub(crate) inference: Arc<crate::state::InferenceRuntime>,
+     pub(crate) snapshot: ThreadSettingsSnapshot,
+ }
+ 
+ #[derive(Default, Clone)]
+ pub(crate) struct SessionSettingsUpdate {
++    pub(crate) model_provider: Option<(Arc<Config>, Arc<crate::state::InferenceRuntime>)>,
+     pub(crate) step_settings: StepSettingsUpdate,
+     /// Omission preserves the current data; an empty initializer clears it.
+     pub(crate) turn_extension_init: Option<ExtensionDataInit>,
+@@ -676,13 +699,15 @@ impl Session {
+     pub(super) async fn effective_thread_config_snapshot(
+         &self,
+         configuration: &SessionConfiguration,
++        models_manager: &SharedModelsManager,
+         environments: Vec<TurnEnvironmentSelection>,
+     ) -> ThreadConfigSnapshot {
+         let mut snapshot = configuration.thread_config_snapshot(environments);
+-        let model_info = Box::pin(configuration.step_settings.resolve_model_info(
+-            self.services.models_manager.as_ref(),
+-            &configuration.model_info_overrides,
+-        ))
++        let model_info = Box::pin(
++            configuration
++                .step_settings
++                .resolve_model_info(models_manager.as_ref(), &configuration.model_info_overrides),
++        )
+         .await;
+         snapshot.service_tier = get_service_tier(
+             snapshot.service_tier.take(),
+@@ -1806,7 +1831,6 @@ impl Session {
+                 )
+                 .with_legacy_custom_ca_fallback(),
+                 session_telemetry,
+-                models_manager: Arc::clone(&models_manager),
+                 git_root_discovery,
+                 tool_approvals: Mutex::new(ApprovalStore::default()),
+                 granted_permissions_by_environment_id: Arc::default(),
+@@ -1834,49 +1858,54 @@ impl Session {
+                 thread_store: Arc::clone(&thread_store),
+                 attestation_provider: attestation_provider.clone(),
+                 time_provider,
+-                model_client: ModelClient::new(
+-                    Some(Arc::clone(&auth_manager)),
+-                    if config.features.enabled(Feature::UseAgentIdentity) {
+-                        AgentIdentityAuthPolicy::ChatGptAuth
+-                    } else {
+-                        AgentIdentityAuthPolicy::JwtOnly
+-                    },
+-                    thread_id,
+-                    session_configuration.provider.info().clone(),
+-                    session_configuration.session_source.clone(),
+-                    session_configuration.originator.clone(),
+-                    config.model_verbosity,
+-                    config.features.enabled(Feature::ContentItemKinds),
+-                    reasoning_effort_override_enabled,
+-                    config.features.enabled(Feature::EnableRequestCompression),
+-                    config.features.enabled(Feature::RuntimeMetrics),
+-                    Self::build_model_client_beta_features_header(config.as_ref()),
+-                    /*concurrent_reasoning_summaries_enabled*/
+-                    config
+-                        .features
+-                        .enabled(Feature::ConcurrentReasoningSummaries),
+-                    config.features.enabled(Feature::OutputTokenReplay),
+-                    attestation_provider,
+-                    config.http_client_factory(),
+-                    workspace_routing.as_ref().clone(),
+-                    extensions.model_request_contributors().to_vec(),
+-                )
+-                .with_executed_tool_calls(executed_tool_calls.clone())
+-                .with_restored_history(matches!(
+-                    &initial_history,
+-                    InitialHistory::Resumed(_) | InitialHistory::Forked(_)
+-                ))
+-                .with_session_context(
+-                    prompt_cache_key,
+-                    crate::guardian::prompt_cache_key_override_for_review_session(
+-                        &session_configuration.session_source,
+-                        session_configuration.parent_thread_id,
++                inference: arc_swap::ArcSwap::from_pointee(crate::state::InferenceRuntime {
++                    client: ModelClient::new(
++                        Some(Arc::clone(&auth_manager)),
++                        if config.features.enabled(Feature::UseAgentIdentity) {
++                            AgentIdentityAuthPolicy::ChatGptAuth
++                        } else {
++                            AgentIdentityAuthPolicy::JwtOnly
++                        },
++                        thread_id,
++                        session_configuration.provider.info().clone(),
++                        session_configuration.session_source.clone(),
++                        session_configuration.originator.clone(),
++                        config.model_verbosity,
++                        config.features.enabled(Feature::ContentItemKinds),
++                        reasoning_effort_override_enabled,
++                        config.features.enabled(Feature::EnableRequestCompression),
++                        config.features.enabled(Feature::RuntimeMetrics),
++                        Self::build_model_client_beta_features_header(config.as_ref()),
++                        /*concurrent_reasoning_summaries_enabled*/
++                        config
++                            .features
++                            .enabled(Feature::ConcurrentReasoningSummaries),
++                        config.features.enabled(Feature::OutputTokenReplay),
++                        attestation_provider,
++                        config.http_client_factory(),
++                        workspace_routing.as_ref().clone(),
++                        extensions.model_request_contributors().to_vec(),
+                     )
+-                    .or(fork_cache_key),
+-                    tx_event.clone(),
+-                    codex_responses_headers,
+-                    crate::cyber_access_program::ApiKeyCyberAccessPrograms::from_config(&config),
+-                ),
++                    .with_executed_tool_calls(executed_tool_calls.clone())
++                    .with_restored_history(matches!(
++                        &initial_history,
++                        InitialHistory::Resumed(_) | InitialHistory::Forked(_)
++                    ))
++                    .with_session_context(
++                        prompt_cache_key,
++                        crate::guardian::prompt_cache_key_override_for_review_session(
++                            &session_configuration.session_source,
++                            session_configuration.parent_thread_id,
++                        )
++                        .or(fork_cache_key),
++                        tx_event.clone(),
++                        codex_responses_headers,
++                        crate::cyber_access_program::ApiKeyCyberAccessPrograms::from_config(
++                            &config,
++                        ),
++                    ),
++                    models_manager: Arc::clone(&models_manager),
++                }),
+                 executed_tool_calls: executed_tool_calls.clone(),
+                 code_mode_service: crate::tools::code_mode::CodeModeService::new(
+                     thread_id,
+@@ -1939,6 +1968,7 @@ impl Session {
+             let thread_config = sess
+                 .effective_thread_config_snapshot(
+                     &session_configuration,
++                    &sess.services.inference.load().models_manager,
+                     turn_environments.selections(),
+                 )
+                 .await;
+diff --git a/codex-rs/core/src/session/startup_prewarm.rs b/codex-rs/core/src/session/startup_prewarm.rs
+index 5d3fa4d..32581f6 100644
+--- a/codex-rs/core/src/session/startup_prewarm.rs
++++ b/codex-rs/core/src/session/startup_prewarm.rs
+@@ -241,10 +241,16 @@ impl Session {
+             });
+         }
+ 
+-        if !self.services.model_client.responses_websocket_enabled() {
++        if !self
++            .services
++            .inference
++            .load()
++            .client
++            .responses_websocket_enabled()
++        {
+             // Without websocket prewarm, resolve auth once so Agent Identity bootstrap can
+             // register or engage this session's bearer fallback before the first user request.
+-            let model_client = self.services.model_client.clone();
++            let model_client = self.services.inference.load().client.clone();
+             tokio::spawn(async move {
+                 if let Err(err) = model_client.prewarm_auth().await {
+                     warn!("startup auth prewarm failed: {err:#}");
+@@ -308,7 +314,7 @@ async fn schedule_startup_prewarm_inner(
+     input: PrewarmInput,
+ ) -> CodexResult<ModelClientSession> {
+     let prewarm_started_at = Instant::now();
+-    let mut client_session = session.services.model_client.new_session();
++    let mut client_session = session.services.inference.load().client.new_session();
+     let websocket_ready = client_session.is_websocket_prewarmed().await;
+     // Count the decision before preparation can fail; fresh clients also need prewarm.
+     session.services.session_telemetry.counter(
+diff --git a/codex-rs/core/src/session/step_activation.rs b/codex-rs/core/src/session/step_activation.rs
+index ad20372..c6bf655 100644
+--- a/codex-rs/core/src/session/step_activation.rs
++++ b/codex-rs/core/src/session/step_activation.rs
+@@ -416,7 +416,7 @@ impl Session {
+             .apply_update(
+                 update,
+                 &constraints,
+-                self.services.models_manager.as_ref(),
++                self.services.inference.load().models_manager.as_ref(),
+                 &overrides,
+                 &self.features,
+             )
+diff --git a/codex-rs/core/src/session/step_activation_tests.rs b/codex-rs/core/src/session/step_activation_tests.rs
+index 094b59d..28acdfc 100644
+--- a/codex-rs/core/src/session/step_activation_tests.rs
++++ b/codex-rs/core/src/session/step_activation_tests.rs
+@@ -422,7 +422,12 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
+     let mut session = Arc::new(session);
+     let mutable = Arc::get_mut(&mut session).expect("unshared test session");
+     let (models, lookup) = GatedModelsManager::new(models);
+-    mutable.services.models_manager = models;
++    mutable.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models.clone(),
++        })
++    });
+     for feature in [
+         Feature::SubagentThreadEnvironments,
+         Feature::StepModelSwitching,
+@@ -504,6 +509,7 @@ fn settings_submission(
+     let (reply, receiver) = oneshot::channel();
+     (
+         Submission {
++            model_provider_config: None,
+             id: id.to_string(),
+             turn_extension_init: None,
+             op: Op::TurnSettings {
+diff --git a/codex-rs/core/src/session/submission.rs b/codex-rs/core/src/session/submission.rs
+index 01f5255..496e9e8 100644
+--- a/codex-rs/core/src/session/submission.rs
++++ b/codex-rs/core/src/session/submission.rs
+@@ -5,10 +5,12 @@ use codex_protocol::protocol::Op;
+ use codex_protocol::protocol::W3cTraceContext;
+ use tokio::sync::OwnedRwLockReadGuard;
+ 
+-#[derive(Debug)]
++#[derive(derive_more::Debug)]
+ pub(crate) struct Submission {
+     pub id: String,
+     pub op: Op,
++    #[debug(skip)]
++    pub model_provider_config: Option<std::sync::Arc<crate::config::Config>>,
+     /// Accepted with settings, never separately from the request that supplied them.
+     pub turn_extension_init: Option<ExtensionDataInit>,
+     /// Optional W3C trace carrier propagated across async submission handoffs.
+diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
+index 68022ae..db74a67 100644
+--- a/codex-rs/core/src/session/tests.rs
++++ b/codex-rs/core/src/session/tests.rs
+@@ -590,7 +590,10 @@ async fn world_state_extension_metrics_follow_turn_model_switch() {
+     };
+     let turn_context = Arc::new(
+         turn_context
+-            .with_model(next_model.to_string(), &session.services.models_manager)
++            .with_model(
++                next_model.to_string(),
++                &session.services.inference.load().models_manager,
++            )
+             .await,
+     );
+     let mut builder = codex_extension_api::ExtensionRegistryBuilder::<crate::config::Config>::new();
+@@ -4929,10 +4932,15 @@ async fn turn_context_with_model_updates_model_fields() {
+     ));
+     turn_context.next_step_settings.store(Arc::clone(&current));
+     let updated = turn_context
+-        .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++        .with_model(
++            "gpt-5.5".to_string(),
++            &session.services.inference.load().models_manager,
++        )
+         .await;
+     let expected_model_info = session
+         .services
++        .inference
++        .load()
+         .models_manager
+         .get_model_info(
+             "gpt-5.5",
+@@ -6308,6 +6316,7 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
+     let (tx_sub, rx_sub) = async_channel::bounded(1);
+     tx_sub
+         .send(Submission {
++            model_provider_config: None,
+             id: "settings".into(),
+             turn_extension_init: None,
+             op: Op::ThreadSettings {
+@@ -7065,7 +7074,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+         )
+         .with_legacy_custom_ca_fallback(),
+         session_telemetry: session_telemetry.clone(),
+-        models_manager: Arc::clone(&models_manager),
+         git_root_discovery: Arc::default(),
+         tool_approvals: Mutex::new(ApprovalStore::default()),
+         granted_permissions_by_environment_id: Arc::default(),
+@@ -7097,29 +7105,32 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+         )),
+         attestation_provider: None,
+         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
+-        model_client: ModelClient::new(
+-            Some(auth_manager.clone()),
+-            AgentIdentityAuthPolicy::JwtOnly,
+-            thread_id,
+-            session_configuration.provider.info().clone(),
+-            session_configuration.session_source.clone(),
+-            session_configuration.originator.clone(),
+-            config.model_verbosity,
+-            config.features.enabled(Feature::ContentItemKinds),
+-            config.features.enabled(Feature::ReasoningEffortOverride),
+-            config.features.enabled(Feature::EnableRequestCompression),
+-            config.features.enabled(Feature::RuntimeMetrics),
+-            Session::build_model_client_beta_features_header(config.as_ref()),
+-            /*concurrent_reasoning_summaries_enabled*/
+-            config
+-                .features
+-                .enabled(Feature::ConcurrentReasoningSummaries),
+-            /*output_token_replay_enabled*/ false,
+-            /*attestation_provider*/ None,
+-            config.http_client_factory(),
+-            config.workspace_routing_context(),
+-            Vec::new(),
+-        ),
++        inference: arc_swap::ArcSwap::from_pointee(crate::state::InferenceRuntime {
++            client: ModelClient::new(
++                Some(auth_manager.clone()),
++                AgentIdentityAuthPolicy::JwtOnly,
++                thread_id,
++                session_configuration.provider.info().clone(),
++                session_configuration.session_source.clone(),
++                session_configuration.originator.clone(),
++                config.model_verbosity,
++                config.features.enabled(Feature::ContentItemKinds),
++                config.features.enabled(Feature::ReasoningEffortOverride),
++                config.features.enabled(Feature::EnableRequestCompression),
++                config.features.enabled(Feature::RuntimeMetrics),
++                Session::build_model_client_beta_features_header(config.as_ref()),
++                /*concurrent_reasoning_summaries_enabled*/
++                config
++                    .features
++                    .enabled(Feature::ConcurrentReasoningSummaries),
++                /*output_token_replay_enabled*/ false,
++                /*attestation_provider*/ None,
++                config.http_client_factory(),
++                config.workspace_routing_context(),
++                Vec::new(),
++            ),
++            models_manager: Arc::clone(&models_manager),
++        }),
+         executed_tool_calls: executed_tool_calls.clone(),
+         code_mode_service: crate::tools::code_mode::CodeModeService::new(
+             thread_id,
+@@ -7206,7 +7217,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+             Arc::new(model_info),
+             &config.features,
+         )),
+-        &models_manager,
++        session.services.inference.load_full(),
+         /*network*/ None,
+         resolved_turn_environments,
+         session_configuration.cwd().clone(),
+@@ -8369,6 +8380,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
+     };
+     let dispatch_span = ambient_span.in_scope(|| {
+         submission_dispatch_span(&Submission {
++            model_provider_config: None,
+             turn_extension_init: None,
+             id: "sub-1".into(),
+             op: Op::Interrupt,
+@@ -8392,6 +8404,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
+     let _trace_test_context = install_test_tracing("codex-core-tests");
+ 
+     let dispatch_span = submission_dispatch_span(&Submission {
++        model_provider_config: None,
+         turn_extension_init: None,
+         id: "sub-1".into(),
+         op: Op::RealtimeConversationAudio(ConversationAudioParams {
+@@ -8761,6 +8774,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
+             .await;
+ 
+     let dispatch_span = submission_dispatch_span(&Submission {
++        model_provider_config: None,
+         turn_extension_init: None,
+         id: "sub-1".into(),
+         op: Op::Interrupt,
+@@ -8901,7 +8915,14 @@ async fn shutdown_complete_does_not_append_to_thread_store_after_shutdown() {
+     assert!(session.async_hook_results.is_empty());
+     assert!(result_sender.is_closed());
+ 
+-    assert!(session.services.model_client.responses_websocket_enabled());
++    assert!(
++        session
++            .services
++            .inference
++            .load()
++            .client
++            .responses_websocket_enabled()
++    );
+     session
+         .schedule_startup_prewarm(super::startup_prewarm::PrewarmInput::Base)
+         .await;
+@@ -9359,7 +9380,6 @@ where
+         )
+         .with_legacy_custom_ca_fallback(),
+         session_telemetry: session_telemetry.clone(),
+-        models_manager: Arc::clone(&models_manager),
+         git_root_discovery: Arc::default(),
+         tool_approvals: Mutex::new(ApprovalStore::default()),
+         granted_permissions_by_environment_id: Arc::default(),
+@@ -9391,29 +9411,32 @@ where
+         )),
+         attestation_provider: None,
+         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
+-        model_client: ModelClient::new(
+-            Some(Arc::clone(&auth_manager)),
+-            AgentIdentityAuthPolicy::JwtOnly,
+-            thread_id,
+-            session_configuration.provider.info().clone(),
+-            session_configuration.session_source.clone(),
+-            session_configuration.originator.clone(),
+-            config.model_verbosity,
+-            config.features.enabled(Feature::ContentItemKinds),
+-            config.features.enabled(Feature::ReasoningEffortOverride),
+-            config.features.enabled(Feature::EnableRequestCompression),
+-            config.features.enabled(Feature::RuntimeMetrics),
+-            Session::build_model_client_beta_features_header(config.as_ref()),
+-            /*concurrent_reasoning_summaries_enabled*/
+-            config
+-                .features
+-                .enabled(Feature::ConcurrentReasoningSummaries),
+-            /*output_token_replay_enabled*/ false,
+-            /*attestation_provider*/ None,
+-            config.http_client_factory(),
+-            config.workspace_routing_context(),
+-            Vec::new(),
+-        ),
++        inference: arc_swap::ArcSwap::from_pointee(crate::state::InferenceRuntime {
++            client: ModelClient::new(
++                Some(Arc::clone(&auth_manager)),
++                AgentIdentityAuthPolicy::JwtOnly,
++                thread_id,
++                session_configuration.provider.info().clone(),
++                session_configuration.session_source.clone(),
++                session_configuration.originator.clone(),
++                config.model_verbosity,
++                config.features.enabled(Feature::ContentItemKinds),
++                config.features.enabled(Feature::ReasoningEffortOverride),
++                config.features.enabled(Feature::EnableRequestCompression),
++                config.features.enabled(Feature::RuntimeMetrics),
++                Session::build_model_client_beta_features_header(config.as_ref()),
++                /*concurrent_reasoning_summaries_enabled*/
++                config
++                    .features
++                    .enabled(Feature::ConcurrentReasoningSummaries),
++                /*output_token_replay_enabled*/ false,
++                /*attestation_provider*/ None,
++                config.http_client_factory(),
++                config.workspace_routing_context(),
++                Vec::new(),
++            ),
++            models_manager: Arc::clone(&models_manager),
++        }),
+         executed_tool_calls: executed_tool_calls.clone(),
+         code_mode_service: crate::tools::code_mode::CodeModeService::new(
+             thread_id,
+@@ -9500,7 +9523,7 @@ where
+             Arc::new(model_info),
+             &config.features,
+         )),
+-        &models_manager,
++        session.services.inference.load_full(),
+         /*network*/ None,
+         resolved_turn_environments,
+         session_configuration.cwd().clone(),
+@@ -10511,7 +10534,7 @@ async fn record_context_updates_emits_environment_item_for_network_changes() {
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+ 
+@@ -10567,7 +10590,7 @@ async fn record_context_updates_emits_environment_item_for_cwd_changes() {
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     let cwd = test_path_buf("/new-repo").abs();
+@@ -10630,7 +10653,7 @@ async fn record_context_updates_use_environment_permission_profile_and_workspace
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     let environment = current_context
+@@ -10688,7 +10711,7 @@ async fn record_context_updates_emits_environment_item_for_time_changes() {
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     current_context.timezone = Some("Europe/Berlin".to_string());
+@@ -10712,7 +10735,7 @@ async fn record_context_updates_omits_environment_item_when_disabled() {
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     let mut config = (*current_context.config).clone();
+@@ -10778,7 +10801,7 @@ async fn record_context_updates_emits_realtime_start_when_session_becomes_live()
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     current_context.realtime_active = true;
+@@ -10802,7 +10825,7 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
+     let mut current_context = previous_context
+         .with_model(
+             previous_context.model_info().slug.clone(),
+-            &session.services.models_manager,
++            &session.services.inference.load().models_manager,
+         )
+         .await;
+     current_context.realtime_active = false;
+@@ -11752,7 +11775,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
+         "gpt-5.4"
+     };
+     let turn_context = previous_context
+-        .with_model(next_model.to_string(), &session.services.models_manager)
++        .with_model(
++            next_model.to_string(),
++            &session.services.inference.load().models_manager,
++        )
+         .await;
+     let rollout_path = attach_thread_persistence(&mut session).await;
+ 
+@@ -12234,8 +12260,11 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+         )
+         .await;
+     let primary_turn = Arc::new(
+-        turn.with_model("gpt-5.4".to_string(), &session.services.models_manager)
+-            .await,
++        turn.with_model(
++            "gpt-5.4".to_string(),
++            &session.services.inference.load().models_manager,
++        )
++        .await,
+     );
+     let primary = session
+         .capture_step_context(primary_turn, &CancellationToken::new())
+@@ -12277,7 +12306,7 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+         ],
+     };
+     let requests = responses::mount_response_sequence(&server, replies).await;
+-    let mut client_session = session.services.model_client.new_session();
++    let mut client_session = session.services.inference.load().client.new_session();
+     crate::compact_remote_v2::run_inline_remote_auto_compact_task(
+         Arc::clone(&session),
+         Arc::clone(&primary),
+diff --git a/codex-rs/core/src/session/tests/guardian_tests.rs b/codex-rs/core/src/session/tests/guardian_tests.rs
+index 971f4ba..e89a560 100644
+--- a/codex-rs/core/src/session/tests/guardian_tests.rs
++++ b/codex-rs/core/src/session/tests/guardian_tests.rs
+@@ -221,7 +221,12 @@ async fn request_permissions_routes_to_guardian_when_reviewer_is_enabled() {
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     crate::guardian::test_host::install(&session, &config);
+     turn_context_raw.config = Arc::clone(&config);
+     turn_context_raw.provider = create_model_provider(
+@@ -444,6 +449,8 @@ async fn request_permissions_guardian_review_stops_when_cancelled(
+     Arc::get_mut(&mut session)
+         .expect("single session ref")
+         .services
++        .inference
++        .load()
+         .models_manager = models_manager;
+     crate::guardian::test_host::install(&session, &config);
+     turn_context_raw.config = Arc::clone(&config);
+@@ -590,7 +597,12 @@ async fn guardian_allows_exec_command_additional_permissions_requests_past_polic
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     crate::guardian::test_host::install(&session, &config);
+     turn_context_raw.config = Arc::clone(&config);
+     turn_context_raw.provider = create_model_provider(
+@@ -706,7 +718,12 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
+         Arc::clone(&session.services.auth_manager),
+         config.model_provider.clone(),
+     );
+-    session.services.models_manager = models_manager;
++    session.services.inference.rcu(|old| {
++        Arc::new(crate::state::InferenceRuntime {
++            client: old.client.clone(),
++            models_manager: models_manager.clone(),
++        })
++    });
+     crate::guardian::test_host::install(&session, &config);
+     turn_context_raw.config = Arc::clone(&config);
+     turn_context_raw.provider = create_model_provider(
+diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
+index c3a82ef..eb25e9e 100644
+--- a/codex-rs/core/src/session/thread_settings.rs
++++ b/codex-rs/core/src/session/thread_settings.rs
+@@ -77,9 +77,40 @@ impl Session {
+ pub(super) async fn update(
+     session: &Session,
+     overrides: impl Into<WithTurnExtensionData<ThreadSettingsOverrides>>,
+-) -> ConstraintResult<ThreadSettingsSnapshot> {
+-    let updates = prepare_update(overrides, &session.services.selected_capability_roots);
+-    let commit = session.update_settings(updates).await?;
++    provider_config: Option<Arc<crate::config::Config>>,
++) -> codex_protocol::error::Result<ThreadSettingsSnapshot> {
++    let mut updates = prepare_update(overrides, &session.services.selected_capability_roots);
++    // Settings and user input share this submission loop. A live turn or reservation
++    // retains its original provider; background terminals belong to the executor.
++    let active = if provider_config.is_some() {
++        let active = session.active_turn.lock().await;
++        if active.is_some() || session.conversation.running_state().await.is_some() {
++            return Err(CodexErr::InvalidRequest(
++                "model provider change requires a settled turn".into(),
++            ));
++        }
++        Some(active)
++    } else {
++        None
++    };
++    if let Some(config) = provider_config {
++        let current = session.services.inference.load_full();
++        let client = current.client.with_provider(config.model_provider.clone());
++        client.prewarm_auth().await?;
++        let runtime = Arc::new(crate::state::InferenceRuntime {
++            client,
++            models_manager: crate::thread_manager::build_models_manager(
++                &config,
++                Arc::clone(&session.services.auth_manager),
++            ),
++        });
++        updates.model_provider = Some((config, runtime));
++    }
++    let commit = session
++        .update_settings(updates)
++        .await
++        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++    drop(active);
+     let active_turn = session.active_turn.lock().await;
+     // A registered running task retains its lineage so it can be recovered after a daemon
+     // restart. Reservations and finishing turns have no interrupted work to continue.
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index e4a092e..faafabb 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -194,7 +194,7 @@ pub(crate) async fn run_turn(
+     drain_async_hook_results(&sess, &turn_context, /*before_user_prompt*/ true).await;
+ 
+     let mut client_session =
+-        prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
++        prewarmed_client_session.unwrap_or_else(|| turn_context.inference.client.new_session());
+     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
+     // new user message are recorded. Estimate pending incoming items (context
+     // diffs/full reinjection + user input) and trigger compaction preemptively
+@@ -1464,7 +1464,10 @@ async fn maybe_run_previous_model_inline_compact(
+         return Ok(());
+     }
+     let mut previous_model_turn_context = turn_context
+-        .with_model(previous_model.clone(), &sess.services.models_manager)
++        .with_model(
++            previous_model.clone(),
++            &sess.services.inference.load().models_manager,
++        )
+         .await;
+     // `with_model` preserves the current turn's access program. Restore the previous
+     // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
+@@ -3225,6 +3228,8 @@ async fn try_run_sampling_request(
+             ResponseEvent::ModelsEtag(etag) => {
+                 // Update internal state with latest models etag
+                 sess.services
++                    .inference
++                    .load()
+                     .models_manager
+                     .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
+                     .await;
+diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
+index a25dd60..9d1832c 100644
+--- a/codex-rs/core/src/session/turn_context.rs
++++ b/codex-rs/core/src/session/turn_context.rs
+@@ -345,6 +345,7 @@ pub struct TurnContext {
+     /// Turn-wide telemetry; model-attributed step work should use `StepContext::session_telemetry`.
+     pub(crate) session_telemetry: SessionTelemetry,
+     pub(crate) provider: SharedModelProvider,
++    pub(crate) inference: Arc<crate::state::InferenceRuntime>,
+     pub(crate) session_source: SessionSource,
+     pub(crate) history_mode: ThreadHistoryMode,
+     pub(crate) parent_thread_id: Option<ThreadId>,
+@@ -1045,7 +1046,7 @@ impl Session {
+         multi_agent_version: MultiAgentVersion,
+         per_turn_config: Config,
+         step_settings: Arc<ResolvedStepSettings>,
+-        models_manager: &SharedModelsManager,
++        inference: Arc<crate::state::InferenceRuntime>,
+         network: Option<NetworkProxy>,
+         environments: TurnEnvironmentSnapshot,
+         cwd: AbsolutePathBuf,
+@@ -1055,7 +1056,10 @@ impl Session {
+         let model_info = &step_settings.model_info;
+         let session_telemetry_for_context = step_settings.telemetry(session_telemetry);
+         let session_source = session_configuration.session_source.clone();
+-        let available_models = models_manager.try_list_models().unwrap_or_default();
++        let available_models = inference
++            .models_manager
++            .try_list_models()
++            .unwrap_or_default();
+ 
+         let mut per_turn_config = per_turn_config;
+         let configured_token_budget = per_turn_config.token_budget.clone();
+@@ -1130,6 +1134,7 @@ impl Session {
+             next_step_settings: ArcSwap::from(step_settings),
+             session_telemetry: session_telemetry_for_context,
+             provider,
++            inference,
+             session_source,
+             history_mode: session_configuration.history_mode,
+             parent_thread_id: session_configuration.parent_thread_id,
+@@ -1210,7 +1215,8 @@ impl Session {
+             Arc::make_mut(&mut configuration.step_settings).service_tier = Some(service_tier);
+         }
+         if !crate::guardian::is_basic_session_source(&configuration.session_source) {
+-            self.services
++            commit
++                .inference
+                 .models_manager
+                 .refresh_after_auth_change(
+                     self.build_effective_session_config(&configuration)
+@@ -1220,7 +1226,13 @@ impl Session {
+         }
+         let turn_environments = self.activate_turn_environments(&configuration).await;
+         let turn_context = self
+-            .new_turn_from_configuration(sub_id, configuration, turn_environments, options)
++            .new_turn_from_configuration(
++                sub_id,
++                configuration,
++                commit.inference,
++                turn_environments,
++                options,
++            )
+             .await;
+         Ok(Some((turn_context, commit.snapshot)))
+     }
+@@ -1230,6 +1242,7 @@ impl Session {
+         &self,
+         sub_id: String,
+         session_configuration: SessionConfiguration,
++        inference: Arc<crate::state::InferenceRuntime>,
+         turn_environments: TurnEnvironmentSnapshot,
+         options: NewTurnContextOptions,
+     ) -> Arc<TurnContext> {
+@@ -1237,6 +1250,7 @@ impl Session {
+         Box::pin(self.new_turn_context_from_configuration(
+             sub_id,
+             session_configuration,
++            inference,
+             turn_environments,
+             options,
+             TurnContextBuildMode::Full,
+@@ -1249,11 +1263,13 @@ impl Session {
+         &self,
+         sub_id: String,
+         session_configuration: SessionConfiguration,
++        inference: Arc<crate::state::InferenceRuntime>,
+     ) -> Arc<TurnContext> {
+         let turn_environments = self.services.turn_environments.snapshot().await;
+         Box::pin(self.new_turn_context_from_configuration(
+             sub_id,
+             session_configuration,
++            inference,
+             turn_environments,
+             NewTurnContextOptions::default(),
+             TurnContextBuildMode::StartupPrewarm,
+@@ -1267,6 +1283,7 @@ impl Session {
+         &self,
+         sub_id: String,
+         session_configuration: SessionConfiguration,
++        inference: Arc<crate::state::InferenceRuntime>,
+         turn_environments: TurnEnvironmentSnapshot,
+         options: NewTurnContextOptions,
+         build_mode: TurnContextBuildMode,
+@@ -1286,7 +1303,7 @@ impl Session {
+         let model_info = session_configuration
+             .step_settings
+             .resolve_model_info(
+-                self.services.models_manager.as_ref(),
++                inference.models_manager.as_ref(),
+                 &session_configuration.model_info_overrides,
+             )
+             .await;
+@@ -1354,7 +1371,7 @@ impl Session {
+             multi_agent_version,
+             per_turn_config,
+             step_settings,
+-            &self.services.models_manager,
++            inference,
+             self.services
+                 .network_proxy
+                 .load_full()
+@@ -1458,11 +1475,12 @@ impl Session {
+     }
+ 
+     async fn new_default_turn_for(&self, build_mode: TurnContextBuildMode) -> Arc<TurnContext> {
+-        let session_configuration = self.default_turn_configuration().await;
++        let (session_configuration, inference) = self.configuration_snapshot().await;
+         let turn_environments = self.services.turn_environments.snapshot().await;
+         Box::pin(self.new_turn_context_from_configuration(
+             self.next_internal_sub_id(),
+             session_configuration,
++            inference,
+             turn_environments,
+             NewTurnContextOptions::default(),
+             build_mode,
+@@ -1477,8 +1495,8 @@ impl Session {
+         sub_id: String,
+         options: NewTurnContextOptions,
+     ) -> Arc<TurnContext> {
+-        let session_configuration = self.default_turn_configuration().await;
+-        self.new_turn_with_configuration(sub_id, session_configuration, options)
++        let (session_configuration, inference) = self.configuration_snapshot().await;
++        self.new_turn_with_configuration(sub_id, session_configuration, inference, options)
+             .await
+     }
+ 
+@@ -1487,27 +1505,39 @@ impl Session {
+         &self,
+         sub_id: String,
+         session_configuration: SessionConfiguration,
++        inference: Arc<crate::state::InferenceRuntime>,
+         options: NewTurnContextOptions,
+     ) -> Arc<TurnContext> {
+         let turn_environments = self
+             .activate_turn_environments(&session_configuration)
+             .await;
+-        self.new_turn_from_configuration(sub_id, session_configuration, turn_environments, options)
+-            .await
++        self.new_turn_from_configuration(
++            sub_id,
++            session_configuration,
++            inference,
++            turn_environments,
++            options,
++        )
++        .await
+     }
+ 
+     pub(crate) async fn new_startup_prewarm_turn_with_sub_id(
+         &self,
+         sub_id: String,
+     ) -> Arc<TurnContext> {
+-        let session_configuration = self.default_turn_configuration().await;
+-        self.new_startup_prewarm_turn_from_configuration(sub_id, session_configuration)
++        let (session_configuration, inference) = self.configuration_snapshot().await;
++        self.new_startup_prewarm_turn_from_configuration(sub_id, session_configuration, inference)
+             .await
+     }
+ 
+-    async fn default_turn_configuration(&self) -> SessionConfiguration {
++    pub(super) async fn configuration_snapshot(
++        &self,
++    ) -> (SessionConfiguration, Arc<crate::state::InferenceRuntime>) {
+         let state = self.state.lock().await;
+-        state.session_configuration.clone()
++        (
++            state.session_configuration.clone(),
++            self.services.inference.load_full(),
++        )
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/state/mod.rs b/codex-rs/core/src/state/mod.rs
+index c7030cc..88e640b 100644
+--- a/codex-rs/core/src/state/mod.rs
++++ b/codex-rs/core/src/state/mod.rs
+@@ -10,6 +10,7 @@ pub(crate) use additional_context::AdditionalContextFormat;
+ pub(crate) use additional_context::AdditionalContextStore;
+ pub(crate) use auto_compact_window::AutoCompactWindowIds;
+ pub(crate) use auto_compact_window::AutoCompactWindowSnapshot;
++pub(crate) use service::InferenceRuntime;
+ pub(crate) use service::SessionServices;
+ pub(crate) use session::ReasoningEffortPin;
+ pub(crate) use session::SessionState;
+diff --git a/codex-rs/core/src/state/service.rs b/codex-rs/core/src/state/service.rs
+index 3671386..64ed48e 100644
+--- a/codex-rs/core/src/state/service.rs
++++ b/codex-rs/core/src/state/service.rs
+@@ -48,6 +48,12 @@ use codex_utils_git_discovery::GitRootDiscovery;
+ use tokio::runtime::Handle;
+ use tokio::sync::Mutex;
+ 
++#[derive(Debug)]
++pub(crate) struct InferenceRuntime {
++    pub(crate) client: ModelClient,
++    pub(crate) models_manager: SharedModelsManager,
++}
++
+ pub(crate) struct SessionServices {
+     /// The single owner of live MCP connections for this thread.
+     pub(crate) mcp_runtime: Arc<McpRuntime>,
+@@ -64,7 +70,8 @@ pub(crate) struct SessionServices {
+     pub(crate) auth_manager: Arc<AuthManager>,
+     /// Upload-only clients shared across turns without logging signed blob URLs.
+     pub(crate) openai_file_upload_client_pool: RouteAwareClientPool,
+-    pub(crate) models_manager: SharedModelsManager,
++    /// Replaced with effective settings under the session state lock. Captured turns retain it.
++    pub(crate) inference: ArcSwap<InferenceRuntime>,
+     pub(crate) git_root_discovery: Arc<GitRootDiscovery>,
+     pub(crate) session_telemetry: SessionTelemetry,
+     pub(crate) tool_approvals: Mutex<ApprovalStore>,
+@@ -97,8 +104,6 @@ pub(crate) struct SessionServices {
+     pub(crate) thread_store: Arc<dyn ThreadStore>,
+     pub(crate) attestation_provider: Option<Arc<dyn AttestationProvider>>,
+     pub(crate) time_provider: Arc<dyn TimeProvider>,
+-    /// Session-scoped model client shared across turns.
+-    pub(crate) model_client: ModelClient,
+     pub(crate) executed_tool_calls: ExecutedToolCalls,
+     pub(crate) code_mode_service: CodeModeService,
+     pub(crate) tool_search_handler_cache: ToolSearchHandlerCache,
+diff --git a/codex-rs/core/src/tasks/mod.rs b/codex-rs/core/src/tasks/mod.rs
+index 2d2f7e6..fa4477c 100644
+--- a/codex-rs/core/src/tasks/mod.rs
++++ b/codex-rs/core/src/tasks/mod.rs
+@@ -480,6 +480,8 @@ impl Session {
+         };
+ 
+         self.services
++            .inference
++            .load()
+             .models_manager
+             .refresh_after_auth_change(self.get_config().await.http_client_factory())
+             .await;
+@@ -519,8 +521,13 @@ impl Session {
+         };
+         let turn_context = match session_configuration {
+             Some(configuration) => {
+-                self.new_turn_with_configuration(sub_id, configuration, options)
+-                    .await
++                self.new_turn_with_configuration(
++                    sub_id,
++                    configuration,
++                    self.services.inference.load_full(),
++                    options,
++                )
++                .await
+             }
+             None => self.new_turn_with_default_settings(sub_id, options).await,
+         };
+diff --git a/codex-rs/core/src/tasks/mod_tests.rs b/codex-rs/core/src/tasks/mod_tests.rs
+index eb4bc4b..0969348 100644
+--- a/codex-rs/core/src/tasks/mod_tests.rs
++++ b/codex-rs/core/src/tasks/mod_tests.rs
+@@ -159,7 +159,10 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
+     let previous_context = turn_context;
+     let turn_context = Arc::new(
+         previous_context
+-            .with_model(next_model.to_string(), &session.services.models_manager)
++            .with_model(
++                next_model.to_string(),
++                &session.services.inference.load().models_manager,
++            )
+             .await,
+     );
+     // Earlier session usage must not leak into this turn's per-model samples.
+diff --git a/codex-rs/core/src/tasks/review.rs b/codex-rs/core/src/tasks/review.rs
+index 7d9bf76..61421f2 100644
+--- a/codex-rs/core/src/tasks/review.rs
++++ b/codex-rs/core/src/tasks/review.rs
+@@ -128,7 +128,7 @@ async fn start_review_conversation(
+     (run_codex_thread_one_shot(
+         sub_agent_config,
+         Arc::clone(&session.services.auth_manager),
+-        Arc::clone(&session.services.models_manager),
++        Arc::clone(&session.services.inference.load().models_manager),
+         input,
+         Arc::clone(&session),
+         ctx.clone(),
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index b56485d..7019c5e 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -2235,7 +2235,9 @@ impl ThreadManagerState {
+                     parent
+                         .session
+                         .services
+-                        .model_client
++                        .inference
++                        .load()
++                        .client
+                         .prompt_cache_key_policy(),
+                 )
+             })
+@@ -2539,6 +2541,7 @@ impl ThreadManagerState {
+         } else {
+             codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile
+         };
++        let models_manager = build_models_manager(&config, Arc::clone(&auth_manager));
+         let spawn_result = Session::spawn(SessionSpawnArgs {
+             attached_thread,
+             startup,
+@@ -2548,10 +2551,9 @@ impl ThreadManagerState {
+             instructions: startup_context.instructions,
+             installation_id: self.installation_id.clone(),
+             auth_manager,
+-            models_manager: self
+-                .models_manager
++            models_manager: models_manager
+                 .for_originator(&startup_context.originator)
+-                .unwrap_or_else(|| Arc::clone(&self.models_manager)),
++                .unwrap_or(models_manager),
+             git_root_discovery: Arc::clone(&self.git_root_discovery),
+             environment_manager: Arc::clone(&self.environment_manager),
+             skills_service: Arc::clone(&self.skills_service),
+diff --git a/codex-rs/core/src/thread_manager_tests.rs b/codex-rs/core/src/thread_manager_tests.rs
+index b46fe16..a73e653 100644
+--- a/codex-rs/core/src/thread_manager_tests.rs
++++ b/codex-rs/core/src/thread_manager_tests.rs
+@@ -2944,6 +2944,8 @@ async fn new_uses_active_provider_for_model_refresh() {
+             .thread
+             .session
+             .services
++            .inference
++            .load()
+             .models_manager
+             .get_model_info("gpt-5.5", &config.to_models_manager_config())
+             .await;
+@@ -2958,7 +2960,13 @@ async fn new_uses_active_provider_for_model_refresh() {
+         .await
+         .expect("start legacy thread");
+     assert!(Arc::ptr_eq(
+-        &legacy.thread.session.services.models_manager,
++        &legacy
++            .thread
++            .session
++            .services
++            .inference
++            .load()
++            .models_manager,
+         &manager.get_models_manager()
+     ));
+ }
+diff --git a/codex-rs/core/src/thread_spawn.rs b/codex-rs/core/src/thread_spawn.rs
+index 4623a50..19c775d 100644
+--- a/codex-rs/core/src/thread_spawn.rs
++++ b/codex-rs/core/src/thread_spawn.rs
+@@ -173,6 +173,8 @@ pub(crate) async fn prepare(
+             Some(model) if model != turn.model_info().slug => Some(
+                 session
+                     .services
++                    .inference
++                    .load()
+                     .models_manager
+                     .get_model_info(model, &config.to_models_manager_config())
+                     .await,
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+index d5a8dcc..c886684 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+@@ -551,7 +551,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+     {
+         let (mut session, turn) = make_session_and_context().await;
+         let mut turn = turn
+-            .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++            .with_model(
++                "gpt-5.5".to_string(),
++                &session.services.inference.load().models_manager,
++            )
+             .await;
+         let mut config = (*turn.config).clone();
+         config.model_catalog = Some(service_tier_test_catalog());
+@@ -570,7 +573,7 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+                 .local_agent_runtime
+                 .control(root.thread.session.session_id()),
+         );
+-        session.services.models_manager = Arc::new(StaticModelsManager::new(
++        session.services.inference.load().models_manager = Arc::new(StaticModelsManager::new(
+             /*auth_manager*/ None,
+             service_tier_test_catalog(),
+             codex_models_manager::ModelOrigin::ExplicitConfig,
+@@ -605,7 +608,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+     {
+         let (mut session, turn) = make_session_and_context().await;
+         let mut turn = turn
+-            .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++            .with_model(
++                "gpt-5.5".to_string(),
++                &session.services.inference.load().models_manager,
++            )
+             .await;
+         let mut config = (*turn.config).clone();
+         config.model_catalog = Some(service_tier_test_catalog());
+@@ -624,7 +630,7 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+                 .local_agent_runtime
+                 .control(root.thread.session.session_id()),
+         );
+-        session.services.models_manager = Arc::new(StaticModelsManager::new(
++        session.services.inference.load().models_manager = Arc::new(StaticModelsManager::new(
+             /*auth_manager*/ None,
+             service_tier_test_catalog(),
+             codex_models_manager::ModelOrigin::ExplicitConfig,
+@@ -729,7 +735,10 @@ async fn spawn_agent_role_service_tier_cannot_override_root_preference() {
+ 
+     let (mut session, turn) = make_session_and_context().await;
+     let mut turn = turn
+-        .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++        .with_model(
++            "gpt-5.5".to_string(),
++            &session.services.inference.load().models_manager,
++        )
+         .await;
+     tokio::fs::create_dir_all(&turn.config.codex_home)
+         .await
+@@ -808,7 +817,10 @@ async fn spawn_agent_full_history_fork_inherits_root_service_tier() {
+ 
+     let (mut session, turn) = make_session_and_context().await;
+     let mut turn = turn
+-        .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++        .with_model(
++            "gpt-5.5".to_string(),
++            &session.services.inference.load().models_manager,
++        )
+         .await;
+     let mut config = (*turn.config).clone();
+     config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
+@@ -865,7 +877,10 @@ async fn multi_agent_v2_full_history_fork_inherits_root_service_tier() {
+ 
+     let (mut session, turn) = make_session_and_context().await;
+     let mut turn = turn
+-        .with_model("gpt-5.5".to_string(), &session.services.models_manager)
++        .with_model(
++            "gpt-5.5".to_string(),
++            &session.services.inference.load().models_manager,
++        )
+         .await;
+     let mut config = (*turn.config).clone();
+     config.service_tier = Some(ServiceTier::Fast.request_value().to_string());

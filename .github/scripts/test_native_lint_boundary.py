@@ -1,5 +1,6 @@
 """The real hosted lint allowance cannot become an upstream source modification."""
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -45,6 +46,10 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 # must retain that exact input while rejecting new mutations.
                 config_before = b'// Complete model catalog source retained\n'
                 config.write_bytes(config_before)
+                (root / 'profile-tui-native-preparation.json').write_text(json.dumps({
+                    'source': subprocess.check_output([git, 'rev-parse', 'HEAD'], cwd=upstream, text=True).strip(),
+                    'changed_files': ['codex-rs/core/src/config/mod.rs'],
+                }))
                 if fault == 'foreign-source':
                     core.write_bytes(b'foreign\n')
                 if fault == 'foreign-daemon':

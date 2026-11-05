@@ -48,6 +48,41 @@ fn git(source: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
+fn native_compatibility(source: &Path, check: bool) -> Result<()> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(source)
+        .arg("apply")
+        .arg("--whitespace=error");
+    if check {
+        command.arg("--check");
+    }
+    let mut child = command
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Native compatibility source: {error}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("Native compatibility source input unavailable")?
+        .write_all(include_bytes!("native_route.patch"))
+        .map_err(|error| format!("Native compatibility source input: {error}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Native compatibility source: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Native compatibility source failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
 fn replace(text: &str, old: &str, new: &str, where_: &str) -> Result<String> {
     let count = text.matches(old).count();
     if count != 1 {
@@ -137,7 +172,7 @@ impl Plan<'_> {
     }
 }
 
-fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
+fn plan(source: &Path, upstream_tui: bool) -> Result<BTreeMap<PathBuf, String>> {
     let mut plan = Plan {
         source,
         changes: BTreeMap::new(),
@@ -185,101 +220,104 @@ fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
                     ("Codex can read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files. (Identical to Agent mode)", DESCRIPTION),
         ], where_)
     })?;
-    plan.edit("tui/src/app.rs", "auto_review_mode", |text, where_| {
-        replace(
-            text,
-            WORKSPACE,
-            &format!("codex_protocol::models::{FULL_ACCESS}"),
-            where_,
-        )
-    })?;
-    plan.edit(
-        "tui/src/app_server_session.rs",
-        "thread_resume_params_from_config",
-        |text, where_| {
+    // The enhanced frontend supplies its own presentation and permission UI.
+    if upstream_tui {
+        plan.edit("tui/src/app.rs", "auto_review_mode", |text, where_| {
             replace(
                 text,
-                "thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.profile",
-                "thread_params_mode == ThreadParamsMode::Remote",
+                WORKSPACE,
+                &format!("codex_protocol::models::{FULL_ACCESS}"),
                 where_,
             )
-        },
-    )?;
-    plan.edit(
-        "tui/src/chatwidget/permission_shortcuts.rs",
-        "handle_permission_shortcut",
-        |text, where_| {
-            replace(
-                text,
-                "!matches!(preset.id, \"read-only\" | \"auto\")",
-                "preset.id != \"auto\"",
-                where_,
-            )
-        },
-    )?;
-    plan.edit(
-        "tui/src/chatwidget/permission_popups.rs",
-        "preset_matches_current",
-        |text, where_| {
-            replace(
-                text,
-                r#""auto" => {
-                let file_system_policy = current_permission_profile.file_system_sandbox_policy();
-                matches!(
-                    current_permission_profile,
-                    PermissionProfile::Managed { .. }
-                ) && file_system_policy.can_write_local_path_with_cwd(cwd, cwd)
-                    && !file_system_policy.has_full_disk_write_access()
-            }"#,
-                "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),",
-                where_,
-            )
-        },
-    )?;
-    plan.edit(
-        "tui/src/chatwidget/permissions_menu.rs",
-        "try_select_permission_profile",
-        |text, where_| {
-            replace(
-                text,
-                &format!("\":ask-for-approval\" | \":approve-for-me\" => {WORKSPACE}"),
-                &format!("\":ask-for-approval\" | \":approve-for-me\" => {FULL_ACCESS}"),
-                where_,
-            )
-        },
-    )?;
-    plan.edit("tui/src/chatwidget/permissions_menu.rs", "permission_preset_description", |text, where_| {
-        replace(text, "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace", DESCRIPTION, where_)
-    })?;
-    plan.edit("tui/src/chatwidget/permissions_menu.rs", "open_permission_profiles_popup", |text, where_| {
-        let binding = r#"        let Some(read_only) = presets.iter().find(|preset| preset.id == "read-only") else {
-            self.add_error_message(
-                "Internal error: missing the 'read-only' approval preset.".to_string(),
-            );
-            return;
-        };
-"#;
-        let item = r#"        items.push(self.builtin_permission_mode_selection_item(
-            &discovery,
-            read_only,
-            ":read-only",
-            permission_preset_description(read_only).to_string(),
-            AskForApproval::from(read_only.approval),
-            ApprovalsReviewer::User,
-        ));
-"#;
-        let text = replace(text, binding, "", where_)?;
-        let text = replace(&text, item, "", where_)?;
-        if text.matches("\":workspace\"").count() != 2 {
-            return Err(format!("{where_}: expected Ask and Auto workspace selections"));
-        }
-        Ok(text.replace("\":workspace\"", FULL_ACCESS))
-    })?;
-    let widget = source.join("codex-rs/tui/src/chatwidget.rs");
-    plan.changes.insert(widget.clone(), replace(&read(&widget)?,
-        "const AUTO_REVIEW_DESCRIPTION: &str = \"Only ask for actions detected as potentially unsafe\";",
-        &format!("const AUTO_REVIEW_DESCRIPTION: &str = \"{REVIEW_DESCRIPTION}\";"),
-        "tui/src/chatwidget.rs::AUTO_REVIEW_DESCRIPTION")?);
+        })?;
+        plan.edit(
+            "tui/src/app_server_session.rs",
+            "thread_resume_params_from_config",
+            |text, where_| {
+                replace(
+                    text,
+                    "thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.profile",
+                    "thread_params_mode == ThreadParamsMode::Remote",
+                    where_,
+                )
+            },
+        )?;
+        plan.edit(
+            "tui/src/chatwidget/permission_shortcuts.rs",
+            "handle_permission_shortcut",
+            |text, where_| {
+                replace(
+                    text,
+                    "!matches!(preset.id, \"read-only\" | \"auto\")",
+                    "preset.id != \"auto\"",
+                    where_,
+                )
+            },
+        )?;
+        plan.edit(
+            "tui/src/chatwidget/permission_popups.rs",
+            "preset_matches_current",
+            |text, where_| {
+                replace(
+                    text,
+                    r#""auto" => {
+                    let file_system_policy = current_permission_profile.file_system_sandbox_policy();
+                    matches!(
+                        current_permission_profile,
+                        PermissionProfile::Managed { .. }
+                    ) && file_system_policy.can_write_local_path_with_cwd(cwd, cwd)
+                        && !file_system_policy.has_full_disk_write_access()
+                }"#,
+                    "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),",
+                    where_,
+                )
+            },
+        )?;
+        plan.edit(
+            "tui/src/chatwidget/permissions_menu.rs",
+            "try_select_permission_profile",
+            |text, where_| {
+                replace(
+                    text,
+                    &format!("\":ask-for-approval\" | \":approve-for-me\" => {WORKSPACE}"),
+                    &format!("\":ask-for-approval\" | \":approve-for-me\" => {FULL_ACCESS}"),
+                    where_,
+                )
+            },
+        )?;
+        plan.edit("tui/src/chatwidget/permissions_menu.rs", "permission_preset_description", |text, where_| {
+            replace(text, "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace", DESCRIPTION, where_)
+        })?;
+        plan.edit("tui/src/chatwidget/permissions_menu.rs", "open_permission_profiles_popup", |text, where_| {
+            let binding = r#"        let Some(read_only) = presets.iter().find(|preset| preset.id == "read-only") else {
+                self.add_error_message(
+                    "Internal error: missing the 'read-only' approval preset.".to_string(),
+                );
+                return;
+            };
+    "#;
+            let item = r#"        items.push(self.builtin_permission_mode_selection_item(
+                &discovery,
+                read_only,
+                ":read-only",
+                permission_preset_description(read_only).to_string(),
+                AskForApproval::from(read_only.approval),
+                ApprovalsReviewer::User,
+            ));
+    "#;
+            let text = replace(text, binding, "", where_)?;
+            let text = replace(&text, item, "", where_)?;
+            if text.matches("\":workspace\"").count() != 2 {
+                return Err(format!("{where_}: expected Ask and Auto workspace selections"));
+            }
+            Ok(text.replace("\":workspace\"", FULL_ACCESS))
+        })?;
+        let widget = source.join("codex-rs/tui/src/chatwidget.rs");
+        plan.changes.insert(widget.clone(), replace(&read(&widget)?,
+            "const AUTO_REVIEW_DESCRIPTION: &str = \"Only ask for actions detected as potentially unsafe\";",
+            &format!("const AUTO_REVIEW_DESCRIPTION: &str = \"{REVIEW_DESCRIPTION}\";"),
+            "tui/src/chatwidget.rs::AUTO_REVIEW_DESCRIPTION")?);
+    }
     for text in plan.changes.values_mut() {
         let imported = format!("use codex_protocol::models::{WORKSPACE};\n");
         if text.matches(WORKSPACE).count() == 1 && text.contains(&imported) {
@@ -290,7 +328,7 @@ fn plan(source: &Path) -> Result<BTreeMap<PathBuf, String>> {
 }
 
 /// Preflight the entire adaptation before changing any file.
-pub fn prepare(source: &Path, version: &str, revision: &str) -> Result<Value> {
+pub fn prepare(source: &Path, version: &str, revision: &str, upstream_tui: bool) -> Result<Value> {
     if revision.len() != 40
         || !revision
             .bytes()
@@ -315,14 +353,18 @@ pub fn prepare(source: &Path, version: &str, revision: &str) -> Result<Value> {
     {
         return Err("official workspace version differs from release input".into());
     }
-    let changes = plan(source)?;
-    let files: Vec<_> = changes
-        .keys()
-        .map(|path| path.strip_prefix(source).unwrap())
-        .collect();
+    let changes = plan(source, upstream_tui)?;
+    native_compatibility(source, true)?;
+    native_compatibility(source, false)?;
     for (path, text) in &changes {
         fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
     }
+    let changed = git(source, &["diff", "--name-only", "-z", "HEAD"])?;
+    let files: Vec<_> = changed
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| std::ffi::OsStr::from_bytes(path).to_string_lossy())
+        .collect();
     Ok(json!({"version": version, "source": revision, "changed_files": files}))
 }
 
@@ -553,6 +595,15 @@ fn execute(args: &[OsString]) -> Result<()> {
             return Err(format!("duplicate source flag: {flag}"));
         }
     }
+    let upstream_tui = if action == "prepare-source" {
+        match fields.remove("--frontend").and_then(|value| value.to_str()) {
+            None | Some("upstream") => true,
+            Some("provided") => false,
+            Some(_) => return Err("source frontend must be upstream or provided".into()),
+        }
+    } else {
+        true
+    };
     let expected: &[&str] = match action {
         "prepare-source" => &["--source", "--version", "--source-sha"],
         "normalize-lock" => &["--source", "--openssl", "--audit"],
@@ -576,7 +627,8 @@ fn execute(args: &[OsString]) -> Result<()> {
                     .ok_or("invalid source version")?,
                 fields["--source-sha"]
                     .to_str()
-                    .ok_or("invalid source revision")?
+                    .ok_or("invalid source revision")?,
+                upstream_tui,
             )?
         ),
         "normalize-lock" => {

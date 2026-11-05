@@ -10,15 +10,18 @@ source or installed baseline. CURRENT records those independently. Every new pai
 must pass exact native/device gates before publication. Official runtime remains
 the sole execution backend.
 
-`native.patch` contains TUI integration changes to existing upstream files,
-including retaining the original model-catalog bytes in upstream configuration.
+`native.patch` contains TUI integration changes to existing upstream files.
+Release-builder's common source preparation owns the Native route interface and
+original model-catalog bytes used by both runtime and frontend builds.
 Native execution policy, command classification, approval eligibility and Guardian
 reviewer behavior remain unchanged. Approve for me retains OnRequest/AutoReview;
 it reviews native approval requests rather than all ordinary commands.
 The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
-callbacks. Run `python3 frontend/manager-tui/apply.py UPSTREAM` once on a disposable
-pristine checkout; it preflights collisions and patch applicability before writing.
+callbacks. On a disposable official checkout, first run release-builder's
+`prepare-source --frontend provided`, retaining its JSON output as PREPARATION.
+Run `python3 frontend/manager-tui/apply.py UPSTREAM --native-preparation PREPARATION`
+once; it preflights collisions and patch applicability before writing.
 `upstream-base` identifies the original integration-patch source. Hosted preparation
 fetches those objects too. When direct context matching fails, the assembler uses
 an isolated Git index for three-way resolution; a conflict leaves the real source
@@ -26,9 +29,11 @@ and index unchanged. A newer release needs no manually rebased patch when that
 merge is clean. Build, scope, native/device and signed acceptance still apply.
 Do not apply the patch alone. Qualification binds the complete owned source tree
 and assembler as well as the patch, and retains the assembled diff as evidence.
-`apply.py --check-scope` supplies the same read-only boundary check after assembly,
-formatting and lint. It permits TUI, the catalog-source Config module and normalized
-Cargo.lock; unrelated tracked, staged, renamed or untracked source is rejected.
+`apply.py --check-scope --native-preparation PREPARATION` supplies the same read-only
+boundary check after assembly, formatting and lint. It permits TUI, the declared
+common Native preparation and normalized Cargo.lock; unrelated tracked, staged,
+renamed or untracked source is rejected. Three-way resolution starts from the
+prepared tree and leaves the real Git index unchanged.
 
 `termux_backend_catalog::bind` owns catalog startup selection after upstream loads
 configuration. `termux_chat_models::reentry_route` plans provider/profile arguments;
