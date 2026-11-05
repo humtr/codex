@@ -234,7 +234,7 @@ jobs:
           for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config', 'api', 'initialize']:
               text = (root / f'native-provider-{name}.log').read_text()
               text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
-              summary = re.search(r'Summary\s*\[[^\]]+\]\s*([1-9][0-9]*) tests? run: ([1-9][0-9]*) passed(?:, [0-9]+ skipped)?\s*$', text)
+              summary = re.search(r'Summary\s*\[[^\]]+\]\s*([1-9][0-9]*) tests? run: ([1-9][0-9]*) passed(?: \([1-9][0-9]* slow\))?(?:, [0-9]+ skipped)?\s*$', text)
               assert summary and summary[1] == summary[2], name + ': required tests did not pass'
           PYTHON
       - name: Verify destination catalog regression
