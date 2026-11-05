@@ -41,11 +41,14 @@ list_turns unsupported after file materialization. Resume had used low-level sto
 persistence and bypassed the live conversation's pending metadata. The candidate
 reuses one checked Native checkpoint through that owner for resume, live paginated
 read and archive; initialization keeps its existing lazy checkpoint mode. The
-revised two cases, affected read/archive scopes and Native fault checks remain
-unqualified. The workflow now runs API checks first and retains an
-unsigned CLI after the baseline gates, before disposable faults, so real device
-experiments need not wait for those rebuilds. This changes neither acceptance nor
-signed deployment. Original logs/results remain under the owned repair tree.
+revised two cases and affected read/archive scopes pass in workflow42025671701
+on83838e8, together with all required nonzero API, initialize, model-binding,
+compaction, Guardian, client and config scopes. Its actual unsigned CLI was
+built, smoked and downloaded with exact source/upstream and original producer
+digest verification. The three Native fault checks are still running. The workflow
+runs API checks first and retains that CLI before disposable faults; this changes
+neither acceptance nor signed deployment. Original logs/results remain under the
+owned repair tree.
 The summary parser accounts for passing slow-test annotations and still rejects
 a failed or zero-test scope. Original workflow logs and generated schema evidence
 remain under the owned repair tree.
@@ -89,10 +92,20 @@ integrated cross-route file effects. Original outputs and owned Native records
 remain under the repair tree.
 A Native resume extension materializes the existing persistent writer before
 reading its stored view, preserving observers and propagating storage failure. Public two-client, storage and actual saved-route
-request tests plus a disposable removal fault cover that change in the current
-hosted gate. Source assembly passed; actual empty-thread Android execution and
-same-thread file-write/patch/finish remain unqualified. The signed operating
-Native is unchanged and does not advertise these updates.
+request tests cover that change in the current hosted gate; the disposable removal
+fault is still running. Source assembly passed. Actual Android execution with the
+retained final Provider and exact83838e8 unsigned CLI passes all three cases:
+a live empty OpenAI thread, a populated thread, and cold resume after observed
+writer exit through the common server. Each selects ChatGPT on the same thread,
+accepts Native context, executes a real file write and patch through the advertised
+tool catalog, repeats the write request without a duplicate effect, finishes,
+returns to OpenAI with history unchanged and rejects stale Provider primary
+inference. Cold proof also exercises actual Provider-catalog admission. The private
+fixture uses the existing54-byte relocation and signed fixture inventory; it copies
+no user auth or app profile. All owned services and Native processes have observed
+exit. These are local attached-execution proofs with an inert primary inference
+endpoint, not actual Chat model inference, TUI observation or production delivery.
+The signed operating Native is unchanged and does not advertise these updates.
 
 The current owned service responds, while its app observation reports
 app_auth_context_unavailable and ready=false. Exact installed app source exposes
