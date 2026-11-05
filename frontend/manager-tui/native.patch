@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index fbc1090..9e4b834 100644
+index fbc1090..0234303 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -46,22 +46,20 @@ index fbc1090..9e4b834 100644
          ),
      }
  }
-@@ -537,6 +544,12 @@ struct InitialHistoryReplayBuffer {
+@@ -537,6 +544,10 @@ struct InitialHistoryReplayBuffer {
  }
-
+ 
  pub(crate) struct App {
 +    #[cfg(unix)]
 +    quota_switch: quota_switch::State,
-+    #[cfg(unix)]
-+    chat_model_switch: chat_model_reentry::State,
 +    #[cfg(unix)]
 +    provider_presentation: provider_presentation::State,
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1251,6 +1264,10 @@ impl App {
+@@ -1251,6 +1262,10 @@ impl App {
      }
-
+ 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
 +        #[cfg(unix)]
 +        crate::termux_terminal::sync(self.chat_widget.thread_id().map(|id| id.to_string()));
@@ -71,30 +69,20 @@ index fbc1090..9e4b834 100644
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
          if tui.is_owned_screen() {
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 9b22c93..f59b819 100644
+index 9b22c93..57771f1 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
-@@ -98,6 +98,11 @@ impl App {
+@@ -98,6 +98,10 @@ impl App {
      ) {
          match event {
              AppServerEvent::Lagged { skipped } => {
 +                #[cfg(unix)]
 +                {
 +                    self.quota_switch.uncertain = true;
-+                    super::chat_model_reentry::cancel(self);
 +                }
                  tracing::warn!(
                      skipped,
                      "app-server event consumer lagged; dropping ignored events"
-@@ -147,6 +152,8 @@ impl App {
-                 self.repaint_agents_overview();
-             }
-             AppServerEvent::Disconnected { message } => {
-+                #[cfg(unix)]
-+                super::chat_model_reentry::cancel(self);
-                 // The request result distinguishes a refused start from a lost reply.
-                 if self.pending_startup_thread_start
-                     && !matches!(self.app_server_target, crate::AppServerTarget::Embedded)
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
 index 8a04d72..8b45619 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
@@ -102,7 +90,7 @@ index 8a04d72..8b45619 100644
 @@ -28,10 +28,16 @@ async fn build_config_on_runtime_worker(
      }
  }
-
+ 
 -pub(super) fn resume_model_settings_for_overrides(
 +pub(crate) fn resume_model_settings_for_overrides(
      config: &Config,
@@ -119,7 +107,7 @@ index 8a04d72..8b45619 100644
              &layer.name,
 @@ -1159,6 +1165,15 @@ impl App {
      }
-
+ 
      pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
 +        #[cfg(unix)]
 +        if crate::termux_permissions::enabled()
@@ -132,13 +120,13 @@ index 8a04d72..8b45619 100644
 +        }
          resume_model_settings_for_overrides(&self.config, &self.harness_overrides)
      }
-
+ 
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
 index ada9e88..a5a1e67 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
 +++ b/codex-rs/tui/src/app/daemon_menu.rs
 @@ -27,6 +27,13 @@ impl Renderable for DaemonMenuHeader {
-
+ 
  impl App {
      pub(super) async fn verify_managed_daemon(&mut self) {
 +        #[cfg(unix)]
@@ -185,13 +173,13 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 550965d..3cacf4b 100644
+index 550965d..0632812 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -147,6 +147,19 @@ impl App {
              return Ok(AppRunControl::Continue);
          }
-
+ 
 +        #[cfg(unix)]
 +        if crate::profile_transport::daemon_action_blocked(
 +            &self.app_server_target,
@@ -294,26 +282,20 @@ index 550965d..3cacf4b 100644
              }
              AppEvent::CodexOp(mut op) => {
                  if let AppCommand::OverrideTurnContext {
-@@ -2121,6 +2177,18 @@ impl App {
+@@ -2121,6 +2177,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
 +            #[cfg(unix)]
-+            AppEvent::FinishChatModelProvider { thread, turn } => {
-+                if let Some(request)=chat_model_reentry::finish(self,app_server,thread,turn).await {
-+                    return Err(std::io::Error::other(request).into());
-+                }
-+            }
-+            #[cfg(unix)]
 +            AppEvent::SelectChatModelProvider { model, effort } => {
-+                if let Some(request)=chat_model_reentry::prepare(self,app_server,model,effort,false).await {
++                if let Some(request)=chat_model_reentry::prepare(self,app_server,model,effort).await {
 +                    return Err(std::io::Error::other(request).into());
 +                }
 +            }
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
-@@ -2605,6 +2673,19 @@ impl App {
+@@ -2605,6 +2667,19 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {
@@ -323,7 +305,7 @@ index 550965d..3cacf4b 100644
 +                        &self.chat_widget.config_ref().model_provider_id, &model)
 +                {
 +                    if let Some(mut request) = chat_model_reentry::prepare(
-+                        self, app_server, model, effort, false).await
++                        self, app_server, model, effort).await
 +                    {
 +                        request.set_service_tier(service_tier);
 +                        return Err(std::io::Error::other(request).into());
@@ -378,7 +360,7 @@ index 086329b..deb0761 100644
 @@ -72,6 +76,31 @@ impl App {
              }
          };
-
+ 
 +        #[cfg(unix)]
 +        if matches!(source, ResumeSource::Active)
 +            && crate::profile_transport::core_owned(
@@ -450,41 +432,37 @@ index c7dc18d..1ffebe5 100644
              Ok(prepared) => prepared,
              Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index f1e83e5..913228d 100644
+index f1e83e5..059183b 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -965,6 +965,12 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -965,6 +965,10 @@ See the Codex keymap documentation for supported actions and examples."
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
 +            #[cfg(unix)]
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
-+            chat_model_switch: Default::default(),
-+            #[cfg(unix)]
 +            provider_presentation: Default::default(),
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index a0efb33..30ba43e 100644
+index a0efb33..66edf38 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
-@@ -21,6 +21,12 @@ pub(crate) async fn make_test_app() -> Box<App> {
+@@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
-
+ 
      Box::new(App {
 +        #[cfg(unix)]
 +        quota_switch: Default::default(),
-+        #[cfg(unix)]
-+        chat_model_switch: Default::default(),
 +        #[cfg(unix)]
 +        provider_presentation: Default::default(),
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index a2d2191..7d924cc 100644
+index a2d2191..d005731 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -95,7 +95,7 @@ mod recap_generation;
@@ -505,51 +483,47 @@ index a2d2191..7d924cc 100644
      assert!(matches!(result, Err(AppRunControl::Continue)));
      assert_eq!(app.active_thread_id, None);
      let cell = std::iter::from_fn(|| events.try_recv().ok())
-@@ -6408,6 +6408,12 @@ async fn make_test_app() -> Box<App> {
+@@ -6408,6 +6408,10 @@ async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
-
+ 
      Box::new(App {
 +        #[cfg(unix)]
 +        quota_switch: Default::default(),
-+        #[cfg(unix)]
-+        chat_model_switch: Default::default(),
 +        #[cfg(unix)]
 +        provider_presentation: Default::default(),
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6534,6 +6540,12 @@ pub(super) async fn make_test_app_with_channels() -> (
-
+@@ -6534,6 +6538,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+ 
      (
          Box::new(App {
 +            #[cfg(unix)]
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
-+            chat_model_switch: Default::default(),
-+            #[cfg(unix)]
 +            provider_presentation: Default::default(),
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7528,7 +7540,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
+@@ -7528,7 +7536,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
      }
  }
-
+ 
 -fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
 +pub(super) fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7538,7 +7550,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7538,7 +7546,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
-
+ 
 -fn turn_completed_notification(
 +pub(super) fn turn_completed_notification(
      thread_id: ThreadId,
      turn_id: &str,
      status: TurnStatus,
-@@ -8512,7 +8524,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
+@@ -8512,7 +8520,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
                  },
                  super::resume_preparation::ResumeSource::Backend(&settings),
              )
@@ -565,18 +539,18 @@ index f781208..189416c 100644
 @@ -43,8 +43,9 @@ use tokio_tungstenite::tungstenite::Error as WebSocketError;
  use tokio_tungstenite::tungstenite::Message;
  use tokio_tungstenite::tungstenite::error::ProtocolError;
-
+ 
 -pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 -pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 +pub(in crate::app) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 +pub(in crate::app) type RecordingAppServer =
 +    (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
-
+ 
  fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
      match error {
 @@ -401,7 +402,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
-
+ 
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
 -pub(super) async fn start_recording_app_server(
 +pub(in crate::app) async fn start_recording_app_server(
@@ -586,7 +560,7 @@ index f781208..189416c 100644
 @@ -927,7 +928,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
-
+ 
 -pub(super) fn recorded_params(requests: &RecordedRequests, method: &str) -> Vec<serde_json::Value> {
 +pub(in crate::app) fn recorded_params(
 +    requests: &RecordedRequests,
@@ -608,17 +582,15 @@ index ca06b51..341b2a5 100644
                  completed_messages.push(source.clone());
                  app.handle_consolidate_agent_message(
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index e4ecae0..b88df24 100644
+index e4ecae0..cb9ee32 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
-@@ -1945,6 +1945,17 @@ impl App {
+@@ -1945,6 +1945,15 @@ impl App {
              ThreadBufferedEvent::Notification(notification) => {
                  self.cache_collab_receiver_threads_for_notification(notification.as_ref());
                  let tip_ready = self.turn_tips.observe(&notification, Instant::now());
 +                #[cfg(unix)]
 +                super::quota_switch::observe(self, notification.as_ref());
-+                #[cfg(unix)]
-+                super::chat_model_reentry::observe(self, notification.as_ref());
 +                #[cfg(unix)]
 +                if matches!(
 +                    notification.as_ref(),
@@ -629,7 +601,7 @@ index e4ecae0..b88df24 100644
                  self.chat_widget
                      .handle_server_notification(*notification, /*replay_kind*/ None);
                  // History cells queued by completion must be applied before anchoring its tip.
-@@ -1953,6 +1964,8 @@ impl App {
+@@ -1953,6 +1962,8 @@ impl App {
                  }
              }
              ThreadBufferedEvent::Request(request) => {
@@ -656,7 +628,7 @@ index 229d21e..1caed85 100644
          .turn_start(
              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 2adc303..02ac185 100644
+index 2adc303..01243f9 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -295,6 +295,12 @@ pub(crate) struct AgentPickerThreadRefresh {
@@ -675,7 +647,7 @@ index 2adc303..02ac185 100644
 @@ -646,6 +652,43 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
-
+ 
 +    /// Open the Manager execution-profile view without changing accounts.
 +    #[cfg(unix)]
 +    OpenProfilePicker,
@@ -715,14 +687,14 @@ index 2adc303..02ac185 100644
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
-
+ 
 @@ -700,7 +743,7 @@ pub(crate) enum AppEvent {
      CodexOp(AppCommand),
-
+ 
      /// A blocking image-preparation worker has finished; payload stays with its widget.
 -    ImagesPrepared(Uuid),
 +    InputPrepared(Uuid),
-
+ 
      /// Approve one retry of a recent auto-review denial selected in the TUI.
      ApproveRecentAutoReviewDenial {
 @@ -1210,6 +1253,7 @@ pub(crate) enum AppEvent {
@@ -733,8 +705,8 @@ index 2adc303..02ac185 100644
          copy_source: Option<String>,
          cwd: PathBuf,
          inline_visualization_context: Option<InlineVisualizationContext>,
-@@ -1238,6 +1282,16 @@ pub(crate) enum AppEvent {
-
+@@ -1238,6 +1282,11 @@ pub(crate) enum AppEvent {
+ 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
 +    #[cfg(unix)]
@@ -742,12 +714,7 @@ index 2adc303..02ac185 100644
 +        model: String,
 +        effort: Option<ReasoningEffort>,
 +    },
-+    #[cfg(unix)]
-+    FinishChatModelProvider {
-+        thread: codex_protocol::ThreadId,
-+        turn: String,
-+    },
-
+ 
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
@@ -781,7 +748,7 @@ index 683e732..267be9d 100644
 @@ -1390,6 +1400,53 @@ impl AppServerSession {
          Ok(response.thread)
      }
-
+ 
 +    /// Read canonical public history for provider entry, independently of display limits.
 +    pub(crate) async fn thread_read_complete_public_history(
 +        &mut self,
@@ -917,7 +884,7 @@ index 683e732..267be9d 100644
 @@ -3927,6 +4015,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
-
+ 
 +    #[tokio::test]
 +    async fn termux_chat_models_local_thread_keeps_profile_and_session_settings() -> Result<()> {
 +        let home = tempfile::tempdir()?;
@@ -963,7 +930,7 @@ index 683e732..267be9d 100644
 @@ -4311,6 +4438,29 @@ mod tests {
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
-
+ 
 +        let complete = app_server
 +            .thread_read_complete_public_history(source_thread_id)
 +            .await?;
@@ -1014,7 +981,7 @@ index aa50df3..45d55db 100644
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 @@ -503,6 +503,10 @@ pub enum InputResult {
  }
-
+ 
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
 +    #[cfg(unix)]
 +    if command == SlashCommand::Switch && args.is_empty() {
@@ -1053,7 +1020,7 @@ index 68868be..012c90a 100644
 @@ -447,6 +447,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
-
+ 
 +use crate::termux_permissions::builtin_approval_presets;
  use chrono::Local;
  use codex_app_server_protocol::AskForApproval;
@@ -1065,7 +1032,7 @@ index 68868be..012c90a 100644
 -use codex_utils_approval_presets::builtin_approval_presets;
  use strum::IntoEnumIterator;
  use unicode_segmentation::UnicodeSegmentation;
-
+ 
 @@ -466,7 +466,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
  const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
  const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
@@ -1073,7 +1040,7 @@ index 68868be..012c90a 100644
 -const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe";
  const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
-
+ 
 @@ -561,7 +560,7 @@ pub(crate) struct ChatWidget {
      pub(crate) remote_connection: Option<RemoteConnectionStatus>,
      /// Remote app servers cannot read image paths on the TUI host.
@@ -1085,7 +1052,7 @@ index 68868be..012c90a 100644
      pub(crate) windows_sandbox_config: crate::windows_sandbox::WindowsSandboxConfig,
 @@ -1832,7 +1831,7 @@ impl ChatWidget {
      }
-
+ 
      pub(crate) fn show_external_writer_thread(&mut self) {
 -        self.cancel_image_submission();
 +        self.cancel_input_submission();
@@ -1290,7 +1257,7 @@ index fd7fb8f..702693d 100644
 --- a/codex-rs/tui/src/chatwidget/input_flow.rs
 +++ b/codex-rs/tui/src/chatwidget/input_flow.rs
 @@ -13,7 +13,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
-
+ 
  impl ChatWidget {
      pub(crate) fn set_parent_owned_thread(&mut self) {
 -        self.cancel_image_submission();
@@ -1333,7 +1300,7 @@ index fd7fb8f..702693d 100644
                      if !submitted_follow_up {
 @@ -346,7 +346,7 @@ impl ChatWidget {
      }
-
+ 
      pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
 -        self.pending_image_submission.is_some()
 +        self.pending_input_submission.is_some()
@@ -1368,7 +1335,7 @@ index bc4a9c1..97da74c 100644
          // Cancellation means idle in the program-status protocol, not a failed task.
 @@ -605,7 +605,7 @@ impl ChatWidget {
      }
-
+ 
      pub(crate) fn capture_thread_input_state(&mut self) -> Option<ThreadInputState> {
 -        self.cancel_image_submission();
 +        self.cancel_input_submission();
@@ -1376,7 +1343,7 @@ index bc4a9c1..97da74c 100644
          let composer = ThreadComposerState {
              text: draft.text,
 diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
-index 7d0c740..51cd471 100644
+index 7d0c740..332d58a 100644
 --- a/codex-rs/tui/src/chatwidget/input_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/input_submission.rs
 @@ -114,7 +114,7 @@ impl ChatWidget {
@@ -1402,7 +1369,7 @@ index 7d0c740..51cd471 100644
 +            /*prepared_input*/ None,
          )
      }
-
+ 
 -    pub(super) fn submit_user_message_with_prepared_images(
 +    pub(super) fn submit_user_message_with_prepared_input(
          &mut self,
@@ -1444,7 +1411,7 @@ index 7d0c740..51cd471 100644
 @@ -275,10 +275,14 @@ impl ChatWidget {
              });
          }
-
+ 
 -        if let Some(prepared_images) = prepared_images {
 -            items.extend(prepared_images);
 -        } else if self.snapshot_local_images && !local_images.is_empty() {
@@ -1494,7 +1461,7 @@ index 5e5d8a9..06bfb9e 100644
              return KeyEventAction::None;
          }
 @@ -241,7 +249,7 @@ impl ChatWidget {
-
+ 
          if key_event.kind == KeyEventKind::Press
              && self.chat_keymap.edit_queued_message.is_pressed(key_event)
 -            && (self.has_queued_follow_up_messages() || self.pending_image_submission.is_some())
@@ -1540,7 +1507,7 @@ index 62af5d1..5c14afa 100644
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
      }
-
+ 
      pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
 +        #[cfg(unix)]
 +        let presets = crate::termux_chat_models::augment(&self.config, presets);
@@ -1671,7 +1638,7 @@ index b6614dc..2d28089 100644
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -6,6 +6,9 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
  use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
-
+ 
  pub(super) fn permission_preset_description(preset: &ApprovalPreset) -> &'static str {
 +    if crate::termux_permissions::enabled() && preset.id == "auto" {
 +        return preset.description;
@@ -1746,7 +1713,7 @@ index a7162b9..ad1207b 100644
 @@ -644,6 +644,29 @@ impl ChatWidget {
          self.request_redraw();
      }
-
+ 
 +    pub(crate) fn termux_refresh_quota_view(
 +        &mut self,
 +        view_id: &'static str,
@@ -1826,7 +1793,7 @@ index 79a9018..6deb3bd 100644
 +            SlashCommand::Switch => QueueDrain::Stop,
          }
      }
-
+ 
 diff --git a/codex-rs/tui/src/chatwidget/streaming.rs b/codex-rs/tui/src/chatwidget/streaming.rs
 index 6229fd7..763a75e 100644
 --- a/codex-rs/tui/src/chatwidget/streaming.rs
@@ -1877,7 +1844,7 @@ index 42f292b..501dbfb 100644
  mod terminal_program_status;
  mod terminal_title;
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-index 4b77a77..7d38d49 100644
+index 4b77a77..82db3d2 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 @@ -389,7 +389,7 @@ async fn parent_owned_thread_preserves_queued_input_before_draining() {
@@ -2170,7 +2137,7 @@ index e56ea9b..18b6d7f 100644
 @@ -30,7 +30,7 @@ async fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rend
          )
      };
-
+ 
 -    for prepared_images in [None, Some(vec![image])] {
 +    for prepared_input in [None, Some(vec![image])] {
          let (mut chat, _events, mut ops) = make_chatwidget_manual(Some("gpt-6-astra")).await;
@@ -2179,7 +2146,7 @@ index e56ea9b..18b6d7f 100644
 @@ -41,14 +41,14 @@ async fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rend
          assert_eq!(untouched, Default::default());
          assert!(visible(&chat));
-
+ 
 -        let mut expected_items = prepared_images.clone().unwrap_or_default();
 +        let mut expected_items = prepared_input.clone().unwrap_or_default();
          expected_items.push(UserInput::Text {
@@ -2200,7 +2167,7 @@ index f44ad24..996d853 100644
 +++ b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
 @@ -124,11 +124,11 @@ async fn initial_prompt_image_preparation_preserves_recall_metadata() {
              create_initial_user_message(Some(input.into()), vec![path.clone()], elements);
-
+ 
          chat.submit_initial_user_message_if_pending();
 -        assert!(chat.pending_image_submission.is_some());
 +        assert!(chat.pending_input_submission.is_some());
@@ -2287,7 +2254,7 @@ index fee4d59..ab8e19c 100644
 @@ -194,25 +206,7 @@ fn copy_to_clipboard_with(
          return Err("nothing to copy: the selected content is empty".to_string());
      }
-
+ 
 -    let terminal_copy = || {
 -        if environment.tmux_session {
 -            let raw_bytes = text.len();
@@ -2314,7 +2281,7 @@ index fee4d59..ab8e19c 100644
 @@ -250,6 +244,31 @@ fn copy_to_clipboard_with(
      }
  }
-
+ 
 +fn terminal_copy(
 +    text: &str,
 +    environment: CopyEnvironment,
@@ -2354,7 +2321,7 @@ index 66f407a..38c169c 100644
 +    source_item_id: Option<String>,
 +    folded_progress: bool,
  }
-
+ 
  impl AgentMarkdownCell {
 +    pub(crate) fn with_source_item_id(mut self, id: Option<String>) -> Self {
 +        self.source_item_id = id;
@@ -2389,11 +2356,11 @@ index 66f407a..38c169c 100644
 +            folded_progress: false,
          }
      }
-
+ 
 @@ -723,7 +749,27 @@ impl HistoryCell for AgentMarkdownCell {
          self.render_lines(width, crate::markdown_render::ListSpacing::AfterMultiline)
      }
-
+ 
 -    fn retained_hyperlink_lines(&self, width: u16, _detailed: bool) -> Vec<HyperlinkLine> {
 +    fn activity_ids(&self) -> Vec<String> {
 +        self.source_item_id
@@ -2418,9 +2385,9 @@ index 66f407a..38c169c 100644
 +        }
          self.render_lines(width, crate::markdown_render::ListSpacing::Uniform)
      }
-
+ 
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 1b0b08c..a8c3e86 100644
+index 1b0b08c..fda9a2e 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,13 @@ mod experimental_features;
@@ -2653,7 +2620,7 @@ index 1b0b08c..a8c3e86 100644
 +        }
 +        break session;
      };
-
+ 
      if let resume_picker::SessionSelection::Resume(target)
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
 index 91153c6..c73e71d 100644
@@ -2683,7 +2650,7 @@ index c054f23..b9cf2e2 100644
 +++ b/codex-rs/tui/src/resume_picker.rs
 @@ -3714,11 +3714,12 @@ fn plural_time(value: i64, unit: &str) -> String {
  }
-
+ 
  fn format_timestamp(ts: DateTime<Utc>, clock_format: ClockFormat) -> String {
 -    ts.format(match clock_format {
 -        ClockFormat::TwelveHour => "%Y-%m-%d %-I:%M:%S %p",
@@ -2697,12 +2664,12 @@ index c054f23..b9cf2e2 100644
 +        })
 +        .to_string()
  }
-
+ 
  fn render_empty_state_line(state: &PickerState) -> Line<'static> {
 @@ -4359,6 +4360,84 @@ mod tests {
          assert!(row.matches_query(&thread_id.to_string()[..8]));
      }
-
+ 
 +    #[cfg(unix)]
 +    #[test]
 +    fn absolute_time_uses_child_timezone() {
@@ -2830,7 +2797,7 @@ index dfd0538..7557d9c 100644
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
 @@ -201,6 +205,10 @@ impl SlashCommand {
-
+ 
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
 +        #[cfg(unix)]
@@ -2841,7 +2808,7 @@ index dfd0538..7557d9c 100644
              self,
              SlashCommand::Copy
 @@ -226,6 +234,10 @@ impl SlashCommand {
-
+ 
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
 +        #[cfg(unix)]

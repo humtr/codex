@@ -66,7 +66,7 @@ def apply(upstream, package=PACKAGE):
         raise ValueError('owned frontend source set is empty')
     patch = package / 'native.patch'
     # All collisions and patch applicability are checked before any mutation.
-    command = ['git', '-C', str(upstream), 'apply']
+    command = ['git', '-C', str(upstream), 'apply', '--whitespace=error']
     direct = subprocess.run(command + ['--check', str(patch.resolve())], capture_output=True)
     if direct.returncode == 0:
         subprocess.run(command + [str(patch.resolve())], check=True)

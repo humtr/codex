@@ -13,81 +13,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[derive(Default)]
-pub(crate) struct State(Option<Pending>);
-struct Pending {
-    thread: ThreadId,
-    model: String,
-    effort: ReasoningEffort,
-    source_model: String,
-    turn: Option<String>,
-    compacted: bool,
-    ready: bool,
-}
-pub(super) fn cancel(app: &mut App) {
-    if app.chat_model_switch.0.take().is_some() {
-        app.chat_widget.add_error_message("Model provider unchanged: context preparation was interrupted or could not be confirmed.".into());
-    }
-}
-pub(super) fn observe(app: &mut App, event: &codex_app_server_protocol::ServerNotification) {
-    let Ok(value) = serde_json::to_value(event) else {
-        return;
-    };
-    let Some(pending) = app.chat_model_switch.0.as_mut() else {
-        return;
-    };
-    let params = &value["params"];
-    if params["threadId"] != pending.thread.to_string() {
-        return;
-    }
-    match value["method"].as_str() {
-        Some("turn/started") if pending.turn.is_none() => {
-            pending.turn = params["turn"]["id"].as_str().map(str::to_owned)
-        }
-        Some("item/completed")
-            if params["turnId"].as_str() == pending.turn.as_deref()
-                && params["item"]["type"] == "contextCompaction" =>
-        {
-            pending.compacted = true
-        }
-        Some("error") => cancel(app),
-        Some("turn/completed") if params["turn"]["id"].as_str() == pending.turn.as_deref() => {
-            if params["turn"]["status"] != "completed" || !pending.compacted {
-                cancel(app);
-                return;
-            }
-            if !pending.ready {
-                pending.ready = true;
-                app.app_event_tx
-                    .send(crate::app_event::AppEvent::FinishChatModelProvider {
-                        thread: pending.thread,
-                        turn: pending.turn.clone().unwrap(),
-                    });
-            }
-        }
-        _ => (),
-    }
-}
-pub(super) async fn finish(
-    app: &mut App,
-    server: &mut AppServerSession,
-    thread: ThreadId,
-    turn: String,
-) -> Option<ChatModelReentry> {
-    let pending = app.chat_model_switch.0.as_ref()?;
-    if pending.thread != thread || pending.turn.as_deref() != Some(&turn) || !pending.ready {
-        return None;
-    }
-    let pending = app.chat_model_switch.0.take()?;
-    if app.chat_widget.thread_id() != Some(thread)
-        || app.chat_widget.current_model() != pending.source_model
-    {
-        app.chat_widget.add_error_message("Model provider unchanged: the displayed thread or source model changed during context preparation.".into());
-        return None;
-    }
-    plan(app, server, pending.model, Some(pending.effort), false).await
-}
-
 async fn encode_checkpoint(
     config: &crate::legacy_core::config::Config,
     snapshot: &Value,
@@ -197,28 +122,6 @@ impl ChatModelReentry {
         self.command().exec()
     }
 }
-pub(super) async fn prepare(
-    app: &mut App,
-    server: &mut AppServerSession,
-    model: String,
-    effort: Option<ReasoningEffort>,
-    request_summary: bool,
-) -> Option<ChatModelReentry> {
-    if app
-        .chat_model_switch
-        .0
-        .as_ref()
-        .is_some_and(|v| Some(v.thread) != app.chat_widget.thread_id())
-    {
-        cancel(app)
-    }
-    if app.chat_model_switch.0.is_some() {
-        app.chat_widget.add_error_message("A model provider switch is already preparing context. Wait or interrupt the current compaction.".into());
-        return None;
-    }
-    plan(app, server, model, effort, request_summary).await
-}
-
 fn blank_history_read_error(error: &color_eyre::Report, thread: ThreadId) -> bool {
     matches!(
         error.downcast_ref::<codex_app_server_client::TypedRequestError>(),
@@ -459,12 +362,11 @@ pub(super) async fn resume_saved(
     .ok_or_else(|| color_eyre::eyre::eyre!("Saved model routing is unavailable."))
 }
 
-async fn plan(
+pub(super) async fn prepare(
     app: &mut App,
     server: &mut AppServerSession,
     model: String,
     effort: Option<ReasoningEffort>,
-    request_summary: bool,
 ) -> Option<ChatModelReentry> {
     let thread = reentry_source(app);
     let Some(thread) = thread else {
@@ -473,7 +375,6 @@ async fn plan(
     };
     let config = app.chat_widget.config_ref();
     let entering = model.starts_with("chatgpt-desktop/");
-    let source_model = app.chat_widget.current_model().to_owned();
     let effort = effort.unwrap_or(ReasoningEffort::None);
     if !termux_chat_models::needs_reentry(&config.model_provider_id, &model)
         || config
@@ -578,26 +479,6 @@ async fn plan(
             app.chat_widget.add_error_message("Model provider unchanged: context persistence could not be confirmed. Existing history remains readable.".into());
             return None;
         }
-    } else if request_summary && snapshot["turns"].as_array().is_some_and(|v| !v.is_empty()) {
-        // Retain explicit source-summary preparation for future callers. Ordinary
-        // model selection resumes the same upstream-owned history without it.
-        app.chat_model_switch.0 = Some(Pending {
-            thread,
-            model,
-            effort,
-            source_model,
-            turn: None,
-            compacted: false,
-            ready: false,
-        });
-        app.chat_widget.add_info_message("Preparing readable context before changing model provider. This requests one summary from the current ChatGPT model; interrupting keeps the current provider.".into(),None);
-        if !matches!(
-            tokio::time::timeout(Duration::from_secs(3), server.thread_compact_start(thread)).await,
-            Ok(Ok(()))
-        ) {
-            cancel(app)
-        }
-        return None;
     }
     Some(request)
 }
@@ -867,64 +748,6 @@ args=["token","--state","/owned/state"]
             );
         }
     }
-    #[tokio::test]
-    async fn termux_chat_models_explicit_summary_matches_completion_and_cancels_failures() {
-        use crate::app_event::AppEvent;
-        use codex_app_server_protocol::ServerNotification;
-        for outcome in [
-            "completed",
-            "interrupted",
-            "failed",
-            "missing-checkpoint",
-            "error",
-            "lost",
-        ] {
-            let (mut app, mut events, _) = super::super::tests::make_test_app_with_channels().await;
-            let thread = ThreadId::new();
-            app.chat_model_switch.0 = Some(Pending {
-                thread,
-                model: "gpt-6.1-sol".into(),
-                effort: ReasoningEffort::High,
-                source_model: "chatgpt-desktop/gpt-6".into(),
-                turn: None,
-                compacted: false,
-                ready: false,
-            });
-            let started = super::super::tests::turn_started_notification(thread, "compact-turn");
-            observe(&mut app, &started);
-            let checkpoint = |thread: ThreadId, turn: &str| {
-                serde_json::from_value::<ServerNotification>(json!({"method":"item/completed","params":{"threadId":thread.to_string(),"turnId":turn,"item":{"type":"contextCompaction","id":"context"},"completedAtMs":0}})).unwrap()
-            };
-            observe(&mut app, &checkpoint(ThreadId::new(), "compact-turn"));
-            observe(&mut app, &checkpoint(thread, "other-turn"));
-            assert!(!app.chat_model_switch.0.as_ref().unwrap().compacted);
-            if outcome != "missing-checkpoint" {
-                observe(&mut app, &checkpoint(thread, "compact-turn"))
-            }
-            while events.try_recv().is_ok() {}
-            if outcome == "lost" {
-                cancel(&mut app)
-            }
-            if outcome == "error" {
-                let error=serde_json::from_value::<ServerNotification>(json!({"method":"error","params":{"threadId":thread.to_string(),"turnId":"compact-turn","error":{"message":"fixture","codexErrorInfo":null,"additionalDetails":null},"willRetry":false}})).unwrap();
-                observe(&mut app, &error);
-            }
-            let status = match outcome {
-                "interrupted" => codex_app_server_protocol::TurnStatus::Interrupted,
-                "failed" => codex_app_server_protocol::TurnStatus::Failed,
-                _ => codex_app_server_protocol::TurnStatus::Completed,
-            };
-            let done =
-                super::super::tests::turn_completed_notification(thread, "compact-turn", status);
-            observe(&mut app, &done);
-            observe(&mut app, &done);
-            let finished = std::iter::from_fn(|| events.try_recv().ok())
-                .filter(|event| matches!(event, AppEvent::FinishChatModelProvider { .. }))
-                .count();
-            assert_eq!(finished, usize::from(outcome == "completed"), "{outcome}");
-            assert_eq!(app.chat_model_switch.0.is_some(), outcome == "completed");
-        }
-    }
     #[test]
     fn termux_chat_models_session_flags_preserve_nested_toml_values() {
         let table: toml::Table = toml::from_str(
@@ -1079,7 +902,6 @@ args=["token","--state","/owned/state"]
                     &mut server,
                     "chatgpt-desktop/gpt-6".to_string(),
                     Some(ReasoningEffort::Medium),
-                    false,
                 )
                 .await
                 .is_none()

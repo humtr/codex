@@ -126,9 +126,9 @@ encode a complete idle public snapshot and persists it through upstream's existi
 `thread/inject_items`; no Core or Manager changes are involved. Ordinary return
 from Chat resumes the same native thread and its existing history without a new
 source summary or summary wait. Upstream owns model instruction updates and any
-conditional compaction. The source-summary generation and exact-completion wait
-remain available behind an explicit internal request for later context operations;
-the model picker does not request them. Empty-history correction sourcef2cec230
+conditional compaction. The unreachable frontend summary request/wait state and
+its completion event were removed; both actual callers always disabled it.
+Manual and automatic Native compaction remain unchanged. Empty-history correction sourcef2cec230
 passes its native build,52 focused tests,94 retained upstream tests and lint.
 Actual Android terminal proofs cover fresh empty and existing-history round trips
 with/without Manager. Empty cases send0 model requests and inject0 checkpoints;
