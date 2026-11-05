@@ -22,12 +22,21 @@ The initialize capability distinguishes this interface from older same-version
 servers. Common preparation feeds runtime and frontend builds once; the TUI
 assembler preserves the prepared tree and index.
 
-Source assembly and focused build-input/assembler tests passed. Native compilation
-and the new public settings/real-terminal/cold-resume/failure tests are not yet
-qualified; local offline compilation stopped at missing V8 source dependencies.
+Source assembly and focused build-input/assembler tests passed; the assembler's
+prepared-source preservation regression failed under its injected fault and passed
+after restoration. The repository Rust suite and Clippy passed (the existing
+ignored test remains unqualified). Native compilation and the new public
+settings/real-terminal/warm-resume/cold-resume/failure tests are not yet qualified;
+local offline compilation stopped at missing V8 source dependencies. Hosted run
+41969695402 exposed missing captures in derived turns and invalid visibility and
+Debug dependencies; the candidate fixes those findings. Run41976286693 is the next
+compile attempt, not accepted evidence for later source changes.
+Warm explicit route selection now submits the same Native operation. Route replies
+also check first materialization and append failure before claiming persistence;
+new empty-thread and real storage-collision cases still need execution.
 The hosted Native gate now includes these tests and a focused optional runtime
 binding mutation check. No production runtime was replaced. TUI intent wiring,
-warm explicit resume, portable compaction, app binding/connector refresh and actual
+portable compaction, app binding/connector refresh and actual
 cross-entrance inference remain unfinished. Do not treat this source candidate as
 connectivity repair or deployment. Original dirty
 0814be7b work and the earlier isolated source/diffs remain preserved. Reread

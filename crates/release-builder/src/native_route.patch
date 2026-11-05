@@ -138,7 +138,7 @@ index 8cd8793..fd46ab2 100644
                              codex_home: codex_home.path().abs(),
                              platform_family: "test-family".to_string(),
 diff --git a/codex-rs/app-server/src/config_manager.rs b/codex-rs/app-server/src/config_manager.rs
-index 461920b..93bbfd7 100644
+index 461920b..03d3d7a 100644
 --- a/codex-rs/app-server/src/config_manager.rs
 +++ b/codex-rs/app-server/src/config_manager.rs
 @@ -430,27 +430,6 @@ impl ConfigManager {
@@ -169,11 +169,46 @@ index 461920b..93bbfd7 100644
      /// Installs local policy before cloud access; failed policy loads block traffic while
      /// non-strict startup remains available for configuration repair.
      pub(crate) async fn load_startup_config(
-@@ -535,10 +514,9 @@ impl ConfigManager {
+@@ -535,10 +514,44 @@ impl ConfigManager {
          })
      }
  
 -    /// Validates saved and requested providers before resume overrides or policy can replace them.
++    /// Resolves only the inference binding; executor and permission settings remain thread-owned.
++    pub(crate) async fn load_model_provider_update(
++        &self,
++        current: &Config,
++        provider: &str,
++        model: Option<String>,
++        routing: Option<HashMap<String, serde_json::Value>>,
++    ) -> std::io::Result<Config> {
++        let explicit_catalog = routing
++            .as_ref()
++            .is_some_and(|values| values.contains_key("model_catalog_json"));
++        let mut destination = self
++            .load_for_resume(
++                routing,
++                ConfigOverrides {
++                    model_provider: Some(provider.to_owned()),
++                    model,
++                    cwd: Some(current.cwd.to_path_buf()),
++                    ..Default::default()
++                },
++                None,
++            )
++            .await?;
++        self.check_thread_model_provider(&destination).await?;
++        if !explicit_catalog {
++            destination.model_catalog = (current.model_provider_id == provider)
++                .then(|| current.model_catalog.clone())
++                .flatten();
++            destination.model_catalog_source = (current.model_provider_id == provider)
++                .then(|| current.model_catalog_source.clone())
++                .flatten();
++        }
++        Ok(destination)
++    }
++
 +    /// Validates the selected route before managed policy can replace an explicit override.
      pub(crate) async fn load_for_resume(
          &self,
@@ -181,7 +216,7 @@ index 461920b..93bbfd7 100644
          request_overrides: Option<HashMap<String, serde_json::Value>>,
          typesafe_overrides: ConfigOverrides,
          cwd: Option<PathBuf>,
-@@ -550,63 +528,38 @@ impl ConfigManager {
+@@ -550,63 +563,38 @@ impl ConfigManager {
                  .and_then(serde_json::Value::as_str)
                  .map(str::to_owned)
          });
@@ -348,7 +383,7 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 1ef252d..a5c1e0d 100644
+index 1ef252d..0ee1351 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
@@ -394,7 +429,114 @@ index 1ef252d..a5c1e0d 100644
                      .await
                      .map_err(|err| config_load_error(&err))?;
                  *prepared_config = Some(PreparedResumeConfig {
-@@ -4749,7 +4724,7 @@ impl ThreadRequestProcessor {
+@@ -4692,10 +4667,95 @@ impl ThreadRequestProcessor {
+                     active_path.display()
+                 )));
+             }
++            let mut unapplied = params.clone();
++            let requested_provider = params
++                .model_provider
++                .as_deref()
++                .or_else(|| params.config.as_ref()?.get("model_provider")?.as_str());
++            let current = existing_thread.config().await;
++            let requested_provider = requested_provider.filter(|provider| {
++                *provider != current.model_provider_id
++                    || params.config.as_ref().is_some_and(|values| {
++                        values.contains_key("model_providers")
++                            || values.contains_key("model_catalog_json")
++                    })
++            });
++            let route_selected = requested_provider.is_some();
++            if let Some(provider) = requested_provider {
++                ensure_direct_input_allowed(existing_thread.as_ref()).await?;
++                let model = params.model.clone().or_else(|| {
++                    params
++                        .config
++                        .as_ref()?
++                        .get("model")?
++                        .as_str()
++                        .map(str::to_owned)
++                });
++                let routing = params.config.as_ref().map(|values| {
++                    values
++                        .iter()
++                        .filter(|(key, _)| {
++                            matches!(key.as_str(), "model_providers" | "model_catalog_json")
++                        })
++                        .map(|(key, value)| (key.clone(), value.clone()))
++                        .collect()
++                });
++                let effort = params
++                    .config
++                    .as_ref()
++                    .and_then(|values| values.get("model_reasoning_effort"))
++                    .map(|value| serde_json::from_value(value.clone()))
++                    .transpose()
++                    .map_err(|error| {
++                        invalid_request(format!("invalid reasoning effort: {error}"))
++                    })?;
++                let destination = self
++                    .config_manager
++                    .load_model_provider_update(&current, provider, model.clone(), routing)
++                    .await
++                    .map_err(|error| config_load_error(&error))?;
++                existing_thread
++                    .update_model_provider(
++                        Arc::new(destination),
++                        CodexThreadSettingsOverrides {
++                            model,
++                            effort: effort.map(Some),
++                            service_tier: params.service_tier.clone(),
++                            ..Default::default()
++                        },
++                    )
++                    .await
++                    .map_err(|error| match error {
++                        codex_protocol::error::CodexErr::InvalidRequest(message) => {
++                            invalid_request(message)
++                        }
++                        error => {
++                            internal_error(format!("failed to change model provider: {error}"))
++                        }
++                    })?;
++                unapplied.model = None;
++                unapplied.model_provider = None;
++                unapplied.service_tier = None;
++                if let Some(values) = unapplied.config.as_mut() {
++                    values.retain(|key, _| {
++                        !matches!(
++                            key.as_str(),
++                            "model"
++                                | "model_provider"
++                                | "model_reasoning_effort"
++                                | "model_providers"
++                                | "model_catalog_json"
++                        )
++                    });
++                    if values.is_empty() {
++                        unapplied.config = None;
++                    }
++                }
++            }
+             let (config_snapshot, selected_service_tier) =
+                 existing_thread.resume_config_snapshot().await;
+             let mismatch_details = collect_resume_override_mismatches(
+-                params,
++                &unapplied,
+                 &config_snapshot,
+                 selected_service_tier.as_deref(),
+             );
+@@ -4716,7 +4776,8 @@ impl ThreadRequestProcessor {
+                 if can_accept_direct_input(
+                     existing_thread.multi_agent_version(),
+                     &config_snapshot.session_source,
+-                ) && !has_subscribers
++                ) && !route_selected
++                    && !has_subscribers
+                     && matches!(loaded_status, ThreadStatus::Idle)
+                     && !is_running
+                 {
+@@ -4749,7 +4810,7 @@ impl ThreadRequestProcessor {
                  );
              }
              self.config_manager
@@ -417,7 +559,7 @@ index be77be3..a2f5b5a 100644
              .map_err(|error| config_load_error(&error))?;
          let submission = self
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
-index f310c4a..e7e3ec9 100644
+index f310c4a..1fb7dc8 100644
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
 @@ -338,7 +338,7 @@ impl TurnRequestProcessor {
@@ -438,7 +580,7 @@ index f310c4a..e7e3ec9 100644
              .await
              .map_err(|error| config_load_error(&error))?;
          if let Some(tool_output) = &params.tool_output {
-@@ -927,6 +927,60 @@ impl TurnRequestProcessor {
+@@ -927,6 +927,29 @@ impl TurnRequestProcessor {
          let (_, thread) = self.load_thread(&params.thread_id).await?;
          self.ensure_direct_input_allowed(request_id, thread.as_ref())
              .await?;
@@ -453,42 +595,11 @@ index f310c4a..e7e3ec9 100644
 +                ));
 +            }
 +            let current = thread.config().await;
-+            let explicit_catalog = params
-+                .config
-+                .as_ref()
-+                .is_some_and(|config| config.contains_key("model_catalog_json"));
-+            let mut destination = self
++            let destination = self
 +                .config_manager
-+                .load_for_resume(
-+                    params.config,
-+                    codex_core::config::ConfigOverrides {
-+                        model_provider: Some(provider.clone()),
-+                        model: params.model.clone(),
-+                        cwd: Some(current.cwd.to_path_buf()),
-+                        ..Default::default()
-+                    },
-+                    None,
-+                )
++                .load_model_provider_update(&current, provider, params.model.clone(), params.config)
 +                .await
 +                .map_err(|error| config_load_error(&error))?;
-+            self.config_manager
-+                .check_thread_model_provider(&destination)
-+                .await
-+                .map_err(|error| config_load_error(&error))?;
-+            // A startup catalog is not the destination's catalog. Omission preserves
-+            // same-provider metadata, while a new provider can use native discovery.
-+            if !explicit_catalog {
-+                destination.model_catalog = if current.model_provider_id == *provider {
-+                    current.model_catalog.clone()
-+                } else {
-+                    None
-+                };
-+                destination.model_catalog_source = if current.model_provider_id == *provider {
-+                    current.model_catalog_source.clone()
-+                } else {
-+                    None
-+                };
-+            }
 +            Some(Arc::new(destination))
 +        } else {
 +            if params.config.is_some() {
@@ -499,7 +610,7 @@ index f310c4a..e7e3ec9 100644
          let cwd = resolve_request_cwd(params.cwd)?;
          let environment_override = self
              .build_environment_override(
-@@ -957,7 +1011,17 @@ impl TurnRequestProcessor {
+@@ -957,7 +980,17 @@ impl TurnRequestProcessor {
              )
              .await?;
  
@@ -518,7 +629,7 @@ index f310c4a..e7e3ec9 100644
              self.submit_core_op(
                  request_id,
                  thread.as_ref(),
-@@ -1037,7 +1101,7 @@ impl TurnRequestProcessor {
+@@ -1037,7 +1070,7 @@ impl TurnRequestProcessor {
          self.ensure_direct_input_allowed(request_id, thread.as_ref())
              .await?;
          self.config_manager
@@ -672,19 +783,22 @@ index f5bda49..2dca8a5 100644
  }
  
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b1..a7c5309 100644
+index ab688b1..ac0b540 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-@@ -774,3 +774,440 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
+@@ -774,3 +774,564 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
      }
      Ok(())
  }
 +
-+#[test_case(ThreadHistoryMode::Legacy; "legacy")]
-+#[test_case(ThreadHistoryMode::Paginated; "paginated")]
++#[test_case(ThreadHistoryMode::Legacy, false; "legacy_settings")]
++#[test_case(ThreadHistoryMode::Paginated, false; "paginated_settings")]
++#[test_case(ThreadHistoryMode::Legacy, true; "legacy_resume")]
++#[test_case(ThreadHistoryMode::Paginated, true; "paginated_resume")]
 +#[tokio::test]
 +async fn model_provider_roundtrip_preserves_jobs_history_observers_and_siblings(
 +    history_mode: ThreadHistoryMode,
++    via_resume: bool,
 +) -> Result<()> {
 +    let initial = responses::sse(vec![
 +        responses::ev_response_created("start-job"),
@@ -770,23 +884,41 @@ index ab688b1..a7c5309 100644
 +    ])
 +    .await;
 +    let sent_before_selection = received_response_bodies(&first).await?.len();
-+    send_thread_settings_update(
-+        &mut client,
-+        ThreadSettingsUpdateParams {
-+            thread_id: thread.clone(),
-+            model_provider: Some("alternate".into()),
-+            config: Some(std::collections::HashMap::from([(
-+                "model_providers".to_string(),
-+                json!({"alternate": {
-+                    "name": "Alternate", "base_url": format!("{}/v1", second.uri()),
-+                    "wire_api": "responses", "requires_openai_auth": false,
-+                    "supports_websockets": false,
-+                }}),
-+            )])),
-+            ..Default::default()
-+        },
-+    )
-+    .await?;
++    let routing = Some(std::collections::HashMap::from([(
++        "model_providers".to_string(),
++        json!({"alternate": {
++            "name": "Alternate", "base_url": format!("{}/v1", second.uri()),
++            "wire_api": "responses", "requires_openai_auth": false,
++            "supports_websockets": false,
++        }}),
++    )]));
++    if via_resume {
++        let response: ThreadResumeResponse = client
++            .request(|request_id| ClientRequest::ThreadResume {
++                request_id,
++                params: ThreadResumeParams {
++                    thread_id: thread.clone(),
++                    model_provider: Some("alternate".into()),
++                    config: routing,
++                    exclude_turns: true,
++                    ..Default::default()
++                },
++            })
++            .await?;
++        assert_eq!(response.thread.id, thread);
++        assert_eq!(response.model_provider, "alternate");
++    } else {
++        send_thread_settings_update(
++            &mut client,
++            ThreadSettingsUpdateParams {
++                thread_id: thread.clone(),
++                model_provider: Some("alternate".into()),
++                config: routing,
++                ..Default::default()
++            },
++        )
++        .await?;
++    }
 +    // Keep the original client subscription. No resume/restart is used to recover notifications.
 +    let changed = timeout(
 +        DEFAULT_TIMEOUT,
@@ -895,8 +1027,12 @@ index ab688b1..a7c5309 100644
 +    Ok(())
 +}
 +
++#[test_case(false; "populated")]
++#[test_case(true; "empty")]
 +#[tokio::test]
-+async fn model_provider_selection_survives_cold_resume_without_another_turn() -> Result<()> {
++async fn model_provider_selection_survives_cold_resume_without_another_turn(
++    empty: bool,
++) -> Result<()> {
 +    let first = responses::start_mock_server().await;
 +    let second = responses::start_mock_server().await;
 +    let home = TempDir::new()?;
@@ -904,26 +1040,30 @@ index ab688b1..a7c5309 100644
 +        .with_provider_config("supports_websockets = false")
 +        .with_extra_config(&format!("[model_providers.alternate]\nname = 'Alternate'\nbase_url = '{}/v1'\nwire_api = 'responses'\nrequires_openai_auth = false\nsupports_websockets = false\n", second.uri()))
 +        .write(home.path())?;
-+    responses::mount_sse_once(
-+        &first,
-+        create_final_assistant_message_sse_response("original turn")?,
-+    )
-+    .await;
++    if !empty {
++        responses::mount_sse_once(
++            &first,
++            create_final_assistant_message_sse_response("original turn")?,
++        )
++        .await;
++    }
 +    let mut client = TestAppServer::builder()
 +        .with_codex_home(home.path())
 +        .build_initialized()
 +        .await?;
 +    let thread = start_thread(&mut client).await?.thread.id;
-+    client
-+        .start_turn_and_wait_for_completion(TurnStartParams {
-+            thread_id: thread.clone(),
-+            input: vec![V2UserInput::Text {
-+                text: "original task".into(),
-+                text_elements: Vec::new(),
-+            }],
-+            ..Default::default()
-+        })
-+        .await?;
++    if !empty {
++        client
++            .start_turn_and_wait_for_completion(TurnStartParams {
++                thread_id: thread.clone(),
++                input: vec![V2UserInput::Text {
++                    text: "original task".into(),
++                    text_elements: Vec::new(),
++                }],
++                ..Default::default()
++            })
++            .await?;
++    }
 +    send_thread_settings_update(
 +        &mut client,
 +        ThreadSettingsUpdateParams {
@@ -975,10 +1115,16 @@ index ab688b1..a7c5309 100644
 +            ..Default::default()
 +        })
 +        .await?;
-+    assert_eq!(received_response_bodies(&first).await?.len(), 1);
++    assert_eq!(
++        received_response_bodies(&first).await?.len(),
++        usize::from(!empty)
++    );
 +    let requests = received_response_bodies(&second).await?;
 +    assert_eq!(requests.len(), 1);
-+    assert!(requests[0]["input"].to_string().contains("original task"));
++    assert_eq!(
++        requests[0]["input"].to_string().contains("original task"),
++        !empty
++    );
 +    Ok(())
 +}
 +
@@ -1114,6 +1260,95 @@ index ab688b1..a7c5309 100644
 +        })
 +        .await?;
 +    assert_eq!(received_response_bodies(&second).await?.len(), 1);
++    Ok(())
++}
++
++#[tokio::test]
++async fn model_provider_storage_failure_exposes_unconfirmed_selection_without_inference()
++-> Result<()> {
++    let first = responses::start_mock_server().await;
++    let second = responses::start_mock_server().await;
++    let home = TempDir::new()?;
++    MockResponsesConfig::new(first.uri())
++        .with_provider_config("supports_websockets = false")
++        .with_extra_config(&format!("[model_providers.alternate]\nname = 'Alternate'\nbase_url = '{}/v1'\nwire_api = 'responses'\nrequires_openai_auth = false\nsupports_websockets = false\n", second.uri()))
++        .write(home.path())?;
++    let mut client = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let started = start_thread(&mut client).await?;
++    let thread = started.thread.id;
++    let path = started
++        .thread
++        .path
++        .context("empty thread must expose its planned rollout path")?;
++    assert!(
++        !path.exists(),
++        "the fixture must fault the first materialization"
++    );
++    std::fs::create_dir_all(&path)?;
++    let request = client
++        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("alternate".into()),
++            ..Default::default()
++        })
++        .await?;
++    let response = timeout(
++        DEFAULT_TIMEOUT,
++        client.read_stream_until_error_message(RequestId::Integer(request)),
++    )
++    .await;
++    // Remove only the owned empty collision before evaluating the result.
++    std::fs::remove_dir(&path)?;
++    let response = response??;
++    assert!(
++        response
++            .error
++            .message
++            .contains("selected but persistence is unconfirmed"),
++        "{response:?}"
++    );
++    let current: ThreadReadResponse = client
++        .request(|request_id| ClientRequest::ThreadRead {
++            request_id,
++            params: ThreadReadParams {
++                thread_id: thread.clone(),
++                include_turns: false,
++            },
++        })
++        .await?;
++    assert_eq!(current.thread.model_provider, "alternate");
++    assert!(received_response_bodies(&first).await?.is_empty());
++    assert!(received_response_bodies(&second).await?.is_empty());
++    // Reconcile a settings operation, rather than replaying any user turn.
++    send_thread_settings_update(
++        &mut client,
++        ThreadSettingsUpdateParams {
++            thread_id: thread.clone(),
++            model_provider: Some("alternate".into()),
++            ..Default::default()
++        },
++    )
++    .await?;
++    drop(client);
++    let mut resumed = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let result: ThreadResumeResponse = resumed
++        .request(|request_id| ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert_eq!(result.thread.id, thread);
++    assert_eq!(result.model_provider, "alternate");
++    assert!(received_response_bodies(&second).await?.is_empty());
 +    Ok(())
 +}
 diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
@@ -1990,10 +2225,10 @@ index d73b96c..6095c45 100644
                  crate::compact_remote_v2::run_inline_remote_auto_compact_task(
                      Arc::clone(&sess),
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
-index 128bc7d..decefe4 100644
+index 128bc7d..573c5a6 100644
 --- a/codex-rs/core/src/session/handlers.rs
 +++ b/codex-rs/core/src/session/handlers.rs
-@@ -616,13 +616,22 @@ pub(super) async fn submission_loop(
+@@ -616,13 +616,27 @@ pub(super) async fn submission_loop(
                          request: thread_settings,
                          turn_extension_init: sub.turn_extension_init,
                      };
@@ -2007,8 +2242,13 @@ index 128bc7d..decefe4 100644
 -                            if let Some(reply) = reply {
 -                                let _ = reply.send(Ok(()));
 +                            if route_changed {
-+                                thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
-+                                let result = sess.flush_rollout().await.map_err(|error| CodexErr::Fatal(format!(
++                                let materialized = sess.try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard).await;
++                                let persisted = thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
++                                let result = match materialized {
++                                    Err(error) => Err(error),
++                                    Ok(()) if !persisted => Err(std::io::Error::other("failed to append selected provider to Native history")),
++                                    Ok(()) => sess.flush_rollout().await,
++                                }.map_err(|error| CodexErr::Fatal(format!(
 +                                    "model provider selected but persistence is unconfirmed: {error}"
 +                                )));
 +                                if let Some(reply) = reply { let _ = reply.send(result); }
@@ -2022,7 +2262,7 @@ index 128bc7d..decefe4 100644
                          Err(error) => {
                              let message = format!("invalid thread settings override: {error}");
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index cc418ca..7445a2f 100644
+index cc418ca..e4d5637 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -1089,6 +1089,7 @@ impl SessionIo {
@@ -2146,7 +2386,53 @@ index cc418ca..7445a2f 100644
              configuration.windows_sandbox_level,
              environments,
              reasoning_effort_pin,
-@@ -4471,7 +4496,12 @@ impl Session {
+@@ -2733,7 +2758,7 @@ impl Session {
+     }
+ 
+     /// Delivers an event without creating a local rollout for a thread that has not materialized.
+-    pub(crate) async fn send_event_raw_without_materializing_rollout(&self, event: Event) {
++    pub(crate) async fn send_event_raw_without_materializing_rollout(&self, event: Event) -> bool {
+         let persist = match self.current_rollout_path().await {
+             Ok(Some(path)) => codex_rollout::existing_rollout_path(&path).await.is_some(),
+             Ok(None) => true,
+@@ -2742,10 +2767,10 @@ impl Session {
+                 true
+             }
+         };
+-        self.send_event_raw_with_persistence(event, persist).await;
++        self.send_event_raw_with_persistence(event, persist).await
+     }
+ 
+-    async fn send_event_raw_with_persistence(&self, event: Event, persist: bool) {
++    async fn send_event_raw_with_persistence(&self, event: Event, persist: bool) -> bool {
+         let flush_guardian_completion = persist
+             && matches!(event.msg, EventMsg::TurnComplete(_))
+             && self.is_private_guardian_reviewer().await;
+@@ -2776,10 +2801,12 @@ impl Session {
+             warn!("failed to persist realtime history: {error}");
+         }
+         // Persist the event into rollout storage; the store applies its persistence policy.
+-        if persist {
++        let persisted = if persist {
+             let rollout_items = vec![RolloutItem::EventMsg(event.msg.clone())];
+-            self.persist_rollout_items(&rollout_items).await;
+-        }
++            self.persist_rollout_items(&rollout_items).await
++        } else {
++            true
++        };
+         self.services
+             .rollout_thread_trace
+             .record_protocol_event(&event.msg);
+@@ -2794,6 +2821,7 @@ impl Session {
+             warn!("failed to flush completed Guardian review: {err}");
+         }
+         self.deliver_event_raw(event).await;
++        persisted
+     }
+ 
+     async fn deliver_event_raw(&self, event: Event) {
+@@ -4471,7 +4499,12 @@ impl Session {
                      // Validate immediately before slicing and replacing the captured prefix.
                      if state.history.history_version() != prefix.generation
                          || state.history.annotated_items().len() < prefix.len
@@ -2881,7 +3167,7 @@ index 971f4ba..e89a560 100644
      turn_context_raw.config = Arc::clone(&config);
      turn_context_raw.provider = create_model_provider(
 diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
-index c3a82ef..eb25e9e 100644
+index c3a82ef..5cdc388 100644
 --- a/codex-rs/core/src/session/thread_settings.rs
 +++ b/codex-rs/core/src/session/thread_settings.rs
 @@ -77,9 +77,40 @@ impl Session {
@@ -2928,6 +3214,24 @@ index c3a82ef..eb25e9e 100644
      let active_turn = session.active_turn.lock().await;
      // A registered running task retains its lineage so it can be recovered after a daemon
      // restart. Reservations and finishing turns have no interrupted work to continue.
+@@ -169,7 +200,7 @@ pub(super) async fn emit_applied(
+     session: &Session,
+     submission_id: String,
+     snapshot: ThreadSettingsSnapshot,
+-) {
++) -> bool {
+     let msg = EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
+         thread_id: Some(session.thread_id()),
+         thread_settings: snapshot,
+@@ -179,7 +210,7 @@ pub(super) async fn emit_applied(
+             id: submission_id,
+             msg,
+         })
+-        .await;
++        .await
+ }
+ 
+ /// Builds a current thread-owned snapshot for storage checkpoints.
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
 index e4a092e..faafabb 100644
 --- a/codex-rs/core/src/session/turn.rs

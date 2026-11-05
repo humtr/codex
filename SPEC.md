@@ -1546,7 +1546,10 @@ unsupported even when the upstream version matches. Clients must not interpret
 an older server's ignored unknown fields as successful route selection.
 Selection is serialized with Native input and requires a settled turn, including
 reservations and realtime work; background terminals are preserved. A successful
-route reply follows the settings event and rollout flush. A failure after selection
+explicit route change through warm `thread/resume` uses the same admission and
+commit operation, preserving observers and jobs rather than shutting down a cache
+entry. A successful route reply follows materialization, the settings event and
+rollout flush. An append/materialization/flush failure after selection
 is reported as unconfirmed persistence and must be reconciled from Native state.
 Configuration definitions remain configuration, not credentials copied into history.
 The route's request client/catalog can change without replacing the tool executor.
