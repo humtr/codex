@@ -194,6 +194,70 @@ fn app_controls_without_native_binding_observe_absent_host_without_acquisition()
     assert_eq!(cached["source"], "configured_only");
     assert_eq!(cached["account_verified_now"], false);
     assert_eq!(cached["inference_submitted"], false);
+    let account = |action: &str, options: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["host", action, "--state"])
+            .arg(root.0.join("state"))
+            .args(options)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (output.status.success(), result)
+    };
+    assert_eq!(account("accounts", &[]).1["selected"], "default");
+    assert!(
+        account(
+            "account-rename",
+            &["--profile", "default", "--name", "first"]
+        )
+        .0
+    );
+    assert!(account("account-add", &["--profile", "second"]).0);
+    assert!(account("account-use", &["--profile", "second"]).0);
+    let rejected = account(
+        "account-remove",
+        &["--profile", "second", "--purge", "true"],
+    );
+    assert!(!rejected.0);
+    assert_eq!(rejected.1["error"], "app_profile_selected");
+    assert!(account("account-use", &["--profile", "first"]).0);
+    assert!(account("account-remove", &["--profile", "second"]).0);
+    assert!(!account("account-use", &["--profile", "second"]).0);
+    assert!(account("account-add", &["--profile", "second"]).0);
+    let profiles = account("accounts", &[]).1;
+    assert_eq!(profiles["selected"], "first");
+    assert_eq!(profiles["profiles"].as_array().unwrap().len(), 2);
+    let manager = root.0.join("origin-unavailable-manager");
+    let shell = std::env::var_os("PREFIX")
+        .map(|p| PathBuf::from(p).join("bin/sh"))
+        .unwrap_or_else(|| PathBuf::from("/bin/sh"));
+    std::fs::write(
+        &manager,
+        format!(
+            "#!{}\nprintf '%s\\n' 'codex termux: terminal origin unavailable' >&2\nexit 69\n",
+            shell.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let login = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+        .args([
+            "host",
+            "account-login",
+            "--profile",
+            "first",
+            "--return-manager",
+        ])
+        .arg(&manager)
+        .arg("--state")
+        .arg(root.0.join("state"))
+        .output()
+        .unwrap();
+    assert!(!login.status.success());
+    assert!(
+        String::from_utf8_lossy(&login.stderr).contains("no originating Termux terminal is bound")
+    );
     assert!(!root.0.join("state/desktop").exists());
     assert!(!root.0.join(".codex").exists());
     assert!(!root.0.join("config").exists());

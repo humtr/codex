@@ -21,6 +21,13 @@ pub trait Bridge: Send + Sync + 'static {
     fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
+    fn clear_unexecuted_stopped_calls(
+        &self,
+        _lane: String,
+        _committed_native_items: std::collections::BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<(), Error>> {
+        Box::pin(async { Ok(()) })
+    }
     fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>>;
     /// Read-only transport admission before common journal state is advanced.
     /// A known rejection is distinct from an uncertain dispatched operation.
@@ -53,6 +60,7 @@ struct Connection {
     generation: String,
     app: App,
     initialized: bool,
+    composer: bool,
 }
 #[derive(Clone)]
 enum Source {
@@ -102,6 +110,20 @@ impl Bridge for Remote {
         let mcp = self.mcp;
         let viewer = self.viewer.clone();
         Box::pin(async move {
+            if matches!(
+                command["op"].as_str(),
+                Some(
+                    "accounts"
+                        | "account_add"
+                        | "account_rename"
+                        | "account_use"
+                        | "account_remove"
+                        | "account_login"
+                        | "account_confirm"
+                )
+            ) {
+                return Err(Error("owned_app_profiles_required"));
+            }
             let selected = match &source {
                 Source::Relay(path) => Some(Descriptor::read(path)?),
                 Source::Pipe(_) => None,
@@ -142,6 +164,14 @@ impl Bridge for Remote {
                 _ => unreachable!(),
             };
             let mut guard = connection.lock().await;
+            if !observation
+                && guard
+                    .as_ref()
+                    .is_some_and(|c| c.generation == generation && !c.composer)
+            {
+                let previous = guard.take().unwrap();
+                previous.app.detach().await?;
+            }
             if guard.as_ref().is_some_and(|c| c.generation != generation) {
                 // Reattach only to the newly verified owned host. Lane-level
                 // identity admission below decides whether a settled turn may
@@ -156,7 +186,14 @@ impl Bridge for Remote {
                 };
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 let app = loop {
-                    match client.app().await {
+                    match client
+                        .app(if observation {
+                            crate::cdp::AppSurface::Authentication
+                        } else {
+                            crate::cdp::AppSurface::Composer
+                        })
+                        .await
+                    {
                         Ok(app) => break app,
                         Err(Error("app_target_unavailable"))
                             if tokio::time::Instant::now() < until =>
@@ -170,6 +207,7 @@ impl Bridge for Remote {
                     generation: generation.clone(),
                     app,
                     initialized: false,
+                    composer: !observation,
                 });
             }
             if !observation
@@ -292,6 +330,7 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
     // account details, request bodies or credentials and never crosses here.
     let known = [
         "app_account_changed",
+        "app_profile_account_mismatch",
         "project_destination_incompatible",
         "app_project_operations_unavailable",
         "invalid_project_identity",
@@ -472,6 +511,78 @@ struct Lane {
     previous_chats: Vec<String>,
     #[serde(default)]
     rejected: u8,
+}
+pub(crate) fn ensure_settled(journal: &Journal) -> Result<(), Error> {
+    for (key, value) in journal.all_records()? {
+        if value.get("native_thread").is_some()
+            && value.get("marker").is_some()
+            && value.get("phase").is_some()
+        {
+            let lane: Lane =
+                serde_json::from_value(value).map_err(|_| Error("invalid_lane_record"))?;
+            if key == context::digest(&lane.native_thread)
+                && (!matches!(lane.phase, Phase::Idle | Phase::Stopped) || !lane.pending.is_empty())
+            {
+                return Err(Error("host_unsettled_work"));
+            }
+        }
+    }
+    Ok(())
+}
+pub(crate) fn lane_marker(journal: &Journal, thread: &str) -> Result<Option<String>, Error> {
+    let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
+        return Ok(None);
+    };
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    Ok(Some(lane.marker))
+}
+pub(crate) fn has_stopped_pending_calls(journal: &Journal, thread: &str) -> Result<bool, Error> {
+    let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
+        return Ok(false);
+    };
+    if lane.native_thread != thread {
+        return Err(Error("native_thread_identity_conflict"));
+    }
+    Ok(lane.phase == Phase::Stopped && !lane.pending.is_empty())
+}
+#[cfg(test)]
+#[test]
+fn account_switch_retains_unsettled_native_round() {
+    let root = std::env::temp_dir().join(format!("profile-settle-{}", random_id().unwrap()));
+    let journal = Journal::open(&root).unwrap();
+    let mut lane = Lane::new("original-thread").unwrap();
+    lane.phase = Phase::Unknown;
+    let key = context::digest(&lane.native_thread);
+    journal.write(&key, &lane).unwrap();
+    assert_eq!(ensure_settled(&journal), Err(Error("host_unsettled_work")));
+    let retained: Lane = journal.read(&key).unwrap().unwrap();
+    assert_eq!(retained.phase, Phase::Unknown);
+    lane.phase = Phase::Idle;
+    journal.write(&key, &lane).unwrap();
+    ensure_settled(&journal).unwrap();
+    assert_eq!(
+        lane_marker(&journal, "original-thread").unwrap(),
+        Some(lane.marker.clone())
+    );
+    lane.phase = Phase::Stopped;
+    lane.pending.push(Call {
+        id: "unexecuted-call".into(),
+        host_id: "host-unexecuted".into(),
+        tool: crate::protocol::Tool {
+            name: "exec_command".into(),
+            namespace: Some("functions".into()),
+            kind: crate::protocol::ToolKind::Function,
+            declaration: json!({}),
+        },
+        input: "{}".into(),
+    });
+    journal.write(&key, &lane).unwrap();
+    assert!(has_stopped_pending_calls(&journal, "original-thread").unwrap());
+    assert_eq!(ensure_settled(&journal), Err(Error("host_unsettled_work")));
+    drop(journal);
+    std::fs::remove_dir_all(root).unwrap();
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct External {
@@ -1321,8 +1432,36 @@ impl AppHost {
                 Err(Error("app_stop_acknowledged")) => {}
                 other => other?,
             }
+        } else {
+            self.bridge.fence_tools(lane.marker.clone()).await?;
         }
         Ok(lane.phase == Phase::Stopped)
+    }
+    pub(crate) async fn clear_unexecuted_stopped_calls(
+        &self,
+        thread: &str,
+        committed_native_items: &std::collections::BTreeSet<String>,
+    ) -> Result<(), Error> {
+        let key = context::digest(&thread);
+        let Some(mutex) = self.existing_lane(thread).await? else {
+            return Ok(());
+        };
+        let mut lane = tokio::time::timeout(Duration::from_secs(15), mutex.lock())
+            .await
+            .map_err(|_| Error("app_stop_unconfirmed"))?;
+        if lane.phase != Phase::Stopped {
+            return Ok(());
+        }
+        self.bridge
+            .clear_unexecuted_stopped_calls(lane.marker.clone(), committed_native_items.clone())
+            .await?;
+        let before = lane.pending.len();
+        lane.pending
+            .retain(|call| committed_native_items.contains(&call.id));
+        if lane.pending.len() != before {
+            self.journal.write(&key, &*lane)?;
+        }
+        Ok(())
     }
     pub async fn shutdown(&self) {
         let lanes = self

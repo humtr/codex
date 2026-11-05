@@ -26,6 +26,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub type Slot = Arc<std::sync::RwLock<Option<Arc<Viewer>>>>;
 
+pub(crate) fn url(port: u16, capability: &str) -> String {
+    // Pin the endpoint so saved noVNC settings cannot override it. With an
+    // explicit host, noVNC resolves path from the origin rather than vnc.html.
+    format!("http://127.0.0.1:{port}/viewer/{capability}/vnc.html?autoconnect=1&resize=scale&view_clip=0&shared=1&reconnect=1&host=127.0.0.1&port={port}&encrypt=0&path=viewer%2F{capability}%2Fwebsock")
+}
+
 pub fn router_slot(slot: Slot) -> Router {
     Router::new()
         .route(
@@ -91,7 +97,7 @@ impl Viewer {
         router_slot(Arc::new(std::sync::RwLock::new(Some(self))))
     }
     pub(crate) async fn open(&self) -> Result<(), Error> {
-        let url=format!("http://127.0.0.1:{}/viewer/{}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{}%2Fwebsock", self.port, self.capability, self.capability);
+        let url = url(self.port, &self.capability);
         let prefix =
             PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
         crate::runtime::request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await

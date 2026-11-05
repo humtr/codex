@@ -19,6 +19,7 @@ import urllib.request
 
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN, fixture_auth
+from qualify_provider_d3 import stop_owned_pid
 from qualify_tasks import Ws
 from qualification_diagnostics import terminal_screen_lines
 
@@ -41,13 +42,16 @@ def probe(args):
         env.pop('OPENAI_API_KEY', None)
     config=home/'.codex/config.toml'
     config.write_text(config.read_text()+'\n[projects.'+json.dumps(str(root/'w'))+']\ntrust_level = "trusted"\n')
-    for name in ['owned-fixture', 'model-adapter-fixture', 'bound-source-fixture']:
+    for name in ['owned-fixture', 'model-adapter-fixture',
+                 'active-steer-fixture' if args.active_steer else 'bound-source-fixture']:
         (root / name).write_text('Owned synthetic saved-source continuity proof\n')
     if args.direct:
         (root / 'source-project-fixture').write_text('Owned project for explicit Provider route selection\n')
     auth = root / 'fixture-auth'
     fixture_auth(auth, args.provider_binary)
     env['CODEX_PROVIDER_OPERATOR_FIXTURE'] = str(root)
+    if args.active_steer:
+        (root / 'hold-adapter-final').touch()
     output = (root / 'provider-test.log').open('wb')
     service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
         'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
@@ -137,7 +141,7 @@ def probe(args):
             bound = {'work_id':created_before_tui['work_id'],'controller':started['controller']}
             wait(lambda:rpc('codex_status',{'work_id':bound['work_id']})['phase']=='running',
                  'Native-created work starts without a TUI')
-            context=rpc('codex_attach',bound)
+            context=wait(lambda: (value if (value:=rpc('codex_attach',bound)).get('receipt') else None), 'Native context receipt is ready')
             assert rpc('codex_attach',{**bound,'accept':context['receipt']})['accepted']
             rpc('codex_finish',{**bound,'call_id':'native-before-tui-final','text':'NATIVE_BEFORE_TUI_BASELINE'})
             assert rpc('codex_status',{'work_id':bound['work_id']})['phase']=='completed'
@@ -177,6 +181,64 @@ def probe(args):
                 if cursor is None:
                     return rows
 
+        if args.active_steer:
+            wait(lambda: rpc('codex_status',{'work_id':work['work_id']})['phase']=='running',
+                 'initial Native turn remains active')
+            wait(lambda: any(row['op']=='submit' for row in bridge_commands()),
+                 'initial synthetic Chat response is held')
+            before = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+            turn = before[-1]['id']
+            def frame():
+                return '\n'.join(terminal_screen_lines(display, wcwidth))
+            steer = 'ACTIVE_NATIVE_STEER_INPUT'
+            steer_screen_start = len(screen)
+            submit(steer)
+            def admitted(text):
+                pending = any('↳ '+text in line for line in terminal_screen_lines(display, wcwidth))
+                consumed = any(row['turnId']==turn and row['item']['type']=='userMessage'
+                               and text in json.dumps(row['item']) for row in history())
+                return pending or consumed
+            wait(lambda: admitted(steer),
+                 'active Steer reaches Native pending or consumed input without the next-turn barrier')
+            first = frame()
+            (root/'active-steer-visible.txt').write_text(first)
+            assert steer in first and 'Synchronizing ChatGPT' not in first, first
+            assert 'Synchronizing ChatGPT' not in screen[steer_screen_start:], \
+                'active Steer entered the next-turn synchronization preview'
+            assert 'edit last queued message' not in first, first
+            queued = 'EXPLICIT_QUEUE_THEN_STEER_INPUT'
+            os.write(master, queued.encode())
+            wait(lambda: queued in frame(), 'explicit Queue draft rendered')
+            os.write(master, b'\t')
+            wait(lambda: 'edit last queued message' in frame(), 'real Queue exposes edit hint')
+            (root/'active-queue-visible.txt').write_text(frame())
+            os.write(master, b'\x1b[1;2D')
+            wait(lambda: 'edit last queued message' not in frame() and queued in frame(),
+                 'Shift+Left restores the queued message into the composer')
+            (root/'active-queue-edited-visible.txt').write_text(frame())
+            os.write(master, b'\r')
+            wait(lambda: admitted(queued) and 'edit last queued message' not in frame(),
+                 'edited Queue becomes active Steer')
+            active = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+            assert [row['id'] for row in active]==[row['id'] for row in before], active
+            assert active[-1]['status']=='inProgress', active[-1]['status']
+            (root/'hold-adapter-final').unlink()
+            wait(lambda: rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed',
+                 'same Native turn consumes Steers and completes')
+            rows = history()
+            for text in [steer, queued]:
+                matches = [row for row in rows if row['item']['type']=='userMessage'
+                           and text in json.dumps(row['item'])]
+                assert len(matches)==1 and matches[0]['turnId']==turn, matches
+                assert any(text in json.dumps(row.get('messages',[]))
+                           for row in bridge_commands() if row['op']=='submit'), text
+            assert 'ChatGPT input synchronization failed' not in screen, screen[-4000:]
+            args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
+                'turn_id':turn,'active_steer_same_native_turn':True,
+                'explicit_queue_edit_then_steer':True,'steer_has_no_queue_edit_hint':True,
+                'actual_android_core_and_tui':True,'synthetic_chat_response':True,
+                'real_model_requests':0,'physical_ui_observed':False},indent=2)+'\n')
+            return
         wait(lambda: rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed', 'initial native completion')
         initial = bridge_commands()
         submitted = next((row for row in reversed(initial) if row['op']=='submit'),None)
@@ -222,7 +284,6 @@ def probe(args):
                     (root/'stop-provider').unlink()
                     (root/'provider-ready.json').unlink()
                     if args.replace_native_owner:
-                        from qualify_provider_d3 import stop_owned_pid
                         paths=server_paths(home)
                         assert len(paths)==1, 'one completed owned Native server required'
                         retired_owner=int(paths[0].with_name('pid').read_text())
@@ -275,7 +336,7 @@ def probe(args):
                 busy = rpc('codex_sessions',{**command_args,'call_id':f'overlap-{index}'},True)
                 assert busy['error']=='native_writer_unsettled', busy
                 assert rpc('codex_tools',bound,True)['error']=='operator_controller_fenced'
-                context = rpc('codex_attach',bound)
+                context = wait(lambda: (value if (value:=rpc('codex_attach',bound)).get('receipt') else None), 'Native follow-up context receipt is ready')
                 assert context['accepted'] is False
                 assert f'BRIDGE_ORIGINAL_INPUT_{index}' in json.dumps(context['incremental_history'])
                 accepted = rpc('codex_attach',{**bound,'accept':context['receipt']})
@@ -970,6 +1031,8 @@ def probe(args):
             'actual_provider_cli_live_and_resumed_mouse_disclosure':bool(display),
             'actual_web_or_android_chat_client':False,'settled_provider_restart_same_saved_chat':bool(args.restart),'active_external_native_draft_serialization':bool(args.provider_binary and not args.direct),'direct_route_source_execution':bool(args.direct),'automatic_provider_reentry':bool(args.direct),'source_timeout_recovered':bool(args.source_timeout),'simultaneous_entrances_qualified':False},indent=2)+'\n')
     finally:
+        if args.active_steer:
+            (root / 'hold-adapter-final').unlink(missing_ok=True)
         try:
             (root / 'terminal.txt').write_text(screen)
             if display:
@@ -989,7 +1052,11 @@ def probe(args):
                     pid=int(path.with_name('pid').read_text())
                     expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
                     if Path(f'/proc/{pid}/exe').resolve()==expected:
-                        os.kill(pid,signal.SIGTERM)
+                        if args.active_steer:
+                            stopped = stop_owned_pid(pid, expected)
+                            (root/'active-steer-native-exit.json').write_text(json.dumps(stopped)+'\n')
+                        else:
+                            os.kill(pid,signal.SIGTERM)
                 except (OSError,ValueError):
                     pass
             if master is not None:
@@ -1005,6 +1072,7 @@ if __name__=='__main__':
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--provider-binary',type=Path,
         help='Exercise actual synchronization/presentation CLI, overlapping draft and mouse disclosure; requires pyte and wcwidth')
+    parser.add_argument('--active-steer',action='store_true',help='Hold the synthetic response and verify actual Android Native Steer, Queue and Shift+Left on the same turn')
     parser.add_argument('--sibling',action='store_true',help='Qualify explicit stale-client sibling selection, canonical ancestry and mandatory context before effects')
     parser.add_argument('--restart',action='store_true',help='Qualify settled service restart and automatic source observation with no extra native prompt')
     parser.add_argument('--direct', action='store_true', help='Qualify retained source, actual native effect and Stop after Direct transfers, with automatic Provider reentry')
@@ -1019,6 +1087,11 @@ if __name__=='__main__':
     parser.add_argument('--interrupted', action='store_true', help='Preserve interrupted public response and consume next original without reinference')
     parser.add_argument('--source-timeout', action='store_true', help='Inject one saved-source CDP read timeout and require continued observation')
     arguments=parser.parse_args()
+    if arguments.active_steer and (not arguments.provider_binary or any(
+            getattr(arguments, name) for name in ['sibling','restart','direct','native_created',
+            'bridge_first','replace_native_owner','join','observer_recovery','binding',
+            'source_admission','interrupted','source_timeout'])):
+        parser.error('--active-steer requires --provider-binary and its own isolated scenario')
     if arguments.replace_native_owner and not (arguments.bridge_first and arguments.native_created):
         parser.error('--replace-native-owner requires --bridge-first --native-created')
     if (arguments.restart or arguments.binding or arguments.join) and not arguments.provider_binary:

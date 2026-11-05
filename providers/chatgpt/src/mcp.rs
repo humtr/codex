@@ -537,14 +537,18 @@ struct ExternalCompletion {
     fingerprint: String,
     running: Option<u64>,
     exited: bool,
+    #[serde(default)]
+    not_spawned: bool,
 }
 impl ExternalCompletion {
     fn from_result(result: &Value) -> Self {
         let (running, exited) = native_process_result(result);
+        let not_spawned = crate::native_claims::verified_exec_not_spawned(result);
         Self {
             fingerprint: digest(result),
             running,
             exited,
+            not_spawned,
         }
     }
 
@@ -553,6 +557,8 @@ impl ExternalCompletion {
             json!({"output":format!("Process running with session ID {session}")})
         } else if self.exited {
             json!({"output":"Process exited with code 0"})
+        } else if self.not_spawned {
+            json!({"error":"native_call_not_dispatched","executed":false})
         } else {
             json!({})
         }
@@ -709,7 +715,15 @@ impl Broker {
 
     /// Bounded, account-private status data. Never export paths, file contents,
     /// command text or authentication material from another work.
-    pub(crate) fn effect_status(&self, lane: &str) -> Result<Value, Error> {
+    #[cfg(test)]
+    fn effect_status(&self, lane: &str) -> Result<Value, Error> {
+        self.effect_status_with_owners(&[lane], &BTreeMap::new())
+    }
+    pub(crate) fn effect_status_with_owners(
+        &self,
+        owned_lanes: &[&str],
+        lane_owners: &BTreeMap<String, String>,
+    ) -> Result<Value, Error> {
         let state: ActiveEffects = self
             .journal
             .read(&digest(&"native-effect-claims-v1"))?
@@ -718,14 +732,18 @@ impl Broker {
             .claims
             .iter()
             .map(|(id, held)| {
-                json!({"call":id,"owner_work":held.lane,
+                let owner_work = lane_owners
+                    .get(&held.lane)
+                    .map(String::as_str)
+                    .unwrap_or(held.lane.as_str());
+                json!({"call":id,"owner_work":owner_work,
                 "resource_kind":match held.effect {
                     Effect::Read => "read",
                     Effect::Paths(_) => "bounded",
                     Effect::Opaque => "opaque",
                 },
                 "process_session":held.session_id,
-                "owned":held.lane==lane,
+                "owned":owned_lanes.contains(&held.lane.as_str()) || owned_lanes.contains(&owner_work),
                 "pending_result":true})
             })
             .collect::<Vec<_>>();
@@ -733,6 +751,132 @@ impl Broker {
             json!({"active":entries,"unconfirmed_effects":state.claims.len(),
             "external_call_receipts":state.external.len()}),
         )
+    }
+    pub(crate) fn has_unsettled_stopped_effects(
+        &self,
+        lanes: &[&str],
+        tokens: &[&str],
+    ) -> Result<bool, Error> {
+        let state: ActiveEffects = self
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))?
+            .unwrap_or_default();
+        if state
+            .claims
+            .values()
+            .any(|claim| lanes.contains(&claim.lane.as_str()) && claim.session_id.is_none())
+            || state.external.values().any(|receipt| {
+                !receipt.settled
+                    && receipt.continuation.is_none()
+                    && receipt.lane.as_deref().is_some_and(|l| lanes.contains(&l))
+            })
+        {
+            return Ok(true);
+        }
+        for token in tokens {
+            if let Some(turn) = self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
+            {
+                if lanes.contains(&turn.lane.as_str())
+                    && turn
+                        .calls
+                        .values()
+                        .any(|call| call.offered && call.result.is_none())
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+    /// Called only after the authoritative Native thread and any owned host
+    /// lane have confirmed Stop (idle/systemError, no owned background
+    /// terminals) and `committed_native_items` has been read from
+    /// `thread/items/list`. Reconcile only offered calls and non-session claims
+    /// on the stopped work's lanes whose call IDs never reached Native items.
+    pub(crate) async fn reconcile_stopped_unexecuted(
+        &self,
+        lanes: &[&str],
+        tokens: &[&str],
+        committed_native_items: &BTreeSet<String>,
+    ) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let key = digest(&"native-effect-claims-v1");
+        let state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let mut candidate_tokens: BTreeSet<String> =
+            tokens.iter().map(|token| (*token).to_owned()).collect();
+        for (token, turn) in &registry.turns {
+            if lanes.contains(&turn.lane.as_str()) {
+                candidate_tokens.insert(token.clone());
+            }
+        }
+        for claim in state.claims.values() {
+            if lanes.contains(&claim.lane.as_str()) {
+                if let Some(token) = &claim.turn_token {
+                    candidate_tokens.insert(token.clone());
+                }
+            }
+        }
+        let not_dispatched = json!({"error":"native_call_not_dispatched","executed":false});
+        for token in candidate_tokens {
+            let Some(mut turn) = registry.turns.get(&token).cloned().or(self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", &token)))?)
+            else {
+                continue;
+            };
+            if !lanes.contains(&turn.lane.as_str()) {
+                continue;
+            }
+            let mut turn_changed = false;
+            if !turn.retired {
+                turn.retire(true);
+                turn_changed = true;
+            }
+            for call in turn.calls.values_mut() {
+                if call.offered
+                    && call.result.is_none()
+                    && !committed_native_items.contains(&call.id)
+                {
+                    call.result = Some(not_dispatched.clone());
+                    turn_changed = true;
+                }
+            }
+            if turn_changed {
+                self.persist(&token, &turn)?;
+                if let Some(cached) = registry.turns.get_mut(&token) {
+                    *cached = turn;
+                }
+            }
+        }
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let mut state_changed = false;
+        let committed_external: BTreeSet<String> = lanes
+            .iter()
+            .flat_map(|lane| {
+                committed_native_items
+                    .iter()
+                    .map(move |id| external_effect_id(lane, id))
+            })
+            .collect();
+        for (effect_id, receipt) in &mut state.external {
+            if !receipt.settled
+                && receipt.continuation.is_none()
+                && receipt.completion.is_none()
+                && receipt.lane.as_deref().is_some_and(|l| lanes.contains(&l))
+                && !committed_external.contains(effect_id)
+            {
+                receipt.completion = Some(ExternalCompletion::from_result(&not_dispatched));
+                state_changed = true;
+            }
+        }
+        if state_changed {
+            self.journal.write(&key, &state)?;
+        }
+        self.reconcile_persisted_integrated_receipts()?;
+        self.changed.notify_waiters();
+        Ok(())
     }
     /// The caller has already persisted and independently verified a Native
     /// Stop: its thread is terminal/idle and has no owned background terminals.
@@ -2231,6 +2375,107 @@ mod native_concurrency_tests {
             .admit_external_tool(
                 "other",
                 "blocked",
+                "functions.exec_command",
+                contested,
+                &root,
+            )
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "other",
+                &[(
+                    "blocked".into(),
+                    json!({"output":"Process exited with code 0\nOutput:\n"}),
+                )],
+            )
+            .await
+            .unwrap();
+
+        let (_, _, catalog) = fixture();
+        let token = broker
+            .register_scoped("lane_app_owner", catalog, false, Some(&root))
+            .await
+            .unwrap();
+        let unexecuted_call = Arguments {
+            call_id: "unexecuted-mcp-call".into(),
+            name: "functions.exec_command".into(),
+            input: r#"{"cmd":"pwd"}"#.into(),
+            report: "probe".into(),
+        };
+        let unexecuted_id = accepted(&broker, &token, &unexecuted_call).await;
+        let mut owners = BTreeMap::new();
+        owners.insert("lane_app_owner".into(), "work-owner".into());
+        let status = broker
+            .effect_status_with_owners(&["work-owner", "lane_app_owner"], &owners)
+            .unwrap();
+        assert_eq!(status["unconfirmed_effects"], 1);
+        assert_eq!(status["active"][0]["owner_work"], "work-owner");
+        assert_eq!(status["active"][0]["owned"], true);
+        let other_status = broker
+            .effect_status_with_owners(&["other"], &owners)
+            .unwrap();
+        assert_eq!(other_status["active"][0]["owner_work"], "work-owner");
+        assert_eq!(other_status["active"][0]["owned"], false);
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other",
+                    "blocked-by-mcp",
+                    "functions.exec_command",
+                    contested,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        // If Native thread items contain the offered call ID, Stop must not
+        // release it as unexecuted.
+        let mut committed = BTreeSet::new();
+        committed.insert(unexecuted_id.clone());
+        broker
+            .reconcile_stopped_unexecuted(&["work-owner", "lane_app_owner"], &[&token], &committed)
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("work-owner").unwrap()["unconfirmed_effects"],
+            1
+        );
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other",
+                    "blocked-by-mcp",
+                    "functions.exec_command",
+                    contested,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        // Once Native thread items at a confirmed Stop boundary prove the
+        // offered call ID never reached Native, reconcile it as not dispatched
+        // and release the conflicting reservation.
+        broker
+            .reconcile_stopped_unexecuted(
+                &["work-owner", "lane_app_owner"],
+                &[&token],
+                &BTreeSet::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("work-owner").unwrap()["unconfirmed_effects"],
+            0
+        );
+        let recorded = broker.recorded_calls(&token).unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0]["id"], unexecuted_id);
+        assert_eq!(recorded[0]["settled"], true);
+        broker
+            .admit_external_tool(
+                "other",
+                "unblocked-after-stop",
                 "functions.exec_command",
                 contested,
                 &root,

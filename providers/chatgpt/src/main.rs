@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop|models> [--state PATH] | migrate-inference --state PATH --backup PATH --target attached-submitted|provider21|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
+const USAGE: &str = "usage: codex-chatgpt-provider serve [--descriptor PATH] [--state PATH] [--port PORT] | presentation --thread ID [--state PATH] | status [--state PATH] [--thread ID] | stop [--state PATH] | approve --thread ID [--state PATH] | approve-ui --thread ID [--state PATH] | reveal --thread ID [--state PATH] | view [--state PATH] | token [--state PATH] | mcp-stdio [--state PATH] | work ACTION [--field VALUE ...] [--state PATH] | chats <list|read> [--field VALUE ...] [--state PATH] | projects <list|use> [--name NAME] [--project-id ID] [--state PATH] | host <status|ensure|open|stop|models|accounts|account-add|account-rename|account-use|account-remove|account-login|account-confirm> [--profile NAME] [--state PATH] | migrate-inference --state PATH --backup PATH --target attached-submitted|provider21|provider14 | models | catalog | checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH] < public-thread.json | prepare [--home PATH] [--state PATH] | config <show|effective|validate|edit|set FIELD VALUE [FIELD VALUE ...]|unset FIELD ...>";
 fn text(value: &str) -> Result<(), String> {
     println!("{value}");
     Ok(())
@@ -146,6 +146,9 @@ fn run() -> Result<(), String> {
 fn control_command(args: &[String]) -> Result<(), String> {
     use codex_chatgpt_provider::runtime;
     let action = args.get(1).ok_or("work/chats/host requires an action")?;
+    let login = args[0] == "host" && action == "account-login";
+    let mut return_manager = None;
+    let mut login_wait = 600;
     let mut root = runtime::state_path().map_err(|e| e.to_string())?;
     let mut values = serde_json::Map::new();
     let mut diagnostic_caps = false;
@@ -156,6 +159,24 @@ fn control_command(args: &[String]) -> Result<(), String> {
     for pair in args[2..].as_chunks::<2>().0 {
         if !flags.insert(&pair[0]) {
             return Err("duplicate control option".into());
+        }
+        if pair[0] == "--return-manager" {
+            if !login || !std::path::Path::new(&pair[1]).is_absolute() {
+                return Err(
+                    "return-manager requires an absolute Manager executable for account-login"
+                        .into(),
+                );
+            }
+            return_manager = Some(std::path::PathBuf::from(&pair[1]));
+            continue;
+        }
+        if login && pair[0] == "--max-wait-seconds" {
+            login_wait = pair[1]
+                .parse::<u64>()
+                .ok()
+                .filter(|n| (1..=600).contains(n))
+                .ok_or("login wait must be 1..600 seconds")?;
+            continue;
         }
         if pair[0] == "--diagnostic-caps" {
             diagnostic_caps = pair[1]
@@ -192,11 +213,11 @@ fn control_command(args: &[String]) -> Result<(), String> {
                     .parse::<u64>()
                     .map_err(|_| "invalid integer control value")?,
             )
-        } else if field == "refresh" {
+        } else if matches!(field.as_str(), "refresh" | "purge") {
             serde_json::Value::Bool(
                 pair[1]
                     .parse::<bool>()
-                    .map_err(|_| "refresh requires true or false")?,
+                    .map_err(|_| format!("{field} requires true or false"))?,
             )
         } else {
             serde_json::Value::String(pair[1].clone())
@@ -215,7 +236,7 @@ fn control_command(args: &[String]) -> Result<(), String> {
             "codex_projects"
         }
         "host" => {
-            values.insert("action".into(), serde_json::json!(action));
+            values.insert("action".into(), serde_json::json!(action.replace('-', "_")));
             "codex_host"
         }
         "work" => match action.as_str() {
@@ -279,6 +300,15 @@ fn control_command(args: &[String]) -> Result<(), String> {
         }
     }
     let executor = tokio::runtime::Runtime::new().map_err(|_| "async runtime is unavailable")?;
+    if login {
+        return account_login(
+            &executor,
+            &root,
+            values,
+            return_manager.as_deref(),
+            login_wait,
+        );
+    }
     let value = executor
         .block_on(runtime::control(
             &root,
@@ -296,6 +326,117 @@ fn control_command(args: &[String]) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+fn account_login(
+    executor: &tokio::runtime::Runtime,
+    root: &std::path::Path,
+    values: serde_json::Map<String, serde_json::Value>,
+    manager: Option<&std::path::Path>,
+    wait: u64,
+) -> Result<(), String> {
+    use codex_chatgpt_provider::runtime;
+    let profile = values
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .ok_or("account-login requires --profile")?
+        .to_owned();
+    let core = match manager {
+        Some(path) => path.to_path_buf(),
+        None => std::path::PathBuf::from(std::env::var_os("PREFIX").ok_or("PREFIX unavailable")?)
+            .join("bin/codex"),
+    };
+    let invoke = |operation: &str, origin: Option<&str>| -> Result<serde_json::Value, String> {
+        let mut command = std::process::Command::new(&core);
+        if manager.is_none() {
+            command.arg("termux");
+        }
+        command.arg(operation);
+        if let Some(origin) = origin {
+            command.arg(origin);
+        }
+        let result = command
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|_| "terminal return service unavailable")?;
+        if !result.status.success() {
+            return Err(match String::from_utf8_lossy(&result.stderr).trim() {
+                "codex termux: terminal origin unavailable"=>"no originating Termux terminal is bound to this caller; run account-login in Termux",
+                "codex termux: original terminal return unconfirmed"=>"the original Termux terminal could not be focused",
+                "codex termux: invalid terminal origin"=>"the saved Termux terminal identity was rejected",
+                _=>"terminal return service rejected the request; a compatible Manager is required",
+            }.into());
+        }
+        if result.stdout.len() > 4096 || !result.stderr.is_empty() {
+            return Err("terminal origin/return unavailable; use a compatible Manager".into());
+        }
+        serde_json::from_slice(&result.stdout)
+            .map_err(|_| "invalid terminal return response".into())
+    };
+    // Capture the original terminal before opening another Android activity.
+    let origin = invoke("__terminal-origin-v1", None)?.to_string();
+    let opened = executor
+        .block_on(runtime::control(
+            root,
+            "codex_host",
+            serde_json::Value::Object(values),
+        ))
+        .map_err(|e| e.to_string())?;
+    if opened["is_error"] == true {
+        text(&opened["result"].to_string())?;
+        return Err("account login could not open; inspect the reported cause".into());
+    }
+    eprintln!("Complete sign-in and OTP in the Linux app's noVNC screen. Waiting for account confirmation.");
+    let result = executor.block_on(async {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(wait);
+        loop {
+            let response = tokio::time::timeout_at(
+                deadline,
+                runtime::control(
+                    root,
+                    "codex_host",
+                    serde_json::json!({"action":"account_confirm","profile":profile}),
+                ),
+            )
+            .await
+            .map_err(|_| "login wait expired; profile preserved".to_owned())?
+            .map_err(|e| e.to_string())?;
+            if response["is_error"] != true {
+                return Ok::<_, String>(response["result"].clone());
+            }
+            let cause = response["result"]["error"]
+                .as_str()
+                .unwrap_or("account_confirmation_failed");
+            if !matches!(
+                cause,
+                "app_target_unavailable"
+                    | "app_scope_unavailable"
+                    | "app_auth_loading"
+                    | "app_auth_context_unavailable"
+            ) {
+                return Err(format!("login confirmation failed: {cause}"));
+            }
+            tokio::time::sleep_until(std::cmp::min(
+                deadline,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+            ))
+            .await;
+        }
+    })?;
+    let returned = invoke("__terminal-return-v1", Some(&origin));
+    let confirmed = returned
+        .as_ref()
+        .is_ok_and(|v| v["return_confirmed"] == true);
+    let mut result = result;
+    result["return_confirmed"] = serde_json::json!(confirmed);
+    result["physical_focus_observed"] = serde_json::json!(false);
+    if let Err(error) = &returned {
+        result["return_error"] = serde_json::json!(error);
+    }
+    text(&serde_json::to_string_pretty(&result).map_err(|_| "login serialization failed")?)?;
+    if !confirmed {
+        return Err("login succeeded; original terminal return unconfirmed".into());
+    }
+    Ok(())
 }
 fn omit_capabilities(value: &mut serde_json::Value) {
     if let serde_json::Value::Object(object) = value {

@@ -216,8 +216,11 @@ async function termuxCodexBridge(command) {
         typeof auth.accountId!=='string' || !auth.accountId || auth.accountId!==auth.authenticatedAccountId ||
         typeof auth.userId!=='string' || !auth.userId || auth.userId!==auth.authenticatedUserId ||
         !['personal','workspace'].includes(auth.accountStructure)) fail('app_auth_context_unavailable');
-    return {account:auth.accountId,user:auth.userId,structure:auth.accountStructure};
+    const current={account:auth.accountId,user:auth.userId,structure:auth.accountStructure};
+    if(command.expectedIdentity&&['account','user','structure'].some(key=>current[key]!==command.expectedIdentity[key]))fail('app_profile_account_mismatch');
+    return current;
   };
+  if(command.expectedIdentity)identity();
   // Retrieval pacing is shared transport metadata, separate from lane ownership.
   // It survives namespace disposal so a new reader cannot reset an account's429.
   const readPolicy=()=>{

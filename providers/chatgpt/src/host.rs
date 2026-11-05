@@ -47,25 +47,27 @@ impl ChildGroup {
         let pid = child.id().ok_or(Error("host_process_start_failed"))?;
         Ok(Self { child, pid })
     }
-    async fn stop(&mut self) {
+    async fn stop(&mut self) -> Result<(), Error> {
         if self.pid == 0 {
-            return;
+            return Ok(());
         }
         // Keep the leader unreaped until signalling its private group: its PID cannot
         // be recycled into an unrelated group while this child handle owns it.
         unsafe {
             libc::kill(-(self.pid as i32), libc::SIGTERM);
         }
-        if tokio::time::timeout(Duration::from_secs(3), self.child.wait())
-            .await
-            .is_err()
-        {
-            unsafe {
-                libc::kill(-(self.pid as i32), libc::SIGKILL);
+        let exited = match tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await {
+            Ok(result) => result,
+            Err(_) => {
+                unsafe {
+                    libc::kill(-(self.pid as i32), libc::SIGKILL);
+                }
+                self.child.wait().await
             }
-            let _ = self.child.wait().await;
-        }
+        };
+        exited.map_err(|_| Error("host_process_stop_unconfirmed"))?;
         self.pid = 0;
+        Ok(())
     }
 }
 
@@ -126,8 +128,8 @@ struct Display {
     _artifacts: DisplayArtifacts,
 }
 impl Display {
-    async fn stop(&mut self) {
-        self.child.stop().await;
+    async fn stop(&mut self) -> Result<(), Error> {
+        self.child.stop().await
     }
 }
 
@@ -171,7 +173,7 @@ fn authority(path: &Path, display: u16) -> Result<(), Error> {
         .map_err(|_| Error("host_authority_unavailable"))
 }
 impl OwnedHost {
-    pub async fn start(config: &HostConfig, state: &Path) -> Result<Self, Error> {
+    pub async fn start(config: &HostConfig, state: &Path, home: &Path) -> Result<Self, Error> {
         let rootfs = config
             .rootfs
             .as_ref()
@@ -189,9 +191,11 @@ impl OwnedHost {
         }
         let desktop = state.join("desktop");
         private_directory(&desktop)?;
-        let home = desktop.join("home");
-        private_directory(&home)?;
-        let lease = File::open(&home).map_err(|_| Error("host_profile_unavailable"))?;
+        if home.parent() != Some(desktop.as_path()) {
+            private_directory(&desktop.join("accounts"))?;
+        }
+        private_directory(home)?;
+        let lease = File::open(home).map_err(|_| Error("host_profile_unavailable"))?;
         if unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             return Err(Error("host_profile_busy"));
         }
@@ -218,7 +222,7 @@ impl OwnedHost {
         let mut xserver = Command::new(prefix.join("bin/Xvnc"));
         xserver
             .env_clear()
-            .env("HOME", &home)
+            .env("HOME", home)
             .env("PATH", prefix.join("bin"))
             .env("PREFIX", &prefix)
             .env("TMPDIR", path)
@@ -254,7 +258,7 @@ impl OwnedHost {
                 break;
             }
             if tokio::time::Instant::now() >= until {
-                display_child.stop().await;
+                display_child.stop().await?;
                 return Err(Error("host_display_start_timeout"));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -280,7 +284,7 @@ impl OwnedHost {
         command
             .env_clear()
             .env("PATH", prefix.join("bin"))
-            .env("HOME", &home)
+            .env("HOME", home)
             .env("TMPDIR", path)
             .env("PROOT_TMP_DIR", path)
             .env("PROOT_L2S_DIR", path.join("links"))
@@ -355,19 +359,19 @@ impl OwnedHost {
             .await
             .is_err()
         {
-            owned.shutdown().await;
+            owned.shutdown().await?;
             return Err(Error("official_app_start_failed"));
         }
         Ok(owned)
     }
-    pub async fn shutdown(&mut self) {
+    pub async fn shutdown(&mut self) -> Result<(), Error> {
         let _ = tokio::time::timeout(
             Duration::from_secs(3),
             self.client.request("Browser.close", json!({}), None),
         )
         .await;
-        self.app.stop().await;
-        self.display.stop().await;
+        self.app.stop().await?;
+        self.display.stop().await
     }
     pub fn viewer_socket(&self) -> PathBuf {
         self._temporary.0.join("viewer")
@@ -405,8 +409,8 @@ mod tests {
         let mut command = Command::new("sleep");
         command.arg("30");
         let mut group = ChildGroup::spawn(&mut command).unwrap();
-        group.stop().await;
+        group.stop().await.unwrap();
         assert_eq!(group.pid, 0);
-        group.stop().await;
+        group.stop().await.unwrap();
     }
 }

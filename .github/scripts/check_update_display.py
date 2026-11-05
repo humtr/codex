@@ -7,7 +7,7 @@ from pathlib import Path
 from rald5_publication import parse_manifest
 
 
-def variants(current, target, component, publication, base_publication, *, prior_notes=False):
+def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False):
     old, old_files = parse_manifest(current)
     new, files = parse_manifest(target)
     before = {name: (digest, mode) for name, digest, mode in old_files}
@@ -54,16 +54,18 @@ def variants(current, target, component, publication, base_publication, *, prior
 
     package = original(publication, new['generation_id'])
     base = original(base_publication, display.get('base_generation'))
+    if not details and old == new and before == after:
+        return [[prefix]]
     variants = []
     for info in [None, package] if package else [None]:
         for base_info in [None, base] if base else [None]:
             core = base_info if display.get('base_generation') else info
             if info is None and core is None:
-                variants.append([legacy])
+                variants.append([legacy if details else prefix])
                 continue
-            full = [prefix + ' · Published: ' + stamp(info)] if info else [legacy]
+            full = ([prefix + ' · Published: ' + stamp(info)] if info else [legacy]) if details else [prefix]
             url = 'https://github.com/humtr/codex/releases/tag/' + new['generation_id']
-            if edition == 'Full':
+            if details and edition == 'Full':
                 component = 'Base #' + str(display['base_sequence']) if display.get('base_generation') else 'Full #' + new['release_sequence'] + ' package'
                 full.append(f'Core ({component}) · Published: ' + stamp(core))
             core_url = 'https://github.com/humtr/codex/releases/tag/' + display.get('base_generation', new['generation_id']) if display.get('base_generation') else url
@@ -71,7 +73,8 @@ def variants(current, target, component, publication, base_publication, *, prior
                 full += notes(core, 'Core', core_url)
             for section, file, label in [('Manager', 'manager', 'Manager'), ('TUI', 'helpers/2', 'Enhanced TUI')]:
                 if any(name == file for name, _, _ in files):
-                    full.append(f'{label} ({edition} #{new["release_sequence"]} package) · Published: ' + stamp(info))
+                    if details:
+                        full.append(f'{label} ({edition} #{new["release_sequence"]} package) · Published: ' + stamp(info))
                     if changed(file):
                         full += notes(info, section, url)
             variants.append(full)
@@ -85,16 +88,18 @@ if __name__ == '__main__':
     parser.add_argument('--publication', type=Path)
     parser.add_argument('--base-publication', type=Path)
     parser.add_argument('--allow-legacy', action='store_true')
+    parser.add_argument('--details', action='store_true')
     args = parser.parse_args()
     plain = args.plain.read_text().splitlines()
     expected = [[plain[0], *detail, *plain[1:]] for detail in
-                variants(args.current, args.target, args.component, args.publication, args.base_publication)]
+                variants(args.current, args.target, args.component, args.publication, args.base_publication, details=args.details)]
     if args.allow_legacy:
         # The first update is executed by the retained previously shipped Core.
         # Only that invocation may still emit unchanged component notes.
         expected.append(plain)
-        expected.extend([[plain[0], *detail, *plain[1:]] for detail in
-                         variants(args.current, args.target, args.component, args.publication,
-                                  args.base_publication, prior_notes=True)])
+        for prior_notes in (False, True):
+            expected.extend([[plain[0], *detail, *plain[1:]] for detail in
+                             variants(args.current, args.target, args.component, args.publication,
+                                      args.base_publication, details=True, prior_notes=prior_notes)])
     actual = args.actual.read_text().splitlines()
     assert actual in expected, (actual, expected)

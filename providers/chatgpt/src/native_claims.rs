@@ -269,19 +269,23 @@ fn process_status(value: &serde_json::Value) -> (Option<u64>, bool) {
     (running, exited)
 }
 
-/// A Native approval rejection returned by the exec handler before spawning
-/// is not a live shell. Match only the handler's own unframed failure envelope;
-/// ordinary stdout is always preceded by an execution status header and must
-/// never be allowed to forge this evidence.
+/// A Native approval rejection returned by the exec handler before spawning, or
+/// a Provider non-dispatch receipt recorded after a confirmed Native Stop proves
+/// the offered call ID never reached Native thread items, is not a live shell.
+/// Match only the handler's own unframed failure envelope or the Provider's
+/// non-dispatch receipt; ordinary stdout is always preceded by an execution
+/// status header and must never be allowed to forge this evidence.
 pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
-    value.get("type").and_then(serde_json::Value::as_str) == Some("function_call_output")
-        && value
-            .get("output")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|text| {
-                text.starts_with("exec_command failed: CreateProcess { message: \"Rejected(")
-                    && text.ends_with("\" }")
-            })
+    (value.get("error").and_then(serde_json::Value::as_str) == Some("native_call_not_dispatched")
+        && value.get("executed") == Some(&serde_json::Value::Bool(false)))
+        || (value.get("type").and_then(serde_json::Value::as_str) == Some("function_call_output")
+            && value
+                .get("output")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|text| {
+                    text.starts_with("exec_command failed: CreateProcess { message: \"Rejected(")
+                        && text.ends_with("\" }")
+                }))
 }
 
 impl Guard {

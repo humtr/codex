@@ -6,6 +6,13 @@ import {pathToFileURL} from 'node:url';
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+test('profile account is checked before creating a lane or sending input',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const expectedIdentity={account:'different-account',user:'different-user',structure:'personal'};
+ await expect(bridge({op:'open',owner:'owned',lane:'wrong-profile',signature:{name:'unused'},expectedIdentity})).rejects.toThrow('app_profile_account_mismatch');
+ expect(globalThis[slot].lanes.size).toBe(0);
+ expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);
+}));
 test('read-only model discovery uses actual offered picker options without acquiring a lane',async()=>fixture(async({f,bindings})=>{
  f.catalog.versionOptions=[{label:'An unseen family',defaultModelSlug:'new-auto',options:[{slug:'new-thinking',lane:'thinking',title:'High',actionPillShortName:'Thinking',isAvailable:true,thinkingEffort:'extended',internalOnly:'not exported'}]}];
  const result=await bridge({op:'model_catalog',owner:'reader',readOnlyContext:true,bindings});

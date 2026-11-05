@@ -317,6 +317,28 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__terminal-origin-v1") && args.len() == 1 {
+        return origin::resolve()
+            .map(|value| Some(value.record()))
+            .ok_or(ManagerError::operation(
+                "codex termux: terminal origin unavailable",
+            ));
+    }
+    if is_exact(args.first(), "__terminal-return-v1") && args.len() == 2 {
+        let value =
+            args[1]
+                .to_str()
+                .and_then(origin::Origin::parse)
+                .ok_or(ManagerError::operation(
+                    "codex termux: invalid terminal origin",
+                ))?;
+        if !origin::focus(&value) {
+            return Err(ManagerError::operation(
+                "codex termux: original terminal return unconfirmed",
+            ));
+        }
+        return Ok(Some("{\"return_confirmed\":true}".into()));
+    }
     if args.first().is_some_and(|arg| {
         matches!(
             arg.to_str(),

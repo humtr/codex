@@ -100,7 +100,7 @@ os.execv('''+repr(str(native))+''',['native'])
                             else:
                                 if op=='origin':
                                     pid=int(Path('/proc',str(peer),'stat').read_text().rsplit(')',1)[1].split()[1])
-                                    if b'__terminal-bind-v1' in Path('/proc',str(pid),'cmdline').read_bytes():pid=int(Path('/proc',str(pid),'stat').read_text().rsplit(')',1)[1].split()[1])
+                                    if any(v in Path('/proc',str(pid),'cmdline').read_bytes() for v in (b'__terminal-bind-v1',b'__terminal-origin-v1')):pid=int(Path('/proc',str(pid),'stat').read_text().rsplit(')',1)[1].split()[1])
                                     origin={'handle':f'{pid:08x}-2d11-79f3-8f5b-9c1958465dc2','pid':pid,'start':identity(pid)}
                                 else:origin={'handle':words[2],'pid':int(words[3]),'start':int(words[4])}
                                 live=identity(origin['pid'])==origin['start']
@@ -132,6 +132,11 @@ os.execv('''+repr(str(native))+''',['native'])
             data+=os.read(master,65536)
         return data
     try:
+        captured=run('__terminal-origin-v1');assert captured.returncode==0,captured.stderr
+        origin=json.loads(captured.stdout)
+        assert run('__terminal-return-v1',json.dumps(origin)).returncode==0
+        assert run('__terminal-return-v1',json.dumps({**origin,'start':origin['start']+1})).returncode!=0
+        assert not state['windows'],'capture/return must not launch another terminal'
         a,a_console,a_tty=start([str(manager),'launch','--profile','default','--',sid1]);r1=workloads(1)[0]
         b,b_console,b_tty=start([str(manager),'launch','--profile','default','--',sid2]);r2=workloads(2)[1]
         assert r1['tty']==os.ttyname(a_tty) and r2['tty']==os.ttyname(b_tty) and not r1['tmux'] and not r2['tmux'] and calls()==0

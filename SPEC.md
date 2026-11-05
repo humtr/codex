@@ -146,9 +146,11 @@ update authority is maintained.
   provider or turn an active/unknown task into an idle one.
   A newly persisted, idle conversation with no user turns may cross the provider
   boundary without a context checkpoint. If the qualified backend rejects full
-  history before its first message, accept only its exact recognized response
-  after a metadata read and a bounded, owned, stable native rollout containing
-  solely that thread's canonical session metadata prove it is empty. Account
+  history before its first message, recognize the exact qualified thread/read
+  and Paginated thread/turns/list not-materialized or list_turns-not-supported
+  response for that thread; accept emptiness only after a metadata read and a
+  bounded, owned, stable native rollout containing solely that thread's canonical
+  session metadata prove it is empty. Account
   directory aliases to the shared sessions root are valid after parent resolution
   and containment checks; the rollout leaf itself cannot be a symlink. Forked or
   inherited history, extra records, malformed/unsafe files and all other read
@@ -1039,8 +1041,8 @@ a TTY, output remains plain; when it is a TTY, Core removes only the inherited
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts exactly no arguments, `--wait`, `--no-wait`,
-`--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
+The Core-owned update surface accepts no arguments, `--details` optionally
+combined with one of `--wait`/`--no-wait`, either wait option alone, `--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
 after `update`. No top-level `codex rollback` command is introduced. A malformed
 invocation beginning with one of those Core selectors is a Core usage error. The no-argument
 form is the primary product path: it first tries the signed stable wrapper channel
@@ -1107,10 +1109,17 @@ surface and are not decorated as operational failures.
 One concise ordinary signed-update detail line names Base or Full and its signed
 release number, including the previous number when changing releases. Full also
 shows its exact base release number when authenticated display metadata exists.
-Explicit update also shows the latest official upstream version, the selected
-Termux edition and selected optional modules, with publication times. A short
+Default update output shows the selected Termux edition/base and each selected
+optional package once. A Provider result explicitly describes package installation;
+it does not imply service activation. Unchanged output omits immutable generation
+IDs, repeated component rows and publication timestamps. `codex update --details`
+retains publication dates, generation identifiers and component rows, and may be
+combined with `--wait` or `--no-wait`. Other update forms keep their existing
+argument scope. The latest upstream version is shown when it differs from the
+installed version, changed in this invocation, or details were requested; equality
+alone produces no duplicate upstream row. A short
 changelog is shown only for a component whose authenticated executable inputs
-change in this update; unchanged components retain their concise identity/date
+change in this update; unchanged components retain their concise package identity
 without repeating notes or full-note links. A Full repack alone does not count
 as a Core, Manager or TUI change when that component's signed bytes and modes
 are unchanged. Upstream notes are shown when a newer official version is
@@ -2019,6 +2028,35 @@ never run in the background. `synchronize` is solely the Native input barrier
 used by CLI: it waits for an admitted attached/source execution, without saved-Chat
 retrieval. Completion observers consume Native lifecycle events/recovery reads
 only. A development binding does not enable a periodic remote history reader.
+The CLI barrier applies to starting a next turn, not to steering an already
+observed running Native turn. Active-turn steering uses upstream's current writer
+and canonical turn ID; if a prepared steer loses that turn before submission,
+keep the draft rather than
+silently convert it into an unsynchronized new turn. Unreconciled writer/effect
+state is never cleared by a TUI shortcut.
+Native may cancel and reissue a Provider request on the same canonical turn
+when accepting Steer. A successor on that same known turn waits for the canceled
+request's Operator task to retire before reserving its AppHost slot. Retirement
+is not remote Stop or effect settlement: all existing admission and confirmed-Stop
+checks still apply afterwards. An uncanceled concurrent request remains busy;
+Stop/controller fences and cancellation of the waiting successor remain effective.
+After a confirmed remote Stop, Provider may admit that
+continuation only when the previously submitted Native input is preserved as an
+exact prefix (excluding transport-only additional_tools declarations), a new
+non-context user input is appended, and any offered Native call has its result.
+Same-turn Steer retains its owned remote conversation and source references.
+The observed per-lane network dispatch counter, compared with its value at the
+original submission, determines whether that submitted prefix is already in Chat;
+only new input is sent after an observed dispatch. An undispatched request keeps
+the previous import cursor. This starts no Native turn and clears no broker
+effects/controllers. Exact retries,
+changed prior input, missing tool returns and unknown Stop remain fenced. Older
+lane records without the submitted-input boundary retain their refusal until a
+new admitted request records that boundary.
+MCP observes that same confirmed remote Stop before marking its transport round
+complete. It revokes the old tool lease and permits another input only without
+pending settlement, offered calls or unsettled broker effects. It preserves old
+receipts and effect claims; a Stop request alone never completes the round.
 
 Implementation and remaining qualification order:
 
@@ -2945,7 +2983,11 @@ host. Explicit ensure may start configured assets, without implicit downloading
 or login. Open/reveal displays the selected existing owner/Chat. Stop names its
 scope, preserves profile/Chats/user files and cannot kill an unrelated/shared host.
 Reconnect/connector refresh restores transport only after inspecting pending
-receipts; it does not resend tasks. Missing/expired/changed app APIs report their
+receipts; it does not resend tasks. MCP Broker owns admission and settlement for
+McpBridge-mediated Native calls. Operator forwards those already-reserved calls
+without reserving them again as external AppHost effects. Only local-function
+AppHost calls use Operator external-effect admission/settlement; work budgets
+and Native ownership validation still apply to both return paths. Missing/expired/changed app APIs report their
 specific unavailable capability. Viewer/login interactions remain optional and
 distinct from backend work; cosmetic noVNC changes are not a prerequisite.
 
@@ -3026,7 +3068,7 @@ must preserve recovery/provenance needed by admitted work.
 | codex_report/codex_finish | Work-scoped call_id and text/final fingerprint with current-controller admission; receipt intent precedes the one message emission. IDs remain reserved across generations; a new intended report needs a new ID. Retry observes that item and resumes applicable completion settlement; final-item presence alone is not completed work |
 | Session create/resume/fork | Existing caller call_id plus action/payload; durable creation intent/result; unknown native creation is reconciled, never dispatched again |
 | Session start/compact/claim/takeover | Add optional call_id for compatible exact retries, scoped to work/action/controller. New common clients supply it; old unkeyed clients retain conservative fenced behavior. Unknown mutation requires reconciliation |
-| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation |
+| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation. A starting_native generation returns pending_native_context; exact Native history-not-ready observation returns pending_native_history. Both are pending reads with accepted=false and no receipt; observe/retry without restarting the task or executing before its real context is available |
 | codex_answer | Work/controller plus native question request_id and answers fingerprint; one answer forwarding; unknown response is not permission to answer again |
 | codex_native_summary | Common clients supply a stable optional call_id, scoped to work/controller; record the admitted native inference round and summary fingerprint before one delivery. Legacy unkeyed input remains scoped to its admitted round. A duplicate keyed reply cannot answer a later round; Chat replacement remains separate |
 | codex_handoff | Existing work/call_id and full cursor/context/summary fingerprint; coalesce intent/generation transition, recover original receipt; uncertainty never creates another successor |
@@ -3193,6 +3235,18 @@ MCP service authorization, native transport access and model-request credentials
 remain distinct even when linked to the same user. For selected Codex work,
 preserve native approvals, execution and canonical recording across both entrances;
 no second transcript authority or uncertain mid-task route switch is introduced.
+
+Local tunnel administration reuses `tunnel-client`'s named admin profiles rather
+than a Provider credential registry. Each configured account has its own profile
+and private key file at `${XDG_CONFIG_HOME:-$HOME/.config}/codex/credentials/tunnel-admin/<account>.key`;
+the profile stores only its `file:` reference. New remote admin-key display names
+follow `codex-admin-<account>`; existing remote names need not be changed or keys
+reissued. Account names are user configuration, never compiled routing rules.
+Adding a profile does not activate it, replace a runtime key or restart a tunnel.
+Removing a profile uses the existing unused-profile check and retains its key
+file; credential deletion/revocation is a separate explicit action after checking
+remaining consumers. Existing credential paths may remain symlinks while actual
+consumers use them. Admin-key storage does not preserve or replace app login.
 
 Codex subscription login/auth.json is not a prerequisite for the Bridge's Native
 tool, work-control, history or presentation path. The selected Native runtime and
@@ -4051,6 +4105,30 @@ Resolve `proot` and `Xvnc` from the Termux prefix, with fixed isolated arguments
 never interpret a configured shell command or bind the user's host home into the
 guest. No implicit app/rootfs installation or profile copying occurs. Preserve
 app home/authentication on shutdown; remove only owned temporary resources.
+Provider host account controls retain named app homes under that same state.
+`host accounts` observes registrations without acquiring the app; `account-add`,
+`account-rename`, `account-use`, and `account-remove` manage local registrations.
+The initial `default` registration retains the existing `desktop/home` in place.
+New registrations receive private independent homes and share provisioned app
+assets. Removal retains a disabled registration and its data for restoration;
+explicit `--purge true` removes only an inactive, unlocked registered home.
+The host operation gate serializes selection/removal against app admission.
+An active or unobservable old app round prevents switching. Ordinary host
+startup uses the selected home; no switch restarts a tunnel or Native server.
+`account-login` selects a settled profile and opens the existing noVNC viewer;
+the user enters credentials and OTP in the official app. `account-confirm`
+binds the profile to its observed user/account/workspace; later mismatches
+refuse without rebinding. Fresh profiles cannot admit work before confirmation.
+No password, OTP or app token enters a Provider control argument or journal.
+The login CLI observes confirmation and requests return through Manager's
+existing terminal-origin authority; login success and return confirmation are
+reported independently. Manager exposes origin capture/return for that consumer
+without creating another terminal. The CLI must not infer login from a viewer
+open request or infer physical focus from an Android request acknowledgement.
+Read-only app identity, host status and catalog observations may inspect a unique
+primary app page without a visible composer; they do not install writer hooks or
+grant inference admission. A later mutating operation must reacquire a verified
+composer surface. Home/Plugins navigation alone is not loss of authentication.
 A lost host with unsettled lanes is not permission to replay their requests.
 Bind each lane to the app's currently authenticated user/account/workspace and
 owned host generation using identifier-only app state, never a token dump. Check
@@ -4554,8 +4632,15 @@ only enqueue the accepted-input workflow with its run ID; it has no content-writ
 permission or signing key. The receiver waits for that run to finish, then checks
 owned exact-source qualification independently. Completion delivery is not proof.
 Native trigger metadata and the exact isolated relay are excluded from recipe
-comparison only while build/test code consumes no event/dispatch input; global
-settings and all actual build/test steps remain bound. Native builds start through
+comparison only while build/test code consumes no event/dispatch input. The literal
+wall-clock budget of the native build job is scheduling metadata, not a compiler
+input. Its change alone may reuse a completed successful run; it cannot admit a
+failed, canceled or incomplete run. Other global build settings and every build/
+test command remain bound. The required focused-test count is an acceptance
+criterion: reuse checks the retained log against the current required count,
+without treating an earlier misdeclared count as a source change. Source blobs,
+upstream/toolchains, dependency audit, executed tests, lint and artifact identity
+must still agree. Native builds start through
 the accepted-input controller, reusing a matching build already in progress.
 
 Provider-only source changes under providers/chatgpt use the independent optional

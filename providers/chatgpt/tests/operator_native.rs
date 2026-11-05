@@ -267,6 +267,12 @@ impl Bridge for Synthetic {
                     })
                 });
                 let partial = self.path.parent().unwrap().join("partial-host").exists();
+                let hold_adapter_final = self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("hold-adapter-final")
+                    .exists();
                 let messages = if self
                     .path
                     .parent()
@@ -274,7 +280,7 @@ impl Bridge for Synthetic {
                     .join("model-adapter-fixture")
                     .exists()
                 {
-                    submitted.map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
+                    submitted.filter(|_| !hold_adapter_final).map(|row| json!([{"id":format!("owned-adapter-{}",row["round"].as_str().unwrap()),"author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["OWNED_MANAGED_ROUND_COMPLETE"]},"status":"finished_successfully","end_turn":true}])).unwrap_or_else(|| json!([]))
                 } else if title && reviewer {
                     json!([{"id":"owned-title-answer","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":[json!({"title":"Owned integration title"}).to_string()]},"status":"finished_successfully","end_turn":true}])
                 } else if reviewer {
@@ -331,7 +337,7 @@ impl Bridge for Synthetic {
                 } else {
                     json!([])
                 };
-                json!({"serverId":if self.path.parent().unwrap().join("bound-source-fixture").exists(){json!("owned-saved-chat")}else{Value::Null},"roundStarts":if submitted.is_some_and(|row|row["op"]=="follow"){0}else{1},"round":submitted.map(|row|&row["round"]),"accepted":submitted.is_some(),"pending":self.path.parent().unwrap().join("hold-host-completion").exists(),"streamActive":false,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"approvalResponses":if self.ui_approval_at.lock().unwrap().is_some_and(|at|at.elapsed()>=std::time::Duration::from_millis(350)){json!(["fixture-confirmation"])}else{json!([])},"messages":messages,"terminals":["done"],"dispatches":1,"userMessages":1,"toolMessages":0})
+                json!({"serverId":if self.path.parent().unwrap().join("bound-source-fixture").exists(){json!("owned-saved-chat")}else{Value::Null},"roundStarts":if submitted.is_some_and(|row|row["op"]=="follow"){0}else{1},"round":submitted.map(|row|&row["round"]),"accepted":submitted.is_some(),"pending":hold_adapter_final || self.path.parent().unwrap().join("hold-host-completion").exists(),"streamActive":hold_adapter_final,"error":if self.path.parent().unwrap().join("failed-host").exists() && submitted.is_some_and(|row| row["messages"].as_array().is_some_and(|messages| messages.iter().any(|message| message["text"]=="OWNED_FAILED_HOST"))) {json!("app_submit_failed")} else {Value::Null},"stopped":self.stopped.lock().unwrap().get(&lane).copied().unwrap_or(false),"approvalResponses":if self.ui_approval_at.lock().unwrap().is_some_and(|at|at.elapsed()>=std::time::Duration::from_millis(350)){json!(["fixture-confirmation"])}else{json!([])},"messages":messages,"terminals":if hold_adapter_final{json!([])}else{json!(["done"])},"dispatches":1,"userMessages":1,"toolMessages":0})
             }
             "release" => {
                 self.released.lock().unwrap().insert(lane);

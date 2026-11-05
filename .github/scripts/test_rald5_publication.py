@@ -41,7 +41,7 @@ def sha256(path: Path) -> str:
 
 
 class Rald5PublicationTests(unittest.TestCase):
-    def test_update_display_retains_dates_but_only_changed_component_notes(self):
+    def test_update_display_compact_and_detailed_preserve_changed_component_notes(self):
         from check_update_display import variants
         self.build_signed(frontend=True)
         current = self.signed / 'releases' / GENERATION / 'release.manifest'
@@ -61,10 +61,12 @@ class Rald5PublicationTests(unittest.TestCase):
             return ['\n'.join(lines) for lines in
                     variants(current, target, display, publication, base, **kwargs)]
         unchanged = outputs()
-        self.assertTrue(any('Published: 2026-11-03 11:12:23 KST' in text for text in unchanged))
-        self.assertTrue(any('Release date: 2026-11-03 (UTC)' in text for text in unchanged))
+        self.assertEqual(unchanged, ['Termux release: Full #11 · Base #10'])
+        detailed = outputs(details=True)
+        self.assertTrue(any('Published: 2026-11-03 11:12:23 KST' in text for text in detailed))
+        self.assertTrue(any('Release date: 2026-11-03 (UTC)' in text for text in detailed))
         self.assertTrue(all('changes:' not in text and 'Full notes:' not in text for text in unchanged))
-        self.assertTrue(any('Manager change.' in text for text in outputs(prior_notes=True)))
+        self.assertTrue(any('Manager change.' in text for text in outputs(details=True, prior_notes=True)))
         for path, section in [('core', 'Core'), ('runtime', 'Core'), ('manager', 'Manager'), ('helpers/2', 'TUI')]:
             rows = current.read_text().splitlines()
             rows = ['\t'.join([*row.split('\t')[:2], 'b' * 64, row.split('\t')[3]])
@@ -72,6 +74,7 @@ class Rald5PublicationTests(unittest.TestCase):
             target.write_text('\n'.join(rows) + '\n')
             actual = outputs()
             self.assertTrue(any(section + ' changes:' in text for text in actual), path)
+            self.assertTrue(all('Published:' not in text for text in actual))
             for other in {'Core', 'Manager', 'TUI'} - {section}:
                 self.assertTrue(all(other + ' changes:' not in text for text in actual), (path, other))
 

@@ -20,6 +20,12 @@ use tokio_tungstenite::{
 };
 
 const LIMIT: usize = 16 * 1024 * 1024;
+#[derive(PartialEq, Eq)]
+pub enum AppSurface {
+    Composer,
+    /// Account observation can read the unique primary page on Home/login.
+    Authentication,
+}
 pub fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>, Error> {
     let mut file = File::options()
         .read(true)
@@ -305,7 +311,7 @@ impl Client {
         .await
         .map_err(|_| Error("cdp_operation_timeout"))?
     }
-    pub async fn app(&self) -> Result<App, Error> {
+    pub async fn app(&self, surface: AppSurface) -> Result<App, Error> {
         let result = self.request("Target.getTargets", json!({}), None).await?;
         let targets = result["targetInfos"]
             .as_array()
@@ -324,13 +330,14 @@ impl Client {
         if roots.len() > 16 || ids.len() != roots.len() {
             return Err(Error("unique_app_target_required"));
         }
-        // Even a single initial index page can be an empty launcher. Require
-        // the visible composer every time; window order/count and localized
-        // button labels cannot establish the active conversation surface.
+        // Work requires a visible composer even for a single initial page.
+        // Read-only authentication can inspect a unique primary page on Home;
+        // the caller still validates the app's authenticated account state.
         let probe = r#"(()=>{const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
             return [...document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],textarea')]
                 .some(e=>visible(e)&&!e.disabled);})()"#;
         let mut attached = Vec::new();
+        let roots_len = roots.len();
         let selection = async {
             let mut eligible = Vec::new();
             for target in roots {
@@ -349,7 +356,9 @@ impl Client {
                     client: self.clone(),
                     session,
                 });
-                if attached.last().unwrap().evaluate(probe).await? == true {
+                if (surface == AppSurface::Authentication && roots_len == 1)
+                    || attached.last().unwrap().evaluate(probe).await? == true
+                {
                     eligible.push(attached.len() - 1);
                 }
             }
@@ -388,6 +397,16 @@ pub struct App {
     session: String,
 }
 impl App {
+    pub(crate) async fn detach(&self) -> Result<(), Error> {
+        self.client
+            .request(
+                "Target.detachFromTarget",
+                json!({"sessionId":self.session}),
+                None,
+            )
+            .await?;
+        Ok(())
+    }
     pub async fn evaluate(&self, expression: &str) -> Result<Value, Error> {
         let value = self
             .client

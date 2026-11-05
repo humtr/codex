@@ -1,6 +1,63 @@
 use codex_chatgpt_provider::cdp::{Client, Descriptor, Process};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+#[tokio::test]
+async fn login_observation_reads_primary_without_granting_composer_admission() {
+    use codex_chatgpt_provider::cdp::AppSurface;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for surface in [AppSurface::Composer, AppSurface::Authentication] {
+        let expected = surface == AppSurface::Authentication;
+        let (native, peer) = tokio::io::duplex(65536);
+        let (read, write) = tokio::io::split(native);
+        let client = Client::pipe(read, write, "login-fixture".into());
+        let peer = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(peer);
+            let mut reader = BufReader::new(read);
+            loop {
+                let mut row = Vec::new();
+                reader.read_until(0, &mut row).await.unwrap();
+                row.pop();
+                let row: Value = serde_json::from_slice(&row).unwrap();
+                let method = row["method"].as_str().unwrap();
+                let value = match method {
+                    "Target.getTargets" => {
+                        json!({"targetInfos":[{"targetId":"primary","type":"page","url":"app://-/index.html"}]})
+                    }
+                    "Target.attachToTarget" => json!({"sessionId":"primary"}),
+                    "Target.detachFromTarget" => json!({}),
+                    "Runtime.evaluate" => {
+                        json!({"result":{"value":row["params"]["expression"]=="verify_login_identity"}})
+                    }
+                    _ => panic!("login observation issued non-observation command: {method}"),
+                };
+                let mut reply = json!({"id":row["id"],"result":value})
+                    .to_string()
+                    .into_bytes();
+                reply.push(0);
+                write.write_all(&reply).await.unwrap();
+                if method == "Target.detachFromTarget"
+                    || row["params"]["expression"] == "verify_login_identity"
+                {
+                    break;
+                }
+            }
+        });
+        let result = client.app(surface).await;
+        if expected {
+            assert_eq!(
+                result
+                    .unwrap()
+                    .evaluate("verify_login_identity")
+                    .await
+                    .unwrap(),
+                true
+            );
+        } else {
+            assert!(result.is_err());
+        }
+        peer.await.unwrap();
+    }
+}
 use tokio::net::TcpListener;
 use tokio_tungstenite::{
     accept_hdr_async,
@@ -82,7 +139,12 @@ async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous
                 assert_eq!(detached, vec!["aux", "main"]);
             }
         });
-        match (case, client.app().await) {
+        match (
+            case,
+            client
+                .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+                .await,
+        ) {
             (0, Ok(app)) => assert_eq!(app.evaluate("verify_selected").await.unwrap(), true),
             (1, Err(e)) => assert_eq!(e, Error("unique_app_target_required")),
             (2, Err(e)) => assert_eq!(e, Error("app_target_unavailable")),
@@ -146,10 +208,15 @@ async fn single_empty_launcher_is_released_before_later_main_window_is_selected(
         assert_eq!(detached, vec!["launcher", "launcher"]);
     });
     assert!(matches!(
-        client.app().await,
+        client
+            .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+            .await,
         Err(Error("app_target_unavailable"))
     ));
-    assert!(client.app().await.is_ok());
+    assert!(client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .is_ok());
     peer.await.unwrap();
 }
 
@@ -344,7 +411,10 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
     );
     assert_eq!(first.unwrap()["echo"], "first");
     assert_eq!(second.unwrap()["echo"], "second");
-    let app = client.app().await.unwrap();
+    let app = client
+        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+        .await
+        .unwrap();
     assert_eq!(app.evaluate("({ready:true})").await.unwrap()["ready"], true);
     server.await.unwrap();
 }
@@ -456,11 +526,12 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
         let peer = tokio::spawn(async move {
             let (socket, _) = socket.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
-            for _ in 0..4 {
+            loop {
                 let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                     panic!("CDP frame required")
                 };
                 let request: Value = serde_json::from_str(&text).unwrap();
+                let mut identity_replied = false;
                 let result = match request["method"].as_str().unwrap() {
                     "Target.getTargets" => {
                         json!({"targetInfos":[{"targetId":"owned","type":"page","url":"app://-/index.html"}]})
@@ -487,6 +558,7 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                         let value = match command["op"].as_str().unwrap() {
                             "init" => panic!("identity observation must not install writer hooks"),
                             "identity" => {
+                                identity_replied = true;
                                 json!({"account":"fixture-account","user":"fixture-user","structure":"personal","present":false})
                             }
                             _ => panic!("identity reattachment must not submit work"),
@@ -503,6 +575,9 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                     ))
                     .await
                     .unwrap();
+                if identity_replied {
+                    break;
+                }
             }
         });
         let identity = remote

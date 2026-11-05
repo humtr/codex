@@ -114,6 +114,27 @@ pub(crate) async fn host(
     let action = args["action"]
         .as_str()
         .ok_or(Error("host_action_invalid"))?;
+    if matches!(
+        action,
+        "accounts"
+            | "account_add"
+            | "account_rename"
+            | "account_use"
+            | "account_remove"
+            | "account_login"
+            | "account_confirm"
+    ) {
+        if args.get("refresh").is_some() {
+            return Err(Error("host_action_invalid"));
+        }
+        let mut command = args.clone();
+        command.as_object_mut().unwrap().remove("action");
+        command["op"] = json!(action);
+        return bridge.operation(command).await;
+    }
+    if args.get("profile").is_some() || args.get("name").is_some() || args.get("purge").is_some() {
+        return Err(Error("host_action_invalid"));
+    }
     if action != "models" && args.get("refresh").is_some() {
         return Err(Error("host_action_invalid"));
     }

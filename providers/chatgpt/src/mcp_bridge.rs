@@ -38,6 +38,11 @@ pub(crate) fn source_lease(
     }
     Ok(value)
 }
+pub(crate) fn lane_token(journal: &Journal, marker: &str) -> Result<Option<String>, Error> {
+    Ok(journal
+        .read::<Lane>(&digest(&("mcp-lane-v1", marker)))?
+        .and_then(|lane| lane.token))
+}
 const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
 #[derive(Clone, Serialize, Deserialize)]
 struct Settlement {
@@ -267,6 +272,41 @@ impl Bridge for McpBridge {
                     recorded.as_ref().and_then(|lane| lane.token.as_deref()),
                 )
                 .await
+        })
+    }
+    fn clear_unexecuted_stopped_calls(
+        &self,
+        marker: String,
+        committed_native_items: std::collections::BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<(), Error>> {
+        let lanes = self.lanes.clone();
+        let journal = self.journal.clone();
+        Box::pin(async move {
+            let key = digest(&("mcp-lane-v1", &marker));
+            let mutex = lanes.lock().await.get(&marker).cloned();
+            if let Some(mutex) = mutex {
+                let mut lane = mutex.lock().await;
+                let before = lane.offered.len();
+                lane.offered.retain(|call| {
+                    call["id"]
+                        .as_str()
+                        .is_some_and(|id| committed_native_items.contains(id))
+                });
+                if lane.offered.len() != before {
+                    journal.write(&key, &*lane)?;
+                }
+            } else if let Some(mut lane) = journal.read::<Lane>(&key)? {
+                let before = lane.offered.len();
+                lane.offered.retain(|call| {
+                    call["id"]
+                        .as_str()
+                        .is_some_and(|id| committed_native_items.contains(id))
+                });
+                if lane.offered.len() != before {
+                    journal.write(&key, &lane)?;
+                }
+            }
+            Ok(())
         })
     }
     fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {

@@ -237,9 +237,13 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
         ),
         ..Default::default()
     };
-    let mut host = OwnedHost::start(&config, &root).await.unwrap();
+    let mut host = OwnedHost::start(&config, &root, &root.join("desktop/home"))
+        .await
+        .unwrap();
     assert_eq!(
-        OwnedHost::start(&config, &root).await.err(),
+        OwnedHost::start(&config, &root, &root.join("desktop/home"))
+            .await
+            .err(),
         Some(codex_chatgpt_provider::protocol::Error("host_profile_busy"))
     );
     let version = host
@@ -252,7 +256,11 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
         .is_some_and(|v| v.contains("Chrome")));
     let until = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     let app = loop {
-        match host.client.app().await {
+        match host
+            .client
+            .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+            .await
+        {
             Ok(app) => break app,
             Err(_) if tokio::time::Instant::now() < until => {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await
@@ -270,12 +278,12 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
             break;
         }
         if tokio::time::Instant::now() >= until {
-            host.shutdown().await;
+            host.shutdown().await.unwrap();
             panic!("app document failed to commit");
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    host.shutdown().await;
+    host.shutdown().await.unwrap();
     assert!(host
         .client
         .request("Browser.getVersion", json!({}), None)
@@ -314,7 +322,9 @@ async fn official_app_loss_releases_pipe_and_restarts_preserving_the_owned_profi
         ),
         ..Default::default()
     };
-    let mut first = OwnedHost::start(&config, &root).await.unwrap();
+    let mut first = OwnedHost::start(&config, &root, &root.join("desktop/home"))
+        .await
+        .unwrap();
     first
         .client
         .request("Browser.getVersion", json!({}), None)
@@ -346,16 +356,20 @@ async fn official_app_loss_releases_pipe_and_restarts_preserving_the_owned_profi
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(
-        OwnedHost::start(&config, &root).await.err(),
+        OwnedHost::start(&config, &root, &root.join("desktop/home"))
+            .await
+            .err(),
         Some(codex_chatgpt_provider::protocol::Error("host_profile_busy"))
     );
-    first.shutdown().await;
+    first.shutdown().await.unwrap();
     drop(first);
     assert_eq!(
         std::fs::read(&sentinel).unwrap(),
         b"preserve-owned-profile-on-loss"
     );
-    let mut second = OwnedHost::start(&config, &root).await.unwrap();
+    let mut second = OwnedHost::start(&config, &root, &root.join("desktop/home"))
+        .await
+        .unwrap();
     second
         .client
         .request("Browser.getVersion", json!({}), None)
@@ -365,7 +379,7 @@ async fn official_app_loss_releases_pipe_and_restarts_preserving_the_owned_profi
         std::fs::read(&sentinel).unwrap(),
         b"preserve-owned-profile-on-loss"
     );
-    second.shutdown().await;
+    second.shutdown().await.unwrap();
     drop(second);
     println!(
         "{}",

@@ -13,6 +13,9 @@ name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
 not part of that component name. Source qualification, package selection,
 service activation, actual inference and physical UI observation are distinct.
 
+For Linux app launch, saved profiles, mobile display, taskbar, Android-browser
+login and reconnection, follow the [Linux app operating guide](LINUX_APP.md).
+
 ## Bridge design and implementation status
 
 Provider contains the ChatGPT–Codex bridge: model/native-tool adapters and shared
@@ -192,6 +195,53 @@ profile. Keep existing associations when adding another configured account.
 Do not edit an existing work binding underneath running work; reconcile and
 settle it before a deliberate configuration change/restart.
 
+### Named tunnel administration credentials
+
+Use one `tunnel-client` admin profile per account. New OpenAI admin-key display
+names use `codex-admin-<account>`; local profile names use `<account>`, and key
+files use `${XDG_CONFIG_HOME:-$HOME/.config}/codex/credentials/tunnel-admin/<account>.key`.
+For example, create `codex-admin-janmori101` in the intended organization's
+[Admin keys settings](https://platform.openai.com/settings/organization/admin-keys).
+Existing keys retain their remote display names; those names do not select
+authentication or require reissuance. CURRENT records the device's actual keys.
+
+In Bash, replace `account` below for each account. Paste the key only at the
+hidden terminal prompt. The subshell keeps it out of command history and the
+environment; exclusive file creation refuses to overwrite an existing key.
+
+```bash
+(
+  set +x
+  set -euC
+  umask 077
+  account=janmori101
+  key_dir="${XDG_CONFIG_HOME:-$HOME/.config}/codex/credentials/tunnel-admin"
+  mkdir -p "$key_dir"
+  read -rsp "Admin key for $account: " tunnel_admin_key
+  printf '\n'
+  case "$tunnel_admin_key" in
+    sk-admin-?*) ;;
+    *) printf 'Expected an organization admin key\n' >&2; exit 1 ;;
+  esac
+  printf '%s\n' "$tunnel_admin_key" > "$key_dir/$account.key"
+  unset tunnel_admin_key
+  tunnel-client admin-profiles set "$account" --activate=false \
+    --control-plane-base-url https://api.openai.com \
+    --admin-key "file:$key_dir/$account.key"
+)
+```
+
+Profile registration alone does not prove remote permission or app login.
+`tunnel-client admin-profiles list` lists saved references without key values.
+Pass `--admin-profile <account>` on supported `runtimes` operations to select
+one explicitly; adding accounts leaves the active default and live tunnel alone.
+To retire an unused profile, use `tunnel-client admin-profiles delete <account>`;
+it checks existing use and leaves the key file intact. Delete the key file or
+revoke the remote key only as a separate deliberate action after checking all
+remaining consumers. Old device paths remain symlinks for existing consumers.
+These admin credentials are separate from tunnel runtime credentials and from
+independently retained Linux app login profiles.
+
 ### Direct ChatGPT connection without a Linux app
 
 With the native binding above, run the service in one Termux terminal:
@@ -276,6 +326,61 @@ a successful Android intent alone does not establish that. A cold app can be
 unready while initializing; inspect its current state rather than repeatedly
 restarting it. Do not copy the existing device's login files into another user's
 setup. Native `codex login` is not a substitute for this app login.
+
+### Retain and switch Linux app logins
+
+These source commands use Provider-owned app homes and matching Manager terminal
+return support. CURRENT distinguishes source qualification from installed builds.
+Passwords, authenticator OTPs and email codes are entered directly in the
+official app through the existing noVNC viewer. No secret input is accepted by
+the account controls, and no extra browser login form is involved.
+
+```sh
+codex provider chatgpt host accounts
+# Optional: label the existing home without moving or copying its login data.
+codex provider chatgpt host account-rename --profile default --name wrlab001
+codex provider chatgpt host account-add --profile janmori101
+codex provider chatgpt host account-login --profile janmori101
+```
+
+`account-login` captures the originating terminal through Manager, selects the
+profile, opens noVNC and waits up to600 seconds for the app's authenticated
+identity. Complete password/OTP/SSO steps in that screen. Once verified, it binds
+the profile's account/workspace and requests return to the original terminal.
+`--max-wait-seconds 1..600` changes that explicit login wait. A compatible standalone
+Manager binary can be selected with `--return-manager /absolute/path` during
+development qualification; installed use routes through Core's selected Manager.
+Return failure is reported separately from successful login. Android confirmation
+does not claim a physical screen observation.
+
+The initial `default` registration uses the original `desktop/home`. Other
+profiles have independent homes beneath `desktop/accounts`; provisioned Linux
+and app assets are shared. Profiles retain login state across host shutdown,
+subject to the service's normal session expiry or reauthentication requirements.
+One host runs at a time. Pending/unknown work or an active/unobservable old app
+round prevents a switch; the request is not replayed under another account.
+
+```sh
+codex provider chatgpt host account-use --profile wrlab001
+# Registration removal keeps the profile's login data for restoration.
+codex provider chatgpt host account-remove --profile janmori101
+codex provider chatgpt host account-add --profile janmori101
+# Explicit permanent local deletion, only for an unselected unlocked profile:
+codex provider chatgpt host account-remove --profile janmori101 --purge true
+```
+
+`account-use` selects without opening a viewer or claiming current authentication.
+`account-add` restores a retained registration with its original home. Select
+another profile before removing the selected one. Purging local data does not
+claim remote session revocation or delete remote conversations. If a login waiter
+was interrupted, `host account-confirm --profile NAME` verifies the current app
+without sending a model request. New profiles cannot perform app work before
+confirmation; an identity mismatch requires the intended account, not automatic
+rebinding. Per-account project access must be resolved in the selected account
+with existing `projects` controls; old explicit project IDs do not grant access.
+Account administration does not change Native homes, admin-key profiles, tunnel
+credentials or connector registrations. Qualification relays cannot administer
+Provider-owned app profiles.
 
 Terminal use can now select `/model` in Full or run `codex --profile chatgpt`.
 The built-in local_function return avoids a separate MCP connection for this

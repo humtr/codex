@@ -223,10 +223,11 @@ fn blank_history_read_error(error: &color_eyre::Report, thread: ThreadId) -> boo
     matches!(
         error.downcast_ref::<codex_app_server_client::TypedRequestError>(),
         Some(codex_app_server_client::TypedRequestError::Server { method, source })
-            if method == "thread/read"
+            if matches!(method.as_str(), "thread/read" | "thread/turns/list")
                 && ((source.code == -32601 && source.message == "list_turns is not supported yet")
                     || (source.code == -32600 && source.message == format!(
-                        "thread {thread} is not materialized yet; includeTurns is unavailable before first user message"
+                        "thread {thread} is not materialized yet; {} is unavailable before first user message",
+                        if method == "thread/read" { "includeTurns" } else { "thread/turns/list" }
                     )))
     )
 }
@@ -634,6 +635,9 @@ mod tests {
         let blank = format!(
             "thread {thread} is not materialized yet; includeTurns is unavailable before first user message"
         );
+        let paginated_blank = format!(
+            "thread {thread} is not materialized yet; thread/turns/list is unavailable before first user message"
+        );
         for (method, code, message, accepted) in [
             (
                 "thread/read",
@@ -642,6 +646,22 @@ mod tests {
                 true,
             ),
             ("thread/read", -32600, blank.clone(), true),
+            (
+                "thread/turns/list",
+                -32601,
+                "list_turns is not supported yet".into(),
+                true,
+            ),
+            ("thread/turns/list", -32600, paginated_blank.clone(), true),
+            ("thread/turns/list", -32600, blank.clone(), false),
+            ("thread/read", -32600, paginated_blank.clone(), false),
+            ("thread/turns/list", -32603, paginated_blank.clone(), false),
+            (
+                "thread/turns/list",
+                -32600,
+                paginated_blank.replace(&thread.to_string(), &ThreadId::new().to_string()),
+                false,
+            ),
             ("thread/read", -32603, blank.clone(), false),
             (
                 "thread/read",

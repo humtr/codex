@@ -194,6 +194,14 @@ impl Journal {
     /// foreign records. Ordinary startup uses the recovered work index instead
     /// of scanning every transport receipt on every process start.
     pub(crate) fn records(&self, schema: &str) -> Result<Vec<(String, serde_json::Value)>, Error> {
+        Ok(self
+            .all_records()?
+            .into_iter()
+            .filter(|(_, value)| value["schema"] == schema)
+            .collect())
+    }
+    /// Explicit administrative reconciliation, never an ordinary request scan.
+    pub(crate) fn all_records(&self) -> Result<Vec<(String, serde_json::Value)>, Error> {
         let mut records = Vec::new();
         for entry in fs::read_dir(&self.root).map_err(|_| Error("state_directory_unavailable"))? {
             let entry = entry.map_err(|_| Error("state_directory_unavailable"))?;
@@ -209,11 +217,18 @@ impl Journal {
                 Ok(None) | Err(Error("foreign_lane_record")) => continue,
                 Err(error) => return Err(error),
             };
-            if value["schema"] == schema {
-                records.push((key.into(), value));
-            }
+            records.push((key.into(), value));
         }
         Ok(records)
+    }
+    pub(crate) fn remove(&self, key: &str) -> Result<(), Error> {
+        if self.read::<serde_json::Value>(key)?.is_some() {
+            fs::remove_file(self.path(key)?).map_err(|_| Error("lane_record_unavailable"))?;
+            File::open(&self.root)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| Error("lane_record_unavailable"))?;
+        }
+        Ok(())
     }
     pub fn write<T: Serialize>(&self, key: &str, value: &T) -> Result<(), Error> {
         let path = self.path(key)?;

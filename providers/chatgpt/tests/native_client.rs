@@ -449,6 +449,7 @@ fi
                     ..Default::default()
                 },
                 &state,
+                &state.join("desktop/home"),
             )
             .await
             .unwrap(),
@@ -507,7 +508,7 @@ fi
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await
                 }
                 Err(error) => {
-                    host.shutdown().await;
+                    host.shutdown().await.unwrap();
                     panic!("owned identity preflight: {error}");
                 }
             }
@@ -516,7 +517,7 @@ fi
             .iter()
             .all(|k| identity[k] == expected[k]);
         if !same {
-            host.shutdown().await;
+            host.shutdown().await.unwrap();
             panic!("owned app account changed; no inference authorized");
         }
     }
@@ -884,7 +885,7 @@ fi
             .await
             .unwrap();
         if let Some(owned) = &mut owned {
-            owned.shutdown().await;
+            owned.shutdown().await.unwrap();
         }
         assert!(observation.is_some());
         println!(

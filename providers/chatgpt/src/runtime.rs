@@ -30,12 +30,14 @@ use tokio_util::sync::CancellationToken;
 /// Chat-first work needs no app host. Only a Codex-origin start or independent
 /// native reviewer can acquire this explicitly provisioned host on first use.
 type LazyHost = Arc<tokio::sync::Mutex<Option<(crate::host::OwnedHost, Arc<Remote>)>>>;
+#[derive(Clone)]
 struct LazyRemote {
     config: crate::config::HostConfig,
     mcp: bool,
     root: PathBuf,
     owner: String,
     host: LazyHost,
+    gate: Arc<tokio::sync::RwLock<()>>,
     viewer: crate::viewer::Slot,
     journal: Arc<Journal>,
     port: u16,
@@ -43,98 +45,217 @@ struct LazyRemote {
 impl crate::app::Bridge for LazyRemote {
     fn operation(
         &self,
-        command: serde_json::Value,
+        mut command: serde_json::Value,
     ) -> futures_util::future::BoxFuture<'static, Result<serde_json::Value, Error>> {
-        let config = self.config.clone();
-        let mcp = self.mcp;
-        let root = self.root.clone();
-        let owner = self.owner.clone();
-        let host = self.host.clone();
-        let viewer_slot = self.viewer.clone();
-        let journal = self.journal.clone();
-        let port = self.port;
+        let this = self.clone();
         Box::pin(async move {
             if matches!(
                 command["op"].as_str(),
-                Some("host_status" | "host_open" | "host_stop")
+                Some(
+                    "accounts"
+                        | "account_add"
+                        | "account_rename"
+                        | "account_use"
+                        | "account_remove"
+                        | "account_login"
+                        | "account_confirm"
+                )
             ) {
-                let mut guard = host.lock().await;
-                if guard.is_none() {
+                let _gate = this.gate.write().await;
+                return this.account_operation(command).await;
+            }
+            if command["op"] == "host_stop" {
+                let _gate = this.gate.write().await;
+                return this.stop_host().await;
+            }
+            let _gate = this.gate.read().await;
+            if matches!(command["op"].as_str(), Some("host_status" | "host_open")) {
+                let host = this.host.lock().await;
+                let Some((_, remote)) = host.as_ref() else {
                     return if command["op"] == "host_open" {
                         Err(Error("host_not_acquired"))
                     } else {
                         Ok(
-                            json!({"present":false,"ready":false,"host_started":false,"inference_submitted":false,"stopped":command["op"]=="host_stop"}),
+                            json!({"present":false,"ready":false,"host_started":false,"inference_submitted":false}),
                         )
                     };
-                }
-                if command["op"] == "host_stop" {
-                    let remote = guard.as_ref().unwrap().1.clone();
-                    let observed = remote.operation(json!({"op":"host_status"})).await?;
-                    if !observed["active_lanes"]
-                        .as_array()
-                        .is_some_and(Vec::is_empty)
-                    {
-                        return Err(Error("host_active_work"));
-                    }
-                    // Retain the owner guard throughout teardown; a concurrent
-                    // ensure cannot acquire a replacement before Stop settles.
-                    guard.as_mut().unwrap().0.shutdown().await;
-                    *guard = None;
-                    *viewer_slot.write().unwrap() = None;
-                    if let Some(mut binding) = journal.read::<Binding>(&key())? {
-                        binding.viewer_capability = None;
-                        journal.write(&key(), &binding)?;
-                    }
-                    return Ok(
-                        json!({"stopped":true,"scope":"provider_owned_host","inference_submitted":false}),
-                    );
-                }
-                let remote = guard.as_ref().unwrap().1.clone();
-                drop(guard);
+                };
                 return remote.operation(command).await;
             }
-            let remote = {
-                let mut host = host.lock().await;
-                if host.is_none() {
-                    if command["op"] == "release" {
-                        return Ok(json!({"released":true}));
-                    }
-                    if matches!(
-                        command["op"].as_str(),
-                        Some("stop" | "snapshot" | "dispose")
-                    ) {
-                        return Err(Error("owned_app_round_unavailable"));
-                    }
-                    let owned = crate::host::OwnedHost::start(&config, &root).await?;
-                    let viewer = config.viewer_assets.as_ref().and_then(|assets| {
-                        match crate::viewer::Viewer::new(
-                            owned.viewer_socket(),
-                            assets.clone(),
-                            port,
-                        ) {
-                            Ok(viewer) => Some(viewer),
-                            Err(error) => {
-                                eprintln!("optional viewer unavailable: {}", error.0);
-                                None
-                            }
-                        }
-                    });
-                    if let Some(viewer) = &viewer {
-                        let mut binding: Binding =
-                            journal.read(&key())?.ok_or(Error("provider_not_running"))?;
-                        binding.viewer_capability = Some(viewer.capability.clone());
-                        journal.write(&key(), &binding)?;
-                        *viewer_slot.write().unwrap() = Some(viewer.clone());
-                    }
-                    let remote = Remote::pipe(owned.client.clone(), owner).with_viewer(viewer);
-                    let remote = Arc::new(if mcp { remote.with_mcp() } else { remote });
-                    *host = Some((owned, remote));
+            if this.host.lock().await.is_none() {
+                if command["op"] == "release" {
+                    return Ok(json!({"released":true}));
                 }
-                host.as_ref().unwrap().1.clone()
-            };
+                if matches!(
+                    command["op"].as_str(),
+                    Some("stop" | "snapshot" | "dispose")
+                ) {
+                    return Err(Error("owned_app_round_unavailable"));
+                }
+            }
+            let remote = this.acquire().await?;
+            if matches!(
+                command["op"].as_str(),
+                Some(
+                    "open"
+                        | "chat_adopt"
+                        | "submit"
+                        | "chat_submit"
+                        | "model_catalog"
+                        | "chat_list"
+                        | "chat_read"
+                        | "chat_page"
+                        | "project_list"
+                        | "project_read"
+                        | "project_create"
+                        | "project_membership"
+                )
+            ) {
+                let accounts = crate::accounts::Accounts::load(&this.journal)?;
+                if let Some(expected) = accounts.expected_identity(accounts.selected())? {
+                    command["expectedIdentity"] = serde_json::to_value(expected)
+                        .map_err(|_| Error("app_profile_record_invalid"))?;
+                }
+            }
             remote.operation(command).await
         })
+    }
+}
+
+impl LazyRemote {
+    async fn acquire(&self) -> Result<Arc<Remote>, Error> {
+        let mut host = self.host.lock().await;
+        if host.is_none() {
+            let accounts = crate::accounts::Accounts::load(&self.journal)?;
+            let owned = crate::host::OwnedHost::start(
+                &self.config,
+                &self.root,
+                &accounts.home(&self.root, accounts.selected())?,
+            )
+            .await?;
+            let viewer = self.config.viewer_assets.as_ref().and_then(|assets| {
+                match crate::viewer::Viewer::new(owned.viewer_socket(), assets.clone(), self.port) {
+                    Ok(viewer) => Some(viewer),
+                    Err(error) => {
+                        eprintln!("optional viewer unavailable: {}", error.0);
+                        None
+                    }
+                }
+            });
+            if let Some(viewer) = &viewer {
+                let mut binding: Binding = self
+                    .journal
+                    .read(&key())?
+                    .ok_or(Error("provider_not_running"))?;
+                binding.viewer_capability = Some(viewer.capability.clone());
+                self.journal.write(&key(), &binding)?;
+                *self.viewer.write().unwrap() = Some(viewer.clone());
+            }
+            let remote = Remote::pipe(owned.client.clone(), self.owner.clone()).with_viewer(viewer);
+            *host = Some((
+                owned,
+                Arc::new(if self.mcp { remote.with_mcp() } else { remote }),
+            ));
+        }
+        Ok(host.as_ref().unwrap().1.clone())
+    }
+    async fn stop_host(&self) -> Result<serde_json::Value, Error> {
+        use crate::app::Bridge;
+        crate::app::ensure_settled(&self.journal)?;
+        let mut host = self.host.lock().await;
+        if let Some((owned, remote)) = host.as_mut() {
+            let observed = remote.operation(json!({"op":"host_status"})).await?;
+            if !observed["active_lanes"]
+                .as_array()
+                .is_some_and(Vec::is_empty)
+            {
+                return Err(Error("host_active_work"));
+            }
+            owned.shutdown().await?;
+            *host = None;
+            *self.viewer.write().unwrap() = None;
+            if let Some(mut binding) = self.journal.read::<Binding>(&key())? {
+                binding.viewer_capability = None;
+                self.journal.write(&key(), &binding)?;
+            }
+        }
+        Ok(json!({"stopped":true,"scope":"provider_owned_host","inference_submitted":false}))
+    }
+    async fn account_operation(
+        &self,
+        command: serde_json::Value,
+    ) -> Result<serde_json::Value, Error> {
+        use crate::{
+            accounts::Accounts,
+            app::{Bridge, Identity},
+        };
+        let op = command["op"].as_str().ok_or(Error("host_action_invalid"))?;
+        let mut accounts = Accounts::load(&self.journal)?;
+        if op == "accounts" {
+            if command.as_object().is_none_or(|c| c.len() != 1) {
+                return Err(Error("host_action_invalid"));
+            }
+            return Ok(accounts.list());
+        }
+        let name = command["profile"]
+            .as_str()
+            .ok_or(Error("app_profile_name_required"))?;
+        if command.get("purge").is_some() && op != "account_remove"
+            || command.get("name").is_some() && op != "account_rename"
+        {
+            return Err(Error("host_action_invalid"));
+        }
+        match op {
+            "account_add" => accounts.add(name)?,
+            "account_remove" => accounts.remove(&self.root, name, command["purge"] == true)?,
+            "account_rename" => accounts.rename(
+                name,
+                command["name"]
+                    .as_str()
+                    .ok_or(Error("app_profile_name_required"))?,
+            )?,
+            "account_use" | "account_login" => {
+                let changed = accounts.selected() != name;
+                accounts.select(name)?;
+                if changed {
+                    self.stop_host().await?;
+                    self.journal.remove(&crate::models::snapshot_key())?;
+                }
+                accounts.save(&self.journal)?;
+                if op == "account_login" {
+                    self.config
+                        .viewer_assets
+                        .as_ref()
+                        .ok_or(Error("provider_viewer_unavailable"))?;
+                    self.acquire()
+                        .await?
+                        .operation(json!({"op":"host_open"}))
+                        .await?;
+                    return Ok(
+                        json!({"profile":name,"viewer_open_requested":true,"authenticated_now":false,"credentials":"official_app_ui","inference_submitted":false}),
+                    );
+                }
+                return Ok(
+                    json!({"profile":name,"selected":true,"authenticated_now":false,"inference_submitted":false}),
+                );
+            }
+            "account_confirm" => {
+                if accounts.selected() != name {
+                    return Err(Error("app_profile_not_selected"));
+                }
+                let host = self.host.lock().await;
+                let remote = &host.as_ref().ok_or(Error("host_not_acquired"))?.1;
+                let value = remote.operation(json!({"op":"identity"})).await?;
+                accounts.confirm(name, Identity::parse(&value)?)?;
+                accounts.save(&self.journal)?;
+                return Ok(
+                    json!({"profile":name,"identity":value,"authenticated_now":true,"inference_submitted":false}),
+                );
+            }
+            _ => return Err(Error("host_action_invalid")),
+        }
+        accounts.save(&self.journal)?;
+        Ok(accounts.list())
     }
 }
 
@@ -556,7 +677,7 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
     let capability = selected
         .viewer_capability
         .ok_or(Error("provider_viewer_unavailable"))?;
-    let url=format!("http://127.0.0.1:{}/viewer/{capability}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{capability}%2Fwebsock",selected.port);
+    let url = crate::viewer::url(selected.port, &capability);
     let prefix = PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
     request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await?;
     Ok(
@@ -742,6 +863,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
             root: root.clone(),
             owner: journal.owner.clone(),
             host: lazy_host.clone(),
+            gate: Arc::new(tokio::sync::RwLock::new(())),
             viewer: viewer_slot.clone(),
             journal: journal.clone(),
             port,
@@ -816,7 +938,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         .map_err(|_| Error("provider_server_failed"));
     host.shutdown().await;
     if let Some((host, _)) = &mut *lazy_host.lock().await {
-        host.shutdown().await;
+        host.shutdown().await?;
     }
     result
 }
@@ -842,6 +964,7 @@ mod tests {
             root: root.0.clone(),
             owner: journal.owner.clone(),
             host: host.clone(),
+            gate: Arc::new(tokio::sync::RwLock::new(())),
             viewer: Arc::new(std::sync::RwLock::new(None)),
             journal,
             port: 0,
@@ -917,6 +1040,7 @@ mod tests {
             root: root.0.clone(),
             owner: journal.owner.clone(),
             host: host.clone(),
+            gate: Arc::new(tokio::sync::RwLock::new(())),
             viewer: slot.clone(),
             journal: journal.clone(),
             port,
@@ -958,7 +1082,7 @@ mod tests {
         probe.abort();
         let _ = probe.await;
         if let Some((mut owned, _)) = host.lock().await.take() {
-            owned.shutdown().await;
+            owned.shutdown().await.unwrap();
         }
         if let Some(viewer) = &*slot.read().unwrap() {
             viewer.close();

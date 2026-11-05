@@ -277,6 +277,8 @@ def probe(args):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
         saved = termios.tcgetattr(slave)
         command = [] if args.mode == 'ordinary' else ['update']
+        if args.mode == 'display':
+            command += ['--details']
         if args.mode == 'no-wait':
             command += ['--no-wait']
         process = subprocess.Popen([str(prefix / 'bin/codex'), *command], env=env,
@@ -400,7 +402,7 @@ def probe(args):
             if fields['manager_artifact_digest'] != '-':
                 component = json.loads((root / 'component-input-v1').read_text())['display']
                 assert f"Core (Base #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
-            assert 'Provider chatgpt selected: chatgpt-display-owned-8' in transcript
+            assert 'Provider package: #8 · installed' in transcript and 'Generation: chatgpt-display-owned-8' in transcript
             assert '2026-10-29 02:04:05 KST (UTC+09:00)' in transcript
             assert 'Provider changes:' in transcript and 'Core changes:' in transcript
             assert 'Publish component-scoped update notes' in transcript

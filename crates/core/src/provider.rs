@@ -16,7 +16,7 @@ const USAGE: &str = "usage: codex provider install chatgpt [--local ABSOLUTE_DIR
 // Provider commands additionally own enrollment and direct dispatch.
 pub(super) enum Request<'a> {
     Command(&'a [OsString]),
-    UpdateSelected,
+    UpdateSelected { details: bool },
 }
 
 fn owned_directory(path: &Path, create: bool) -> Result<()> {
@@ -287,6 +287,13 @@ fn verify_index_binding(index: &Index, manifest: &Manifest, digest: &str) -> Res
     Ok(())
 }
 
+#[derive(Debug)]
+struct Installation {
+    manifest: Manifest,
+    changed: bool,
+    origin: Option<String>,
+}
+
 fn install(
     roots: &LocalCoreRoots,
     store: &Store,
@@ -294,7 +301,7 @@ fn install(
     key: ReleasePublicKey,
     state: Option<State>,
     expected: Option<&Index>,
-) -> Result<()> {
+) -> Result<Installation> {
     if !source.is_absolute() {
         return Err("absolute Provider package path required".into());
     }
@@ -303,15 +310,6 @@ fn install(
     let digest = openssl_sha256(&roots.openssl, &source.join("payload.manifest"))?;
     if let Some(index) = expected {
         verify_index_binding(index, &manifest, &digest)?;
-        if let Some(details) = release_display::provider_details(
-            roots,
-            &index.release_base(),
-            &manifest.generation,
-            manifest.sequence,
-            true,
-        ) {
-            println!("{details}");
-        }
     }
     let value = Selected {
         id: manifest.generation.clone(),
@@ -321,8 +319,11 @@ fn install(
     if let Some(before) = state.as_ref() {
         selected(roots, store, &before.current, before.floor)?;
         if before.current == value {
-            println!("Provider chatgpt unchanged: {} (selection only)", value.id);
-            return Ok(());
+            return Ok(Installation {
+                manifest,
+                changed: false,
+                origin: expected.map(Index::release_base),
+            });
         }
     }
     let destination = store.generations.join(&value.id);
@@ -401,11 +402,11 @@ fn install(
         previous: state.map(|v| v.current),
         floor,
     })?;
-    println!(
-        "Provider chatgpt selected: {} (selection only; run prepare explicitly to update profiles)",
-        manifest.generation
-    );
-    Ok(())
+    Ok(Installation {
+        manifest,
+        changed: true,
+        origin: expected.map(Index::release_base),
+    })
 }
 fn install_remote(
     roots: &LocalCoreRoots,
@@ -414,11 +415,11 @@ fn install_remote(
     key: ReleasePublicKey,
     state: Option<State>,
     expected: Option<&Index>,
-) -> Result<()> {
+) -> Result<Installation> {
     let base = RemoteReleaseBase::parse(url)?;
     let acquisition = store.root.join(format!(".download-{}", std::process::id()));
     fs::DirBuilder::new().mode(0o700).create(&acquisition)?;
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Installation> {
         let mut total = 0u64;
         let mut fetch_control = |name: &str, bound: u64| -> Result<()> {
             let output = fresh(&acquisition.join(name))?;
@@ -470,17 +471,6 @@ fn install_remote(
             )),
             _ => None,
         };
-        if expected.is_none() {
-            if let Some(details) = release_display::provider_details(
-                roots,
-                &base.value,
-                &manifest.generation,
-                manifest.sequence,
-                true,
-            ) {
-                println!("{details}");
-            }
-        }
         fs::DirBuilder::new()
             .mode(0o700)
             .create(acquisition.join("licenses"))?;
@@ -539,14 +529,16 @@ fn install_remote(
             fs::set_permissions(path, fs::Permissions::from_mode(file.mode))?;
         }
         presentation.clear_transient();
-        install(roots, store, &acquisition, key, state, expected)
+        let mut installed = install(roots, store, &acquisition, key, state, expected)?;
+        installed.origin = Some(base.value.clone());
+        Ok(installed)
     })();
     // Creation succeeded above; this is solely our acquisition, never user data.
     let cleanup = fs::remove_dir_all(&acquisition);
     match (result, cleanup) {
         (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) => Err(error.into()),
-        (Ok(()), Ok(())) => Ok(()),
+        (Ok(_), Err(error)) => Err(error.into()),
+        (Ok(installed), Ok(())) => Ok(installed),
     }
 }
 
@@ -599,8 +591,7 @@ fn install_stable(
     store: &Store,
     key: ReleasePublicKey,
     state: Option<State>,
-    show_current_details: bool,
-) -> Result<()> {
+) -> Result<Installation> {
     with_stable_index(
         roots,
         store,
@@ -614,22 +605,11 @@ fn install_stable(
             }) {
                 let installed = selected(roots, store, &current.current, current.floor)?;
                 verify_index_binding(&index, &installed, &current.current.digest)?;
-                if show_current_details {
-                    if let Some(details) = release_display::provider_details(
-                        roots,
-                        &index.release_base(),
-                        &index.generation,
-                        index.sequence,
-                        false,
-                    ) {
-                        println!("{details}");
-                    }
-                }
-                println!(
-                    "Provider chatgpt unchanged: {} (selection only)",
-                    installed.generation
-                );
-                return Ok(());
+                return Ok(Installation {
+                    manifest: installed,
+                    changed: false,
+                    origin: Some(index.release_base()),
+                });
             }
             let cached = store.generations.join(&index.generation);
             match fs::symlink_metadata(&cached) {
@@ -651,9 +631,9 @@ fn install_stable(
 
 pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()> {
     let update_args = [OsString::from("update"), OsString::from("chatgpt")];
-    let (args, update_selected) = match request {
-        Request::Command(args) => (args, false),
-        Request::UpdateSelected => (update_args.as_slice(), true),
+    let (args, update_selected, details) = match request {
+        Request::Command(args) => (args, false, false),
+        Request::UpdateSelected { details } => (update_args.as_slice(), true, details),
     };
     let management = matches!(
         args.first().and_then(|v| v.to_str()),
@@ -714,12 +694,10 @@ pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()
     if update_selected && state.is_none() {
         return Ok(());
     }
-    match args[0].to_str() {
-        Some("update") => {
-            install_stable(roots, &store, authority.update_key, state, update_selected)
-        }
+    let installed = match args[0].to_str() {
+        Some("update") => install_stable(roots, &store, authority.update_key, state),
         Some("install") if args.len() == 2 => {
-            install_stable(roots, &store, authority.update_key, state, false)
+            install_stable(roots, &store, authority.update_key, state)
         }
         Some("install") if args[2] == "--remote" => {
             install_remote(roots, &store, &args[3], authority.update_key, state, None)
@@ -739,7 +717,7 @@ pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()
             } else {
                 println!("Provider chatgpt not installed");
             }
-            Ok(())
+            return Ok(());
         }
         Some("rollback") => {
             let state = state.ok_or("Provider chatgpt not installed")?;
@@ -760,7 +738,7 @@ pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()
                 floor: state.floor,
             })?;
             println!("Provider chatgpt rollback selection: {id} (profiles unchanged)");
-            Ok(())
+            return Ok(());
         }
         _ => {
             let state = state.ok_or("Provider chatgpt not installed")?;
@@ -785,9 +763,21 @@ pub(super) fn execute(roots: &LocalCoreRoots, request: Request<'_>) -> Result<()
             .env_remove(CORE_ONLY_ENV)
             .exec();
             drop(inherited);
-            Err(error.into())
+            return Err(error.into());
         }
-    }
+    }?;
+    println!(
+        "{}",
+        release_display::provider_details(
+            roots,
+            installed.origin.as_deref().unwrap_or(""),
+            &installed.manifest.generation,
+            installed.manifest.sequence,
+            installed.changed,
+            details,
+        )
+    );
+    Ok(())
 }
 pub(super) fn run(roots: &LocalCoreRoots, request: Request<'_>) -> i32 {
     match execute(roots, request) {
@@ -1082,7 +1072,7 @@ mod tests {
                 .collect::<String>();
             fs::write(&roots.curl,format!("#!{}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --url ]; then shift; url=$1; fi; shift; done\nprintf '%s\\n' \"$url\" >> {}\ncase \"$url\" in\n*/provider-index-v1) cat {} ;;\n*/provider-index-v1.sig) cat {} ;;\n{package_routes}*) exit 22 ;;\nesac\n",prefix.join("bin/sh").display(),quote(&log),quote(&index_file),quote(&index_sig))).unwrap();
             fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o755)).unwrap();
-            let result = install_stable(&roots, &store, authority, Some(state), false);
+            let result = install_stable(&roots, &store, authority, Some(state));
             assert_eq!(result.is_ok(), defect == "none", "{defect}: {result:?}");
             if matches!(defect, "changed-file" | "cached-target") {
                 let rejected = result.unwrap_err();

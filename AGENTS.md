@@ -54,6 +54,11 @@ The repository owns this development plane; it needs no external workflow skill.
   callers; decide what to retain, improve, merge, replace or delete. Existing
   file/class placement is not a requirement. Keep cohesive responsibilities
   together; do not split or combine code to meet file/line counts.
+- For Linux ChatGPT app launch, login, mobile display, taskbar, noVNC or Provider
+  attachment work, first read and follow
+  [the Linux app operating guide](providers/chatgpt/LINUX_APP.md). Reuse its
+  existing mobile desktop implementation and saved account profiles; an ordinary
+  request to show the app is not a new implementation or qualification cycle.
 - Fix defects at the responsibility that causes them. Do not add a second route
   beside or above it to hide a symptom. Prefer one implementation per responsibility;
   remove replaced functions, branches, settings, tests and documentation in the

@@ -523,9 +523,12 @@ it starts publication instead of treating source readiness as a completed releas
 Update output separates the upstream Codex version from the Termux edition and
 release number, for example `Full #57 -> Full #59 · Base #58`. Base means the
 standalone Core/upstream edition; Full includes Manager/enhanced TUI. Publication
-timestamps use KST (UTC+09:00). Brief changes and complete-note links appear
-only for components changed by this update; a repeated current-version check
-retains identity/timestamps without repeating changelogs. Upstream notes appear
+timestamps use KST (UTC+09:00). Default output keeps package identities and
+results concise. `codex update --details` also shows publication timestamps,
+component rows and Provider generation IDs; it may be combined with `--wait`
+or `--no-wait`. Brief changes and complete-note links appear only for components
+changed by this update. An equal latest upstream version is omitted unless
+`--details` was requested; repeated checks do not repeat changelogs. Upstream notes appear
 when a newer official version is available or this update changed that version.
 Upstream, Termux Core, bundled Manager/enhanced TUI and selected Provider
 information are distinguished. Default manual update also updates an already
@@ -534,17 +537,18 @@ unselected Provider or restart its services. `codex provider update chatgpt`
 performs only that group. A stale signed channel below the installed Provider
 high-water mark is rejected while preserving the selection; repair the public
 channel rather than lowering the device's antirollback floor.
-When Full reuses a declared Base, Core shows the Base release's own publication
-time and notes. Manager/TUI dates identify their containing Full package,
+In detailed output, when Full reuses a declared Base, Core shows that Base's
+own publication time and notes. Manager/TUI dates identify their containing Full package,
 not invented independent module releases. Older signed preparation dates retain their UTC date when a full
 publication timestamp is unavailable. Missing optional information does not block
 a valid update. Ordinary startup performs none of these publication queries.
 An already-current update shows concise release information without reinstalling.
 
 Core/TUI updates install a new generation while existing clients retain their
-running executable; later launches use the selected generation. Provider's current
-package selector refuses a live Provider, and replacing its shared service is a
-separate lifecycle action. A running Codex client alone is not a Core-update block.
+running executable; later launches use the selected generation. Provider package
+selection preserves running services and pinned profiles. Service replacement
+and explicit profile preparation apply that selection separately; a custom
+service pinned to a development executable keeps that binding even on restart. A running Codex client alone is not a Core-update block.
 
 Release authors maintain component sections in [release/notes.md](release/notes.md).
 The publication workflows select only the sections included in that package.

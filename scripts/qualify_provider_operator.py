@@ -162,6 +162,13 @@ def probe(args):
             return {row['work_id'] for row in rpc('codex_sessions', {'action': 'list'}, metadata=meta)['work'] if row.get('chat_correlated')}
         created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a)
         assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a) == created
+        initial_attach = rpc('codex_attach', {'work_id': created['work_id'],
+                             'controller': created['controller']}, metadata=chat_a)
+        assert initial_attach['accepted'] is False and initial_attach['receipt'] is None
+        assert initial_attach['delivery'] == 'pending_native_history'
+        assert initial_attach['history_observation_available'] is False
+        assert initial_attach['history_observation_error'] == 'native_history_not_ready'
+        assert initial_attach['inference_submitted'] is False
         assert related(chat_a) == {created['work_id']}
         assert not related(chat_b)
         rpc('codex_status', {'work_id': created['work_id']}, metadata=chat_b)
@@ -196,7 +203,13 @@ def probe(args):
         wait(lambda: rpc('codex_status', {'work_id': binding['work_id']})['phase'] == 'running')
 
         def attach(bound, *, metadata=None):
-            observed = rpc('codex_attach', bound, metadata=metadata)
+            def context_ready():
+                observed = rpc('codex_attach', bound, metadata=metadata)
+                if observed.get('delivery') in {'pending_native_history', 'pending_native_context'}:
+                    assert observed['accepted'] is False and observed['receipt'] is None
+                    return None
+                return observed
+            observed = wait(context_ready)
             accepted = rpc('codex_attach', {**bound, 'accept': observed['receipt']}, metadata=metadata)
             assert accepted['accepted']
             return accepted

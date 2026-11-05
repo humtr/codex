@@ -3,6 +3,7 @@ pub mod models;
 pub mod presentation;
 
 pub const PROVIDER_NAME: &str = "chatgpt-desktop";
+mod accounts;
 pub mod app;
 mod bound_chat;
 pub mod cdp;

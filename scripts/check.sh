@@ -36,6 +36,7 @@ if [ "$scope" = provider ]; then
   # Import/CLI checks only; device fixtures and cleanup never run in source CI.
   python3 -B scripts/clean_development.py --help >/dev/null
   python3 -B scripts/qualify_provider_product.py --help >/dev/null
+  python3 -B scripts/qualify_provider_adapter_tools.py --help >/dev/null
   python3 -B scripts/qualify_provider_package.py --help >/dev/null
   python3 -B scripts/qualify_provider_g.py --help >/dev/null
   python3 -B scripts/qualify_managed_native_lifecycle.py --help >/dev/null

@@ -530,6 +530,25 @@ enum Command {
     },
 }
 type Works = Arc<Mutex<BTreeMap<String, Work>>>;
+fn find_work<'a>(
+    journal: &Journal,
+    works: &'a BTreeMap<String, Work>,
+    requested: Option<&str>,
+) -> Result<Option<&'a Work>, Error> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    // An exact operator ID never depends on an unrelated AppHost lane record.
+    if let Some(work) = works.values().find(|work| work.record.id == requested) {
+        return Ok(Some(work));
+    }
+    for work in works.values() {
+        if crate::app::lane_marker(journal, &work.record.thread)?.as_deref() == Some(requested) {
+            return Ok(Some(work));
+        }
+    }
+    Ok(None)
+}
 struct LimitedBridge {
     remote: Arc<dyn Bridge>,
     works: Works,
@@ -1082,9 +1101,7 @@ impl Operator {
         require_controller: bool,
     ) -> Result<(Record, Arc<Native>), Error> {
         let works = self.works.lock().await;
-        let work = works
-            .values()
-            .find(|v| Some(v.record.id.as_str()) == args["work_id"].as_str())
+        let work = find_work(&self.journal, &works, args["work_id"].as_str())?
             .ok_or(Error("operator_work_unavailable"))?;
         let mut record = work.record.clone();
         if args.get("controller").is_some()
@@ -1491,6 +1508,100 @@ impl Operator {
             cursor = next;
         }
         Err(Error("native_history_read_bound"))
+    }
+    async fn all_native_item_ids(
+        native: &Native,
+        thread: &str,
+        has_native_turn: bool,
+    ) -> Result<std::collections::BTreeSet<String>, Error> {
+        let mut cursor = Value::Null;
+        let mut ids = std::collections::BTreeSet::new();
+        for _ in 0..4096 {
+            let response = match native
+                .call(
+                    "thread/items/list",
+                    json!({"threadId":thread,"limit":100,"cursor":cursor,"sortDirection":"asc"}),
+                )
+                .await
+            {
+                Ok(response) => response,
+                Err(Error("native_history_not_ready")) if !has_native_turn => {
+                    return Ok(std::collections::BTreeSet::new());
+                }
+                Err(error) => return Err(error),
+            };
+            let items = response["data"]
+                .as_array()
+                .ok_or(Error("native_history_unavailable"))?;
+            for row in items {
+                let item = &row["item"];
+                if !row["turnId"].is_string() || !item["type"].is_string() {
+                    return Err(Error("native_history_unavailable"));
+                }
+                if let Some(id) = item["id"].as_str() {
+                    ids.insert(id.to_owned());
+                }
+            }
+            let next = response["nextCursor"].clone();
+            if next.is_null() {
+                return Ok(ids);
+            }
+            if next == cursor {
+                return Err(Error("native_history_cursor_repeated"));
+            }
+            cursor = next;
+        }
+        Err(Error("native_history_read_bound"))
+    }
+    async fn reconcile_stopped_work_effects(
+        &self,
+        native: &Native,
+        record: &Record,
+    ) -> Result<(), Error> {
+        let workspace = record
+            .workspace
+            .as_deref()
+            .ok_or(Error("native_workspace_unavailable"))?;
+        let app_marker = crate::app::lane_marker(&self.journal, &record.thread)?;
+        let mut lanes = vec![record.id.as_str()];
+        if let Some(marker) = app_marker.as_deref() {
+            if !lanes.contains(&marker) {
+                lanes.push(marker);
+            }
+        }
+        for lane in &lanes {
+            self.broker
+                .settle_stopped_processes(lane, workspace)
+                .await?;
+        }
+        let mut tokens = vec![record.token.clone()];
+        if let Some(marker) = app_marker.as_deref() {
+            if let Some(token) = crate::mcp_bridge::lane_token(&self.journal, marker)? {
+                if !tokens.contains(&token) {
+                    tokens.push(token);
+                }
+            }
+        }
+        let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        if self
+            .broker
+            .has_unsettled_stopped_effects(&lanes, &token_refs)?
+            || crate::app::has_stopped_pending_calls(&self.journal, &record.thread)?
+        {
+            let committed =
+                Self::all_native_item_ids(native, &record.thread, record.native_turn.is_some())
+                    .await?;
+            self.broker
+                .reconcile_stopped_unexecuted(&lanes, &token_refs, &committed)
+                .await?;
+            self.mcp_host
+                .clear_unexecuted_stopped_calls(&record.thread, &committed)
+                .await?;
+            self.local_host
+                .clear_unexecuted_stopped_calls(&record.thread, &committed)
+                .await?;
+        }
+        Ok(())
     }
     fn cursor(history: &[Value]) -> Cursor {
         Cursor {
@@ -2190,9 +2301,7 @@ impl Operator {
         let summary_round = if name == "codex_native_summary" {
             let works = self.works.lock().await;
             Some(
-                works
-                    .values()
-                    .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+                find_work(&self.journal, &works, args["work_id"].as_str())?
                     .ok_or(Error("operator_work_unavailable"))?
                     .round
                     .clone(),
@@ -2356,7 +2465,7 @@ impl Operator {
             }
             "codex_host" => {
                 let action = text(&args, "action", 16)?;
-                if action == "stop"
+                if matches!(action, "stop" | "account_use" | "account_login")
                     && self.works.lock().await.values().any(|work| {
                         work.app_cancel.is_some()
                             || work
@@ -2648,7 +2757,24 @@ impl Operator {
             return Err(Error("operator_reconciliation_required"));
         }
         self.verify_identity(&record).await?;
-        let history = Self::history(&native, &record.thread).await?;
+        if record.phase == "starting_native" {
+            return Ok(json!({"work_id":record.id,"thread_id":record.thread,
+                "native_context":record.phase,"accepted":false,"receipt":null,
+                "context_observation_available":false,"delivery":"pending_native_context",
+                "next_action":"codex_attach","inference_submitted":false}));
+        }
+        let history = match Self::history(&native, &record.thread).await {
+            Ok(history) => history,
+            Err(Error("native_history_not_ready")) => {
+                return Ok(json!({"work_id":record.id,"thread_id":record.thread,
+                    "native_context":record.phase,"accepted":false,"receipt":null,
+                    "history_observation_available":false,
+                    "history_observation_error":"native_history_not_ready",
+                    "delivery":"pending_native_history","next_action":"codex_attach",
+                    "inference_submitted":false}));
+            }
+            Err(error) => return Err(error),
+        };
         let context = native.public_context(&record.thread).await?;
         let mut summary = None;
         let mut count = 0;
@@ -2953,9 +3079,7 @@ impl Operator {
     ) -> Result<tokio::sync::OwnedMutexGuard<()>, Error> {
         let lock = {
             let works = self.works.lock().await;
-            let work = works
-                .values()
-                .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+            let work = find_work(&self.journal, &works, args["work_id"].as_str())?
                 .ok_or(Error("operator_work_unavailable"))?;
             if work.stops_in_progress != 0 {
                 return Err(Error("operator_controller_fenced"));
@@ -2964,9 +3088,7 @@ impl Operator {
         };
         let admission = lock.lock_owned().await;
         let works = self.works.lock().await;
-        if works
-            .values()
-            .find(|work| Some(work.record.id.as_str()) == args["work_id"].as_str())
+        if find_work(&self.journal, &works, args["work_id"].as_str())?
             .is_none_or(|work| work.stops_in_progress != 0)
         {
             return Err(Error("operator_controller_fenced"));
@@ -3823,7 +3945,9 @@ impl Operator {
                 let resumed = self
                     .resume_unloaded_native(&record, &native, receipt)
                     .await?;
-                let recovered = self.recovery_receipts(&native, &record).await?;
+                if record.phase != "stopped" {
+                    self.recovery_receipts(&native, &record).await?;
+                }
                 // Restart recovers the same thread at a settled native boundary only.
                 let state = native
                     .call(
@@ -3839,19 +3963,14 @@ impl Operator {
                     return Err(Error("native_writer_unsettled"));
                 }
                 // Recover a confirmed Stop interrupted between the durable
-                // stopped-work record and release of its observed OS sessions.
-                // Never release an unknown/reconciliation-required execution.
+                // stopped-work record and release of its observed OS sessions
+                // or unexecuted offered calls. Never release an unknown/
+                // reconciliation-required execution.
                 if record.phase == "stopped" {
-                    self.broker
-                        .settle_stopped_processes(
-                            &record.id,
-                            record
-                                .workspace
-                                .as_deref()
-                                .ok_or(Error("native_workspace_unavailable"))?,
-                        )
+                    self.reconcile_stopped_work_effects(&native, &record)
                         .await?;
                 }
+                let recovered = self.recovery_receipts(&native, &record).await?;
                 let extension = if let Some(value) = args.get("budget") {
                     if !record
                         .selection
@@ -4619,21 +4738,35 @@ impl Operator {
             .filter(|v| v["params"]["threadId"] == record.thread)
             .cloned()
             .collect::<Vec<_>>();
-        let native_observer_running = {
+        let (native_observer_running, lane_owners) = {
             let works = self.works.lock().await;
             let work = works.get(&record.thread).unwrap();
             if !same_native_round(&record, &work.record) || record.phase != work.record.phase {
                 return Err(Error("native_observation_superseded"));
             }
-            work.completion_observer
-                .as_ref()
-                .is_some_and(|observer| !observer.is_cancelled())
+            let mut owners = BTreeMap::new();
+            for item in works.values() {
+                if let Some(marker) = crate::app::lane_marker(&self.journal, &item.record.thread)? {
+                    owners.insert(marker, item.record.id.clone());
+                }
+            }
+            (
+                work.completion_observer
+                    .as_ref()
+                    .is_some_and(|observer| !observer.is_cancelled()),
+                owners,
+            )
         };
+        let app_marker = crate::app::lane_marker(&self.journal, &record.thread)?;
+        let mut owned_lanes = vec![record.id.as_str()];
+        if let Some(marker) = app_marker.as_deref() {
+            owned_lanes.push(marker);
+        }
         Ok(
             json!({"work_id":record.id,"thread_id":record.thread,"phase":record.phase,"native_status":state["thread"]["status"],
             "native_observer_running":native_observer_running,
             "pending_calls":record.pending,"call_observations":self.broker.recorded_calls(&record.token)?,"human_requests":requests,
-            "native_effects":self.broker.effect_status(&record.id)?,
+            "native_effects":self.broker.effect_status_with_owners(&owned_lanes, &lane_owners)?,
             "selection":record.selection,"workspace":record.workspace,"app_lane":app_lane,
             "development_binding":self.development_binding(&record)?,
             "source_admission":record.native_turn.as_deref().map(|turn|self.source_admission(&record,turn)).transpose()?.flatten(),
@@ -4928,15 +5061,9 @@ impl Operator {
         if stopped {
             // Both the Native thread and all its owned background terminals
             // have been confirmed stopped. Only its previously observed
-            // process sessions may now relinquish shared writer reservations.
-            self.broker
-                .settle_stopped_processes(
-                    &record.id,
-                    record
-                        .workspace
-                        .as_deref()
-                        .ok_or(Error("native_workspace_unavailable"))?,
-                )
+            // process sessions and offered calls proven absent from Native
+            // thread items may now relinquish shared writer reservations.
+            self.reconcile_stopped_work_effects(&native, &record)
                 .await?;
         }
         Ok(
@@ -5922,14 +6049,18 @@ impl Host for Operator {
             };
             if let Some(path) = path {
                 let thread = request.thread.clone();
-                if let Some(work) = &record {
+                // McpBridge has already reserved its Broker calls and owns
+                // settlement. External receipts belong only to local functions.
+                let effect_work = record
+                    .as_ref()
+                    .filter(|_| path == ReturnPath::LocalFunction)
+                    .map(|work| work.id.clone());
+                if let Some(work) = effect_work.as_deref() {
                     let completed = request
                         .results()
                         .map(|(id, value)| (id.to_owned(), value.clone()))
                         .collect::<Vec<_>>();
-                    this.broker
-                        .settle_external_tools(&work.id, &completed)
-                        .await?;
+                    this.broker.settle_external_tools(work, &completed).await?;
                 }
                 let completion_cancel = CancellationToken::new();
                 if let Some(record) = &mut record {
@@ -5976,7 +6107,6 @@ impl Host for Operator {
                 });
                 let (sender, mut receiver) = mpsc::channel(64);
                 let child_cancel = cancel.clone();
-                let effect_work = record.as_ref().map(|work| work.id.clone());
                 let effect_workspace = pool.workspace.clone();
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
@@ -6337,10 +6467,10 @@ pub(crate) fn tools() -> Vec<Value> {
     };
     let controls = [
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
-        ("codex_host", "Manage the optional Provider-owned ChatGPT AppHost, not Native Core. Attached inference from an already-running Chat does not require this host; ensure cannot repair invalid Native work arguments. Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
+        ("codex_host", "Manage the optional Provider-owned ChatGPT AppHost, not Native Core. Attached inference from an already-running Chat does not require this host; ensure cannot repair invalid Native work arguments. Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane. accounts lists retained app profiles without acquisition; account_add/rename/use/remove manage registrations; account_login opens existing noVNC for user-entered credentials/OTP; account_confirm verifies the actual identity. Profile switching requires settled work. purge=true permanently deletes only an inactive unlocked home; default removal preserves it. No passwords, OTPs or app tokens are tool arguments.", "action refresh profile name purge", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
         ("codex_sessions", "Integrated Native development. For a NEW task in this already-running Chat: (1) create with required stable call_id and inference=attached; omit task/mode/model/effort and assignment fields. (2) start with returned work_id/controller, complete original task and a stable call_id. (3) read codex_attach and accept its receipt before tools. Allocation never starts a task. Native attached inference needs Core, not an extra AppHost or model request. On argument errors correct the specified fields and retain the requested workflow; do not fall back to standalone. For an existing task use join. Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort", "action"),
-        ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller.", "work_id controller accept", "work_id controller"),
+        ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller. If delivery=pending_native_context or pending_native_history, observe status/events and retry this read; no receipt or execution authority exists yet. Do not restart the task or invent an acceptance receipt.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
         ("codex_execute", "Execute one advertised native tool under upstream approvals and return its original result. Reuse exact call_id/name/input/report on delivery retries.", "work_id controller call_id name input report", "work_id controller call_id name input report"),
@@ -6360,7 +6490,7 @@ pub(crate) fn tools() -> Vec<Value> {
             properties.insert("action".into(), json!({"type":"string","enum":["list","read"]}));
             properties.insert("after".into(),json!({"type":"object","properties":{"account":{"type":"string"},"conversation":{"type":"string"},"branch":{"type":"string"},"count":{"type":"integer","minimum":0},"prefix":{"type":"string"}},"required":["account","conversation","branch","count","prefix"],"additionalProperties":false}));
         }
-        if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop","models"]})); properties.insert("refresh".into(),json!({"type":"boolean","description":"models only: false reads retained/configured metadata without acquiring the app; default true queries offered app choices"})); }
+        if name=="codex_host" { properties.insert("action".into(),json!({"type":"string","enum":["ensure","status","open","stop","models","accounts","account_add","account_rename","account_use","account_remove","account_login","account_confirm"]})); properties.insert("purge".into(),json!({"type":"boolean","description":"account_remove only: permanently delete the inactive profile home; default false retains login data"})); properties.insert("refresh".into(),json!({"type":"boolean","description":"models only: false reads retained/configured metadata without acquiring the app; default true queries offered app choices"})); }
         if name=="codex_projects" { properties.insert("action".into(),json!({"type":"string","enum":["list","use"]})); }
         let mut schema=json!({"type":"object","properties":properties,
             "required":required.split_whitespace().collect::<Vec<_>>(),"additionalProperties":false});
@@ -6632,6 +6762,52 @@ mod local_tests {
             workspace: None,
             assignment: None,
         }
+    }
+
+    #[test]
+    fn work_alias_lookup_reports_corrupt_lane_without_fencing_exact_work_id() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Root(std::env::temp_dir().join(format!("work-alias-{}", random_id().unwrap())));
+        let journal = Journal::open(&root.0).unwrap();
+        let record = fixture_record(&root.0);
+        let mut works = BTreeMap::new();
+        works.insert(
+            record.thread.clone(),
+            Work {
+                record: record.clone(),
+                active: None,
+                request: None,
+                round: String::new(),
+                checkpoint: None,
+                driver_lock: Arc::new(Mutex::new(())),
+                native_admission: Arc::new(Mutex::new(())),
+                stops_in_progress: 0,
+                app_cancel: None,
+                completion_observer: None,
+            },
+        );
+        assert!(find_work(&journal, &works, Some(&record.id))
+            .unwrap()
+            .is_some());
+        assert!(find_work(&journal, &works, Some("missing"))
+            .unwrap()
+            .is_none());
+
+        journal
+            .write(&digest(&record.thread), &json!({"invalid":"lane"}))
+            .unwrap();
+        assert_eq!(
+            find_work(&journal, &works, Some("lane-alias")).err(),
+            Some(Error("invalid_lane_record"))
+        );
+        assert!(find_work(&journal, &works, Some(&record.id))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
