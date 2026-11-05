@@ -138,7 +138,7 @@ index 8cd8793..fd46ab2 100644
                              codex_home: codex_home.path().abs(),
                              platform_family: "test-family".to_string(),
 diff --git a/codex-rs/app-server/src/config_manager.rs b/codex-rs/app-server/src/config_manager.rs
-index 461920b..03d3d7a 100644
+index 461920b..9133dd2 100644
 --- a/codex-rs/app-server/src/config_manager.rs
 +++ b/codex-rs/app-server/src/config_manager.rs
 @@ -430,27 +430,6 @@ impl ConfigManager {
@@ -169,7 +169,7 @@ index 461920b..03d3d7a 100644
      /// Installs local policy before cloud access; failed policy loads block traffic while
      /// non-strict startup remains available for configuration repair.
      pub(crate) async fn load_startup_config(
-@@ -535,10 +514,44 @@ impl ConfigManager {
+@@ -535,10 +514,51 @@ impl ConfigManager {
          })
      }
  
@@ -191,6 +191,7 @@ index 461920b..03d3d7a 100644
 +                ConfigOverrides {
 +                    model_provider: Some(provider.to_owned()),
 +                    model,
++                    model_catalog_json: (!explicit_catalog).then_some(None),
 +                    cwd: Some(current.cwd.to_path_buf()),
 +                    ..Default::default()
 +                },
@@ -198,7 +199,13 @@ index 461920b..03d3d7a 100644
 +            )
 +            .await?;
 +        self.check_thread_model_provider(&destination).await?;
-+        if !explicit_catalog {
++        if !explicit_catalog
++            && destination
++                .config_layer_stack
++                .requirements()
++                .model_catalog_json
++                .is_none()
++        {
 +            destination.model_catalog = (current.model_provider_id == provider)
 +                .then(|| current.model_catalog.clone())
 +                .flatten();
@@ -216,7 +223,7 @@ index 461920b..03d3d7a 100644
          request_overrides: Option<HashMap<String, serde_json::Value>>,
          typesafe_overrides: ConfigOverrides,
          cwd: Option<PathBuf>,
-@@ -550,63 +563,38 @@ impl ConfigManager {
+@@ -550,63 +570,38 @@ impl ConfigManager {
                  .and_then(serde_json::Value::as_str)
                  .map(str::to_owned)
          });
@@ -303,7 +310,7 @@ index 461920b..03d3d7a 100644
                  Ok(())
              },
 diff --git a/codex-rs/app-server/src/config_manager_provider_tests.rs b/codex-rs/app-server/src/config_manager_provider_tests.rs
-index 1f2129d..4738d78 100644
+index 1f2129d..02e1c66 100644
 --- a/codex-rs/app-server/src/config_manager_provider_tests.rs
 +++ b/codex-rs/app-server/src/config_manager_provider_tests.rs
 @@ -1,4 +1,4 @@
@@ -329,7 +336,7 @@ index 1f2129d..4738d78 100644
      let home = tempdir()?;
      std::fs::write(
          home.path().join("config.toml"),
-@@ -300,23 +303,11 @@ name = "Gateway"
+@@ -300,23 +303,57 @@ name = "Gateway"
          .load_latest_config(Some(home.path().to_path_buf()))
          .await?;
      assert_eq!(current.model_provider_id, "gateway");
@@ -351,10 +358,55 @@ index 1f2129d..4738d78 100644
 -            model_provider: "gateway".into(),
 -            current_model_provider: "openai".into(),
 -        })
--    );
 +    default_manager
 +        .check_thread_model_provider(&current)
 +        .await?;
++    Ok(())
++}
++
++#[test_case(false; "former_catalog")]
++#[test_case(true; "required_catalog")]
++#[tokio::test]
++async fn model_provider_update_does_not_reopen_former_catalog_but_preserves_requirements(
++    required: bool,
++) -> Result<()> {
++    let home = tempdir()?;
++    let original = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++    let current = original.load_latest_config(None).await?;
++    let missing = home.path().join("former-catalog.json");
++    let catalog = format!("model_catalog_json = {:?}", missing.to_string_lossy());
++    std::fs::write(
++        home.path().join("config.toml"),
++        format!(
++            "{catalog}\n[model_providers.alternate]\nname = 'Alternate'\nwire_api = 'responses'\nrequires_openai_auth = false\n"
++        ),
++    )?;
++    let manager = ConfigManager::new_for_tests(
++        home.path().to_path_buf(),
++        Vec::new(),
++        LoaderOverrides::without_managed_config_for_tests(),
++        CloudConfigBundleFixture::loader_with_enterprise_requirement(if required {
++            &catalog
++        } else {
++            ""
++        }),
+     );
++    let result = manager
++        .load_model_provider_update(&current, "alternate", None, None)
++        .await;
++    if required {
++        assert!(
++            result
++                .unwrap_err()
++                .to_string()
++                .contains("model_catalog_json")
++        );
++    } else {
++        let destination = result?;
++        assert_eq!(destination.model_provider_id, "alternate");
++        assert!(destination.model_catalog.is_none());
++    }
++    assert_eq!(current.model_provider_id, "openai");
      Ok(())
  }
 diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
@@ -1678,7 +1730,7 @@ index 5f9e290..51c1859 100644
          prefix: CompactionPrefix {
              generation: history.history_version(),
 diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
-index eb949b8..b5618e0 100644
+index eb949b8..6b0cf7f 100644
 --- a/codex-rs/core/src/config/mod.rs
 +++ b/codex-rs/core/src/config/mod.rs
 @@ -1066,6 +1066,10 @@ pub struct Config {
@@ -1726,16 +1778,39 @@ index eb949b8..b5618e0 100644
  }
  
  fn filter_mcp_servers_by_requirements(
-@@ -4312,7 +4320,7 @@ impl Config {
+@@ -2750,6 +2758,9 @@ pub struct ConfigOverrides {
+     /// fallback state: explicit overrides and current requirements take priority.
+     pub persisted_permission_profile: Option<PermissionProfile>,
+     pub model_provider: Option<String>,
++    /// Override the catalog path; `Some(None)` selects native discovery without
++    /// reopening a previous route's file. Managed catalog requirements still win.
++    pub model_catalog_json: Option<Option<AbsolutePathBuf>>,
+     pub service_tier: Option<Option<String>>,
+     pub codex_self_exe: Option<PathBuf>,
+     pub codex_linux_sandbox_exe: Option<PathBuf>,
+@@ -3494,6 +3505,7 @@ impl Config {
+             persisted_permission_profile_id,
+             persisted_permission_profile,
+             model_provider,
++            model_catalog_json: override_model_catalog_json,
+             service_tier: service_tier_override,
+             codex_self_exe,
+             codex_linux_sandbox_exe,
+@@ -4312,7 +4324,12 @@ impl Config {
          let review_model = override_review_model.or(cfg.review_model);
  
          let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
 -        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
-+        let (model_catalog, model_catalog_source) = load_model_catalog(cfg.model_catalog_json.clone())?;
++        let model_catalog_path = if config_layer_stack.requirements().model_catalog_json.is_some() {
++            cfg.model_catalog_json.clone()
++        } else {
++            override_model_catalog_json.unwrap_or_else(|| cfg.model_catalog_json.clone())
++        };
++        let (model_catalog, model_catalog_source) = load_model_catalog(model_catalog_path)?;
  
          let log_dir = cfg
              .log_dir
-@@ -4682,6 +4690,7 @@ impl Config {
+@@ -4682,6 +4699,7 @@ impl Config {
              plan_mode_reasoning_effort: cfg.plan_mode_reasoning_effort,
              model_reasoning_summary: cfg.model_reasoning_summary,
              model_catalog,

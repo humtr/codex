@@ -209,6 +209,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-core.log"
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib provider_tests -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
       - name: Verify provider runtime binding regression
         if: ${{ inputs.native_transition_mutation_check }}

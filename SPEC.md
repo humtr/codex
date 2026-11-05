@@ -1540,7 +1540,8 @@ The maintained Native interface extends `thread/settings/update` with optional
 `modelProvider` and `config`. The latter is admitted only with a route selection
 and accepts destination `model_providers` and `model_catalog_json`, not executor
 or permission overrides. Omitted catalog preserves same-route metadata and clears
-the former route's catalog when changing routes. Managed policy is revalidated.
+the former route's catalog when changing routes, without reopening that former
+file. Managed catalog requirements retain precedence. Managed policy is revalidated.
 `initialize.modelProviderUpdates` explicitly advertises support; absence means
 unsupported even when the upstream version matches. Clients must not interpret
 an older server's ignored unknown fields as successful route selection.
