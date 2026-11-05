@@ -1630,6 +1630,12 @@ descriptor and Provider's privately owned CDP pipe are different bindings. The
 existing connector-refresh operation must work through a verified current owned
 binding, retaining full registered/live input-schema comparison. Do not duplicate
 the refresh API or borrow an unrelated app/profile to make that gate pass.
+Trusted local maintenance may borrow the current app's CDP client through the
+Provider's authenticated loopback listener. It does not acquire a missing app,
+export its raw pipe, add an MCP action or create another desktop owner. Bind each
+command to the observed app generation and reject a changed generation before
+dispatch. The existing connector-refresh script consumes this binding for an
+internally owned app and retains its supported disposable-relay binding.
 
 The route's catalog producer owns conversion to the qualified Native schema.
 Validate generated catalogs against their actual Native consumer before publishing

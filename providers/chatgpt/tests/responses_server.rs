@@ -436,7 +436,7 @@ async fn retained_app_catalog_routes_handoff_reloads_config_and_rejects_changed_
         .unwrap()
         .with_handoff_issuer(issuer)
         .unwrap()
-        .with_app_models(Arc::new(App(changed.clone())), journal.clone())
+        .with_app_binding(Arc::new(App(changed.clone())), journal.clone())
         .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -478,5 +478,111 @@ async fn retained_app_catalog_routes_handoff_reloads_config_and_rejects_changed_
     stop.cancel();
     serving.await.unwrap();
     drop(journal);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn owned_desktop_maintenance_uses_current_pipe_and_rejects_other_generations() {
+    use codex_chatgpt_provider::{app::Remote, cdp::Client, journal::Journal};
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let root = std::env::temp_dir().join(format!(
+        "desktop-control-{}",
+        codex_chatgpt_provider::journal::random_id().unwrap()
+    ));
+    let journal = Arc::new(Journal::open(&root).unwrap());
+    let (native, peer) = tokio::io::duplex(65536);
+    let (read, write) = tokio::io::split(native);
+    let client = Client::pipe(read, write, "owned-generation".into());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let peer = tokio::spawn(async move {
+        let (read, mut write) = tokio::io::split(peer);
+        let mut reader = BufReader::new(read);
+        loop {
+            let mut bytes = Vec::new();
+            if reader.read_until(0, &mut bytes).await.unwrap() == 0 {
+                break;
+            }
+            assert_eq!(bytes.pop(), Some(0));
+            let command: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(command["method"], "Runtime.evaluate");
+            assert_eq!(command["sessionId"], "owned-session");
+            assert_eq!(command["params"]["expression"], "6 * 7");
+            observed.fetch_add(1, Ordering::SeqCst);
+            write
+                .write_all(
+                    format!(
+                        "{}\0",
+                        json!({"id":command["id"],"result":{"result":{"value":42}}})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+    });
+    let fixture = Arc::new(Fixture::default());
+    let service = Service::new(Config::default(), TOKEN.into(), fixture.clone())
+        .unwrap()
+        .with_app_binding(
+            Arc::new(Remote::pipe(client, journal.owner.clone())),
+            journal,
+        )
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = CancellationToken::new();
+    let shutdown = stop.clone();
+    let serving = tokio::spawn(async move {
+        server::serve(listener, service, shutdown).await.unwrap();
+    });
+    let command = json!({"generation":"owned-generation","method":"Runtime.evaluate","params":{"expression":"6 * 7"},"session_id":"owned-session"});
+    for (method, token, extra, body, expected) in [
+        ("GET", "invalid", "", String::new(), 401),
+        (
+            "GET",
+            TOKEN,
+            "Origin: https://example.invalid\r\n",
+            String::new(),
+            401,
+        ),
+        ("GET", TOKEN, "", String::new(), 200),
+        (
+            "POST",
+            TOKEN,
+            "",
+            {
+                let mut stale = command.clone();
+                stale["generation"] = json!("former-generation");
+                stale.to_string()
+            },
+            409,
+        ),
+        ("POST", TOKEN, "", command.to_string(), 200),
+    ] {
+        let mut connection = TcpStream::connect(address).await.unwrap();
+        connection.write_all(format!("{method} /__desktop_cdp HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n{extra}\r\n{body}",body.len()).as_bytes()).await.unwrap();
+        let raw = collect(connection).await;
+        assert!(raw.starts_with(&format!("HTTP/1.1 {expected}")), "{raw}");
+        if method == "GET" && expected == 200 {
+            assert!(raw.contains("owned-generation"));
+        }
+        if expected == 409 {
+            assert!(raw.contains("desktop_generation_changed"));
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                0,
+                "a stale maintenance command reached the current app"
+            );
+        }
+        if method == "POST" && expected == 200 {
+            assert!(raw.contains("\"value\":42"), "{raw}");
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    stop.cancel();
+    serving.await.unwrap();
+    peer.await.unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }

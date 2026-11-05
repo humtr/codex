@@ -25,12 +25,19 @@ assembler preserves the prepared tree and index.
 Source assembly and focused build-input/assembler tests passed; the assembler's
 prepared-source preservation regression failed under its injected fault and passed
 after restoration. The repository Rust suite and Clippy passed (the existing
-ignored test remains unqualified). Hosted qualification of24abf1e built the actual
-Native CLI and all Core unit tests successfully. Execution then failed with a
-stack overflow in the catalog-binding test: the added gate bypassed upstream's
-`just test`, which supplies Nextest and its8MiB test stack. The gate now reuses
-that existing runner and requires positive passed-test summaries; both disposable
-Native fault checks use the same path. This execution is not yet accepted.
+ignored test remains unqualified). Hosted Native execution of f5088f3 through
+upstream's `just test` passed the catalog-binding test,113 compaction tests,
+148 Guardian tests and33 client tests. Config policy tests passed14/15; the
+remaining test correctly received a missing required file but expected the JSON
+parse diagnostic instead of the I/O error. Its correction asserts NotFound and
+then verifies the actual required catalog after creating that file. This revised
+case and the public transition/initialize/fault tests are not yet qualified.
+Run41992840346 used the actual stable/experimental schema generators and exposed
+five stale exports. The candidate includes those generated JSON/TS and embedded
+compressed exports, rather than hand-editing schema declarations. The Native
+summary parser also accounts for the observed passing slow-test annotation and
+still rejects the failed scope. Follow the feature branch's latest workflow for
+current qualification; an older run only proves its actual inputs and scope.
 Warm explicit route selection submits the same Native operation. Route replies
 check materialization, event append and flush before claiming persistence.
 The hosted gate includes settings, real-terminal, warm/cold resume, storage and
@@ -52,21 +59,38 @@ predicates and accepts both modes while preserving account/user equality checks.
 All94 app bridge tests pass; removing the second supported mode in disposable
 source fails2 new cases and restoration passes all4 mode/transport combinations.
 The complete Provider source gate also passes Rust tests/Clippy/release build,
-112 JavaScript tests and its Python checks, with incremental compilation disabled
+114 JavaScript tests and its Python checks, with incremental compilation disabled
 and dev/test debug information stripped. Its explicitly ignored Android/app and
 compaction scenarios remain unqualified; no actual Chat request was submitted.
 This establishes a compatibility defect and its simulated correction, not the
 unobserved auth fields of the operating app or a repaired live connection.
 
+Local maintenance now borrows the current Provider-owned CDP client through the
+authenticated listener, with an app-generation check before dispatch. Model
+discovery and maintenance bind the app owner before inference-return adapters;
+no MCP action, desktop owner or raw pipe export was added. Relay descriptors
+retain their existing consumer path. The actual CLI/listener regression covers
+local_function and MCP; the pipe regression checks authorization and stale
+commands. Three disposable faults (generation admission, app-owner placement and
+failed-discovery observer cleanup) each failed their public regression and passed
+after restoration. Android qualification with a separate empty app profile passed
+through the real Provider executable and desktop client: evaluation reached the
+actual app, observer release retained the owner, and teardown observed Provider
+exit and zero surviving original child processes. The fixture submitted no model
+request and copied no user profile/credentials. This proves the owned client
+binding, not production login, connector refresh, Chat inference or deployment.
+Original source/results and fixture evidence are under the owned repair tree.
+
 Route configuration now suppresses reopening an omitted former catalog before
-parsing it, while preserving mandatory catalog requirements; its new config tests
-must run alongside the public Native tests. Python qualification found a release
+parsing it, while preserving mandatory catalog requirements; the corrected config
+case must run alongside the public Native tests. Python qualification found a release
 fixture with a duplicate producer-file list missing the new Native payload. It
 now shares the existing producer fixture, and all8 release-component tests pass.
 Native selection waits on the existing finishing-turn completion signal before
 rechecking admission. Initial materialization belongs to preparation, so a known
 storage failure leaves the previous route selected; only an append/flush failure
-after selection reports unconfirmed persistence. These changes still require Native execution proof.
+after selection reports unconfirmed persistence. These changes still require
+public Native transition execution proof.
 Same-binding thread startup retains its supplied model manager, including
 originator selection; differing provider/catalog/discovery or authentication
 owners create a destination manager. The config-less test constructor retains

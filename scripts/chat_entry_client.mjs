@@ -198,6 +198,7 @@ async function evaluate(action,args={}) {
  if(!result?.ok){save('input-client-dom-error-private.json',{action,error:result?.error});throw Error('input_client_action_failed_private_evidence_retained');}
  return result.value;
 }
+let failure;
 try {
  console.log(JSON.stringify({ready:true,inspection:await evaluate('inspect')}));
  for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity})) {
@@ -205,4 +206,4 @@ try {
   try {command=JSON.parse(line);const value=await evaluate(command.action,command.args);console.log(JSON.stringify({id:command.id,value}));}
   catch(error){save('input-client-error-private.json',{action:command?.action,error:String(error)});console.log(JSON.stringify({id:command?.id,error:'input_client_operation_failed_private_evidence_retained'}));}
  }
-}finally{c.close();}
+} catch(error){failure=error;throw error;} finally {await c.close(failure);}

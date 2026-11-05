@@ -41,6 +41,18 @@ struct LazyRemote {
     port: u16,
 }
 impl crate::app::Bridge for LazyRemote {
+    fn cdp_client(
+        &self,
+    ) -> futures_util::future::BoxFuture<'static, Result<crate::cdp::Client, Error>> {
+        let host = self.host.clone();
+        Box::pin(async move {
+            host.lock()
+                .await
+                .as_ref()
+                .map(|(owned, _)| owned.client.clone())
+                .ok_or(Error("host_not_acquired"))
+        })
+    }
     fn operation(
         &self,
         command: serde_json::Value,
@@ -747,6 +759,9 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
             port,
         })
     };
+    // Discovery and local maintenance borrow the app owner, independently of
+    // the inference tool-return adapter below.
+    let app_bridge = bridge.clone();
     let mcp = (!native_controls).then(|| {
         crate::mcp::Broker::with_controls(journal.clone(), bridge.clone(), settings.clone())
     });
@@ -761,7 +776,6 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
         }
         _ => bridge,
     };
-    let model_bridge = bridge.clone();
     let token = random_id()?;
     let host = Arc::new(
         AppHost::new(bridge.clone(), journal.clone())
@@ -786,7 +800,7 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     } else {
         Service::configured(config, token.clone(), host.clone())?
     };
-    service = service.with_app_models(model_bridge, journal.clone())?;
+    service = service.with_app_binding(app_bridge, journal.clone())?;
     service = service.with_handoff_issuer(crate::handoff::Issuer::new(journal.owner.clone()))?;
     if let Some(mcp) = mcp {
         service = service.with_mcp(mcp)?;
@@ -846,6 +860,12 @@ mod tests {
             journal,
             port: 0,
         };
+        assert!(matches!(
+            remote.cdp_client().await,
+            Err(Error("host_not_acquired"))
+        ));
+        assert!(host.lock().await.is_none());
+        assert!(!root.0.join("desktop").exists());
         assert_eq!(
             remote.operation(json!({"op":"host_status"})).await.unwrap()["host_started"],
             false

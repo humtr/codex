@@ -16,6 +16,11 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 pub trait Bridge: Send + Sync + 'static {
+    /// Borrow an existing owned CDP connection for trusted local maintenance.
+    /// This must not acquire a host or submit inference.
+    fn cdp_client(&self) -> BoxFuture<'static, Result<Client, Error>> {
+        Box::pin(async { Err(Error("owned_desktop_unavailable")) })
+    }
     /// Revoke a transport-owned discovery/execution lease without requesting
     /// remote inference cancellation. Local functions have no separate lease.
     fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
@@ -103,6 +108,15 @@ impl Remote {
     }
 }
 impl Bridge for Remote {
+    fn cdp_client(&self) -> BoxFuture<'static, Result<Client, Error>> {
+        let source = self.source.clone();
+        Box::pin(async move {
+            match source {
+                Source::Relay(_) => Err(Error("provider_owned_desktop_required")),
+                Source::Pipe(client) => Ok(client),
+            }
+        })
+    }
     fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let source = self.source.clone();
         let owner = self.owner.clone();

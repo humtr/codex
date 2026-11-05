@@ -34,5 +34,54 @@ for(const mode of ['ambiguous','unique-primary-home'])test('owned app discovery 
   expect(second.targetId).toBe(first.targetId);
   expect(requests.slice(before).filter(r=>r.method==='Target.attachToTarget').map(r=>r.params.targetId)).toEqual(['main']);
   expect(requests.some(r=>r.method==='Target.createTarget'||r.method.startsWith('Input.'))).toBe(false);
- }finally{first?.close();second?.close();server.stop(true);rmSync(root,{recursive:true,force:true});}
+ }finally{await first?.close();await second?.close();server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+
+for(const mode of ['roundtrip','discovery-failure'])test('Provider-owned maintenance retains generation and observer ownership: '+mode,async()=>{
+ const root=mkdtempSync(join(tmpdir(),'cdp-provider-')),token='a'.repeat(48),requests=[];
+ const raw=readFileSync('/proc/self/stat','utf8'),owner={pid:process.pid,start:raw.slice(raw.lastIndexOf(')')+1).trim().split(/\s+/)[19],image:readlinkSync('/proc/self/exe')};
+ let generation='owned-app';
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){
+  expect(req.headers.get('authorization')).toBe('Bearer '+token);
+  expect(new URL(req.url).pathname).toBe('/__desktop_cdp');
+  if(req.method==='GET')return Response.json({generation});
+  const command=await req.json();
+  if(command.generation!==generation)return Response.json({error:{code:'desktop_generation_changed'}},{status:409});
+  requests.push(command);
+  let result;
+  if(command.method==='Target.getTargets')result={targetInfos:(mode==='discovery-failure'?['aux','main']:['main']).map(targetId=>({targetId,type:'page',url:'app://-/index.html'}))};
+  else if(command.method==='Target.attachToTarget')result={sessionId:command.params.targetId==='main'?'owned-observer':'aux-observer'};
+  else if(command.method==='Runtime.evaluate'){
+   if(mode==='discovery-failure'){
+    if(command.session_id==='aux-observer')return Response.json({result:{result:{value:false}}});
+    return Response.json({error:{code:'cdp_operation_rejected'}},{status:409});
+   }
+   expect(command.session_id).toBe('owned-observer');
+   expect(command.params.expression).toBe('6 * 7');
+   result={result:{value:42}};
+  }else if(command.method==='Target.detachFromTarget')result={};
+  else throw Error('unexpected_maintenance_command');
+  return Response.json({result});
+ }});
+ const binary=join(root,'provider'),state=join(root,'state');
+ const status={schema:'termux-codex-provider-status-v1',live:true,base_url:'http://127.0.0.1:'+server.port+'/v1',process:owner};
+ writeFileSync(binary,`#!${process.execPath}\nconst action=process.argv[2];if(!['status','token'].includes(action)||process.argv[3]!=='--state'||process.argv[4]!==${JSON.stringify(state)})process.exit(1);console.log(action==='status'?${JSON.stringify(JSON.stringify(status))}:${JSON.stringify(token)});\n`,{mode:0o700});
+ let client;
+ try{
+  if(mode==='discovery-failure'){
+   await expect(connectDesktop({kind:'provider-owned',binary,state},undefined,{app:true})).rejects.toThrow('cdp_operation_rejected');
+   expect(requests.filter(r=>r.method==='Target.detachFromTarget').map(r=>r.params.sessionId)).toEqual(['aux-observer','owned-observer']);
+   return;
+  }
+  client=await connectDesktop({kind:'provider-owned',binary,state},undefined,{app:true});
+  expect(await client.evaluate('6 * 7')).toBe(42);
+  const delivered=requests.length;
+  generation='replacement-app';
+  await expect(client.evaluate('6 * 7')).rejects.toThrow('desktop_generation_changed');
+  expect(requests.length).toBe(delivered);
+  generation='owned-app';
+  await client.close();client=undefined;
+  expect(requests.at(-1)).toMatchObject({method:'Target.detachFromTarget',params:{sessionId:'owned-observer'}});
+  expect(requests.some(r=>r.method==='Target.createTarget'||r.method.startsWith('Input.'))).toBe(false);
+ }finally{await client?.close();server.stop(true);rmSync(root,{recursive:true,force:true});}
 });

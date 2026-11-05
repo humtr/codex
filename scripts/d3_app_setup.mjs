@@ -10,6 +10,7 @@ const name='Termux Provider: D3';
 const bridge=readFileSync(root+'/candidate/app_bridge.js','utf8');
 const revision=createHash('sha256').update(JSON.stringify(bridge)).digest('hex');
 const c=await connectDesktop(setupPlan.desktop_session,undefined,{app:true});
+let failure;
 try {
  if(action==='project'||action==='rename') {
   const prior=action==='rename'?JSON.parse(readFileSync(root+'/project.json','utf8')):null;
@@ -85,4 +86,4 @@ try {
   }
   console.log(JSON.stringify({titles:rows.length,model_requests:0}));
  } else throw Error('Use project or titles');
-} finally {c.close();}
+} catch(error){failure=error;throw error;} finally {await c.close(failure);}

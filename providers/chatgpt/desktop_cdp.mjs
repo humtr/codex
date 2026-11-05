@@ -1,5 +1,7 @@
 import {readFileSync,lstatSync,readlinkSync} from 'node:fs';
 import {join} from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 export function resolveDesktopRoot(path){
  const stat=lstatSync(path);
  if(stat.isDirectory())return path; // Existing disposable qualification interface.
@@ -21,8 +23,37 @@ export function desktopConnection(root){
  }
  return {descriptor:d,generation:JSON.stringify([root,d.host.pid,d.host.start,d.browser.pid,d.browser.start,d.endpoint])};
 }
-export async function connectDesktop(root,targetId,options={}){
- root=resolveDesktopRoot(root);
+async function providerTransport(source){
+ if(source.kind!=='provider-owned'||typeof source.binary!=='string'||!source.binary.startsWith('/')||typeof source.state!=='string'||!source.state.startsWith('/'))throw Error('explicit_provider_binding_required');
+ const run=async action=>{
+  try{return (await promisify(execFile)(source.binary,[action,'--state',source.state],{timeout:10000,maxBuffer:8192})).stdout.trim();}
+  catch{throw Error('provider_binding_unavailable');}
+ };
+ const status=JSON.parse(await run('status')),token=await run('token');
+ const endpoint=new URL(status.base_url),owner=status.process;
+ if(status.live!==true||status.schema!=='termux-codex-provider-status-v1'||endpoint.protocol!=='http:'||endpoint.hostname!=='127.0.0.1'||!endpoint.port||endpoint.pathname!=='/v1'||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||!/^[0-9a-f]{48}$/.test(token))throw Error('invalid_provider_binding');
+ const validate=()=>{
+  if(!Number.isSafeInteger(owner?.pid)||owner.pid<1)throw Error('invalid_owner');
+  const raw=readFileSync(`/proc/${owner.pid}/stat`,'utf8'),fields=raw.slice(raw.lastIndexOf(')')+1).trim().split(/\s+/);
+  if(fields[0]==='Z'||fields[19]!==owner.start||readlinkSync(`/proc/${owner.pid}/exe`)!==owner.image)throw Error('stale_owner');
+ };
+ const invoke=async command=>{
+  validate();
+  let response;
+  try{response=await fetch(new URL('/__desktop_cdp',endpoint),{method:command?'POST':'GET',headers:{Authorization:'Bearer '+token,...(command?{'Content-Type':'application/json'}:{})},...(command?{body:JSON.stringify(command)}:{}),redirect:'error',signal:AbortSignal.timeout(15000)});}
+  catch{throw Error('owned_cdp_connection_failed');}
+  const value=await response.json();validate();
+  if(!response.ok){
+   const code=value.error?.code;
+   throw Error(typeof code==='string'&&/^(?:cdp_[a-z_]+|desktop_generation_changed|host_not_acquired|owned_desktop_unavailable|provider_owned_desktop_required)$/.test(code)?code:'owned_cdp_request_rejected');
+  }
+  return value;
+ };
+ const {generation}=await invoke();
+ if(typeof generation!=='string'||!generation)throw Error('owned_desktop_generation_required');
+ return {generation:JSON.stringify([owner,generation]),request:async(method,params={},sessionId)=>(await invoke({generation,method,params,...(sessionId?{session_id:sessionId}:{})})).result,close(){}};
+}
+async function relayTransport(root){
  const {descriptor:d,generation}=desktopConnection(root);
  const socket=new WebSocket(d.endpoint.replace('http:','ws:')+'/cdp',{headers:{Authorization:'Bearer '+d.token}});
  let sequence=0;const pending=new Map();
@@ -31,6 +62,23 @@ export async function connectDesktop(root,targetId,options={}){
  socket.onclose=rejectAll;
  await new Promise((ok,no)=>{const timer=setTimeout(()=>{socket.close();no(Error('owned_relay_connect_timeout'));},10000);socket.onopen=()=>{clearTimeout(timer);ok();};socket.onerror=()=>{clearTimeout(timer);no(Error('owned_relay_connect_failed'));};});
  function request(method,params={},sessionId){const id=++sequence;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(Error('owned_cdp_timeout_'+method));},15000);pending.set(id,{resolve,reject,timer,method});socket.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));});}
+ return {generation,request,close:()=>socket.close()};
+}
+export async function connectDesktop(source,targetId,options={}){
+ const transport=typeof source==='object'&&source!==null?await providerTransport(source):await relayTransport(source);
+ const {generation}=transport,attached=new Set();
+ async function request(method,params={},sessionId){
+  const result=await transport.request(method,params,sessionId);
+  if(method==='Target.attachToTarget'&&typeof result?.sessionId==='string')attached.add(result.sessionId);
+  if(method==='Target.detachFromTarget')attached.delete(params.sessionId);
+  return result;
+ }
+ async function close(cause){
+  const results=await Promise.allSettled([...attached].map(sessionId=>request('Target.detachFromTarget',{sessionId})));
+  transport.close();
+  const errors=results.filter(r=>r.status==='rejected').map(r=>r.reason);
+  if(errors.length)throw new AggregateError(cause?[cause,...errors]:errors,'owned_observer_cleanup_failed');
+ }
  let session,selected;const openedTemporary=new Set();
  try{
   for(let attempt=0;attempt<(options.app?60:20)&&!session;attempt++){
@@ -67,12 +115,12 @@ export async function connectDesktop(root,targetId,options={}){
    if(!session)await new Promise(ok=>setTimeout(ok,500));
   }
   if(!session)throw Error('actual_chat_mode_not_selected');
- }catch(e){socket.close();throw e;}
+ }catch(e){await close(e);throw e;}
  return {targetId:selected,generation,async evaluate(expression){const {result,exceptionDetails}=await request('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},session);if(exceptionDetails){
     const message=exceptionDetails.exception?.description?.split('\n')[0]?.replace(/^Error: /,'');
     const allowed=['owned_closed_model_selector_required','desktop_family_unavailable','owned_empty_composer_required'];
     throw Error(allowed.includes(message)?message:'owned_dom_evaluation_failed');
    }return result.value;},
   request:(method,params)=>request(method,params,session),
-  close:()=>socket.close()};
+  close};
 }

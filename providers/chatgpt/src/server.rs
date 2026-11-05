@@ -59,12 +59,21 @@ pub struct Service {
     mcp: Option<Arc<crate::mcp::Broker>>,
     operator: Option<Arc<crate::operator::Operator>>,
     handoff_issuer: Option<crate::handoff::Issuer>,
-    app_models: Option<AppModels>,
+    app_binding: Option<AppBinding>,
 }
-struct AppModels {
+struct AppBinding {
     config_path: std::path::PathBuf,
     bridge: Arc<dyn crate::app::Bridge>,
     journal: Arc<crate::journal::Journal>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopCommand {
+    generation: String,
+    method: String,
+    params: Value,
+    session_id: Option<String>,
 }
 impl Service {
     pub fn new(config: Config, token: String, host: Arc<dyn Host>) -> Result<Arc<Self>, Error> {
@@ -90,7 +99,7 @@ impl Service {
             mcp: None,
             operator: None,
             handoff_issuer: None,
-            app_models: None,
+            app_binding: None,
         }))
     }
     pub fn configured(
@@ -114,8 +123,8 @@ impl Service {
             .handoff_issuer = Some(issuer);
         Ok(self)
     }
-    /// Enable account-bound app discovery for model listing and request admission.
-    pub fn with_app_models(
+    /// Bind model discovery, request admission and local maintenance to the same app.
+    pub fn with_app_binding(
         mut self: Arc<Self>,
         bridge: Arc<dyn crate::app::Bridge>,
         journal: Arc<crate::journal::Journal>,
@@ -125,7 +134,7 @@ impl Service {
         })?;
         Arc::get_mut(&mut self)
             .ok_or(Error("shared_service_configuration"))?
-            .app_models = Some(AppModels {
+            .app_binding = Some(AppBinding {
             config_path,
             bridge,
             journal,
@@ -331,6 +340,40 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     if !authorized(&parts.headers, &service.token) {
         return failure(StatusCode::UNAUTHORIZED, "unauthorized");
     }
+    if parts.uri.path() == "/__desktop_cdp" && matches!(parts.method.as_str(), "GET" | "POST") {
+        let Some(source) = &service.app_binding else {
+            return failure(StatusCode::SERVICE_UNAVAILABLE, "owned_desktop_unavailable");
+        };
+        let client = match source.bridge.cdp_client().await {
+            Ok(client) => client,
+            Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
+        };
+        if parts.method == "GET" {
+            return axum::Json(json!({"generation":client.generation.as_ref()})).into_response();
+        }
+        let value = match read_body(&parts.headers, body, &service.config).await {
+            Ok(value) => value,
+            Err((status, reason)) => return failure(status, reason),
+        };
+        let command: DesktopCommand = match serde_json::from_value(value) {
+            Ok(command) => command,
+            Err(_) => return failure(StatusCode::BAD_REQUEST, "invalid_desktop_command"),
+        };
+        if command.generation != client.generation.as_ref() {
+            return failure(StatusCode::CONFLICT, "desktop_generation_changed");
+        }
+        return match client
+            .request(
+                &command.method,
+                command.params,
+                command.session_id.as_deref(),
+            )
+            .await
+        {
+            Ok(result) => axum::Json(json!({"result":result})).into_response(),
+            Err(error) => failure(StatusCode::CONFLICT, error.0),
+        };
+    }
     if matches!(
         parts.uri.path(),
         "/__reveal" | "/__approve" | "/__approve_ui"
@@ -371,7 +414,7 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
         Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error.0),
     };
     if parts.uri.path() == "/v1/models" && parts.method == "GET" {
-        if let Some(source) = &service.app_models {
+        if let Some(source) = &service.app_binding {
             let offered = match crate::control::host(
                 source.bridge.as_ref(),
                 &source.journal,
@@ -413,7 +456,7 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     let thread = one_header(&parts.headers, "session_id")
         .or_else(|| one_header(&parts.headers, "x-codex-thread-id"));
     let mut catalog_identity = None;
-    if let Some(source) = &service.app_models {
+    if let Some(source) = &service.app_binding {
         match crate::control::cached_model_catalog(&source.journal, &source.config_path) {
             Ok(Some((identity, catalog))) => {
                 config.catalog = catalog;
@@ -428,7 +471,7 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
             .as_str()
             .unwrap_or(&config.model.reasoning_effort);
         if config.catalog.route(model, effort).is_none() {
-            if let Some(source) = &service.app_models {
+            if let Some(source) = &service.app_binding {
                 // Admit the complete catalog before the protocol resolves a
                 // verified Native handoff, whose effective model can differ
                 // from the request's original compaction model.
@@ -451,7 +494,7 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
             Err(error) => return failure(StatusCode::BAD_REQUEST, error.0),
         };
     if crate::models::is_app_model(&parsed.model) {
-        if let (Some(source), Some(expected)) = (&service.app_models, catalog_identity) {
+        if let (Some(source), Some(expected)) = (&service.app_binding, catalog_identity) {
             let current = match source
                 .bridge
                 .operation(json!({"op":"identity"}))

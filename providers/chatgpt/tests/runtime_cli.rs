@@ -146,67 +146,101 @@ async fn checkpoint_cli_and_real_service_share_issuance_without_internal_metadat
 
 #[test]
 fn app_controls_without_native_binding_observe_absent_host_without_acquisition() {
-    let root = Root::new();
-    let mut service = Service(
-        Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
-            .args(["serve", "--state"])
+    for transport in ["local_function", "mcp"] {
+        let root = Root::new();
+        let config = root.0.join("config/codex/providers/chatgpt.toml");
+        let configuration =
+            format!("[transport]\nreturn_path='{transport}'\nconnector_name='Owned fixture'\n");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(&config, &configuration).unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut service = Service(
+            Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+                .args(["serve", "--state"])
+                .arg(root.0.join("state"))
+                .env("HOME", &root.0)
+                .env("XDG_CONFIG_HOME", root.0.join("config"))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let mut ready = String::new();
+        BufReader::new(service.0.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert!(serde_json::from_str::<Value>(&ready).unwrap()["base_url"].is_string());
+        let status: Value = serde_json::from_str(&ready).unwrap();
+        let address = status["base_url"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("http://")
+            .unwrap()
+            .strip_suffix("/v1")
+            .unwrap();
+        let token = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["token", "--state"])
             .arg(root.0.join("state"))
             .env("HOME", &root.0)
             .env("XDG_CONFIG_HOME", root.0.join("config"))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    let mut ready = String::new();
-    BufReader::new(service.0.stdout.take().unwrap())
-        .read_line(&mut ready)
-        .unwrap();
-    assert!(serde_json::from_str::<Value>(&ready).unwrap()["base_url"].is_string());
-    let status = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
-        .args(["host", "status", "--state"])
-        .arg(root.0.join("state"))
-        .env("HOME", &root.0)
-        .env("XDG_CONFIG_HOME", root.0.join("config"))
-        .output()
-        .unwrap();
-    assert!(
-        status.status.success(),
-        "{}",
-        String::from_utf8_lossy(&status.stderr)
-    );
-    let observed: Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(observed["host"]["present"], false);
-    assert_eq!(observed["host"]["host_started"], false);
-    let cached = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
-        .args(["host", "models", "--refresh", "false", "--state"])
-        .arg(root.0.join("state"))
-        .env("HOME", &root.0)
-        .env("XDG_CONFIG_HOME", root.0.join("config"))
-        .output()
-        .unwrap();
-    assert!(
-        cached.status.success(),
-        "{}",
-        String::from_utf8_lossy(&cached.stderr)
-    );
-    let cached: Value = serde_json::from_slice(&cached.stdout).unwrap();
-    assert_eq!(cached["source"], "configured_only");
-    assert_eq!(cached["account_verified_now"], false);
-    assert_eq!(cached["inference_submitted"], false);
-    assert!(!root.0.join("state/desktop").exists());
-    assert!(!root.0.join(".codex").exists());
-    assert!(!root.0.join("config").exists());
-    let chats = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
-        .args(["chats", "list", "--state"])
-        .arg(root.0.join("state"))
-        .env("HOME", &root.0)
-        .env("XDG_CONFIG_HOME", root.0.join("config"))
-        .output()
-        .unwrap();
-    assert!(!chats.status.success());
-    assert!(String::from_utf8_lossy(&chats.stdout).contains("host_rootfs_required"));
-    assert!(!root.0.join("state/desktop").exists());
+            .output()
+            .unwrap();
+        assert!(token.status.success());
+        let token = String::from_utf8(token.stdout).unwrap();
+        let mut connection = std::net::TcpStream::connect(address).unwrap();
+        std::io::Write::write_all(&mut connection, format!("GET /__desktop_cdp HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {}\r\n\r\n",token.trim()).as_bytes()).unwrap();
+        let mut response = String::new();
+        std::io::Read::read_to_string(&mut connection, &mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+        assert!(
+            response.contains("host_not_acquired"),
+            "maintenance must reach the app owner through {transport}: {response}"
+        );
+        let status = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["host", "status", "--state"])
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "{}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+        let observed: Value = serde_json::from_slice(&status.stdout).unwrap();
+        assert_eq!(observed["host"]["present"], false);
+        assert_eq!(observed["host"]["host_started"], false);
+        let cached = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["host", "models", "--refresh", "false", "--state"])
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        assert!(
+            cached.status.success(),
+            "{}",
+            String::from_utf8_lossy(&cached.stderr)
+        );
+        let cached: Value = serde_json::from_slice(&cached.stdout).unwrap();
+        assert_eq!(cached["source"], "configured_only");
+        assert_eq!(cached["account_verified_now"], false);
+        assert_eq!(cached["inference_submitted"], false);
+        assert!(!root.0.join("state/desktop").exists());
+        assert!(!root.0.join(".codex").exists());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), configuration);
+        let chats = Command::new(env!("CARGO_BIN_EXE_codex-chatgpt-provider"))
+            .args(["chats", "list", "--state"])
+            .arg(root.0.join("state"))
+            .env("HOME", &root.0)
+            .env("XDG_CONFIG_HOME", root.0.join("config"))
+            .output()
+            .unwrap();
+        assert!(!chats.status.success());
+        assert!(String::from_utf8_lossy(&chats.stdout).contains("host_rootfs_required"));
+        assert!(!root.0.join("state/desktop").exists());
+    }
 }
 impl Service {
     fn start(root: &Root) -> (Self, Value) {

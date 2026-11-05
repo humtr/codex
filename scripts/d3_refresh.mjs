@@ -84,7 +84,9 @@ const expectedActions=candidate.map(tool=>({name:tool.name,params:tool.inputSche
 const expected=expectedNames.length;
 const id=prior[0].connector_id;
 const attemptDir=directory+'/refresh-'+Date.now();mkdirSync(attemptDir,{mode:0o700});
-const c=await connectDesktop(info.desktop_session,undefined,{app:true});
+const desktop=info.desktop_session==='provider-owned'?{kind:'provider-owned',binary:info.binary,state:info.state}:info.desktop_session;
+const c=await connectDesktop(desktop,undefined,{app:true});
+let failure;
 try {
  for(let attempt=1;attempt<=3;attempt++) {
   const slot='__d3MetadataRefresh_'+attempt+'_'+Date.now();
@@ -176,4 +178,4 @@ try {
   if(value.error?.status!==424||attempt===3)throw Error('Owned connector metadata refresh did not succeed');
   await new Promise(resolve=>setTimeout(resolve,attempt*3000));
  }
-} finally {c.close();}
+} catch(error){failure=error;throw error;} finally {await c.close(failure);}

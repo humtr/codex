@@ -903,6 +903,16 @@ schema/readiness are observed separately. Use the canonical connector refresh
 implementation after an applicable runtime replacement; missing live client
 binding remains incomplete.
 
+For an internally owned app, set the refresh input's `desktop_session` to
+`"provider-owned"`; `scripts/d3_refresh.mjs` resolves the same input's deployed
+`binary` and `state` through their authenticated live listener. Trusted local
+maintenance borrows that app's CDP client, pins its generation for each command
+and releases its observer afterward. It neither starts another app nor adds an
+MCP action. A missing app remains `host_not_acquired`; an app generation change
+rejects the command before dispatch. Disposable qualification descriptors retain
+their existing path interface. This binding does not establish app login or
+connector health; the actual refresh and fresh Native roundtrip still must pass.
+
 Package selection and active executable/auth references are separate current
 states that the target lifecycle must reconcile. Preserve active work and
 credentials; expose pending activation instead of reporting full readiness.

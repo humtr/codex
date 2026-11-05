@@ -495,7 +495,7 @@ async fn synthetic_operator_service() {
     .with_operator(operator)
     .unwrap();
     if app_models {
-        service = service.with_app_models(bridge, journal.clone()).unwrap();
+        service = service.with_app_binding(bridge, journal.clone()).unwrap();
     }
     codex_chatgpt_provider::runtime::publish_listener(
         &journal,
