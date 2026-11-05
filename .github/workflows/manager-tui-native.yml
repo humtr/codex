@@ -185,7 +185,7 @@ jobs:
           # Reuse upstream test runner, profile and stack settings from its justfile.
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider) | test(thread_resume_checkpoints_settings) | test(thread_resume_does_not_checkpoint_unchanged_settings) | test(thread_resume_with_overrides_preserves_recency)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider) | test(thread_resume_checkpoints_settings) | test(thread_resume_does_not_checkpoint_unchanged_settings) | test(thread_resume_with_overrides_preserves_recency) | test(thread_archive_without_turns) | test(thread_read_loaded_include_turns_reads_store_history_without_rollout_path) | test(thread_read_can_include_turns) | test(thread_read_include_turns_rejects_unmaterialized_loaded_thread)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
           for scope in model_provider compact guardian; do
             just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E "test($scope)" 2>&1 | tee "$RUNNER_TEMP/native-provider-core-$scope.log"

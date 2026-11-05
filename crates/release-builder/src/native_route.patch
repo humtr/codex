@@ -13399,10 +13399,26 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 1ef252d..e4bb060 100644
+index 1ef252d..0721138 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
-@@ -2577,7 +2577,7 @@ impl ThreadRequestProcessor {
+@@ -1819,10 +1819,12 @@ impl ThreadRequestProcessor {
+         if let Ok(thread) = self.thread_manager.get_thread(thread_id).await
+             && !thread.config_snapshot().await.ephemeral
+         {
+-            self.thread_store
+-                .persist_thread(thread_id, PersistContext::Standard)
++            thread
++                .checkpoint(PersistContext::Standard)
+                 .await
+-                .map_err(|err| thread_store_mutation_error("archive", err))?;
++                .map_err(|error| {
++                    internal_error(format!("failed to checkpoint thread for archive: {error}"))
++                })?;
+         }
+ 
+         let mut archive_thread_ids = Vec::new();
+@@ -2577,7 +2579,7 @@ impl ThreadRequestProcessor {
          let (_, thread) = self.load_thread(&thread_id).await?;
          ensure_direct_input_allowed(thread.as_ref()).await?;
          self.config_manager
@@ -13411,7 +13427,25 @@ index 1ef252d..e4bb060 100644
              .await
              .map_err(|error| config_load_error(&error))?;
          self.submit_core_op(request_id, thread.as_ref(), Op::Compact)
-@@ -4265,32 +4265,7 @@ impl ThreadRequestProcessor {
+@@ -3301,10 +3303,14 @@ impl ThreadRequestProcessor {
+                 thread.history_mode,
+                 codex_app_server_protocol::ThreadHistoryMode::Paginated
+             ) {
+-                self.thread_store
+-                    .persist_thread(thread_id, PersistContext::Standard)
++                loaded_thread
++                    .checkpoint(PersistContext::Standard)
+                     .await
+-                    .map_err(|err| thread_read_history_load_error(thread_id, err))?;
++                    .map_err(|error| {
++                        ThreadReadViewError::Internal(format!(
++                            "failed to checkpoint thread for read: {error}"
++                        ))
++                    })?;
+                 thread.turns = self
+                     .paginated_thread_full_turns(thread_id)
+                     .await
+@@ -4265,32 +4271,7 @@ impl ThreadRequestProcessor {
                  drop(_thread_list_state_permit);
                  let config = self
                      .config_manager
@@ -13445,22 +13479,26 @@ index 1ef252d..e4bb060 100644
                      .await
                      .map_err(|err| config_load_error(&err))?;
                  *prepared_config = Some(PreparedResumeConfig {
-@@ -4649,6 +4624,14 @@ impl ThreadRequestProcessor {
+@@ -4649,6 +4630,18 @@ impl ThreadRequestProcessor {
          } else if let Ok(existing_thread_id) = ThreadId::from_string(&params.thread_id)
              && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
          {
 +            // The live writer can precede its rollout. Resume needs a durable
 +            // stored view, not a replacement session or a synthetic first turn.
-+            if existing_thread.rollout_path().is_some() {
-+                self.thread_store
-+                    .persist_thread(existing_thread_id, PersistContext::Standard)
++            if !existing_thread.config_snapshot().await.ephemeral {
++                existing_thread
++                    .checkpoint(PersistContext::Standard)
 +                    .await
-+                    .map_err(thread_store_resume_read_error)?;
++                    .map_err(|error| {
++                        internal_error(format!(
++                            "failed to checkpoint running thread for resume: {error}"
++                        ))
++                    })?;
 +            }
              let source_thread = self
                  .read_stored_thread_for_resume(
                      &params.thread_id,
-@@ -4692,10 +4675,95 @@ impl ThreadRequestProcessor {
+@@ -4692,10 +4685,95 @@ impl ThreadRequestProcessor {
                      active_path.display()
                  )));
              }
@@ -13557,7 +13595,7 @@ index 1ef252d..e4bb060 100644
                  &config_snapshot,
                  selected_service_tier.as_deref(),
              );
-@@ -4716,7 +4784,8 @@ impl ThreadRequestProcessor {
+@@ -4716,7 +4794,8 @@ impl ThreadRequestProcessor {
                  if can_accept_direct_input(
                      existing_thread.multi_agent_version(),
                      &config_snapshot.session_source,
@@ -13567,7 +13605,7 @@ index 1ef252d..e4bb060 100644
                      && matches!(loaded_status, ThreadStatus::Idle)
                      && !is_running
                  {
-@@ -4749,7 +4818,7 @@ impl ThreadRequestProcessor {
+@@ -4749,7 +4828,7 @@ impl ThreadRequestProcessor {
                  );
              }
              self.config_manager
@@ -13576,7 +13614,25 @@ index 1ef252d..e4bb060 100644
                  .await
                  .map_err(|err| config_load_error(&err))?;
              let redact_resume_payloads =
-@@ -6577,7 +6646,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
+@@ -4776,10 +4855,14 @@ impl ThreadRequestProcessor {
+                     .await?;
+             }
+             if paginated_resume && (include_turns || params.initial_turns_page.is_some()) {
+-                self.thread_store
+-                    .persist_thread(existing_thread_id, PersistContext::Standard)
++                existing_thread
++                    .checkpoint(PersistContext::Standard)
+                     .await
+-                    .map_err(thread_store_resume_read_error)?;
++                    .map_err(|error| {
++                        internal_error(format!(
++                            "failed to checkpoint running thread for resume: {error}"
++                        ))
++                    })?;
+             }
+             let history_items = if needs_history {
+                 source_thread
+@@ -6577,7 +6660,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
  fn thread_store_mutation_error(operation: &str, err: ThreadStoreError) -> JSONRPCErrorError {
      match err {
          ThreadStoreError::InvalidRequest { message } | ThreadStoreError::Conflict { message } => {
@@ -15026,10 +15082,26 @@ index 26e780e..351bcfa 100644
          Arc::clone(&context),
          context.initial_environments.clone(),
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
-index 968d331..f5a7ce6 100644
+index 968d331..ee6d271 100644
 --- a/codex-rs/core/src/codex_thread.rs
 +++ b/codex-rs/core/src/codex_thread.rs
-@@ -595,6 +595,7 @@ impl CodexThread {
+@@ -421,11 +421,10 @@ impl CodexThread {
+         self.session.emit_thread_idle_lifecycle_if_idle(cause).await;
+     }
+ 
+-    /// Checkpoint initialization without activating speculative persistence.
+-    pub async fn checkpoint_preparation(&self) -> std::io::Result<()> {
+-        self.session
+-            .try_ensure_rollout_materialized(PersistContext::ThreadPreparation)
+-            .await
++    /// Checkpoint canonical history and this live thread's pending metadata together.
++    /// ThreadPreparation preserves lazy persistence; Standard makes the view readable.
++    pub async fn checkpoint(&self, context: PersistContext) -> std::io::Result<()> {
++        self.session.try_ensure_rollout_materialized(context).await
+     }
+ 
+     #[doc(hidden)]
+@@ -595,6 +594,7 @@ impl CodexThread {
          self.io
              .tx_sub
              .send(Submission {
@@ -15037,7 +15109,7 @@ index 968d331..f5a7ce6 100644
                  id: new_submission_id(),
                  op: Op::SuspendTurnAndShutdown { reply },
                  turn_extension_init: None,
-@@ -757,6 +758,32 @@ impl CodexThread {
+@@ -757,6 +757,32 @@ impl CodexThread {
          result.await.unwrap_or(Err(CodexErr::InternalAgentDied))
      }
  
@@ -15070,6 +15142,15 @@ index 968d331..f5a7ce6 100644
      /// Restores thread-owned mutable settings captured from another loaded runtime.
      ///
      /// Runtime replacement uses this after resume so clients keep their current thread settings
+@@ -906,7 +932,7 @@ impl CodexThread {
+     /// Record raw Responses API items without starting a new turn.
+     pub async fn inject_response_items(&self, items: Vec<ResponseItem>) -> CodexResult<()> {
+         self.inject_response_items_for_turn(items).await?;
+-        self.checkpoint_preparation().await?;
++        self.checkpoint(PersistContext::ThreadPreparation).await?;
+         Ok(())
+     }
+ 
 diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
 index 2f6a91d..4e5fa24 100644
 --- a/codex-rs/core/src/compact.rs

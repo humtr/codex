@@ -30,16 +30,19 @@ upstream's `just test` passed the catalog-binding test,113 compaction tests,
 148 Guardian tests,33 client tests and all15 config-policy tests. Actual stable
 and experimental schema generation also matched the committed exports. The public
 API test binary initially exposed three URL borrow errors, corrected in9c10dea.
-Its hosted workflow42013998640 then ran31 public API cases:26 passed, including
-both route directions with real terminal continuation, warm/cold resume, saved
-source recovery, invalid catalogs, storage failure and retained recency. Four
-new empty-thread cases failed their missing experimental-history capability;
-5a01872 declares that capability and reports unexpected RPC errors directly.
-The fifth failure was an obsolete expectation that malformed mutable defaults
-invalidate an already committed live route. Its replacement verifies actual
-continuation on the original endpoint while malformed managed requirements still
-reject input before another request. These revised five cases and Native fault
-checks remain unqualified. The workflow now runs API checks first and retains an
+Workflow42013998640 ran31 public API cases:26 passed, including both route
+directions with real terminal continuation, warm/cold resume, saved source recovery,
+invalid catalogs, storage failure and recency. Its four empty-thread fixture
+capability omissions and stale mutable-defaults expectation were corrected.
+Workflow42020860564 then passed29/31, including both Legacy empty-thread cases and
+continued original-route requests despite malformed defaults while unreadable
+managed requirements reject input. Two Paginated empty-thread cases returned
+list_turns unsupported after file materialization. Resume had used low-level store
+persistence and bypassed the live conversation's pending metadata. The candidate
+reuses one checked Native checkpoint through that owner for resume, live paginated
+read and archive; initialization keeps its existing lazy checkpoint mode. The
+revised two cases, affected read/archive scopes and Native fault checks remain
+unqualified. The workflow now runs API checks first and retains an
 unsigned CLI after the baseline gates, before disposable faults, so real device
 experiments need not wait for those rebuilds. This changes neither acceptance nor
 signed deployment. Original logs/results remain under the owned repair tree.
@@ -50,7 +53,7 @@ Warm explicit route selection submits the same Native operation. Route replies
 check materialization, event append and flush before claiming persistence.
 The hosted gate includes settings, real-terminal, warm/cold resume, storage and
 catalog failures, compaction, Guardian, client, initialize and config tests plus
-two targeted Native fault checks. Follow the feature branch's latest
+three targeted Native fault checks. Follow the feature branch's latest
 manager-tui-native workflow for current qualification rather than reuse a run
 from an older source. No production runtime was replaced. TUI intent wiring,
 portable compaction, app binding/connector refresh and actual cross-entrance
@@ -79,6 +82,11 @@ inference on the OpenAI route. Original Native turns/settings remain unchanged.
 The retained earlier Provider rejects the same initial work. This fixture does not
 qualify cross-route file effects: the current signed Native lacks the required
 capability. All owned fixture services were stopped with observed process exit.
+A second Android fixture also passes cold OpenAI-work resume after kernel-confirmed
+writer exit through the common default server, and new Provider catalog/model
+admission by the actual signed Native. It does not submit a model task or qualify
+integrated cross-route file effects. Original outputs and owned Native records
+remain under the repair tree.
 A Native resume extension materializes the existing persistent writer before
 reading its stored view, preserving observers and propagating storage failure. Public two-client, storage and actual saved-route
 request tests plus a disposable removal fault cover that change in the current

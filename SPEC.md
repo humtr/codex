@@ -1534,9 +1534,12 @@ Ownerless work uses the common default control server; Native alone resolves sav
 route metadata and explicit destination selection. Provider must not choose a
 second server from historical provider affinity. Retain execution-home and
 writer-authority checks.
-Native resume checkpoints a live persistent thread before reading its stored
-view, even before the first turn. This starts no inference and preserves the
-writer and observers. Storage failure is reported without replacing that writer;
+Native resume checkpoints a live persistent thread through its conversation
+owner before reading the stored view, even before the first turn. The checkpoint
+includes pending metadata as well as canonical history; low-level file persistence
+alone cannot establish a readable paginated view. Live read/archive use the same
+owner. This starts no inference and preserves writer and observers. Storage
+failure is reported without replacing that writer;
 ephemeral threads are not made persistent as a side effect of resume.
 Provider catalog and transport overrides belong to new configured work or
 explicit Provider inference selection. Generic work observation/control retains
