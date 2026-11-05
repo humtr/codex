@@ -208,9 +208,58 @@ jobs:
           cd upstream/codex-rs
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
-          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-core.log"
+          for scope in model_provider compact guardian; do
+            cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib "$scope" -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-core-$scope.log"
+          done
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib provider_tests -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite initialize -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config', 'api', 'initialize']:
+              text = (root / f'native-provider-{name}.log').read_text()
+              assert re.search(r'test result: ok\. [1-9][0-9]* passed', text), name + ': required tests did not pass'
+          PYTHON
+      - name: Verify destination catalog regression
+        id: native-catalog-mutation
+        if: ${{ inputs.native_transition_mutation_check }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          source=core/src/thread_manager.rs
+          original="$RUNNER_TEMP/native-provider-catalog-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('core/src/thread_manager.rs')
+          text = path.read_text()
+          start = text.index('        let models_manager = if self\n')
+          end = text.index('        let spawn_result = Session::spawn(', start)
+          path.write_text(text[:start] + '        let models_manager = Arc::clone(&self.models_manager);\n' + text[end:])
+          PYTHON
+          mkdir -p "$RUNNER_TEMP/native-interface-sockets"
+          exec 35<"$RUNNER_TEMP/native-interface-sockets"
+          set +e
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider_binding_keeps_originators_and_selects_destination_catalog -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-mutation.log"
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          text = Path(os.environ['RUNNER_TEMP'], 'native-provider-catalog-mutation.log').read_text()
+          assert 'test result: FAILED' in text, text[-6000:]
+          assert 'the destination catalog must replace the former binding' in text, text[-6000:]
+          PYTHON
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-core --lib model_provider_binding_keeps_originators_and_selects_destination_catalog -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-catalog-restored.log"
       - name: Verify provider runtime binding regression
         id: native-route-mutation
         if: ${{ inputs.native_transition_mutation_check }}
@@ -502,7 +551,7 @@ jobs:
         # Fault injection dirties Cargo outputs and consumes the optional cache
         # save budget. Preserve ordinary compile failures before the Native fault;
         # after that fault, only the restored-source passing run may publish it.
-        if: ${{ !cancelled() && !inputs.mutation_check && steps.native-route-mutation.outcome != 'failure' && steps.compile-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && !inputs.mutation_check && steps.native-route-mutation.outcome != 'failure' && steps.native-catalog-mutation.outcome != 'failure' && steps.compile-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
