@@ -1567,7 +1567,9 @@ The maintained Native interface extends `thread/settings/update` with optional
 and accepts destination `model_providers` and `model_catalog_json`, not executor
 or permission overrides. Omitted catalog preserves same-route metadata and clears
 the former route's catalog when changing routes, without reopening that former
-file. Managed catalog requirements retain precedence. Managed policy is revalidated.
+file. Managed catalog requirements retain precedence. Managed policy is revalidated; unreadable requirements block input. A malformed
+mutable defaults file alone does not invalidate a live thread's already committed
+route or require that unrelated defaults be repaired before continuing it.
 `initialize.modelProviderUpdates` explicitly advertises support; absence means
 unsupported even when the upstream version matches. Clients must not interpret
 an older server's ignored unknown fields as successful route selection.

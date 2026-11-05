@@ -13736,7 +13736,7 @@ index 1ba0f26..492b354 100644
  }
  
 diff --git a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
-index f5bda49..2dca8a5 100644
+index f5bda49..0b24c94 100644
 --- a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 +++ b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 @@ -42,7 +42,6 @@ use wiremock::MockServer;
@@ -13829,7 +13829,7 @@ index f5bda49..2dca8a5 100644
      let id = server
          .send_raw_request(
              "thread/read",
-@@ -336,13 +305,6 @@ async fn provider_selection_can_be_restored_for_existing_threads() -> Result<()>
+@@ -336,24 +305,20 @@ async fn provider_selection_can_be_restored_for_existing_threads() -> Result<()>
          .await?;
      let read: codex_app_server_protocol::ThreadReadResponse = server.read_response(id).await?;
      assert_eq!(read.thread.model_provider, "mock_provider");
@@ -13843,6 +13843,90 @@ index f5bda49..2dca8a5 100644
      Ok(())
  }
  
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn malformed_system_defaults_reject_input_until_provider_can_be_resolved() -> Result<()> {
++async fn malformed_defaults_preserve_route_but_unreadable_requirements_reject_input() -> Result<()>
++{
+     let provider = MockServer::start().await;
+     let home = TempDir::new()?;
+     MockResponsesConfig::new(&provider.uri()).write(home.path())?;
+     let system_config_path = home.path().join("system-config.toml");
++    let requirements_path = home.path().join("system-requirements.toml");
+     let mut overrides = LoaderOverrides::without_managed_config_for_tests();
+     overrides.system_config_path = Some(system_config_path.clone());
++    overrides.system_requirements_path = Some(requirements_path.clone());
+     let config = Arc::new(
+         ConfigBuilder::default()
+             .codex_home(home.path().to_path_buf())
+@@ -362,7 +327,7 @@ async fn malformed_system_defaults_reject_input_until_provider_can_be_resolved()
+             .build()
+             .await?,
+     );
+-    let client = in_process::start(InProcessStartArgs {
++    let mut client = in_process::start(InProcessStartArgs {
+         arg0_paths: Arg0DispatchPaths::default(),
+         config,
+         cli_overrides: Vec::new(),
+@@ -417,9 +382,56 @@ async fn malformed_system_defaults_reject_input_until_provider_can_be_resolved()
+             },
+         })
+         .await?
+-        .expect_err("cannot verify the selected provider from malformed configuration");
+-    assert_eq!(response.code, -32600);
+-    assert!(requests.requests().is_empty());
++        .expect("a live thread retains its validated route independently of defaults");
++    let active: TurnStartResponse = serde_json::from_value(response)?;
++    timeout(Duration::from_secs(10), async {
++        loop {
++            match client.next_event().await {
++                Some(in_process::InProcessServerEvent::ServerNotification(notification)) => {
++                    if let codex_app_server_protocol::ServerNotification::TurnCompleted(done) =
++                        notification.as_ref()
++                        && done.thread_id == started.thread.id
++                        && done.turn.id == active.turn.id
++                    {
++                        assert_eq!(
++                            done.turn.status,
++                            codex_app_server_protocol::TurnStatus::Completed
++                        );
++                        break;
++                    }
++                }
++                Some(_) => {}
++                None => anyhow::bail!("Native exited before the original route completed"),
++            }
++        }
++        Ok::<(), anyhow::Error>(())
++    })
++    .await??;
++    assert_eq!(requests.requests().len(), 1);
++
++    // Requirements are the live authority; invalid policy must still reject
++    // before another request reaches the otherwise usable retained route.
++    std::fs::write(requirements_path, "invalid toml !!!")?;
++    let rejected = client
++        .request(ClientRequest::TurnStart {
++            request_id: RequestId::Integer(3),
++            params: TurnStartParams {
++                thread_id: started.thread.id,
++                input: vec![UserInput::Text {
++                    text: "Do not admit this input while requirements are unreadable.".into(),
++                    text_elements: Vec::new(),
++                }],
++                ..Default::default()
++            },
++        })
++        .await?
++        .expect_err("unreadable managed requirements must reject input");
++    assert_eq!(rejected.code, -32600);
++    assert!(
++        rejected.message.contains("system-requirements.toml"),
++        "{rejected:?}"
++    );
++    assert_eq!(requests.requests().len(), 1);
+     client.shutdown().await?;
+     Ok(())
+ }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_resume.rs b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
 index 8badd11..bf88cb2 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_resume.rs

@@ -29,10 +29,20 @@ ignored test remains unqualified). Hosted Native execution of5e84795 through
 upstream's `just test` passed the catalog-binding test,113 compaction tests,
 148 Guardian tests,33 client tests and all15 config-policy tests. Actual stable
 and experimental schema generation also matched the committed exports. The public
-API test binary then exposed three new test-fixture URL borrow errors;9c10dea
-corrects those types. Its workflow42013998640 includes the new live-empty-thread
-resume regression and remains the current qualification attempt. No public API
-transition test has passed yet; do not substitute the Core tests for that proof.
+API test binary initially exposed three URL borrow errors, corrected in9c10dea.
+Its hosted workflow42013998640 then ran31 public API cases:26 passed, including
+both route directions with real terminal continuation, warm/cold resume, saved
+source recovery, invalid catalogs, storage failure and retained recency. Four
+new empty-thread cases failed their missing experimental-history capability;
+5a01872 declares that capability and reports unexpected RPC errors directly.
+The fifth failure was an obsolete expectation that malformed mutable defaults
+invalidate an already committed live route. Its replacement verifies actual
+continuation on the original endpoint while malformed managed requirements still
+reject input before another request. These revised five cases and Native fault
+checks remain unqualified. The workflow now runs API checks first and retains an
+unsigned CLI after the baseline gates, before disposable faults, so real device
+experiments need not wait for those rebuilds. This changes neither acceptance nor
+signed deployment. Original logs/results remain under the owned repair tree.
 The summary parser accounts for passing slow-test annotations and still rejects
 a failed or zero-test scope. Original workflow logs and generated schema evidence
 remain under the owned repair tree.
