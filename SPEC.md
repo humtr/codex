@@ -1529,23 +1529,26 @@ work must not require the Provider's inference route. Admission of a primary
 inference request to Provider still verifies that Native selected that route;
 moving this check must not admit stale requests from another route.
 Resolve a live thread through its verified Native rendezvous before preparing a
-server from saved provider metadata. A newly started thread can have a live writer
-before its rollout exists. Only a thread without a live owner uses cold metadata
-and server preparation; retain the execution-home and writer-authority checks.
+server. A newly started thread can have a live writer before its rollout exists.
+Ownerless work uses the common default control server; Native alone resolves saved
+route metadata and explicit destination selection. Provider must not choose a
+second server from historical provider affinity. Retain execution-home and
+writer-authority checks.
 Native resume checkpoints a live persistent thread before reading its stored
 view, even before the first turn. This starts no inference and preserves the
 writer and observers. Storage failure is reported without replacing that writer;
 ephemeral threads are not made persistent as a side effect of resume.
 Provider catalog and transport overrides belong to new configured work or
-an explicit Provider inference start. Attaching to an existing Native task retains that
-task's route and metadata; control/default-I/O preparation must not inject the
-Provider catalog into another route.
-Starting or joining explicitly selected attached/submitted Provider inference
-selects its configured route through Native before turn admission. Allocation or
-observation alone does not change an existing route. Reuse the verified live writer
-for this selection; require its advertised transition capability before sending
-route fields to an older server. Attached inference still starts no second primary
-Chat request. An unsupported transition is rejected before admitting user input.
+explicit Provider inference selection. Generic work observation/control retains
+the route and metadata; default-I/O preparation does not inject a Provider catalog.
+Resuming/forking with explicit attached/submitted inference selects that destination
+through Native without starting a task. Without this selection, allocation retains
+the saved route. Start/join rebinds selected Provider inference through Native at
+turn admission, retaining same-route model settings unless explicitly overridden.
+This refreshes the current transport even if the Provider's endpoint changed.
+Reuse the verified live writer and require its advertised transition capability
+before sending route fields to an older server. Attached inference still starts
+no second primary Chat request. Unsupported updates are rejected before user input.
 Existing Native settings events/persistence are preferred over a Provider route
 ledger. Native owns the transition and observer binding even if a qualified
 implementation must reconnect a backend. Clients do not independently restart

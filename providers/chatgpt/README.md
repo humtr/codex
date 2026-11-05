@@ -351,12 +351,23 @@ install never terminates Native work or removes a lock to force selection.
 An unchanged-selection rejection and an uncertain mutation need different
 reconciliation; neither permits replay or killing unrelated runtimes.
 
-An explicit completed-work join/start admits a verified replacement Native
-backend before reserving its new Native turn. It verifies scope, retained calls
-and jobs and rotates the controller/token at that boundary; ordinary status does
-not transfer ownership. This avoids an asynchronous exchange mistaking the already
-recorded new turn for an old request on another owner. Failed or uncertain turns
-remain in history and require explicit reconciliation, not automatic resubmission.
+Work control verifies the Native execution home, thread and workspace independently
+of its inference route. Resume and fork reuse the verified live writer; ownerless
+work uses the common default control server. Native resolves saved routes, so
+Provider no longer chooses another server from historical provider metadata.
+Generic allocation retains the route. Explicit attached/submitted inference asks
+Native to select the configured destination without starting a task; start/join
+refreshes that binding before user input, retaining same-route model settings.
+This also rebinds a changed service endpoint. The source requires Native's
+`modelProviderUpdates` capability for that selection; an older server is rejected
+before input instead of ignoring route fields or leaving preparation pending.
+
+A settled join/start verifies scope, retained calls and jobs and rotates the
+controller/token when admitting a new generation; ordinary status does not
+transfer ownership. A replacement owner is used only for explicit recovery.
+Failed or uncertain turns remain in history and require reconciliation, not
+automatic resubmission. These source changes still require Native/device
+qualification; they do not change the installed runtime by themselves.
 
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native

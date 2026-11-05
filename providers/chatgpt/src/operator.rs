@@ -1144,22 +1144,22 @@ impl Operator {
             self.verify_identity(&record).await?;
         }
         let pool = self.work_pool(&record).await?;
-        let selected = if record.origin == "codex" {
-            self.pool.discover_thread(&record.thread).await
-        } else {
-            pool.for_thread(&record.thread).await
-        };
-        let native = match selected {
-            Ok(native) => native,
-            Err(Error("native_thread_owner_unavailable"))
-                if matches!(
-                    record.phase.as_str(),
-                    "reconciliation_required" | "completed" | "stop_requested" | "stopped"
-                ) =>
-            {
-                pool.prepare_thread(&record.thread).await?
+        let can_prepare = matches!(
+            record.phase.as_str(),
+            "reconciliation_required" | "completed" | "stop_requested" | "stopped"
+        );
+        let native = if record.origin == "codex" {
+            match self.pool.discover_thread(&record.thread).await {
+                Ok(native) => native,
+                Err(Error("native_thread_owner_unavailable")) if can_prepare => {
+                    pool.prepare_thread(&record.thread).await?
+                }
+                Err(error) => return Err(error),
             }
-            Err(error) => return Err(error),
+        } else if can_prepare {
+            pool.prepare_thread(&record.thread).await?
+        } else {
+            pool.for_thread(&record.thread).await?
         };
         if record.selection.is_some() {
             if native.owner == record.execution {
@@ -1167,7 +1167,7 @@ impl Operator {
             } else {
                 // Read-only observers may see a native account switch before
                 // its first new turn. Keep control fenced until reconciliation.
-                native.workspace(&record.thread).await?;
+                native.scope(&record.thread).await?;
             }
         }
         {
@@ -2909,13 +2909,7 @@ impl Operator {
         let native = if let Some(home) = args.get("execution_home") {
             let home = text_value_path(home, "native_workspace_identity_invalid")?;
             let pool = self.scoped_pool(&home, &self.pool.workspace, None).await?;
-            match pool.for_thread(thread).await {
-                Ok(native) => native,
-                Err(Error("native_thread_owner_unavailable")) => {
-                    pool.prepare_thread(thread).await?
-                }
-                Err(error) => return Err(error),
-            }
+            pool.prepare_thread(thread).await?
         } else {
             match self.pool.discover_thread(thread).await {
                 Ok(native) => native,
@@ -3051,6 +3045,7 @@ impl Operator {
         record: &Record,
         native: &Native,
         receipt: Option<&(String, String)>,
+        select_provider: bool,
     ) -> Result<bool, Error> {
         let state = native
             .call(
@@ -3060,6 +3055,9 @@ impl Operator {
             .await?;
         if state["thread"]["status"]["type"] != "notLoaded" {
             return Ok(false);
+        }
+        if select_provider {
+            native.require_model_provider_updates()?;
         }
         let pool = self.work_pool(record).await?;
         native.verify_scope(&record.thread, &pool.workspace).await?;
@@ -3078,12 +3076,17 @@ impl Operator {
             }
             self.mutation_intent(receipt)?;
         }
-        native
-            .call(
-                "thread/resume",
-                json!({"threadId":record.thread,"cwd":pool.workspace,"config":pool.routing()?}),
-            )
-            .await?;
+        let mut params = json!({"threadId":record.thread,"cwd":pool.workspace});
+        if select_provider {
+            params["config"] = pool.routing()?;
+            params["modelProvider"] = json!(crate::registration::PROVIDER);
+            if state["thread"]["modelProvider"] != crate::registration::PROVIDER {
+                params["model"] = json!(self.config.model.default);
+                params["config"]["model_reasoning_effort"] =
+                    json!(self.config.model.reasoning_effort);
+            }
+        }
+        native.call("thread/resume", params).await?;
         native.verify_scope(&record.thread, &pool.workspace).await?;
         if Self::cursor(&Self::history(native, &record.thread).await?) != history {
             return Err(Error("native_history_boundary_changed"));
@@ -3499,7 +3502,10 @@ impl Operator {
                         .map_err(|_| Error("invalid_configuration_path"))?,
                 )?
                 .map(|(_, catalog)| catalog);
-                if catalog.is_none() && crate::models::is_app_model(&self.config.model.default) {
+                if action == "create"
+                    && catalog.is_none()
+                    && crate::models::is_app_model(&self.config.model.default)
+                {
                     crate::control::admitted_catalog(
                         self.bridge.as_ref(),
                         &self.journal,
@@ -3528,62 +3534,40 @@ impl Operator {
                 {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
-                let native = if action == "create"
-                    || selection
-                        .as_ref()
-                        .is_some_and(|s| s.inference == Inference::Submitted)
-                {
-                    pool.prepare(Some(crate::registration::PROVIDER)).await?
+                let native = if action == "create" {
+                    pool.prepare_provider().await?
                 } else {
                     pool.prepare_thread(text(&args, "thread_id", 256)?).await?
                 };
-                let mut config = pool.routing()?;
-                let mut use_configured_route = action == "create";
-                let mut fork_settings = None;
-                if action != "create" {
-                    let thread = text(&args, "thread_id", 256)?;
-                    if action == "fork"
-                        || selection
-                            .as_ref()
-                            .is_some_and(|s| s.inference == Inference::Submitted)
-                    {
-                        let state = native
-                            .call(
-                                "thread/read",
-                                json!({"threadId":thread,"includeTurns":false}),
-                            )
-                            .await?;
-                        let previous = state["thread"]["modelProvider"]
-                            .as_str()
-                            .ok_or(Error("native_model_settings_unavailable"))?;
-                        use_configured_route = selection
-                            .as_ref()
-                            .is_some_and(|s| s.inference == Inference::Submitted)
-                            && previous != crate::registration::PROVIDER;
-                        if action == "fork" && !use_configured_route {
-                            let model = state["thread"]["model"]
-                                .as_str()
-                                .ok_or(Error("native_model_settings_unavailable"))?;
-                            fork_settings = Some((
-                                model.to_owned(),
-                                previous.to_owned(),
-                                state["thread"]["reasoningEffort"].clone(),
-                            ));
-                        }
+                let configure_provider = action == "create" || selection.is_some();
+                let mut params = json!({"cwd":pool.workspace});
+                if configure_provider {
+                    if action != "create" {
+                        native.require_model_provider_updates()?;
                     }
-                }
-                if use_configured_route {
+                    let mut config = pool.routing()?;
                     config["model_reasoning_effort"] = json!(self.config.model.reasoning_effort);
-                } else if let Some((_, _, effort)) = &fork_settings {
-                    config["model_reasoning_effort"] = effort.clone();
-                }
-                let mut params = json!({"cwd":pool.workspace,"config":config});
-                if use_configured_route {
+                    params["config"] = config;
                     params["model"] = json!(self.config.model.default);
                     params["modelProvider"] = json!(crate::registration::PROVIDER);
-                } else if let Some((model, provider, _)) = fork_settings {
-                    params["model"] = json!(model);
-                    params["modelProvider"] = json!(provider);
+                } else if action == "fork" {
+                    // Native fork defaults to process settings unless the caller
+                    // supplies the source's selected inference settings.
+                    let source = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":text(&args, "thread_id", 256)?,"includeTurns":false}),
+                        )
+                        .await?;
+                    params["model"] = json!(source["thread"]["model"]
+                        .as_str()
+                        .ok_or(Error("native_model_settings_unavailable"))?);
+                    params["modelProvider"] = json!(source["thread"]["modelProvider"]
+                        .as_str()
+                        .ok_or(Error("native_model_settings_unavailable"))?);
+                    params["config"] = json!({
+                        "model_reasoning_effort": source["thread"]["reasoningEffort"],
+                    });
                 }
                 if action != "create" {
                     params["threadId"] = json!(text(&args, "thread_id", 256)?);
@@ -3627,7 +3611,7 @@ impl Operator {
                 if joining {
                     if record.phase == "completed" {
                         resumed = self
-                            .resume_unloaded_native(&record, &native, receipt)
+                            .resume_unloaded_native(&record, &native, receipt, true)
                             .await?;
                     }
                     record = self.observe_native(record, &native).await?.0;
@@ -3666,7 +3650,12 @@ impl Operator {
                 }
                 if !joining {
                     resumed = self
-                        .resume_unloaded_native(&record, &native, receipt)
+                        .resume_unloaded_native(
+                            &record,
+                            &native,
+                            receipt,
+                            record.selection.is_some(),
+                        )
                         .await?;
                 }
                 let owner_changed = native.owner != record.execution;
@@ -3680,6 +3669,13 @@ impl Operator {
                     }
                 }
                 self.wait_assignment(&record).await?;
+                let select_provider = joining || record.selection.is_some();
+                let route_change = select_provider
+                    && native.scope(&record.thread).await?.model_provider
+                        != crate::registration::PROVIDER;
+                if select_provider {
+                    native.require_model_provider_updates()?;
+                }
                 let model_override = args
                     .get("model")
                     .map(|_| text(&args, "model", 128))
@@ -3700,16 +3696,28 @@ impl Operator {
                     || model_override.is_some()
                     || effort_override.is_some()
                 {
-                    let state = native
-                        .call(
-                            "thread/read",
-                            json!({"threadId":record.thread,"includeTurns":false}),
+                    let state = if route_change {
+                        None
+                    } else {
+                        Some(
+                            native
+                                .call(
+                                    "thread/read",
+                                    json!({"threadId":record.thread,"includeTurns":false}),
+                                )
+                                .await?,
                         )
-                        .await?;
-                    let model = state["thread"]["model"]
-                        .as_str()
-                        .ok_or(Error("native_model_settings_unavailable"))?;
-                    let effort = effort_override.or(state["thread"]["reasoningEffort"].as_str());
+                    };
+                    let model = match &state {
+                        Some(state) => state["thread"]["model"]
+                            .as_str()
+                            .ok_or(Error("native_model_settings_unavailable"))?,
+                        None => &self.config.model.default,
+                    };
+                    let effort = effort_override.or_else(|| match &state {
+                        Some(state) => state["thread"]["reasoningEffort"].as_str(),
+                        None => Some(self.config.model.reasoning_effort.as_str()),
+                    });
                     let model = model_override.unwrap_or(model);
                     if model_override.is_some() || effort_override.is_some() {
                         let effort = effort.ok_or(Error("native_effort_unavailable"))?;
@@ -3734,6 +3742,23 @@ impl Operator {
                     None
                 };
                 let collaboration_mode = args.get("mode").map(|mode| json!({"mode":mode,"settings":{"model":settings.as_ref().unwrap()["model"],"reasoning_effort":settings.as_ref().unwrap()["effort"],"developer_instructions":null}}));
+                if select_provider && !resumed {
+                    let pool = self.work_pool(&record).await?;
+                    self.mutation_intent(receipt)?;
+                    native
+                        .call(
+                            "thread/settings/update",
+                            json!({
+                                "threadId": record.thread,
+                                "modelProvider": crate::registration::PROVIDER,
+                                "model": model_override.or(route_change.then_some(self.config.model.default.as_str())),
+                                "effort": effort_override.or(route_change.then_some(self.config.model.reasoning_effort.as_str())),
+                                "config": pool.routing()?,
+                            }),
+                        )
+                        .await?;
+                    resumed = true;
+                }
                 {
                     let mut works = self.works.lock().await;
                     if let Some(assignment) = &record.assignment {
@@ -3963,7 +3988,7 @@ impl Operator {
                     return Err(Error("native_context_boundary_changed"));
                 }
                 let resumed = self
-                    .resume_unloaded_native(&record, &native, receipt)
+                    .resume_unloaded_native(&record, &native, receipt, false)
                     .await?;
                 if record.phase != "stopped" {
                     self.recovery_receipts(&native, &record).await?;
@@ -6020,7 +6045,10 @@ impl Host for Operator {
         let this = self.clone();
         Box::pin(async move {
             let native = this.pool.discover_thread(&request.thread).await?;
-            let workspace = native.workspace(&request.thread).await?;
+            let workspace = native
+                .scope(&request.thread)
+                .await?
+                .require_provider_inference()?;
             let pool = this
                 .scoped_pool(&native.owner.home, &workspace, None)
                 .await?;

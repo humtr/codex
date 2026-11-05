@@ -25,19 +25,17 @@ assembler preserves the prepared tree and index.
 Source assembly and focused build-input/assembler tests passed; the assembler's
 prepared-source preservation regression failed under its injected fault and passed
 after restoration. The repository Rust suite and Clippy passed (the existing
-ignored test remains unqualified). Hosted Native execution of f5088f3 through
+ignored test remains unqualified). Hosted Native execution of5e84795 through
 upstream's `just test` passed the catalog-binding test,113 compaction tests,
-148 Guardian tests and33 client tests. Config policy tests passed14/15; the
-remaining test correctly received a missing required file but expected the JSON
-parse diagnostic instead of the I/O error. Its correction asserts NotFound and
-then verifies the actual required catalog after creating that file. This revised
-case and the public transition/initialize/fault tests are not yet qualified.
-Run41992840346 used the actual stable/experimental schema generators and exposed
-five stale exports. The candidate includes those generated JSON/TS and embedded
-compressed exports, rather than hand-editing schema declarations. The Native
-summary parser also accounts for the observed passing slow-test annotation and
-still rejects the failed scope. Follow the feature branch's latest workflow for
-current qualification; an older run only proves its actual inputs and scope.
+148 Guardian tests,33 client tests and all15 config-policy tests. Actual stable
+and experimental schema generation also matched the committed exports. The public
+API test binary then exposed three new test-fixture URL borrow errors;9c10dea
+corrects those types. Its workflow42013998640 includes the new live-empty-thread
+resume regression and remains the current qualification attempt. No public API
+transition test has passed yet; do not substitute the Core tests for that proof.
+The summary parser accounts for passing slow-test annotations and still rejects
+a failed or zero-test scope. Original workflow logs and generated schema evidence
+remain under the owned repair tree.
 Warm explicit route selection submits the same Native operation. Route replies
 check materialization, event append and flush before claiming persistence.
 The hosted gate includes settings, real-terminal, warm/cold resume, storage and
@@ -50,6 +48,33 @@ inference remain unfinished. Do not treat this source candidate as connectivity
 repair or deployment. Original dirty0814be7b work and earlier isolated sources
 and diffs remain preserved. Reread AGENTS.md after recovery and inspect the actual
 proposal diff.
+
+Android qualification exposed another actual boundary: a live OpenAI thread can
+exist before its rollout. Provider had looked in a newly prepared default server
+before discovering that writer. With real labelled initial context, the revised
+owner-first path resumes the same thread, while the retained earlier executable
+rejects it. Starting attached work then remained pending because Native still
+selected OpenAI. The candidate separates work control from primary inference
+admission and removes Provider's historical-route server selection. Native owns
+cold route resolution on the common control server. Generic allocation preserves
+the route; explicit inference selects its configured destination without starting
+a task. Start/join refreshes that binding and checks the advertised transition
+capability before admitting input. The complete revised Provider source gate passes
+Rust tests/Clippy/release,114 JavaScript tests and the Python checks. A disposable
+fault that treats a missing capability as supported fails the transport regression;
+restoration passes. Actual Android qualification with the current signed Native
+and revised Provider passes same-thread generic OpenAI-work resume, exact repeated
+unsupported destination rejection before input, and rejection of stale primary
+inference on the OpenAI route. Original Native turns/settings remain unchanged.
+The retained earlier Provider rejects the same initial work. This fixture does not
+qualify cross-route file effects: the current signed Native lacks the required
+capability. All owned fixture services were stopped with observed process exit.
+A Native resume extension materializes the existing persistent writer before
+reading its stored view, preserving observers and propagating storage failure. Public two-client, storage and actual saved-route
+request tests plus a disposable removal fault cover that change in the current
+hosted gate. Source assembly passed; actual empty-thread Android execution and
+same-thread file-write/patch/finish remain unqualified. The signed operating
+Native is unchanged and does not advertise these updates.
 
 The current owned service responds, while its app observation reports
 app_auth_context_unavailable and ready=false. Exact installed app source exposes

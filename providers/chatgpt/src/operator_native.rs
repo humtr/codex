@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -188,31 +188,57 @@ pub struct Native {
     write: mpsc::Sender<Value>,
     replies: Replies,
     sequence: AtomicU64,
+    model_provider_updates: AtomicBool,
     closed: tokio_util::sync::CancellationToken,
     pub events: broadcast::Sender<Value>,
     pub human_requests: Arc<Mutex<BTreeMap<String, Value>>>,
 }
+
+pub(crate) struct NativeScope {
+    pub workspace: PathBuf,
+    pub model_provider: String,
+}
+impl NativeScope {
+    fn from_reply(row: &Value, thread: &str) -> Result<Self, Error> {
+        if row["thread"]["id"] != thread {
+            return Err(Error("native_thread_identity_changed"));
+        }
+        let cwd = row["thread"]["cwd"]
+            .as_str()
+            .ok_or(Error("native_workspace_unavailable"))?;
+        let workspace =
+            std::fs::canonicalize(cwd).map_err(|_| Error("native_workspace_unavailable"))?;
+        let model_provider = row["thread"]["modelProvider"]
+            .as_str()
+            .ok_or(Error("native_model_settings_unavailable"))?
+            .to_owned();
+        Ok(Self {
+            workspace,
+            model_provider,
+        })
+    }
+
+    /// Route admission belongs to primary inference, not generic work control.
+    pub(crate) fn require_provider_inference(self) -> Result<PathBuf, Error> {
+        if self.model_provider != registration::PROVIDER {
+            return Err(Error("native_inference_route_changed"));
+        }
+        Ok(self.workspace)
+    }
+}
 impl Native {
-    pub async fn workspace(&self, thread: &str) -> Result<PathBuf, Error> {
+    pub(crate) async fn scope(&self, thread: &str) -> Result<NativeScope, Error> {
         let row = self
             .call(
                 "thread/read",
                 json!({"threadId":thread,"includeTurns":false}),
             )
             .await?;
-        let cwd = row["thread"]["cwd"]
-            .as_str()
-            .ok_or(Error("native_workspace_unavailable"))?;
-        let actual =
-            std::fs::canonicalize(cwd).map_err(|_| Error("native_workspace_unavailable"))?;
-        if row["thread"]["id"] != thread || row["thread"]["modelProvider"] != "chatgpt_desktop" {
-            return Err(Error("native_workspace_or_route_changed"));
-        }
-        Ok(actual)
+        NativeScope::from_reply(&row, thread)
     }
     pub async fn verify_scope(&self, thread: &str, workspace: &Path) -> Result<(), Error> {
-        if self.workspace(thread).await? != workspace {
-            return Err(Error("native_workspace_or_route_changed"));
+        if self.scope(thread).await?.workspace != workspace {
+            return Err(Error("native_workspace_changed"));
         }
         Ok(())
     }
@@ -385,6 +411,7 @@ impl Native {
             write,
             replies: replies.clone(),
             sequence: AtomicU64::new(1),
+            model_provider_updates: AtomicBool::new(false),
             closed: closed.clone(),
             events: events.clone(),
             human_requests: human_requests.clone(),
@@ -431,19 +458,29 @@ impl Native {
             }
             let _ = events.send(json!({"method":"operator/nativeDisconnected"}));
         });
-        client
+        let initialized = client
             .call(
                 "initialize",
                 json!({"clientInfo":{"name":"termux-chatgpt-operator","version":"1"},
             "capabilities":{"experimentalApi":true}}),
             )
             .await?;
+        client.model_provider_updates.store(
+            initialized["modelProviderUpdates"] == true,
+            Ordering::Relaxed,
+        );
         client
             .write
             .send(json!({"method":"initialized","params":{}}))
             .await
             .map_err(|_| Error("native_delivery_unknown"))?;
         Ok(client)
+    }
+    pub(crate) fn require_model_provider_updates(&self) -> Result<(), Error> {
+        if !self.model_provider_updates.load(Ordering::Relaxed) {
+            return Err(Error("native_model_provider_updates_unsupported"));
+        }
+        Ok(())
     }
     pub(crate) fn close(&self) {
         self.closed.cancel();
@@ -627,24 +664,19 @@ impl Pool {
         found.ok_or(Error("native_thread_owner_unavailable"))
     }
     pub async fn prepare_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
-        // Metadata observation does not load a writer or submit inference. The
-        // saved provider determines which configured server may admit input.
-        let observer = self.prepare(None).await?;
-        let saved = observer
-            .call(
-                "thread/read",
-                json!({"threadId":thread,"includeTurns":false}),
-            )
-            .await?;
-        let provider = saved["thread"]["modelProvider"]
-            .as_str()
-            .ok_or(Error("native_model_settings_unavailable"))?;
-        self.prepare(Some(provider)).await
+        match self.for_thread(thread).await {
+            Ok(native) => return Ok(native),
+            Err(Error("native_thread_owner_unavailable")) => {}
+            Err(error) => return Err(error),
+        }
+        // Native resolves saved route metadata per thread. The default server
+        // supplies control without imposing Provider catalog or route affinity.
+        self.client(self.prepare_owner(false).await?).await
     }
-    pub async fn prepare(&self, provider: Option<&str>) -> Result<Arc<Native>, Error> {
-        let routing = self.routing()?;
-        let catalog = crate::projection::catalog(&self.config)
-            .map_err(|_| Error("native_catalog_invalid"))?;
+    pub async fn prepare_provider(&self) -> Result<Arc<Native>, Error> {
+        self.client(self.prepare_owner(true).await?).await
+    }
+    async fn prepare_owner(&self, configured_provider: bool) -> Result<Owner, Error> {
         let core = self
             .config
             .execution
@@ -652,42 +684,44 @@ impl Pool {
             .as_ref()
             .ok_or(Error("operator_core_required"))?;
         let mut command = tokio::process::Command::new(core);
-        command.arg("__app-server-catalog-v1");
-        if let Some(provider) = provider {
+        let catalog = if configured_provider {
+            command.arg("__app-server-catalog-v1");
+            Some(
+                crate::projection::catalog(&self.config)
+                    .map_err(|_| Error("native_catalog_invalid"))?,
+            )
+        } else {
+            command.arg("__app-server-default-v1");
+            None
+        };
+        if configured_provider {
+            let routing = self.routing()?;
+            let definition =
+                toml::Value::try_from(&routing["model_providers"][registration::PROVIDER])
+                    .map_err(|_| Error("native_model_settings_unavailable"))?;
             command.args([
                 "--config".to_owned(),
-                format!("model_provider={}", toml::Value::String(provider.into())),
+                format!(
+                    "model_provider={}",
+                    toml::Value::String(registration::PROVIDER.into())
+                ),
+                "--config".to_owned(),
+                format!("model_providers.{}={definition}", registration::PROVIDER),
             ]);
-            if provider == registration::PROVIDER {
-                let definition =
-                    toml::Value::try_from(&routing["model_providers"][registration::PROVIDER])
-                        .map_err(|_| Error("native_model_settings_unavailable"))?;
-                command.args([
-                    "--config".to_owned(),
-                    format!("model_providers.{}={definition}", registration::PROVIDER),
-                ]);
-            }
         }
-        self.client(
-            self.prepare_server(command, Some(catalog), "catalogs")
-                .await?,
-        )
-        .await
+        let family = if catalog.is_some() {
+            "catalogs"
+        } else {
+            "servers"
+        };
+        self.prepare_server(command, catalog, family).await
     }
     /// Reuse Core preparation and socket authority without model routing/catalog.
     pub(crate) async fn prepare_io(
         &self,
         output: mpsc::Sender<Value>,
     ) -> Result<Arc<Native>, Error> {
-        let core = self
-            .config
-            .execution
-            .core
-            .as_ref()
-            .ok_or(Error("operator_core_required"))?;
-        let mut command = tokio::process::Command::new(core);
-        command.arg("__app-server-default-v1");
-        let owner = self.prepare_server(command, None, "servers").await?;
+        let owner = self.prepare_owner(false).await?;
         // One connection owns one command; closing it cannot interrupt another
         // standalone command or an integrated Native turn on the shared server.
         Native::connect_output(owner, self.installation.clone(), Some(output)).await
@@ -748,6 +782,33 @@ mod reply_tests {
     use super::*;
 
     #[test]
+    fn work_scope_survives_route_changes_while_provider_inference_requires_its_route() {
+        let workspace = std::env::temp_dir().canonicalize().unwrap();
+        for provider in [registration::PROVIDER, "openai", "configured-route"] {
+            let reply = json!({"thread":{
+                "id":"retained-work", "cwd":workspace, "modelProvider":provider,
+            }});
+            let scope = NativeScope::from_reply(&reply, "retained-work")
+                .expect("selected inference route must not fence admitted work control");
+            assert_eq!(scope.workspace, workspace);
+            let inference = scope.require_provider_inference();
+            if provider == registration::PROVIDER {
+                assert_eq!(inference.unwrap(), workspace);
+            } else {
+                assert_eq!(
+                    inference.err(),
+                    Some(Error("native_inference_route_changed")),
+                    "another Native route must not submit Provider primary inference"
+                );
+            }
+            assert_eq!(
+                NativeScope::from_reply(&reply, "another-work").err(),
+                Some(Error("native_thread_identity_changed"))
+            );
+        }
+    }
+
+    #[test]
     #[ignore = "subprocess peer for the owned transport regression"]
     fn transport_peer() {
         let root = PathBuf::from(std::env::var_os("CODEX_NATIVE_TRANSPORT_FIXTURE").unwrap());
@@ -782,7 +843,11 @@ mod reply_tests {
                         break;
                     }
                     let result = if row["method"] == "initialize" {
-                        json!({})
+                        if connection == 0 {
+                            json!({})
+                        } else {
+                            json!({"modelProviderUpdates": true})
+                        }
                     } else {
                         assert_eq!(row["method"], "thread/read");
                         json!({"thread":{"id":"original-thread"}})
@@ -900,6 +965,10 @@ mod reply_tests {
             clients: Mutex::new(BTreeMap::new()),
         };
         let native = pool.client(owner.clone()).await.unwrap();
+        assert_eq!(
+            native.require_model_provider_updates(),
+            Err(Error("native_model_provider_updates_unsupported"))
+        );
         let mut events = native.events.subscribe();
         assert_eq!(
             native
@@ -913,6 +982,7 @@ mod reply_tests {
         .await
         .unwrap();
         let next = pool.client(owner).await.unwrap();
+        next.require_model_provider_updates().unwrap();
         assert_eq!(
             next.call("thread/read", json!({"threadId":"original-thread"}))
                 .await
