@@ -842,10 +842,10 @@ index f5bda49..2dca8a5 100644
  }
  
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b1..ac0b540 100644
+index ab688b1..2722e61 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-@@ -774,3 +774,564 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
+@@ -774,3 +774,558 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
      }
      Ok(())
  }
@@ -1323,7 +1323,7 @@ index ab688b1..ac0b540 100644
 +}
 +
 +#[tokio::test]
-+async fn model_provider_storage_failure_exposes_unconfirmed_selection_without_inference()
++async fn model_provider_storage_failure_preserves_the_original_route_without_inference()
 +-> Result<()> {
 +    let first = responses::start_mock_server().await;
 +    let second = responses::start_mock_server().await;
@@ -1362,13 +1362,7 @@ index ab688b1..ac0b540 100644
 +    // Remove only the owned empty collision before evaluating the result.
 +    std::fs::remove_dir(&path)?;
 +    let response = response??;
-+    assert!(
-+        response
-+            .error
-+            .message
-+            .contains("selected but persistence is unconfirmed"),
-+        "{response:?}"
-+    );
++    assert_eq!(response.error.code, -32603, "{response:?}");
 +    let current: ThreadReadResponse = client
 +        .request(|request_id| ClientRequest::ThreadRead {
 +            request_id,
@@ -1378,7 +1372,7 @@ index ab688b1..ac0b540 100644
 +            },
 +        })
 +        .await?;
-+    assert_eq!(current.thread.model_provider, "alternate");
++    assert_eq!(current.thread.model_provider, "mock_provider");
 +    assert!(received_response_bodies(&first).await?.is_empty());
 +    assert!(received_response_bodies(&second).await?.is_empty());
 +    // Reconcile a settings operation, rather than replaying any user turn.
@@ -2307,10 +2301,10 @@ index d73b96c..6095c45 100644
                  crate::compact_remote_v2::run_inline_remote_auto_compact_task(
                      Arc::clone(&sess),
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
-index 128bc7d..573c5a6 100644
+index 128bc7d..8d4f4a7 100644
 --- a/codex-rs/core/src/session/handlers.rs
 +++ b/codex-rs/core/src/session/handlers.rs
-@@ -616,13 +616,27 @@ pub(super) async fn submission_loop(
+@@ -616,26 +616,34 @@ pub(super) async fn submission_loop(
                          request: thread_settings,
                          turn_extension_init: sub.turn_extension_init,
                      };
@@ -2324,12 +2318,11 @@ index 128bc7d..573c5a6 100644
 -                            if let Some(reply) = reply {
 -                                let _ = reply.send(Ok(()));
 +                            if route_changed {
-+                                let materialized = sess.try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard).await;
 +                                let persisted = thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
-+                                let result = match materialized {
-+                                    Err(error) => Err(error),
-+                                    Ok(()) if !persisted => Err(std::io::Error::other("failed to append selected provider to Native history")),
-+                                    Ok(()) => sess.flush_rollout().await,
++                                let result = if persisted {
++                                    sess.flush_rollout().await
++                                } else {
++                                    Err(std::io::Error::other("failed to append selected provider to Native history"))
 +                                }.map_err(|error| CodexErr::Fatal(format!(
 +                                    "model provider selected but persistence is unconfirmed: {error}"
 +                                )));
@@ -2342,7 +2335,22 @@ index 128bc7d..573c5a6 100644
 -                            thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
                          }
                          Err(error) => {
-                             let message = format!("invalid thread settings override: {error}");
+-                            let message = format!("invalid thread settings override: {error}");
+                             if let Some(reply) = reply {
+-                                let _ = reply.send(Err(CodexErr::InvalidRequest(message)));
++                                let _ = reply.send(Err(error));
+                             } else {
+                                 sess.send_event_raw(Event {
+                                     id: sub.id.clone(),
+-                                    msg: EventMsg::Error(ErrorEvent {
+-                                        misalignment: None,
+-                                        message,
+-                                        codex_error_info: Some(CodexErrorInfo::BadRequest),
+-                                    }),
++                                    msg: EventMsg::Error(error.to_error_event(None)),
+                                 })
+                                 .await;
+                             }
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
 index cc418ca..e4d5637 100644
 --- a/codex-rs/core/src/session/mod.rs
@@ -3249,10 +3257,10 @@ index 971f4ba..e89a560 100644
      turn_context_raw.config = Arc::clone(&config);
      turn_context_raw.provider = create_model_provider(
 diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
-index c3a82ef..5cdc388 100644
+index c3a82ef..5a3adbb 100644
 --- a/codex-rs/core/src/session/thread_settings.rs
 +++ b/codex-rs/core/src/session/thread_settings.rs
-@@ -77,9 +77,40 @@ impl Session {
+@@ -77,9 +77,52 @@ impl Session {
  pub(super) async fn update(
      session: &Session,
      overrides: impl Into<WithTurnExtensionData<ThreadSettingsOverrides>>,
@@ -3265,17 +3273,29 @@ index c3a82ef..5cdc388 100644
 +    // Settings and user input share this submission loop. A live turn or reservation
 +    // retains its original provider; background terminals belong to the executor.
 +    let active = if provider_config.is_some() {
-+        let active = session.active_turn.lock().await;
-+        if active.is_some() || session.conversation.running_state().await.is_some() {
-+            return Err(CodexErr::InvalidRequest(
-+                "model provider change requires a settled turn".into(),
-+            ));
++        loop {
++            let active = session.active_turn.lock().await;
++            if let Some(finishing) = active.as_ref().and_then(|turn| turn.finishing.clone()) {
++                // Native can publish TurnComplete before its final recording barrier.
++                // Use that owner's completion signal, as item injection already does.
++                drop(active);
++                finishing.cancelled().await;
++                continue;
++            }
++            if active.is_some() || session.conversation.running_state().await.is_some() {
++                return Err(CodexErr::InvalidRequest(
++                    "model provider change requires a settled turn".into(),
++                ));
++            }
++            break Some(active);
 +        }
-+        Some(active)
 +    } else {
 +        None
 +    };
 +    if let Some(config) = provider_config {
++        session
++            .try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard)
++            .await?;
 +        let current = session.services.inference.load_full();
 +        let client = current.client.with_provider(config.model_provider.clone());
 +        client.prewarm_auth().await?;
@@ -3296,7 +3316,7 @@ index c3a82ef..5cdc388 100644
      let active_turn = session.active_turn.lock().await;
      // A registered running task retains its lineage so it can be recovered after a daemon
      // restart. Reservations and finishing turns have no interrupted work to continue.
-@@ -169,7 +200,7 @@ pub(super) async fn emit_applied(
+@@ -169,7 +212,7 @@ pub(super) async fn emit_applied(
      session: &Session,
      submission_id: String,
      snapshot: ThreadSettingsSnapshot,
@@ -3305,7 +3325,7 @@ index c3a82ef..5cdc388 100644
      let msg = EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
          thread_id: Some(session.thread_id()),
          thread_settings: snapshot,
-@@ -179,7 +210,7 @@ pub(super) async fn emit_applied(
+@@ -179,7 +222,7 @@ pub(super) async fn emit_applied(
              id: submission_id,
              msg,
          })

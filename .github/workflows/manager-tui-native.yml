@@ -212,6 +212,7 @@ jobs:
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib provider_tests -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
           cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite model_provider -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
       - name: Verify provider runtime binding regression
+        id: native-route-mutation
         if: ${{ inputs.native_transition_mutation_check }}
         shell: bash
         run: |
@@ -499,8 +500,9 @@ jobs:
           retention-days: 3
       - name: Retain isolated partial compile cache
         # Fault injection dirties Cargo outputs and consumes the optional cache
-        # save budget. Ordinary qualification owns reusable cache publication.
-        if: ${{ !cancelled() && !inputs.mutation_check && !inputs.native_transition_mutation_check && steps.compile-cache.outputs.cache-hit != 'true' }}
+        # save budget. Preserve ordinary compile failures before the Native fault;
+        # after that fault, only the restored-source passing run may publish it.
+        if: ${{ !cancelled() && !inputs.mutation_check && steps.native-route-mutation.outcome != 'failure' && steps.compile-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |

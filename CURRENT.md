@@ -42,6 +42,32 @@ connectivity repair or deployment. Original dirty
 0814be7b work and the earlier isolated source/diffs remain preserved. Reread
 AGENTS.md after recovery and inspect the actual proposal diff.
 
+The current owned service responds, while its app observation reports
+app_auth_context_unavailable and ready=false. Exact installed app source exposes
+both chatgpt and chatgptAuthTokens authentication; the old bridge rejected the
+latter at identity and dispatch. The source candidate merges those duplicate
+predicates and accepts both modes while preserving account/user equality checks.
+All94 app bridge tests pass; removing the second supported mode in disposable
+source fails2 new cases and restoration passes all4 mode/transport combinations.
+The complete Provider source gate also passes Rust tests/Clippy/release build,
+112 JavaScript tests and its Python checks, with incremental compilation disabled
+and dev/test debug information stripped. Its explicitly ignored Android/app and
+compaction scenarios remain unqualified; no actual Chat request was submitted.
+This establishes a compatibility defect and its simulated correction, not the
+unobserved auth fields of the operating app or a repaired live connection.
+
+Route configuration now suppresses reopening an omitted former catalog before
+parsing it, while preserving mandatory catalog requirements; its new config tests
+must run alongside the public Native tests. Python qualification found a release
+fixture with a duplicate producer-file list missing the new Native payload. It
+now shares the existing producer fixture, and all8 release-component tests pass.
+Native selection waits on the existing finishing-turn completion signal before
+rechecking admission. Initial materialization belongs to preparation, so a known
+storage failure leaves the previous route selected; only an append/flush failure
+after selection reports unconfirmed persistence. These later source changes still
+require Native execution proof. The CLI build of b8217e6 passed in run41979158913;
+its Native test stage cannot qualify source changed after that commit.
+
 ### Outcome and ownership decisions
 
 The selected task should retain one Native conversation across model/entrance
