@@ -18,59 +18,32 @@ Every Termux Codex execution passes through Core. Actual tools, reviewer,
 conversation storage, compaction and resume remain upstream-owned. Optional
 preparation/configuration isolation and no-Manager TUI/Provider execution have
 source and bounded Android proof; signed composition and operating activation
-are distinct. See [current status and work order](CURRENT.md#product-completion-scope-and-work-order).
+are distinct. See [current status and work order](CURRENT.md#unified-development-order-and-user-visible-completion).
 
-The optional **Provider** contains the ChatGPT–Codex bridge: model and native
-tool adapters plus shared Chat/session management. ChatGPT supplies intelligence;
-native Codex executes, approves and records. MCP connects tool calls/results;
-its app connection is named **Termux Bridge**. That connection is part of Provider,
-not another product component. Provider release sequence numbers identify signed
-publications, not different component names.
+The optional **Provider** contains the ChatGPT–Codex bridge. **Termux Bridge**
+is its ChatGPT MCP connection. Native owns execution, approvals and committed
+history; model/source transport, canonical context and connection lifetime have
+distinct responsibilities in the [architecture contract](SPEC.md#46-component-responsibilities-and-user-flow-contracts).
 
-The common managed development loop is Codex -> Linux app API -> work Chat ->
-MCP or app-injected local functions -> the same native work. Existing ChatGPT
-work controls also use native execution through MCP, including an attached Chat response. The
-primary Codex thread retains durable history while Chat contexts can be replaced.
-Origin, controller identity and original tool-return bindings survive qualified
-handoff. A direct Android/web follow-up does not automatically inherit that
-execution context: model participation and saved-source observation are different
-paths. Saving an answer is separate from live TUI display. The
-[current findings](CURRENT.md#confirmed-defects-and-unresolved-behavior) describe
-the remaining gaps; a client restart does not implement their repair.
+Both Codex and ChatGPT entrances are product targets. A current Chat response can
+attach without another primary inference request; a Codex-origin Chat request
+starts selected inference. Neither entrance should require users to perform a
+manual create/start/repair sequence for ordinary work. A model route is not a
+task identity, and renewing a remote Chat does not require another Native thread.
+MCP alone is not proof that every host message was observed or recorded.
 
-The workflow names are **standalone — 단독 개발** and **integrated — 통합 개발**.
-Standalone is ChatGPT development outside the common work framework; integrated
-uses its shared task, tool, control, history and orchestration lifecycle from either
-entrance. Provider remains the component name. Entrypoint/model/inference initiation
-do not select or rename the workflow.
-Source uses `inference=attached|submitted` for existing-response attachment versus
-new model submission within integrated work. Installed Provider21 still uses its
-old `reasoning=direct|provider` protocol until matched package/state activation.
-Neither protocol defines the standalone workflow. The source now supplies
-`local_context`/`local_execute`/`local_process` for standalone development, under an
-explicit configured Core permissions profile, plus optional server-enforced
-standalone/integrated locks. Ordinary local file access creates no Native work
-or completion notification. Actual Android I/O proof, actual-model selection,
-signed delivery and activation remain distinct; see [CURRENT](CURRENT.md).
-The [selected design](SPEC.md#work-recording-scope-and-entry-selection) uses one MCP
-with explicit contexts; existing profiles gain no implicit new access grant.
-[Actual Linux proof and limits](WORK_SCOPE_REVIEW.md#45-실제-linux-앱--모델--mcp--rust-전달-시험)
-distinguish conversation correlation from branch/work selection and product acceptance.
+**Current qualification is incomplete.** Full148 and Provider25 package selection
+does not establish working cross-provider resume, all active service bindings,
+Chat app readiness or receiving-client continuity. Cross-provider resume is
+blocked in the qualified Native interface; fixture Provider reconnection lost
+live TUI updates. Recent transport list recovery does not establish actual
+model inference. Read [CURRENT](CURRENT.md) before treating an old success claim
+or a historical Provider sequence as operating acceptance.
 
-Installed Provider21 passes scoped Android→CLI→Android same-work continuity and
-plain-prompt automation through `chat_input`. Automated input uses the configured
-Provider model/effort; it does not inherit the Android app's selected settings.
-Original public text and live terminal output are checked separately. Ordinary
-web-client input, broader failure/control cases and original host provenance
-remain distinct qualification work; see [actual trial scope](CURRENT.md#activated-provider21-complete-direct-progress-guidance).
-
-The newer source implementation preserves a ready owned Chat's selection and
-accepts explicit model/effort choices. Selectable app models come from the actual
-picker, augmented by configuration; `host models` refreshes them and `prepare`
-publishes retained choices for the next Native startup. This source qualification
-is separate from installed Provider21 and public delivery; see
-[the current input baseline](CURRENT.md#confirmed-defects-and-unresolved-behavior)
-and [Provider configuration](providers/chatgpt/README.md).
+The source protocol uses `inference=attached|submitted`. Native integrated work
+and intentionally threadless standalone tools remain distinct execution scopes;
+standalone tools are not a workaround for a failed selected Native task.
+Capabilities, credentials and actual source observations remain explicit.
 
 ## Start here
 
@@ -81,7 +54,7 @@ composition makes Manager, TUI, Provider and the patched Android tunnel individu
 selectable, with Full including them all. Normal installs use prebuilt binaries;
 source-building is an explicit recovery/development option. The published Full
 still pairs Manager/TUI and installs Provider separately; the broader composition
-remains in the [work order](CURRENT.md#product-completion-scope-and-work-order).
+remains in the [work order](CURRENT.md#unified-development-order-and-user-visible-completion).
 
 | Where you start | Who reasons about the task | Required setup |
 | --- | --- | --- |
@@ -104,27 +77,20 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 ## Current status
 
-Earlier A–H batches are accepted only at their
-[recorded scopes](CURRENT.md#product-completion-scope-and-work-order).
-Signed delivery and device activation have their separate
-[recorded scopes](CURRENT.md#current-status-and-next-action); public and installed
-versions can differ. The [consolidated plan and handoff](CURRENT.md#product-completion-scope-and-work-order)
-prioritize native GitHub acquisition and a proved update/install/rollback path.
-Persistent owned-source binding, Bridge-first join and Native cold-resume/
-compaction fixes are implemented. Complete ChatGPT/CLI entrance equivalence still
-needs actual-client concurrency/recovery and trusted host-source qualification.
-The [acceptance matrix](CURRENT.md#implemented-but-incompletely-qualified) and
-[work order](CURRENT.md#product-completion-scope-and-work-order) distinguish this
-work from the later MCP/local refactoring and independent-worker extensions.
-[CURRENT](CURRENT.md#operating-baseline) owns accepted sources, signed releases,
-device selections and actual running processes. Existing sessions keep their pinned
-executable until normal exit. Ordinary account configuration does not force a model.
+The current priority is architecture and entrance continuity: one Native task,
+coherent model transitions, reusable context and configured service/app lifetime.
+[CURRENT](CURRENT.md#current-architecture-review-and-operating-boundary) separates
+the revised contract from actual implementation and operating acceptance, with
+the next implementation dependencies. Earlier A–H proofs retain their original
+scope; signed delivery and device activation remain distinct. Existing sessions
+keep their pinned executable until normal exit. Ordinary account configuration
+does not force a model.
 
 Fresh Core installation exists. Provider app provisioning, first login and remote
 connection setup still require the [manual steps below](#fresh-install) and the
 [Provider guide](providers/chatgpt/README.md#first-time-setup). The shared minimum
 setup flow and repository separation remain
-[deferred implementation work](CURRENT.md#deferred-setup-and-repository-work).
+[deferred implementation work](CURRENT.md#retained-capability-requirements-and-accurate-completion-limits).
 Diagnosis and local recovery use `codex doctor` and `codex update --rollback`.
 
 To run the direct Core path for one invocation while Manager is installed:
@@ -141,11 +107,14 @@ for that run.
 
 These steps are for a **new** Termux installation. On an existing managed
 installation, use `codex update`; fresh bootstrap deliberately refuses existing
-authoritative state or a different existing `codex` executable. In the development
-candidate, manual update also updates an already selected ChatGPT Provider as a
+authoritative state or a different existing `codex` executable. Manual update
+also updates an already selected ChatGPT Provider as a
 separate group, retaining unchanged payloads. It does not install an unselected
-Provider or restart existing services/profiles. Explicit Core source, force and
-rollback commands keep their Core scope. See CURRENT for delivery status.
+Provider. Current package selection does not automatically reconcile every
+configured service/profile image; pending activation must be reported separately.
+The target reconciliation contract is in SPEC4.6; do not infer implementation
+from that target. Explicit Core source, force and rollback retain their Core scope.
+See CURRENT for actual delivery and activation status.
 
 The Android/AArch64 release needs Termux's shell, curl and OpenSSL. If the latter
 two are missing, install their Termux packages explicitly:
@@ -224,7 +193,7 @@ unmodified Base TUI still uses OSC52 and reports its unconfirmed outcome;
 enlarging OSC52 alone supplies no acknowledgement. Image files use
 upstream `--image`/`-i`; direct Android clipboard-image paste needs its own
 platform qualification and is not established by file-input support. See the
-[copy/image plan](CURRENT.md#clipboard-copy-and-image-paste).
+[copy/image plan](CURRENT.md#retained-capability-requirements-and-accurate-completion-limits).
 
 In upstream's owned transcript mode, `/copy` enters message/target selection;
 use the arrow keys to select whole responses or available code/quote blocks and
@@ -641,7 +610,7 @@ see the [official notification configuration](https://learn.chatgpt.com/docs/con
 The optional Manager supplies the Termux delivery/window-return commands below;
 they are unavailable in a Base-only selected generation. Convergence with the
 upstream settings and repair of the reported Android delivery failure are planned
-in [CURRENT](CURRENT.md#notification-restoration-and-upstream-boundary).
+in [CURRENT](CURRENT.md#retained-capability-requirements-and-accurate-completion-limits).
 
 `codex termux help` lists the installed Manager commands. Profiles separate
 execution preferences and authentication while sharing upstream conversation
@@ -704,7 +673,7 @@ on `main` through the accepted non-forced CAS release path; implementation
 development continues on `rewrite/rust-core`.
 
 Repository separation/cleanup is
-[deferred](CURRENT.md#repository-separation-and-cleanup): retain the old repository
+[deferred](CURRENT.md#retained-capability-requirements-and-accurate-completion-limits): retain the old repository
 as an archive, move development to a fresh private `codex`, and use a separately
 named public distribution repository. Names and endpoints have not changed.
 The owner accepts a brief installation/update outage during the eventual move;
@@ -763,7 +732,7 @@ depend on Manager, the enhanced TUI or a Chat provider. Manager adds account/tas
 notification/window conveniences; the TUI integrates `/switch` and provider model
 selection. The provider owns its transport and host lifetime. The small shared
 runtime-binding crate is compiled source, not another installed dependency.
-See [the component boundary](SPEC.md#46-final-component-boundary-and-core-independence).
+See [the component boundary](SPEC.md#46-component-responsibilities-and-user-flow-contracts).
 TUI is the component name. Existing `frontend/manager-tui`, signed artifact
 identities and build flags retain their compatibility spelling. This terminology
 does not yet remove the deployed Full TUI's Manager pairing requirement.
@@ -818,7 +787,7 @@ Actual Android0.166 source compilation, signing, installation, execution and
 verifies/reuses that completed artifact without recompiling. This is distinct
 from an uninterrupted empty-cache build. Exact source, public delivery, device
 activation and remaining work are recorded in
-[CURRENT](CURRENT.md#product-completion-scope-and-work-order).
+[CURRENT](CURRENT.md#unified-development-order-and-user-visible-completion).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 

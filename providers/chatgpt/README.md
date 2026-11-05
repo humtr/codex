@@ -7,7 +7,7 @@ applies its approval/reviewer policy and owns canonical history. Neither Core no
 Manager links Provider implementation. Manager and enhanced TUI are not required
 for the upstream configuration route.
 
-[CURRENT](../../CURRENT.md#operating-baseline) owns the selected generations,
+[CURRENT](../../CURRENT.md#current-architecture-review-and-operating-boundary) owns the selected generations,
 signed delivery evidence and actual running owners. Provider is the component
 name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
 not part of that component name. Source qualification, package selection,
@@ -15,32 +15,25 @@ service activation, actual inference and physical UI observation are distinct.
 
 ## Bridge design and implementation status
 
-Provider contains the ChatGPT–Codex bridge: model/native-tool adapters and shared
-session, connection and host management. MCP is a tool/result protocol used by
-that bridge; the app displays its MCP connection as **Termux Bridge**. ChatGPT
-supplies judgment; native Codex executes, approves and records. `operator` remains
-a code/config/API label for native-work controls, not another reasoning agent.
+[The revised architecture contract](../../SPEC.md#46-component-responsibilities-and-user-flow-contracts)
+precedes runtime implementation. Provider owns source/transport,
+external request admission and its app/account lifetime. Native owns execution,
+approvals, committed conversation/context and the effective per-thread route.
+MCP is a transport, not proof that an external Chat supplied all inputs or public
+outputs. Reported text and independently observed host text remain distinct.
 
-The [retained control contracts](../../SPEC.md#e-selected-common-interfaces-and-lifecycle)
-remain in force. Earlier F/G/H qualification and delivery apply at their recorded
-scope; [CURRENT](../../CURRENT.md#evidence-map-and-limits) separates those results
-from remaining entrance-continuity boundaries. [AUDIT](../../AUDIT.md) preserves
-the original independent Chat/native-work audit; superseded proposals are
-distinguished from the current SPEC and CURRENT plan.
-Provider15 delivers persistent binding and Bridge-native join for an active Chat
-response at the qualification scope in CURRENT. Saved-source recovery is explicit;
-ordinary Bridge work does not crawl Chat. Source recovery does not make all host
-tools Native execution or establish unobserved original host message identities.
+Entrances share Native admission/results and source-labelled context projection;
+attached versus submitted describes inference initiation, not separate work
+frameworks. Initial Chat import, model transition and managed Chat renewal must
+not grow independent summary/recovery state machines. Existing journals retain
+only facts/unfinished external operations that their boundary actually owns.
 
-Product workflow means **standalone — 단독 개발 / integrated — 통합 개발**.
-Standalone local tools return to ChatGPT without Native conversation history.
-Both ChatGPT and CLI participation in common Native tasks/tools/orchestration are
-integrated. Provider names the component; MCP/local_function names transport.
-The source uses `inference=attached|submitted` within integrated work, without
-runtime aliases for old current/managed/direct/provider fields or values. The
-installed Provider21 API remains old until matched migration and activation;
-`migrate-inference` performs explicit offline upgrade or matched rollback while
-preserving original receipts and history. See CURRENT for delivery status.
+The installed runtime does not yet implement the full target. Cross-provider
+resume, reconnection/live TUI observation and owned app readiness have unresolved
+failures. Follow [CURRENT](../../CURRENT.md); older generation-specific proofs
+remain historical evidence, not current architecture or universal acceptance.
+
+## Existing execution surfaces
 
 The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
 now has source MCP tools `local_context`, `local_execute` and `local_process`.
@@ -50,9 +43,9 @@ round or completion callback. Commands cover file reads/writes/patches and tests
 output pages preserve original bytes, and the same process connection owns
 stdin/PTY/Stop. A returned process ID is admission, not spawn/exit confirmation.
 An acknowledged Stop still requires the original command result. Lost delivery
-is fenced rather than automatically repeated. Actual Android path proof is in
-CURRENT; this is not yet signed/activated or an actual-model intent-selection
-qualification. Standalone renderer local-function ingress is not implemented yet.
+is fenced rather than automatically repeated. CURRENT owns the applicable
+source/device/delivery and actual-model qualification; these are separate
+boundaries. Standalone renderer local-function ingress is not implemented yet.
 
 Enable the local surface by explicitly choosing a Core permissions-profile ID in
 `execution.standalone_permission_profile`, with the existing Core/home/workspace
@@ -78,35 +71,13 @@ chat_correlation_error alongside the original Native outcome. Natural-language
 initial selection remains model-assisted, with actual-model qualification still
 required. See [the scope review](../../WORK_SCOPE_REVIEW.md#6-진입점에서의-선택-매번-추측하지-않고-작업-문맥을-유지).
 
-Provider18 retains inherited handles, including Core's payload selection lease,
-in its own process and marks non-stdio handles close-on-exec before starting
-children. Native/app children receive only explicitly exported descriptors; they
-must not keep an incidental Provider selection lock alive. Running Provider
-processes retain their pinned immutable bytes. The development Core now allows
-selection changes during execution under its existing activation lock; older
-installed Cores retain their prior selection-blocking behavior until upgraded.
-CURRENT distinguishes source qualification from operating activation.
+Current tool annotations describe the installed experimental policy; they are not
+Native execution permission or evidence of read-only effects. Exact retry and
+effect recovery remain operation-specific. Review descriptor changes against
+actual consumers and administrator/Native policy rather than keeping a hint
+merely because an older experiment emitted it. Migration/rollback of old inference
+records remains explicit; see the existing migration instructions below.
 
-All tool declarations share one Rust annotation policy: readOnlyHint=true,
-destructiveHint=false and openWorldHint=false, including codex_projects. These
-hints do not replace native permissions or change actual read/write capability.
-Only idempotentHint varies with the qualified operation contract. The
-[idempotency study](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
-remains historical research; E settled and implemented the common operation/
-duplicate/result-recovery contract and per-tool targets. F qualified
-and applied them at the recorded scope. The Rust policy selects true for fresh source/native reads and
-keyed execution/report/finish/handoff/answer/attach operations; mixed host/session/
-summary/Stop/project tools retain false. Historical JavaScript declarations stay in the
-preserved experiment/installation. Hint changes alone have no demonstrated
-performance benefit. In the observed ChatGPT backend tools/list response,
-idempotentHint is omitted even though the Rust service emits it; internal
-consumption is unknown. Other hints must remain unchanged.
-
-The [idempotency implementation](../../CURRENT.md#implemented-and-qualified-at-recorded-scope)
-shares in-flight duplicate results and durable mutation/finish/registration/round
-receipts, with per-work admission and Stop fencing. Other hints remain unchanged.
-Older signed generations retain their own evidence and rollback inventory; see
-the [operating baseline](../../CURRENT.md#operating-baseline).
 
 ## First-time setup
 
@@ -120,8 +91,8 @@ use their current configuration; these examples are for first-time setup.
 | Entry | Primary reasoning | Linux app needed? | Remote MCP needed? |
 | --- | --- | --- | --- |
 | Terminal with ChatGPT | Provider response | Yes, with app login | Only for MCP inner returns; local_function does not need it |
-| ChatGPT joining common Codex work | Attached response; old API uses `reasoning=direct` | No extra Linux host for the attached primary response | Yes |
-| ChatGPT requesting new inference on Codex work | Submitted response; old API uses `reasoning=provider` | Yes, with app login and project configuration | Yes for the requesting Chat |
+| ChatGPT joining common Codex work | `inference=attached` | No extra Linux host for the attached primary response | Yes |
+| ChatGPT requesting new inference on Codex work | `inference=submitted` | Yes, with app login and project configuration | Yes for the requesting Chat |
 
 Native Codex login, Linux app login and the ChatGPT MCP connection are separate
 boundaries. Attached current-Chat work does not require a native subscription login
@@ -160,13 +131,13 @@ These fields select defaults for explicitly created native work. Terminal Chat
 requests follow the actual native session's account and working directory,
 including after account switches; no Provider configuration change is needed.
 
-The pending startup fix passes the selected ChatGPT provider and its definition
+The current startup path passes the selected ChatGPT provider and its definition
 through Core's invocation configuration, rather than relying only on thread
 settings or changing saved defaults. Cold continuation reads the original Native
-thread's provider before preparing its server. This source change and the shared
-owner-record codec require matched Core/Provider qualification and delivery;
-they are not part of the installed Provider21 baseline. See
-[current startup evidence](../../CURRENT.md#active-capability-restoration).
+thread's provider before preparing its server. The shared owner record and actual
+service image still need matched activation. This startup path does not establish
+cross-provider transition or receiving-client continuity. See
+[the current boundary](../../CURRENT.md#current-architecture-review-and-operating-boundary).
 
 The Linux app account is read from its current authenticated state. Account IDs,
 workspace IDs and connector IDs are not compiled into Provider. Configure the
@@ -336,7 +307,7 @@ This document does not introduce a new command or change installed behavior.
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
-TUI. [CURRENT](../../CURRENT.md#operating-baseline) owns this device's selected
+TUI. [CURRENT](../../CURRENT.md#current-architecture-review-and-operating-boundary) owns this device's selected
 release; other installations must first update Core to a compatible signed generation.
 
 ```sh
@@ -400,9 +371,9 @@ contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inpu
 it excludes desktop software, credentials, conversations and user configuration.
 Local fixture signing and lifecycle evidence do not establish public delivery or
 authorize device activation. See [the package contract](../../SPEC.md#optional-provider-packaging-and-selection)
-and [current G acceptance](../../CURRENT.md#g-product-qualification).
+and [current G acceptance](../../CURRENT.md#delivered-updater-repairs-and-retained-proof).
 
-Development retention uses [CURRENT's cleanup/restore procedure](../../CURRENT.md#development-artifact-retention).
+Development retention uses [CURRENT's cleanup/restore procedure](../../AGENTS.md#work).
 The G composition driver archives verified executable copies after success;
 `--keep-payloads` retains them for debugging. Journals, source, results and
 workspaces remain. Restore archived original payloads before reusing a historical
@@ -427,7 +398,7 @@ Neither selects standalone development implicitly.
 Stable native work, one current controller, related Chat reuse, grounded handoff,
 original question/result return and model-free status are integration boundaries.
 
-The [ChatGPT-operated Codex workflow](../../CURRENT.md#chatgpt-entry-and-task-management)
+The [ChatGPT-operated Codex workflow](#chatgpt-entry-and-task-management)
 shares native Responses dispatch, approvals, events and history across managed,
 direct and general-delegation entrances. The work interface selects its reasoning
 source and transport per work; a service-wide `execution.mode` value alone does
@@ -437,8 +408,9 @@ this device explicitly selects MCP in Provider-owned configuration.
 The primary native thread retains long-term history while Chat contexts can be
 replaced. Successors require grounded summary/current receipt and old-controller
 fencing. Original questions, results and CLI return bindings survive handoff.
-A native compaction/reset does not create or attach a successor Chat. No uncertain
-mid-task switch or silent legacy fallback is allowed.
+The current compaction ACK does not renew that Chat's remote window; section4.6
+of SPEC defines the replacement lifecycle. No uncertain mid-task switch or silent
+legacy fallback is allowed.
 
 Saved-Chat discovery/read works from both entrances for work-linked or unrelated
 accessible conversations. Preserve message order, source and branch identity;
@@ -447,11 +419,11 @@ model task, resumes no work and transfers no control. General delegation and
 [agent/orchestration](../../SPEC.md#agent-and-orchestration-extension-direction)
 reuse this common bridge and independent native roles/contexts. Their actual,
 synthetic and recovered-result scopes are accepted in
-[CURRENT](../../CURRENT.md#audit-verification-and-remaining-acceptance); a universal quality,
+[CURRENT](../../CURRENT.md#existing-proof-and-architectural-limits); a universal quality,
 latency, billing or capacity advantage remains unproven.
 
 E/F design/integration, G product/public delivery and H preservation/retirement
-have bounded acceptance at their [recorded scopes](../../CURRENT.md#product-completion-scope-and-work-order).
+have bounded acceptance at their [recorded scopes](../../CURRENT.md#unified-development-order-and-user-visible-completion).
 Original failed/interrupted cohorts and exact comparison inputs remain preserved.
 Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
 polish stay separate follow-ups. Linux-app removal is not a prerequisite.
@@ -485,9 +457,10 @@ start new inference; no-reinference source following requires verified admission
 chat_input deliberately starts a saved-Chat user request and must not mirror an
 already active original prompt.
 
-New source uses work schema v3. Installed Provider21 still uses v2 and Provider14
-uses v1: source/API qualification does not update their running services. Stop the
-service before converting its journal with the **new executable**:
+Current source uses work schema v3. Historical Provider21 uses v2 and Provider14
+uses v1; inspect the actual service executable/state rather than infer schema
+from package selection. Stop the service before converting an old journal with
+the **new executable**:
 `migrate-inference --state /absolute/state --backup /absolute/new-backup.json --target attached-submitted`.
 After package selection the CLI form is `codex provider chatgpt migrate-inference ...`.
 Conversion preserves original receipts/transcripts and keeps an immutable private
@@ -736,7 +709,7 @@ one authority:
 `~/.config/codex/providers/chatgpt.toml`.
 Broader ChatGPT setup/management UX is deferred; explicit project selection and
 configuration/operations will remain its authority. Scope and priority are in
-[CURRENT.md](../../CURRENT.md#operating-baseline).
+[CURRENT.md](../../CURRENT.md#current-architecture-review-and-operating-boundary).
 
 - `models` reads `catalog.models`; `catalog` generates native model JSON.
 - `config show|effective|validate|edit` inspects or edits settings. Effective output
@@ -808,9 +781,9 @@ compatible host-route/history changes at request admission.
 
 `/model` is the primary enhanced-TUI selection surface; upstream `--profile chatgpt`
 is the configuration fallback, distinct from Manager login accounts. Current exact
-source/device composition proof, accepted actual TUI re-entry and separate device
+source/device composition proof, TUI reentry/continuity limits and separate device
 activation are in
-[CURRENT](../../CURRENT.md#audit-verification-and-remaining-acceptance).
+[CURRENT](../../CURRENT.md#existing-proof-and-architectural-limits).
 
 ## Service and observation
 
@@ -869,9 +842,9 @@ The command uses the configured viewer assets/private RFB capability. It may
 start the Provider service and submits no model task; intent success does not
 confirm physical visibility. Existing notifications and their pinned installed
 helpers remain unchanged by source retirement. noVNC visual/touch/IME polish
-retains its lower priority under [app management and viewer work](../../CURRENT.md#linux-chatgpt-app-management-and-deferred-viewer-work).
+retains its lower priority under [app management and viewer work](../../CURRENT.md#retained-capability-requirements-and-accurate-completion-limits).
 
-The [recorded app/host capability evidence](../../CURRENT.md#evidence-map-and-limits)
+The [recorded app/host capability evidence](../../CURRENT.md#evidence-limits-and-next-execution-point)
 covers authenticated Chat/project APIs, session reuse/input, process ownership,
 connection/readiness/recovery, configuration and shared management surfaces.
 F implements the selected common management interfaces; H preserves reusable
@@ -907,56 +880,46 @@ Core activation-lock contention; rebind it during deliberate package/service
 maintenance. Provider's `execution.home` and `execution.workspace` select native
 execution, rather than a hardcoded account name in the service scripts.
 
-The tunnel executable must be Android-compatible. This device's global
-`tunnel-client` is native0.0.14, while this Codex service now pins the wrapper-built
-Android0.0.18-termux.0ad5d2db16a9 HTTP/2 recovery image. Its old scoped image
-is retained for rollback; unrelated consumers are preserved. Neither is updated by the current
-Codex package updater. Upstream tracking/Termux release maintenance and wrapper
-dependency integration remain separate work in
-[CURRENT](../../CURRENT.md#product-completion-scope-and-work-order); the current
-scoped pin is not an automatic update channel. Inactive Linux images were archived
-outside executable paths. Do not infer compatibility from the filename or modify a system
-resolver to accommodate a Linux binary. The MCP wrapper keeps stderr separate
-from its JSON-RPC stdout; runit service logs may merge their own stderr.
+The tunnel executable must be Android-compatible and admitted for the current
+transport contract. Existing installations can have different configured
+generations; inspect actual executable/start identity and health rather than
+assuming a filename or a retired runtime-alias record identifies the active
+service. Preserve rollback artifacts and use the existing lifecycle implementation.
 
-Provider restart rotates its local bearer. The stdio process verifies the current
-service endpoint and bearer per RPC; loss returns an explicit error and a later
-request can use the replacement service. The tunnel remains running across a
-Provider PID change. Rebinding its admitted immutable stdio image requires one
-deliberate transport restart. It does not create a remote tunnel, retry a model
-request or replay native effects. Service Stop and native task Stop remain
-different operations. Inspect original work before any maintenance/recovery.
+A configured supervisor starts the Provider control service independently of its
+optional app. Provider lazily acquires its app for operations that need it.
+Transport uses its own supervised foreground process and the verified current
+Provider binding. Instance paths/account choices are configuration values;
+shared scripts must contain no account-name branches or embedded account paths.
+A temporary desktop PID/descriptor must not become a control-service boot gate.
 
-Runit restarts exited processes. The host keeper reacquires a confirmed missing
-host; it does not repair an arbitrary hung/partially failed app/display by killing
-it. Inspect such unknown state and settle work before deliberate host/service
-repair. Logs/readiness never establish physical viewer usability. Xvnc is acquired
-through Provider; no independent Xvnc or browser/desktop launcher is installed.
+The MCP stdio process resolves current service endpoint/authentication per RPC.
+A service replacement does not authorize replaying an unknown Native effect or
+starting a new model request. Native state, remote app state and actual client
+schema/readiness are observed separately. Use the canonical connector refresh
+implementation after an applicable runtime replacement; missing live client
+binding remains incomplete.
 
-During maintenance, serialize service startup and profile preparation. `prepare`
-can start a detached Provider when the supervisor has not yet bound the endpoint.
-Start runit alone, verify that its supervised PID matches the actual authenticated
-Provider status, then prepare the generated profile. If preparing before enabling
-runit, stop that prepared idle service first. Concurrent starts can leave runit
-reporting `provider_already_running` while the detached service owns the endpoint.
-Do not resolve it by killing unrelated Native sessions or replaying work.
+Package selection and active executable/auth references are separate current
+states that the target lifecycle must reconcile. Preserve active work and
+credentials; expose pending activation instead of reporting full readiness.
+Existing operating deployment may still contain manual instance wiring and
+older images. It is provisional configuration, not the reusable product design.
 
-The old local tmux runtime was explicitly stopped before runit activation. Its
-remote alias remains, but `tunnel-client runtimes` local metadata describes that
-retired tmux lifetime and is not authoritative for these services. Use `sv status`,
-Provider status and the configured runtime's current local health endpoint.
-Local health/ready responses and remote control-plane health are separate checks.
+Current supervised maintenance must serialize startup and profile preparation.
+Start the configured supervisor and verify its authenticated live owner before
+running preparation that could start a standalone process. Do not kill another
+owner to resolve competing starts. Stopping only a supervised process requests
+recovery; use the configured supervisor to change desired state. Preserve the
+existing shutdown order of transport, optional host, then control service.
+Local readiness and a successful control-plane poll do not by themselves prove
+a current ChatGPT connector/tool invocation succeeds.
 
-Start/restore with `sv-enable codex-chatgpt-provider`, optionally
-`sv-enable codex-chatgpt-host`, then `sv-enable codex-chatgpt-tunnel`.
-For persistent maintenance disable tunnel, host, then Provider using `sv-disable`.
-Stopping only a process will trigger desired-up recovery. Standard
-termux-services/runit is sufficient; the owner's optional `service-daemon`
-root-recovery layer adds root-loss repair and is installed from
-`~/prj/termux-services`, not this repository. Neither layer survives a fully killed
-Termux UID without an external Boot/login opportunity. Future minimal setup
-should register the appropriate services explicitly; no general installer or
-login automation is delivered by this device configuration.
+Supervision recovers exited owned processes. It does not justify killing an
+unknown or shared host. Neither runit nor a user-space process survives a fully
+killed Termux UID without an external Boot/login opportunity. Cold-start and
+reconnect qualification must cover the supported restart boundary explicitly.
+
 
 ## Existing result transports
 
@@ -1006,9 +969,11 @@ Provider, and upstream commits its active-context replacement. The Provider
 acknowledges that replacement once, retains the owned Chat and restores normal
 policy/tools without resending the resident summary. The original durable native
 history remains. There is
-no independently verified Chat remaining-context sensor. This coupled lifecycle
-belongs to the model adapter; operator Chat renewal follows the
-[same-thread incremental handoff design](../../CURRENT.md#implemented-and-qualified-at-recorded-scope).
+no independently verified Chat remaining-context sensor. This is current behavior,
+not the completed target: Native compaction and remote Chat renewal must follow
+the shared [context lifecycle](../../SPEC.md#46-component-responsibilities-and-user-flow-contracts).
+Projection cannot decrypt opaque Native state or shorten full history by itself;
+the architecture review identifies the missing portable-context qualification.
 
 The existing adapter tracks warm-prefix deltas and native checkpoint acknowledgment.
 Summary policy/results are transient until upstream commits the offered checkpoint;
@@ -1133,7 +1098,7 @@ and supervisor verification. Future materially different paths need their own re
 trial there under its AGENTS/Git baseline, without a temporary worktree or a
 supervisor-written substitute patch. Preserve unrelated user edits; exercise
 analysis, failure/correction, tests and latest-state resume. The single
-[acceptance matrix](../../CURRENT.md#audit-verification-and-remaining-acceptance) owns open
+[acceptance matrix](../../CURRENT.md#existing-proof-and-architectural-limits) owns open
 gates. That no-MCP proof alone does not qualify MCP controls; separately recorded
 C/C2, D2/D3 and direct-entry proof apply at their exact inputs/scopes. F common
 integration/general delegation and G's declared product/delivery scope are

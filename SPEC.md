@@ -124,50 +124,22 @@ update authority is maintained.
   defaults and other threads. Explicit remote/executor/`--no-daemon` and
   noninteractive routes retain the official runtime path. Optional frontend
   absence never makes Core unavailable.
-  An opt-in installed Chat model catalog augments `/model`; its marked private
-  config owns command-backed, nonsecret routing references. Changes across the
-  native/Chat provider boundary re-enter Core with the same home, durable thread, permissions/reviewer and
-  terminal. Active work, pending input/tools or side conversations refuse the
-  transition. Ordinary model selection reuses the same upstream-owned history
-  without requesting or waiting for a new source-model summary. Upstream retains
-  its own conditional context-limit and compaction-compatibility handling.
-  Newly generated native tool call IDs must fit the Responses 64-byte limit
-  for both single calls and batches. Calls and results retain the same identity
-  across provider changes; app-side host IDs and logical MCP retry IDs remain
-  separately bound to their original invocation. Preserving a thread UUID alone
-  does not qualify interoperability: after Chat tools settle, a native follow-up
-  must submit the retained calls/results successfully, and Chat re-entry must
-  retain that native continuation without replaying an earlier effect.
-  History handoff uses the model in the verified native thread snapshot; an
-  absent or different default model in account configuration cannot gate it.
-  A native systemError whose final recorded turn is failed is a settled boundary
-  for provider re-entry, provided the same input/tool/active-work guards and full
-  public-history read succeed. It must not strand a failed Chat request in that
-  provider or turn an active/unknown task into an idle one.
-  A newly persisted, idle conversation with no user turns may cross the provider
-  boundary without a context checkpoint. If the qualified backend rejects full
-  history before its first message, recognize the exact qualified thread/read
-  and Paginated thread/turns/list not-materialized or list_turns-not-supported
-  response for that thread; accept emptiness only after a metadata read and a
-  bounded, owned, stable native rollout containing solely that thread's canonical
-  session metadata prove it is empty. Account
-  directory aliases to the shared sessions root are valid after parent resolution
-  and containment checks; the rollout leaf itself cannot be a symlink. Forked or
-  inherited history, extra records, malformed/unsafe files and all other read
-  failures remain refusals. Revalidate emptiness before re-entry; preserve the
-  same UUID/home/CWD and submit no synthetic message, summary, metadata rewrite
-  or empty checkpoint merely to make switching work.
-  Selected config profiles survive; no Chat slug is persisted into
-  an ordinary default. Ordinary local resume receives the installed, verified
-  Provider definition as a thread-scoped reference so a saved Chat conversation
-  opens without requiring `--profile chatgpt`. This does not select a provider,
-  model or catalog for new native work, or replace an explicit user definition.
-  Before resuming or initially forking saved Chat work, startup resolves the
-  selected saved model's catalog before binding its backend. Internal model-picker
-  re-entry settings select that one launch; they must not become persistent CLI
-  overrides for later in-app `/resume` targets. A later cross-provider resume
-  uses the existing re-entry coordinator with the target's saved settings and
-  routing, preserving its history without another checkpoint or inference.
+  An opt-in Provider catalog supplies model/routing capabilities to Native and
+  presentation consumers. Selection uses the Native-owned transition contract in
+  sections4.5-4.6 with the same thread, home, workspace, permissions and history.
+  Frontend does not own a second restart/summary state machine. Missing catalog
+  or account capability fails at its owning boundary without corrupting defaults.
+  Existing requests, tools and returned results retain their identities across
+  transition; Native completion and actual receiving-client observation are
+  separately required. Native owns conditional compaction compatibility.
+  An idle empty thread requires no synthetic prompt or checkpoint for transition.
+  The authoritative Native interface must distinguish empty history from an
+  incomplete or unreadable snapshot; frontend rollout-file interpretation is a
+  temporary compatibility path, not the final history authority.
+  Selected configuration profiles survive and no Chat slug becomes an ordinary
+  default. Saved work resolves its effective route/catalog before input is sent;
+  a CLI or in-app resume uses the same selection/transition responsibility.
+  Explicit installed user definitions and catalogs remain authoritative.
   User-supplied CLI model overrides keep upstream semantics. A catalog supplied
   explicitly by the user remains authoritative.
   Catalog restoration preserves the thread's selected model/effort and the
@@ -1456,107 +1428,243 @@ these user results and ownership boundaries, not as an automatic feature backlog
 
 ### 4.5 Responsibility and compatibility admission criteria
 
-Ownership is determined by the invariant and public execution path, not by
-which component currently contains the code. Apply these criteria in order:
+These are target architecture contracts. CURRENT.md owns implemented and proven
+scope. An existing file, service, guard or boundary does not acquire authority by
+surviving earlier work. Reassess ownership against the complete requested flow,
+including failure and recovery, before implementing another local fix.
 
-1. **Upstream first.** Authentication, conversation schemas, storage engines,
-   discovery/resume, writer ownership, thread/turn processing and native server
-   behavior remain upstream-owned. Use the supported runtime's native commands,
-   configuration and protocol before adding local machinery.
-2. **Core execution necessity.** Core owns the minimal adaptation needed to run
-   a qualified upstream runtime correctly on Termux, including direct launches
-   without Manager. Binding the selected account home, compatible runtime,
-   resolver/configuration descriptors and safe socket namespace is an execution
-   invariant. It may require Core preparation even when Manager selected the
-   account. Manager must not become the only route that establishes it.
-3. **Policy versus application.** Account selection, notification preferences
-   and their presentation are Manager conveniences. A selected product policy
-   may be applied by Core when every supported launch must satisfy it. That does
-   not make the policy a Termux limitation, or transfer upstream state ownership.
-   Installation-wide conversation sharing is the already-selected product
-   policy below; it is not required for arbitrary isolated account execution.
-4. **Concrete insufficiency.** Retain an adaptation only with evidence tied to
-   the exact supported upstream revision: the native surface attempted, the
-   observable limitation, the smallest remedy and the public path it serves.
-   Historical audits and current web documentation alone do not establish a
-   limitation of the installed or next candidate runtime. Revalidate affected
-   assumptions during qualification before deleting or expanding an adaptation.
-5. **One preparation owner.** Give each physical preparation/mutation one
-   authoritative implementation. Manager owns profile registration and its
-   private metadata; Core owns shared execution-path preparation. Collapse
-   duplicate preparation when aligning the current profile contract. Independent
-   validation of a cross-layer payload remains necessary; identical operations
-   or policy drift are not justified by that validation requirement.
-6. **Minimal lifecycle authority.** Core may bind and launch upstream's server
-   to preserve signed-runtime authority and Termux execution compatibility.
-   Native protocol, threads and writers remain upstream-owned. Custom reuse or
-   retirement is admissible only for a demonstrated runtime-binding or generation
-   retention invariant that the selected native surface cannot establish.
-   Do not add a parallel supervisor, session registry or storage engine.
-7. **Distinct convenience result.** Manager functionality needs an observable
-   user benefit beyond renaming Core/upstream operations. Recovery authority
-   remains Core-owned; a repair facade with no distinct recovery outcome is a
-   deletion candidate, not a reason to add a second recovery implementation.
-8. **Public-path proof.** KEEP necessary behavior, COLLAPSE duplicate execution
-   paths, DELETE superseded machinery. For each disposition verify the real
-   public entrypoint, including Manager-unavailable execution, protected account
-   state, original argv/process behavior and signed update/rollback integrity.
-   A synthetic fixture proves routing, not native upstream compatibility.
+1. **One owner per fact and mutation.** Native owns conversation/turn identity,
+   execution, approvals, writer authority and committed history. A model route
+   is a selected inference source, not the identity of the user's task. A remote
+   Chat, transport connection, process and installed generation each have their
+   own lifetime; changing one does not implicitly replace the others.
+2. **Demonstrated interface sufficiency.** Use qualified upstream interfaces
+   first. When they cannot deliver the authorized behavior, name the exact
+   missing operation/invariant and compare supported composition, a minimal
+   Native compatibility extension and replacement. A source guard proves current
+   behavior, not that the product must retain it. Compatibility work must keep
+   execution and policy decisions at their authoritative boundary; no second
+   tool executor, writer registry or transcript authority is introduced.
+3. **Owner of selection and persistence.** Entrances submit user intent.
+   Native validates and commits each thread's effective inference route and
+   model settings, preserving policy, history and other threads. Provider
+   supplies discovered/configured routes and capabilities. Frontend, Manager
+   and Provider do not independently persist conflicting selections or model
+   a route change as their own conversation restart.
+4. **Minimal Core.** Core supplies qualified runtime/environment binding and
+   generation/update authority. It does not interpret model catalogs, select an
+   inference account or acquire an optional host for ordinary Native execution.
+   Optional-component interaction occurs only on an explicitly used component
+   path and must not make ordinary Core launch depend on that component.
+5. **Derived state and real boundaries.** Consumers derive Native execution and
+   completion from Native events/receipts and verified live ownership. Provider
+   may persist cross-process authorization, exact retry admission, source
+   correlation and unfinished external I/O that Native does not own. Do not
+   mirror Native phases as another independently advanced task lifecycle.
+   Necessary revalidation across process, time, concurrency and authority
+   boundaries remains; cosmetic reduction of guard counts is not simplification.
+6. **Configuration and lifecycle.** Account/workspace choices, paths and transport
+   instances are configuration or verified discovery. Shared implementation has
+   no account-name branches or embedded account paths. One configured supervisor
+   owns a service lifetime; Provider owns its optional app lifetime. No temporary
+   desktop PID is a boot prerequisite for Native/MCP access.
+7. **Proof before replacement.** Establish each old path's consumer and required
+   behavior. KEEP necessary contracts, MERGE duplicate decisions, MOVE misplaced
+   authority, DELETE replaced machinery in the same qualified change. A temporary
+   adapter names its actual missing Native capability and removal condition.
+   Compare runtime cost and maintenance with the same inputs; do not replace
+   measurements with class/file counts.
+8. **Whole-flow admission.** Source success, Native execution, host observation,
+   live client display, signed delivery and activation are distinct evidence.
+   Qualification exercises cold start, ordinary input, settings transitions,
+   compaction, reconnect, interrupted/uncertain delivery and recovery at the real
+   producer/consumer boundary. An ignored/zero-test gate is incomplete.
 
-In particular, account homes are valid upstream execution identities. A long
-Unix socket path is a communication-path constraint, not a reason to relocate
-authentication/configuration or share conversations. Shared conversation links
-and SQLite configuration implement the separate selected sharing policy; the
-canonical files, schemas and locks continue to be operated by upstream.
+Account homes remain upstream execution identities. Termux socket/environment
+adaptation is not permission to relocate authentication or own Native storage.
+The accepted sharing policy continues to use upstream's canonical formats and
+locks. Revised route selection must not weaken administrator policy or imply
+authority to use an unavailable account/model. Explicit failures retain the
+conversation, draft and observed results; there is no silent model substitution.
 
-These criteria govern bounded alignment slices. Each specific command/state
-contract is amended before its implementation changes. Profile preparation and
-effective identity are defined by profile contracts; notifications belong to
-Manager and recovery belongs to Core. These criteria authorize neither data migration nor
-an installed-runtime change.
+### 4.6 Component responsibilities and user-flow contracts
 
-### 4.6 Final component boundary and Core independence
+This table allocates responsibilities, not mandatory new processes, modules or
+forwarding layers. Existing implementations are retained only where they satisfy
+the contract. A specific Native API extension is not accepted merely by this
+table; its feasibility, exact scope and affected callers require qualification.
 
-The minimum product is the qualified upstream runtime plus Core's Termux
-compatibility and authenticated generation lifecycle. Manager, the maintained
-TUI and any Chat provider are optional components, not successive mandatory
-launch stages. Manager can operate without the enhanced TUI; the provider exposes
-an upstream configuration route without requiring its model picker.
-
-| Component | Owns | Must not own |
+| Responsibility | Decision and mutation owner | Producers/consumers and required boundary |
 | --- | --- | --- |
-| Upstream | Authentication, inference, tools, reviewer/approval engine, conversation schemas, thread/turn state, compaction, resume and writer locks | Our generation trust or Android window identity |
-| Core and release-builder | Qualified executable/environment/FD/socket binding, unsupported-sandbox enforcement, generic execution-home lease, one physical shared-layout binding, signed inventory, activation/retention/update/rollback, authenticated release identification and base diagnosis | Account selection/registry, notification policy, model/provider catalog interpretation, Chat transport or TUI interaction |
-| Manager | Account/config-profile convenience policy, task discovery/handoff UX, notification hooks/delivery, native window registration/return | Runtime pointer/trust mutation, another updater/executor, conversation storage/schema or model inference |
-| Maintained frontend | Narrow upstream UI integration for /switch, supported permissions, /model catalog/routing and title callbacks; upstream renders canonical transcripts | Provider login/transport/lifetime, generation mutation or a second backend supervisor |
-| Optional provider | Provider catalog/capabilities, auth context, request/tool-return transport, retry and owned-host lifetime | Core runtime selection, canonical conversation DB/writer ownership or native tool execution |
+| Qualified runtime and generations | Core/release-builder | Verify, launch, retain, update and roll back admitted artifacts; ordinary Native execution is independent of optional components |
+| Conversation, turns, tools, approvals and writer control | Native | Both entrances use the same authoritative execution/history path; real Native effects and original returns remain bound |
+| Effective model/inference route and committed context | Native | Provider produces route/capability metadata; entrances request selection; Native commits and exposes settings to all consumers |
+| Chat transport, account session and owned app | Provider | Bind the configured source/account, deliver input/results and observe the owned app; no Native execution or second transcript |
+| External request admission and correlation | Provider at the transport boundary, Native at execution admission | Retain exact retry identity, scoped capabilities, source references and unfinished external I/O; derive Native completion rather than advance a shadow phase |
+| Process/connection availability | Configured supervisor and transport owner | Shared lifecycle implementation consumes instance configuration; validate local readiness and actual remote reachability separately |
+| Presentation and user intent | Frontend/Chat host; optional Manager conveniences | Render authoritative events and send supported intents; no independent model-policy, app supervisor or recovery engine |
 
-Core retains two deliberate bindings beyond Android syscall adaptation. The one
-physical shared-layout/SQLite preparation preserves the accepted sharing policy
-for the three supported homes, including a first direct launch without Manager;
-arbitrary homes stay isolated. The one signed-server coordinator enforces the
-runtime/home/environment identity, safe endpoint, current-client retention and
-opaque configuration-byte binding. Native server protocol/turns remain upstream
-owned. The qualified native model/list API cannot replace a server's startup
-catalog, so frontend resolution precedes that bounded Core request. Neither
-binding authorizes account selection or model-schema interpretation in Core.
+**Session and inference.** A coherent selected task normally retains one Native
+thread across model/entrance changes. Historical source provider/model remains
+provenance, not an unconditional prohibition on a later authorized route.
+Transition admission validates the destination route, credentials, capability and
+administrator policy before committing effective settings. Existing calls and
+writers settle or are explicitly reconciled; old control cannot produce late
+effects. Failure preserves recoverable prior state and never silently forks.
+Without a requested route change, resume retains the thread's saved effective
+route instead of silently adopting a new process default. With an explicit
+destination, a historical provider definition/login is not required merely to
+read its permitted history; requirements on destination use and history access
+remain enforced. If decoding or summarizing old context actually requires that
+source, expose that dependency separately. Do not treat past provenance as an
+active inference credential or silently replace the chosen model.
+Existing Native settings events/persistence are preferred over a Provider route
+ledger. Native owns the transition and observer binding even if a qualified
+implementation must reconnect a backend. Clients do not independently restart
+backends and guess that a matching UUID proves continuity.
 
-Release identification follows that existing lifecycle boundary. The producer
-owns signed edition/base/date provenance; Core's updater validates and renders
-it alongside its update result. This path requires no Manager executable, RPC,
-configuration or source dependency. A base installation can identify its release
-without Manager. A full installation with unavailable optional Manager still
-identifies as full from its authenticated manifest, not from executable presence.
-Display metadata is informational and never selects components or relaxes admission.
+The transition has one Native admission/commit boundary. Prepare the destination
+provider, model metadata and request client together, then revalidate settled
+execution and publish the effective settings through the existing event/history
+path. Observer subscriptions must remain attached or have a qualified rebind
+that recovers committed intervening events. Selection itself submits no primary
+inference, replays no user prompt and does not stop an unrelated thread. A failed
+preparation leaves the previous selection and draft usable; an uncertain commit
+is recovered from Native rather than guessed or retried as a new user turn.
+This is a required operation, not a claim that the current settings API supports it.
+The route's request client/catalog can change without replacing the tool executor.
+Preserve background terminals/jobs, permissions, approvals and original result
+bindings. Thread-idle alone does not prove there are no owned jobs. Recreating a
+whole session is not an accepted transition if it loses that state.
+
+**Entrance and inference initiation.** Codex-origin submitted
+inference and an already-active ChatGPT response attached through Bridge differ
+only where their actual source/transport requires it. They share execution and
+context admission. Attaching does not submit another primary model request.
+The active Chat's actual model/effort remains a host-owned observation; Native
+does not retroactively select or replace that running inference. Record known
+source settings as source facts and keep unknown values unknown, separately from
+the route committed for subsequent Native-submitted inference.
+Initial standalone-Chat import creates/selects Native work once, labels imported
+context with its source and reuses that work. One Chat may contain independent
+tasks; an account or conversation hint alone does not select or authorize one.
+
+MCP supplies tool discovery/calls/results. It is not assumed to provide every
+host user-input or final-response event. Model instructions to call report/finish
+are not independently observed host output. Complete automatic entrance
+equivalence requires a proven host integration for the necessary input/context/
+output events; it cannot be manufactured by polling unrelated saved Chats,
+inventing provenance or requiring a special user prompt. Primary Chat inference
+must not be blocked merely because Provider's optional Linux app is unavailable.
+When a task actually requires an unavailable dependency, preserve its input and
+expose the specific failed boundary rather than reset its session or create work
+again. Platform/model capability and authorization limits remain explicit.
+
+**Context and compaction.** Native owns canonical context replacement and its
+automatic/manual lifecycle. The selected model may generate its summary through
+the inference adapter. Provider carries a source-labelled public projection when
+the next host cannot consume Native opaque state; projection is not a second
+semantic compactor and never deletes or fabricates original history. Initial
+Chat import, model transition and Chat renewal reuse that projection responsibility.
+Native opaque compaction, public summaries, current policy and tool results keep
+their actual types and authority. Images/files need a qualified transfer or
+reference path; text-only acceptance is not full multimodal interoperability.
+
+Projection does not decrypt an opaque checkpoint or make full history smaller.
+Prefer an already accepted portable Native context plus its subsequent committed
+items; otherwise transfer qualified public history when it fits. If neither fits,
+Native must obtain one portable compaction through its compaction lifecycle before
+the transition. Do not start another Provider summary agent or recursively
+summarize on every model change. Preserve opaque originals and source records;
+returning to a compatible source must retain their qualified continuation path.
+The current remote V2 installation can contain an empty public summary; neither
+the public-items API nor a Provider JSON checkpoint proves a portable equivalent
+exists. This missing export/compaction capability needs actual source and model
+proof before claiming encrypted-state interoperability. Model-visible context is
+real request data with token cost, not an OS environment variable or promoted
+system authority.
+
+A managed Chat can be replaced while its Native thread remains. A confirmed
+Native compaction supplies a new context boundary; a managed Chat's resident
+window must be rebound/recreated when required to consume that boundary.
+Conversely, remote-context renewal does not force Native compaction. User-owned
+Chats are not silently replaced. No remote remaining-context sensor or timer
+threshold is inferred from Native token settings. Never wait for a compaction
+that depends on the same unfinished MCP call; continue at a settled boundary.
+
+**Availability, provisioning and updates.** Native/MCP admission depends on its
+execution/control service and reachable transport, not on starting a Chat app.
+Submitted Chat inference acquires its required app/account through Provider.
+Configuration and provisioned assets name instances; service code has no account
+branches. Preserve login profiles and observe actual identity/readiness.
+Cold start, process restart, auth renewal and connector refresh use the same
+lifecycle path; no parallel watchdog, account repair script or hidden retry queue
+is added. App failure must not shut down unrelated Native/MCP capabilities.
+
+One source adapter owns the qualified app interface and its supported app build;
+model discovery, selection, input/results and maintenance reuse that binding.
+An unavailable renderer scope is an adapter/readiness failure, not a reason to
+add another desktop launcher or retry an uncertain request. An external desktop
+descriptor and Provider's privately owned CDP pipe are different bindings. The
+existing connector-refresh operation must work through a verified current owned
+binding, retaining full registered/live input-schema comparison. Do not duplicate
+the refresh API or borrow an unrelated app/profile to make that gate pass.
+
+The route's catalog producer owns conversion to the qualified Native schema.
+Validate generated catalogs against their actual Native consumer before publishing
+them; preserve complete input metadata through frontend/Core. Do not repair a
+missing required field with UI defaults, weaken Native parsing, or overwrite an
+unrelated catalog. Live model discovery determines available choices; prompt
+wording, a hardcoded account/model list or guessed effort must not select a route.
+Control/auxiliary requests use their real protocol purpose, not a prompt-text
+classifier. An unavailable capability has a specific observable failure and
+retains the original input; it is not a successful response from another model.
+
+Package selection, generated launch/auth references and active service images
+must be reconciled by their owning component. A successful package update must
+not be presented as complete operational readiness while configured consumers
+still bind an obsolete or unavailable image. Retain active jobs/generations and
+report pending activation when a safe boundary has not been reached. Invocation
+binding must resolve an admitted selected generation without duplicating pins
+across profiles/services; its startup cost and locking need actual measurement.
+
+**Replacement order.** Before runtime implementation, settle the route/identity,
+Native admission/observer, public-context and service/host lifecycle contracts
+together. Compare a Native-owned transition with corrected supported reentry;
+do not assume either candidate is implemented. Repeated forks, a pair of
+synchronized Native transcripts and a mandatory proxy for ordinary OpenAI work
+are not the default solution. Move wrong authority and remove obsolete state
+machines in the implementing slice, retaining real cross-boundary guarantees.
+
+**Required user flows.** These are acceptance targets, not claims about currently
+available host events or Native APIs. Each row must exercise real context,
+inference where required, Native effects, durable results and the receiving client.
+
+| User flow | Session/context behavior | Required observation |
+| --- | --- | --- |
+| Codex with OpenAI → ChatGPT → OpenAI | Keep one Native thread; commit each selected route; carry a qualified public projection when opaque state is incompatible | Both directions, warm/cold resume, exact prompt/result and once-only effects; no repeated forks |
+| Codex with ChatGPT → OpenAI → ChatGPT | The same transition/context contract, irrespective of the first provider | Settings and actual request route agree; Native history and live TUI both continue |
+| ChatGPT attached through Bridge → Codex and back | Reuse selected Native work; context must be accepted before Native effects; attaching starts no second primary inference | Real host input/output provenance, original tool-result return and Native writer/observer handoff; model reports alone do not pass |
+| Standalone Chat → first integrated work → Chat/Codex continuation | Create/select one Native thread, import available source context once as labelled source data, retain its binding | No fabricated past Native execution; reentry reuses the work and independently observes the source where the host permits |
+| Native automatic/manual compaction while using ChatGPT | Native commits the replacement; Provider delivers it to a renewed/rebound managed Chat at a settled boundary | Actual source context changes and following inference; an ACK that merely resets a local cursor does not prove remote-window renewal |
+| Cold start, account change, reconnect or component update | Reuse configuration/lifecycle authorities and original admissions; retain active jobs and uncertain returns | Actual supervised owner, authenticated route, refreshed connector schemas and new Native roundtrip; failures retain input and do not replay effects |
+
+`/fork` remains the user's explicit way to branch work. It is not automatic
+recovery for a routine provider change. If a source cannot supply required context
+or events, report the exact missing capability and continue independent supported
+work; do not mark that flow complete or quietly weaken the acceptance target.
 
 ### ChatGPT-Codex bridge architecture and work boundaries
 
-The optional Provider owns the ChatGPT model/tool adapters and connection/work
-coordination. Upstream Codex owns native execution, approvals, canonical history,
-compaction and writer control; the Termux Core supplies its supported runtime and
-installation lifecycle. TUI consumes native events/history. Manager supplies
-optional account/window/task assistance. No second executor, transcript database
-or planning model is introduced.
+Sections4.5–4.6 define the target ownership and user-flow contracts. Provider
+adapts source/transport and external admission; Native owns the conversation,
+effective route/context, execution and committed outcome. Existing work-control
+records are implementation evidence to review, not an independent task authority.
+Core provides runtime trust/lifecycle; frontend and optional Manager consume
+Native state and submit intent. No second executor, transcript database, scheduler
+or planning model is introduced. CURRENT distinguishes this design from shipped
+behavior and names incomplete interfaces. Historical audits do not freeze the
+earlier boundary allocation.
 
 This architecture was independently re-examined against source and original
 saved/native records on 2026-10-26; [AUDIT.md](AUDIT.md) records findings, exact
@@ -1775,12 +1883,11 @@ Independent delegation requires a separate reasoning context, a parent/assignmen
 relationship and original result return. No current/managed compatibility names
 are introduced.
 
-The installed code's existing `Selection.reasoning=direct|provider` and
-`Reasoning::{Direct,Provider}` distinguish attached versus submitted inference;
-both presently require Native work. Those are implementation/migration facts,
-not the target workflow definition. The replacement is
-`inference=attached|submitted` / `Inference::{Attached,Submitted}` at the actual
-scheduling/result consumers. Native work controls always select integrated
+Historical pre-migration code used `Selection.reasoning=direct|provider` and
+`Reasoning::{Direct,Provider}` for attached versus submitted inference. The current
+source uses `inference=attached|submitted` / `Inference::{Attached,Submitted}` at
+the scheduling/result consumers. Neither version makes integrated work a
+standalone workflow. Native work controls always select integrated
 workflow; do not add a repeated workflow selector where the tool/work identity
 already establishes it. Attached admits the existing original response without
 another primary submission; submitted starts a genuine model request.
@@ -2003,11 +2110,14 @@ require it. Remote, embedded and unqualified backends retain their account-read
 policy. This changes only the local startup UI decision: no fabricated account,
 credential copy, inert API key or weakening of actual request authentication.
 
-The frontend qualification patch includes the bounded upstream Config source-
-preservation change as well as TUI code. Artifact evidence must retain both;
-format/lint comparison must cover both trees. Only the declared configuration
-module is added to the frontend's upstream Core change scope. Other Core changes
-remain rejected, and lint must not introduce changes beyond the assembled input.
+The current frontend qualification patch includes upstream Config source
+preservation as well as TUI code. Artifact evidence must retain both; format/lint
+comparison must cover the actual qualified source inventory. Additional Native
+compatibility work follows sections4.5–4.6: demonstrate the interface gap, update
+the declared source/behavior and qualification scope together, and keep execution
+and policy with Native. A formerly narrow patch inventory is not proof that an
+outer workaround has the right responsibility. Lint must not introduce changes
+beyond the assembled input.
 
 **Bridge admission API.** `codex_sessions join` selects an explicitly named
 existing, completed Native work and receives `task` plus a required stable
@@ -3341,15 +3451,17 @@ verified backend socket. Isolated fixture homes explicitly select their generate
 Provider before model submission and preflight the native account requirement;
 they never copy credentials to satisfy an unrelated default login screen.
 
-For Codex work, the Codex thread is the durable continuity authority; a Chat
-conversation is a replaceable reasoning context that should support substantial MCP development
-before replacement. ChatGPT chooses a useful handoff boundary and supplies a
-summary grounded in the previous accepted summary, confirmed incremental native
-history and current actual work state. Local code validates source coverage and
-the transition; it does not become a summarization agent. Preserve goals/current
-instructions, decisions, changed files, test results, unresolved work and relevant
-history references. Retrieve original details through MCP when needed; do not
-recursively summarize summaries while ignoring the native evidence.
+For Codex work, the Native thread is the durable continuity authority. Its
+canonical compaction and context-export contract is in section4.6; renewing a
+managed Chat does not create another Native thread or a parallel compaction
+policy. The current explicit `codex_handoff` accepts a model-supplied grounded
+summary and verified history/context cursors. This is a current caller to migrate,
+not a reason to retain an independent semantic summary workflow in the target.
+The replacement must preserve goals/current instructions, decisions, changes,
+actual test/tool outcomes, pending work, source coverage and original returns.
+Retrieve original details through the existing history interface where needed.
+Replace the summary producer and all actual handoff/renewal consumers together;
+do not remove their source-coverage and uncertain-effect protections.
 
 The qualified upstream public-items API omits context-only injected messages.
 For this version, the operator may supplement it by reading only public user/
@@ -3391,9 +3503,11 @@ Chat renewal does not itself require native inference-context compaction or a ne
 Codex thread. Native turns may change as execution requires without changing the
 primary thread/work or completing its original task. Native compaction remains
 upstream-owned when the selected execution integration actually requires it.
-Do not make its token/hash triggers the Chat renewal policy or reset native context
-merely to rotate Chat. Initial history
-projection is not itself model summarization. No verified Chat remaining-context
+Do not interpret Native token/hash triggers as a remote remaining-capacity
+sensor or reset Native context merely to rotate Chat. An accepted Native context
+replacement is a real input to managed-Chat rebinding under section4.6; it is
+distinct from an estimated token threshold. Initial history projection is not
+itself model summarization. No verified Chat remaining-context
 sensor or fixed call/token threshold is assumed; use task boundaries, observable
 context growth and headroom, and report unknown capacity honestly. Native controls
 must respect active turns; never wait recursively for a summary while that same

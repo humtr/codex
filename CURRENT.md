@@ -5,98 +5,212 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
-## Current baseline and takeover verdict
+## Current architecture review and operating boundary
 
-### P0: Active Steer batch — delivered and Jan service activated
+The architecture review has revised responsibility and user-flow contracts in
+SPEC, AGENTS, README and Provider operations documentation. Implementation follows
+the reviewed dependencies below; no runtime change is part of this batch.
+The design worktree is
+$TMPDIR/connectivity-repair-70jt4h2u/architecture on
+design/entry-architecture-20261105 over f8d1a7f. It contains the revised architecture
+contract and review, not an implemented Native interface or deployment. Original dirty
+0814be7b work and the earlier isolated source/diffs remain preserved. Reread
+AGENTS.md after recovery and inspect the actual proposal diff.
 
-The maintained TUI sends active Steer through upstream's original Native writer.
-Image preparation retains its draft if the destination turn changes. Provider
-AppHost owns same-Chat continuation and validates the original submitted prefix,
-new user input and required Native results. Operator waits for a canceled
-predecessor task to retire before admitting its successor, then revalidates the
-existing Stop/controller/input/effect fences. MCP owns confirmed-Stop settlement
-and capability retirement. No Core or upstream Native executor was added
-(SPEC.md4.5–4.6); temporary diagnosis code was removed.
+### Outcome and ownership decisions
 
-The accepted release source is e8e2c1b; Provider source is da5bf62. Clean work is
-in `$TMPDIR/steer-batch-v8lgrrmr/source`. The original dirty0814be7b workspace,
-including unrelated account-management work, remains preserved. After recovery
-reread AGENTS.md and inspect the actual branch, diff and unresolved findings.
+The selected task should retain one Native conversation across model/entrance
+changes; a historical provider is provenance, not permanent task identity.
+This requires reviewing Native's route-selection contract, not only removing a
+guard outside it. Native already persists effective model/provider through
+ThreadSettingsApplied and state extraction. No second Provider route ledger is
+justified. The chosen design is a Native-owned per-thread transition at a settled
+boundary, including the provider client/catalog and observers. Extend the Native
+contract only where the existing operation is insufficient; do not merely bypass
+resume admission. Exact implementation and delivery remain unqualified.
 
-Frontend evidence reuses successful native run41834657202 atdb307ec:144 actual
-focused tests, upstream features, format/lint and artifacte286df94. Expected-count
-correction143→144 and literal job-budget90→120 do not change compiled inputs.
-The qualifier checks the retained log against the current count and still binds
-source, commands, toolchains, dependency audit, successful run and artifact.
-Reuse/controller regressions and the targeted false-rejection mutation passed.
-Unnecessary rerun41850957815 was canceled at the user's objection; canceled
-run41842123715 retains its successful baseline/Steer-fault step but is not used
-as successful build authority. No unchanged native CI is restarted.
+Native remains the execution/approval/history authority because the
+requested full tool and compaction capabilities depend on that real execution
+path, not because existing placement is mandatory. Existing supported reentry can
+rebuild an idle unsubscribed thread, but ignores changed overrides while observers
+remain. It is useful as cold-entry machinery, not a complete warm transition;
+rebuilding a session also does not establish preservation of background terminals
+or owned jobs. The route client/catalog must change without replacing the tool
+executor or losing its live state.
+Fork worked without effect replay but split a roundtrip into three threads; keep
+it for explicit branching. A permanent ordinary-inference proxy or two canonical
+transcripts adds dependency/authority without solving missing host events; reject
+them as the default. A new module/process is not implied by this allocation.
 
-Provider's full gate passed186 library tests plus integration, strict Clippy,
-release and Bun/Python checks. The cancellation-versus-retirement fault failed
-its regression and was restored byte-for-byte. Diagnostic-free Provider8a392dee
-and frontende286df94 passed actual Android held-Stop Steer, Queue/Shift+Left,
-Native tools/cold resume/Stop/control, signed package/TLS/rollback and Base,
-Manager-without-TUI and Full compositions. Both Steers occurred once on the
-original Native turn, without a false queue-edit hint. Chat responses in these
-fixtures were synthetic; no paid model or physical UI observation is claimed.
+| Current coupling / evidence | Required disposition and consumer |
+| --- | --- |
+| Provider identity used as both saved conversation affinity and selected inference route; explicit same-thread transition fails | Native owns a selected route transition and persisted settings; both entrances and all observers consume its committed outcome |
+| TUI self-reentry and startup catalog binding; reconnect can attach a read-only backend and miss committed output | Native owner/observer handoff must be one operation/contract; frontend sends intent and renders the authoritative stream |
+| Operator Record phase/driver phase, AppHost lane and Broker invocation state | Audit each fact separately: derive Native facts from Native; retain external delivery, authorization and uncertain-effect correlation only where their consumer actually needs it |
+| TUI request_summary=false at both product call sites, with a retained Pending/event/cancel summary machine | Remove the unreachable state machine; do not merely put another wrapper above it. The whole TUI restart coordinator is also a replacement candidate once the Native transition contract is qualified |
+| Native compaction/public projection/remote Chat lifetime conflated in preparation paths | Native owns canonical context replacement; Provider owns representation and owned Chat; migrate codex_handoff's separate semantic-summary producer to that same context lifecycle |
+| Control service boot bound to a temporary external desktop PID; transport not supervised for the selected instance | Native/MCP service availability is independent of optional app acquisition; instance values are data, implementation/lifecycle is shared |
+| Selected package, generated auth paths and service executable pins diverge | Installation/activation owner reconciles admitted generation references; report pending activation without stopping active work or claiming readiness |
+| Generated schema/current app facade treated as interchangeable with any runtime | Catalog producer validates the actual Native schema; one qualified source adapter owns app/build binding for discovery, inference and maintenance |
+| External MCP model instructed to report/finish | That is submitted text, not independent host observation. Automatic full entrance equivalence needs a qualified host input/output integration; current MCP-only visibility does not prove it |
 
-Provider25 is signed, completely publicly read back and accepted by14 disposable
-Android consumer steps, then promoted non-forced at maind64e70e. Signing
-run41854609332 failed only release creation with403; the existing owner published
-the retained, reverified signed assets without rebuilding/resigning. Its failed
-workflow status is preserved. Full publication41858194993 succeeded with the
-same accepted source/frontend after re-evaluating the independently changed main
-pointer. Base147 and Full148 passed public readback, disposable update/rollback
-and non-forced promotion. Public assets and previous generations are retained.
+Both automatic and manual compaction remain Native-owned. Existing Provider
+summary translation is a real transport responsibility, not an independent
+semantic compactor. Unknown foreign encrypted state stays opaque; preserve it
+and use a qualified public projection for a host that cannot consume it.
+Images/files and post-compaction return need their own actual consumer proof.
+The source Chat's past context is imported once with source labels, not fabricated
+Native execution or an OS environment variable that the model supposedly reads.
+Projection alone cannot shorten full history or decode opaque state. Reuse an
+accepted portable context plus subsequent committed items; if unavailable and
+full public history does not fit, Native needs one portable compaction through
+its own lifecycle. Preserve opaque originals and the compatible return path.
 
-The device updater selected Full148/Base147 and signed Provider25, exited0 and
-passed installed version/readback checks. At that package boundary31 protected
-files and all4 operating Provider owners were preserved. The subsequent bounded
-Jan activation deliberately changed its runit executable, the same tunnel's MCP
-command and only the authentication executable field in8 referencing profiles.
-Original configuration bytes are retained under the owned live-cutover root.
-The default Provider and existing Native/app/browser owners were preserved.
+### Native interface review
 
-The CDP409 was competition for a single connection already owned by the old Jan
-Provider. Serial maintenance stopped that service, used the existing temporary
-qualification relay for canonical `scripts/d3_refresh.mjs`, then stopped the
-relay with confirmed kernel exit. Signed Provider25 now owns the original direct
-app connection; no permanent relay or new refresh API was added. The refresh
-called app refresh_actions, invalidated client caches and verified all17 complete
-registered/MCP input schemas, including inference. A new connected Native work
-completed create/start/attach/context acceptance/tools, command execution, exact
-retry, independent readback and finish. The append happened once; final Native
-status is idle/completed with no pending calls or unconfirmed effects.
+Source inspection used the exact Full148 assembly under
+$TMPDIR/steer-batch-v8lgrrmr/assembly-v3/codex-rs, without a new model request:
 
-Evidence is under
-`~/.cache/codex/acceptance/goal-defects-20261104/`: final Android/mutation/public
-consumer results, `device-update-final-after.json`, `d3-provider25-live.log` and
-`provider25-connected-native-final.json`. Earlier failure records remain
-historical observations, including `live-client-remaining-boundary.json`; they
-are superseded by the successful activation/refresh/Native evidence above.
-Manifest-owned inactive fixture payloads were archived with restore records;
-compiler cache remains within the15GiB budget.
+- app-server/src/config_manager.rs load_for_resume checks saved and requested
+  providers against the process default; input admission repeats that affinity.
+  A historical route must not require a live definition/login solely to read
+  permitted history and select a valid destination. Context decoding can have
+  a real source dependency; keep it separate from destination policy.
+- app-server-protocol/src/protocol/v2/thread.rs ThreadSettingsUpdateParams and
+  core/src/session/session.rs SessionSettingsUpdate have no provider update.
+  A loaded resume can rebuild only after subscribers disappear and shutdown is
+  confirmed; otherwise changed overrides are ignored. Existing resume is not a
+  qualified live transition API.
+- core/src/client.rs binds provider/auth/transport to the session ModelClient;
+  core/src/thread_manager.rs supplies its shared models_manager to spawned
+  sessions. Changing a provider string cannot change either coherently. The
+  transition must prepare the destination client and catalog without retargeting
+  sibling threads or adding Provider-specific branches to Native.
+- core/src/session/mod.rs persists ThreadSettingsApplied on changed resume even
+  without another user turn. Reuse this settings/history authority; no Provider
+  route ledger or rollout edit is necessary.
+- core/src/compact_remote_v2_installation.rs installs remote compaction with an
+  empty public message. Native's existing textual compaction implementation is
+  relevant to a portable export, but no qualified API presently selects that
+  operation for this transition. Existing Provider JSON checkpoints and public
+  history fixtures do not establish real encrypted-state interoperability.
 
-Original works5c43343f...,385d5be4... and a65b56a1... remain
-reconciliation_required/notLoaded on their last observation. They were not
-stopped, claimed or replayed. This batch repairs the current connected path; it
-does not claim recovery of those original turns or universal P0/NC-01..29
-acceptance. The reserved Pro trial and user chats/credentials/jobs are untouched.
+The earlier native-explicit-transition-design.patch remains unapplied. Its single
+resume-admission exception is not the selected implementation: it leaves warm
+client/catalog/observer and portable-context behavior unresolved.
 
-| Boundary | Verified state | Qualification limit |
-| --- | --- | --- |
-| Accepted source | rewrite/rust-core e8e2c1b; Provider da5bf62 | Original dirty0814 workspace is independent |
-| Selected Core | Full148 / Base147 / upstream0.166.0, local-relay-hosted-0-166-0-e8e2c1b2e10d-s148; previous Full144 retained | Selection is distinct from existing retained Native server144 and physical UI |
-| Selected optional Provider | Signed Provider25, chatgpt-da5bf622bc49-s25 | Package selection and running process were checked separately |
-| Operating Jan Provider/MCP | Both executables are installed signed Provider25, SHA2568a392dee5143966f63624eeb32c89417a012b4bae2474c2035ead7c55438efb3; same tunnel and app session | Default chatgpt service retains its2328b656 development image |
-| Linux ChatGPT consumer | Canonical d3_refresh on the live owned Jan desktop and @TermuxBridge asdk_app_6ae9d933635081919b50090c57464b81;17 complete schemas agree | Actual client API path; no physical UI observation or autonomous model-choice claim |
-| New Native work | 2d7a652d6c357e6bb14642adced0170d1930198586a14284; thread01a1a76d-952c-7e41-8db9-4ff21d226ffd; completed and idle | Attached inference, zero additional model requests; two Native commands, exact retry, one append |
+### Existing proof and architectural limits
 
-The historical takeover sections below retain earlier evidence and unresolved
-scope. The current table supersedes their older operating-generation claims.
-Revalidate process image/start-time before another live action.
+The prior investigation is retained at
+$TMPDIR/bridge-design-review-85b4e033/findings.json and its original records.
+Installed Full148 Native wrote one effect, resumed under the same provider and
+rejected explicit cross-provider resume in both directions. Cross-provider forks
+succeeded without replay but a roundtrip produced three thread IDs.
+Four explicit device tests passed manual compaction, V2 reuse, automatic compact
+and interrupted automatic continuation; a fifth public handoff test retained
+original opaque history/user turns. They used a retained Provider-library test
+executable and synthetic Chat replies/opaque markers, not real ChatGPT encrypted
+state. The ordinary Provider gate skipped all8 native_compaction tests.
+
+The Bridge continuity fixture committed both attached turns, once-only effects,
+progress and finals to one Native thread with0 unconfirmed effects. After
+Provider reconnection the TUI omitted the second result and displayed read-only
+ownership. The complete client proof failed. The exact owner/observer cause is
+unresolved; correct single-writer refusal must not be weakened to hide it.
+Fixture records/terminal remain and generated manifest-matched payloads were
+archived with the existing cleaner/restore record.
+
+The inspected MCP interface carries tools and scoped source hints; it does not
+supply every original host input or later final response. The model can answer
+without calling Bridge. Native context accepted after a response has begun
+cannot prove identical pre-inference context. Required automatic context admission
+and independently observed host output are interface requirements to investigate,
+not promises that more prompts, report calls or saved-history timers can supply.
+The official MCP tools guide confirms the tool-discovery/call/result flow:
+https://developers.openai.com/api/docs/guides/tools-connectors-mcp
+
+### Connectivity incident and bounded changes before architecture stop
+
+The user supplied the Pro failure report; the requested REPORT.md was absent.
+The same actual connector call here returned MCP SSE probe429. Local observation
+found a control-service crash loop caused by the dead legacy desktop-controller
+PID check, plus an inactive selected tunnel runtime. These are observed local
+faults; the remote429's precise limiting component was not independently identified.
+
+Before the user stopped incremental implementation, bounded operating changes
+removed that external-desktop boot dependency, configured the existing lazy
+Provider host with provisioned assets, preserved the inactive original login
+profile and made a separate Provider-owned active copy, and attached the selected
+transport instance to the existing runit/foreground implementation. Existing
+default services were not replaced. The tunnel kept the same remote identity.
+Instance paths in this provisional wiring are not reusable source design.
+
+Provider control status became live, transport health/ready returned200 with a
+successful control-plane poll, and an actual ChatGPT connector sessions-list call
+returned14 works with AppHost absent. The original Pro create call ID
+pro-bridge-design-20261105-c554880a84cf-create was then recovered as allocation81f001ccecc1753339b40098bffc5a3e60c57dd63b14a0ea,
+Native thread01a1a98a-b913-7542-86a5-e9a2fdac3e68. No start/attach/Pro research
+inference was issued. Reuse the original allocation ID, not another create ID.
+
+The subsequent owned-app ensure returned app_scope_unavailable and current host
+observation is unready/unknown. No real model inference or canonical connector
+refresh/new Native roundtrip has accepted this changed runtime binding. Preserve
+the exact observed state; do not describe package installation, service liveness
+or list recovery as all-model readiness. The operating configuration, profile
+copy and before-state backups are retained under
+$TMPDIR/connectivity-repair-70jt4h2u and the referenced Provider state.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Selected artifacts | Full148/Base147, Provider25; immutable publication/previous generations retained |
+| Selected control service | Signed Provider25 live after bounded operating correction |
+| Selected tunnel | Existing admitted Android0.0.18 foreground implementation, live health and control-plane poll; actual connector list succeeded |
+| Optional owned app | app_scope_unavailable; readiness/inference incomplete |
+| Original user work | No original turn was replayed, claimed or stopped by this repair; prior unreconciled work is not declared recovered |
+| New Pro request | Original call ID allocated work only; research not started |
+| Runtime/source implementation | No code change in this architecture proposal; previous Native admission candidate remains unapplied |
+| Architecture documentation | Target ownership/user-flow proposal; not implementation qualification |
+
+### Review acceptance and implementation gates
+
+The revised contract covers ordinary cold input from both entrances,
+available/unsupported model capabilities, actual source events, the Native
+transition/observer contract, context portability, lifecycle/provisioning and
+generation reconciliation. Implementation must establish the unresolved interface
+and runtime behavior before declaring these targets delivered.
+Keep Native approval/writer/effect semantics, source truth and administrator
+policy intact. Remove displaced functions/state/settings/tests/docs together;
+do not keep temporary bridges without an actual consumer and removal condition.
+
+The next implementation follows these dependencies:
+
+1. Qualify the Native route operation on disposable source/runtime: one thread,
+   both directions, effective client/catalog/settings and live observers. Use
+   supported cold entry internally where useful. Remove replaced frontend
+   restart/checkpoint/summary state and its obsolete tests in the same slice;
+   retain draft, policy, writer and uncertain-effect protections.
+2. Qualify the shared Native public-context/compaction boundary and Provider
+   projection/managed-Chat renewal. Preserve original opaque history and prove
+   the following actual model input; include images/files at their real consumer.
+3. Unify configured service activation, lazy app acquisition and qualified app
+   binding. Reconcile selected generation references, retain active jobs and use
+   the existing connector refresh with a fresh supported owned-client binding.
+4. Establish the external host input/context/output events required for automatic
+   ordinary Chat entry. The existing MCP metadata/report path is insufficient;
+   identify and qualify the host integration rather than claim prompt compliance
+   supplies these events. This research can proceed without changing live Chats.
+5. Run the SPEC4.6 user-flow acceptance on actual Native and ordinary Chat models,
+   then publish/activate through existing signed paths. Complete canonical refresh
+   and a new connected Native roundtrip after runtime replacement. Only after the
+   primary work is qualified should Pro resume the recovered research allocation.
+
+Real ChatGPT inference, synthetic routing, Native execution, public delivery and
+device/physical UI observations remain separate gates. This batch changes only
+documentation; scripts/check.sh docs and affected-link review apply, without a
+full CI restart or new Pro inference. No implementation/activation pass is claimed.
+
+The historical takeover sections below preserve prior evidence and unresolved
+scope. They do not override this current operating/architecture boundary.
 
 ### Actual handoff boundary and subsequent integration
 
@@ -151,123 +265,21 @@ settlement contained zero claims. Earlier `b23e0aa...` offered/unreturned histor
 remains preserved; zero current claims does not retroactively establish its
 unknown original tool outcome.
 
-## Urgent updater repair
+## Delivered updater repairs and retained proof
 
-The stable21/device-high-water22 delivery inconsistency is repaired. The exact
-existing signed Provider22 payload was recovered without changing its executable,
-manifest, signature or source inventory. All71 signed source inputs match its
-original Git commit2a837ccc4465; retained Android package lifecycle and actual-model
-proofs bind the same executable. The admitted installed update authority matches
-its signer. No account-management or viewer source changes were included.
+The earlier stable21/device-high-water22 inconsistency was repaired through the
+existing immutable signing/readback/update path. Subsequent qualified fixes are
+published and device-selected as Full148/Base147 and Provider25. This is package
+acceptance, not proof of every configured service/profile binding or current
+app/connector readiness; the operating boundary above supersedes old release
+progress messages.
 
-The absent public release was staged, every public file downloaded and verified,
-and14 isolated Android consumer steps passed using the installed Full142 Core:
-public21 install/dispatch, pinned profile preparation and confirmed fixture stop,
-public22 install/probe/catalog/reinstall, rollback retaining high-water22 and
-forward reselection. Native auth/config/profile and operating selection were
-preserved. The initial final guard also required every incidental Provider
-process to remain alive; an unbound process disappeared. Its failed log remains.
-The final proof verifies the authoritative operating service and existing child
-by exact PID/start/image, protected files and actual fixture-service exit; the
-unbound process's exit cause was not observed, and the consumer sent it no signal.
-
-Existing `provider_promotion.py` promoted only the three Provider pointer files
-non-forced at main commit `a089f236c4e4c289c38ce8275231a368811d3522`.
-Canonical public stable index/signature then matched the verified22 package.
-Two actual device `codex update` invocations exited0 with no Provider rollback
-error, incomplete marker or repeated change notes. Full142/Base141, Provider22,
-high-water22 and protected configuration remained unchanged; zero model requests.
-Evidence: `~/.cache/codex/acceptance/provider-channel-recovery-20261103/`.
-The unrelated `~/.codex/ais.config.toml` hash changed after the isolated consumer
-check; its change source was not observed. This recovery neither wrote nor
-removed either AIS file, and did not restore over that change.
-This completes package/channel recovery, not replacement of the running unsigned
-development service or qualification of its P0/NC behavior. No live runtime was
-replaced, so no new connector refresh is claimed for this delivery-only batch.
-
-Operating application remains incomplete: the live service and its runit
-`CODEX_PROVIDER_BIN` both bind the `refresh-once-f2084f3-2328b656` development
-image. Restarting that launcher alone will start the same development image.
-Provider22 is the retained older signed package; applying it blindly would not
-deliver the subsequent P0 changes. Qualify a clean signed forward package with
-the required retained changes, then reconcile pending work, switch the service
-and explicit profile bindings, run the existing full-schema client refresh and
-prove a new Native work before claiming that the installed package is operating.
-
-Update presentation changes are implemented in source, not built or deployed.
-`codex update --details` (optionally with --wait/--no-wait) retains publication
-times, component rows and Provider generation IDs; default output is compact and
-omits an equal latest-upstream row. Provider selection produces its manifest,
-changed flag and public origin; the command consumer renders one result after
-successful selection/cleanup, identifying package installation and preserved
-service/profile bindings. Pre-commit and duplicate status output were removed.
-The public output oracle, publication workflow and Android consumers were updated
-together, including original old-client output acceptance only on first upgrade.
-Python publication11 and contract5 tests, Python parsing and Rust formatting
-passed. The first Python run detected an identity-only no-op comparison; it now
-compares manifest fields and executable inputs. Rust compilation, live new-output
-proof and substantive runtime mutation checks remain pending for the final batch.
-Provider owns live identity/lifecycle; Core does not infer app readiness or add a
-service supervisor. New runtime status integration is not claimed.
-
-The user requires postponing rebuilds until the planned implementation work is
-ready, then one combined build/qualification/delivery pass before their actual
-ChatGPT Pro development trial. Do not rebuild or activate merely for log polish;
-source changes and operation of the retained existing runtime are distinct.
-The work root is `$TMPDIR/ul-kfer6lif`; original inputs/results remain there.
-A clean isolated `release-source` worktree at0814be7 excludes the optional
-account-manager/Manager-return expansion preserved in the original worktree.
-The initial combined gate stopped at three Core test compile errors (obsolete
-install_stable argument and missing Installation Debug); those are corrected.
-The repeated full gate passed: Core238/1 existing ignored, Manager51 and67,
-window1, builder46 and3, Python suites, fmt and strict Clippy. The optional
-account-manager/Manager-return expansion remains in the original workspace and
-is excluded from the clean release source. The clean code/test candidate af5c0ce passed the frozen Provider gate, including
-183 library tests/2 existing ignored, integration tests, strict Clippy, release
-build, Bun/Python suites and CLI imports. The release artifact probe returned
-the exact Provider payload identity. Accepted binaries and original Native
-results are retained under `$TMPDIR/ul-kfer6lif/accepted-adapter-binaries`.
-An existing CI bot concurrently cleared the stale frontend binding in
-release/upstream.json at5fe6469. Non-forced push refused the divergent tip; that
-metadata-only change was reviewed/merged, preserving both histories, at
-29baba056c5d38e12eaecc6b42d7b5867327082d. Code/build evidence remains bound to
-af5c0ce; the only merged file is release/upstream.json, not Provider code.
-Hosted frontend build/mutation proof41730542386 remains pending; its build has
-reached focused native TUI regressions. No new Provider activation or signed
-public delivery is claimed.
-The extra frontend fix recognizes exact Paginated blank-history errors while
-retaining the original stable metadata-only rollout proof.
-
-
-The repeated changelog defect is fixed in source. Core's existing release display
-compares authenticated per-component file entries (bytes/modes); a Full repack
-alone does not emit Core/Manager/TUI changes. Unchanged components retain their
-identity/publication time. Upstream notes appear only when a newer official
-version is available or this invocation changed that version. An unchanged
-Provider suppresses its notes. No Manager dependency or alternate updater was
-added. README and SPEC now agree with this behavior.
-
-Local affected regression suite:6 passed. Complete Rust workspace gate:
-Core238 passed/1 existing ignored, plus51/67/1/46/3 passing tests in other
-workspace targets; fmt and strict Clippy passed. The initial nested TMPDIR
-attempt had six shared-server/TTY failures because fixture Unix socket names
-were112–114 bytes. The same gate passed with an exclusively allocated short
-owned root; this was not counted as a product fix. A disposable mutation that
-always marked components changed caused the new regression to fail, then was
-restored. Source success is not signed public delivery or user installation.
-
-The first actual publication attempt41564306489 built/smoked/signed/staged
-Base141, then failed its public consumer: the checker still required unchanged
-notes and its workflow collected original publication timestamps only when
-`Core changes:` appeared. Both consumers now follow changed file inputs and
-publication identity independently. Old installed Core first-update output is
-still checked against its actual prior contract; the newly installed no-op is
-strictly quiet. The new11-case publication suite and the complete Python gate
-passed, and a disposable unconditional-notes mutation was detected/restored.
-The original source CI41563110102 first failed on Android substrate HTTP503;
-one failed-jobs rerun passed. Provider source CI41563109958 and independent
-Core/runtime41563110366 passed. Failed staged Base141 is retained and was not
-promoted; Full was correctly blocked from using an unpromoted new Base.
+Original failed attempts, source comparisons, Android qualification and public
+readback remain in Git and the retained acceptance roots, including
+~/.cache/codex/acceptance/goal-defects-20261104 and
+~/.cache/codex/acceptance/native-effect-recovery-20261104. Do not repeat accepted
+Native builds for documentation changes. Do not retire the older default service
+or rewrite its state merely because another configured instance was repaired.
 
 ## P0 completion work
 
@@ -437,13 +449,11 @@ long-lived workspace lease or restore ToolRegistry hooks to make tests pass.
 
 ## Unified development order and user-visible completion
 
-The user's latest operating order takes precedence over the general feature
-backlog below: (1) Provider package/channel recovery, now complete; (2) restore
-the original configured Linux desktop and authenticate janmori101; (3) establish
-its tunnel runtime and MCP connection using the verified wrlab precedent, then
-prove CLI ChatGPT/Pro replies; (4) resume P0 and concurrency work to the sustained
-Pro delegation acceptance above. Preserve both accounts and defer account-manager
-expansion that is unnecessary for these outcomes.
+The architecture review and implementing dependencies above take precedence over
+this broader backlog. Package recovery is complete; transport recovery is bounded
+and app/entrance continuity remains incomplete. Preserve account identities and
+existing work. Do not resume obsolete desktop-specific repair scripts or Pro
+qualification before primary architecture/implementation acceptance.
 
 Effort labels are relative batch sizes, not a delivery-date promise. Safe
 independent source work may proceed during upstream429 or network waiting; a429
@@ -699,60 +709,6 @@ current roadmap. AUDIT.md retains its earlier independent architecture review
 scope; this takeover does not claim to have reconstructed every external ChatGPT
 conversation from first message to last.
 
-Current request: publish/sign the latest qualified snapshot through the shortest
-existing release path, so codex update installs the complete latest Core/Full and
-Provider. The user resumed work and explicitly prioritized delivery over further
-NC/features; do not spend the reserved Pro opportunity. Work/evidence root is
-$TMPDIR/ul-kfer6lif/publish-current. The publication caller was owner-authorized,
-non-forced repinned/read back at main b042b6b4c1acc00b8988a603dc5b869230cf7033.
-Source0c2a567bb06f126db2156abd58463e23a324cdfd adds only the accepted frontend
-binding to29baba0. Native frontend run41742926011 passed; candidate binary hash
-0124aa08d66da161568d97065190326c9c0bf52b6995ee9b410748c79bcab303 is in
-publish-current/frontend/codex. Source/core/provider exact CI gates passed.
-Canonical publication run41750002705 has signed/read back/disposable-proved and
-promoted the Base lane; Full is in progress. Its main caller source is034d39a.
-Additional frontend mutation proof run41750031338 is running, with no models.
-Local current Core/release-builder release binaries were built in check-target;
-Provider binary remains the accepted af5 component-equivalent candidate under
-accepted-adapter-binaries/codex-chatgpt-provider-release. Fresh actual Android
-operator cold-resume/Stop/control qualification passed (operator-android.json).
-Package/real-TLS lifecycle plus three installed compositions are running in
-exec session97713; logs/reports are in publish-current. Next: finish those gates,
-prepare truthful exact Provider source/qualification input, use canonical
-provider_signing/publication/readback/promotion with retained authority and a new
-sequence (stable is22), finish Full, run actual device codex update, explicitly
-refresh both service/profile pins where settled, then canonical d3_refresh with
-the live Jan desktop/connector and new Native create/start/attach/execute/finish.
-Signed Provider23 (`chatgpt-0c2a567bb06f-s23`) was promoted at main
-`3cfd0209a06103a3ba0a68c04f29b86e0d957d8e` and selected by device `codex update`
-(before the Full#144 archive download interrupted with `curl Some(56)`).
-For the subsequent Native execution blockage on `janmori101`, the updated
-Provider binary `development/p0-effect-reconcile-29baba0-52eb22fd/codex-chatgpt-provider`
-(SHA256 `52eb22fd85423cf5aa718d1133d2b033dedf9d692425c33cdd3ec8325c991f31`)
-was deployed and activated on `codex-chatgpt-janmori101-provider` (port 45341),
-the `codex-chatgpt-janmori101` tunnel runtime (`tunnel_6ae9d65bdcbc81918041b5feb7764787`)
-and `chatgpt.config.toml` while preserving the default `codex-chatgpt-provider`
-host process (PID 12855) and previous binaries. Calling `work stop` on
-`lane_68a109542a0f7181aa6bca45eda80349ca35fb8c6fa6ab64` reconciled `0b489a44...`
-to `{"error":"native_call_not_dispatched","executed":false}`, reducing
-`unconfirmed_effects` to `0` and `pending_native_calls` to `0` without manual
-journal deletion. Canonical `scripts/d3_refresh.mjs` against the live owned
-desktop session (`ld-tqo0snje`, `@TermuxBridge` `asdk_app_6ae9d933635081919b50090c57464b81`)
-passed (`attempt=1`, `ok=true`, `cache_refresh=true`, `expected=17`,
-`schema_error=null`, `model_requests=0`). A fresh connected-client Native
-round-trip (`work_id=0d212e415b87ee75179874529533223fec6dc7272256464a`,
-`thread_id=01a1a4d6-6237-7763-a547-4c3e21e8fadc`) completed `create -> start -> attach -> accept -> tools -> report -> execute (two writes, exact retry, repository AGENTS.md read) -> finish -> status -> history (9 items)`
-with `unconfirmed_effects=0` and `active=[]` (evidence:
-`~/.cache/codex/acceptance/native-effect-recovery-20261104/`).
-Signed Provider24 packaging/promotion of this fix remains separate from this
-live `janmori101` recovery. The earlier interrupted Full144 download is retained
-as a historical failed attempt; the current Core activation-state now selects
-Full144 with Full142 as previous, verified after that attempt.
-The user's subsequent instruction now prioritizes sequential disposition of the
-above defect candidates; do not turn that into an indiscriminate NC rewrite or
-consume the reserved Pro opportunity.
-Provider/hosted frontend builds, mutation proof, actual ordinary-model development,
-signed publication, runtime activation and post-replacement client refresh must
-be reported separately; unfinished work stays unfinished.
-Build/source, signed delivery, device activation and physical UI observations
-must stay separate in the final handoff.
+Earlier publication progress, superseded runtime pins and one-off refresh
+attempts are preserved in Git. They no longer describe the next action. Use the
+current architecture, operating boundary and implementation dependencies above.
