@@ -67,6 +67,17 @@ storage failure leaves the previous route selected; only an append/flush failure
 after selection reports unconfirmed persistence. These later source changes still
 require Native execution proof. The CLI build of b8217e6 passed in run41979158913;
 its Native test stage cannot qualify source changed after that commit.
+The Native unit build then exposed11 test-fixture writes through immutable
+snapshots. Those were fixed, and20 duplicated test snapshot setters are now one
+test-only setup operation. Same-binding thread startup retains its supplied model
+manager, including originator selection; differing provider/catalog/discovery
+inputs create a destination manager. The config-less test constructor retains its
+explicitly supplied manager; public API qualification exercises the production
+constructor. The existing originator test now also checks a different real local
+models endpoint. Run41984608272 is the active source qualification, including
+compaction/Guardian/client/initialize/config tests and both targeted Native fault
+checks. Run41981512139 was cancelled because it still contained the already-known
+fixture errors. No tests were removed or skipped to conceal those failures.
 
 ### Outcome and ownership decisions
 
