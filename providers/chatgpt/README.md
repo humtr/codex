@@ -218,8 +218,8 @@ for this primary path.
 ### Linux app and login for app-backed reasoning
 
 This branch additionally needs the official app in an already provisioned Linux
-rootfs and the Termux `proot`/`Xvnc` executables. Their packages are `proot` and
-`tigervnc`. An optional viewer needs compatible noVNC assets. **The signed Provider
+rootfs and the Termux `proot`/`Xvnc` executables. Their packages include `python`, `proot`, `tigervnc`, `openbox`, `tint2`,
+`wmctrl` and `xdotool`. An optional viewer needs compatible noVNC assets. **The signed Provider
 package does not provision the app/rootfs or noVNC assets.** The historical
 experiment installer is retired; it is not a supported fresh-install shortcut.
 
@@ -809,9 +809,11 @@ owner never authorizes restarting it. Startups serialize; restart retains the
 journal's loopback port and rotates its local credential. An occupied saved port
 fails before app startup. Content-free startup errors stay private.
 
-`host.rootfs` selects an already provisioned official-app rootfs. Rust uses PRoot,
-Xvnc and private Chromium pipes, with app home under Provider state and temporary
-display resources. No existing profile is copied; no rootfs/app install or login is
+`host.rootfs` selects the provisioned official-app rootfs. Provider's packaged
+launcher retains the mobile desktop, window manager, app/browser taskbar, screen
+fit and Android-browser OAuth handoff. Rust owns that launcher's lifetime and the
+private Chromium pipe. The existing app home stays under Provider state; temporary
+desktop resources remain separate. No existing profile is copied; no rootfs/app install or login is
 implicit. `--descriptor` is an explicit qualification relay, not a production
 Bun/Python dependency or automatic fallback. Ordinary Base/Full startup/update must
 not download or log into the app. Third-party app binaries/auth/user data are not

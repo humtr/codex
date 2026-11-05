@@ -254,7 +254,7 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
     let app = loop {
         match host
             .client
-            .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+            .app(codex_chatgpt_provider::cdp::AppSurface::Authentication)
             .await
         {
             Ok(app) => break app,
@@ -279,6 +279,87 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
+    let desktop = host.viewer_socket().parent().unwrap().to_owned();
+    let auth = std::fs::read(desktop.join("Xauthority")).unwrap();
+    let mut offset = 2;
+    let mut display = String::new();
+    for field in 0..2 {
+        let length = u16::from_be_bytes(auth[offset..offset + 2].try_into().unwrap()) as usize;
+        offset += 2;
+        if field == 1 {
+            display = String::from_utf8(auth[offset..offset + length].to_vec()).unwrap();
+        }
+        offset += length;
+    }
+    let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+    let xcommand = |name: &str| {
+        let mut command = tokio::process::Command::new(prefix.join("bin").join(name));
+        command
+            .env("DISPLAY", format!(":{display}"))
+            .env("XAUTHORITY", desktop.join("Xauthority"));
+        command
+    };
+    let limit = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let tree = xcommand("xwininfo")
+            .args(["-root", "-tree"])
+            .output()
+            .await
+            .unwrap();
+        if String::from_utf8_lossy(&tree.stdout).contains("tint2") {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < limit,
+            "mobile taskbar must be present"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let panels = xcommand("xdotool")
+        .args(["search", "--class", "tint2"])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        panels.status.success(),
+        "taskbar must be a real desktop window"
+    );
+    let panel = String::from_utf8(panels.stdout)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(xcommand("xdotool")
+        .args(["mousemove", "--window", &panel, "20", "20", "click", "1"])
+        .status()
+        .await
+        .unwrap()
+        .success());
+    loop {
+        let tree = xcommand("xwininfo")
+            .args(["-root", "-tree"])
+            .output()
+            .await
+            .unwrap();
+        if String::from_utf8_lossy(&tree.stdout).contains("chromium (/root/browser-profile)") {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < limit,
+            "taskbar Browser action must launch Chromium"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let geometry = xcommand("xwininfo").args(["-root"]).output().await.unwrap();
+    let geometry = String::from_utf8(geometry.stdout).unwrap();
+    assert!(
+        geometry.contains("Width: 480") && geometry.contains("Height: 785"),
+        "desktop must retain the mobile geometry"
+    );
+    assert!(root
+        .join("desktop/home/.local/share/applications/codex-termux-auth-browser.desktop")
+        .is_file());
     host.shutdown().await;
     assert!(host
         .client
@@ -294,7 +375,7 @@ async fn official_app_boots_over_rust_private_pipe_and_shuts_down_without_chat()
     std::fs::remove_dir_all(&root).unwrap();
     println!(
         "{}",
-        json!({"accepted":true,"browser":version["product"],"privateRustPipe":true,"appTarget":true,"chatSubmissions":0,"existingProfilesRead":false,"testProfileRemoved":true})
+        json!({"accepted":true,"browser":version["product"],"privateRustPipe":true,"appTarget":true,"mobileTaskbar":true,"taskbarChromium":true,"mobileGeometry":true,"chatSubmissions":0,"existingProfilesRead":false,"testProfileRemoved":true})
     );
 }
 

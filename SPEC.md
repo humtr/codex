@@ -4227,13 +4227,24 @@ Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
 
-The candidate `host.rootfs` field selects an explicitly provisioned official-app
-Linux rootfs. Rust owns a private persistent app home beneath provider state, an
-exclusive profile lease, a temporary X server and Chromium FD3/FE transport.
-Resolve `proot` and `Xvnc` from the Termux prefix, with fixed isolated arguments;
-never interpret a configured shell command or bind the user's host home into the
-guest. No implicit app/rootfs installation or profile copying occurs. Preserve
-app home/authentication on shutdown; remove only owned temporary resources.
+The candidate `host.rootfs` field selects the provisioned official-app Linux
+rootfs. Provider retains its private persistent app home, exclusive profile lease
+and Chromium FD3/FE transport. Its one desktop launcher preserves the qualified
+mobile environment: a window manager and ChatGPT/Chromium taskbar, viewport resize
+and maximized windows, and the app's OAuth login opening in the Android browser.
+The launcher is packaged with Provider and uses the existing Termux Python,
+PRoot, Xvnc, Openbox, tint2 and window tools. Rust owns its process lifetime and CDP
+pipe; the launcher owns desktop children and OS browser handoff. This replaces the
+reduced Xvnc/app-only startup; it is not another app acquisition or fallback path.
+Native execution remains independent of this optional app. Resolve tools from the
+Termux prefix and use fixed isolated arguments; never interpret configured shell
+commands or bind the Termux user's home into the guest. No implicit installation,
+profile copying or account sharing occurs. Keep the existing per-account app home
+through replacement and shutdown; remove only owned temporary desktop resources.
+The viewer URL has one producer for local CLI and host-open consumers. Its
+WebSocket path is absolute so noVNC resolves the same registered endpoint from a
+nested viewer page. An accepted Android Intent is not proof that it displayed.
+
 Read-only app identity, host status and catalog observations may inspect a unique
 primary app page without a visible composer; they do not install writer hooks or
 grant inference admission. A later mutating operation must reacquire a verified

@@ -1,4 +1,4 @@
-//! Provider-owned official-app process and private pipe, with no Bun/Python host.
+//! Provider-owned mobile desktop and private Chromium pipe.
 //! PRoot is compatibility, not a filesystem sandbox or a native tool executor.
 use crate::{
     cdp::Client,
@@ -225,7 +225,7 @@ impl OwnedHost {
             .args([
                 format!(":{display}"),
                 "-geometry".into(),
-                "1024x768".into(),
+                "480x785".into(),
                 "-depth".into(),
                 "24".into(),
                 "-nolisten".into(),
@@ -276,51 +276,26 @@ impl OwnedHost {
         let source = fd.as_raw_fd();
         let root = File::open(rootfs).map_err(|_| Error("host_directory_unavailable"))?;
         let root_fd = root.as_raw_fd();
-        let mut command = Command::new(prefix.join("bin/proot"));
+        let desktop_script = path.join("desktop.py");
+        File::options()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&desktop_script)
+            .and_then(|mut file| file.write_all(include_bytes!("desktop.py")))
+            .map_err(|_| Error("host_desktop_launcher_unavailable"))?;
+        let mut command = Command::new(prefix.join("bin/python3"));
         command
             .env_clear()
             .env("PATH", prefix.join("bin"))
+            .env("PREFIX", &prefix)
             .env("HOME", &home)
             .env("TMPDIR", path)
-            .env("PROOT_TMP_DIR", path)
-            .env("PROOT_L2S_DIR", path.join("links"))
-            .args([
-                "--kill-on-exit",
-                "--link2symlink",
-                "--sysvipc",
-                "-L",
-                "--change-id=0:0",
-                "--rootfs=.",
-                "--cwd=/root",
-                "--bind=/dev",
-                "--bind=/proc",
-                "--bind=/sys",
-                "--bind=/dev/urandom:/dev/random",
-            ])
-            .arg(format!("--bind={}:/root", home.display()))
-            .arg(format!("--bind={}:/tmp", path.join("tmp").display()))
-            .arg(format!("--bind={}:/dev/shm", path.join("shm").display()))
-            .arg(format!("--bind={}:/tmp/.X11-unix", socket_root.display()))
-            .arg(format!("--bind={}:/root/.Xauthority", auth.display()))
-            .args([
-                "/usr/bin/env",
-                "-i",
-                "HOME=/root",
-                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                "LANG=C.UTF-8",
-                "XAUTHORITY=/root/.Xauthority",
-            ])
-            .arg(format!("DISPLAY=:{display}"))
-            .args([
-                "/usr/bin/dbus-run-session",
-                "--",
-                "/usr/bin/chatgpt",
-                "--no-sandbox",
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--user-data-dir=/root/profile",
-                "--remote-debugging-pipe",
-            ])
+            .arg(&desktop_script)
+            .arg(&home)
+            .arg(path)
+            .arg(&prefix)
+            .arg(display.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());

@@ -26,6 +26,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub type Slot = Arc<std::sync::RwLock<Option<Arc<Viewer>>>>;
 
+pub(crate) fn viewer_url(port: u16, capability: &str) -> String {
+    format!("http://127.0.0.1:{port}/viewer/{capability}/vnc.html?autoconnect=1&resize=remote&path=%2Fviewer%2F{capability}%2Fwebsock")
+}
+
 pub fn router_slot(slot: Slot) -> Router {
     Router::new()
         .route(
@@ -91,7 +95,7 @@ impl Viewer {
         router_slot(Arc::new(std::sync::RwLock::new(Some(self))))
     }
     pub(crate) async fn open(&self) -> Result<(), Error> {
-        let url=format!("http://127.0.0.1:{}/viewer/{}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{}%2Fwebsock", self.port, self.capability, self.capability);
+        let url = viewer_url(self.port, &self.capability);
         let prefix =
             PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
         crate::runtime::request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await
@@ -287,5 +291,27 @@ async fn rfb(socket: WebSocket, viewer: Arc<Viewer>) {
                 if write.write_all(&bytes).await.is_err(){break;}
             }
         }=>(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::viewer_url;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    #[test]
+    fn viewer_url_resolves_to_the_registered_websocket_from_its_nested_page() {
+        let url = viewer_url(12345, &"a".repeat(48));
+        let mut child = Command::new("python3")
+            .args(["-c", "import sys; from urllib.parse import urlparse, parse_qs, urljoin; page=sys.stdin.read(); path=parse_qs(urlparse(page).query)['path'][0]; actual=urlparse(urljoin(page,path)); assert actual.path=='/viewer/'+('a'*48)+'/websock', actual.path; assert actual.netloc=='127.0.0.1:12345'"])
+            .stdin(Stdio::piped()).spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(url.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
     }
 }

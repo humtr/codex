@@ -568,7 +568,7 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
     let capability = selected
         .viewer_capability
         .ok_or(Error("provider_viewer_unavailable"))?;
-    let url=format!("http://127.0.0.1:{}/viewer/{capability}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{capability}%2Fwebsock",selected.port);
+    let url = crate::viewer::viewer_url(selected.port, &capability);
     let prefix = PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
     request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await?;
     Ok(
