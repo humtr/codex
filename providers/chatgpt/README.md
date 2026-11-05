@@ -13,6 +13,9 @@ name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
 not part of that component name. Source qualification, package selection,
 service activation, actual inference and physical UI observation are distinct.
 
+For Linux app launch, saved profiles, mobile display, taskbar, Android-browser
+login and reconnection, follow the [Linux app operating guide](LINUX_APP.md).
+
 ## Bridge design and implementation status
 
 [The revised architecture contract](../../SPEC.md#46-component-responsibilities-and-user-flow-contracts)
