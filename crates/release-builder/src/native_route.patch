@@ -3757,7 +3757,7 @@ index 7d9bf76..61421f2 100644
          Arc::clone(&session),
          ctx.clone(),
 diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
-index b56485d..3f01f91 100644
+index b56485d..b722b6a 100644
 --- a/codex-rs/core/src/thread_manager.rs
 +++ b/codex-rs/core/src/thread_manager.rs
 @@ -473,6 +473,20 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
@@ -3821,14 +3821,15 @@ index b56485d..3f01f91 100644
                          .prompt_cache_key_policy(),
                  )
              })
-@@ -2539,6 +2563,15 @@ impl ThreadManagerState {
+@@ -2539,6 +2563,16 @@ impl ThreadManagerState {
          } else {
              codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile
          };
-+        let models_manager = if self
-+            .models_manager_binding
-+            .as_ref()
-+            .is_none_or(|binding| binding.matches(&config))
++        let models_manager = if Arc::ptr_eq(&auth_manager, &self.auth_manager)
++            && self
++                .models_manager_binding
++                .as_ref()
++                .is_none_or(|binding| binding.matches(&config))
 +        {
 +            Arc::clone(&self.models_manager)
 +        } else {
@@ -3837,7 +3838,7 @@ index b56485d..3f01f91 100644
          let spawn_result = Session::spawn(SessionSpawnArgs {
              attached_thread,
              startup,
-@@ -2548,10 +2581,9 @@ impl ThreadManagerState {
+@@ -2548,10 +2582,9 @@ impl ThreadManagerState {
              instructions: startup_context.instructions,
              installation_id: self.installation_id.clone(),
              auth_manager,
@@ -4032,3 +4033,15 @@ index d5a8dcc..874a9eb 100644
          .await;
      let mut config = (*turn.config).clone();
      config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
+diff --git a/codex-rs/exec/src/lib.rs b/codex-rs/exec/src/lib.rs
+index 43cf70b..ff46512 100644
+--- a/codex-rs/exec/src/lib.rs
++++ b/codex-rs/exec/src/lib.rs
+@@ -604,6 +604,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+         cwd: resolved_cwd,
+         workspace_roots: None,
+         model_provider: model_provider.clone(),
++        model_catalog_json: None,
+         service_tier: None,
+         codex_self_exe: arg0_paths.codex_self_exe.clone(),
+         codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
