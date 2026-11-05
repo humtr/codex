@@ -1576,6 +1576,15 @@ route or require that unrelated defaults be repaired before continuing it.
 `initialize.modelProviderUpdates` explicitly advertises support; absence means
 unsupported even when the upstream version matches. Clients must not interpret
 an older server's ignored unknown fields as successful route selection.
+The same capability includes thread-scoped `model/list`: an optional `threadId`
+selects that loaded thread's committed provider and model manager as one coherent
+snapshot. Without it, the existing default-catalog query remains unchanged.
+Catalog policy and authentication apply to the selected snapshot, including warm
+caches. A missing/invalid thread fails explicitly; it does not query the process
+default instead. TUI model refreshes use the displayed thread through their
+existing asynchronous request/correlation path, and invalidate cached choices
+when committed thread settings arrive. This neither selects a route nor starts
+inference, and does not add another catalog or UI recovery owner.
 Selection is serialized with Native input and requires a settled turn, including
 reservations and realtime work; background terminals are preserved. A successful
 explicit route change through warm `thread/resume` uses the same admission and
