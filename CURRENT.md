@@ -45,7 +45,8 @@ revised two cases and affected read/archive scopes pass in workflow42025671701
 on83838e8, together with all required nonzero API, initialize, model-binding,
 compaction, Guardian, client and config scopes. Its actual unsigned CLI was
 built, smoked and downloaded with exact source/upstream and original producer
-digest verification. The three Native fault checks are still running. The workflow
+digest verification. The destination-catalog fault fails as required and passes after restoration;
+runtime-binding and live-resume fault qualification remains in progress. The workflow
 runs API checks first and retains that CLI before disposable faults; this changes
 neither acceptance nor signed deployment. Original logs/results remain under the
 owned repair tree.
@@ -107,10 +108,40 @@ exit. These are local attached-execution proofs with an inert primary inference
 endpoint, not actual Chat model inference, TUI observation or production delivery.
 The signed operating Native is unchanged and does not advertise these updates.
 
-The current owned service responds, while its app observation reports
-app_auth_context_unavailable and ready=false. Exact installed app source exposes
-both chatgpt and chatgptAuthTokens authentication; the old bridge rejected the
-latter at identity and dispatch. The source candidate merges those duplicate
+The exact83838e8 Android runtime also passes all8 existing explicitly enabled
+native_compaction device cases with synthetic app replies: manual text and V2
+checkpoint compaction, token-triggered compaction, interrupted compaction recovery,
+public handoff preserving original opaque records, bidirectional continuation,
+explicit fork isolation and original-call question return. These establish actual
+Native behavior with the adapter, not actual Chat inference. In particular, the
+current tests still retain the remote Chat after compaction; its required renewal
+remains unfinished. Original native records and logs are retained under the repair
+tree, and all fixture child runtimes were stopped with observed completion.
+
+The operating service is now a bounded compatible app/auth maintenance trial
+at source0a6518c under the existing supervisor, with its binary, current binding
+and exact prior run command retained under XDG acceptance/connectivity-app-repair.
+The actual replacement observed the prior Provider's kernel exit; an earlier
+normal-stop wait did not confirm exit and is retained as a failed attempt. The
+public signed package and installed Native remain unchanged. This trial must be
+replaced by the accepted compatible signed delivery, or restored from the retained
+run command if abandoned. It has not completed the connector-refresh gate.
+
+The app's private CDP connection is working: current commands evaluate in the real
+app. The attempted existing d3_refresh invocation failed in the app API with
+"Workspace routing is unavailable"; registered/live schema agreement and a fresh
+client Native roundtrip remain incomplete. Calling this an app connection failure
+was incorrect. Subsequent read-only app observations show no authenticated account,
+and the dedicated app home has no auth.json. The earlier working Linux app home
+has authentication for a different account. The user requires separate accounts
+because model permissions differ, and will log into the dedicated app later.
+Preserve those separate homes; do not copy/reuse the other account's login.
+Do not add connection retries or readiness exceptions for this missing login.
+The proposed configured-home/reuse change was discarded before build or activation;
+both source worktrees are restored. Authentication-dependent app/model/refresh
+qualification waits for that login; Native and other independent work can proceed.
+Exact installed app source exposes both chatgpt and chatgptAuthTokens authentication;
+the old bridge rejected the latter at identity and dispatch. The source candidate merges those duplicate
 predicates and accepts both modes while preserving account/user equality checks.
 All94 app bridge tests pass; removing the second supported mode in disposable
 source fails2 new cases and restoration passes all4 mode/transport combinations.
