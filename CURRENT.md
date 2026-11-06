@@ -7,12 +7,14 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Pro handoff entry
 
-The user now transfers the unfinished cleanup and architecture work to Pro.
-Start with [PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
-The 8d095cd Native catalog change is an unqualified draft, not a release input.
-The original local work and superseded mobile attempt are preserved on the
-separate snapshot/archive branches listed there. No runtime change or new test
-run is part of this handoff.
+The current suggested starting point is prep/pro-baseline-20261106 at
+f9754fff8b911496879fff6fd248294e050e9b64. Read its PRO_HANDOFF.md,
+AGENTS.md, SPEC4.5-4.6 and Linux app guide. Pro can reselect the baseline and
+redesign or discard the preparation. This branch retains the earlier source,
+including the unqualified8d095cd catalog draft; the preparation branch separates
+that draft on draft/thread-model-catalog-20261106 and records the source comparison,
+normal Stop results, remaining orphan allocation and remote/device proof limits.
+No product code or live runtime is changed by this redirect.
 
 ## Current architecture review and operating boundary
 
