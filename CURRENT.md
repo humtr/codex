@@ -526,11 +526,28 @@ The Native-created qualification admits never while launch defaults are
 on-request, uses a different registered invocation home, and requires explicit
 effort, original model/policy/history/default and CLI continuation after reconnect.
 Its fresh-auth variant uses plain resume with no ChatGPT profile and no OpenAI
-credentials. Boundary readbacks retain the first settings divergence. New Native
-settings/intent/onboarding regressions and independent disposable faults await
-the corrected hosted build; both actual entrance-direction acceptances remain
-pending. Controlled app responses use zero real model requests. Actual app/model
-success above is separate proof. The operating TUI/Core/Manager remain unchanged.
+credentials. Boundary readbacks retain the first settings divergence. Sourcefc52fe7 builds the actual CLI and passes exact schema equality in
+workflow42252215584. Device proofs owner-native-created-fc52fe7.json and
+owner-native-fresh-fc52fe7.json both pass: foreign-home continuation, explicit
+effort, unchanged model/permissions/history/default, reconnect and CLI follow-up.
+The fresh case has no OpenAI credentials and uses plain resume without a profile.
+Actual Native threads are01a1b1c2-137b-7b73-8fea-ec3f23bfbce9 and
+01a1b1c3-32ba-7282-9f66-56b3dc80fa92. These use the real Android Core/TUI with
+controlled app replies, zero real model requests and no physical UI observation.
+They do not replace the separate connected-client/app evidence above.
+
+The hosted TUI lib-test build then fails because the moved IPC code no longer
+imports MetadataExt into its former parent test module. That test now imports its
+own trait; no assertion or runtime behavior is changed. Required TUI/API and
+fault gates remain pending, not passed by a zero-test build. The first TUI-origin
+continuation's submission counter also included two independent title-generation
+threads. Original request identities distinguish them from the selected task;
+the corrected test counts that actual Native thread, retains the original failed
+result and still requires zero Bridge primary submissions plus exactly one CLI
+follow-up. The corrected actual TUI-origin proof passes in
+owner-tui-first-task-counter-fc52fe7.json (ct-v7eealrv). All three actual
+continuation cases now pass; hosted Native/TUI gates remain pending. The operating
+TUI/Core/Manager remain unchanged.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.

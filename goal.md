@@ -30,8 +30,9 @@ existing API and reads effective settings; known-owner attachment uses Native's
 authentication. Qualify that actual frontend in both entrance directions,
 including different homes, no OpenAI auth/profile, explicit effort and retained
 permissions/history/defaults. Corrected workflow uses the actual Native API test
-target all and checks independent owner/settings/auth/intent faults. Required
-Native/TUI and actual device acceptance remain pending; no operating TUI update.
+target all and checks independent owner/settings/auth/intent faults. Three actual Android continuation cases now pass, including a fresh home with
+no OpenAI credentials/profile. Hosted Native/TUI gates remain pending after an
+isolated test import fix; no operating TUI update.
 Later picker/alias context rebind is
 still incomplete. No new writer/executor/history, default or credential changes.
 Verify both entrance directions and actual app/model recovery. Preserve input,

@@ -376,7 +376,12 @@ def probe(args):
                         if row['op'] in ['chat_read','chat_page','chat_list']]
             before_reads = source_reads()
             assert before_reads == [], before_reads
-            before_submits = sum(row['op']=='submit' for row in bridge_commands())
+            def task_submissions():
+                # Native may independently generate titles in auxiliary threads.
+                # Only this admitted task's submissions can replay its input.
+                return sum(row['op']=='submit' and row['nativeThread']==thread
+                           for row in bridge_commands())
+            before_submits = task_submissions()
             admissions = []
             for index in [1, 2]:
                 before_turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
@@ -521,10 +526,10 @@ def probe(args):
             barrier = rpc('codex_sessions',{'action':'synchronize','thread_id':thread})
             assert barrier['status']=='ready' and not barrier['inference_submitted']
             assert source_reads()==before_reads
-            assert sum(row['op']=='submit' for row in bridge_commands())==before_submits
+            assert task_submissions()==before_submits
             bridge_prefix = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
             submit('CLI_AFTER_BRIDGE_INPUT')
-            wait(lambda:sum(row['op']=='submit' for row in bridge_commands())==before_submits+1,
+            wait(lambda:task_submissions()==before_submits+1,
                  'new CLI input starts Provider after Bridge Direct work')
             wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','CLI after Bridge completes')
             after_cli = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
