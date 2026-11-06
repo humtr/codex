@@ -261,13 +261,13 @@ fn plan(source: &Path, upstream_tui: bool) -> Result<BTreeMap<PathBuf, String>> 
                 replace(
                     text,
                     r#""auto" => {
-                    let file_system_policy = current_permission_profile.file_system_sandbox_policy();
-                    matches!(
-                        current_permission_profile,
-                        PermissionProfile::Managed { .. }
-                    ) && file_system_policy.can_write_local_path_with_cwd(cwd, cwd)
-                        && !file_system_policy.has_full_disk_write_access()
-                }"#,
+                let file_system_policy = current_permission_profile.file_system_sandbox_policy();
+                matches!(
+                    current_permission_profile,
+                    PermissionProfile::Managed { .. }
+                ) && file_system_policy.can_write_local_path_with_cwd(cwd, cwd)
+                    && !file_system_policy.has_full_disk_write_access()
+            }"#,
                     "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),",
                     where_,
                 )
@@ -290,21 +290,21 @@ fn plan(source: &Path, upstream_tui: bool) -> Result<BTreeMap<PathBuf, String>> 
         })?;
         plan.edit("tui/src/chatwidget/permissions_menu.rs", "open_permission_profiles_popup", |text, where_| {
             let binding = r#"        let Some(read_only) = presets.iter().find(|preset| preset.id == "read-only") else {
-                self.add_error_message(
-                    "Internal error: missing the 'read-only' approval preset.".to_string(),
-                );
-                return;
-            };
-    "#;
+            self.add_error_message(
+                "Internal error: missing the 'read-only' approval preset.".to_string(),
+            );
+            return;
+        };
+"#;
             let item = r#"        items.push(self.builtin_permission_mode_selection_item(
-                &discovery,
-                read_only,
-                ":read-only",
-                permission_preset_description(read_only).to_string(),
-                AskForApproval::from(read_only.approval),
-                ApprovalsReviewer::User,
-            ));
-    "#;
+            &discovery,
+            read_only,
+            ":read-only",
+            permission_preset_description(read_only).to_string(),
+            AskForApproval::from(read_only.approval),
+            ApprovalsReviewer::User,
+        ));
+"#;
             let text = replace(text, binding, "", where_)?;
             let text = replace(&text, item, "", where_)?;
             if text.matches("\":workspace\"").count() != 2 {
@@ -664,6 +664,49 @@ pub(super) fn command(args: &[OsString]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_and_provided_frontends_keep_their_permission_contracts() {
+        // Unmodified upstream function inputs exercise the real preparation plan.
+        let inputs: BTreeMap<String, String> =
+            serde_json::from_str(include_str!("fixtures/source-plan.json")).unwrap();
+        let root = fixture();
+        for (relative, text) in &inputs {
+            let path = root.join("codex-rs").join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        let provided = plan(&root, false).unwrap();
+        assert!(provided
+            .keys()
+            .all(|path| !path.starts_with(root.join("codex-rs/tui"))));
+        let native = plan(&root, true).unwrap();
+        for (path, text) in &provided {
+            assert_eq!(native.get(path), Some(text));
+        }
+        assert!(
+            native[&root.join("codex-rs/tui/src/chatwidget/permission_popups.rs")].contains(
+                "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),"
+            )
+        );
+        let menu = &native[&root.join("codex-rs/tui/src/chatwidget/permissions_menu.rs")];
+        function(
+            menu,
+            "open_permission_profiles_popup",
+            "permission menu",
+            |text, _| {
+                assert!(!text.contains("read_only"));
+                assert!(!text.contains("\":workspace\""));
+                assert!(text.contains(FULL_ACCESS));
+                Ok(text.to_owned())
+            },
+        )
+        .unwrap();
+        for (relative, text) in inputs {
+            assert_eq!(read(&root.join("codex-rs").join(relative)).unwrap(), text);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn relocation_only_changes_the_selected_function() {

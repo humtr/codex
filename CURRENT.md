@@ -17,6 +17,30 @@ the operating0.166 tuple and147 demonstrated focused TUI cases. Remote0.167 had
 no successful Core/runtime qualification or paired frontend and is not silently
 adopted. Original dirty0814be7 and its49 paths remain untouched.
 
+The first operating-deployment source is ed1f66c: source acceptance42306525389
+passes actual Android Core and workspace proofs. Core/runtime42306525316 fails
+before compilation in Native-mode permission source preparation. The earlier
+mode split accidentally indented three raw source-match strings; upstream6ff's
+functions had not changed. Restore those original literals without a fallback,
+whitespace-relaxation rule or approval-policy change. The new source-plan fixture
+contains unmodified function inputs extracted from exact6ff. The real plan now
+checks both provided/native modes, shared preparation equivalence, Native
+permission presentation and non-mutating preflight.
+
+The added regression fails on the original defect, passes after correction, and
+fails again when that exact indentation fault is injected into disposable source.
+Builder47/strict Clippy pass; the complete official0.166 Native-mode preparation
+and exact dependency audit also pass locally. Evidence stays under request-
+continuity-dFZxEe as native-source-plan-{before,after,mutation,builder}.log,
+native-runtime-prepare-actual.json and native-runtime-lock-actual.json. The source
+fixture at runtime-preflight-7xuhzcbd is owned qualification input, not another
+implementation checkout. Superseded Native run42306523578 is intentionally
+cancelled; its old source cannot close the new exact-source release gate.
+The full Native CI budget is150 minutes: the observed75-minute base/TUI/library /
+API sequence plus roughly32 minutes of retained-feature/lint work leaves little
+room at120 for the two Native route fault/restoration builds. This changes only
+CI capacity, not any product/CDP deadline or acceptance condition.
+
 ## Pro handoff entry
 
 Active P0 implementation now uses fix/attached-native-development-loop-20261106

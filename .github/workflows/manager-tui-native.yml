@@ -30,8 +30,9 @@ jobs:
   upstream-baseline:
     name: ${{ inputs.scope == 'full' && 'Build and test native switch selection' || format('Focused native {0}', inputs.scope) }}
     runs-on: ubuntu-24.04-arm
-    # Baseline plus four independent TUI mutation rebuilds and restored-source gates.
-    timeout-minutes: 120
+    # Full TUI/API/retained-feature gates plus independent TUI and Native route
+    # mutations, each with restored-source proof, share this job budget.
+    timeout-minutes: 150
     env:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
