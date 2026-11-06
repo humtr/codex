@@ -7,8 +7,9 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Pro handoff entry
 
-The user asks Codex to prepare a coherent source starting point and Pro to own
-independent redesign, implementation and qualification. Start with
+The user now asks Codex to restore the attached Native development loop first;
+broader Pro redesign/implementation follows that prerequisite. The prepared source
+and future handoff remain available. Start with
 [PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
 The suggested preparation branch is prep/pro-baseline-20261106. Pro may reselect
 its baseline and reject/rework this preparation when a simpler design is better.
@@ -23,6 +24,34 @@ They were not mechanically merged into production code. PRO_HANDOFF lists them.
 No production runtime replacement, model request or new Native research work is
 part of this preparation. Only the affected documentation/source-boundary checks
 are applicable here; existing qualification evidence retains its recorded scope.
+
+### Immediate prerequisite: attached Native approval/execution loop
+
+Independent read-only inspection confirmed the operating recovery executable at
+the activation record's0a6518c source, distinct from the prepared source. Its
+actual local MCP tools/list has17 tools; codex_sessions exposes no approval-policy,
+reviewer or sandbox selection field. The candidate and recorded operating source
+likewise do not pass those choices on work creation. Upstream ThreadStartParams
+already offers approval_policy, approvals_reviewer and sandbox/permissions; the
+initial implementation candidate is to carry selection through that existing
+Native admission, not add an executor or alter global configuration.
+
+The root user config contains danger-full-access/on-request/auto_review. This is
+configuration-file evidence, not a readback of every live work's effective policy.
+The upstream reviewer has a parent-config-copy/model-session path; actual review
+provider/model/request correlation for the reported app_target_unavailable is
+still missing. cdp::Client::app currently uses that error for both missing app
+Targets and absence of an eligible Composer, so the string alone cannot identify
+the incident's cause.
+
+An actual connector sessions-list first returned Transport closed; a later
+read-only call succeeded and matched the local count of20 works (13 completed,
+4 stopped,3 reconciliation_required). No work was created, claimed or stopped;
+no model/reviewer request was submitted. Transport recovery cause is unproven.
+Auto Review reproduction/fix, per-work Full Access admission, matched file/build/
+test comparison, isolation/reconnect and actual Bridge execution remain pending.
+No runtime or operational approval default was changed. Codex owns this bounded
+prework; Pro handoff resumes after the development path is qualified.
 
 ### P0 reported app timeout and same-work input recovery
 

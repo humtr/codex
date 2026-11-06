@@ -5,12 +5,18 @@ SPEC.md owns behavior, AGENTS.md development rules, CURRENT.md proven/pending
 state, and PRO_HANDOFF.md the complete Pro assignment. Reread AGENTS.md after
 recovery; inspect current worktrees, source and live ownership before changes.
 
-P0: diagnose and fix reported ChatGPT CDP timeout followed by same-work input
-synchronization failure; distinguish the approval-review target failure. Finish
-source regression proof and the available real TUI continuation/model-result path,
-preserving original input identities, work/history/model and once-only effects.
-The six required cases and evidence limits are in PRO_HANDOFF.md's P0 section.
-Diagnosis, implementation and production recovery are not yet established.
+First restore the ChatGPT → Bridge → attached Native development loop before
+handing broader refactoring to Pro. Diagnose/fix Auto Review failure under
+danger-full-access/on-request/auto_review; expose upstream-supported per-work
+Full Access (danger-full-access/never) through the same execution path. Compare
+matched edit/build/test/continuation scenarios and recommend a default only from
+evidence. Do not change operational defaults or silently switch failed reviews.
+Actual policy propagation, review allow/deny/failure, effect counts, isolation,
+reconnect and real ChatGPT Bridge roundtrip all require proof.
+
+Keep the reverse Codex TUI → ChatGPT timeout/input-recovery P0 separate unless
+correlated evidence establishes shared cause. Its six required cases remain in
+PRO_HANDOFF.md. Source fixes and actual runtime recovery are not yet established.
 
 Pro may reselect the prepared baseline and responsibilities using evidence.
 Compare shared Native execution with thin inference adapters and any genuinely
