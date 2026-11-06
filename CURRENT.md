@@ -416,7 +416,8 @@ See owner-filter-native-actual/fault logs and JSON under the evidence root.
 
 Manager's52 library tests, strict Clippy and release build pass. A disposable
 unknown-writer-as-free fault fails the new connection-query regression and was
-restored. Frontend source assembly/unit checks pass; native frontend compilation,
+restored. The frontend assembler's11 Python cases and affected qualification-script
+checks pass; native frontend compilation,
 its regression execution and both actual entrance-direction tests remain pending.
 The actual Core/Manager/Native task gate passes the new live-owner/socket query,
 confirmed-free reply, cross-account writer protection, reconnect, cancellation and
@@ -432,8 +433,17 @@ binding3 pass with strict workspace Clippy. An initial shared-cache mutation
 artifact was detected by the new failing guard test; its Manager debug output
 was removed and the clean-source affected gates rerun successfully. Subsequent
 fault builds use their own cache. No failed run is counted as green. Hosted
-frontend workflow42210511392 stopped before source compilation on a dependency
-mirror connection; one same-source retry passed acquisition and is compiling.
+frontend workflow42210511392 first stopped on a dependency mirror connection;
+its one same-source retry passed acquisition and compiled the Native schema
+generator, then correctly failed exact export equality. The existing compatibility
+patch declared modelProviderUpdates but omitted its generated stable exports and
+cached experimental route-parameter exports. Five files are now taken from that
+actual generator output, including both precomputed archives. Decoded comparison
+confirms the declared capability/route metadata; no Rust/runtime behavior was
+changed. The complete compatibility patch applies to pristine6ff1e1c, and six
+source-preparation tests pass. The strict schema gate remains in place and must
+pass before frontend/device qualification. This repair does not admit or deploy
+the separate Native-transition candidate into the signed operating runtime.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.

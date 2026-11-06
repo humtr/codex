@@ -22,8 +22,11 @@ writer discovery supplies the owner connection before startup preparation;
 generic connections no longer retarget it. Manager and actual Native task proofs
 pass. Native frontend build/behavioral tests and both TUI entrance-direction
 proofs remain pending; the operating TUI is unchanged. The first hosted build
-stopped before source compilation on the kernel.org dependency mirror connection;
-one failed-job retry uses the same source. No new writer/executor/history.
+stopped on a dependency mirror connection. Its one retry reached the schema gate
+and exposed missing generated exports in the existing Native compatibility patch;
+the actual generator output repairs those exports without runtime-code changes.
+Keep the exact gate and qualify the new frontend before operating activation.
+No new writer/executor/history.
 Verify both entrance directions and actual app/model recovery. Preserve input,
 policy, original results and all profiles/mobile desktop state. An actual Guardian
 scope-denial case failed and remains separate; no default-policy recommendation
