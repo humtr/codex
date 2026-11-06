@@ -266,6 +266,20 @@ execution admission before changing that boundary. Actual model denial quality
 is now an observed failing case, not a passed capability or merely an unrun test.
 No default-policy change follows; compare Auto Review and Full Access using
 this result, synthetic deny enforcement and their actual execution conditions.
+A fresh registered Bridge status read identifies the original work as
+7cf78dedd3180ae5c7d591edc3af9cdb5d61286ebce4abdb. It still reports
+reconciliation_required, Native notLoaded, no pending calls/driver and no current
+host observation. The Provider journal now has zero active/unconfirmed effect
+reservations and four retained external receipts. These counters are journal-wide
+by the broker implementation; this does not reconcile the individual work or
+prove every concurrency/resource case. No controller was acquired, policy changed
+or command replayed. The registered history read also succeeds with21 Native
+items and6 context items; all eight commandExecution items are completed/exit0.
+The separate persisted app lane is stopped with pending_native_calls=1,
+input_ready=false and last_error=empty_app_round; app_queried=false. Completed
+commands/readable history do not prove that original app return is reconciled.
+Curated evidence: guardian-original-current-status.json under the request-
+continuity evidence root.
 
 The independently observed shared-resource blocker is another work, not this
 Codex session: work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a,
@@ -403,8 +417,9 @@ does not retarget it through catalog preparation. New/confirmed ownerless work
 uses the existing coordinator. For a canonical resume/fork identity, startup now
 reuses the verified owner execution home before loading configuration, auth or
 an editable draft. Manager revalidates the owner and reexecutes the qualified
-Core with the original opaque user arguments. Its execution-context builder is
-shared with existing reconnect; no default/profile/account selection is changed.
+Core with the original opaque user arguments. Core resolved startup computes a
+rendezvous address without starting a backend; the frontend resolves ownership
+before startup preparation. The execution-context builder is shared with existing reconnect; no default/profile/account selection is changed.
 A later picker/alias selecting another home still requires a draft-preserving
 context rebind and remains unqualified; startup proof cannot close that boundary.
 The existing Manager IPC function moves from profile UI to
@@ -423,8 +438,9 @@ See owner-filter-native-actual/fault logs and JSON under the evidence root.
 Manager's52 library tests, strict Clippy and release build pass. A disposable
 unknown-writer-as-free fault fails the new connection-query regression and was
 restored. The frontend assembler's11 Python cases and affected qualification-script
-checks pass; native frontend compilation,
-its regression execution and both actual entrance-direction tests remain pending.
+checks pass. Workflow42224074734 at0820513 passes generated-schema equality
+and actual CLI compilation. Native/TUI regression execution and both actual
+entrance-direction tests remain pending.
 The actual Core/Manager/Native task gate passes the new live-owner/socket query,
 confirmed-free reply, cross-account writer protection, reconnect, cancellation and
 explicit takeover. An initial nested test root made Core's socket111 bytes
@@ -454,8 +470,8 @@ source-preparation tests pass. Workflow42215493252 then passes exact generated
 schema equality, but fails CLI compilation at the new owner lookup: upstream
 ThreadId has no FromStr implementation. The code and tests now use its actual
 from_string constructor; this avoidable implementation error is fixed at source,
-not waived. Frontend build, its tests and both device entrance-direction proofs
-remain pending on the corrected source. This repair does not admit or deploy the
+not waived. The corrected0820513 build passes actual CLI compilation; the
+remaining Native/TUI gates and both device entrance-direction proofs are pending. This repair does not admit or deploy the
 separate Native-transition candidate into the signed operating runtime.
 
 An actual configuration boundary also remains: the completed live model work's
