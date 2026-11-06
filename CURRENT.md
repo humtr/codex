@@ -484,21 +484,30 @@ a failed run or install a candidate into operation. This repair does not admit o
 separate Native-transition candidate into the signed operating runtime.
 
 An actual configuration boundary also remains: the completed live model work's
-record confirms a Native execution home different from this Codex invocation's
-CODEX_HOME. This is not inferred from skill paths/model labels and does not show
-an app-login failure; the actual app model request succeeded. Preserve both
-homes/defaults. A disposable actual raw upstream --remote experiment completes
+record confirms a Native execution home different from the invocation CODEX_HOME
+at that observation. The resumed invocation now matches that earlier Bridge home;
+the actual session ID is unchanged, but the intervening settings provenance was
+not observed. Neither fact is inferred from skill paths/model labels or used to
+attribute a user action. The actual app model request succeeded; preserve profiles
+and defaults. A disposable actual raw upstream --remote experiment completes
 foreign-home Bridge/TUI/reconnect continuation, but loses an explicit CLI effort
 selection: requested high, Native confirms none. Policy/reviewer/model remain
 unchanged. The experiment result and original Native records remain at
 request-continuity-dFZxEe/foreign-owner-experiment.log and ct-necsqgb8; this is a
-failed intent-preservation acceptance, not a qualified replacement. The candidate
-therefore retains Core's local execution-context semantics instead of treating a
-server-owned remote session as equivalent. The existing Native-created continuity
-qualification now runs from another registered fixture home and requires the
-explicit effort, model/policy, saved default, original history and CLI follow-up
-through the same work to survive reconnect. No real model inference is used in
-that controlled regression. Actual app/model success is separate evidence above.
+failed intent-preservation acceptance, not a qualified replacement. A subsequent
+boundary timeline (ct-385jfbnt, thread01a1b14c-0f95-7e30-a142-66655c83821d) confirms
+none immediately after the first TUI resume and after each Bridge/CLI boundary.
+This narrows the first divergence to TUI resume, rather than assigning it from
+final settings alone. Pristine6ff1e1c Remote mode is client-owned; its config
+forwarding filter omits reasoning effort. Do not describe it as server-owned
+merely because its transport is remote. The existing Termux local frontend
+forwards profile/session settings, but the new owner-home candidate still needs
+actual intent/policy proof. The Native-created continuity qualification now runs
+from another registered fixture home, admits never while launch defaults are
+on-request, and requires explicit effort, original policy/model, saved default,
+history and CLI follow-up to survive reconnect. Failure must revise the candidate,
+not weaken that acceptance. No real model inference is used in these controlled
+regressions. Actual app/model success is separate evidence above.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.

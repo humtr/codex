@@ -136,8 +136,12 @@ def probe(args):
 
         created_before_tui = None
         if args.native_created:
+            # A resumed task owns its admitted policy even when launch defaults
+            # differ. This is a disposable fixture, not an operating default.
+            config.write_text(config.read_text().replace('approval_policy = "never"',
+                'approval_policy = "on-request"'))
             created_before_tui = rpc('codex_sessions',{'action':'create','inference':'attached',
-                'call_id':'native-before-tui-create'})
+                'approval_policy':'never','call_id':'native-before-tui-create'})
             thread = created_before_tui['thread_id']
             started = rpc('codex_sessions',{'action':'start','work_id':created_before_tui['work_id'],
                 'controller':created_before_tui['controller'],'call_id':'native-before-tui-start',
@@ -172,6 +176,7 @@ def probe(args):
             assert selected.returncode == 0
             default_before = selected.stdout
             owner_settings_before = native_rpc(home,'thread/resume',{'threadId':thread})
+            assert owner_settings_before['approvalPolicy'] == 'never'
             requested_effort = 'medium' if owner_settings_before.get('reasoningEffort') == 'high' else 'high'
             explicit_args = ['-c',f'model_reasoning_effort="{requested_effort}"']
         master, slave = pty.openpty()
