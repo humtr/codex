@@ -336,8 +336,9 @@ rerun; unchanged successful Rust execution evidence was retained. Actual Android
 Native process41099 exited2, releasing its original reservation from1 to0; the
 same work then wrote a file and finished without a poll/replay or Chat request.
 Its thread01a1b013-0c30-7e73-b27b-c39c1637f3b8 and original records remain in the
-owned ne-xilmhxxy fixture. That idle qualification server still needs normal
-owned cleanup before its generated payload is archived.
+owned ne-xilmhxxy fixture. The idle qualification server was normally stopped through a verified kernel
+handle after observing its completed history and no loaded threads; payload
+archival can preserve the records.
 
 The source-bounda7a98c3 development artifact was built/read back and both this
 account's service and tunnel were switched from763c24a with saved rollback files,
@@ -359,10 +360,23 @@ uncertain work. New tests retain the remote failure while checking hook removal;
 active/uncancelled lanes still reject disposal. Native tool discovery also
 explains the separate native_input context to its actual model consumer.
 
-The follow-up source/build gate, completed historical-work Stop, connector refresh,
-fresh connected Native roundtrip, real-model recovery and automatic TUI owner
-selection are still separate unfinished boundaries. Artifact/rollback/client
-records are at ~/.cache/codex/acceptance/request-continuity-a7a98c3e0d0c/.
+Sourcec64814d passes affected Rust tests, strict Clippy, release build and all114
+JS tests; both targeted fault mutations fail and are restored. The extended
+actual Android TUI test also passes /fork immediately after a failed empty
+response, then completes child01a1b02a-3e39-7bf1-bc9e-c1a4ce4f01b8 while parent
+01a1b02a-27c3-7ad1-880b-7ed528de020e history remains unchanged. It uses the
+qualifieda7a98c3 fixture and signed148 Native; no real Chat model was requested.
+
+The source-boundc64814d service is active on the original port; connector/tunnel
+activation remains incomplete. Its actual legacy work Stop still returns Native
+confirmed / host unconfirmed, so do not describe those works or the global
+opaque reservation as recovered. Operator currently discards the exact host
+Stop error into false; the follow-up preserves that static cause in its public
+Stop result, without changing approval, execution or confirmation decisions.
+This diagnostic loss must be resolved before assigning a further live cause.
+Fresh connected Native roundtrip, real-model recovery and automatic TUI owner
+selection remain unfinished. Original private observations/rollback bindings are
+at ~/.cache/codex/acceptance/request-continuity-{a7a98c3e0d0c,c64814d14814}/.
 
 ## Current architecture review and operating boundary
 

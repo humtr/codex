@@ -5145,16 +5145,17 @@ impl Operator {
                     .map(app_lane_requires_host_stop)
                     .unwrap_or(true)
             });
-        let host_confirmed = if host_requested || app_lane.is_some() {
+        let host_stop = if host_requested || app_lane.is_some() {
             // The response worker can finish acknowledged app cancellation
             // while native interruption is being observed. Its owner must
             // confirm/reuse that settlement even if no new Stop is needed.
-            self.stop_driver(&record).await.unwrap_or(false)
+            self.stop_driver(&record).await
         } else {
             // Absence is not confirmation. Preserve a previously observed and
             // durably released Stop without recreating the old host lane.
-            record.driver_phase == "released_after_stop"
+            Ok(record.driver_phase == "released_after_stop")
         };
+        let host_confirmed = host_stop.as_ref().is_ok_and(|confirmed| *confirmed);
         // Detach pending model observers without claiming uncertain calls executed.
         let _ = self.broker.retire(&record.token, true).await;
         let jobs = self.owned_jobs(&native, &record).await;
@@ -5185,6 +5186,7 @@ impl Operator {
         Ok(
             json!({"fenced":true,"native_stop_requested":true,"native_stop_confirmed":confirmed,
             "native_stop_state":if confirmed{"confirmed"}else{"unknown"},"host_stop_requested":host_requested,"host_stop_confirmed":host_confirmed,
+            "host_stop_error":host_stop.err().map(|error|error.0),
             "remaining_jobs":jobs.as_ref().ok(),"jobs_observation_available":jobs.is_ok()}),
         )
     }
