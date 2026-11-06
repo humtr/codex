@@ -18,7 +18,8 @@ Every Termux Codex execution passes through Core. Actual tools, reviewer,
 conversation storage, compaction and resume remain upstream-owned. Optional
 preparation/configuration isolation and no-Manager TUI/Provider execution have
 source and bounded Android proof; signed composition and operating activation
-are distinct. See [current status and work order](CURRENT.md#unified-development-order-and-user-visible-completion).
+are distinct. See [current status](CURRENT.md) and the
+[remaining-work plan](PRO_HANDOFF.md#62-실행할-여섯-묶음).
 
 The optional **Provider** contains the ChatGPT–Codex bridge. **Termux Bridge**
 is its ChatGPT MCP connection. Native owns execution, approvals and committed
@@ -54,7 +55,7 @@ composition makes Manager, TUI, Provider and the patched Android tunnel individu
 selectable, with Full including them all. Normal installs use prebuilt binaries;
 source-building is an explicit recovery/development option. The published Full
 still pairs Manager/TUI and installs Provider separately; the broader composition
-remains in the [work order](CURRENT.md#unified-development-order-and-user-visible-completion).
+remains in the [capability backlog](CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 
 | Where you start | Who reasons about the task | Required setup |
 | --- | --- | --- |
@@ -787,7 +788,7 @@ Actual Android0.166 source compilation, signing, installation, execution and
 verifies/reuses that completed artifact without recompiling. This is distinct
 from an uninterrupted empty-cache build. Exact source, public delivery, device
 activation and remaining work are recorded in
-[CURRENT](CURRENT.md#unified-development-order-and-user-visible-completion).
+[CURRENT](CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 

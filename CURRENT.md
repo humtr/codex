@@ -19,9 +19,12 @@ the recovery binary to0a6518c but do not independently prove exact binary/source
 identity. That binary remains rollback evidence. The current development recovery artifact
 is now source-bound and qualified at the boundaries described below.
 
-The user now asks Codex to restore the attached Native development loop first;
-broader Pro redesign/implementation follows that prerequisite. The prepared source
-and future handoff remain available. Start with
+The attached Native development loop has the bounded proof below. The remaining
+work is reorganized in [PRO_HANDOFF.md section6](PRO_HANDOFF.md#6-우선-정리연구구현할-내용).
+Codex prework now includes common request settlement, TUI continuation and
+same-Provider entrance handoff; Pro may revise that preparation while taking on
+model transitions, compaction and the remaining restructuring. This is the next
+implementation scope, not a claim of completed recovery. Start with
 [PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
 The working-code starting point is fix/attached-native-development-loop-20261106;
 prep/pro-baseline-20261106 is the separate Native-transition candidate. Pro may
@@ -203,6 +206,40 @@ real TUI continuation/model completion and deployment remain pending. [PRO_HANDO
 defines the prioritized investigation and six required acceptance cases;
 SPEC4.6 defines ownership/recovery behavior. The attached-loop repair above does
 not qualify these reverse-flow recovery cases or clear their uncertain old work.
+
+### Steering and empty-round evidence; reorganized next work
+
+Read-only inspection of the current development source and original Native/app
+records confirmed two further reverse-flow failures:
+
+- Thread01a1af43-26f0-71c0-ad89-5012b14c52f6, turn
+  01a1af5f-9d9c-75e3-a717-b9352db018fd: steering was recorded during inference;
+  the turn ended with app_round_identity_unconfirmed. Its original Native tool
+  call has an exit0 result, while AppHost retains that pending call and the
+  Operator work is reconciliation_required. Native execution is known; app
+  receipt/settlement is not. The final MCP virtual/physical/AppHost round records
+  differ; these snapshots do not establish the first causal race.
+- Thread01a1af61-c9a5-7253-b0f3-59517f65a1d2, turn
+  01a1af62-2352-7b33-acf6-baf3ab4e2d8c: Native contains8 tool calls and8 results
+  before empty_app_round. The retained app pending call also has its Native
+  result. The whole task was not empty; no result replay is justified.
+
+Source currently uses the same done terminal for physical app completion and
+the MCP-to-Responses tool handoff. app.rs reports empty_app_round only after a
+terminal snapshot has no usable final or gateway calls, not on every empty
+fragment. It also sets a new round before submit and can report a later identity
+mismatch after losing the submit error. Operator synchronize_native rejects
+reconciliation_required before observe_native. These are relevant lifetime and
+recovery boundaries to reproduce, not proof that every incident shares one cause.
+The user's fork failure has no directly correlated error yet. No recovery,
+runtime replacement or new model request was performed in this planning batch.
+
+SPEC4.6 now distinguishes observation/stream end, tool handoff, app inference
+completion and Native settlement. PRO_HANDOFF6.2 defines six implementation
+packages and maps all original12 priorities, NC-01..29 and cumulative work.
+Packages1/2 first establish original-request recovery and same-Provider TUI/Chat
+continuation; accepted unchanged tests remain reusable. Actual model transitions
+and portable compaction still require the separate Native capability proof.
 
 ## Current architecture review and operating boundary
 
@@ -837,25 +874,26 @@ Shared code is not29 independently demonstrated real-path cases.
 | NC-28 | Partial: fenced Stop, owner identity, zombie/unoffered and original-result recovery | Fault matrix for dropped response, restarted owner, detached Chat, stale PID and physical process settlement |
 | NC-29 | Partial: ordered short ledger, persisted rejection/results, exact retry | Simultaneous compound conflicts/partial effects; complete original outcomes and actionable owner/wait diagnostics |
 
-P0/NC next slices: operating ordinary-model tool continuation after qualified
-activation; reuse accepted Provider/duplicate-admission/restart/two-work proof only at its
-exact inputs, then bounded path/publication and Git resources; then isolated opaque
-build/temp execution and parity across MCP/local Function. Do not impose one
-long-lived workspace lease or restore ToolRegistry hooks to make tests pass.
+The remaining NC work follows PRO_HANDOFF6.2: verify the recovery/continuation
+boundaries needed by packages1/2 first, then complete bounded path/publication,
+Git and isolated build/temp concurrency in package5. Reuse accepted
+Provider/duplicate-admission/restart/two-work proof only at its exact inputs.
+Preserve MCP/Function parity; do not impose a long-lived workspace lease or
+restore ToolRegistry hooks to make tests pass.
 
-## Unified development order and user-visible completion
+## Retained backlog areas and user-visible completion
 
-The architecture review and implementing dependencies above take precedence over
-this broader backlog. Package recovery is complete; transport recovery is bounded
-and app/entrance continuity remains incomplete. Preserve account identities and
-existing work. Do not resume obsolete desktop-specific repair scripts or Pro
-qualification before primary architecture/implementation acceptance.
+Execution order is now owned by PRO_HANDOFF6.2. The IDs below retain the broader
+capability inventory and its actual dependencies; they are not another competing
+schedule. Package recovery is complete; transport recovery is bounded and
+app/entrance continuity remains incomplete. Preserve account identities and
+existing work. Retired desktop repair scripts are not the development entrypoint.
 
 Effort labels are relative batch sizes, not a delivery-date promise. Safe
 independent source work may proceed during upstream429 or network waiting; a429
 alone is neither proof of repeated model submissions nor proof that work failed.
 
-| Order | Priority / size | Prerequisites and work | User-visible completion |
+| Area ID | Priority / size | Prerequisites and work | User-visible completion |
 | --- | --- | --- | --- |
 | 0 | P0 / small code, medium delivery | Quiet changed-only updater notes; repair public Provider sequence through existing signed pipeline; qualify clean runtime replacement | `codex update` succeeds for selected groups, preserves Full/Provider/profile/jobs and repeats no unchanged notes; public and actual installed versions agree |
 | 1 | P0-1 / medium | Existing fresh-client smoke, durable observer/results and controlled recovery; full Native and consuming-client gates | Tools keep working after first result and restart; complete result returns to the same caller; no hidden replay |
@@ -872,9 +910,9 @@ alone is neither proof of repeated model submissions nor proof that work failed.
 | 11 | P2/A3 / large | 3/6 execution identity and10 controls; bounded discovery can precede implementation | Actual independent reasoning and child/temporary-thread lineage, status/result return and separate public records; no fake parent relationship |
 | 12 | P2 / mixed batches | Respective already qualified runtime/authority boundary | Remaining first-run/Linux-host/project/history/viewer/IME/touch/setup/repository separation and long-duration polish |
 
-Order0's signed delivery does not establish all NC acceptance. Order3 reuses the
+Area0's signed delivery does not establish all NC acceptance. Area3 reuses the
 already implemented input/catalog behavior; it is not a fresh wholesale rewrite.
-Orders8/9 can use an external-rate-limited interval without blocking P0. Permanent
+Areas8/9 can use an external-rate-limited interval without blocking P0. Permanent
 refresh product integration waits for P0/NC, but the **existing** D3 refresh is
 still mandatory after each live runtime replacement now.
 

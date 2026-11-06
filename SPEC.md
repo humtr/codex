@@ -1687,6 +1687,36 @@ continuation must update the owning state and unblock that same work, rather
 than leave a permanent generic reconciliation failure. An unresolved outcome
 reports the specific missing fact and available recovery action.
 
+**Observation and completion.** A physical stream ending, a Native Responses
+round handing off tools, an app inference completing and a Native task settling
+are different facts. Adapters preserve those meanings through their protocol
+projection; a shared `done` label is not sufficient completion evidence. A
+snapshot without public output does not prove an empty task, failed inference
+or non-execution. Hidden reasoning remains private and is not a substitute for
+the missing public completion evidence.
+
+Native owns accepted input, canonical turn/call identity, effects and committed
+results. Provider owns correlation and settlement of the corresponding external
+inference request. Physical streams/reconnections observe that request; they do
+not independently advance task status. A valid new Steer input may produce a
+successor request on the same Native turn. Correlate each observation with its
+original request; delayed events cannot complete or overwrite its successor.
+Retain distinct identifiers where their lifetimes differ, without independently
+persisting the same decision at several layers.
+
+Use the existing operation owner to recover partial/lost observations within
+the admitted deadline and budget. A committed Native tool result remains a
+known result even if its app receipt is uncertain: settle its original return
+without re-executing the tool. Reconciliation fences genuinely unresolved
+operations, authority or effects and exposes the evidence/action needed to
+settle them. It must have a supported exit when safe continuation is established. Confirmed
+failures, invalid identities/calls and exhausted budgets remain explicit; no
+fabricated success, unlimited observation or automatic mutation replay follows.
+An authoritative completion with no usable output retains available results
+and reports that outcome without permanently disabling the work. Native owns
+an explicitly requested fork of a verified committed checkpoint; a child does
+not inherit its parent's execution capability or silently replay uncertain work.
+
 The existing Native input barrier consumes that recovered state. Preserve the
 thread/work, history, selected route/model, approvals, writer and original input
 identity. TUI consumes a draft only according to confirmed Native admission;
