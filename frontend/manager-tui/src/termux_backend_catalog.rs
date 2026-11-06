@@ -40,7 +40,7 @@ fn catalog_bytes(config: &crate::legacy_core::config::Config) -> color_eyre::Res
     Ok(Some(source))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectionReply {
     schema: String,
@@ -48,7 +48,7 @@ struct ConnectionReply {
     connection: Option<OwnerConnection>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OwnerConnection {
     execution_home: std::path::PathBuf,
@@ -233,7 +233,8 @@ mod tests {
     -> color_eyre::Result<()> {
         let root = tempfile::tempdir()?;
         let core = root.path().join("core");
-        let thread: codex_protocol::ThreadId = "12345678-1234-1234-1234-123456789abc".parse()?;
+        let thread: codex_protocol::ThreadId =
+            codex_protocol::ThreadId::from_string("12345678-1234-1234-1234-123456789abc")?;
         let socket = root.path().join("native-socket");
         let install = |value: serde_json::Value, status: i32| -> color_eyre::Result<()> {
             std::fs::write(

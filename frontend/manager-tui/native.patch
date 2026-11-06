@@ -2477,7 +2477,7 @@ index 1b0b08c..094c345 100644
 +                cli.resume_session_id
 +                    .as_deref()
 +                    .or(cli.fork_session_id.as_deref())
-+                    .and_then(|id| id.parse().ok()),
++                    .and_then(|id| codex_protocol::ThreadId::from_string(id).ok()),
 +            )
 +            .await?;
              start_app_server(
