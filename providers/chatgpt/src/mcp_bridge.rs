@@ -126,9 +126,9 @@ async fn settle_round(
     *lane = next;
     Ok(())
 }
-// Both direct snapshots and restored source observations can confirm Stop.
+// Stop fences the whole owned lane, independently of its last admitted round.
 // Revoke the old capability without forgetting unreturned Native effects.
-async fn observe_stopped_round(
+async fn observe_stopped_lane(
     lane: &mut Lane,
     broker: &Broker,
     journal: &Journal,
@@ -634,8 +634,8 @@ impl Bridge for McpBridge {
                 settle_round(&mut lane, &broker, &journal, &key).await?;
             }
             let mut snapshot = remote.operation(command).await?;
-            if snapshot["round"] == lane.real_round && snapshot["stopped"] == true {
-                observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
+            if snapshot["stopped"] == true {
+                observe_stopped_lane(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
                 snapshot["stopped_lane"] = json!(true);
                 return Ok(snapshot);
@@ -704,12 +704,6 @@ impl Bridge for McpBridge {
                     lane.discovery_from = None;
                     journal.write(&key, &*lane)?;
                 }
-            }
-            if snapshot["stopped"] == true {
-                observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
-                snapshot["round"] = json!(lane.round);
-                snapshot["stopped_lane"] = json!(true);
-                return Ok(snapshot);
             }
             let token = lane
                 .token
@@ -1000,6 +994,9 @@ mod tests {
         }
         let (_root, journal, broker, mut lane) = pending_settlement().await;
         lane.settlement = None;
+        // The physical stream may have advanced before its observation was
+        // committed. Whole-lane Stop still owns that stream and no successor.
+        lane.real_round = "unobserved-original-round".into();
         let token = lane.token.clone().unwrap();
         journal
             .write(&digest(&("mcp-lane-v1", "owned-native-thread")), &lane)

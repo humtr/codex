@@ -280,15 +280,18 @@ proof that another work's effects ended.
 
 ### Request settlement implementation and current qualification
 
-The working diff separates physical inference completion from Native tool
-handoff. Original Native returns and admitted steering context settle together
+Sourcea7a98c3 (committed/pushed) separates physical inference completion from
+Native tool handoff. Original Native returns and admitted steering context settle together
 without a second model submission; acceptance no longer waits for the next model
 answer. Confirmed empty inference keeps its error but leaves settled work ready
 for a new input. Operator observes the authoritative Native result before its
 input barrier and waits through the in-flight completion race; it does not add a
 TUI recovery machine. Stale stream callbacks are fenced by stream identity as
 well as lane epoch. Cold Stop recovers the original transport lane for fencing
-without reviving execution capabilities. Descriptor maintenance borrows the
+without reviving execution capabilities. A live trial exposed a remaining round
+check that discarded whole-lane Stop when physical/MCP/AppHost rounds differed;
+the follow-up removes that check and the duplicate later Stop branch. A cold
+fixture with the mismatched physical round fails before and passes after. Descriptor maintenance borrows the
 already-owned CDP connection rather than competing for a second observer.
 
 Native terminal observation now matches original call/process/owner identities
@@ -302,7 +305,8 @@ Affected Rust checks pass189 library tests,11 CDP tests and11 MCP return tests;
 ignored device scopes retain their separate status. Disposable-source faults in
 steering admission, empty settlement, late stream fencing, unknown-exit admission
 and the early input barrier each fail their behavioral regression, then are
-restored. The barrier mutation fails the actual Android Core/TUI test without a
+restored. Follow-up faults restoring the Stop round check and forbidding passive
+observer disposal also fail their corresponding behavioral tests. The barrier mutation fails the actual Android Core/TUI test without a
 diagnostic status call first repairing the work.
 
 Actual signed148 Native/Core/TUI with a synthetic Chat backend passed confirmed
@@ -328,10 +332,37 @@ with that actual owner; do not add another writer, execution path or transcript.
 The updated Provider gate passed Rust tests, fmt, strict Clippy, release build,
 Bun114 tests, Python84 tests and the existing CLI import checks. The initial
 Clippy rejection of two unnecessary test-only clones was fixed and that gate
-rerun; unchanged successful Rust execution evidence was retained. Real-app
-recovery, historical-work Stop, operating replacement/client refresh and
-automatic TUI owner selection remain separate outstanding acceptance boundaries.
-Current live services still use763c24a; this implementation has not been deployed.
+rerun; unchanged successful Rust execution evidence was retained. Actual Android
+Native process41099 exited2, releasing its original reservation from1 to0; the
+same work then wrote a file and finished without a poll/replay or Chat request.
+Its thread01a1b013-0c30-7e73-b27b-c39c1637f3b8 and original records remain in the
+owned ne-xilmhxxy fixture. That idle qualification server still needs normal
+owned cleanup before its generated payload is archived.
+
+The source-bounda7a98c3 development artifact was built/read back and both this
+account's service and tunnel were switched from763c24a with saved rollback files,
+normal supervisor stop and the same port/profile. Other account services and
+signed installed generations were unchanged. This is an incomplete activation:
+three inactive old app lanes leave the renderer revision guard in conflict.
+The first supported work Stop confirms Native idle/no jobs and physical server
+termination, but its MCP round mismatch prevents AppHost acknowledgment until
+the follow-up above is deployed. No journal or outcome was forcibly reset.
+
+One other retained lane has no observed server conversation ID; its SDK resume
+reported HTTP413, but that does not prove the original transmission did not
+occur. Its local cancellation is complete, with no active stream/pending/approval.
+Passive dispose now retires only those locally cancelled quiescent hooks while
+preserving the unresolved request/Native journals and fencing. It never reports
+remote Stop success or releases effects. This separates renderer ownership from
+remote request lifetime, permitting a normal code upgrade without discarding an
+uncertain work. New tests retain the remote failure while checking hook removal;
+active/uncancelled lanes still reject disposal. Native tool discovery also
+explains the separate native_input context to its actual model consumer.
+
+The follow-up source/build gate, completed historical-work Stop, connector refresh,
+fresh connected Native roundtrip, real-model recovery and automatic TUI owner
+selection are still separate unfinished boundaries. Artifact/rollback/client
+records are at ~/.cache/codex/acceptance/request-continuity-a7a98c3e0d0c/.
 
 ## Current architecture review and operating boundary
 

@@ -209,8 +209,28 @@ def probe(args):
                 assert 'ChatGPT input synchronization failed' not in screen[screen_start:]
                 assert 'OWNED_MANAGED_ROUND_COMPLETE' in screen[screen_start:]
                 proof.append({'fault':fault,'failed_turn':failed['id'],'continued_turn':turns[-1]['id']})
+            (root / 'empty-final').touch()
+            submit('Exercise an empty answer before an explicit fork')
+            wait(lambda:native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns'][-1]['status']=='failed',
+                 'the parent fails before the explicit fork')
+            (root / 'empty-final').unlink()
+            parent_history = history()
+            submit('/fork')
+            def forked_thread():
+                for candidate in native_rpc(home,'thread/loaded/list',{})['data']:
+                    if candidate != thread and native_rpc(home,'thread/read',{'threadId':candidate,'includeTurns':False})['thread'].get('forkedFromId')==thread:
+                        return candidate
+            child = wait(forked_thread, 'Native creates the explicit fork after the failed turn')
+            submit('Continue the fork from its committed checkpoint')
+            wait(lambda:(turns:=native_rpc(home,'thread/read',{'threadId':child,'includeTurns':True})['thread']['turns']) and
+                 turns[-1]['status']=='completed', 'the fork accepts new input and completes')
+            child_work = next(row for row in rpc('codex_sessions',{'action':'list'})['work'] if row['thread_id']==child)
+            assert child_work['work_id'] != work['work_id']
+            assert history() == parent_history, 'fork continuation changed the failed parent history'
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),
                 'thread_id':thread,'work_id':work['work_id'],'same_work_recovery':proof,
+                'explicit_fork_after_failure':{'thread_id':child,'work_id':child_work['work_id'],
+                    'parent_history_unchanged':True,'continued_to_completion':True},
                 'actual_android_core_and_tui':True,'synthetic_chat_response':True,
                 'real_model_requests':0,'physical_ui_observed':False},indent=2)+'\n')
             return

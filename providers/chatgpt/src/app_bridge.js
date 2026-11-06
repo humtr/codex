@@ -321,7 +321,9 @@ async function termuxCodexBridge(command) {
     return result;
   }
   if (command.op === 'dispose') {
-    if (state.lanes.size) fail('app_lanes_active');
+    // Retire only quiescent, locally cancelled observation. Rust retains any
+    // unknown remote outcome and Native effects; this does not confirm Stop.
+    if ([...state.lanes.values()].some(l=>!l.localCancellationStarted||l.pending||l.approvalPending||l.streamActive)) fail('app_lanes_active');
     for (const name of ['prepareCompletionStream','startCompletionStream']) if (state.client[name] === state.hooks[name]) state.client[name] = state.saved[name];
     if (state.wire.streamPost === state.hooks.streamPost) state.wire.streamPost = state.saved.streamPost;
     delete globalThis[slot];

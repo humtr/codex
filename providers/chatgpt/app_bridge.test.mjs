@@ -899,6 +899,14 @@ test('an asynchronous app stream startup failure settles only its owned stream',
  const observed=await bridge({op:'snapshot',owner:'owned',lane:'failure'});
  expect(lane.streamActive).toBe(false);expect(observed.error).toBe('app_stream_failed');expect(observed.dispatches).toBe(0);
  expect((await bridge({op:'stop',owner:'owned',lane:'failure'})).stopped).toBe(false);
+ // Disposing a cancelled, quiescent observer does not settle its remote request.
+ expect(lane.localCancellationStarted).toBe(true);
+ expect(lane.serverStopConfirmed).not.toBe(true);
+ expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+ expect(globalThis[slot]).toBeUndefined();
+ expect(lane.error).toBe('app_stream_failed');
+ expect(lane.serverStopConfirmed).not.toBe(true);
+ expect(f.sent).toHaveLength(0);
 }));
 
 for(const op of ['chat_read','chat_adopt'])for(const status of [401,403,404,429,500,503,null])test(op+' failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{

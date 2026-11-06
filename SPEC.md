@@ -1716,6 +1716,13 @@ observing its physical stop, including after observer restart or a rejected
 successor round. This lane-scoped receipt is distinct from a matching inference
 round's outcome; it never admits another request or settles Native effects.
 
+Passive renderer-hook disposal ends local observation, not the remote request.
+It may detach retained lanes only after each has begun local cancellation and
+has no pending submission, active stream or approval. Unconfirmed remote outcomes
+and Native effects remain in their original journals with execution fenced;
+disposal neither resolves them nor admits replay. This lets a quiescent observer
+upgrade/reconnect without making one unknown request own the whole app lifetime.
+
 Use the existing operation owner to recover partial/lost observations within
 the admitted deadline and budget. A committed Native tool result remains a
 known result even if its app receipt is uncertain: settle its original return

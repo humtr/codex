@@ -18,7 +18,10 @@ and signed publication remain open. See CURRENT for exact evidence.
 Current implementation: PRO_HANDOFF6.2 packages1/2. Request settlement has
 a working diff, behavioral mutation checks and actual Android Native/TUI recovery
 proof with synthetic Chat. The current Provider source/build gate passes;
-real-app recovery, historical-work settlement and deployment remain open.
+real-app recovery, historical-work settlement and completed deployment/client
+refresh remain open. The livea7a98c3 trial exposed a Stop round/scope mismatch
+and quiescent observer disposal boundary; follow-up source fixes preserve the
+unknown remote outcomes and need final deployment qualification.
 Automatic Native-created-work/TUI owner selection still fails; explicit upstream
 remote connection to the original owner passes. Fix the Termux connection choice
 without a second writer. The historical global process reservation has an unknown
