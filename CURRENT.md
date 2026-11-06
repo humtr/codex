@@ -498,7 +498,9 @@ lint comparison fails on one test-only format argument; the source adopts that
 exact automatic fix. No runtime behavior changes. Full current-source Native
 qualification remains required; partial successful steps do not admit release.
 The scoped workflow does not emit a frontend release asset; the release
-controller rejects focused runs as full or in-flight qualification.
+controller rejects focused runs as full or in-flight qualification. Current-source
+full run42293662363 on17dd1d4 is in progress; its integrated result remains pending.
+The affected local builder source6 and frontend assembler/checker12 cases pass.
 
 Earlier defects remain evidence, not waived gates: source613 exact-export drift
 (five generated files/archives corrected), source082 ThreadId constructor error
@@ -521,9 +523,10 @@ operating development Provider7471 and its earlier connector refresh are separat
 Completed owned fixture payloads are archived with scripts/clean_development.py;
 source, original results, Native records and removal/restore JSONL remain. Before
 this batch, seven fixtures reclaimed42 payloads/5,346,353,152 allocated bytes and
-three reclaimed18/2,291,294,208. Later cleanup records remain under this work's
-evidence root. Compiler output is about14.73GiB in total; armed executables and
-immutable current/rollback artifacts remain intact.
+three reclaimed18/2,291,294,208. Eleven additional completed fixtures archive66 matching payloads and reclaim
+8,401,412,096 allocated bytes; their removal/restore records remain under this
+work's evidence root. Compiler output is about14.73GiB in total; armed executables
+and immutable current/rollback artifacts remain intact.
 
 ## Native-transition candidate and earlier operating evidence
 

@@ -619,6 +619,14 @@ ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 �
 확대 선작업은 공통 요청 수명·TUI 연속 작업·동일 Provider의 진입점 인계다.
 현재 완료됐다고 가정하지 말고 최신 CURRENT를 확인한다.
 
+현재 선작업은 실제 Android에서 양쪽 시작 방향의 같은 작업 계속 실행, 외부
+실행 홈에서 원래 소유 홈 복귀, OpenAI 인증·선택적 Manager 없이 재개, 명시적
+effort 유지, 추론 중 steering/queue 편집/취소, 빈 최종 응답·준비 timeout 뒤
+후속 입력, 명시적 fork의 부모 기록 보존까지 통과했다. 이 시험은 통제한 앱
+응답이며 실제 모델 요청은0회다. 앞서 검증한 실제 모델·등록 Bridge 증거와
+구분해라. 운영 Core/TUI/Manager는 아직 이 후보로 교체하지 않았다.
+최종 Native 통합 검사와 서명/활성화 상태는 CURRENT의 실제 결과를 확인해라.
+
 저장소: https://github.com/humtr/codex
 작동하는 코드의 출발 후보: fix/attached-native-development-loop-20261106 최신 원격 HEAD
 실제 개발 Provider/MCP 후보의 소스: 7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8
@@ -668,12 +676,14 @@ Target 소실 후 복구·모든 모델/진입점은 아직 미확정/미검증�
 옛 터널 세션이 옛 스키마를 노출했던 문제는 기존 터널 재연결과 d3_refresh로
 검증했다. 현재 계정/터널을 재발견하고 다른 인스턴스로 바꾸지 마라.
 
-다음 최우선 P0는 Codex TUI → ChatGPT의 steering/empty_app_round /
-cdp_operation_timeout 뒤 같은 Native 작업 재입력이 reconciliation으로 막히는
-문제다. 요청 수명·정산 계약으로 함께 검증하되 같은 최초 원인이라고 단정하지
-마라. 물리 stream과 도구 인계 라운드의 done을 Native 작업 완료로 혼동하지
-말고 원래 요청/호출의 authoritative 결과로 판단해라. 현재 attached 실행
-복구의 완료 범위와 구분해 조사해라.
+다음 P0는 남은 실제 앱·전달 불확실성·모델 전환 경계와 원래 실패 작업의
+미완료 복구다. steering/empty_app_round/cdp_operation_timeout은 요청 수명·
+정산 계약으로 검증하되 같은 최초 원인이라고 단정하지 마라. CURRENT의 통과한
+같은 작업 재입력·steering·fork 증거를 재사용하고, 미확정 전달·효과를 보존한
+복구와 실제 앱 대상 소실을 추가로 검증해라. 물리 stream과 도구 인계 라운드의
+done을 Native 작업 완료로 혼동하지 말고 원래 요청/호출의 authoritative 결과로
+판단해라. Guardian의 실제 금지 범위 승인 실패와 해당 원본 작업의 재연결은
+여전히 미완료다. 검토자 호출 성공을 보호 효과로 계산하지 마라.
 보고된 app_lane_open_uncertain/opening과 timeout/new 기록, 빈 pending/round /
 user_messages/dispatches, identity만 있고 project가 없는 상태를 현재 소스와
 운영 증거에 대조해라. 당시 port45341을 상수로 만들지 마라. 15초 CDP 제한,

@@ -35,14 +35,17 @@ common Native preparation and normalized Cargo.lock; unrelated tracked, staged,
 renamed or untracked source is rejected. Three-way resolution starts from the
 prepared tree and leaves the real Git index unchanged.
 
-`termux_backend_catalog::bind` resolves startup intent after upstream loads
-configuration. Resume/fork first queries Manager's existing Native-writer discovery
-through `codex termux __task-connection-v1 UUID`; a confirmed live owner supplies
-the endpoint before configuration can prepare a sibling. Generic connection and
-picker reconnection preserve their selected endpoint and perform no preparation.
-The selected owner keeps its execution home; a different home requires an explicit
-execution-profile transition. Native retains attachment/writer admission. New or
-confirmed ownerless work uses the existing exact-catalog startup coordinator.
+Canonical resume/fork first uses Core's existing Native connection/home-handoff
+commands before loading configuration, authentication or an editable draft.
+Core and optional Manager share runtime-binding's observation of the qualified
+process/socket and kernel writer; Manager is not a prerequisite. The verified
+execution home retains the original opaque invocation arguments. Then
+`termux_backend_catalog::bind` connects the owner instead of preparing a
+configuration sibling. Generic connection and picker reconnection preserve their
+selected endpoint and perform no preparation. A later picker/alias changing
+execution homes still needs draft-preserving context rebinding; startup proof
+does not qualify it. Native retains attachment/writer admission. New or confirmed
+ownerless work uses the existing exact-catalog startup coordinator.
 `termux_chat_models::reentry_route` plans provider/profile arguments;
 the App hook retains only work-state admission, persistence and re-entry. These
 remain optional frontend code; Core has no dependency on these sources. The
@@ -51,8 +54,11 @@ source Chat picker consumes Provider-generated `chatgpt_desktop` routing, the
 Models and efforts come from the generated native catalog without fixed family
 lists or a Python lifecycle command in TUI. The new source does not accept old
 pilot profile formats. Source preparation does not replace the installed Full
-or Provider. Same-provider model/effort selection uses native session actions;
-current signed/runtime bindings and pending activation are recorded in CURRENT.
+or Provider. Explicit same-provider resume model/effort uses Native settings
+admission and effective-state readback when the observed writer ignores
+construction overrides. Unselected process defaults never become explicit
+resume intent. Current signed/runtime bindings and pending activation are
+recorded in CURRENT.
 
 The signed helper's hidden `--termux-backend-capabilities` query advertises
 `codex-termux-resolved-startup-v1` before loading config or initializing a terminal.
@@ -72,9 +78,11 @@ An old Core still eagerly supplies its socket; an old helper still receives the
 same eager behavior from a new Core. The signed helper identity/inventory is
 unchanged. No provider policy or profile TOML parsing moves into Core.
 
-On Core-owned local backends, startup login UI uses the resolved invocation
-provider's requires_openai_auth setting. The shared server's account/read reflects
-its default provider, which can differ from the resumed thread's selected route.
+Verified live-owner continuation does not require unrelated local OpenAI
+onboarding; Native retains actual model authentication and managed policy.
+Otherwise, Core-owned local startup uses the resolved invocation provider's
+requires_openai_auth setting. The shared server's account/read reflects its
+default provider, which can differ from the resumed thread's selected route.
 Remote/embedded account authority and actual request authentication are retained.
 A credential-free continuity trial (--fresh-auth-home) exercises this distinction
 without the usual owned inert native API key. The optional mutation_check also
@@ -94,10 +102,10 @@ both views from the same read. Re-serializing typed UI metadata can lose fields
 or insert defaults and incorrectly select another execution server.
 Exact catalog/invocation bytes, execution home, Core system settings and signed
 backend identify reuse; native/default siblings keep their own socket.
-For an initial resume/fork without an explicit catalog, startup first reads the
-selected native model and resolves installed Chat metadata before attachment.
-It reuses that same coordinator to connect the catalog-backed server; closing
-the initial discovery observer does not stop Core's daemon or other native jobs.
+An initial canonical resume/fork with a verified live writer keeps its existing
+endpoint and execution home. New/confirmed ownerless work uses the catalog
+coordinator; catalog selection never retargets an observed writer. Closing a
+discovery observer does not stop Core's daemon or other native jobs.
 The optional `mutation_check` native-workflow input verifies the saved-catalog
 regression with a fault in disposable source, retaining the expected failure log
 and restoring the original bytes before subsequent checks.
