@@ -625,19 +625,24 @@ fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerErro
     Ok(output)
 }
 
+fn execution_command(context: &Context, home: &Path) -> Result<Command, ManagerError> {
+    private(home, true)?;
+    let mut command = Command::new(&context.core_entrypoint);
+    command
+        .env_remove(CORE_API_ENV)
+        .env_remove(CORE_ENTRYPOINT_ENV)
+        .env_remove(CODEX_SQLITE_HOME_ENV)
+        .env(CODEX_HOME_ENV, home);
+    Ok(command)
+}
+
 pub(super) fn resume_command(
     context: &Context,
     home: &Path,
     id: &str,
     remote: Option<&Path>,
 ) -> Result<Command, ManagerError> {
-    private(home, true)?;
-    let mut command = Command::new(&context.core_entrypoint);
-    command
-        .env_remove(CORE_API_ENV)
-        .env_remove(CORE_ENTRYPOINT_ENV)
-        .env_remove(CODEX_SQLITE_HOME_ENV);
-    command.env(CODEX_HOME_ENV, home);
+    let mut command = execution_command(context, home)?;
     if let Some(socket) = remote {
         let mut address = OsString::from("unix://");
         address.push(socket);
@@ -645,6 +650,33 @@ pub(super) fn resume_command(
     }
     command.arg("resume").arg(id);
     Ok(command)
+}
+
+pub(super) fn reentry(
+    context: &Context,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    let [id, separator, invocation @ ..] = args else {
+        return Err(ERR_USAGE);
+    };
+    let id = id
+        .to_str()
+        .filter(|id| canonical_session_id(id))
+        .ok_or(ERR_USAGE)?;
+    if separator != "--" || invocation.is_empty() {
+        return Err(ERR_USAGE);
+    }
+    let tasks = discover(context, Some(id))?;
+    let [task] = tasks.as_slice() else {
+        return Err(ERR_TASK);
+    };
+    verify_owner(context, task)?;
+    // The frontend has already parsed this invocation. Preserve its opaque OS
+    // arguments; Native/Core retain command, configuration and policy admission.
+    let _ = execution_command(context, &task.server.home)?
+        .args(invocation)
+        .exec();
+    Err(ERR_LAUNCH)
 }
 fn verify_owner(context: &Context, task: &Task) -> Result<(), ManagerError> {
     let mut rpc = task.server.connect(Instant::now() + SCAN_TIME)?;

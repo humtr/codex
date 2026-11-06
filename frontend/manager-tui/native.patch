@@ -2387,7 +2387,7 @@ index 66f407a..38c169c 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 1b0b08c..094c345 100644
+index 1b0b08c..9995c8a 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,13 @@ mod experimental_features;
@@ -2424,7 +2424,7 @@ index 1b0b08c..094c345 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1148,18 +1158,34 @@ pub async fn run_main(
+@@ -1148,18 +1158,36 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -2432,6 +2432,8 @@ index 1b0b08c..094c345 100644
 +    if let Some(info) = termux_backend_catalog::capabilities(cli.termux_backend_capabilities) {
 +        return Ok(info);
 +    }
++    #[cfg(unix)]
++    termux_backend_catalog::reenter_owner(&cli, explicit_remote_endpoint.as_ref()).await?;
      system_motion::initialize().await;
      startup_recovery::scope(async move {
          // Startup retains a large future for the whole session. Keep it off callers' stacks,
@@ -2461,7 +2463,7 @@ index 1b0b08c..094c345 100644
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1255,8 +1281,19 @@ async fn run_ratatui_app(
+@@ -1255,8 +1283,19 @@ async fn run_ratatui_app(
      session_log::maybe_init(&initial_config);
  
      let startup_app_server = startup_draft
@@ -2483,7 +2485,7 @@ index 1b0b08c..094c345 100644
              start_app_server(
                  &mut app_server_target,
                  arg0_paths.clone(),
-@@ -1270,8 +1307,9 @@ async fn run_ratatui_app(
+@@ -1270,8 +1309,9 @@ async fn run_ratatui_app(
                  &mut state_db,
                  environment_manager.clone(),
                  embedded_network_policy.clone(),
@@ -2495,7 +2497,7 @@ index 1b0b08c..094c345 100644
          .await;
      tui.terminal_size_tags =
          launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
-@@ -1352,6 +1390,13 @@ async fn run_ratatui_app(
+@@ -1352,6 +1392,13 @@ async fn run_ratatui_app(
      let requires_openai_auth = startup_account
          .as_ref()
          .is_some_and(|account| account.requires_openai_auth);
@@ -2509,7 +2511,7 @@ index 1b0b08c..094c345 100644
      let should_show_onboarding = should_show_onboarding(
          login_status,
          requires_openai_auth,
-@@ -1833,50 +1878,135 @@ async fn run_ratatui_app(
+@@ -1833,50 +1880,135 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);

@@ -397,6 +397,9 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         }
         return task::connection(&capture_context()?, id).map(Some);
     }
+    if is_exact(args.first(), "__task-reentry-v1") {
+        return task::reentry(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__profile-snapshot-v1") {
         if args.len() != 1 {
             return Err(ERR_USAGE);

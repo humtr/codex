@@ -55,6 +55,65 @@ struct OwnerConnection {
     socket: AbsolutePathBuf,
 }
 
+/// Resolve a known thread's execution identity before config/auth/draft startup.
+pub(crate) async fn reenter_owner(
+    cli: &crate::Cli,
+    endpoint: Option<&codex_app_server_client::RemoteAppServerEndpoint>,
+) -> std::io::Result<()> {
+    if !crate::termux_permissions::enabled()
+        || std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() != Ok("resolved-v1")
+    {
+        return Ok(());
+    }
+    let Some(codex_app_server_client::RemoteAppServerEndpoint::UnixSocket { socket_path }) =
+        endpoint
+    else {
+        return Ok(());
+    };
+    let Some(thread) = cli
+        .resume_session_id
+        .as_deref()
+        .or(cli.fork_session_id.as_deref())
+        .and_then(|id| codex_protocol::ThreadId::from_string(id).ok())
+    else {
+        return Ok(());
+    };
+    let core = std::env::var_os("CODEX_PROFILE_CORE")
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| std::io::Error::other("qualified Core is unavailable"))?;
+    let owner = read_owner(&core, thread)
+        .await
+        .map_err(|error| std::io::Error::other(format!("Native owner lookup failed: {error:#}")))?;
+    if let Some(owner) = owner {
+        let current = codex_utils_home_dir::find_codex_home()?;
+        if owner.execution_home.as_path() != current.as_path() {
+            use std::os::unix::process::CommandExt;
+            let invocation: Vec<_> = std::env::args_os().skip(1).collect();
+            return Err(owner_reentry_command(&core, thread, socket_path, &invocation)?.exec());
+        }
+    }
+    Ok(())
+}
+
+fn owner_reentry_command(
+    core: &Path,
+    thread: codex_protocol::ThreadId,
+    socket: &Path,
+    invocation: &[OsString],
+) -> std::io::Result<std::process::Command> {
+    let mut injected = OsString::from("unix://");
+    injected.push(socket);
+    if invocation.len() < 3 || invocation[0] != "--remote" || invocation[1] != injected {
+        return Err(std::io::Error::other(
+            "qualified startup invocation does not match its Native endpoint",
+        ));
+    }
+    let mut command = std::process::Command::new(core);
+    command.args(["termux", "__task-reentry-v1", &thread.to_string(), "--"]);
+    command.args(&invocation[2..]);
+    Ok(command)
+}
+
 /// Resolve startup intent before connecting; a live writer precedes configuration.
 pub(crate) async fn bind(
     target: &mut crate::AppServerTarget,
@@ -122,6 +181,23 @@ async fn owner_connection(
     home: &Path,
     thread: codex_protocol::ThreadId,
 ) -> color_eyre::Result<Option<AbsolutePathBuf>> {
+    match read_owner(core, thread).await? {
+        Some(owner) => {
+            if owner.execution_home != home {
+                color_eyre::eyre::bail!(
+                    "Native task belongs to another execution profile; startup context rebinding is required before attachment"
+                );
+            }
+            Ok(Some(owner.socket))
+        }
+        None => Ok(None),
+    }
+}
+
+async fn read_owner(
+    core: &Path,
+    thread: codex_protocol::ThreadId,
+) -> color_eyre::Result<Option<OwnerConnection>> {
     let bytes = crate::profile_transport::call_manager(
         core,
         &["__task-connection-v1".to_owned(), thread.to_string()],
@@ -133,17 +209,7 @@ async fn owner_connection(
     if reply.schema != "codex-manager-task-connection-v1" {
         color_eyre::eyre::bail!("unsupported Native connection metadata");
     }
-    match reply.connection {
-        Some(owner) => {
-            if owner.execution_home != home {
-                color_eyre::eyre::bail!(
-                    "Native task belongs to another execution profile; select its owner profile before resuming"
-                );
-            }
-            Ok(Some(owner.socket))
-        }
-        None => Ok(None),
-    }
+    Ok(reply.connection)
 }
 
 fn invocation_args(
@@ -227,6 +293,46 @@ fn decode_socket(bytes: &[u8]) -> color_eyre::Result<AbsolutePathBuf> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn termux_backend_catalog_owner_reentry_preserves_opaque_user_arguments()
+    -> color_eyre::Result<()> {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let root = tempfile::tempdir()?;
+        let core = root.path().join("core");
+        std::fs::write(&core, "#!/bin/sh\nprintf '%s\\0' \"$@\"\n")?;
+        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;
+        let thread: codex_protocol::ThreadId =
+            codex_protocol::ThreadId::from_string("12345678-1234-1234-1234-123456789abc")?;
+        let mut invocation: Vec<OsString> = [
+            "--remote",
+            "unix:///owned/socket",
+            "--profile",
+            "chosen",
+            "-c",
+            "value='--remote 한 글'",
+            "resume",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        invocation.push(thread.to_string().into());
+        invocation.push(OsString::from_vec(b"opaque-\xff".to_vec()));
+        let output = owner_reentry_command(&core, thread, Path::new("/owned/socket"), &invocation)?
+            .output()?;
+        assert!(output.status.success());
+        let mut expected = format!("termux\0__task-reentry-v1\0{thread}\0--\0").into_bytes();
+        for argument in &invocation[2..] {
+            expected.extend_from_slice(argument.as_bytes());
+            expected.push(0);
+        }
+        assert_eq!(output.stdout, expected);
+        assert!(
+            owner_reentry_command(&core, thread, Path::new("/another/socket"), &invocation)
+                .is_err()
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn termux_backend_catalog_owner_query_preserves_identity_and_rejects_unknown_ownership()

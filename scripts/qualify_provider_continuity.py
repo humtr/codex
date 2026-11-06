@@ -10,6 +10,7 @@ from pathlib import Path
 import pty
 import select
 import signal
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -150,12 +151,35 @@ def probe(args):
             assert rpc('codex_status',{'work_id':bound['work_id']})['phase']=='completed'
             # Keep automatic title inference separate from task-submission counts.
             native_rpc(home,'thread/name/set',{'threadId':thread,'name':'Owned Native continuity proof'})
+        tui_env = env
+        default_before = None
+        owner_settings_before = None
+        explicit_args = []
+        if created_before_tui:
+            # The real Bridge and invoking TUI can have different execution homes.
+            # Copy only this fixture's generated configuration and inert auth.
+            created = subprocess.run([str(prefix/'bin/codex'),'termux','profile','create','observer'],
+                env=env,cwd=root/'w',capture_output=True,timeout=30)
+            assert created.returncode == 0, created.stderr
+            invocation_home = home/'.local/share/codex/manager/profiles/observer/home'
+            assert json.loads((home/'.codex/auth.json').read_text()) == {
+                'OPENAI_API_KEY':'owned-inert-fixture','auth_mode':'apikey'}
+            for name in ['config.toml','auth.json','models_cache.json','native-models.json']:
+                shutil.copy2(home/'.codex'/name,invocation_home/name)
+            tui_env = dict(env,CODEX_HOME=str(invocation_home))
+            selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
+                env=env,cwd=root/'w',capture_output=True,timeout=15)
+            assert selected.returncode == 0
+            default_before = selected.stdout
+            owner_settings_before = native_rpc(home,'thread/resume',{'threadId':thread})
+            requested_effort = 'medium' if owner_settings_before.get('reasoningEffort') == 'high' else 'high'
+            explicit_args = ['-c',f'model_reasoning_effort="{requested_effort}"']
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 80 if display else 44, 160, 0, 0))
         screen_args = [] if display else ['--no-alt-screen']
         resume_args = ['resume',created_before_tui['thread_id']] if created_before_tui else []
         terminal = subprocess.Popen([str(prefix / 'bin/codex'), *screen_args,
-            '--profile','chatgpt','-c','tui.animations=false',*resume_args], env=env, cwd=root / 'w',
+            '--profile','chatgpt','-c','tui.animations=false',*explicit_args,*resume_args], env=tui_env, cwd=root / 'w',
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         wait(lambda: 'NATIVE_BEFORE_TUI_BASELINE' in screen if created_before_tui else 'GPT-6' in screen, 'initial TUI')
@@ -175,6 +199,10 @@ def probe(args):
         thread = work['thread_id']
         if created_before_tui:
             assert work['work_id']==created_before_tui['work_id'] and thread==created_before_tui['thread_id']
+            owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
+            assert owner_settings_after.get('reasoningEffort') == requested_effort
+            for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
+                assert owner_settings_after.get(key) == owner_settings_before.get(key), key
             wait(lambda:'NATIVE_BEFORE_TUI_BASELINE' in screen,'ordinary TUI resume retains the Native-created baseline')
 
         def history():
@@ -390,7 +418,7 @@ def probe(args):
                     master,slave=pty.openpty()
                     fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',80 if display else 44,160,0,0))
                     terminal=subprocess.Popen([str(prefix/'bin/codex'),*screen_args,
-                        '--profile','chatgpt','-c','tui.animations=false','resume',thread],env=env,cwd=root/'w',
+                        '--profile','chatgpt','-c','tui.animations=false',*explicit_args,'resume',thread],env=tui_env,cwd=root/'w',
                         stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
                     os.close(slave)
                     wait(lambda:f'BRIDGE_ORIGINAL_INPUT_{index}' in '\n'.join(terminal_screen_lines(display, wcwidth)) if display else f'BRIDGE_ORIGINAL_INPUT_{index}' in screen,
@@ -484,9 +512,21 @@ def probe(args):
             assert after_cli[:-1]==bridge_prefix and len(after_cli)==len(bridge_prefix)+1
             assert rpc('codex_status',{'work_id':work['work_id']})['selection']['inference']=='submitted'
             assert source_reads()==before_reads
+            if created_before_tui:
+                selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
+                    env=env,cwd=root/'w',capture_output=True,timeout=15)
+                assert selected.returncode == 0 and selected.stdout == default_before
+                owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
+                assert owner_settings_after.get('reasoningEffort') == requested_effort
+                for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
+                    assert owner_settings_after.get(key) == owner_settings_before.get(key), key
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
                 'bridge_admissions':admissions,'provider_to_direct_same_work':not bool(created_before_tui),'native_created_before_ordinary_tui_resume':bool(created_before_tui),
+                'native_created_resume_from_another_home':bool(created_before_tui),
+                'saved_profile_default_unchanged':True,
+                'explicit_effort_preserved_across_home_reentry':bool(created_before_tui),
+                'native_model_and_permissions_unchanged':bool(created_before_tui),
                 'context_before_effect':True,'concurrent_identical_join_once':True,'changed_input_rejected':True,
                 'busy_work_rejected':True,'original_native_prefix_unchanged':True,'exact_effect_and_finish_retry':True,
                 'service_restart_same_work':True,'saved_chat_reads':len(source_reads()),

@@ -282,6 +282,10 @@ requires_openai_auth = false
             rpc = Ws(record / "s")
             started = rpc.call("thread/start", {"cwd": str(root)})
             thread = started["thread"]["id"]
+            empty_owner = run("termux", "__task-connection-v1", thread)
+            assert empty_owner.returncode == 0, empty_owner.stderr.decode()
+            assert Path(json.loads(empty_owner.stdout)["connection"]["socket"]) == (record / "s").resolve()
+            print("PASS live writer connection is discoverable before the first turn")
             turn = rpc.call("turn/start", {"threadId": thread, "input": [{"type": "text", "text": "Owned synthetic cancellable task.", "text_elements": []}]})
             assert model_started.wait(10), "loopback model not reached"
             rpc.call("thread/goal/set", {"threadId": thread, "objective": "Owned qualification goal.", "status": "active"})
@@ -300,6 +304,12 @@ requires_openai_auth = false
             free = run("termux", "__task-connection-v1", "12345678-1234-1234-1234-123456789abc")
             assert free.returncode == 0 and json.loads(free.stdout)["connection"] is None
             print("PASS qualified connection query selects the live Native writer, not the caller profile")
+            expected_profile = run("termux", "profile", "current", account=a)
+            reentered = run("termux", "__task-reentry-v1", thread, "--", "termux", "profile", "current")
+            assert reentered.returncode == expected_profile.returncode == 0
+            assert reentered.stdout == expected_profile.stdout
+            assert "owner=account-a" in wait_owner(thread, "state=active")
+            print("PASS owner-context reentry preserves the running writer and selects its actual execution home")
             if observe_owner is not None:
                 observe_owner(prefix / "bin/codex", env, root, thread, "account-a")
             print("PASS native running-disconnect preserves active writer and discovers account-a")

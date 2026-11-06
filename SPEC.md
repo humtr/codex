@@ -753,9 +753,22 @@ precedence, installed-route validation and model admission remain unchanged.
   for that selected task; unfiltered inventory keeps its complete observation scope.
   The frontend connects that owner without applying catalog startup selection to
   it. New/ownerless work retains the resolved configuration coordinator; a generic
-  connection operation never replaces an already selected backend. The current
-  execution home must match before attachment: a different owner requires the
-  existing explicit execution-profile transition, not a silent account change.
+  connection operation never replaces an already selected backend. The owner's
+  execution home governs attachment. If it differs from the invocation context,
+  reuse the qualified execution-profile/context handoff while preserving the
+  selected thread, explicit invocation intent and unsent input. Do not change a
+  global default, substitute credentials or connect with another home's local
+  configuration. An unqualified context rebind remains an explicit incomplete
+  boundary, not a permanent requirement that the user manually choose profiles.
+  For a canonical resume/fork identity known before UI startup, the private
+  `codex termux __task-reentry-v1 THREAD_UUID -- UPSTREAM_ARGV...` reuses Manager's
+  owner verification and Core execution-context builder. It reexecutes the same
+  qualified Core in that owner's home with the original opaque upstream arguments,
+  before any editable startup draft. It starts no separate writer and changes no
+  default, permission or inference selection. The frontend removes only Core's
+  verified injected rendezvous argument, not user arguments. Picker/alias flows
+  must also preserve already collected drafts when their later identity requires
+  a context rebind; canonical startup proof alone does not qualify those flows.
   Native still admits attachment/writes and detects races after this observation.
   This is an optional integrated-frontend contract; Core's ordinary independent
   runtime launch does not acquire a Manager dependency.

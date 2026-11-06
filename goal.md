@@ -17,16 +17,18 @@ Steer / explicit-fork proofs passed. Uncertain other remote outcomes stay fenced
 A bounded actual submitted GPT-6 Instant request completed with one app dispatch,
 its model confirmed in the correlated source record, and zero unsettled effects.
 
-Owner-selection candidate29c50fc is committed/pushed. Manager's existing Native
-writer discovery supplies the owner connection before startup preparation;
-generic connections no longer retarget it. Manager and actual Native task proofs
-pass. Native frontend build/behavioral tests and both TUI entrance-direction
-proofs remain pending; the operating TUI is unchanged. The first hosted build
-stopped on a dependency mirror connection. Its one retry reached the schema gate
-and exposed missing generated exports in the existing Native compatibility patch;
-the actual generator output repairs those exports without runtime-code changes.
-Keep the exact gate and qualify the new frontend before operating activation.
-No new writer/executor/history.
+Owner selection reuses Manager's verified Native writer discovery before startup
+preparation; generic connections no longer retarget it. Actual Native discovery,
+reentry and unrelated-server isolation proofs pass, including disposable faults.
+Canonical resume/fork now reuses the owner's execution home before config/auth/
+draft startup and preserves original arguments. A raw upstream remote experiment
+continued work but lost explicit effort selection, so socket-only composition is
+insufficient. Native frontend build/tests and both entrance-direction proofs are
+pending; the operating TUI is unchanged. Generated-schema equality now passes;
+the following CLI build exposed an incorrect ThreadId API use, fixed at source.
+Qualify the corrected frontend, including different invocation/owner homes,
+explicit intent and same-work CLI follow-up. Later picker/alias context rebind is
+still incomplete. No new writer/executor/history, default or credential changes.
 Verify both entrance directions and actual app/model recovery. Preserve input,
 policy, original results and all profiles/mobile desktop state. An actual Guardian
 scope-denial case failed and remains separate; no default-policy recommendation

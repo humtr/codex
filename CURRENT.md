@@ -400,8 +400,14 @@ writer discovery through the qualified Core; the read-only task-connection reply
 is revalidated before return. It supplies only execution home/socket, not a new
 ownership registry or execution capability. The frontend connects that owner and
 does not retarget it through catalog preparation. New/confirmed ownerless work
-uses the existing coordinator; different execution homes require an explicit
-profile transition. The existing Manager IPC function moves from profile UI to
+uses the existing coordinator. For a canonical resume/fork identity, startup now
+reuses the verified owner execution home before loading configuration, auth or
+an editable draft. Manager revalidates the owner and reexecutes the qualified
+Core with the original opaque user arguments. Its execution-context builder is
+shared with existing reconnect; no default/profile/account selection is changed.
+A later picker/alias selecting another home still requires a draft-preserving
+context rebind and remains unqualified; startup proof cannot close that boundary.
+The existing Manager IPC function moves from profile UI to
 profile transport, and profile/quota/startup callers reuse it without a forwarding
 wrapper. Native admission, tools, approvals and history are unchanged.
 
@@ -425,7 +431,10 @@ explicit takeover. An initial nested test root made Core's socket111 bytes
 (limit107), failing before binding. The unchanged product test passes with its
 normal short TMPDIR fixture (99 bytes); original diagnostics remain. No product
 path guard, timeout or assertion was weakened. No candidate Core/Manager/frontend
-has been installed into the operating generation.
+has been installed into the operating generation. Owner-context reentry passes
+the same actual Native gate with its running writer unchanged. A disposable
+wrong-home substitution fails its context assertion; the source is restored.
+Discovery before the first turn is also covered at the actual Native boundary.
 
 Repository validation reuses unchanged Core238-pass/1-ignored evidence; Manager
 52 library,67 window-path and1 window-launch cases, release-builder46 and runtime-
@@ -441,9 +450,30 @@ cached experimental route-parameter exports. Five files are now taken from that
 actual generator output, including both precomputed archives. Decoded comparison
 confirms the declared capability/route metadata; no Rust/runtime behavior was
 changed. The complete compatibility patch applies to pristine6ff1e1c, and six
-source-preparation tests pass. The strict schema gate remains in place and must
-pass before frontend/device qualification. This repair does not admit or deploy
-the separate Native-transition candidate into the signed operating runtime.
+source-preparation tests pass. Workflow42215493252 then passes exact generated
+schema equality, but fails CLI compilation at the new owner lookup: upstream
+ThreadId has no FromStr implementation. The code and tests now use its actual
+from_string constructor; this avoidable implementation error is fixed at source,
+not waived. Frontend build, its tests and both device entrance-direction proofs
+remain pending on the corrected source. This repair does not admit or deploy the
+separate Native-transition candidate into the signed operating runtime.
+
+An actual configuration boundary also remains: the completed live model work's
+record confirms a Native execution home different from this Codex invocation's
+CODEX_HOME. This is not inferred from skill paths/model labels and does not show
+an app-login failure; the actual app model request succeeded. Preserve both
+homes/defaults. A disposable actual raw upstream --remote experiment completes
+foreign-home Bridge/TUI/reconnect continuation, but loses an explicit CLI effort
+selection: requested high, Native confirms none. Policy/reviewer/model remain
+unchanged. The experiment result and original Native records remain at
+request-continuity-dFZxEe/foreign-owner-experiment.log and ct-necsqgb8; this is a
+failed intent-preservation acceptance, not a qualified replacement. The candidate
+therefore retains Core's local execution-context semantics instead of treating a
+server-owned remote session as equivalent. The existing Native-created continuity
+qualification now runs from another registered fixture home and requires the
+explicit effort, model/policy, saved default, original history and CLI follow-up
+through the same work to survive reconnect. No real model inference is used in
+that controlled regression. Actual app/model success is separate evidence above.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
