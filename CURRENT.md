@@ -7,12 +7,21 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Pro handoff entry
 
-The user now transfers the unfinished cleanup and architecture work to Pro.
-Start with [PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
-The 8d095cd Native catalog change is an unqualified draft, not a release input.
-The original local work and superseded mobile attempt are preserved on the
-separate snapshot/archive branches listed there. No runtime change or new test
-run is part of this handoff.
+The user asks Codex to prepare a coherent source starting point and Pro to own
+independent redesign, implementation and qualification. Start with
+[PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
+The suggested preparation branch is prep/pro-baseline-20261106. Pro may reselect
+its baseline and reject/rework this preparation when a simpler design is better.
+The incomplete8d095cd model catalog draft is preserved on
+draft/thread-model-catalog-20261106 and reverted from the preparation baseline.
+The Native patch/SPEC match c340237 there; this does not imply complete acceptance.
+Original local work and both mobile source alternatives remain on their named
+snapshot/archive refs. A three-way preview found26/49 paths with no additional delta;
+23 remaining paths include account/lifecycle changes and8 direct conflicts.
+They were not mechanically merged into production code. PRO_HANDOFF lists them.
+No production runtime replacement, model request or new Native research work is
+part of this preparation. Only the affected documentation/source-boundary checks
+are applicable here; existing qualification evidence retains its recorded scope.
 
 ## Current architecture review and operating boundary
 
@@ -154,6 +163,14 @@ The existing D3 refresh succeeded against this saved desktop: all17 complete
 input schemas matched, app caches were invalidated and the live MCP read passed.
 A subsequent sequential Provider host observation returned ready=true. Direct
 relay refresh and Provider observation must not compete for its single CDP peer.
+Ownership cleanup subsequently confirmed normal Native/host Stop for three old
+Codex works with no remaining jobs. Both Native/Provider active effect claims and
+unsettled external receipts were0 at observation. The never-started old Pro
+allocation remains reconciliation_required: its owner exited, no native turn or
+pending/receipt/driver exists, and Native thread/read rejects it as not loaded.
+Provider stop fails in binding/prepare_thread before its fence/retirement step;
+no raw journal edit was used. This is a lifecycle contract/diagnostic gap, not a
+Linux app login failure. It is not proof that the current Codex writer was released.
 New Native create/start/attach/execute/finish through that refreshed client and
 actual-model roundtrips remain unperformed in this recovered operating scope.
 The private noVNC UI now starts its sidebar on the right through its existing
