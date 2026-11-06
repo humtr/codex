@@ -204,11 +204,13 @@ project_read. No per-command incident timing establishes project_read as the
 first failure. The originally reported compatible Provider differed from the Native-transition
 candidate; the reported port45341 is an observation, not fixed configuration.
 The current attached-loop artifact is source-bound separately above.
-For this reverse-flow failure, diagnosis, regression reproduction, source fix,
-real TUI continuation/model completion and deployment remain pending. [PRO_HANDOFF.md](PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구)
-defines the prioritized investigation and six required acceptance cases;
-SPEC4.6 defines ownership/recovery behavior. The attached-loop repair above does
-not qualify these reverse-flow recovery cases or clear their uncertain old work.
+The later request-settlement implementation, controlled actual TUI recovery and
+normal Stop of the original blocking/steering works are qualified below. Those
+results do not identify the historical first CDP command or qualify real app
+loss/uncertain-delivery recovery. [PRO_HANDOFF.md](PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구)
+retains the six required cases and their outstanding boundaries; SPEC4.6 owns
+recovery behavior. Completed source/device cases must not be restarted as though
+no repair existed, or expanded into a claim that all old work is reconciled.
 
 ### Steering and empty-round evidence; reorganized next work
 
@@ -234,8 +236,9 @@ fragment. It also sets a new round before submit and can report a later identity
 mismatch after losing the submit error. That source rejects
 reconciliation_required before observe_native in Operator synchronize_native. These are relevant lifetime and
 recovery boundaries to reproduce, not proof that every incident shares one cause.
-The user's fork failure has no directly correlated error yet. No recovery,
-runtime replacement or new model request was performed in this planning batch.
+The user's original fork failure has no directly correlated error. The later
+controlled same-work/fork proof and deployed request-settlement repair are
+recorded below; they do not retrospectively establish that missing provenance.
 
 SPEC4.6 now distinguishes observation/stream end, tool handoff, app inference
 completion and Native settlement. PRO_HANDOFF6.2 defines six implementation
@@ -387,18 +390,16 @@ See real-model-result.json in the current activation directory. This establishes
 a fresh real app/model path after retirement, not real steering/fault recovery,
 universal model coverage or physical TUI observation.
 
-**Remaining entrance boundary.** Ordinary Native-created-work->TUI resume still
-chooses a different configuration-bound backend and becomes read-only even though
-Native execution/history continue. Keep this failing product acceptance. A
-separate explicit upstream --remote connection to the verified original owner
-passes two Bridge turns, live viewport progress/final, exact retries and Provider
-restart with unchanged history and zero primary submissions; thread
-01a1b006-9f29-7e80-bad6-af60800a864f. It proves the supported connection interface,
-not automatic owner selection or TUI follow-up. Reuse existing live-owner
-discovery and Native authority to repair that connection choice, without another
-writer, executor, transcript or TUI recovery state machine. Real-model fault
-recovery, original project-timeout provenance, all entrance transitions and signed
-publication remain unfinished.
+**Operating versus candidate entrance.** The original Native-created-work->TUI
+resume selected a configuration sibling and became read-only while Native
+execution/history continued. An explicit upstream --remote connection to the
+verified owner first demonstrated the supported connection interface (thread
+01a1b006-9f29-7e80-bad6-af60800a864f), with two Bridge turns, live viewport results,
+exact retries, Provider restart and zero primary submissions. The candidate below
+now qualifies automatic canonical owner selection and full TUI follow-up in both
+entrance directions. The operating Core/TUI have not been replaced. Later picker /
+alias context rebinding, real-model fault recovery, historical project-timeout
+provenance, broader transitions and signed publication remain unfinished.
 
 ### Same-Provider TUI owner selection: qualified development candidate
 
@@ -498,9 +499,17 @@ lint comparison fails on one test-only format argument; the source adopts that
 exact automatic fix. No runtime behavior changes. Full current-source Native
 qualification remains required; partial successful steps do not admit release.
 The scoped workflow does not emit a frontend release asset; the release
-controller rejects focused runs as full or in-flight qualification. Current-source
-full run42293662363 on17dd1d4 is in progress; its integrated result remains pending.
-The affected local builder source6 and frontend assembler/checker12 cases pass.
+controller rejects focused runs as full or in-flight qualification. Run42293662363
+on17dd1d4 passes actual CLI compilation, version/identity and immutable artifact
+upload. Its downloaded executable has the exact same fd8eb43764a4... SHA256 as
+the actual Android-qualified frontend above, not merely matching source claims.
+It is intentionally cancelled after retaining that executable, before repeating
+accepted TUI/fault/library batches. Native API42297849284 and frontend
+compatibility/lint42298057002 run on the same prepared inputs; the latter reuses
+that newly identified executable. Their results remain pending; this is not a
+successful full/public qualification. The affected local builder source6 and
+frontend assembler/checker12 cases pass. The committed handoff has the same
+complete Native recipe as17dd1d4, checked by the existing verify_recipe consumer.
 
 Earlier defects remain evidence, not waived gates: source613 exact-export drift
 (five generated files/archives corrected), source082 ThreadId constructor error

@@ -103,7 +103,7 @@ Native claim과 관련 시험 등이다. 나머지23개에는 아래 계정/앱 
 
 | 종류 | 실제 확인된 값 / 한계 |
 | --- | --- |
-| 이 작업을 수행한 Codex 세션 | `01a1a5d8-9652-7220-a958-be6349e07419` — 실행 환경의 THREAD_ID/SESSION_ID에서 확인 |
+| 이 작업을 수행한 Codex 세션 | `01a1a5d8-9652-7220-a958-be6349e07419` — 실행 환경의 CODEX_THREAD_ID/CODEX_SESSION_ID에서 확인 |
 | 실제 Full Access 개발 시험 | work `86264e68556ad46253e83972d74dd3607c0928e80388ba04`, thread `01a1af11-681f-7453-afa6-2bfb361cff34` |
 | 일반 Auto Review·직접 Bridge 계속 작업 | work `ac4f1b1fbb10317d089859b8f2a7fc9b824a8f26484aae0e`, thread `01a1af15-4b6c-74b2-aee4-78c8b7639fa0` |
 | 실제 GPT-6 Guardian 시험 | work `26e22c84347e258c4071309b4488b0c68d5b371792210bc0`, thread `01a1af1d-9644-7bd1-b066-f9404f55310d`, reviewer child `01a1af1d-9663-7653-a68a-f2861b141f64` |
