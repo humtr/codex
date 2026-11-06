@@ -1653,6 +1653,35 @@ Cold start, process restart, auth renewal and connector refresh use the same
 lifecycle path; no parallel watchdog, account repair script or hidden retry queue
 is added. App failure must not shut down unrelated Native/MCP capabilities.
 
+**App failure and subsequent input.** CDP connectivity, target/session presence,
+renderer scope, authentication, project verification and model-input readiness
+are separate observations. A ready host or a successful catalog read does not
+prove that a later input or approval-review request can reach its intended target.
+CDP owns command/response correlation and connection/target lifetime; Provider
+owns external operation delivery and recovery. A CDP timeout or lost connection
+does not prove that an app operation was cancelled or that it did not execute.
+
+Recovery distinguishes failed preparation before dispatch, uncertain Lane open,
+an opened Lane without model input, uncertain model submission, and lost stream
+or final-result observation. Retain the original operation/Lane/round identity
+and recover its outcome through the authoritative app/Native observations. Empty
+local counters alone do not establish non-delivery across the app boundary.
+Never automatically resubmit a possibly delivered model input or Native effect.
+Confirmed non-delivery may resume preparation; uncertain delivery remains fenced
+until its actual outcome is reconciled. Re-observation that establishes safe
+continuation must update the owning state and unblock that same work, rather
+than leave a permanent generic reconciliation failure. An unresolved outcome
+reports the specific missing fact and available recovery action.
+
+The existing Native input barrier consumes that recovered state. Preserve the
+thread/work, history, selected route/model, approvals, writer and original input
+identity. TUI consumes a draft only according to confirmed Native admission;
+its retained text is not proof that the server never accepted that input. Decide
+whether an input can be resubmitted from that admission contract and original
+delivery evidence, not from the error label. TUI has no parallel recovery state
+machine and Core has no Provider repair executor. Approval-review target failure
+does not grant approval or prove general Native execution failure.
+
 One source adapter owns the qualified app interface and its supported app build;
 model discovery, selection, input/results and maintenance reuse that binding.
 An unavailable renderer scope is an adapter/readiness failure, not a reason to
@@ -1706,6 +1735,7 @@ inference where required, Native effects, durable results and the receiving clie
 | Standalone Chat → first integrated work → Chat/Codex continuation | Create/select one Native thread, import available source context once as labelled source data, retain its binding | No fabricated past Native execution; reentry reuses the work and independently observes the source where the host permits |
 | Native automatic/manual compaction while using ChatGPT | Native commits the replacement; Provider delivers it to a renewed/rebound managed Chat at a settled boundary | Actual source context changes and following inference; an ACK that merely resets a local cursor does not prove remote-window renewal |
 | Cold start, account change, reconnect or component update | Reuse configuration/lifecycle authorities and original admissions; retain active jobs and uncertain returns | Actual supervised owner, authenticated route, refreshed connector schemas and new Native roundtrip; failures retain input and do not replay effects |
+| Codex ChatGPT input fails at app/CDP preparation or observation, then user continues | Retain the same Native work and draft/admission identity; Provider re-observes the original Lane/round and settles recoverable state | Pre-dispatch timeout, lost Lane-open reply, lost submit ACK, same-work reinput, missing Composer versus missing Target, and TUI/Native/MCP observations; no duplicate submissions/effects, no approval bypass, specific block only while necessary |
 
 `/fork` remains the user's explicit way to branch work. It is not automatic
 recovery for a routine provider change. If a source cannot supply required context

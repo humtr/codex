@@ -14,7 +14,8 @@ The suggested preparation branch is prep/pro-baseline-20261106. Pro may reselect
 its baseline and reject/rework this preparation when a simpler design is better.
 The incomplete8d095cd model catalog draft is preserved on
 draft/thread-model-catalog-20261106 and reverted from the preparation baseline.
-The Native patch/SPEC match c340237 there; this does not imply complete acceptance.
+The Native patch matches c340237 there; later documentation clarifies the P0
+app-failure recovery contract. Neither implies complete acceptance.
 Original local work and both mobile source alternatives remain on their named
 snapshot/archive refs. A three-way preview found26/49 paths with no additional delta;
 23 remaining paths include account/lifecycle changes and8 direct conflicts.
@@ -22,6 +23,30 @@ They were not mechanically merged into production code. PRO_HANDOFF lists them.
 No production runtime replacement, model request or new Native research work is
 part of this preparation. Only the affected documentation/source-boundary checks
 are applicable here; existing qualification evidence retains its recorded scope.
+
+### P0 reported app timeout and same-work input recovery
+
+The user supplied a2026-11-06 operating-build incident: Codex ChatGPT inference
+failed with cdp_operation_timeout, then same-work input synchronization returned
+operator_reconciliation_required with the draft retained. Reported lane records
+include app_lane_open_uncertain/opening and a later new lane with identity but no
+project binding, pending entries, round, user messages or dispatches. These are
+reported snapshots, not independent proof of non-delivery or one shared cause.
+Native create/start/attach/execute and read-only exit0, host present/ready and
+project/catalog reads reportedly worked. A build was not executed after automatic
+approval review failed with app_target_unavailable; that review path is distinct
+until correlated evidence establishes otherwise.
+
+The preparation source confirms a15-second CDP request deadline,
+Runtime.evaluate awaitPromise=true and configured-project resolution via
+project_read. No per-command incident timing establishes project_read as the
+first failure. The operating compatible Provider differs from this candidate;
+the reported loopback port45341 is an observation, not fixed configuration.
+Diagnosis, regression reproduction, source fix, real TUI continuation/model
+completion and deployment are all pending. [PRO_HANDOFF.md](PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구)
+defines the prioritized investigation and six required acceptance cases;
+SPEC4.6 defines ownership/recovery behavior. This documentation preparation made
+no runtime/code change and started no model request or new Native work.
 
 ## Current architecture review and operating boundary
 
