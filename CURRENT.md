@@ -438,14 +438,15 @@ See owner-filter-native-actual/fault logs and JSON under the evidence root.
 Manager's52 library tests, strict Clippy and release build pass. A disposable
 unknown-writer-as-free fault fails the new connection-query regression and was
 restored. The frontend assembler's11 Python cases and affected qualification-script
-checks pass. Workflow42224074734 at0820513 passes generated-schema equality
-and actual CLI compilation. Core provider1/compaction113/Guardian148 and client33
-cases pass; config passes14/15. The required-catalog case incorrectly expects
-model_catalog_json in the OS missing-file error text; the actual loader returns
-NotFound directly. Only the stronger existing6018ad9 test is selected: require
-NotFound, then create a valid managed catalog and verify its model is loaded.
-No Native runtime behavior is changed or unrelated transition code imported.
-Native API/TUI gates and both actual entrance-direction tests remain pending.
+checks pass. Hosted sourceedddf9d (workflow42234325169) passes exact generated
+schema equality, actual CLI compilation, Core provider1/compaction113/Guardian148,
+client33 and all15 config cases. The missing managed-catalog test now requires
+NotFound and actual model consumption instead of guessing an OS error string.
+The next API gate names nonexistent integration target suite; pristine upstream
+registers all. The workflow now uses all for every affected invocation. No
+required API/TUI gate is counted as completed by that zero-test failure. Unsigned
+CLI upload precedes independent checks and retained the actual executable for
+device diagnosis; failed jobs still cannot qualify release admission.
 The actual Core/Manager/Native task gate passes the new live-owner/socket query,
 confirmed-free reply, cross-account writer protection, reconnect, cancellation and
 explicit takeover. An initial nested test root made Core's socket111 bytes
@@ -500,14 +501,36 @@ none immediately after the first TUI resume and after each Bridge/CLI boundary.
 This narrows the first divergence to TUI resume, rather than assigning it from
 final settings alone. Pristine6ff1e1c Remote mode is client-owned; its config
 forwarding filter omits reasoning effort. Do not describe it as server-owned
-merely because its transport is remote. The existing Termux local frontend
-forwards profile/session settings, but the new owner-home candidate still needs
-actual intent/policy proof. The Native-created continuity qualification now runs
-from another registered fixture home, admits never while launch defaults are
-on-request, and requires explicit effort, original policy/model, saved default,
-history and CLI follow-up to survive reconnect. Failure must revise the candidate,
-not weaken that acceptance. No real model inference is used in these controlled
-regressions. Actual app/model success is separate evidence above.
+merely because its transport is remote. The existing Termux local frontend forwards profile/session settings, but actual
+owner-home candidateedddf9d fails explicit high-effort admission at the first TUI
+resume (ct-cza1qqog). Pristine Native deliberately ignores construction overrides
+for loaded observed threads, protecting the existing writer. A diagnostic using
+its supported thread/settings/update then completes the same foreign-home,
+Bridge/reconnect/CLI scenario (ct-vfgti2pr, thread01a1b168-425d-77f1-ac65-6704270e32ce).
+That manual intervention establishes API feasibility, not product acceptance.
+A plain resume without a profile or OpenAI auth also fails at local onboarding
+(ct-k2sfz194); the original Native work was already admitted via ChatGPT.
+
+The maintained frontend now distinguishes explicit model/provider/effort intent
+from resolved process defaults. Resume retains Native's writer; when necessary,
+only explicit model/effort goes to existing Native settings admission, followed
+by effective-state readback. Unsupported/rejected selection reports its cause;
+no writer restart, permission change or inference replay is introduced. A verified
+live owner also removes the unrelated local OpenAI onboarding precondition;
+Native still owns authentication and model/policy enforcement. New-work and
+remote onboarding contracts retain their actual consumers. The previous full
+configuration override remains for non-Termux callers; no parallel execution or
+recovery manager is added.
+
+The Native-created qualification admits never while launch defaults are
+on-request, uses a different registered invocation home, and requires explicit
+effort, original model/policy/history/default and CLI continuation after reconnect.
+Its fresh-auth variant uses plain resume with no ChatGPT profile and no OpenAI
+credentials. Boundary readbacks retain the first settings divergence. New Native
+settings/intent/onboarding regressions and independent disposable faults await
+the corrected hosted build; both actual entrance-direction acceptances remain
+pending. Controlled app responses use zero real model requests. Actual app/model
+success above is separate proof. The operating TUI/Core/Manager remain unchanged.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.

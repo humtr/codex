@@ -59,16 +59,17 @@ pub(super) fn core_owned(target: &AppServerTarget, termux: bool) -> bool {
         )
 }
 
-/// A shared backend reports its default account policy; local threads select
-/// their own resolved provider. Remote account policy stays server-owned.
+/// New local work uses its resolved provider. A verified existing Native work
+/// owns its authentication; attachment does not require another local login.
 pub(super) fn startup_requires_openai_auth(
     target: &AppServerTarget,
     termux: bool,
+    has_live_owner: bool,
     selected_provider_requires_auth: bool,
     backend_requires_auth: bool,
 ) -> bool {
     if core_owned(target, termux) {
-        selected_provider_requires_auth
+        !has_live_owner && selected_provider_requires_auth
     } else {
         backend_requires_auth
     }

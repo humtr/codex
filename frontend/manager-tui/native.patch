@@ -84,10 +84,10 @@ index 9b22c93..57771f1 100644
                      skipped,
                      "app-server event consumer lagged; dropping ignored events"
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
-index 8a04d72..8b45619 100644
+index 8a04d72..d7425a9 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
 +++ b/codex-rs/tui/src/app/config_persistence.rs
-@@ -28,10 +28,16 @@ async fn build_config_on_runtime_worker(
+@@ -28,30 +28,43 @@ async fn build_config_on_runtime_worker(
      }
  }
  
@@ -96,16 +96,61 @@ index 8a04d72..8b45619 100644
      config: &Config,
      harness_overrides: &ConfigOverrides,
  ) -> crate::app_server_session::ResumeModelSettings {
+-    let has_layer_override = config.config_layer_stack.layers_high_to_low().any(|layer| {
+-        matches!(
+-            &layer.name,
+-            ConfigLayerSource::SessionFlags
+-                | ConfigLayerSource::User {
+-                    profile: Some(_),
+-                    ..
+-                }
+-        ) && ["model", "model_provider", "model_reasoning_effort"]
+-            .iter()
+-            .any(|key| layer.config.get(*key).is_some())
+-    });
+-    if harness_overrides.model.is_some()
+-        || harness_overrides.model_provider.is_some()
+-        || has_layer_override
 +    #[cfg(unix)]
 +    if crate::termux_permissions::enabled()
 +        && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume")
-+    {
+     {
+-        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
+-    } else {
+-        crate::app_server_session::ResumeModelSettings::RestoreFromThread
 +        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
 +    }
-     let has_layer_override = config.config_layer_stack.layers_high_to_low().any(|layer| {
-         matches!(
-             &layer.name,
-@@ -1159,6 +1165,15 @@ impl App {
++    let selected = |key| {
++        config.config_layer_stack.layers_high_to_low().any(|layer| {
++            matches!(
++                &layer.name,
++                ConfigLayerSource::SessionFlags
++                    | ConfigLayerSource::User {
++                        profile: Some(_),
++                        ..
++                    }
++            ) && layer.config.get(key).is_some()
++        })
++    };
++    let model = harness_overrides.model.is_some() || selected("model");
++    let provider = harness_overrides.model_provider.is_some() || selected("model_provider");
++    let effort = selected("model_reasoning_effort");
++    if !model && !provider && !effort {
++        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
++    }
++    #[cfg(unix)]
++    if crate::termux_permissions::enabled() {
++        return crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig {
++            model,
++            provider,
++            effort,
++        };
+     }
++    crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
+ }
+ 
+ pub(super) fn has_explicit_resume_permission_override(
+@@ -1159,6 +1172,15 @@ impl App {
      }
  
      pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
@@ -718,10 +763,23 @@ index 2adc303..01243f9 100644
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 683e732..267be9d 100644
+index 683e732..382a6ed 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -954,6 +954,11 @@ impl AppServerSession {
+@@ -369,6 +369,12 @@ pub(crate) enum ThreadSettingsOwner {
+ pub(crate) enum ResumeModelSettings {
+     /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
+     OverrideFromCurrentConfig,
++    /// Exact fields selected by the integrated frontend's startup arguments/profile.
++    ExplicitFromCurrentConfig {
++        model: bool,
++        provider: bool,
++        effort: bool,
++    },
+     /// Omits those overrides so app-server restores the settings saved with the thread.
+     RestoreFromThread,
+     /// Rejoins a loaded thread without changing any of its existing settings.
+@@ -954,6 +960,11 @@ impl AppServerSession {
                  "Cloud conversations currently use server-selected permissions."
              );
          }
@@ -733,7 +791,7 @@ index 683e732..267be9d 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1128,6 +1133,11 @@ impl AppServerSession {
+@@ -1128,6 +1139,11 @@ impl AppServerSession {
          if self.thread_params_mode == ThreadParamsMode::Cloud {
              color_eyre::eyre::bail!("Cloud conversations cannot be forked in the TUI yet.");
          }
@@ -745,7 +803,7 @@ index 683e732..267be9d 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1390,6 +1400,53 @@ impl AppServerSession {
+@@ -1390,6 +1406,53 @@ impl AppServerSession {
          Ok(response.thread)
      }
  
@@ -799,7 +857,7 @@ index 683e732..267be9d 100644
      pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
          let request_id = self.next_request_id();
          let _: ThreadArchiveResponse = self
-@@ -2043,30 +2100,56 @@ fn approvals_reviewer_override_from_config(
+@@ -2043,30 +2106,56 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -869,7 +927,36 @@ index 683e732..267be9d 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2378,6 +2461,11 @@ fn thread_resume_params_from_config(
+@@ -2357,6 +2446,28 @@ fn thread_resume_params_from_config(
+             config.model.clone(),
+             provider_selection::explicit_provider(&config),
+         ),
++        ResumeModelSettings::ExplicitFromCurrentConfig {
++            model,
++            provider,
++            effort,
++        } => {
++            if let Some(overrides) = config_overrides.as_mut() {
++                overrides.remove("model");
++                overrides.remove("model_provider");
++                if !effort {
++                    overrides.remove("model_reasoning_effort");
++                }
++            }
++            if effort && let Some(effort) = config.model_reasoning_effort.clone() {
++                config_overrides
++                    .get_or_insert_with(HashMap::new)
++                    .insert("model_reasoning_effort".into(), serde_json::json!(effort));
++            }
++            (
++                if model { config.model.clone() } else { None },
++                provider.then(|| config.model_provider_id.clone()),
++            )
++        }
+         ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
+             (None, None)
+         }
+@@ -2378,6 +2489,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -881,10 +968,43 @@ index 683e732..267be9d 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3927,6 +4015,45 @@ mod tests {
+@@ -3927,6 +4043,78 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
  
++    #[tokio::test]
++    async fn termux_backend_catalog_effort_only_resume_preserves_native_model_selection()
++    -> Result<()> {
++        let home = tempfile::tempdir()?;
++        let mut config = crate::legacy_core::config::ConfigBuilder::default()
++            .codex_home(home.path().to_path_buf())
++            .cli_overrides(vec![("model_reasoning_effort".into(), "high".into())])
++            .build()
++            .await?;
++        config.model = Some("unselected-process-default".into());
++        let params = thread_resume_params_from_config(
++            config,
++            ThreadId::new(),
++            ThreadParamsMode::Embedded,
++            None,
++            ResumeModelSettings::ExplicitFromCurrentConfig {
++                model: false,
++                provider: false,
++                effort: true,
++            },
++            crate::resume_permissions::ResumePermissions::default(),
++        );
++        assert_eq!(params.model, None);
++        assert_eq!(params.model_provider, None);
++        assert_eq!(
++            params.config.unwrap()["model_reasoning_effort"],
++            serde_json::json!("high")
++        );
++        assert_eq!(params.approval_policy, None);
++        assert_eq!(params.approvals_reviewer, None);
++        Ok(())
++    }
++
 +    #[tokio::test]
 +    async fn termux_chat_models_local_thread_keeps_profile_and_session_settings() -> Result<()> {
 +        let home = tempfile::tempdir()?;
@@ -927,7 +1047,7 @@ index 683e732..267be9d 100644
      #[tokio::test]
      async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
          let home = tempfile::tempdir()?;
-@@ -4311,6 +4438,29 @@ mod tests {
+@@ -4311,6 +4499,29 @@ mod tests {
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
  
@@ -958,10 +1078,79 @@ index 683e732..267be9d 100644
          side_config.ephemeral = true;
          let next_request_id = app_server.next_request_id;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index 98d979a..72fdfa2 100644
+index 98d979a..11fd5c4 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
-@@ -156,6 +156,13 @@ impl AppServerSession {
+@@ -148,6 +148,68 @@ impl AppServerSession {
+         .await
+     }
+ 
++    /// Resume attaches to the original writer; explicit selection has its own Native admission.
++    #[cfg(unix)]
++    async fn admit_resume_model_selection(
++        &mut self,
++        params: &codex_app_server_protocol::ThreadResumeParams,
++        response: ThreadResumeResponse,
++    ) -> Result<ThreadResumeResponse> {
++        if params
++            .model_provider
++            .as_ref()
++            .is_some_and(|provider| provider != &response.model_provider)
++        {
++            color_eyre::eyre::bail!("Native did not admit the requested provider transition");
++        }
++        let requested_effort = params
++            .config
++            .as_ref()
++            .and_then(|config| config.get("model_reasoning_effort"))
++            .map(|value| {
++                serde_json::from_value::<codex_protocol::openai_models::ReasoningEffort>(
++                    value.clone(),
++                )
++            })
++            .transpose()?;
++        let requested_model = params
++            .model
++            .clone()
++            .filter(|model| model != &response.model);
++        let effort_changed = requested_effort
++            .as_ref()
++            .is_some_and(|effort| response.reasoning_effort.as_ref() != Some(effort));
++        if requested_model.is_none() && !effort_changed {
++            return Ok(response);
++        }
++        let update = codex_app_server_protocol::ThreadSettingsUpdateParams {
++            thread_id: response.thread.id.clone(),
++            model: requested_model,
++            effort: requested_effort,
++            ..Default::default()
++        };
++        if !self.thread_settings_update(update).await? {
++            color_eyre::eyre::bail!("Native does not support the requested model settings update");
++        }
++        // The update ACK has no settings payload. Read Native's effective state,
++        // including any later concurrent selection, without replaying overrides.
++        let request_id = self.next_request_id();
++        self.client
++            .request_typed(ClientRequest::ThreadResume {
++                request_id,
++                params: codex_app_server_protocol::ThreadResumeParams {
++                    thread_id: response.thread.id,
++                    exclude_turns: params.exclude_turns,
++                    initial_turns_page: params.initial_turns_page.clone(),
++                    ..Default::default()
++                },
++            })
++            .await
++            .map_err(|error| {
++                bootstrap_request_error("Native model settings readback failed", error)
++            })
++    }
++
+     pub(crate) async fn resume_thread_with_permission_overrides(
+         &mut self,
+         local_settings: &crate::local_settings::LocalSettings,
+@@ -156,6 +218,13 @@ impl AppServerSession {
          model_settings: ResumeModelSettings,
          permission_overrides: crate::resume_permissions::ResumePermissions,
      ) -> Result<AppServerStartedThread> {
@@ -975,6 +1164,45 @@ index 98d979a..72fdfa2 100644
          if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
              self.thread_tool_transport().validate_config(&config)?;
          }
+@@ -220,7 +289,6 @@ impl AppServerSession {
+                 params: params.clone(),
+             })
+             .await;
+-        drop(rollout_maintenance_guard);
+         let mut response: ThreadResumeResponse = match resume_response {
+             Ok(response) => response,
+             Err(TypedRequestError::Server { source, .. })
+@@ -230,7 +298,10 @@ impl AppServerSession {
+                 params.exclude_turns = false;
+                 let request_id = self.next_request_id();
+                 self.client
+-                    .request_typed(ClientRequest::ThreadResume { request_id, params })
++                    .request_typed(ClientRequest::ThreadResume {
++                        request_id,
++                        params: params.clone(),
++                    })
+                     .await
+                     .map_err(|err| {
+                         bootstrap_request_error("thread/resume failed during TUI bootstrap", err)
+@@ -243,6 +314,18 @@ impl AppServerSession {
+                 ));
+             }
+         };
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled()
++            && self.thread_params_mode() == super::ThreadParamsMode::Embedded
++            && matches!(
++                model_settings,
++                ResumeModelSettings::OverrideFromCurrentConfig
++                    | ResumeModelSettings::ExplicitFromCurrentConfig { .. }
++            )
++        {
++            response = self.admit_resume_model_selection(&params, response).await?;
++        }
++        drop(rollout_maintenance_guard);
+         self.hydrate_initial_thread_history(
+             &mut response.thread,
+             response.turns_backwards_cursor.clone(),
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 index aa50df3..45d55db 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
@@ -2387,7 +2615,7 @@ index 66f407a..38c169c 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 1b0b08c..9995c8a 100644
+index 1b0b08c..87bac87 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,13 @@ mod experimental_features;
@@ -2463,29 +2691,34 @@ index 1b0b08c..9995c8a 100644
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1255,8 +1283,19 @@ async fn run_ratatui_app(
+@@ -1254,9 +1282,24 @@ async fn run_ratatui_app(
+     // Initialize high-fidelity session event logging if enabled.
      session_log::maybe_init(&initial_config);
  
++    #[cfg(unix)]
++    let mut has_live_owner = false;
      let startup_app_server = startup_draft
 -        .run_until(
 -            &mut tui,
 +        .run_until(&mut tui, async {
 +            #[cfg(unix)]
-+            termux_backend_catalog::bind(
-+                &mut app_server_target,
-+                &initial_config,
-+                &cli_kv_overrides,
-+                &loader_overrides,
-+                cli.resume_session_id
-+                    .as_deref()
-+                    .or(cli.fork_session_id.as_deref())
-+                    .and_then(|id| codex_protocol::ThreadId::from_string(id).ok()),
-+            )
-+            .await?;
++            {
++                has_live_owner = termux_backend_catalog::bind(
++                    &mut app_server_target,
++                    &initial_config,
++                    &cli_kv_overrides,
++                    &loader_overrides,
++                    cli.resume_session_id
++                        .as_deref()
++                        .or(cli.fork_session_id.as_deref())
++                        .and_then(|id| codex_protocol::ThreadId::from_string(id).ok()),
++                )
++                .await?;
++            }
              start_app_server(
                  &mut app_server_target,
                  arg0_paths.clone(),
-@@ -1270,8 +1309,9 @@ async fn run_ratatui_app(
+@@ -1270,8 +1313,9 @@ async fn run_ratatui_app(
                  &mut state_db,
                  environment_manager.clone(),
                  embedded_network_policy.clone(),
@@ -2497,7 +2730,7 @@ index 1b0b08c..9995c8a 100644
          .await;
      tui.terminal_size_tags =
          launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
-@@ -1352,6 +1392,13 @@ async fn run_ratatui_app(
+@@ -1352,6 +1396,14 @@ async fn run_ratatui_app(
      let requires_openai_auth = startup_account
          .as_ref()
          .is_some_and(|account| account.requires_openai_auth);
@@ -2505,13 +2738,14 @@ index 1b0b08c..9995c8a 100644
 +    let requires_openai_auth = profile_transport::startup_requires_openai_auth(
 +        &app_server_target,
 +        termux_permissions::enabled(),
++        has_live_owner,
 +        initial_config.model_provider.requires_openai_auth,
 +        requires_openai_auth,
 +    );
      let should_show_onboarding = should_show_onboarding(
          login_status,
          requires_openai_auth,
-@@ -1833,50 +1880,135 @@ async fn run_ratatui_app(
+@@ -1833,50 +1885,137 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -2655,10 +2889,12 @@ index 1b0b08c..9995c8a 100644
 +                    let selected = match app::config_persistence::resume_model_settings_for_overrides(
 +                        &config, &overrides,
 +                    ) {
-+                        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig =>
++                        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
++                        | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { model: true, .. } =>
 +                            config.model.as_deref(),
 +                        crate::app_server_session::ResumeModelSettings::RestoreFromThread
-+                            | crate::app_server_session::ResumeModelSettings::PreserveExistingThread =>
++                            | crate::app_server_session::ResumeModelSettings::PreserveExistingThread
++                            | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { model: false, .. } =>
 +                            saved.model.as_deref(),
 +                    };
 +                    let selected = selected.map(str::to_owned);
@@ -2944,3 +3180,123 @@ index b2322a5..9e55c95 100644
                  ));
              }
          }
+diff --git a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
+index fb315da..ab2869e 100644
+--- a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
++++ b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
+@@ -484,3 +484,115 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()>
+     app_server.shutdown().await?;
+     Ok(())
+ }
++
++#[cfg(unix)]
++#[tokio::test]
++async fn termux_backend_catalog_explicit_resume_selection_uses_native_settings_admission()
++-> Result<()> {
++    use codex_app_server_protocol::{
++        ClientRequest, ThreadResumeParams, ThreadResumeResponse, ThreadSettingsUpdateParams,
++    };
++    use codex_protocol::openai_models::ReasoningEffort;
++    let home = tempfile::tempdir()?;
++    let config = build_config(&home).await;
++    let thread = create_fake_rollout(
++        home.path(),
++        "2025-01-05T12-00-00",
++        "2025-01-05T12:00:00Z",
++        "Original Native history",
++        Some(config.model_provider_id.as_str()),
++        None,
++    )
++    .expect("create original Native history");
++    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
++    let request_id = server.next_request_id();
++    let _: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert!(
++        server
++            .thread_settings_update(ThreadSettingsUpdateParams {
++                thread_id: thread.clone(),
++                effort: Some(ReasoningEffort::Low),
++                approval_policy: Some(codex_app_server_protocol::AskForApproval::Never),
++                approvals_reviewer: Some(codex_app_server_protocol::ApprovalsReviewer::AutoReview),
++                ..Default::default()
++            })
++            .await?
++    );
++    let request_id = server.next_request_id();
++    let original: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    let history = serde_json::to_value(&original.thread.turns)?;
++    let model = original.model.clone();
++    let mut requested = ThreadResumeParams {
++        thread_id: thread.clone(),
++        model: Some(model.clone()),
++        model_provider: Some(original.model_provider.clone()),
++        config: Some(std::collections::HashMap::from([(
++            "model_reasoning_effort".into(),
++            serde_json::json!("high"),
++        )])),
++        ..Default::default()
++    };
++    let admitted = server
++        .admit_resume_model_selection(&requested, original)
++        .await?;
++    assert_eq!(admitted.reasoning_effort, Some(ReasoningEffort::High));
++    assert_eq!(admitted.model, model);
++    assert_eq!(admitted.thread.id, thread);
++    assert_eq!(serde_json::to_value(&admitted.thread.turns)?, history);
++    assert_eq!(
++        admitted.approval_policy,
++        codex_app_server_protocol::AskForApproval::Never
++    );
++    assert_eq!(
++        admitted.approvals_reviewer,
++        codex_app_server_protocol::ApprovalsReviewer::AutoReview
++    );
++    server.thread_settings_update_supported = false;
++    requested
++        .config
++        .as_mut()
++        .unwrap()
++        .insert("model_reasoning_effort".into(), serde_json::json!("low"));
++    assert!(
++        server
++            .admit_resume_model_selection(&requested, admitted)
++            .await
++            .is_err()
++    );
++    let request_id = server.next_request_id();
++    let retained: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread,
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert_eq!(retained.reasoning_effort, Some(ReasoningEffort::High));
++    assert_eq!(
++        retained.approval_policy,
++        codex_app_server_protocol::AskForApproval::Never
++    );
++    server.shutdown().await?;
++    Ok(())
++}

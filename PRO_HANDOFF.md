@@ -46,7 +46,7 @@ Provider의 두 진입점 인계까지 확대한다. Pro는 검증된 범위를 
 
 | 역할 | 브랜치 / 기준 커밋 | 사용 방법 |
 | --- | --- | --- |
-| **현재 선작업 소스** | `fix/attached-native-development-loop-20261106` / TUI owner-context 후보 `082051300c882711d6b026733ca1bb4175b360f5` | 기존 `pro-baseline` 작업공간을 재사용한다. 운영 Provider는 검증된 `7471ed7`, 서명 Native는148/147이다. TUI 후보의 빌드·양방향 실증·운영 적용은 CURRENT에서 각각 확인한다. 별도 Native 전환 후보와 혼동하지 않는다. |
+| **현재 선작업 소스** | `fix/attached-native-development-loop-20261106` / 최신 선작업·검증 상태는 `CURRENT.md` | 기존 `pro-baseline` 작업공간을 재사용한다. 운영 Provider는 검증된 `7471ed7`, 서명 Native는148/147이다. TUI 후보의 빌드·양방향 실증·운영 적용은 CURRENT에서 각각 확인한다. 별도 Native 전환 후보와 혼동하지 않는다. |
 | **준비 기준 브랜치** | `prep/pro-baseline-20261106` | Pro 작업 브랜치의 출발 후보. 미완성 catalog 초안을 분리하고 이 문서·운영 사실을 맞췄다. Pro는 다른 출발점이 더 적절하면 재선정할 수 있다. |
 | 이전 전체 인계 보존 | `fix/native-route-transition-20261105` / `eeb6f9d808cd2dc7319a3d94f07010d650f3d281` | Native 초안까지 포함했던 원본 인계. 강제 변경 없이 보존했다. |
 | 마지막 기록 기준 | `c340237982102a100de81aa70aca60b0617477eb` | 현재 복구 전의 기록 기준. 이후 인계 변경을 함께 읽는다. |

@@ -134,6 +134,14 @@ def probe(args):
             # Direct Native startup need not acquire or call any Chat host.
             return json.loads(path.read_text()) if path.exists() else []
 
+        def owner_settings(boundary):
+            response = native_rpc(home,'thread/resume',{'threadId':thread})
+            settings = {key:response[key] for key in ['model','modelProvider','reasoningEffort',
+                'approvalPolicy','approvalsReviewer','sandbox']}
+            with (root/'owner-settings.jsonl').open('a') as record:
+                record.write(json.dumps({'boundary':boundary,**settings})+'\n')
+            return settings
+
         created_before_tui = None
         if args.native_created:
             # A resumed task owns its admitted policy even when launch defaults
@@ -166,25 +174,31 @@ def probe(args):
                 env=env,cwd=root/'w',capture_output=True,timeout=30)
             assert created.returncode == 0, created.stderr
             invocation_home = home/'.local/share/codex/manager/profiles/observer/home'
-            assert json.loads((home/'.codex/auth.json').read_text()) == {
-                'OPENAI_API_KEY':'owned-inert-fixture','auth_mode':'apikey'}
-            for name in ['config.toml','auth.json','models_cache.json','native-models.json']:
+            names = ['config.toml','models_cache.json','native-models.json']
+            if args.fresh_auth_home:
+                assert not (home/'.codex/auth.json').exists()
+            else:
+                assert json.loads((home/'.codex/auth.json').read_text()) == {
+                    'OPENAI_API_KEY':'owned-inert-fixture','auth_mode':'apikey'}
+                names.append('auth.json')
+            for name in names:
                 shutil.copy2(home/'.codex'/name,invocation_home/name)
             tui_env = dict(env,CODEX_HOME=str(invocation_home))
             selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
                 env=env,cwd=root/'w',capture_output=True,timeout=15)
             assert selected.returncode == 0
             default_before = selected.stdout
-            owner_settings_before = native_rpc(home,'thread/resume',{'threadId':thread})
+            owner_settings_before = owner_settings('before_tui')
             assert owner_settings_before['approvalPolicy'] == 'never'
-            requested_effort = 'medium' if owner_settings_before.get('reasoningEffort') == 'high' else 'high'
+            requested_effort = 'medium' if owner_settings_before['reasoningEffort'] == 'high' else 'high'
             explicit_args = ['-c',f'model_reasoning_effort="{requested_effort}"']
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 80 if display else 44, 160, 0, 0))
         screen_args = [] if display else ['--no-alt-screen']
+        profile_args = [] if args.native_created and args.fresh_auth_home else ['--profile','chatgpt']
         resume_args = ['resume',created_before_tui['thread_id']] if created_before_tui else []
         terminal = subprocess.Popen([str(prefix / 'bin/codex'), *screen_args,
-            '--profile','chatgpt','-c','tui.animations=false',*explicit_args,*resume_args], env=tui_env, cwd=root / 'w',
+            *profile_args,'-c','tui.animations=false',*explicit_args,*resume_args], env=tui_env, cwd=root / 'w',
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         wait(lambda: 'NATIVE_BEFORE_TUI_BASELINE' in screen if created_before_tui else 'GPT-6' in screen, 'initial TUI')
@@ -204,8 +218,8 @@ def probe(args):
         thread = work['thread_id']
         if created_before_tui:
             assert work['work_id']==created_before_tui['work_id'] and thread==created_before_tui['thread_id']
-            owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
-            assert owner_settings_after.get('reasoningEffort') == requested_effort
+            owner_settings_after = owner_settings('after_initial_tui_resume')
+            assert owner_settings_after['reasoningEffort'] == requested_effort, owner_settings_after
             for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
                 assert owner_settings_after[key] == owner_settings_before[key], key
             wait(lambda:'NATIVE_BEFORE_TUI_BASELINE' in screen,'ordinary TUI resume retains the Native-created baseline')
@@ -423,7 +437,7 @@ def probe(args):
                     master,slave=pty.openpty()
                     fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',80 if display else 44,160,0,0))
                     terminal=subprocess.Popen([str(prefix/'bin/codex'),*screen_args,
-                        '--profile','chatgpt','-c','tui.animations=false',*explicit_args,'resume',thread],env=tui_env,cwd=root/'w',
+                        *profile_args,'-c','tui.animations=false',*explicit_args,'resume',thread],env=tui_env,cwd=root/'w',
                         stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
                     os.close(slave)
                     wait(lambda:f'BRIDGE_ORIGINAL_INPUT_{index}' in '\n'.join(terminal_screen_lines(display, wcwidth)) if display else f'BRIDGE_ORIGINAL_INPUT_{index}' in screen,
@@ -521,8 +535,8 @@ def probe(args):
                 selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
                     env=env,cwd=root/'w',capture_output=True,timeout=15)
                 assert selected.returncode == 0 and selected.stdout == default_before
-                owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
-                assert owner_settings_after.get('reasoningEffort') == requested_effort
+                owner_settings_after = owner_settings('after_cli_followup')
+                assert owner_settings_after['reasoningEffort'] == requested_effort, owner_settings_after
                 for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
                     assert owner_settings_after[key] == owner_settings_before[key], key
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
@@ -1116,7 +1130,7 @@ def probe(args):
             display.reset()
             decoder.reset()
             terminal = subprocess.Popen([str(prefix / 'bin/codex'), 'resume', thread,
-                '--profile','chatgpt','-c','tui.animations=false'], env=env, cwd=root / 'w',
+                *profile_args,'-c','tui.animations=false'], env=env, cwd=root / 'w',
                 stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
             os.close(slave)
             disclosure_proof('resumed')

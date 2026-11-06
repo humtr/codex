@@ -52,9 +52,12 @@ fn profile_transport_login_uses_selected_local_provider_and_preserves_remote_aut
     for selected in [false, true] {
         for backend in [false, true] {
             assert_eq!(
-                startup_requires_openai_auth(&local, true, selected, backend),
+                startup_requires_openai_auth(&local, true, false, selected, backend),
                 selected
             );
+            assert!(!startup_requires_openai_auth(
+                &local, true, true, selected, backend
+            ));
             for (target, termux) in [
                 (&local, false),
                 (&remote, true),
@@ -62,7 +65,7 @@ fn profile_transport_login_uses_selected_local_provider_and_preserves_remote_aut
                 (&AppServerTarget::Embedded, true),
             ] {
                 assert_eq!(
-                    startup_requires_openai_auth(target, termux, selected, backend),
+                    startup_requires_openai_auth(target, termux, false, selected, backend),
                     backend
                 );
             }
@@ -100,6 +103,14 @@ fn profile_transport_core_daemon_actions_refuse_without_affecting_remote_or_read
         assert!(!daemon_action_blocked(&local, &event, false));
         assert!(!daemon_action_blocked(&remote, &event, true));
     }
-    assert!(!daemon_action_blocked(&local, &AppEvent::OpenDaemonMenu, true));
-    assert!(!daemon_action_blocked(&local, &AppEvent::OpenWarnings, true));
+    assert!(!daemon_action_blocked(
+        &local,
+        &AppEvent::OpenDaemonMenu,
+        true
+    ));
+    assert!(!daemon_action_blocked(
+        &local,
+        &AppEvent::OpenWarnings,
+        true
+    ));
 }

@@ -20,16 +20,19 @@ its model confirmed in the correlated source record, and zero unsettled effects.
 Owner selection reuses Manager's verified Native writer discovery before startup
 preparation; generic connections no longer retarget it. Actual Native discovery,
 reentry and unrelated-server isolation proofs pass, including disposable faults.
-Canonical resume/fork now reuses the owner's execution home before config/auth/
-draft startup and preserves original arguments. A raw upstream remote experiment
-continued work but lost explicit effort selection, so socket-only composition is
-insufficient. Actual CLI compilation and exact schema equality now pass on
-0820513. Native config exposed an incorrect error-text assertion; the corrected
-test also proves managed catalog consumption. Remaining Native/TUI gates and
-both entrance-direction proofs are pending; the operating TUI is unchanged. Generated-schema equality now passes;
-the following CLI build exposed an incorrect ThreadId API use, fixed at source.
-Qualify the corrected frontend, including different invocation/owner homes,
-explicit intent and same-work CLI follow-up. Later picker/alias context rebind is
+Canonical resume/fork reuses the owner's execution home before config/auth/draft
+startup and preserves arguments. Actual CLI/schema compilation passes, but that
+candidate still loses explicit effort on loaded observed-thread resume; plain
+resume also wrongly demands local OpenAI onboarding. Supported Native settings
+admission independently proves the same-work flow possible. The maintained TUI
+now forwards only explicitly selected fields, admits model/effort with Native's
+existing API and reads effective settings; known-owner attachment uses Native's
+authentication. Qualify that actual frontend in both entrance directions,
+including different homes, no OpenAI auth/profile, explicit effort and retained
+permissions/history/defaults. Corrected workflow uses the actual Native API test
+target all and checks independent owner/settings/auth/intent faults. Required
+Native/TUI and actual device acceptance remain pending; no operating TUI update.
+Later picker/alias context rebind is
 still incomplete. No new writer/executor/history, default or credential changes.
 Verify both entrance directions and actual app/model recovery. Preserve input,
 policy, original results and all profiles/mobile desktop state. An actual Guardian

@@ -769,6 +769,19 @@ precedence, installed-route validation and model admission remain unchanged.
   verified injected rendezvous argument, not user arguments. Picker/alias flows
   must also preserve already collected drafts when their later identity requires
   a context rebind; canonical startup proof alone does not qualify those flows.
+  Loaded Native resume can ignore construction overrides while another client
+  observes the thread; this protects its original writer. An explicit local TUI
+  inference selection records model, provider and effort independently; unspecified
+  fields retain the Native selection. It uses the existing thread/settings/update admission
+  and rereads effective Native settings when resume has not applied that selection.
+  Apply only requested model/effort on the same admitted provider; defaults and
+  permissions are not another selection. Unsupported or rejected admission keeps
+  the original task/input and reports the actual cause. Do not rebuild/stop a live
+  writer to force startup flags, or treat UI configuration as Native acceptance.
+  Attachment to a verified live Native work has no new local OpenAI onboarding
+  precondition. Native retains credential, model and policy enforcement for that
+  work; TUI login controls remain available. Configured new work keeps its selected
+  provider's onboarding policy. No credentials or account defaults are replaced.
   Native still admits attachment/writes and detects races after this observation.
   This is an optional integrated-frontend contract; Core's ordinary independent
   runtime launch does not acquire a Manager dependency.
