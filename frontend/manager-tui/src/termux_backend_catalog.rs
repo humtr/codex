@@ -346,8 +346,7 @@ mod tests {
             std::fs::write(
                 &core,
                 format!(
-                    "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = termux ] && [ \"$2\" = __task-connection-v1 ] && [ \"$3\" = {thread} ] || exit 9\nprintf '%s\\n' '{}'\nexit {status}\n",
-                    value
+                    "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = termux ] && [ \"$2\" = __task-connection-v1 ] && [ \"$3\" = {thread} ] || exit 9\nprintf '%s\\n' '{value}'\nexit {status}\n"
                 ),
             )?;
             std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;

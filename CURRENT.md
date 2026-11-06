@@ -400,226 +400,130 @@ writer, executor, transcript or TUI recovery state machine. Real-model fault
 recovery, original project-timeout provenance, all entrance transitions and signed
 publication remain unfinished.
 
-### Same-Provider TUI owner selection: candidate implementation
+### Same-Provider TUI owner selection: qualified development candidate
 
-An additional actual signed148 TUI-first->Bridge trial passes its first Bridge
-turn, then fails live updates after TUI close/reopen (ct-oyue7f84). Native retains
-all three completed turns; the reopened frontend selects a configuration sibling
-and becomes read-only. This independently reaches the same connection-choice
-defect as the Native-created-work trial. Neither failed acceptance is waived.
+Core owns the existing private connection/home-handoff commands. Shared
+runtime-binding/native.rs observes the qualified process, socket and kernel
+writer; Manager uses that same observation for its optional RPC/UI/actions.
+Native remains the sole writer, execution, approval and history authority. The
+frontend resolves a canonical resume/fork owner before configuration, auth or
+editable draft startup, retains opaque invocation arguments and connects that
+owner without preparing a configuration sibling. New/confirmed ownerless work
+uses the existing coordinator. Unknown, stale or competing ownership is not a
+free writer. The existing private JSON schema/argv remain for actual compiled
+frontend consumers; no extra registry, executor or fallback was introduced.
 
-The candidate moves backend preparation out of generic connection/picker calls
-into startup-intent resolution. Resume/fork first queries Manager's existing live
-writer discovery through the qualified Core; the read-only task-connection reply
-is revalidated before return. It supplies only execution home/socket, not a new
-ownership registry or execution capability. The frontend connects that owner and
-does not retarget it through catalog preparation. New/confirmed ownerless work
-uses the existing coordinator. For a canonical resume/fork identity, startup now
-reuses the verified owner execution home before loading configuration, auth or
-an editable draft. Manager revalidates the owner and reexecutes the qualified
-Core with the original opaque user arguments. Core resolved startup computes a
-rendezvous address without starting a backend; the frontend resolves ownership
-before startup preparation. The execution-context builder is shared with existing reconnect; no default/profile/account selection is changed.
-A later picker/alias selecting another home still requires a draft-preserving
-context rebind and remains unqualified; startup proof cannot close that boundary.
-The existing Manager IPC function moves from profile UI to
-profile transport, and profile/quota/startup callers reuse it without a forwarding
-wrapper. Native admission, tools, approvals and history are unchanged.
+Selected-task queries filter on verified kernel writer identity before Native
+RPC, then revalidate the reply. A paused unrelated server therefore does not
+block the selected task. Complete unfiltered inventory retains its original
+semantics. Process/socket/writer observation moved out of Manager after an actual
+no-Manager test exposed this prework's incorrect optional-component dependency.
+The old Manager connection/reentry/discovery implementations were removed;
+selected Manager actions consume the shared unique-owner selection too.
 
-Direct review found that selected-task discovery still awaited unrelated Native
-servers. It now checks the existing kernel writer identity before RPC, retaining
-post-RPC revalidation and complete unfiltered inventory semantics. The actual
-Native gate passes with a non-owner server suspended; removing that selection
-filter in disposable source fails the same query. The original source is restored,
-and independent mutation compiler output prevents fault artifacts from polluting
-the canonical cache. Native records are now retained by this task qualifier.
-See owner-filter-native-actual/fault logs and JSON under the evidence root.
+The maintained frontend distinguishes explicit model/provider/effort intent from
+resolved process defaults. Native deliberately ignores construction overrides
+for loaded observed threads to preserve their writer. The frontend therefore
+uses existing thread/settings/update for explicit same-provider model/effort
+when needed, then reads effective Native state back. Unsupported/rejected
+selection reports its cause; it does not restart the writer, change permissions
+or replay inference. A verified live owner removes the unrelated local OpenAI
+onboarding precondition; Native still enforces actual authentication and model /
+managed policy. New-work and remote onboarding retain their consumers. The
+legacy full override remains for actual non-Termux callers.
 
-Manager's52 library tests, strict Clippy and release build pass. A disposable
-unknown-writer-as-free fault fails the new connection-query regression and was
-restored. The frontend assembler's11 Python cases and affected qualification-script
-checks pass. Hosted sourceedddf9d (workflow42234325169) passes exact generated
-schema equality, actual CLI compilation, Core provider1/compaction113/Guardian148,
-client33 and all15 config cases. The missing managed-catalog test now requires
-NotFound and actual model consumption instead of guessing an OS error string.
-The next API gate names nonexistent integration target suite; pristine upstream
-registers all. The workflow now uses all for every affected invocation. No
-required API/TUI gate is counted as completed by that zero-test failure. Unsigned
-CLI upload precedes independent checks and retained the actual executable for
-device diagnosis; failed jobs still cannot qualify release admission.
-The actual Core/Manager/Native task gate passes the new live-owner/socket query,
-confirmed-free reply, cross-account writer protection, reconnect, cancellation and
-explicit takeover. An initial nested test root made Core's socket111 bytes
-(limit107), failing before binding. The unchanged product test passes with its
-normal short TMPDIR fixture (99 bytes); original diagnostics remain. No product
-path guard, timeout or assertion was weakened. No candidate Core/Manager/frontend
-has been installed into the operating generation. Owner-context reentry passes
-the same actual Native gate with its running writer unchanged. A disposable
-wrong-home substitution fails its context assertion; the source is restored.
-Discovery before the first turn is also covered at the actual Native boundary.
+**Actual Android continuation.** Evidence is in
+$TMPDIR/connectivity-repair-70jt4h2u/request-continuity-dFZxEe/. The actual Core /
+Manager candidate is ca4b852; the identified frontend is sourcefc52fe7, raw CLI
+SHA256 fd8eb43764a41259b5b4aa7e02eeb8b86c3454390082acebfac0188de38bd0db.
+Its later source changes through the current branch affect tests/qualification,
+not frontend runtime behavior. Controlled app replies below use zero real model
+requests and no physical UI observation. They are actual Android Native/TUI proof,
+separate from the earlier registered-client/real-model evidence.
 
-Repository validation reuses unchanged Core238-pass/1-ignored evidence; Manager
-52 library,67 window-path and1 window-launch cases, release-builder46 and runtime-
-binding3 pass with strict workspace Clippy. An initial shared-cache mutation
-artifact was detected by the new failing guard test; its Manager debug output
-was removed and the clean-source affected gates rerun successfully. Subsequent
-fault builds use their own cache. No failed run is counted as green. Hosted
-frontend workflow42210511392 first stopped on a dependency mirror connection;
-its one same-source retry passed acquisition and compiled the Native schema
-generator, then correctly failed exact export equality. The existing compatibility
-patch declared modelProviderUpdates but omitted its generated stable exports and
-cached experimental route-parameter exports. Five files are now taken from that
-actual generator output, including both precomputed archives. Decoded comparison
-confirms the declared capability/route metadata; no Rust/runtime behavior was
-changed. The complete compatibility patch applies to pristine6ff1e1c, and six
-source-preparation tests pass. Workflow42215493252 then passes exact generated
-schema equality, but fails CLI compilation at the new owner lookup: upstream
-ThreadId has no FromStr implementation. The code and tests now use its actual
-from_string constructor; this avoidable implementation error is fixed at source,
-not waived. The corrected0820513 build passes actual CLI compilation; the
-subsequent config-test assertion failure and remaining gates are described above.
-The existing unsigned CLI artifact upload now precedes independent Native checks,
-so a later failure retains the built executable for diagnosis/device qualification.
-Full job/admission/signing requirements remain unchanged; this does not promote
-a failed run or install a candidate into operation. This repair does not admit or deploy the
-separate Native-transition candidate into the signed operating runtime.
+| Proof | Native identity and outcome |
+| --- | --- |
+| Native-created -> TUI -> Bridge -> reconnect -> CLI | owner-native-created-fc52fe7.json; thread01a1b1c2-137b-7b73-8fea-ec3f23bfbce9; foreign invocation home, explicit high effort, original model/policy/history/default preserved |
+| Plain resume without profile/OpenAI credentials | owner-native-fresh-fc52fe7.json; thread01a1b1c3-32ba-7282-9f66-56b3dc80fa92; same continuation and retained settings |
+| TUI-created -> Bridge -> reopen -> TUI | owner-tui-first-task-counter-fc52fe7.json; thread01a1b1c8-2b7f-74f1-8b9e-c69356c5dc94; actual primary Native thread counted separately from independent title requests |
+| No optional Manager, no OpenAI credentials | owner-without-manager-after.json; work3f35cf3c50a173e3dc5c5568b58bb810702c6b43ecbb59d2; thread01a1b1d6-7159-7703-afa4-f1b5640259de; explicit effort and all original settings/history/default/reconnect/CLI continuation preserved |
+| Active Steer, queue edit and cancellation | owner-steer-ca4b852.json; one Native turn01a1b1fa-c86d-78d1-a055-8f76fc94299a; replacement retires the predecessor without a next-turn barrier |
+| Empty-final and preparation-timeout recovery | owner-recovery-fork-ca4b852.json; original work841a1a96efafc3a91478e26ce882400a467269c2d2dc0579/thread01a1b1fd-deb6-7003-83ff-11f4b8fedd55 accepts following input and completes |
+| Explicit fork | same recovery proof; child91fcb15342a093fc41d5d18dfe17d8798f9bff7b9a0a598f/thread01a1b1fd-f2b1-7ce2-9312-a6d74329e34c completes without changing parent history |
 
-An actual configuration boundary also remains: the completed live model work's
-record confirms a Native execution home different from the invocation CODEX_HOME
-at that observation. The resumed invocation now matches that earlier Bridge home;
-the actual session ID is unchanged, but the intervening settings provenance was
-not observed. Neither fact is inferred from skill paths/model labels or used to
-attribute a user action. The actual app model request succeeded; preserve profiles
-and defaults. A disposable actual raw upstream --remote experiment completes
-foreign-home Bridge/TUI/reconnect continuation, but loses an explicit CLI effort
-selection: requested high, Native confirms none. Policy/reviewer/model remain
-unchanged. The experiment result and original Native records remain at
-request-continuity-dFZxEe/foreign-owner-experiment.log and ct-necsqgb8; this is a
-failed intent-preservation acceptance, not a qualified replacement. A subsequent
-boundary timeline (ct-385jfbnt, thread01a1b14c-0f95-7e30-a142-66655c83821d) confirms
-none immediately after the first TUI resume and after each Bridge/CLI boundary.
-This narrows the first divergence to TUI resume, rather than assigning it from
-final settings alone. Pristine6ff1e1c Remote mode is client-owned; its config
-forwarding filter omits reasoning effort. Do not describe it as server-owned
-merely because its transport is remote. The existing Termux local frontend forwards profile/session settings, but actual
-owner-home candidateedddf9d fails explicit high-effort admission at the first TUI
-resume (ct-cza1qqog). Pristine Native deliberately ignores construction overrides
-for loaded observed threads, protecting the existing writer. A diagnostic using
-its supported thread/settings/update then completes the same foreign-home,
-Bridge/reconnect/CLI scenario (ct-vfgti2pr, thread01a1b168-425d-77f1-ac65-6704270e32ce).
-That manual intervention establishes API feasibility, not product acceptance.
-A plain resume without a profile or OpenAI auth also fails at local onboarding
-(ct-k2sfz194); the original Native work was already admitted via ChatGPT.
+The complete actual Core/Manager/Native task gate passes ten scenarios in
+native-owner-task-final.log/tqf64n1omp: discovery before first input, selected
+owner, foreign-home handoff, paused unrelated server, reconnect, cancellation,
+retained-subscriber fencing and explicit takeover. The second qualified Native
+server is prepared through Core's existing API to exercise the cross-home writer
+fence. Correct owner-home TUI reentry itself does not create a duplicate server.
+Original failures, boundary timelines and Native records remain preserved.
 
-The maintained frontend now distinguishes explicit model/provider/effort intent
-from resolved process defaults. Resume retains Native's writer; when necessary,
-only explicit model/effort goes to existing Native settings admission, followed
-by effective-state readback. Unsupported/rejected selection reports its cause;
-no writer restart, permission change or inference replay is introduced. A verified
-live owner also removes the unrelated local OpenAI onboarding precondition;
-Native still owns authentication and model/policy enforcement. New-work and
-remote onboarding contracts retain their actual consumers. The previous full
-configuration override remains for non-Termux callers; no parallel execution or
-recovery manager is added.
+**Source and fault proof.** The full repository Rust gate passes Core239 with one
+explicit installed-smoke case ignored, Manager51 library/67 profile-command/one
+launch, builder46 and runtime-binding3, plus strict Clippy. Final shared-owner
+Manager51/Clippy and profile-resume error-mapping9 pass. An initial library-only
+profile filter ran zero tests and is not evidence. Provider's separate lock was
+updated for runtime-binding's already pinned libc; its affected cargo check
+passes without changing Provider runtime source.
 
-The Native-created qualification admits never while launch defaults are
-on-request, uses a different registered invocation home, and requires explicit
-effort, original model/policy/history/default and CLI continuation after reconnect.
-Its fresh-auth variant uses plain resume with no ChatGPT profile and no OpenAI
-credentials. Boundary readbacks retain the first settings divergence. Sourcefc52fe7 builds the actual CLI and passes exact schema equality in
-workflow42252215584. Device proofs owner-native-created-fc52fe7.json and
-owner-native-fresh-fc52fe7.json both pass: foreign-home continuation, explicit
-effort, unchanged model/permissions/history/default, reconnect and CLI follow-up.
-The fresh case has no OpenAI credentials and uses plain resume without a profile.
-Actual Native threads are01a1b1c2-137b-7b73-8fea-ec3f23bfbce9 and
-01a1b1c3-32ba-7282-9f66-56b3dc80fa92. These use the real Android Core/TUI with
-controlled app replies, zero real model requests and no physical UI observation.
-They do not replace the separate connected-client/app evidence above.
+Disposable faults treating an unknown writer as free, removing selected-owner
+filtering, substituting a wrong execution home and disabling Core's private
+owner dispatch each fail their real regression. Restored source passes. Mutation
+builds use independent compiler output; operating state is never mutated. The
+first old mutation polluted the shared cache; its outputs were removed and clean
+source gates rerun, with original evidence retained. CI admission faults that
+accept a focused run as full qualification or ignore changed production inputs
+also fail their actual release/reuse tests; restored positives pass.
 
-The hosted TUI lib-test build then fails because the moved IPC code no longer
-imports MetadataExt into its former parent test module. That test now imports its
-own trait; no assertion or runtime behavior is changed. Required TUI/API and
-fault gates remain pending, not passed by a zero-test build. The first TUI-origin
-continuation's submission counter also included two independent title-generation
-threads. Original request identities distinguish them from the selected task;
-the corrected test counts that actual Native thread, retains the original failed
-result and still requires zero Bridge primary submissions plus exactly one CLI
-follow-up. The corrected actual TUI-origin proof passes in
-owner-tui-first-task-counter-fc52fe7.json (ct-v7eealrv). All three actual
-continuation cases now pass; hosted Native/TUI gates remain pending. The operating
-TUI/Core/Manager remain unchanged.
+Hosted fa96fe6 workflow42256849301 passes147 Native TUI regressions, all four
+independent injected faults fail their intended assertions, and Native core
+model-provider1/compaction113/Guardian148/client33/config15 pass. Exact generated
+schema equality and actual CLI compilation pass. Subsequent API compilation
+exposed three test URI String/&str mismatches; only those borrows were corrected.
+The existing nonzero-result parser now handles singular and slow-test summaries.
 
-A further actual boundary test removes only the disposable generation's optional
-Manager. Sourcefc52fe7 then exits at Native owner lookup (ct-awqdueb9), exposing
-an incorrect dependency introduced by this prework. Native process/socket/writer
-observation now moves from Manager task code to runtime-binding/native.rs; Core
-owns the existing connection and canonical home-handoff commands. Manager consumes
-the same observation for its optional RPC/UI/actions. Its duplicate discovery,
-connection endpoint and reentry implementation are removed. Native alone still
-admits writers, inference, execution, approval and history. Existing private JSON
-schema/argv are retained for the actually built frontend consumer. The shared
-module uses the already pinned libc for the existing kernel boundary; both lock
-files are updated. No new executor, account registry or fallback is introduced.
+Focused native-api run42271814884 then executes18 API tests:17 pass, one inherited
+expectation wrongly treats malformed system defaults as revoking an admitted
+route. Existing ConfigManager tests already distinguish defaults from managed
+requirements. The integration case now verifies both at the real input boundary:
+malformed defaults retain the original route; malformed managed requirements
+block traffic, and repairing them lets that same thread complete exactly once.
+No Native runtime or policy enforcement changes are made for this test repair.
 
-Actual Android owner-without-manager-after.json passes with both Manager and
-OpenAI credentials absent: work3f35cf3c50a173e3dc5c5568b58bb810702c6b43ecbb59d2,
-thread01a1b1d6-7159-7703-afa4-f1b5640259de. Native identity/model/permissions,
-explicit effort, history, default, reconnect and final CLI continuation remain
-verified. Source full Rust gate passes Core239/1-ignored, Manager51 library,
-67 profile-command and1 launch, builder46 and runtime-binding3, plus strict Clippy.
-The old Manager connection test moves to Core. An unknown-writer-as-free fault
-fails that actual Core test; restored source passes. Independently disabling
-Core's private dispatch makes the actual no-Manager continuation fail before TUI
-attachment; the unchanged good candidate passes that same scenario. Faults stay
-in disposable source and independent compiler output, never operating state.
+Focused frontend-compatibility run42272487602 verifies the immutable executable's
+identity and matching production inputs, exact generated schemas,53 retained TUI
+features,43 Native engine features and two patch-line-ending cases. Its final
+lint comparison fails on one test-only format argument; the source adopts that
+exact automatic fix. No runtime behavior changes. Full current-source Native
+qualification remains required; partial successful steps do not admit release.
+The scoped workflow does not emit a frontend release asset; the release
+controller rejects focused runs as full or in-flight qualification.
 
-The actual Core/Manager/Native task qualifier initially expected foreign-profile
-TUI resume to create another server. That conflicts with the intended owner-home
-handoff; actual records show no such server. The corrected test keeps ordinary
-TUI reentry and explicitly prepares the second qualified Native server through
-the existing Core API to test Native's cross-home writer fence. Its complete
-actual gate now passes discovery before the first turn, selected live ownership,
-foreign-home handoff, paused unrelated server, reconnect, cancellation, retained
-subscriber fencing and explicit takeover. Manager selected-task actions also use the shared unique-owner selection.
-See native-owner-task-final.log and tqf64n1omp; its final Manager51-library and
-strict-Clippy checks pass. The final profile-resume error-mapping check runs9
-actual integration cases; an initial library-only filter ran zero and is not
-counted as proof. Original failed evidence is retained. These controlled device proofs
-use no real model; hosted Native TUI regressions now pass on sourcefa96fe6; its independent
-fault/API/lint gates remain pending. Broader transitions/compaction,
-picker/alias context rebinding, Guardian scope denial and signed activation are
-still separate unfinished boundaries. No operating runtime is replaced here.
+Earlier defects remain evidence, not waived gates: source613 exact-export drift
+(five generated files/archives corrected), source082 ThreadId constructor error
+(fixed at its actual API), sourceeddd missing integration target suite (actual
+upstream target is all), sourcefc52 test-only MetadataExt import (fixed in its
+own module), and the original title-thread counter. Raw --remote lost explicit
+effort; manual settings/update established feasibility before product integration.
+The canonical plain-resume/no-auth, explicit-effort and no-Manager failures are
+now detected by the accepted complete device cases above. All originals remain
+under the evidence root; Git retains the earlier source and detailed diagnosis.
 
-The ca4b852 Core/Manager with the identified frontend also passes actual active
-Steer/queue-edit/cancel on one Native turn (01a1b1fa-c86d-78d1-a055-8f76fc94299a),
-and empty-final/preparation-timeout recovery plus explicit fork without changing
-parent history (work841a1a96efafc3a91478e26ce882400a467269c2d2dc0579,
-thread01a1b1fd-deb6-7003-83ff-11f4b8fedd55;
-fork91fcb15342a093fc41d5d18dfe17d8798f9bff7b9a0a598f /
-01a1b1fd-f2b1-7ce2-9312-a6d74329e34c). These controlled app replies use zero real
-model requests; the operating Core/TUI remain unchanged.
+**Remaining boundaries.** A later picker/alias selecting another execution home
+still needs draft-preserving context rebinding. Wider provider/model transitions,
+compaction, real app target-loss recovery, Guardian's failed scope denial and
+signed publication/activation remain open. The intervening source of an observed
+execution-home/settings change was not recorded; skill paths and current config
+cannot establish who changed it. No operating Core/TUI/Manager is replaced here;
+operating development Provider7471 and its earlier connector refresh are separate.
 
-Hosted sourcefa96fe6 workflow42256849301 passes147 actual Native TUI regressions
-and all four independent injected faults fail their intended assertions. Core
-model-provider1, compaction113, Guardian148, client33 and config15 also pass.
-The API integration target then fails compilation at three inherited test URI
-arguments (String instead of &str); only those borrows are corrected. No Native
-runtime behavior changes. The nonzero-result validator now reuses the existing
-parser, including real singular and slow-test summaries. API and remaining
-frontend compatibility/lint checks run with explicit qualification scopes, without
-repeating accepted CLI/TUI/fault batches. Compatibility reuse requires matching
-prepared production inputs and identified immutable executable bytes. Partial
-runs do not produce a frontend asset and the release controller rejects them as
-full or in-flight frontend qualification. All original failures remain evidence.
-
-Seven completed owned request-continuity fixtures were archived with the existing
-cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
-Their source/results/Native records and restore JSONL remain. Three additional
-completed continuity fixtures now archive18 matching payloads, reclaiming
-2,291,294,208 allocated bytes with the same source/record/restore preservation.
-The Provider cache
-is about14GiB and the independent repository compiler cache about0.5GiB; armed
-executables and immutable current/rollback artifacts remain intact.
+Completed owned fixture payloads are archived with scripts/clean_development.py;
+source, original results, Native records and removal/restore JSONL remain. Before
+this batch, seven fixtures reclaimed42 payloads/5,346,353,152 allocated bytes and
+three reclaimed18/2,291,294,208. Later cleanup records remain under this work's
+evidence root. Compiler output is about14.73GiB in total; armed executables and
+immutable current/rollback artifacts remain intact.
 
 ## Native-transition candidate and earlier operating evidence
 

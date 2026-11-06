@@ -28,9 +28,12 @@ Unknown-writer and Manager-dependency faults fail their real regressions; restor
 source passes. Full Rust/Clippy and actual task control pass. Hosted Native TUI regressions
 and all four independent faults pass their expected outcomes on sourcefa96fe6.
 API integration compilation exposes three test-only URI borrows; those are fixed.
-Finish explicit API and frontend compatibility/lint scopes, reusing the identified
-unchanged executable and prior positive gates. Partial runs cannot admit release. Retain the qualified ownership correction for
-handoff. Operating TUI/Core/Manager are unchanged. Later picker/alias rebinding, wider app/model transitions,
+Focused API executes17/18 positives; its inherited malformed-default expectation
+conflicts with the admitted-route contract. Test both retained defaults and actual
+managed-policy failure/recovery. Retained frontend features53+43+2 pass; adopt
+the one test-only lint fix. Finish current-source Native qualification, preserving
+prior actual device proof. Partial runs cannot admit release. Retain the qualified
+ownership correction for handoff. Operating TUI/Core/Manager are unchanged. Later picker/alias rebinding, wider app/model transitions,
 compaction and Guardian's failed scope denial remain unfinished. No extra Pro
 inference or default-policy change. Preserve all original results and profiles.
 
