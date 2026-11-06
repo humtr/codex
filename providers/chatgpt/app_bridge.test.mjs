@@ -987,6 +987,8 @@ test('old submission cannot settle a newer host-reply stream',async()=>fixture(a
  lane.messages.set('confirm',{id:'confirm',author:{role:'tool'},metadata:{jit_plugin_data:{from_server:{type:'confirm_action'}}}});
  f.client.startCompletionStream({request:{conversation_id:'server-owned',messages:[{id:'reply',author:{role:'tool'},metadata:{jit_plugin_data:{from_client:{target_message_id:'confirm',type:'allow'}}}}]}});
  completed('completed');
+ f.options[0].onUpdate({message:{id:'late-final',author:{role:'assistant'},recipient:'all',channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['obsolete stream']}}});
  const current=await bridge({op:'snapshot',owner:'owned',lane:'late'});
  expect(current.streamActive).toBe(true);expect(current.terminals).toEqual([]);
+ expect(current.messages.some(message=>message.id==='late-final')).toBe(false);
 }));

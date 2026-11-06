@@ -453,6 +453,83 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
     server.await.unwrap();
 }
 
+#[tokio::test]
+async fn descriptor_maintenance_borrows_the_acquired_connection_and_fences_a_changed_host() {
+    use codex_chatgpt_provider::{
+        app::{Bridge, Remote},
+        journal::random_id,
+        protocol::Error,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("cdp-borrow-{}", random_id().unwrap()));
+    std::fs::create_dir(&root).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let process = Process::read(std::process::id()).unwrap();
+    let mut descriptor = Descriptor {
+        version: 1,
+        kind: "termux-electron-pipe".into(),
+        endpoint: format!(
+            "http://127.0.0.1:{}/",
+            listener.local_addr().unwrap().port()
+        ),
+        token: "a".repeat(43),
+        host: process.clone(),
+        browser: process,
+    };
+    let path = root.join("desktop.json");
+    std::fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let remote = Remote::new(path.clone(), "owned-fixture".into());
+    assert!(matches!(
+        remote.cdp_client().await,
+        Err(Error("host_not_acquired"))
+    ));
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        for _ in 0..4 {
+            let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+                panic!("request expected")
+            };
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    json!({"targetInfos":[{"targetId":"primary","type":"page","url":"app://-/index.html"}]})
+                }
+                "Target.attachToTarget" => json!({"sessionId":"owned-session"}),
+                "Runtime.evaluate" => json!({"result":{"value":{"value":{"account":"fixture"}}}}),
+                "Runtime.getIsolateId" => json!({"id":"same-connection"}),
+                _ => panic!("maintenance must not initialize or dispatch a model"),
+            };
+            socket
+                .send(Message::Text(
+                    json!({"id":request["id"],"result":result})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+        }
+    });
+    remote.operation(json!({"op":"identity"})).await.unwrap();
+    let client = remote.cdp_client().await.unwrap();
+    assert_eq!(
+        client
+            .request("Runtime.getIsolateId", json!({}), None)
+            .await
+            .unwrap()["id"],
+        "same-connection"
+    );
+    server.await.unwrap();
+    descriptor.endpoint = "http://127.0.0.1:9/".into();
+    std::fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    assert!(matches!(
+        remote.cdp_client().await,
+        Err(Error("desktop_generation_changed"))
+    ));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn descriptor_rejects_remote_endpoints_and_stale_process_identity() {
     let process = Process::read(std::process::id()).unwrap();

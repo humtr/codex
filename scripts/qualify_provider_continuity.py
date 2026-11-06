@@ -53,6 +53,8 @@ def probe(args):
     if args.active_steer:
         (root / 'hold-adapter-final').touch()
         (root / 'hold-adapter-stop').touch()
+    if args.settled_failure:
+        (root / 'empty-final').touch()
     output = (root / 'provider-test.log').open('wb')
     service = subprocess.Popen([str(args.service_test), '--ignored', '--exact',
         'synthetic_operator_service', '--nocapture'], env=env, stdout=output,
@@ -181,6 +183,37 @@ def probe(args):
                 cursor = page.get('nextCursor')
                 if cursor is None:
                     return rows
+
+        if args.settled_failure:
+            proof = []
+            for fault, followup in [('empty-final', 'Continue after the confirmed empty answer'),
+                                    ('preparation-timeout', 'Continue after the failed preparation')]:
+                if fault == 'preparation-timeout':
+                    (root / fault).touch()
+                    submit('Exercise the bounded preparation failure')
+                failed = wait(lambda: (turns[-1] if (turns := native_rpc(home,'thread/read',
+                    {'threadId':thread,'includeTurns':True})['thread']['turns']) and
+                    turns[-1]['status']=='failed' else None), 'Native records the original failure')
+                (root / fault).unlink()
+                screen_start = len(screen)
+                submit(followup)
+                wait(lambda: (turns := native_rpc(home,'thread/read',
+                    {'threadId':thread,'includeTurns':True})['thread']['turns']) and
+                    turns[-1]['id'] != failed['id'] and turns[-1]['status']=='completed',
+                     'same-work TUI input recovers without a diagnostic status call after '+fault)
+                assert rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed'
+                turns = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+                assert turns[-1]['id'] != failed['id'] and turns[-1]['status']=='completed', turns
+                assert sum(row['item']['type']=='userMessage' and followup in json.dumps(row['item'])
+                           for row in history())==1
+                assert 'ChatGPT input synchronization failed' not in screen[screen_start:]
+                assert 'OWNED_MANAGED_ROUND_COMPLETE' in screen[screen_start:]
+                proof.append({'fault':fault,'failed_turn':failed['id'],'continued_turn':turns[-1]['id']})
+            args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),
+                'thread_id':thread,'work_id':work['work_id'],'same_work_recovery':proof,
+                'actual_android_core_and_tui':True,'synthetic_chat_response':True,
+                'real_model_requests':0,'physical_ui_observed':False},indent=2)+'\n')
+            return
 
         if args.active_steer:
             wait(lambda: rpc('codex_status',{'work_id':work['work_id']})['phase']=='running',
@@ -1076,8 +1109,10 @@ def probe(args):
 if __name__=='__main__':
     os.umask(0o077)
     parser=argparse.ArgumentParser(description=__doc__)
-    for name in ['core','frontend','service-test','report']:
+    for name in ['core','service-test','report']:
         parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--frontend',type=Path,help='Optional raw TUI override; omission preserves the installed qualified TUI in the disposable fixture')
+    parser.add_argument('--settled-failure',action='store_true',help='Actual TUI continuation after confirmed empty inference and pre-dispatch CDP failure')
     parser.add_argument('--provider-binary',type=Path,
         help='Exercise actual synchronization/presentation CLI, overlapping draft and mouse disclosure; requires pyte and wcwidth')
     parser.add_argument('--active-steer',action='store_true',help='Hold the synthetic response and verify actual Android Native Steer, Queue and Shift+Left on the same turn')

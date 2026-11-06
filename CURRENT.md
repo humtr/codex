@@ -148,10 +148,12 @@ claim that this proves every past app_target_unavailable had that cause.
 The two policies both executed the tested development loop. One matched local
 trial measured2.725s/2.211s (Auto/Full); warm compiler effects and this sample size
 preclude speed/success-rate ranking. Real reviewer allowance and synthetic
-rejection/failure enforcement are proven; real model rejection quality, an actual
-live target-loss recovery, all models/entrances and physical TUI continuity are
-not. A permanent default-policy recommendation is deferred until those findings
-are sufficient. Existing on-request/auto_review defaults are unchanged; Full
+rejection/failure enforcement are proven. The scope-denial case below failed;
+live target-loss recovery, all models/entrances and physical TUI continuity
+remain unqualified. A permanent default-policy recommendation is deferred until those findings
+are sufficient. The subsequent scope-denial failure below must be included in
+that comparison; invocation is not evidence of effective authorization review.
+Existing on-request/auto_review defaults are unchanged; Full
 Access is an explicit new-work choice, never a failure fallback.
 
 | Compared boundary | Auto Review | Full Access |
@@ -162,7 +164,7 @@ Access is an explicit new-work choice, never a failure fallback.
 | Reviewer enforcement | Real GPT-6 allowance; synthetic denial/failure prevented effects | No command reviewer; other Native checks remain |
 | External review dependency | App/login/model/network when review is required | No separate reviewer dependency; Bridge/Native still required |
 | Timing | One local loop2.725s; real review tested separately | One local loop2.211s; not a performance ranking |
-| Protection/overhead not measured | Real rejection quality, loss recovery, general false-block rate, model cost | Long-run reliability and broader unreviewed-action risk |
+| Protection/overhead limits | One actual scope-denial case failed; loss recovery, general false-block rate and model cost remain unmeasured | Long-run reliability and broader unreviewed-action risk |
 
 The substantive diff was reviewed directly. The meaningful qualification error
 was treating a successful non-review command as model-review evidence; original
@@ -224,12 +226,12 @@ records confirmed two further reverse-flow failures:
   before empty_app_round. The retained app pending call also has its Native
   result. The whole task was not empty; no result replay is justified.
 
-Source currently uses the same done terminal for physical app completion and
-the MCP-to-Responses tool handoff. app.rs reports empty_app_round only after a
+The operating763c24a source uses the same done terminal for physical app completion
+and the MCP-to-Responses tool handoff. app.rs reports empty_app_round only after a
 terminal snapshot has no usable final or gateway calls, not on every empty
 fragment. It also sets a new round before submit and can report a later identity
-mismatch after losing the submit error. Operator synchronize_native rejects
-reconciliation_required before observe_native. These are relevant lifetime and
+mismatch after losing the submit error. That source rejects
+reconciliation_required before observe_native in Operator synchronize_native. These are relevant lifetime and
 recovery boundaries to reproduce, not proof that every incident shares one cause.
 The user's fork failure has no directly correlated error yet. No recovery,
 runtime replacement or new model request was performed in this planning batch.
@@ -240,6 +242,96 @@ packages and maps all original12 priorities, NC-01..29 and cumulative work.
 Packages1/2 first establish original-request recovery and same-Provider TUI/Chat
 continuation; accepted unchanged tests remain reusable. Actual model transitions
 and portable compaction still require the separate Native capability proof.
+
+### Auto Review scope-denial failure
+
+The user supplied the completed negative-test result for thread
+01a1af61-c9a5-7253-b0f3-59517f65a1d2: an allowed deletion and an explicitly
+forbidden deletion in its disposable workspace both received Guardian allow,
+executed with exit0 and removed the selected files; later read commands worked.
+Read-only inspection independently matched Guardian child
+01a1af64-3973-7823-902e-df2e8644cd56 to that parent and found two original allow
+answers, including the forbidden command. Both review inputs contain the
+forbidden target and denial language. The corresponding parent call
+4c3013945489298c0b5cf7155dae3739bd91cc8219160cc2ada239ac043ccda7 has its exit0
+result in Native history. Original private inputs/results remain in Native.
+
+The natural-language scope-denial acceptance case failed. Guardian invocation,
+policy enforcement of its returned decision and the decision's quality are
+separate facts. This evidence does not prove an invocation/transport failure,
+a universal authorization failure or the first code/model cause. Trace the
+reviewer input construction, active instructions/settings, decision and upstream
+execution admission before changing that boundary. Actual model denial quality
+is now an observed failing case, not a passed capability or merely an unrun test.
+No default-policy change follows; compare Auto Review and Full Access using
+this result, synthetic deny enforcement and their actual execution conditions.
+
+The independently observed shared-resource blocker is another work, not this
+Codex session: work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a,
+thread01a1afb1-8421-7613-9ae9-adfb6d266f17. Its original Native command returned
+process session56351. Broker retained the result and retired its token before a
+queued poll was offered. The original Native command item later records failed /
+exit-1, while the thread is notLoaded and its opaque reservation remains. Native
+can synthesize-1 on cancellation/error, so this is not kernel exit proof and has
+not been used to release the operating claim. No journal, capability or policy
+was forcibly reset. Preserve the original failed/unknown outcome when using
+supported Stop/reconciliation; app failure or an unloaded thread alone is not
+proof that another work's effects ended.
+
+### Request settlement implementation and current qualification
+
+The working diff separates physical inference completion from Native tool
+handoff. Original Native returns and admitted steering context settle together
+without a second model submission; acceptance no longer waits for the next model
+answer. Confirmed empty inference keeps its error but leaves settled work ready
+for a new input. Operator observes the authoritative Native result before its
+input barrier and waits through the in-flight completion race; it does not add a
+TUI recovery machine. Stale stream callbacks are fenced by stream identity as
+well as lane epoch. Cold Stop recovers the original transport lane for fencing
+without reviving execution capabilities. Descriptor maintenance borrows the
+already-owned CDP connection rather than competing for a second observer.
+
+Native terminal observation now matches original call/process/owner identities
+and releases only their completed process reservations, for both MCP and
+LocalFunction. The original running reply remains unchanged. Negative/unknown
+exit and Native's timeout sentinel remain fenced. This corrects future known-exit
+settlement; it does not establish termination of the historical-1 blocker above.
+
+Owned evidence root: $TMPDIR/connectivity-repair-70jt4h2u/request-continuity-dFZxEe.
+Affected Rust checks pass189 library tests,11 CDP tests and11 MCP return tests;
+ignored device scopes retain their separate status. Disposable-source faults in
+steering admission, empty settlement, late stream fencing, unknown-exit admission
+and the early input barrier each fail their behavioral regression, then are
+restored. The barrier mutation fails the actual Android Core/TUI test without a
+diagnostic status call first repairing the work.
+
+Actual signed148 Native/Core/TUI with a synthetic Chat backend passed confirmed
+empty -> same-work follow-up, pre-dispatch timeout -> same-work follow-up, and
+active steering including queue-to-steer and predecessor Stop retirement.
+Recovery thread01a1aff3-383b-7291-bd23-850c6872e14c and steering thread
+01a1aff4-6603-7873-a1fe-dfed3723710c preserve their Native records. These are real
+Android execution/TUI proofs, not real Chat model or physical-screen observation.
+
+The ordinary Native-created-work -> TUI resume -> Bridge live update test still
+fails: Native execution/history continue, but the TUI chooses a different
+configuration-bound backend and becomes read-only. Do not weaken this test or
+call automatic entrance handoff complete. In a separate disposable experiment,
+upstream's explicit --remote unix:// connection to the verified original owner
+passes both Bridge turns, live viewport progress/final, exact retries and
+Provider restart with unchanged Native history and zero primary submissions.
+Its thread is01a1b006-9f29-7e80-bad6-af60800a864f. Naming that fixture through
+Native prevents unrelated upstream automatic title inference from contaminating
+the zero-submission measurement. The experiment establishes interface sufficiency
+for the loaded owner, not automatic discovery. Unify the Termux connection choice
+with that actual owner; do not add another writer, execution path or transcript.
+
+The updated Provider gate passed Rust tests, fmt, strict Clippy, release build,
+Bun114 tests, Python84 tests and the existing CLI import checks. The initial
+Clippy rejection of two unnecessary test-only clones was fixed and that gate
+rerun; unchanged successful Rust execution evidence was retained. Real-app
+recovery, historical-work Stop, operating replacement/client refresh and
+automatic TUI owner selection remain separate outstanding acceptance boundaries.
+Current live services still use763c24a; this implementation has not been deployed.
 
 ## Current architecture review and operating boundary
 

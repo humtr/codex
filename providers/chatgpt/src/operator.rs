@@ -4130,6 +4130,8 @@ impl Operator {
                     }
                     Some(Ok(event)) => {
                         let terminal = event["method"] == "turn/completed"
+                            || event["method"] == "item/completed"
+                                && event["params"]["item"]["type"] == "commandExecution"
                             || event["method"] == "thread/status/changed"
                                 && event["params"]["status"]["type"] == "idle";
                         if !terminal || event["params"]["threadId"] != record.thread {
@@ -4155,10 +4157,34 @@ impl Operator {
                     if work.record.phase == "transfer_prepared" {
                         continue;
                     }
-                    if !matches!(
-                        work.record.phase.as_str(),
-                        "running" | "completed" | "interrupted"
-                    ) {
+                    let marker = match crate::app::lane_marker(&this.journal, &record.thread) {
+                        Ok(marker) => marker,
+                        Err(error) => {
+                            eprintln!("native_effect_observation_failed: {}", error.0);
+                            return;
+                        }
+                    };
+                    let mut lanes = vec![work.record.id.as_str()];
+                    if let Some(marker) = marker.as_deref() {
+                        lanes.push(marker);
+                    }
+                    let pending_process = if work.record.phase == "reconciliation_required" {
+                        match this.broker.has_pending_processes(&lanes) {
+                            Ok(pending) => pending,
+                            Err(error) => {
+                                eprintln!("native_effect_observation_failed: {}", error.0);
+                                return;
+                            }
+                        }
+                    } else {
+                        false
+                    };
+                    if !pending_process
+                        && !matches!(
+                            work.record.phase.as_str(),
+                            "running" | "completed" | "interrupted"
+                        )
+                    {
                         return;
                     }
                     work.record.clone()
@@ -4240,15 +4266,32 @@ impl Operator {
         let Some(record) = record else {
             return Ok(json!({"thread_id":thread,"status":"ready","inference_submitted":false}));
         };
+        let pool = self.work_pool(&record).await?;
+        let native = pool.discover_thread(thread).await?;
+        let (record, state, app_lane) = self.observe_native(record, &native).await?;
+        if record.phase == "reconciliation_required"
+            && app_lane
+                .as_ref()
+                .is_some_and(|lane| lane["input_ready"] == true)
+            && (state["thread"]["status"]["type"] == "active"
+                || self
+                    .works
+                    .lock()
+                    .await
+                    .get(thread)
+                    .is_some_and(|work| work.app_round.is_some()))
+        {
+            return Ok(
+                json!({"thread_id":thread,"status":"waiting","reason":"native_turn_settling",
+                "retry_after_seconds":RECONCILE_INTERVAL.as_secs(),"inference_submitted":false}),
+            );
+        }
         if matches!(
             record.phase.as_str(),
             "stop_requested" | "reconciliation_required"
         ) {
             return Err(Error("operator_reconciliation_required"));
         }
-        let pool = self.work_pool(&record).await?;
-        let native = pool.discover_thread(thread).await?;
-        let (record, state, _) = self.observe_native(record, &native).await?;
         let attached_active = self
             .app_route(&record, record.native_turn.as_deref())?
             .is_none()
@@ -4601,13 +4644,32 @@ impl Operator {
         let app_routed = self
             .app_route(&record, record.native_turn.as_deref())?
             .is_some();
+        let marker = crate::app::lane_marker(&self.journal, &record.thread)?;
+        let mut lanes = vec![record.id.as_str()];
+        if let Some(marker) = marker.as_deref() {
+            lanes.push(marker);
+        }
+        if self.broker.has_pending_processes(&lanes)? {
+            let pool = self.work_pool(&record).await?;
+            native.verify_scope(&record.thread, &pool.workspace).await?;
+            let history = Self::history(native, &record.thread).await?;
+            self.broker
+                .settle_native_processes(&lanes, &pool.workspace, &history)
+                .await?;
+        }
         let state = native
             .call(
                 "thread/read",
                 json!({"threadId":record.thread,"includeTurns":false}),
             )
             .await?;
-        if app_routed && record.phase == "interrupted" && source_native_settled(&record, &state) {
+        if app_routed
+            && record.phase == "interrupted"
+            && source_native_settled(&record, &state)
+            && self
+                .mcp_host
+                .source_turn_pending(&record.thread, record.native_turn.as_deref())?
+        {
             let pool = self.work_pool(&record).await?;
             native.verify_scope(&record.thread, &pool.workspace).await?;
             let admission = {
@@ -4675,39 +4737,61 @@ impl Operator {
         } else {
             None
         };
+        // Derive successful and failed completion at the same Native/transport
+        // boundary. A failed response can settle without becoming a success or
+        // requiring another controller to accept subsequent input.
         if app_routed
-            && record.phase == "running"
-            && source_native_settled(&record, &state)
+            && matches!(record.phase.as_str(), "running" | "reconciliation_required")
+            && (state["thread"]["status"]["type"] == "idle"
+                || record.phase == "reconciliation_required"
+                    && state["thread"]["status"]["type"] == "systemError")
             && app_lane
                 .as_ref()
-                .is_some_and(|lane| lane["phase"] == "idle" && lane["pending_native_calls"] == 0)
+                .is_some_and(|lane| lane["input_ready"] == true)
+            && record.pending.is_empty()
+            && self
+                .broker
+                .recorded_calls(&record.token)?
+                .iter()
+                .all(|call| call["settled"] == true)
+            && self.owned_jobs(native, &record).await?.is_empty()
         {
-            // A newly allocated thread may have no persisted turn inventory.
-            // Its lightweight state is still observable. Read full turns only
-            // at a settled completion boundary where that proof is needed.
             let history = native
                 .call(
                     "thread/read",
                     json!({"threadId":record.thread,"includeTurns":true}),
                 )
                 .await?;
-            if history["thread"]["turns"]
+            if let Some(turn) = history["thread"]["turns"]
                 .as_array()
                 .and_then(|turns| turns.last())
-                .is_some_and(|turn| {
+                .filter(|turn| {
                     record.native_turn.is_some()
                         && turn["id"].as_str() == record.native_turn.as_deref()
-                        && turn["status"] == "completed"
+                        && (turn["status"] == "completed"
+                            || record.phase == "reconciliation_required"
+                                && matches!(
+                                    turn["status"].as_str(),
+                                    Some("failed" | "interrupted")
+                                ))
                 })
-                && self.owned_jobs(native, &record).await?.is_empty()
             {
                 let mut works = self.works.lock().await;
-                let work = works.get_mut(&record.thread).unwrap();
+                let work = works
+                    .get_mut(&record.thread)
+                    .ok_or(Error("operator_work_unavailable"))?;
                 if same_native_round(&record, &work.record)
-                    && work.record.phase == "running"
+                    && work.record.phase == record.phase
                     && work.stops_in_progress == 0
+                    && work.app_round.is_none()
+                    && work.active.is_none()
                 {
-                    work.record.phase = "completed".into();
+                    work.record.phase = if turn["status"] == "completed" {
+                        "completed"
+                    } else {
+                        "interrupted"
+                    }
+                    .into();
                     self.persist(&work.record)?;
                     record = work.record.clone();
                 }

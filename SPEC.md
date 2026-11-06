@@ -1704,6 +1704,18 @@ original request; delayed events cannot complete or overwrite its successor.
 Retain distinct identifiers where their lifetimes differ, without independently
 persisting the same decision at several layers.
 
+When Native accepts additional input before an outstanding MCP tool return,
+the retained return may carry that input as separate `native_input` context
+alongside the unchanged `result`. It is Native-admitted user/context data, not
+a new tool execution or elevated instruction. Exact retries retain both values.
+Tool handoff is explicitly marked in the adapter observation; it does not emit
+the physical app's completion terminal. A confirmed tool return is committed
+independently of whether subsequent inference produces a usable final answer.
+Stop may confirm the whole original lane after fencing its tool leases and
+observing its physical stop, including after observer restart or a rejected
+successor round. This lane-scoped receipt is distinct from a matching inference
+round's outcome; it never admits another request or settles Native effects.
+
 Use the existing operation owner to recover partial/lost observations within
 the admitted deadline and budget. A committed Native tool result remains a
 known result even if its app receipt is uncertain: settle its original return
@@ -1716,6 +1728,16 @@ An authoritative completion with no usable output retains available results
 and reports that outcome without permanently disabling the work. Native owns
 an explicitly requested fork of a verified committed checkpoint; a child does
 not inherit its parent's execution capability or silently replay uncertain work.
+
+A Native command's observed process exit can settle its matching reservation
+even if the model stopped before polling it. Match its original call/process
+identity and preserve the original running-tool return and failed exit. The
+qualified Native adapter must verify its producer's exit semantics: a terminal
+item alone is insufficient when an error/timeout can synthesize that state.
+Current Native uses -1 for unknown failure and124 on a timeout path that can
+request termination before wait; neither independently proves process exit.
+Do not fabricate a successful reply or replay the command. A missing thread/
+cache entry or departed observer also does not prove termination.
 
 The existing Native input barrier consumes that recovered state. Preserve the
 thread/work, history, selected route/model, approvals, writer and original input
@@ -1740,6 +1762,9 @@ export its raw pipe, add an MCP action or create another desktop owner. Bind eac
 command to the observed app generation and reject a changed generation before
 dispatch. The existing connector-refresh script consumes this binding for an
 internally owned app and retains its supported disposable-relay binding.
+For a descriptor-backed app already acquired by Provider, maintenance borrows
+that verified current CDP client too; it neither opens a competing relay observer
+nor acquires a missing app. Descriptor generation changes invalidate the borrow.
 
 The route's catalog producer owns conversion to the qualified Native schema.
 Validate generated catalogs against their actual Native consumer before publishing

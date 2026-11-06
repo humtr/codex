@@ -459,6 +459,8 @@ struct Invocation {
     pub report: String,
     offered: bool,
     result: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    native_input: Vec<Value>,
     #[serde(default)]
     effect: Option<Effect>,
 }
@@ -893,26 +895,98 @@ impl Broker {
         let _registry = self.registry.lock().await;
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
-        let sessions = state
+        let processes = state
             .claims
-            .values()
-            .filter(|claim| claim.lane == lane)
-            .filter_map(|claim| claim.session_id)
-            .collect::<BTreeSet<_>>();
-        if sessions.is_empty() {
+            .iter()
+            .filter(|(_, claim)| claim.lane == lane)
+            .filter_map(|(id, claim)| claim.session_id.map(|session| (id.clone(), session)))
+            .collect::<BTreeMap<_, _>>();
+        if processes.is_empty() {
             return Ok(());
         }
-        SharedNativeGuard::release_stopped_sessions(
+        SharedNativeGuard::release_observed_processes(
             workspace,
             self.shared_guard_home().as_deref(),
             lane,
-            &sessions,
+            &processes,
         )
         .map_err(Self::shared_guard_error)?;
-        state.claims.retain(|_, claim| {
-            !(claim.lane == lane && claim.session_id.is_some_and(|id| sessions.contains(&id)))
-        });
+        state.claims.retain(|id, _| !processes.contains_key(id));
         self.journal.write(&key, &state)?;
+        Ok(())
+    }
+    pub(crate) fn has_pending_processes(&self, lanes: &[&str]) -> Result<bool, Error> {
+        let state: ActiveEffects = self
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))?
+            .unwrap_or_default();
+        Ok(state
+            .claims
+            .values()
+            .any(|claim| lanes.contains(&claim.lane.as_str()) && claim.session_id.is_some()))
+    }
+    /// Native's committed command end is independent of an app's next poll.
+    /// These items are read through the verified original Native work binding;
+    /// they never replace its original MCP invocation/result.
+    pub(crate) async fn settle_native_processes(
+        &self,
+        lanes: &[&str],
+        workspace: &Path,
+        history: &[Value],
+    ) -> Result<(), Error> {
+        let _registry = self.registry.lock().await;
+        let key = digest(&"native-effect-claims-v1");
+        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        let mut ended = BTreeMap::<String, BTreeMap<String, u64>>::new();
+        for (id, claim) in &state.claims {
+            let Some(session) = claim
+                .session_id
+                .filter(|_| lanes.contains(&claim.lane.as_str()))
+            else {
+                continue;
+            };
+            if history.iter().any(|row| {
+                let item = &row["item"];
+                item["type"] == "commandExecution"
+                    && item["id"].as_str().is_some_and(|native_id| {
+                        native_id == id
+                            || state.external.contains_key(id)
+                                && external_effect_id(&claim.lane, native_id) == *id
+                    })
+                    && item["processId"]
+                        .as_str()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        == Some(session)
+                    && matches!(item["status"].as_str(), Some("completed" | "failed"))
+                    // Native uses -1 for unconfirmed errors and 124 for its
+                    // timeout path, which can request termination before wait.
+                    // Neither sentinel independently establishes process exit.
+                    && item["exitCode"].as_i64().is_some_and(|code| code >= 0 && code != 124)
+            }) {
+                ended
+                    .entry(claim.lane.clone())
+                    .or_default()
+                    .insert(id.clone(), session);
+            }
+        }
+        for (lane, sessions) in &ended {
+            SharedNativeGuard::release_observed_processes(
+                workspace,
+                self.shared_guard_home().as_deref(),
+                lane,
+                sessions,
+            )
+            .map_err(Self::shared_guard_error)?;
+        }
+        if !ended.is_empty() {
+            state.claims.retain(|id, claim| {
+                !ended
+                    .get(&claim.lane)
+                    .is_some_and(|processes| processes.contains_key(id))
+            });
+            self.journal.write(&key, &state)?;
+            self.changed.notify_waiters();
+        }
         Ok(())
     }
     /// Provider-owned AppHost tools also execute in upstream Native, but do
@@ -1621,6 +1695,7 @@ impl Broker {
                 report: args.report.clone(),
                 offered: false,
                 result: None,
+                native_input: Vec::new(),
                 effect: Some(effect),
             },
         );
@@ -1692,7 +1767,11 @@ impl Broker {
                     .get(&args.call_id)
                     .ok_or(Error("mcp_turn_unavailable"))?;
                 if let Some(result) = &call.result {
-                    return Ok(result.clone());
+                    return Ok(if call.native_input.is_empty() {
+                        result.clone()
+                    } else {
+                        json!({"result":result,"native_input":call.native_input})
+                    });
                 }
                 if turn.retired {
                     return Err(Error("mcp_turn_unavailable"));
@@ -1881,7 +1960,7 @@ impl Broker {
         results: &[(String, Value)],
         catalog: Option<BTreeMap<String, Tool>>,
     ) -> Result<(), Error> {
-        self.settle_prepared(token, results, catalog, || Ok(()))
+        self.settle_prepared(token, results, catalog, &[], || Ok(()))
             .await
     }
     /// Keep validation, preparation and commit in one admission section. A
@@ -1891,6 +1970,7 @@ impl Broker {
         token: &str,
         results: &[(String, Value)],
         catalog: Option<BTreeMap<String, Tool>>,
+        native_input: &[Value],
         prepare: impl FnOnce() -> Result<(), Error> + Send,
     ) -> Result<(), Error> {
         let mut registry = self.registry.lock().await;
@@ -1901,7 +1981,10 @@ impl Broker {
             .ok_or(Error("mcp_turn_unavailable"))?;
         let mut next = turn.clone();
         let mut seen = std::collections::BTreeSet::new();
-        for (id, result) in results {
+        if !native_input.is_empty() && results.is_empty() {
+            return Err(Error("mcp_result_missing"));
+        }
+        for (index, (id, result)) in results.iter().enumerate() {
             if !seen.insert(id) {
                 return Err(Error("mcp_result_invalid"));
             }
@@ -1910,12 +1993,14 @@ impl Broker {
                 .values_mut()
                 .find(|v| v.id == *id && v.offered)
                 .ok_or(Error("mcp_result_invalid"))?;
+            let input = if index == 0 { native_input } else { &[] };
             if let Some(old) = &call.result {
-                if old != result {
+                if old != result || call.native_input != input {
                     return Err(Error("mcp_result_changed"));
                 }
             } else {
                 call.result = Some(result.clone());
+                call.native_input = input.to_vec();
             }
         }
         if let Some(catalog) = catalog {
@@ -2978,6 +3063,174 @@ mod native_concurrency_tests {
             1,
             "a later integrated turn's exit must reconcile the original process claim"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn nc_native_terminal_item_settles_a_retired_process_without_replaying_its_poll() {
+        let (root, journal, tools) = fixture();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("original", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let exec = Arguments {
+            call_id: "start".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"owned uncertain process"}).to_string(),
+            report: String::new(),
+        };
+        let id = accepted(&broker, &token, &exec).await;
+        let original = json!({"output":"Process running with session ID 56351"});
+        broker
+            .settle(&token, &[(id.clone(), original.clone())])
+            .await
+            .unwrap();
+        let poll = Arguments {
+            call_id: "poll".into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":56351,"chars":""}).to_string(),
+            report: String::new(),
+        };
+        broker.enqueue(&token, &poll).await.unwrap();
+        broker.retire(&token, true).await.unwrap();
+        drop(broker);
+        let broker = Broker::new(journal.clone());
+        let other = broker
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let item = json!({"turn_id":"original-native-turn","item":{"id":id,"type":"commandExecution","processId":"56351","status":"failed","exitCode":2}});
+        for fault in [
+            "other_owner",
+            "other_call",
+            "other_session",
+            "active",
+            "missing_exit",
+            "unknown_exit",
+            "timeout_exit",
+        ] {
+            let mut observed = item.clone();
+            match fault {
+                "other_owner" => {}
+                "other_call" => observed["item"]["id"] = json!("unrelated"),
+                "other_session" => observed["item"]["processId"] = json!("56352"),
+                "active" => observed["item"]["status"] = json!("inProgress"),
+                "missing_exit" => observed["item"]["exitCode"] = Value::Null,
+                "unknown_exit" => observed["item"]["exitCode"] = json!(-1),
+                "timeout_exit" => observed["item"]["exitCode"] = json!(124),
+                _ => unreachable!(),
+            }
+            broker
+                .settle_native_processes(
+                    &[if fault == "other_owner" {
+                        "other"
+                    } else {
+                        "original"
+                    }],
+                    &root,
+                    &[observed],
+                )
+                .await
+                .unwrap();
+            assert!(
+                broker.has_pending_processes(&["original"]).unwrap(),
+                "{fault}"
+            );
+            assert_eq!(
+                broker
+                    .admit_external_tool(
+                        "other",
+                        "blocked",
+                        "functions.exec_command",
+                        &exec.input,
+                        &root
+                    )
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+        }
+        broker
+            .settle_native_processes(&["original"], &root, std::slice::from_ref(&item))
+            .await
+            .unwrap();
+        assert!(!broker.has_pending_processes(&["original"]).unwrap());
+        broker
+            .settle_native_processes(&["original"], &root, &[item])
+            .await
+            .unwrap();
+        let original_turn: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            original_turn.calls["start"].result,
+            Some(original),
+            "the real running-tool reply is unchanged"
+        );
+        assert!(!broker
+            .recorded_calls(&token)
+            .unwrap()
+            .iter()
+            .find(|call| call["id"] != id)
+            .unwrap()["offered"]
+            .as_bool()
+            .unwrap());
+        let next = accepted(&broker, &other, &exec).await;
+        broker
+            .settle(
+                &other,
+                &[(next, json!({"output":"Process exited with code 0"}))],
+            )
+            .await
+            .unwrap();
+        // LocalFunction reserves the same Native effect without an MCP token.
+        // Its Native item carries the original call id, not the reservation id.
+        broker
+            .admit_external_tool(
+                "local-function",
+                "native-call",
+                &exec.name,
+                &exec.input,
+                &root,
+            )
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "local-function",
+                &[(
+                    "native-call".into(),
+                    json!({"output":"Process running with session ID 56351"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let local_item = json!({"item":{"id":"native-call","type":"commandExecution","processId":"56351","status":"completed","exitCode":0}});
+        broker
+            .settle_native_processes(&["other"], &root, std::slice::from_ref(&local_item))
+            .await
+            .unwrap();
+        assert!(broker.has_pending_processes(&["local-function"]).unwrap());
+        broker
+            .settle_native_processes(&["local-function"], &root, &[local_item])
+            .await
+            .unwrap();
+        assert!(!broker.has_pending_processes(&["local-function"]).unwrap());
+        broker
+            .admit_external_tool("other", "after-local-exit", &exec.name, &exec.input, &root)
+            .await
+            .unwrap();
+        broker
+            .settle_external_tools(
+                "other",
+                &[(
+                    "after-local-exit".into(),
+                    json!({"output":"Process exited with code 0"}),
+                )],
+            )
+            .await
+            .unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

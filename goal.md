@@ -11,10 +11,20 @@ Native Full Access edit/build/continuation, actual GPT-6 Guardian review and a
 normal follow-up. Synthetic Native tests cover deny/failure enforcement and
 Provider reconnect. Ordinary successful commands are not proof of model review.
 Keep both per-work policies; no operational default change or failure fallback.
-Real model denial quality, live target-loss recovery, universal model/entrance
-coverage and signed publication remain open. See CURRENT for exact evidence.
+An actual Guardian scope-denial case failed; diagnose its input/decision/admission
+boundaries separately. Live target-loss recovery, universal model/entrance coverage
+and signed publication remain open. See CURRENT for exact evidence.
 
-Next implementation: PRO_HANDOFF6.2 packages1/2. Distinguish physical observation,
+Current implementation: PRO_HANDOFF6.2 packages1/2. Request settlement has
+a working diff, behavioral mutation checks and actual Android Native/TUI recovery
+proof with synthetic Chat. The current Provider source/build gate passes;
+real-app recovery, historical-work settlement and deployment remain open.
+Automatic Native-created-work/TUI owner selection still fails; explicit upstream
+remote connection to the original owner passes. Fix the Termux connection choice
+without a second writer. The historical global process reservation has an unknown
+exit-1 outcome and remains protected; do not claim it already reconciled.
+
+Remaining acceptance: Distinguish physical observation,
 tool handoff, app inference and Native completion; reconcile original requests
 and known results so steering/empty/timeout failures do not permanently block
 safe same-work continuation. Verify TUI drafts/fork and same-Provider TUI↔Chat

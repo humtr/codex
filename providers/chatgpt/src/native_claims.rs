@@ -289,17 +289,17 @@ pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
 }
 
 impl Guard {
-    /// Called only after the authoritative Native thread reports a confirmed
-    /// Stop, idle/systemError and no owned background terminals. Release only
-    /// session IDs previously observed on this same thread; unknown effects
-    /// and other Native threads retain their reservations.
-    pub(crate) fn release_stopped_sessions(
+    /// The authoritative Native owner has confirmed termination: either a
+    /// matching terminal command item or Stop with no owned background jobs.
+    /// Release only the original session IDs on this same thread; unknown
+    /// effects and other Native threads retain their reservations.
+    pub(crate) fn release_observed_processes(
         cwd: &Path,
         private_test_home: Option<&Path>,
         thread: &str,
-        sessions: &std::collections::BTreeSet<u64>,
+        processes: &BTreeMap<String, u64>,
     ) -> Result<(), String> {
-        if sessions.is_empty() {
+        if processes.is_empty() {
             return Ok(());
         }
         let ledger = match private_test_home {
@@ -308,9 +308,15 @@ impl Guard {
         };
         ledger.transact(|state| {
             let before = state.claims.len();
-            state.claims.retain(|_, held| {
-                !(held.thread == thread && held.session.is_some_and(|id| sessions.contains(&id)))
-            });
+            for (call, session) in processes {
+                let identity = format!("{thread}:{call}");
+                if let Some(held) = state.claims.get(&identity) {
+                    if held.thread != thread || held.session != Some(*session) {
+                        return Err("native_effect_identity_changed".into());
+                    }
+                    state.claims.remove(&identity);
+                }
+            }
             Ok(((), state.claims.len() != before))
         })
     }
@@ -921,27 +927,27 @@ mod tests {
             .unwrap();
         let blocked = || apply(&cwd, &home, "other-thread", "patch", "a");
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_stopped_sessions(
+        Guard::release_observed_processes(
             &cwd,
             Some(&home),
             "other-thread",
-            &[83].into_iter().collect(),
+            &[("exec".into(), 83)].into_iter().collect(),
         )
         .unwrap();
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_stopped_sessions(
+        Guard::release_observed_processes(
             &cwd,
             Some(&home),
             "stopped-thread",
-            &[84].into_iter().collect(),
+            &[("other-call".into(), 83)].into_iter().collect(),
         )
         .unwrap();
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_stopped_sessions(
+        Guard::release_observed_processes(
             &cwd,
             Some(&home),
             "stopped-thread",
-            &[83].into_iter().collect(),
+            &[("exec".into(), 83)].into_iter().collect(),
         )
         .unwrap();
         assert!(blocked().is_ok());

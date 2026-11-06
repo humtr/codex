@@ -143,7 +143,7 @@ async function termuxCodexBridge(command) {
           options[event] = update => {
             let message = update?.update?.message ?? update?.message;
             if (message?.message) message = message.message;
-            if (lane.epoch === epoch && message?.id && message.author && !lane.older.has(message.id)) lane.messages.set(message.id,message);
+            if (lane.epoch === epoch && lane.streamSerial === serial && message?.id && message.author && !lane.older.has(message.id)) lane.messages.set(message.id,message);
             return previous?.(update);
           };
         }

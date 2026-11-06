@@ -51,6 +51,8 @@ struct Settlement {
     received: Vec<(String, Value)>,
     catalog: Option<BTreeMap<String, Tool>>,
     #[serde(default)]
+    native_input: Vec<Value>,
+    #[serde(default)]
     prepared: bool,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -92,10 +94,16 @@ async fn settle_round(
     // Broker commit succeeded but the lane commit/reply was lost. Never submit
     // to the app or dispatch native effects while reconciling this intent.
     let result = broker
-        .settle_prepared(&token, &intent.received, intent.catalog.clone(), || {
-            lane.settlement.as_mut().unwrap().prepared = true;
-            journal.write(key, &*lane)
-        })
+        .settle_prepared(
+            &token,
+            &intent.received,
+            intent.catalog.clone(),
+            &intent.native_input,
+            || {
+                lane.settlement.as_mut().unwrap().prepared = true;
+                journal.write(key, &*lane)
+            },
+        )
         .await;
     if let Err(error) = result {
         if !lane.settlement.as_ref().unwrap().prepared {
@@ -355,6 +363,7 @@ impl Bridge for McpBridge {
                 if command["messages"]
                     .as_array()
                     .is_some_and(|v| !v.is_empty())
+                    && command["results"].as_array().is_none_or(Vec::is_empty)
                 {
                     return Err(Error("mcp_pending_new_input"));
                 }
@@ -418,6 +427,14 @@ impl Bridge for McpBridge {
                         .clone()
                 } else if let Some(lane) = lanes.get(&marker) {
                     lane.clone()
+                } else if op == "stop" {
+                    // Restore correlation to fence/observe the original lane,
+                    // never an old execution lease or a new model submission.
+                    let recorded: Lane =
+                        journal.read(&key)?.ok_or(Error("mcp_owner_unavailable"))?;
+                    let lane = Arc::new(Mutex::new(recorded));
+                    lanes.insert(marker.clone(), lane.clone());
+                    lane
                 } else if op == "release" {
                     return remote.operation(command).await;
                 } else {
@@ -496,7 +513,7 @@ impl Bridge for McpBridge {
                 let messages = command["messages"].as_array().cloned().unwrap_or_default();
                 let results = command["results"].as_array().cloned().unwrap_or_default();
                 if lane.token.is_some() && !lane.complete {
-                    if !messages.is_empty() {
+                    if !messages.is_empty() && results.is_empty() {
                         return Err(Error("mcp_pending_new_input"));
                     }
                     if changed_policy(&lane, &command) {
@@ -536,6 +553,7 @@ impl Bridge for McpBridge {
                         submission: digest(&command),
                         received,
                         catalog,
+                        native_input: messages,
                         prepared: false,
                     });
                     // Keep memory fenced too if the durable write outcome is
@@ -619,6 +637,7 @@ impl Bridge for McpBridge {
             if snapshot["round"] == lane.real_round && snapshot["stopped"] == true {
                 observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
+                snapshot["stopped_lane"] = json!(true);
                 return Ok(snapshot);
             }
             let mut source_validated = false;
@@ -689,6 +708,7 @@ impl Bridge for McpBridge {
             if snapshot["stopped"] == true {
                 observe_stopped_round(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
+                snapshot["stopped_lane"] = json!(true);
                 return Ok(snapshot);
             }
             let token = lane
@@ -794,7 +814,7 @@ impl Bridge for McpBridge {
                 for call in &lane.offered {
                     visible.push(json!({"id":call["id"],"author":{"role":"assistant"},"recipient":format!("local.{}",lane.gateway),"content":{"content_type":"code","text":json!({"kwargs":{"name":call["name"],"input":call["input"],"report":call["report"]}}).to_string()},"status":"finished_successfully","end_turn":false}));
                 }
-                snapshot["terminals"] = json!(["done"]);
+                snapshot["native_tool_handoff"] = json!(true);
             } else if !snapshot["error"].is_string() && snapshot["terminals"] == json!(["done"]) {
                 if let Some((source, _)) = lane.source.as_ref().filter(|_| !lane.complete) {
                     let final_id = raw
@@ -903,6 +923,7 @@ mod tests {
                 )],
                 catalog: None,
                 prepared: false,
+                native_input: Vec::new(),
             }),
             ..Lane::default()
         };
@@ -961,6 +982,48 @@ mod tests {
                 Err(Error("mcp_turn_unavailable"))
             );
         }
+    }
+
+    #[tokio::test]
+    async fn cold_stop_recovers_lane_scope_without_restoring_execution_or_losing_results() {
+        struct Stopped;
+        impl Bridge for Stopped {
+            fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                Box::pin(async move {
+                    match command["op"].as_str().unwrap() {
+                        "stop" => Ok(json!({"requested":true})),
+                        "snapshot" => Ok(json!({"round":"physical-app-round","stopped":true})),
+                        _ => panic!("Stop recovery may not submit inference or execute tools"),
+                    }
+                })
+            }
+        }
+        let (_root, journal, broker, mut lane) = pending_settlement().await;
+        lane.settlement = None;
+        let token = lane.token.clone().unwrap();
+        journal
+            .write(&digest(&("mcp-lane-v1", "owned-native-thread")), &lane)
+            .unwrap();
+        drop(broker);
+        let broker = Broker::new(journal.clone());
+        let bridge =
+            McpBridge::new(Arc::new(Stopped), broker.clone(), journal, "Owned".into()).unwrap();
+        bridge
+            .operation(json!({"op":"stop","lane":"owned-native-thread"}))
+            .await
+            .unwrap();
+        let state = bridge
+            .operation(json!({"op":"snapshot","lane":"owned-native-thread"}))
+            .await
+            .unwrap();
+        assert_eq!(state["stopped_lane"], true);
+        assert_eq!(state["round"], "original-round");
+        assert_eq!(
+            broker.catalog(&token).await,
+            Err(Error("mcp_turn_unavailable"))
+        );
+        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], false);
+        assert_eq!(bridge.admit_submission(json!({"lane":"owned-native-thread","messages":[{"role":"user","text":"new input"}],"results":[]})).await,Err(Error("mcp_pending_new_input")));
     }
 
     #[tokio::test]

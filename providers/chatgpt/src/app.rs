@@ -109,9 +109,18 @@ impl Remote {
 impl Bridge for Remote {
     fn cdp_client(&self) -> BoxFuture<'static, Result<Client, Error>> {
         let source = self.source.clone();
+        let connection = self.connection.clone();
         Box::pin(async move {
             match source {
-                Source::Relay(_) => Err(Error("provider_owned_desktop_required")),
+                Source::Relay(path) => {
+                    let generation = Descriptor::read(&path)?.generation();
+                    let connection = connection.lock().await;
+                    let current = connection.as_ref().ok_or(Error("host_not_acquired"))?;
+                    if current.generation != generation {
+                        return Err(Error("desktop_generation_changed"));
+                    }
+                    Ok(current.app.client.clone())
+                }
                 Source::Pipe(client) => Ok(client),
             }
         })
@@ -747,6 +756,7 @@ pub fn inspect_lane(root: &std::path::Path, thread: &str) -> Result<Value, Error
     Ok(
         json!({"schema":"termux-codex-provider-lane-status-v1","thread":thread,
         "phase":lane.phase,"meaning":meaning,"observation":"last_private_journal",
+        "input_ready":matches!(lane.phase, Phase::New | Phase::Opening | Phase::Idle | Phase::Stopped) && lane.pending.is_empty(),
         "pending_native_calls":lane.pending.len(),"public_event_count":lane.cached.len(),"conversation_id":lane.conversation_id,"previous_chats":lane.previous_chats,
         "host_block":lane.host_block,"host_action_reply_objects":lane.host_reply_messages,"app_dispatches":lane.dispatches,"user_role_objects":lane.user_messages,
         "tool_return_objects":lane.tool_messages,"last_error":lane.last_error.as_deref()
@@ -1466,7 +1476,7 @@ impl AppHost {
                         .operation(json!({"op":"snapshot","lane":lane.marker}))
                         .await
                     {
-                        if state["round"] == lane.round
+                        if (state["round"] == lane.round || state["stopped_lane"] == true && state["stopped"] == true)
                             && state["pending"] == false
                             && state["streamActive"] == false
                             && state["approvalPending"] != true
@@ -1754,6 +1764,22 @@ struct LaneServices<'a> {
     bridge: &'a dyn Bridge,
     journal: &'a Journal,
 }
+// Native's original result is known independently of the model's next answer.
+// Call this only after the transport confirms admission of this exact input.
+fn accept_input(lane: &mut Lane, request: &Request) -> Result<(), Error> {
+    for call in &lane.pending {
+        let value = request
+            .results()
+            .find(|(id, _)| *id == call.id)
+            .ok_or(Error("native_tool_result_missing"))?
+            .1;
+        lane.confirmed
+            .insert(call.id.clone(), context::digest(value));
+    }
+    lane.pending.clear();
+    lane.prefix.accept(request, &[]);
+    Ok(())
+}
 async fn exchange(
     services: LaneServices<'_>,
     key: &str,
@@ -1777,10 +1803,10 @@ async fn exchange(
                 .await
                 .map_err(|_| Error("native_observer_closed"))?;
         }
-        return if lane.last_error.as_deref() == Some("bound_chat_turn_interrupted") {
-            Err(Error("bound_chat_turn_interrupted"))
-        } else {
-            Ok(())
+        return match lane.last_error.as_deref() {
+            Some("bound_chat_turn_interrupted") => Err(Error("bound_chat_turn_interrupted")),
+            Some("empty_app_round") => Err(Error("empty_app_round")),
+            _ => Ok(()),
         };
     }
     if lane.phase == Phase::CancelRequested {
@@ -2111,6 +2137,11 @@ async fn exchange(
         command["op"] = json!("submit");
         command["round"] = json!(lane.round);
         let result = bridge.operation(command).await;
+        if let Ok(reply) = &result {
+            if reply["retained_mcp_return"] == true {
+                accept_input(lane, request)?;
+            }
+        }
         if result.is_err() {
             // Snapshot the same app round below. Do not replay submit after a
             // lost evaluate reply; it may already have sent the model request.
@@ -2309,8 +2340,10 @@ async fn exchange(
             journal.write(key, lane)?;
             return Err(Error("bound_chat_turn_interrupted"));
         }
-        if !state["terminals"].as_array().is_some_and(|v| v.is_empty()) {
-            if state["terminals"] != json!(["done"]) || !valid_dispatches(&state) {
+        let handoff = state["native_tool_handoff"] == true;
+        if handoff || !state["terminals"].as_array().is_some_and(|v| v.is_empty()) {
+            let terminal = if handoff { json!([]) } else { json!(["done"]) };
+            if state["terminals"] != terminal || !valid_dispatches(&state) {
                 lane.phase = Phase::Unknown;
                 journal.write(key, lane)?;
                 return Err(Error("app_round_incomplete"));
@@ -2435,7 +2468,10 @@ async fn exchange(
             if request.compaction.is_some() && !calls.is_empty() {
                 return Err(Error("compaction_must_not_call_tools"));
             }
+            accept_input(lane, request)?;
             if !final_seen && calls.is_empty() {
+                lane.phase = Phase::Idle;
+                journal.write(key, lane)?;
                 return Err(Error("empty_app_round"));
             }
             let ids = calls
@@ -2467,15 +2503,6 @@ async fn exchange(
                 .collect::<Vec<_>>();
             for call in &calls {
                 lane.cached.push(Event::Tool(call.clone()));
-            }
-            for call in &lane.pending {
-                let value = request
-                    .results()
-                    .find(|(id, _)| *id == call.id)
-                    .ok_or(Error("native_tool_result_missing"))?
-                    .1;
-                lane.confirmed
-                    .insert(call.id.clone(), context::digest(value));
             }
             lane.pending = calls;
             let checkpoint_event = if request.compaction.is_some() {
@@ -2586,7 +2613,9 @@ async fn stop_lane(
             if state["round"] == lane.round {
                 observe_counts(journal, key, lane, &state)?;
             }
-            if (state["round"] == lane.round || lane.round.is_empty() && state["round"].is_null())
+            if (state["round"] == lane.round
+                || lane.round.is_empty() && state["round"].is_null()
+                || state["stopped_lane"] == true)
                 && state["stopped"] == true
             {
                 lane.phase = Phase::Stopped;

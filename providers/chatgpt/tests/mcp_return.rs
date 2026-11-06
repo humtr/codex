@@ -324,6 +324,7 @@ struct AppState {
     results: Vec<Value>,
     return_only: bool,
     continued_final: Option<bool>,
+    empty_final: bool,
 }
 struct App {
     state: Arc<Mutex<AppState>>,
@@ -458,8 +459,11 @@ impl Bridge for App {
                             app.lock().unwrap().results.push(third);
                         }
                         let mut data = app.lock().unwrap();
+                        let empty_final = data.empty_final;
                         let lane = data.lanes.get_mut(&marker).unwrap();
-                        if let Some(append) = continued_final {
+                        if empty_final {
+                            lane["messages"] = json!([]);
+                        } else if let Some(append) = continued_final {
                             lane["messages"][0]["content"]["parts"] = json!([if append {
                                 "Overview.\nProject created.\nChecks passed."
                             } else {
@@ -626,6 +630,127 @@ async fn a_public_message_spanning_mcp_returns_preserves_history_and_its_complet
         server.abort();
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn native_steering_and_empty_completion_preserve_original_mcp_returns_and_continuation() {
+    for empty_final in [false, true] {
+        let root = Root::new();
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let broker = Broker::new(journal.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = broker.clone().router();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let state = Arc::new(Mutex::new(AppState {
+            empty_final,
+            ..AppState::default()
+        }));
+        let host = AppHost::new(
+            Arc::new(
+                McpBridge::new(
+                    Arc::new(App {
+                        state: state.clone(),
+                        address,
+                        native: false,
+                        hold: false,
+                    }),
+                    broker,
+                    journal.clone(),
+                    "My Owned Connector".into(),
+                )
+                .unwrap(),
+            ),
+            journal,
+        );
+        let mut body = request();
+        for round in 0..2 {
+            let (result, events) = run(&host, body.clone()).await;
+            result.unwrap();
+            body["input"]
+                .as_array_mut()
+                .unwrap()
+                .extend(native_output(&events));
+            let calls = events
+                .iter()
+                .filter_map(|event| {
+                    if let Event::Tool(call) = event {
+                        Some(call)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            // The test's Native consumer executes each offered action once.
+            // MCP must return that exact result, irrespective of later output.
+            let count = root.0.join(format!("effect-{round}"));
+            std::fs::write(&count, "one execution\n").unwrap();
+            body["input"].as_array_mut().unwrap().push(json!({
+                "type":if calls[0].tool.name=="exec" {"function_call_output"} else {"custom_tool_call_output"},
+                "call_id":calls[0].id,"output":format!("original result {round}")
+            }));
+            if round == 0 && !empty_final {
+                body["input"].as_array_mut().unwrap().push(json!({"role":"user","content":"Keep the original work and include this accepted steering input"}));
+            }
+        }
+        let (result, events) = run(&host, body.clone()).await;
+        if empty_final {
+            assert_eq!(result, Err(Error("empty_app_round")));
+            let status =
+                codex_chatgpt_provider::app::inspect_lane(&root.0, "owned-mcp-native-thread")
+                    .unwrap();
+            assert_eq!(
+                status["phase"], "idle",
+                "a confirmed empty completion is settled, not uncertain"
+            );
+            assert_eq!(
+                status["pending_native_calls"], 0,
+                "the original Native return already reached MCP"
+            );
+            assert_eq!(
+                run(&host, body.clone()).await.0,
+                Err(Error("empty_app_round")),
+                "exact observation retry preserves the original outcome"
+            );
+            state.lock().unwrap().return_only = true;
+            body["input"].as_array_mut().unwrap().push(json!({"role":"user","content":"Native continuation verified; continue this same work"}));
+            let (continued, events) = run(&host, body).await;
+            continued.unwrap();
+            assert!(native_output(&events)
+                .iter()
+                .any(|item| item["phase"] == "final_answer"));
+        } else {
+            result.unwrap();
+            assert!(native_output(&events)
+                .iter()
+                .any(|item| item["phase"] == "final_answer"));
+        }
+        let app = state.lock().unwrap();
+        assert_eq!(app.results.len(), 2);
+        if !empty_final {
+            assert_eq!(app.results[0]["result"]["output"], "original result 0");
+            assert_eq!(app.results[0]["native_input"][0]["role"], "user");
+            assert!(app.results[0]["native_input"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("accepted steering"));
+        }
+        assert_eq!(
+            app.commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            if empty_final { 2 } else { 1 }
+        );
+        for round in 0..2 {
+            assert_eq!(
+                std::fs::read_to_string(root.0.join(format!("effect-{round}"))).unwrap(),
+                "one execution\n"
+            );
+        }
+        server.abort();
+    }
+}
+
 #[tokio::test]
 async fn actual_host_confirmation_stream_end_keeps_catalog_capability_until_real_completion() {
     let root = Root::new();
@@ -979,6 +1104,7 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
     let returned = json!({"op":"submit","lane":"first-lane","round":"return","policyDigest":"native-policy","hostToolsDigest":"same-host-capabilities","model":"owned-model","thinkingEffort":"none","messages":[],"instructions":[],"results":[{"id":offered[0],"result":{"output":"done"}}]});
     let mut changed = returned.clone();
     changed["messages"] = json!([{"role":"user","text":"new request must wait"}]);
+    changed["results"] = json!([]);
     assert_eq!(
         bridge.admit_submission(changed.clone()).await,
         Err(Error("mcp_pending_new_input"))

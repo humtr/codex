@@ -94,6 +94,16 @@ impl Bridge for Synthetic {
                     .path
                     .parent()
                     .unwrap()
+                    .join("preparation-timeout")
+                    .exists() =>
+            {
+                return Box::pin(async { Err(Error("cdp_operation_timeout")) });
+            }
+            "identity"
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
                     .join("review-target-unavailable")
                     .exists() =>
             {
@@ -283,7 +293,9 @@ impl Bridge for Synthetic {
                     .unwrap()
                     .join("hold-adapter-final")
                     .exists();
-                let messages = if self
+                let messages = if self.path.parent().unwrap().join("empty-final").exists() {
+                    json!([])
+                } else if self
                     .path
                     .parent()
                     .unwrap()
