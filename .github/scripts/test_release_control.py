@@ -196,8 +196,21 @@ class ReleaseControlTests(unittest.TestCase):
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
 
+    def test_focused_native_success_is_never_full_qualification_or_inflight_publication(self):
+        sha = 'a' * 40
+        run = {'path': '.github/workflows/manager-tui-native.yml', 'head_sha': sha,
+               'head_branch': control.SOURCE_BRANCH, 'event': 'workflow_dispatch',
+               'repository': {'full_name': control.REPO}, 'status': 'completed',
+               'conclusion': 'success', 'display_title': 'Manager TUI native qualification'}
+        self.assertTrue(control.accepted_run(run, 'manager-tui-native.yml', sha))
+        for title in [None, 'Focused Native native-api', 'Focused Native frontend-compatibility']:
+            partial = {**run, 'display_title': title}
+            self.assertFalse(control.accepted_run(partial, 'manager-tui-native.yml', sha))
+            with patch.object(control, 'frontend_recipe_matches', return_value=True):
+                self.assertFalse(control.native_build_inflight(Path('/owned'), [{**partial, 'status': 'in_progress'}]))
+
     def test_matching_inflight_native_build_is_reused_without_duplicate_dispatch(self):
-        run={'path':'.github/workflows/manager-tui-native.yml','head_sha':'a'*40,
+        run={'display_title':'Manager TUI native qualification','path':'.github/workflows/manager-tui-native.yml','head_sha':'a'*40,
              'head_branch':'rewrite/rust-core','event':'push','status':'in_progress',
              'conclusion':None,'repository':{'full_name':'humtr/codex'}}
         with patch.object(control,'frontend_recipe_matches',return_value=True):

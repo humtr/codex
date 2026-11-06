@@ -1,7 +1,17 @@
 name: Manager TUI native qualification
+run-name: ${{ inputs.scope == 'full' && 'Manager TUI native qualification' || format('Focused Native {0}', inputs.scope) }}
 on:
   workflow_dispatch:
     inputs:
+      scope:
+        description: Full qualification or only the outstanding API/frontend compatibility checks
+        type: choice
+        options: [full, native-api, frontend-compatibility]
+        default: full
+      frontend_run:
+        description: Identified frontend build run for frontend-compatibility; production inputs must match
+        type: string
+        default: ''
       mutation_check:
         description: Verify catalog and local-provider login regressions with disposable source faults
         type: boolean
@@ -12,12 +22,13 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: manager-tui-native
   cancel-in-progress: false
 jobs:
   upstream-baseline:
-    name: Build and test native switch selection
+    name: ${{ inputs.scope == 'full' && 'Build and test native switch selection' || format('Focused native {0}', inputs.scope) }}
     runs-on: ubuntu-24.04-arm
     # Baseline plus four independent TUI mutation rebuilds and restored-source gates.
     timeout-minutes: 120
@@ -32,6 +43,18 @@ jobs:
       CARGO_BUILD_JOBS: '3'
       CODEX_PROFILE_CORE: ''
     steps:
+      - name: Validate qualification selection
+        shell: bash
+        env:
+          SCOPE: ${{ inputs.scope }}
+          MUTATION: ${{ inputs.mutation_check }}
+          NATIVE_MUTATION: ${{ inputs.native_transition_mutation_check }}
+        run: |
+          set -euo pipefail
+          if [ "$SCOPE" != full ] && { [ "$MUTATION" = true ] || [ "$NATIVE_MUTATION" = true ]; }; then
+            echo 'Mutation options require full qualification' >&2
+            exit 2
+          fi
       - name: Fetch exact frontend authority
         shell: bash
         run: |
@@ -177,7 +200,32 @@ jobs:
           done
           tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C "$CODEX_APP_SERVER_SCHEMA_ROOT" .
           diff -rq codex-rs/app-server-protocol/schema "$CODEX_APP_SERVER_SCHEMA_ROOT" | tee "$RUNNER_TEMP/native-provider-schema-diff.log"
+      - name: Reuse identified frontend for compatibility checks
+        if: inputs.scope == 'frontend-compatibility'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FRONTEND_RUN: ${{ inputs.frontend_run }}
+        run: |
+          set -euo pipefail
+          [[ "$FRONTEND_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FRONTEND_RUN" > "$RUNNER_TEMP/frontend-run.json"
+          gh run download "$FRONTEND_RUN" --repo "$GITHUB_REPOSITORY" -n manager-tui-native -D "$RUNNER_TEMP/frontend-baseline"
+          python3 - <<'PYTHON'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('experiment/frontend/manager-tui').resolve()))
+          from check_upstream_features import reusable_frontend
+          root = Path(os.environ['RUNNER_TEMP'])
+          binary = reusable_frontend(root/'frontend-baseline', root/'profile-tui-formatted.patch',
+              json.loads((root/'frontend-run.json').read_text()), os.environ['GITHUB_REPOSITORY'],
+              os.environ['UPSTREAM_SHA'], os.environ['UPSTREAM_VERSION'])
+          binary.chmod(0o700)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'CODEX_QUALIFICATION_CLI={binary}\n')
+          PYTHON
       - name: Build actual patched CLI with pinned external dependencies
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -185,6 +233,7 @@ jobs:
           cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
           git diff --check
       - name: Execute and identify native frontend
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -213,6 +262,7 @@ jobs:
           printf 'upstream_sha=%s\nsource_sha=%s\ntarget=aarch64-unknown-linux-musl\nprofile=release opt-level=z codegen-units=1 strip=symbols\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
       - name: Upload unsigned frontend candidate
+        if: inputs.scope == 'full'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: manager-tui-native
@@ -221,6 +271,7 @@ jobs:
           retention-days: 3
           compression-level: 1
       - name: Prepare bounded nonowner ownership fixture
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -234,6 +285,7 @@ jobs:
           sudo chown 0 "$fixture"
           echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
       - name: Focused actual native TUI regressions
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -241,6 +293,7 @@ jobs:
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(termux_clipboard) | test(clipboard_copy) | test(copy_export_picker) | test(copy_mode) | test(copy_picker) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag) | test(provider_presentation) | test(side_fork_uses_one_request_for_long_paginated_history) | test(absolute_time_uses_child_timezone) | test(bound_chat_synchronization) | test(active_chat_provider_steer) | test(image_preparation) | test(image_submission_is_portable)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Verify owner and model admission regressions detect their independent faults
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -293,7 +346,8 @@ jobs:
           cmp "$auth_original" "$auth_source"
           cmp "$mask_original" "$mask_source"
           trap - EXIT
-      - name: Verify Native per-thread provider transitions
+      - name: Verify Native inference and configuration libraries
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -306,17 +360,33 @@ jobs:
           done
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib -E 'test(provider_tests)' 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
+          python3 - <<'PYTHON'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/manager-tui'))
+          from check_command_boundary import nonzero_tests
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config']:
+              nonzero_tests((root / f'native-provider-{name}.log').read_text())
+          PYTHON
+      - name: Verify Native provider API
+        if: inputs.scope != 'frontend-compatibility'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          mkdir -p "$RUNNER_TEMP/native-interface-sockets"
+          exec 35<"$RUNNER_TEMP/native-interface-sockets"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
           python3 - <<'PYTHON'
-          import os, re
+          import os, sys
           from pathlib import Path
+          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/manager-tui'))
+          from check_command_boundary import nonzero_tests
           root = Path(os.environ['RUNNER_TEMP'])
-          for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config', 'api', 'initialize']:
-              text = (root / f'native-provider-{name}.log').read_text()
-              text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
-              summary = re.search(r'Summary\s*\[[^\]]+\]\s*([1-9][0-9]*) tests? run: ([1-9][0-9]*) passed(?:, [0-9]+ skipped)?\s*$', text)
-              assert summary and summary[1] == summary[2], name + ': required tests did not pass'
+          for name in ['api', 'initialize']:
+              nonzero_tests((root / f'native-provider-{name}.log').read_text())
           PYTHON
       - name: Verify destination catalog regression
         id: native-catalog-mutation
@@ -523,6 +593,7 @@ jobs:
           cmp "$original" "$source"
           trap - EXIT
       - name: Qualify retained upstream 0.162 features
+        if: inputs.scope != 'native-api'
         shell: bash
         run: |
           set -euo pipefail
@@ -549,10 +620,11 @@ jobs:
           (root / 'codex-code-mode-host').chmod(0o755)
           PYTHON
           "$host/codex-code-mode-host" --help > "$host/help.txt"
-          export CARGO_BIN_EXE_codex="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
+          export CARGO_BIN_EXE_codex="${CODEX_QUALIFICATION_CLI:-$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex}"
           export CARGO_BIN_EXE_codex_code_mode_host="$host/codex-code-mode-host"
           PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
+        if: inputs.scope != 'native-api'
         shell: bash
         run: |
           set -euo pipefail

@@ -1,5 +1,6 @@
 """Qualify the 0.162 feature surfaces retained by the 0.163 upgrade."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -32,6 +33,38 @@ SUITES = {
         "mixed-endings": "test_apply_patch_cli_preserves_untouched_mixed_line_endings",
     }),
 }
+
+
+def reusable_frontend(artifact, current_patch, metadata, repository, upstream, version):
+    """Reuse an identified executable only with identical prepared production inputs."""
+    fields = dict(line.split('=', 1) for line in (artifact / 'source.txt').read_text().splitlines())
+    if (metadata['repository']['full_name'] != repository or
+            metadata['head_repository']['full_name'] != repository or
+            metadata['path'] != '.github/workflows/manager-tui-native.yml' or
+            metadata['status'] != 'completed' or metadata['head_sha'] != fields['source_sha'] or
+            fields['upstream_sha'] != upstream or fields['target'] != 'aarch64-unknown-linux-musl' or
+            fields['profile'] != 'release opt-level=z codegen-units=1 strip=symbols' or
+            (artifact / 'version.txt').read_text() != f'codex-cli {version}\n'):
+        raise ValueError('frontend build identity does not match the qualification')
+    def production(patch):
+        result = []
+        for section in re.split(r'(?m)(?=^diff --git )', patch):
+            if not section:
+                continue
+            match = re.match(r'diff --git a/(\S+) b/\1\n', section)
+            if match is None:
+                raise ValueError('unrecognized prepared source diff')
+            if not match[1].startswith('codex-rs/app-server/tests/'):
+                result.append(section)
+        return ''.join(result)
+    if production((artifact / 'native.patch').read_text()) != production(current_patch.read_text()):
+        raise ValueError('prepared production inputs changed; build the new frontend')
+    binary = artifact / 'codex'
+    with binary.open('rb') as source:
+        actual = hashlib.file_digest(source, 'sha256').hexdigest()
+    if actual != (artifact / 'sha256.txt').read_text().split()[0]:
+        raise ValueError('frontend executable differs from its build output')
+    return binary
 
 
 def verify(logs):

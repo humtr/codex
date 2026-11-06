@@ -2331,6 +2331,16 @@ Remote, embedded and unqualified backends retain account-read policy. Existing
 login controls remain available. This changes the local startup UI decision,
 without fabricated accounts, credential copies or weaker request authentication.
 
+Native qualification defaults to the complete build/test/compatibility/lint gate.
+Explicit native-api or frontend-compatibility runs qualify only their named
+scope and never satisfy full frontend publication or its in-flight proof. A
+compatibility-only run may execute a prior identified frontend only when the
+owned workflow/run metadata, upstream, target, build settings and executable
+bytes match, and the complete prepared production diff is unchanged. App-server
+integration-test sources are the permitted difference; changed production input
+requires a new build. Keep this proof scoped rather than replaying accepted
+builds and regressions or presenting a partial green run as full acceptance.
+
 The current frontend qualification patch includes upstream Config source
 preservation as well as TUI code. Artifact evidence must retain both; format/lint
 comparison must cover the actual qualified source inventory. Additional Native

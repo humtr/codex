@@ -58,6 +58,10 @@ def api(path, *, payload=None, method=None):
 
 
 def owned_run(run, workflow, sha):
+    if workflow == 'manager-tui-native.yml':
+        title = run.get('display_title')
+        if not isinstance(title, str) or title.startswith('Focused Native '):
+            return False
     expected={'path':'.github/workflows/'+workflow,'head_sha':sha,'head_branch':SOURCE_BRANCH}
     return (all(run.get(k)==value for k,value in expected.items())
             and run.get('event') in ['push','workflow_dispatch']

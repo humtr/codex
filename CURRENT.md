@@ -590,6 +590,28 @@ fault/API/lint gates remain pending. Broader transitions/compaction,
 picker/alias context rebinding, Guardian scope denial and signed activation are
 still separate unfinished boundaries. No operating runtime is replaced here.
 
+The ca4b852 Core/Manager with the identified frontend also passes actual active
+Steer/queue-edit/cancel on one Native turn (01a1b1fa-c86d-78d1-a055-8f76fc94299a),
+and empty-final/preparation-timeout recovery plus explicit fork without changing
+parent history (work841a1a96efafc3a91478e26ce882400a467269c2d2dc0579,
+thread01a1b1fd-deb6-7003-83ff-11f4b8fedd55;
+fork91fcb15342a093fc41d5d18dfe17d8798f9bff7b9a0a598f /
+01a1b1fd-f2b1-7ce2-9312-a6d74329e34c). These controlled app replies use zero real
+model requests; the operating Core/TUI remain unchanged.
+
+Hosted sourcefa96fe6 workflow42256849301 passes147 actual Native TUI regressions
+and all four independent injected faults fail their intended assertions. Core
+model-provider1, compaction113, Guardian148, client33 and config15 also pass.
+The API integration target then fails compilation at three inherited test URI
+arguments (String instead of &str); only those borrows are corrected. No Native
+runtime behavior changes. The nonzero-result validator now reuses the existing
+parser, including real singular and slow-test summaries. API and remaining
+frontend compatibility/lint checks run with explicit qualification scopes, without
+repeating accepted CLI/TUI/fault batches. Compatibility reuse requires matching
+prepared production inputs and identified immutable executable bytes. Partial
+runs do not produce a frontend asset and the release controller rejects them as
+full or in-flight frontend qualification. All original failures remain evidence.
+
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
 Their source/results/Native records and restore JSONL remain. Three additional
