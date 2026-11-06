@@ -58,7 +58,7 @@ def qualify(pristine, patched=None):
 
 def nonzero_tests(log):
     log = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', log)
-    summaries = re.findall(r'Summary\s*\[[^\]]+\]\s*(\d+) tests run: (\d+) passed', log)
+    summaries = re.findall(r'Summary\s*\[[^\]]+\]\s*(\d+) tests? run: (\d+) passed', log)
     if len(summaries) != 1 or int(summaries[0][0]) == 0 or summaries[0][0] != summaries[0][1]:
         raise ValueError("native focused proof must run and pass a nonzero test set")
     return int(summaries[0][0])

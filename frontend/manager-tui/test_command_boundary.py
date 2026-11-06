@@ -37,6 +37,8 @@ class CommandBoundaryTests(unittest.TestCase):
     def test_native_proof_rejects_zero_failed_missing_or_ambiguous_test_set(self):
         valid = 'Summary [3.050s] 25 tests run: 25 passed, 5585 skipped'
         self.assertEqual(nonzero_tests(valid), 25)
+        self.assertEqual(nonzero_tests('Summary [1s] 1 test run: 1 passed'), 1)
+        self.assertEqual(nonzero_tests('Summary [1s] 113 tests run: 113 passed (1 slow), 2745 skipped'), 113)
         for log in ['', 'Summary [1s] 0 tests run: 0 passed',
                     'Summary [1s] 25 tests run: 24 passed, 1 failed', valid + '\n' + valid]:
             with self.subTest(log=log), self.assertRaises(ValueError):
