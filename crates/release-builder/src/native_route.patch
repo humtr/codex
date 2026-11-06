@@ -13041,20 +13041,6 @@ index 7d05fb1..5f4b772 100644
      pub user_agent: String,
      /// Absolute path to the server's $CODEX_HOME directory.
      pub codex_home: AbsolutePathBuf,
-diff --git a/codex-rs/app-server-protocol/src/protocol/v2/model.rs b/codex-rs/app-server-protocol/src/protocol/v2/model.rs
-index c9a68ac..561c4ff 100644
---- a/codex-rs/app-server-protocol/src/protocol/v2/model.rs
-+++ b/codex-rs/app-server-protocol/src/protocol/v2/model.rs
-@@ -52,6 +52,9 @@ pub struct ModelProviderCapabilitiesReadResponse {
- #[serde(rename_all = "camelCase")]
- #[ts(export_to = "v2/")]
- pub struct ModelListParams {
-+    /// Read the committed catalog of this loaded thread; omission selects server defaults.
-+    #[ts(optional = nullable)]
-+    pub thread_id: Option<String>,
-     /// Opaque pagination cursor returned by a previous call.
-     #[ts(optional = nullable)]
-     pub cursor: Option<String>,
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
 index 1279bb8..a63c754 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
@@ -13387,82 +13373,6 @@ index 1f2129d..28e5e4e 100644
 +    assert_eq!(current.model_provider_id, "openai");
      Ok(())
  }
-diff --git a/codex-rs/app-server/src/request_processors/catalog_processor.rs b/codex-rs/app-server/src/request_processors/catalog_processor.rs
-index 45a84cf..a085152 100644
---- a/codex-rs/app-server/src/request_processors/catalog_processor.rs
-+++ b/codex-rs/app-server/src/request_processors/catalog_processor.rs
-@@ -179,11 +179,25 @@ impl CatalogRequestProcessor {
-         &self,
-         params: ModelListParams,
-     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
--        let (config, models_manager) = self
--            .model_catalog
--            .current()
--            .await
--            .map_err(|err| config_load_error(&err))?;
-+        let (config, models_manager) = match params.thread_id.as_deref() {
-+            Some(id) => {
-+                let thread_id = codex_protocol::ThreadId::from_string(id)
-+                    .map_err(|error| invalid_request(format!("invalid thread id: {error}")))?;
-+                let thread = self
-+                    .thread_manager
-+                    .get_thread(thread_id)
-+                    .await
-+                    .map_err(|error| {
-+                        invalid_request(format!("thread catalog unavailable: {error}"))
-+                    })?;
-+                thread.model_catalog_snapshot().await
-+            }
-+            None => self
-+                .model_catalog
-+                .current()
-+                .await
-+                .map_err(|error| config_load_error(&error))?,
-+        };
-         // Gate the same provider used by the catalog, including when its model cache is warm.
-         // Resolving credentials may refresh them, but explicit host policy prevents browser login.
-         if let Some(gateway) = codex_model_provider::create_model_provider(
-@@ -199,18 +213,20 @@ impl CatalogRequestProcessor {
-                 .await
-                 .map_err(|err| config_load_error(&err))?;
-             if gateway.resolve_access_token().await.is_err() {
--                let current = self
--                    .config_manager
--                    .load_latest_config(/*fallback_cwd*/ None)
--                    .await
--                    .map_err(|err| config_load_error(&err))?;
--                // Configuration edits without an account transition still require a restart to refresh the model catalog.
--                if current.model_provider_id != config.model_provider_id
--                    || current.model_provider != config.model_provider
--                {
--                    return Err(invalid_request(
--                        "Model provider settings changed. Restart Codex to apply them, then retry fetching the model list",
--                    ));
-+                if params.thread_id.is_none() {
-+                    let current = self
-+                        .config_manager
-+                        .load_latest_config(/*fallback_cwd*/ None)
-+                        .await
-+                        .map_err(|err| config_load_error(&err))?;
-+                    // Configuration edits without an account transition still require a restart to refresh the model catalog.
-+                    if current.model_provider_id != config.model_provider_id
-+                        || current.model_provider != config.model_provider
-+                    {
-+                        return Err(invalid_request(
-+                            "Model provider settings changed. Restart Codex to apply them, then retry fetching the model list",
-+                        ));
-+                    }
-                 }
-                 return Err(invalid_request(
-                     "Gateway sign-in required or unavailable. Complete gateway sign-in and retry fetching the model list",
-@@ -290,6 +306,7 @@ impl CatalogRequestProcessor {
-         models_manager: codex_models_manager::manager::SharedModelsManager,
-     ) -> Result<ModelListResponse, JSONRPCErrorError> {
-         let ModelListParams {
-+            thread_id: _,
-             limit,
-             cursor,
-             include_hidden,
 diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
 index 6259cf7..8485432 100644
 --- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
@@ -13822,26 +13732,6 @@ index f310c4a..22abb72 100644
              .await
              .map_err(|error| config_load_error(&error))?;
  
-diff --git a/codex-rs/app-server/tests/suite/v2/bedrock_service_tier_tests.rs b/codex-rs/app-server/tests/suite/v2/bedrock_service_tier_tests.rs
-index 026aad5..5c4255a 100644
---- a/codex-rs/app-server/tests/suite/v2/bedrock_service_tier_tests.rs
-+++ b/codex-rs/app-server/tests/suite/v2/bedrock_service_tier_tests.rs
-@@ -33,6 +33,7 @@ region = "us-west-2"
-         .request(|request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 cursor: None,
-                 limit: Some(100),
-                 include_hidden: Some(true),
-@@ -115,6 +116,7 @@ region = "us-west-2"
-         .request(|request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 cursor: None,
-                 limit: Some(100),
-                 include_hidden: Some(true),
 diff --git a/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs b/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs
 index e083aaa..6777ca0 100644
 --- a/codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs
@@ -13901,58 +13791,6 @@ index 1ba0f26..492b354 100644
      Ok(())
  }
  
-diff --git a/codex-rs/app-server/tests/suite/v2/model_list.rs b/codex-rs/app-server/tests/suite/v2/model_list.rs
-index c9604f1..770e4d9 100644
---- a/codex-rs/app-server/tests/suite/v2/model_list.rs
-+++ b/codex-rs/app-server/tests/suite/v2/model_list.rs
-@@ -153,6 +153,7 @@ requires_openai_auth = true
-         .request(|request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 limit: Some(100),
-                 include_hidden: Some(true),
-                 cursor: None,
-@@ -271,6 +272,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
-         .request(|request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 limit: Some(100),
-                 cursor: None,
-                 include_hidden: None,
-@@ -301,6 +303,7 @@ async fn list_models_includes_hidden_models() -> Result<()> {
-         .request(|request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 limit: Some(100),
-                 cursor: None,
-                 include_hidden: Some(true),
-@@ -423,6 +426,7 @@ model_catalog_url = "{server_uri}/v1/models"
-         .await?;
-     let request_id = mcp
-         .send_list_models_request(ModelListParams {
-+            thread_id: None,
-             limit: Some(100),
-             cursor: None,
-             include_hidden: None,
-@@ -506,6 +510,7 @@ async fn list_models_pagination_works() -> Result<()> {
-             .request(|request_id| ClientRequest::ModelList {
-                 request_id,
-                 params: ModelListParams {
-+                    thread_id: None,
-                     limit: Some(1),
-                     cursor: cursor.clone(),
-                     include_hidden: None,
-@@ -542,6 +547,7 @@ async fn list_models_rejects_invalid_cursor() -> Result<()> {
- 
-     let request_id = mcp
-         .send_list_models_request(ModelListParams {
-+            thread_id: None,
-             limit: None,
-             cursor: Some("invalid".to_string()),
-             include_hidden: None,
 diff --git a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 index f5bda49..0b24c94 100644
 --- a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
@@ -14464,10 +14302,10 @@ index 8badd11..bf88cb2 100644
      Ok(())
  }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b1..00e15ae 100644
+index ab688b1..0728321 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-@@ -774,3 +774,682 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
+@@ -774,3 +774,558 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
      }
      Ok(())
  }
@@ -15026,130 +14864,6 @@ index ab688b1..00e15ae 100644
 +    assert!(received_response_bodies(&second).await?.is_empty());
 +    Ok(())
 +}
-+
-+#[tokio::test]
-+async fn model_provider_catalog_reads_follow_thread_selection_without_changing_defaults()
-+-> Result<()> {
-+    use codex_app_server_protocol::ModelListParams;
-+    use codex_app_server_protocol::ModelListResponse;
-+    let first = responses::start_mock_server().await;
-+    let second = responses::start_mock_server().await;
-+    let home = TempDir::new()?;
-+    let catalog = |slug: &str| -> Result<_> {
-+        let mut model = codex_models_manager::bundled_models_response()?
-+            .models
-+            .remove(0);
-+        model.slug = slug.into();
-+        model.visibility = codex_protocol::openai_models::ModelVisibility::List;
-+        model.supported_in_api = true;
-+        let file = home.path().join(format!("{slug}.json"));
-+        std::fs::write(
-+            &file,
-+            serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
-+                models: vec![model],
-+            })?,
-+        )?;
-+        Ok(file)
-+    };
-+    let initial = catalog("initial-model")?;
-+    let destination = catalog("destination-model")?;
-+    MockResponsesConfig::new(&first.uri())
-+        .with_root_config(&format!(
-+            "model = 'initial-model'\nmodel_catalog_json = {}",
-+            serde_json::to_string(&initial)?
-+        ))
-+        .with_provider_config("supports_websockets = false")
-+        .write(home.path())?;
-+    let mut client = TestAppServer::builder()
-+        .with_codex_home(home.path())
-+        .build_initialized()
-+        .await?;
-+    let thread = client
-+        .start_thread(ThreadStartParams::default())
-+        .await?
-+        .thread
-+        .id;
-+    let sibling = client
-+        .start_thread(ThreadStartParams::default())
-+        .await?
-+        .thread
-+        .id;
-+    send_thread_settings_update(&mut client, ThreadSettingsUpdateParams {
-+        thread_id: thread.clone(), model_provider: Some("alternate".into()), model: Some("destination-model".into()),
-+        config: Some(std::collections::HashMap::from([
-+            ("model_catalog_json".into(), json!(destination)),
-+            ("model_providers".into(), json!({"alternate": {"name": "Alternate", "base_url":format!("{}/v1",second.uri()), "wire_api":"responses", "requires_openai_auth":false,"supports_websockets":false}})),
-+        ])), ..Default::default()
-+    }).await?;
-+    for (selected, expected) in [
-+        (Some(thread.clone()), "destination-model"),
-+        (Some(sibling), "initial-model"),
-+        (None, "initial-model"),
-+    ] {
-+        let response: ModelListResponse = client
-+            .request(|request_id| ClientRequest::ModelList {
-+                request_id,
-+                params: ModelListParams {
-+                    thread_id: selected,
-+                    include_hidden: Some(true),
-+                    ..Default::default()
-+                },
-+            })
-+            .await?;
-+        assert_eq!(
-+            response
-+                .data
-+                .iter()
-+                .map(|model| model.model.as_str())
-+                .collect::<Vec<_>>(),
-+            vec![expected],
-+            "model list must use the selected thread catalog"
-+        );
-+    }
-+    for missing in [
-+        "invalid-id".to_string(),
-+        codex_protocol::ThreadId::new().to_string(),
-+    ] {
-+        let request = client
-+            .send_list_models_request(ModelListParams {
-+                thread_id: Some(missing),
-+                ..Default::default()
-+            })
-+            .await?;
-+        let error = timeout(DEFAULT_TIMEOUT, client.read_error(request)).await??;
-+        assert_eq!(
-+            error.error.code, -32600,
-+            "a missing thread must not select server defaults"
-+        );
-+    }
-+    send_thread_settings_update(
-+        &mut client,
-+        ThreadSettingsUpdateParams {
-+            thread_id: thread.clone(),
-+            model_provider: Some("mock_provider".into()),
-+            model: Some("initial-model".into()),
-+            config: Some(std::collections::HashMap::from([(
-+                "model_catalog_json".into(),
-+                json!(initial),
-+            )])),
-+            ..Default::default()
-+        },
-+    )
-+    .await?;
-+    let returned: ModelListResponse = client
-+        .request(|request_id| ClientRequest::ModelList {
-+            request_id,
-+            params: ModelListParams {
-+                thread_id: Some(thread),
-+                ..Default::default()
-+            },
-+        })
-+        .await?;
-+    assert_eq!(returned.data[0].model, "initial-model");
-+    assert!(received_response_bodies(&first).await?.is_empty());
-+    assert!(received_response_bodies(&second).await?.is_empty());
-+    Ok(())
-+}
 diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
 index 3d56d7e..43aaddf 100644
 --- a/codex-rs/core/src/agent/child_config.rs
@@ -15368,7 +15082,7 @@ index 26e780e..351bcfa 100644
          Arc::clone(&context),
          context.initial_environments.clone(),
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
-index 968d331..81e7568 100644
+index 968d331..ee6d271 100644
 --- a/codex-rs/core/src/codex_thread.rs
 +++ b/codex-rs/core/src/codex_thread.rs
 @@ -421,11 +421,10 @@ impl CodexThread {
@@ -15437,23 +15151,6 @@ index 968d331..81e7568 100644
          Ok(())
      }
  
-@@ -1044,6 +1070,16 @@ impl CodexThread {
-         self.session.state_db()
-     }
- 
-+    /// Catalog reads retain one committed route even if settings change during model discovery.
-+    pub async fn model_catalog_snapshot(
-+        &self,
-+    ) -> (
-+        Arc<crate::config::Config>,
-+        codex_models_manager::manager::SharedModelsManager,
-+    ) {
-+        self.session.model_catalog_snapshot().await
-+    }
-+
-     pub async fn config_snapshot(&self) -> ThreadConfigSnapshot {
-         self.session.thread_config_snapshot().await
-     }
 diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
 index 2f6a91d..4e5fa24 100644
 --- a/codex-rs/core/src/compact.rs
@@ -17257,7 +16954,7 @@ index e4a092e..faafabb 100644
                      .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
                      .await;
 diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
-index a25dd60..26b3f70 100644
+index a25dd60..7337e54 100644
 --- a/codex-rs/core/src/session/turn_context.rs
 +++ b/codex-rs/core/src/session/turn_context.rs
 @@ -345,6 +345,7 @@ pub struct TurnContext {
@@ -17419,7 +17116,7 @@ index a25dd60..26b3f70 100644
              .await
      }
  
-@@ -1487,27 +1507,52 @@ impl Session {
+@@ -1487,27 +1507,39 @@ impl Session {
          &self,
          sub_id: String,
          session_configuration: SessionConfiguration,
@@ -17453,19 +17150,6 @@ index a25dd60..26b3f70 100644
      }
  
 -    async fn default_turn_configuration(&self) -> SessionConfiguration {
-+    pub(crate) async fn model_catalog_snapshot(
-+        &self,
-+    ) -> (
-+        Arc<Config>,
-+        codex_models_manager::manager::SharedModelsManager,
-+    ) {
-+        let (configuration, inference) = self.configuration_snapshot().await;
-+        (
-+            Arc::new(self.build_effective_session_config(&configuration)),
-+            Arc::clone(&inference.models_manager),
-+        )
-+    }
-+
 +    pub(super) async fn configuration_snapshot(
 +        &self,
 +    ) -> (SessionConfiguration, Arc<crate::state::InferenceRuntime>) {
@@ -17879,18 +17563,6 @@ index d5a8dcc..874a9eb 100644
          .await;
      let mut config = (*turn.config).clone();
      config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
-diff --git a/codex-rs/exec/src/daybreak.rs b/codex-rs/exec/src/daybreak.rs
-index 9f4a1cb..7e18158 100644
---- a/codex-rs/exec/src/daybreak.rs
-+++ b/codex-rs/exec/src/daybreak.rs
-@@ -42,6 +42,7 @@ pub(crate) async fn program_for_turn(
-             .request_typed::<ModelListResponse>(ClientRequest::ModelList {
-                 request_id: request_ids.next(),
-                 params: ModelListParams {
-+                    thread_id: None,
-                     cursor,
-                     limit: None,
-                     include_hidden: Some(true),
 diff --git a/codex-rs/exec/src/lib.rs b/codex-rs/exec/src/lib.rs
 index 43cf70b..ff46512 100644
 --- a/codex-rs/exec/src/lib.rs
@@ -17903,39 +17575,3 @@ index 43cf70b..ff46512 100644
          service_tier: None,
          codex_self_exe: arg0_paths.codex_self_exe.clone(),
          codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
-diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 683e732..4b32b5c 100644
---- a/codex-rs/tui/src/app_server_session.rs
-+++ b/codex-rs/tui/src/app_server_session.rs
-@@ -737,6 +737,7 @@ impl AppServerSession {
-                     .request_typed::<ModelListResponse>(ClientRequest::ModelList {
-                         request_id: model_request_id,
-                         params: ModelListParams {
-+                            thread_id: None,
-                             cursor: None,
-                             limit: None,
-                             include_hidden: Some(true),
-diff --git a/codex-rs/tui/src/app_server_session/models.rs b/codex-rs/tui/src/app_server_session/models.rs
-index ca945f8..aa2d530 100644
---- a/codex-rs/tui/src/app_server_session/models.rs
-+++ b/codex-rs/tui/src/app_server_session/models.rs
-@@ -30,6 +30,7 @@ impl AppServerSession {
-                 .request_typed::<ModelListResponse>(ClientRequest::ModelList {
-                     request_id: RequestId::String(format!("model-list-{request_id}")),
-                     params: ModelListParams {
-+                        thread_id: None,
-                         cursor: None,
-                         limit: None,
-                         include_hidden: Some(true),
-diff --git a/codex-rs/tui/src/dynamic_tools.rs b/codex-rs/tui/src/dynamic_tools.rs
-index 184bc64..b026cf8 100644
---- a/codex-rs/tui/src/dynamic_tools.rs
-+++ b/codex-rs/tui/src/dynamic_tools.rs
-@@ -1284,6 +1284,7 @@ async fn background_turn_program(
-         request::<ModelListResponse>(handle, |request_id| ClientRequest::ModelList {
-             request_id,
-             params: ModelListParams {
-+                thread_id: None,
-                 cursor: None,
-                 limit: None,
-                 include_hidden: Some(true)
