@@ -45,7 +45,7 @@ Provider의 두 진입점 인계까지 확대한다. Pro는 검증된 범위를 
 
 | 역할 | 브랜치 / 기준 커밋 | 사용 방법 |
 | --- | --- | --- |
-| **현재 P0 개발 루프 복구** | `fix/attached-native-development-loop-20261106` / 실제 개발 후보 소스 `763c24a37776439e74e456bd1841b93e67e1cfab` | `0a6518c` 기록에서 분기해 기존 `pro-baseline` 작업공간을 재사용했다. 현재 서명 Native와 실제 검증된 Provider 기준이며 미검증 Native 전환을 섞지 않았다. 이후 문서 HEAD·diff·검증 상태는 CURRENT 및 Git으로 확인한다. |
+| **현재 P0 개발 루프 복구** | `fix/attached-native-development-loop-20261106` / 실제 개발 후보 소스 `7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8` | `0a6518c` 기록에서 분기해 기존 `pro-baseline` 작업공간을 재사용했다. 현재 서명 Native와 실제 검증된 Provider 기준이며 미검증 Native 전환을 섞지 않았다. 이후 문서 HEAD·diff·검증 상태는 CURRENT 및 Git으로 확인한다. |
 | **준비 기준 브랜치** | `prep/pro-baseline-20261106` | Pro 작업 브랜치의 출발 후보. 미완성 catalog 초안을 분리하고 이 문서·운영 사실을 맞췄다. Pro는 다른 출발점이 더 적절하면 재선정할 수 있다. |
 | 이전 전체 인계 보존 | `fix/native-route-transition-20261105` / `eeb6f9d808cd2dc7319a3d94f07010d650f3d281` | Native 초안까지 포함했던 원본 인계. 강제 변경 없이 보존했다. |
 | 마지막 기록 기준 | `c340237982102a100de81aa70aca60b0617477eb` | 현재 복구 전의 기록 기준. 이후 인계 변경을 함께 읽는다. |
@@ -156,12 +156,12 @@ thread/read는 -32600 `thread not loaded`로 거부됐다. Provider stop은 그�
   `sourceBase=9a5436a64d16045385358c6de18ab8e5b6699a57`의
   `experiments/web-provider`에서 찾을 수 있다. 현재 체크아웃에 없다는 이유로
   모바일 화면·태스크바·Android 브라우저 로그인 코드를 다시 만들지 않는다.
-- 현재 연결된 계정의 서비스와 MCP 명령은 clean `763c24a`에서 빌드·inventory 검증한
+- 현재 연결된 계정의 서비스와 MCP 명령은 clean `7471ed7`에서 빌드·inventory 검증한
   **개발 복구 후보**다. 최신 Native 전환 후보나 서명된 정식 배포가 아니다. 기존
   데스크톱 descriptor를 쓰며 정식 앱 수명 통합은 남았다. 다른 계정 인스턴스를
   이 바인딩과 혼동하지 않고 Native/MCP 부팅을 optional 앱에 종속시키지 않는다.
 - 현재 후보·바인딩·이전 서비스/터널 백업과 증거는
-  `~/.cache/codex/acceptance/attached-native-loop-763c24a37776/`에 있다. 그 전
+  `~/.cache/codex/acceptance/request-continuity-7471ed71a0ef/`에 있다. 이전763c24a와 그 전
   `connectivity-app-repair-20261105`는 이전 복구 기록/롤백 근거다. 설치된 패키지와
   실제 실행 이미지를 구분하며 비공개 제어값은 출력하지 않는다.
 - 기존 `scripts/d3_refresh.mjs`로 앱 캐시 무효화, **17개 전체 입력 스키마 일치**,
@@ -230,7 +230,7 @@ Bridge로 새 연구 작업이 필요할 때만 자신의 현재 Chat에 새 할
   미정산 호출이 남았다. 뒤 세션에는8개 호출/결과가 있어 전체 작업이 빈 것은
   아니다. 최초 취소/반환/완료 순서, 두 실패의 공통 원인과 fork의 직접 오류는
   아직 미확정이다. CURRENT의 사실과6절 계획을 기준으로 조사·수정한다.
-- 현재 실행본은 소스가 확인된763c24a 개발 후보이며 예전 복구 바이너리·설치된
+- 현재 실행본은 소스가 확인된7471ed7 개발 후보이며 예전 복구 바이너리·설치된
   signed 패키지·Native 전환 초안과 다르다. 매 작업의 실제 바인딩을 확인한다.
 
 #### 조사·구현 계약
@@ -442,7 +442,7 @@ Provider 이름 변경이나 TUI 재시작을 호환성 증거로 삼지 않는�
 경로가 실제로 수용된 때 겹치는 reentry/checkpoint/summary 조정을 함께 제거한다.
 
 4는 source 정합성 확인을 매 묶음에 적용하되 정식 수명 통합/서명 승격은 해당
-통합 후보에서 수행한다. 현재763c24a 개발 실행본·원본 rollback과 원래 dirty 소스를
+통합 후보에서 수행한다. 현재7471ed7 개발 실행본·원본 rollback과 원래 dirty 소스를
 보존하고, prep/draft/archive는 비교 입력으로 다룬다. 필요한 변경만 의미 단위로
 통합한다. 폐기 전 실제 소비자와 복원 필요를 확인한다. live 교체 후 기존
 scripts/d3_refresh.mjs로 전체 schema와 새 Native 왕복을 확인한다.
@@ -616,7 +616,7 @@ ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 �
 
 저장소: https://github.com/humtr/codex
 작동하는 코드의 출발 후보: fix/attached-native-development-loop-20261106 최신 원격 HEAD
-실제 개발 Provider/MCP 후보의 소스: 763c24a37776439e74e456bd1841b93e67e1cfab
+실제 개발 Provider/MCP 후보의 소스: 7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8
 별도 Native 전환 후보: prep/pro-baseline-20261106 (현재 서명 Native에는 미적용)
 먼저 PRO_HANDOFF.md 전체, AGENTS.md, SPEC.md4.5–4.6, CURRENT.md, goal.md,
 providers/chatgpt/LINUX_APP.md를 읽어라. 복구/컴팩션/인수 뒤에는 실제 AGENTS.md를

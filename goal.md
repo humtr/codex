@@ -1,43 +1,31 @@
 # Active work
 
-Keep the user's requested capability while reducing duplicate decisions, state,
+Preserve the requested capability while reducing duplicate decisions, state,
 preparation and recovery. Reread actual AGENTS.md after recovery; SPEC4.5-4.6 owns
-responsibility contracts, CURRENT.md proven/pending state and PRO_HANDOFF.md the
-complete assignment and preserved12 priorities / NC-01..29 / cumulative backlog.
+contracts, CURRENT.md verified/pending scope and PRO_HANDOFF.md the complete
+assignment, original12 priorities, NC-01..29 and cumulative backlog.
 
-The attached Native development prerequisite has source fixes and actual proof:
-Provider/MCP development artifact763c24a, full connector-schema refresh, real
-Native Full Access edit/build/continuation, actual GPT-6 Guardian review and a
-normal follow-up. Synthetic Native tests cover deny/failure enforcement and
-Provider reconnect. Ordinary successful commands are not proof of model review.
-Keep both per-work policies; no operational default change or failure fallback.
-An actual Guardian scope-denial case failed; diagnose its input/decision/admission
-boundaries separately. Live target-loss recovery, universal model/entrance coverage
-and signed publication remain open. See CURRENT for exact evidence.
+Packages1/2 are current prework. Request settlement through7471ed7 is committed,
+pushed and active as an unsigned source-bound development Provider/MCP artifact.
+Original blocking/steering works received normal Native/host Stop confirmations;
+the shared unresolved reservation cleared without command replay or forced reset.
+Existing connector refresh passed all17 full schemas. A fresh Native work completed
+Rust edit/build/modify/retest through actual registered Bridge tools, with one
+file effect on exact retry and its on-request/auto_review policy unchanged.
+Source gates, nine disposable fault checks and actual Android TUI recovery /
+Steer / explicit-fork proofs passed. Uncertain other remote outcomes stay fenced.
 
-Current implementation: PRO_HANDOFF6.2 packages1/2. Request settlement has
-a working diff, behavioral mutation checks and actual Android Native/TUI recovery
-proof with synthetic Chat. The current Provider source/build gate passes;
-real-app recovery, historical-work settlement and completed deployment/client
-refresh remain open. The livea7a98c3 trial exposed a Stop round/scope mismatch
-and quiescent observer disposal boundary; follow-up source fixes preserve the
-unknown remote outcomes and need final deployment qualification.
-Automatic Native-created-work/TUI owner selection still fails; explicit upstream
-remote connection to the original owner passes. Fix the Termux connection choice
-without a second writer. The historical global process reservation has an unknown
-exit-1 outcome and remains protected; do not claim it already reconciled.
+Next fix ordinary same-Provider Native-created-work/TUI owner selection. Explicit
+upstream connection to the original owner already passes; ordinary resume chooses
+a configured sibling and becomes read-only. Reuse authoritative Native ownership
+and existing connection lifecycle without a second writer/executor/history.
+Verify both entrance directions and actual app/model recovery. Preserve input,
+policy, original results and all profiles/mobile desktop state. An actual Guardian
+scope-denial case failed and remains separate; no default-policy recommendation
+or operating default change is established by ordinary command success.
 
-Remaining acceptance: Distinguish physical observation,
-tool handoff, app inference and Native completion; reconcile original requests
-and known results so steering/empty/timeout failures do not permanently block
-safe same-work continuation. Verify TUI drafts/fork and same-Provider TUI↔Chat
-handoff using Native input/writer authority. Shared first cause and the reported
-fork cause are unconfirmed; do not replay uncertain requests or known effects.
-
-Then Pro may reselect/rework the prepared source and separate Native-route
+Then Pro may reject/rework this preparation and the separate Native-route
 candidate for model transitions/compaction, app/config/install lifecycle, remaining
-NC resource boundaries and cumulative capabilities. Preserve accounts, existing
-mobile launcher, history and user edits; no second writer/executor/history.
-Reuse accepted unchanged evidence; no extra Pro inference or default-policy change.
-Source, simulation, actual Native/app/client, physical TUI and signed activation
-remain separate completion boundaries.
+resource boundaries and cumulative capabilities. No extra Pro inference. Reuse
+accepted unchanged proof. Source, simulation, actual Native/app/client, physical
+UI and signed activation remain separate completion boundaries.

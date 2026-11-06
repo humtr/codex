@@ -44,11 +44,12 @@ earlier qualification retains its actual recorded scope.
 ### Attached Native development loop: verified scope and active development artifact
 
 The active development Provider and its account's MCP forwarder use the same
-immutable candidate built from clean763c24a37776439e74e456bd1841b93e67e1cfab.
-Its existing candidate inventory was read back against source before the device
-trial. Artifact, toolchain/build context, service/tunnel backups, activation and
-private original results are retained at
-~/.cache/codex/acceptance/attached-native-loop-763c24a37776/.
+immutable candidate built from clean7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8.
+Its candidate inventory and actual process images were read back. Current
+activation, rollback bindings, connector refresh and fresh Native proof are at
+~/.cache/codex/acceptance/request-continuity-7471ed71a0ef/.
+The earlier763c24a attached-loop artifact and its original qualification remain at
+~/.cache/codex/acceptance/attached-native-loop-763c24a37776/ as rollback/evidence.
 This is an unsigned development recovery artifact, not signed public delivery.
 The installed signed Provider, Core/Native generation and public stable heads
 were not replaced. Replace the recovery binding through the qualified signed
@@ -226,7 +227,7 @@ records confirmed two further reverse-flow failures:
   before empty_app_round. The retained app pending call also has its Native
   result. The whole task was not empty; no result replay is justified.
 
-The operating763c24a source uses the same done terminal for physical app completion
+The incident's763c24a source uses the same done terminal for physical app completion
 and the MCP-to-Responses tool handoff. app.rs reports empty_app_round only after a
 terminal snapshot has no usable final or gateway calls, not on every empty
 fragment. It also sets a new round before submit and can report a later identity
@@ -280,128 +281,98 @@ proof that another work's effects ended.
 
 ### Request settlement implementation and current qualification
 
-Sourcea7a98c3 (committed/pushed) separates physical inference completion from
-Native tool handoff. Original Native returns and admitted steering context settle together
-without a second model submission; acceptance no longer waits for the next model
-answer. Confirmed empty inference keeps its error but leaves settled work ready
-for a new input. Operator observes the authoritative Native result before its
-input barrier and waits through the in-flight completion race; it does not add a
-TUI recovery machine. Stale stream callbacks are fenced by stream identity as
-well as lane epoch. Cold Stop recovers the original transport lane for fencing
-without reviving execution capabilities. Original records also have different
-physical/MCP/AppHost rounds. A focused regression proves the adapter wrongly
-required round equality for whole-lane Stop; the follow-up removes that check
-and its duplicate later branch. This does not establish that it was the first
-live upgrade failure: the actual earlier revision guard below ran first. Descriptor maintenance borrows the
-already-owned CDP connection rather than competing for a second observer.
+The committed/pushed request-settlement implementation through7471ed7 separates
+physical inference completion from Native tool handoff. Original Native returns
+and admitted steering context settle together without a second model submission
+or waiting for its answer. Confirmed empty inference retains its error while
+leaving settled work ready for new input. Operator observes Native before its
+input barrier and waits through the completion race. Late callbacks are fenced
+by stream identity and lane epoch. Descriptor maintenance borrows the owned CDP
+client rather than competing for another observation connection.
 
-Native terminal observation now matches original call/process/owner identities
-and releases only their completed process reservations, for both MCP and
-LocalFunction. The original running reply remains unchanged. Negative/unknown
-exit and Native's timeout sentinel remain fenced. This corrects future known-exit
-settlement; it does not establish termination of the historical-1 blocker above.
+Native process settlement matches original call/process/owner identities for MCP
+and LocalFunction, preserving the original running result. Only a confirmed exit
+releases its matching reservation; synthetic-1 and timeout124 remain protected.
+Actual Native process41099 exited2, its reservation changed1->0, and the same work
+wrote a file and finished without polling/replay. Thread
+01a1b013-0c30-7e73-b27b-c39c1637f3b8 retains its records in the owned ne-xilmhxxy
+fixture. Its idle server was normally stopped through a verified kernel handle.
 
-Owned evidence root: $TMPDIR/connectivity-repair-70jt4h2u/request-continuity-dFZxEe.
-Affected Rust checks pass189 library tests,11 CDP tests and11 MCP return tests;
-ignored device scopes retain their separate status. Disposable-source faults in
-steering admission, empty settlement, late stream fencing, unknown-exit admission
-and the early input barrier each fail their behavioral regression, then are
-restored. Follow-up faults restoring the Stop round check and forbidding passive
-observer disposal also fail their corresponding behavioral tests. The barrier mutation fails the actual Android Core/TUI test without a
-diagnostic status call first repairing the work.
+Stop is scoped to the owned lane rather than an inference round. Cold Stop
+restores that correlation without reviving execution capabilities. One AppHost
+observation loop consumes the actual Stop reply before requesting another
+snapshot; matching-round counters remain checked and observation failure retains
+its cause. The redundant stopped_lane flag and duplicate Stop branch were removed.
+Operator exposes host_stop_error instead of discarding it into false.
+The first actual upgrade rejection was app_bridge_revision_conflict: the global
+revision guard blocked retirement itself. Owned Stop/release/dispose can now
+retire older hooks; init/submit/snapshot still require the matching revision and
+foreign owners remain rejected. Passive disposal requires local cancellation and
+no pending input/approval/stream. It does not confirm remote outcomes or settle
+Native effects. An old lane with no observed conversation ID and SDK HTTP413
+retains its uncertainty; that response is not proof of original non-delivery.
 
-Actual signed148 Native/Core/TUI with a synthetic Chat backend passed confirmed
-empty -> same-work follow-up, pre-dispatch timeout -> same-work follow-up, and
-active steering including queue-to-steer and predecessor Stop retirement.
-Recovery thread01a1aff3-383b-7291-bd23-850c6872e14c and steering thread
-01a1aff4-6603-7873-a1fe-dfed3723710c preserve their Native records. These are real
-Android execution/TUI proofs, not real Chat model or physical-screen observation.
+**Source evidence.** Owned results are under
+$TMPDIR/connectivity-repair-70jt4h2u/request-continuity-dFZxEe. The Provider gate
+passed Rust, fmt, strict Clippy, release, Bun114, Python84 and CLI imports.
+Affected final Rust checks pass190 library,24 app-engine,11 CDP and11 MCP-return
+tests; ignored device scopes remain separate. Final retirement JS passes114
+cases and CDP11. Nine disposable faults in steer/empty/callback/process/input
+admission, Stop scope/receipt, disposal and revision retirement each fail their
+behavioral regression and were restored. The input-barrier mutation fails the
+actual Android TUI test without a diagnostic status call first repairing state.
 
-The ordinary Native-created-work -> TUI resume -> Bridge live update test still
-fails: Native execution/history continue, but the TUI chooses a different
-configuration-bound backend and becomes read-only. Do not weaken this test or
-call automatic entrance handoff complete. In a separate disposable experiment,
-upstream's explicit --remote unix:// connection to the verified original owner
-passes both Bridge turns, live viewport progress/final, exact retries and
-Provider restart with unchanged Native history and zero primary submissions.
-Its thread is01a1b006-9f29-7e80-bad6-af60800a864f. Naming that fixture through
-Native prevents unrelated upstream automatic title inference from contaminating
-the zero-submission measurement. The experiment establishes interface sufficiency
-for the loaded owner, not automatic discovery. Unify the Termux connection choice
-with that actual owner; do not add another writer, execution path or transcript.
+**Actual Native/TUI with synthetic Chat.** Signed148 Core/Native/TUI passed empty
+failure->same-work input, pre-dispatch timeout->same-work input and active Steer /
+Queue edit->Steer. Recovery thread01a1aff3-383b-7291-bd23-850c6872e14c and steering
+thread01a1aff4-6603-7873-a1fe-dfed3723710c preserve their Native records. The changed
+Stop consumer also passes tui-steer-receipt.json. Explicit /fork after empty
+failure completes child01a1b02a-3e39-7bf1-bc9e-c1a4ce4f01b8 while parent
+01a1b02a-27c3-7ad1-880b-7ed528de020e history is unchanged. These are actual Android
+execution and terminal-rendering tests, with zero real model requests and no
+physical-screen observation.
 
-The updated Provider gate passed Rust tests, fmt, strict Clippy, release build,
-Bun114 tests, Python84 tests and the existing CLI import checks. The initial
-Clippy rejection of two unnecessary test-only clones was fixed and that gate
-rerun; unchanged successful Rust execution evidence was retained. Actual Android
-Native process41099 exited2, releasing its original reservation from1 to0; the
-same work then wrote a file and finished without a poll/replay or Chat request.
-Its thread01a1b013-0c30-7e73-b27b-c39c1637f3b8 and original records remain in the
-owned ne-xilmhxxy fixture. The idle qualification server was normally stopped through a verified kernel
-handle after observing its completed history and no loaded threads; payload
-archival can preserve the records.
+**Operating recovery and current client.** Clean7471ed7 was packaged/read back;
+the account service and its existing tunnel now run that exact candidate on the
+original port/profile. Normal supervisor exit and saved service/tunnel bindings
+preserve rollback. Other accounts, signed Provider25 and Native148/147 remain
+unchanged. Original blocking work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a
+(thread01a1afb1-8421-7613-9ae9-adfb6d266f17) and original steering work
+1b35b0749f4c1c67c06dfac2249bfd5c05b599b6fd58fd8a
+(thread01a1af43-26f0-71c0-ad89-5012b14c52f6) both received Native and host Stop
+confirmation and now report stopped with zero unconfirmed effects. Their failed
+inference was not relabeled successful and no command was replayed. The quiescent
+owned renderer hooks were retired through the existing dispose operation, with
+no model request, profile reset or forced journal mutation.
 
-The source-bounda7a98c3 development artifact was built/read back and both this
-account's service and tunnel were switched from763c24a with saved rollback files,
-normal supervisor stop and the same port/profile. Other account services and
-signed installed generations were unchanged. This is an incomplete activation:
-three inactive old app lanes leave the renderer revision guard in conflict.
-The first supported work Stop confirms Native idle/no jobs and physical server
-termination, but its MCP round mismatch prevents AppHost acknowledgment until
-the follow-up above is deployed. No journal or outcome was forcibly reset.
+The existing scripts/d3_refresh.mjs then passed refresh_actions, app query-cache
+invalidation, all17 full registered/live input schemas and an actual MCP probe
+using the current owned CDP client and exact saved connector. Fresh work
+38246574ce952c77b43af699c322f2d719cb6e1dbddd233f / thread
+01a1b066-b39e-7ae0-9bf3-19c9457c8b50 was created/started through the authenticated
+ChatGPT connector API. Current registered Termux Bridge tools performed context
+acceptance, Rust file creation/compile/assertion/modification/recompile, report
+and finish. An exact repeated file-write call returned its original result and
+an independent file read confirmed one effect. Final Native status is completed,
+pending_calls0 and unconfirmed_effects0. Its original on-request/auto_review
+policy was unchanged and no extra primary inference was submitted. See
+fresh-native-tool-result.json in the current activation directory. This loop
+proves actual MCP development, not Guardian denial quality, every ChatGPT model,
+physical UI or signed public delivery. The earlier real scope-denial failure
+remains an independent open finding.
 
-One other retained lane has no observed server conversation ID; its SDK resume
-reported HTTP413, but that does not prove the original transmission did not
-occur. Its local cancellation is complete, with no active stream/pending/approval.
-Passive dispose now retires only those locally cancelled quiescent hooks while
-preserving the unresolved request/Native journals and fencing. It never reports
-remote Stop success or releases effects. This separates renderer ownership from
-remote request lifetime, permitting a normal code upgrade without discarding an
-uncertain work. New tests retain the remote failure while checking hook removal;
-active/uncancelled lanes still reject disposal. Native tool discovery also
-explains the separate native_input context to its actual model consumer.
-
-Sourcec64814d passes affected Rust tests, strict Clippy, release build and all114
-JS tests; both targeted fault mutations fail and are restored. The extended
-actual Android TUI test also passes /fork immediately after a failed empty
-response, then completes child01a1b02a-3e39-7bf1-bc9e-c1a4ce4f01b8 while parent
-01a1b02a-27c3-7ad1-880b-7ed528de020e history remains unchanged. It uses the
-qualifieda7a98c3 fixture and signed148 Native; no real Chat model was requested.
-
-The source-boundc64814d service is active on the original port; connector/tunnel
-activation remains incomplete. Its actual legacy work Stop still returns Native
-confirmed / host unconfirmed, so do not describe those works or the global
-opaque reservation as recovered. Operator currently discards the exact host
-Stop error into false; the follow-up preserves that static cause in its public
-Stop result, without changing approval, execution or confirmation decisions.
-The2fad7c8 diagnostic artifact is now active and reports app_stop_unconfirmed;
-the exact lower-level cause had also been discarded inside AppHost Stop. That
-consumer ignored a confirmed Stop reply, then demanded a later snapshot and
-inference-round correlation. The follow-up uses one observation loop seeded
-with the Stop reply, keeps the existing bounded re-observation for uncertainty,
-and preserves the actual failed observation at expiry. Affected Rust checks now
-pass190 library,24 app engine,11 CDP and11 MCP-return tests; strict Clippy and
-release build pass. Restoring the discarded-reply consumer in disposable source
-fails the regression. The actual signed148 TUI active-Steer/Queue test was rerun
-against this changed consumer and passes with synthetic Chat, no model requests. It removes the redundant
-stopped_lane marker; Stop's existing scoped stopped receipt suffices. Matching
-round counters remain validated, and failed inference is not reclassified as
-success. The new regression fails with the old consumer and covers confirmed
-reply/lost observation plus lost reply/confirmed lane after round divergence.
-The livef23db29 diagnostic then establishes the actual first upgrade rejection:
-app_bridge_revision_conflict blocks Stop itself. The app's global revision guard
-covered retirement as well as new inference. The follow-up scopes that guard to
-new inference/interpretation: Stop/release/dispose retain the same-owner and
-cancellation/quiescence requirements across code revisions. It adds no error-code
-case, legacy-account branch or renderer state reset. New init/submit/snapshot
-still reject incompatible revisions and a foreign owner still cannot stop a lane.
-The source regression fails before/after fault injection; all114 JS cases, the
-11 CDP transport cases and the release build pass. The unchanged Native policy
-and effect checks retain their accepted evidence.
-Fresh connected Native roundtrip, real-model recovery and automatic TUI owner
-selection remain unfinished. Original private observations/rollback bindings are
-in the source-named request-continuity-* acceptance directories; the live service
-still usesf23db29 until that retirement fix completes qualification/deployment.
+**Remaining entrance boundary.** Ordinary Native-created-work->TUI resume still
+chooses a different configuration-bound backend and becomes read-only even though
+Native execution/history continue. Keep this failing product acceptance. A
+separate explicit upstream --remote connection to the verified original owner
+passes two Bridge turns, live viewport progress/final, exact retries and Provider
+restart with unchanged history and zero primary submissions; thread
+01a1b006-9f29-7e80-bad6-af60800a864f. It proves the supported connection interface,
+not automatic owner selection or TUI follow-up. Reuse existing live-owner
+discovery and Native authority to repair that connection choice, without another
+writer, executor, transcript or TUI recovery state machine. Real-model reverse
+flow, original project-timeout provenance, all entrance transitions and signed
+publication remain unfinished.
 
 ## Current architecture review and operating boundary
 
