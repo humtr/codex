@@ -310,7 +310,7 @@ index 461920b..9133dd2 100644
                  Ok(())
              },
 diff --git a/codex-rs/app-server/src/config_manager_provider_tests.rs b/codex-rs/app-server/src/config_manager_provider_tests.rs
-index 1f2129d..02e1c66 100644
+index 1f2129d..28e5e4e 100644
 --- a/codex-rs/app-server/src/config_manager_provider_tests.rs
 +++ b/codex-rs/app-server/src/config_manager_provider_tests.rs
 @@ -1,4 +1,4 @@
@@ -336,7 +336,7 @@ index 1f2129d..02e1c66 100644
      let home = tempdir()?;
      std::fs::write(
          home.path().join("config.toml"),
-@@ -300,23 +303,57 @@ name = "Gateway"
+@@ -300,23 +303,64 @@ name = "Gateway"
          .load_latest_config(Some(home.path().to_path_buf()))
          .await?;
      assert_eq!(current.model_provider_id, "gateway");
@@ -395,11 +395,18 @@ index 1f2129d..02e1c66 100644
 +        .load_model_provider_update(&current, "alternate", None, None)
 +        .await;
 +    if required {
-+        assert!(
-+            result
-+                .unwrap_err()
-+                .to_string()
-+                .contains("model_catalog_json")
++        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
++        let model = codex_models_manager::model_info::model_info_from_slug("managed-catalog-model");
++        std::fs::write(
++            &missing,
++            serde_json::to_vec(&serde_json::json!({"models": [model]}))?,
++        )?;
++        let destination = manager
++            .load_model_provider_update(&current, "alternate", None, None)
++            .await?;
++        assert_eq!(
++            destination.model_catalog.expect("required catalog").models[0].slug,
++            "managed-catalog-model"
 +        );
 +    } else {
 +        let destination = result?;
