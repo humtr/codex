@@ -1476,7 +1476,7 @@ impl AppHost {
                         .operation(json!({"op":"snapshot","lane":lane.marker}))
                         .await
                     {
-                        if (state["round"] == lane.round || state["stopped_lane"] == true && state["stopped"] == true)
+                        if (state["round"] == lane.round || lane.phase == Phase::Stopped && state["stopped"] == true)
                             && state["pending"] == false
                             && state["streamActive"] == false
                             && state["approvalPending"] != true
@@ -2601,34 +2601,32 @@ async fn stop_lane(
     lane.phase = Phase::CancelRequested;
     lane.host_block = None;
     journal.write(key, lane)?;
-    let _ = bridge
+    // Stop owns the whole lane. Its confirmed reply does not depend on a
+    // later inference snapshot or that inference's virtual round identity.
+    let mut observed = bridge
         .operation(json!({"op":"stop","lane":lane.marker}))
         .await;
     let until = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(state) = bridge
-            .operation(json!({"op":"snapshot","lane":lane.marker}))
-            .await
-        {
+        if let Ok(state) = &observed {
             if state["round"] == lane.round {
-                observe_counts(journal, key, lane, &state)?;
+                observe_counts(journal, key, lane, state)?;
             }
-            if (state["round"] == lane.round
-                || lane.round.is_empty() && state["round"].is_null()
-                || state["stopped_lane"] == true)
-                && state["stopped"] == true
-            {
+            if state["stopped"] == true {
                 lane.phase = Phase::Stopped;
                 journal.write(key, lane)?;
                 return Err(Error("app_stop_acknowledged"));
             }
         }
         if tokio::time::Instant::now() >= until {
-            // Retain stop intent even when observation failed; a later client
-            // must reconcile cancellation, never publish or replay this round.
-            return Err(Error("app_stop_unconfirmed"));
+            // Keep uncertain Stop fenced, including the actual observation
+            // failure rather than replacing every cause with a timeout.
+            return Err(observed.err().unwrap_or(Error("app_stop_unconfirmed")));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+        observed = bridge
+            .operation(json!({"op":"snapshot","lane":lane.marker}))
+            .await;
     }
 }
 
@@ -3826,6 +3824,47 @@ mod approval_tests {
     }
     struct Cleanup {
         calls: SyncMutex<Vec<Value>>,
+    }
+    #[tokio::test]
+    async fn whole_lane_stop_uses_its_receipt_without_requiring_the_inference_round() {
+        struct Receipt(bool);
+        impl Bridge for Receipt {
+            fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                let result = match command["op"].as_str().unwrap() {
+                    "stop" if self.0 => Ok(json!({"round":"physical-stream","stopped":true})),
+                    "stop" => Err(Error("cdp_operation_timeout")),
+                    "snapshot" if self.0 => Err(Error("cdp_connection_closed")),
+                    "snapshot" => Ok(json!({"round":"physical-stream","stopped":true})),
+                    _ => panic!("Stop must not initialize or submit inference"),
+                };
+                Box::pin(async move { result })
+            }
+        }
+        for acknowledged in [true, false] {
+            let root = std::env::temp_dir().join(format!("stop-receipt-{}", random_id().unwrap()));
+            let journal = Arc::new(Journal::open(&root).unwrap());
+            let mut lane = Lane::new("original-native-work").unwrap();
+            lane.phase = Phase::Unknown;
+            lane.round = "unadmitted-successor".into();
+            lane.last_error = Some("original_failed_inference".into());
+            let key = context::digest(&"original-native-work");
+            journal.write(&key, &lane).unwrap();
+            let host = AppHost::new(Arc::new(Receipt(acknowledged)), journal.clone());
+            assert!(tokio::time::timeout(
+                Duration::from_secs(2),
+                host.stop("original-native-work")
+            )
+            .await
+            .expect("known Stop cannot depend on another inference observation")
+            .unwrap());
+            let saved = journal.read::<Lane>(&key).unwrap().unwrap();
+            assert!(saved.phase == Phase::Stopped);
+            assert_eq!(
+                saved.last_error, lane.last_error,
+                "Stop does not turn inference failure into success"
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
     #[tokio::test]
     async fn stop_reuses_committed_settlement_after_app_context_disappears() {

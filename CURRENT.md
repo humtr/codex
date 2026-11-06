@@ -373,7 +373,20 @@ confirmed / host unconfirmed, so do not describe those works or the global
 opaque reservation as recovered. Operator currently discards the exact host
 Stop error into false; the follow-up preserves that static cause in its public
 Stop result, without changing approval, execution or confirmation decisions.
-This diagnostic loss must be resolved before assigning a further live cause.
+The2fad7c8 diagnostic artifact is now active and reports app_stop_unconfirmed;
+the exact lower-level cause had also been discarded inside AppHost Stop. That
+consumer ignored a confirmed Stop reply, then demanded a later snapshot and
+inference-round correlation. The follow-up uses one observation loop seeded
+with the Stop reply, keeps the existing bounded re-observation for uncertainty,
+and preserves the actual failed observation at expiry. Affected Rust checks now
+pass190 library,24 app engine,11 CDP and11 MCP-return tests; strict Clippy and
+release build pass. Restoring the discarded-reply consumer in disposable source
+fails the regression. The actual signed148 TUI active-Steer/Queue test was rerun
+against this changed consumer and passes with synthetic Chat, no model requests. It removes the redundant
+stopped_lane marker; Stop's existing scoped stopped receipt suffices. Matching
+round counters remain validated, and failed inference is not reclassified as
+success. The new regression fails with the old consumer and covers confirmed
+reply/lost observation plus lost reply/confirmed lane after round divergence.
 Fresh connected Native roundtrip, real-model recovery and automatic TUI owner
 selection remain unfinished. Original private observations/rollback bindings are
 at ~/.cache/codex/acceptance/request-continuity-{a7a98c3e0d0c,c64814d14814}/.

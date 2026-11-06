@@ -1715,6 +1715,10 @@ Stop may confirm the whole original lane after fencing its tool leases and
 observing its physical stop, including after observer restart or a rejected
 successor round. This lane-scoped receipt is distinct from a matching inference
 round's outcome; it never admits another request or settles Native effects.
+AppHost consumes the confirmed Stop reply itself; a later snapshot or inference
+round match is not required to acknowledge that owned-lane Stop. If the reply is
+uncertain, observe the same lane and preserve the actual failure cause. Inference
+counters remain correlated with their own round and do not define Stop identity.
 
 Passive renderer-hook disposal ends local observation, not the remote request.
 It may detach retained lanes only after each has begun local cancellation and

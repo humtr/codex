@@ -637,7 +637,6 @@ impl Bridge for McpBridge {
             if snapshot["stopped"] == true {
                 observe_stopped_lane(&mut lane, &broker, &journal, &key, &marker).await?;
                 snapshot["round"] = json!(lane.round);
-                snapshot["stopped_lane"] = json!(true);
                 return Ok(snapshot);
             }
             let mut source_validated = false;
@@ -1013,7 +1012,7 @@ mod tests {
             .operation(json!({"op":"snapshot","lane":"owned-native-thread"}))
             .await
             .unwrap();
-        assert_eq!(state["stopped_lane"], true);
+        assert_eq!(state["stopped"], true);
         assert_eq!(state["round"], "original-round");
         assert_eq!(
             broker.catalog(&token).await,
