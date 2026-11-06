@@ -3,9 +3,10 @@
 ## 1. 이번 인계의 범위
 
 사용자의 최신 지시는 Codex가 기본 소스·증거를 정돈한 뒤 Pro가 능동적으로
-설계·구현을 인수하는 것이다. 이 준비에서는 운영 앱·서비스를 바꾸거나 새 Native
-연구 작업을 생성하지 않는다. 필요한 동작을 기준으로 변경을 선별해 한 기준에
-수렴시키며, 보관 브랜치를 먼저 모두 합치는 방식은 사용하지 않았다.
+설계·구현을 인수하는 것이다. 초기 준비 뒤 Codex가 attached 개발 루프의 P0를
+구현·기기 실증했다. 실제 소스에 연결된 개발 후보, 현재 서비스/터널 바인딩과
+검증 한계는 CURRENT.md가 소유한다. 필요한 동작을 기준으로 선별했으며,
+보관 브랜치를 먼저 모두 합치는 방식은 사용하지 않았다.
 
 **이 준비안과 기준 브랜치 자체도 Pro의 검토 대상이다.** Pro는 더 단순하고
 일관된 방법을 찾으면 기준 소스·통합 순서·책임 배분·구현을 재선정하고,
@@ -13,21 +14,21 @@
 있다는 이유로 유지하지 않는다. 선택 근거를 짧게 알린 뒤 승인된 범위에서
 진행하며, 통상적인 설계 선택마다 재승인을 기다리지 않는다.
 
-**현재 최우선은 Codex의 선작업인 ChatGPT attached Native 개발 루프 정상화다.**
-기존 Auto Review(danger-full-access/on-request/auto_review)를 진단·복구하고,
-같은 정식 Native 실행 경로에 작업별 Full Access(danger-full-access/never)를
-제공·실증한다. 두 정책의 동일 개발 시나리오를 비교한 뒤 기본값을 제언하되
-사용자 검토 전 운영 기본값을 바꾸지 않는다. 전역 설정 변경·검토 실패 시
-자동 never 전환·별도 shell 실행기는 해법이 아니다. 실제 작업 컨텍스트의 정책,
-검토 허용/거부/불능과 명령 실행 여부, 정책 격리·재연결·ChatGPT 왕복을 검증한다.
+**선행 개발 루프는 실제 실행 경로에서 검증됐다.** Full Access의 실제 ChatGPT
+커넥터 API→Bridge→Native 파일 작성·컴파일·같은 작업 계속 실행, 실제 GPT-6
+Guardian 검토 후 명령 실행·후속 명령, 대역 검토자의 거부/불능 시 미실행을
+구분해 보존했다. 기본 정책은 바꾸지 않았으며, 실제 모델의 거부 품질·실제 Target
+소실 후 복구·모든 모델/진입점까지 검증됐다는 의미는 아니다. 충분한 근거 전
+기본값 변경 제언은 보류한다. 전역 설정 변경·검토 실패 시 자동 never 전환·
+별도 shell 실행기는 해법이 아니다.
 
 이 개발 루프와 역방향 Codex TUI→ChatGPT의 아래 P0 CDP/입력 장애는 구분한다.
 공유 검토자/AppHost/provider 경계는 실제 요청 상관관계로 확인한다. 역방향 TUI
-복구를 attached 실행의 선행 조건으로 두지 않는다. Codex의 P0 수정은 운영 소스
-기록을 기준으로 별도 브랜치에서 진행 중이다. 작업별 Native 정책 전달과 앱의
-Composer 의존 제거, 실제 Native/대역 검토자 실증은 CURRENT.md를 참고한다.
-실제 앱 검토·ChatGPT Bridge 왕복·서명 배포가 끝났다는 의미는 아니다.
-Pro의 넓은 리팩터링 인수는 선작업의 실제 제품 검증 뒤 진행한다.
+복구를 attached 실행의 선행 조건으로 두지 않는다. Codex의 수정은 Native 정책
+전달과 앱의 불필요한 Composer 의존 제거이며 Core/Native 실행기를 바꾸지 않았다.
+개발 후보의 실제 앱 검토와 Bridge 왕복은 통과했지만 서명된 정식 배포·물리 TUI
+관찰은 별도 미완료다. Pro는 이 검증 범위를 재사용하고 남은 P0와 구조 평탄화를
+인수하되, 준비한 구조도 독립적으로 재조정한다.
 
 사용자가 말한 평탄화는 기능을 유지하면서 중복된 결정, 상태, 준비, 실행,
 복구 경로를 줄이는 것이다. 실제 생산자·결정 주체·소비자·수명과 보호해야 할
@@ -42,7 +43,7 @@ Pro의 넓은 리팩터링 인수는 선작업의 실제 제품 검증 뒤 진�
 
 | 역할 | 브랜치 / 기준 커밋 | 사용 방법 |
 | --- | --- | --- |
-| **현재 P0 개발 루프 복구** | `fix/attached-native-development-loop-20261106` / 운영 소스 기록 `0a6518c89417c0d7c727a771ab87f32d32bb856a`에서 분기 | 기존 `pro-baseline` 작업공간 재사용. 현재 서명 Native와 호환되는 Provider 기준에서 복구하며 미검증 Native 전환을 섞지 않는다. 실제 HEAD·diff·검증 상태는 CURRENT 및 Git으로 확인한다. |
+| **현재 P0 개발 루프 복구** | `fix/attached-native-development-loop-20261106` / 실제 개발 후보 소스 `763c24a37776439e74e456bd1841b93e67e1cfab` | `0a6518c` 기록에서 분기해 기존 `pro-baseline` 작업공간을 재사용했다. 현재 서명 Native와 실제 검증된 Provider 기준이며 미검증 Native 전환을 섞지 않았다. 이후 문서 HEAD·diff·검증 상태는 CURRENT 및 Git으로 확인한다. |
 | **준비 기준 브랜치** | `prep/pro-baseline-20261106` | Pro 작업 브랜치의 출발 후보. 미완성 catalog 초안을 분리하고 이 문서·운영 사실을 맞췄다. Pro는 다른 출발점이 더 적절하면 재선정할 수 있다. |
 | 이전 전체 인계 보존 | `fix/native-route-transition-20261105` / `eeb6f9d808cd2dc7319a3d94f07010d650f3d281` | Native 초안까지 포함했던 원본 인계. 강제 변경 없이 보존했다. |
 | 마지막 기록 기준 | `c340237982102a100de81aa70aca60b0617477eb` | 현재 복구 전의 기록 기준. 이후 인계 변경을 함께 읽는다. |
@@ -100,6 +101,9 @@ Native claim과 관련 시험 등이다. 나머지23개에는 아래 계정/앱 
 | 종류 | 실제 확인된 값 / 한계 |
 | --- | --- |
 | 이 작업을 수행한 Codex 세션 | `01a1a5d8-9652-7220-a958-be6349e07419` — 실행 환경의 THREAD_ID/SESSION_ID에서 확인 |
+| 실제 Full Access 개발 시험 | work `86264e68556ad46253e83972d74dd3607c0928e80388ba04`, thread `01a1af11-681f-7453-afa6-2bfb361cff34` |
+| 일반 Auto Review·직접 Bridge 계속 작업 | work `ac4f1b1fbb10317d089859b8f2a7fc9b824a8f26484aae0e`, thread `01a1af15-4b6c-74b2-aee4-78c8b7639fa0` |
+| 실제 GPT-6 Guardian 시험 | work `26e22c84347e258c4071309b4488b0c68d5b371792210bc0`, thread `01a1af1d-9644-7bd1-b066-f9404f55310d`, reviewer child `01a1af1d-9663-7653-a68a-f2861b141f64` |
 | 이전 Pro 생성 요청 | `pro-bridge-design-20261105-c554880a84cf-create` |
 | 그 요청의 회수된 work_id | `81f001ccecc1753339b40098bffc5a3e60c57dd63b14a0ea` |
 | 관련 Native thread | `01a1a98a-b913-7542-86a5-e9a2fdac3e68` |
@@ -150,17 +154,18 @@ thread/read는 -32600 `thread not loaded`로 거부됐다. Provider stop은 그�
   `sourceBase=9a5436a64d16045385358c6de18ab8e5b6699a57`의
   `experiments/web-provider`에서 찾을 수 있다. 현재 체크아웃에 없다는 이유로
   모바일 화면·태스크바·Android 브라우저 로그인 코드를 다시 만들지 않는다.
-- 운영 서비스는 호환 Provider `0a6518c89417c0d7c727a771ab87f32d32bb856a`의
-  보존된 바이너리로, **현재 데스크톱 descriptor에 명시적으로 연결한 복구 상태**다.
-  최신 Native 개발 후보를 배포한 상태가 아니다. 앱 재시작 후에도 연결을 유지하는
-  정식 수명 통합은 남았다. Native/MCP 부팅을 optional 앱에 종속시키지 않는다.
-- 현재 선택·복구 전 실행 명령·롤백 자료는
-  `~/.cache/codex/acceptance/connectivity-app-repair-20261105`의
-  `activation.json`, `info.json` 등에 있다. 비공개 제어값은 출력하지 않는다.
+- 현재 연결된 계정의 서비스와 MCP 명령은 clean `763c24a`에서 빌드·inventory 검증한
+  **개발 복구 후보**다. 최신 Native 전환 후보나 서명된 정식 배포가 아니다. 기존
+  데스크톱 descriptor를 쓰며 정식 앱 수명 통합은 남았다. 다른 계정 인스턴스를
+  이 바인딩과 혼동하지 않고 Native/MCP 부팅을 optional 앱에 종속시키지 않는다.
+- 현재 후보·바인딩·이전 서비스/터널 백업과 증거는
+  `~/.cache/codex/acceptance/attached-native-loop-763c24a37776/`에 있다. 그 전
+  `connectivity-app-repair-20261105`는 이전 복구 기록/롤백 근거다. 설치된 패키지와
+  실제 실행 이미지를 구분하며 비공개 제어값은 출력하지 않는다.
 - 기존 `scripts/d3_refresh.mjs`로 앱 캐시 무효화, **17개 전체 입력 스키마 일치**,
-  실제 MCP 조회를 완료했다. 이후 순차 Provider host 관찰에서 ready=true였다.
-  이 복구 상태에서 새 Native create/start/attach/execute/finish와 실제 모델
-  왕복은 아직 수행하지 않았다.
+  실제 MCP 조회를 완료했다. 이후 새 Native create/start/attach/execute/finish,
+  파일 수정/빌드/계속 작업과 실제 GPT-6 Guardian 검토가 통과했다. 해당 work/thread
+  ID와 범위는 CURRENT에 있다. 실제 TUI 정상화·모든 모델 성공으로 확대하지 않는다.
 - 외부 CDP 릴레이는 한 번에 한 연결만 받는다. 직접 D3 관찰과 Provider 관찰을
   동시에 실행하여 생긴 점유 실패를 앱 고장·로그아웃으로 오진하지 않는다.
 - noVNC는 기존 초기화의 `UI.toggleControlbarSide()`로 오른쪽에서 시작하도록
@@ -334,7 +339,7 @@ CDP/대상 관리는 CDP/AppHost, 원본 앱 요청 전달·관찰·정산은 Pr
 
 ## 6. 우선 정리·연구·구현할 내용
 
-현재는 위 attached Native 개발 루프를 먼저 완결한다. 이어서 역방향 P0와
+위 attached Native 개발 루프의 검증 범위와 남은 한계를 확인한 뒤 역방향 P0와
 아래3·4·6·9의 공통 원인을 검증하며 기존12개/NC/누적 범위를 보존한다.
 별도 예외 경로로 분리하지 않는다.
 
@@ -470,106 +475,118 @@ CDP/대상 관리는 CDP/AppHost, 원본 앱 요청 전달·관찰·정산은 Pr
 
 ## 9. Pro에게 보낼 실행 프롬프트
 
-아래 프롬프트는 attached 개발 루프 정상화 후의 인수용이다. 인계 시점의
-CURRENT/goal과 실제 검증 결과를 우선하며, 현재 Pro에게 실행을 요청하지 않는다.
+아래는 현재 개발 루프 실증 뒤의 인수용 프롬프트다. 운영 기본값 변경이나 추가
+Pro 추론을 요청한 기록은 아니다. 실제 인수 시 CURRENT와 원격 HEAD를 확인한다.
 
 ```text
-ChatGPT 진입점에서 @TermuxBridge를 사용하여 humtr/codex의 책임경계 평탄화와
-미완성 연결 작업을 인수해라. 최우선은 운영 Codex의 ChatGPT CDP timeout 뒤
-같은 Native 작업의 입력 동기화가 막히는 P0를 원인 규명→수정→회귀→실제 복구까지
-해결하는 것이다. 분석 보고나 결함 후보 등록으로 멈추지 마라.
+ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 평탄화와
+미완성 연결 작업을 인수해라. 기존 구현·준비안·경계도 독립적으로 평가하고,
+더 단순하고 올바른 구조가 있으면 재선정·재조정한 뒤 구현과 실제 실증까지
+수행해라. 짧은 초기 평가 후 승인된 범위에서 계속하고 보고서 작성만으로 멈추지 마라.
 
 저장소: https://github.com/humtr/codex
-출발 후보: prep/pro-baseline-20261106의 최신 원격 HEAD
-먼저 PRO_HANDOFF.md 전체(특히 P0), AGENTS.md, SPEC.md4.5–4.6,
-CURRENT.md, goal.md, providers/chatgpt/LINUX_APP.md를 읽어라.
-복구/컴팩션/인수 뒤에는 실제 AGENTS.md를 다시 읽되 통과한 검사를 재시작하지 마라.
+작동하는 코드의 출발 후보: fix/attached-native-development-loop-20261106 최신 원격 HEAD
+실제 개발 Provider/MCP 후보의 소스: 763c24a37776439e74e456bd1841b93e67e1cfab
+별도 Native 전환 후보: prep/pro-baseline-20261106 (현재 서명 Native에는 미적용)
+먼저 PRO_HANDOFF.md 전체, AGENTS.md, SPEC.md4.5–4.6, CURRENT.md, goal.md,
+providers/chatgpt/LINUX_APP.md를 읽어라. 복구/컴팩션/인수 뒤에는 실제 AGENTS.md를
+다시 읽고 현재 diff·새 경로·미해결 사항을 확인하되 통과한 검사를 재시작하지 마라.
 
-실제 worktree·브랜치·HEAD·diff·실행 작업·소유권과 운영 이미지/설정을 확인해라.
-$TMPDIR/connectivity-repair-70jt4h2u/implementation 및
-fix/native-route-transition-20261105는 이전 후보이고 pro-baseline은 준비 후보다.
-현재도 유효하거나 동일한 소스라고 가정하지 마라. 진행 중 작업의 연속성을
-보존하고, 다른 작업이 쓰지 않는 기존의 깨끗한 트리에서 네 작업 브랜치를 만들어라.
-불필요한 clone/checkout/별도 구현 경로, reset/clean/강제 병합은 금지한다.
-네 실제 세션 ID, 선택한 기준 브랜치/commit, 관련 Native thread/work ID를 기록해라.
-기준 변경이 필요하면 근거와 함께 기록하고 기존 변경을 보존해라.
+실제 worktree·branch·HEAD·diff·작업/소유권과 서비스/MCP 명령/커넥터/설정의
+현재 바인딩부터 확인해라. 기존 pro-baseline 작업공간은 현재 P0 브랜치에 있다.
+implementation/fix/native-route-transition-20261105와 준비 브랜치는 대안 자료다.
+같은 코드나 활성 환경이라고 가정하지 마라. 소유권과 사용자 변경을 보존하고
+사용하지 않는 기존 깨끗한 트리에서 본인 브랜치를 만들어라. 불필요한 clone /
+중복 checkout, reset/clean, 보관 브랜치 일괄 병합·강제 변경은 금지한다.
+현재 P0 기준보다 다른 출발점이 더 낫다면 증거와 전환 방법을 밝히고 재선정해라.
+Native 작업의 workspace에는 선택한 실제 기기 worktree의 절대 경로를 넣어라.
+기본 ~/prj/codex의 원래 dirty 소스는 보존 중이며 새 기준과 자동 통합되지 않았다.
 
 이전 Codex 세션: 01a1a5d8-9652-7220-a958-be6349e07419
-관련 Native thread: 01a1a98a-b913-7542-86a5-e9a2fdac3e68
+이전 Pro 관련 thread: 01a1a98a-b913-7542-86a5-e9a2fdac3e68
 이전 Pro work_id: 81f001ccecc1753339b40098bffc5a3e60c57dd63b14a0ea
-이는 출처 참고다. 과거 할당을 네 연구 세션으로 위장하거나 claim/join부터 하지 마라.
-Bridge Native가 도구 접근 수단이면 현재 Chat에 붙는 본인 연구 작업을 하나 만들고,
-실제 schema의 inference=attached, 안정적인 call_id, start/attach/context receipt
-수락 절차를 따른다. 생성 결과가 불확실하면 같은 ID/인자로 회수한다. 불필요한
-할당이나 별도 Pro 추론은 시작하지 않는다. 격리 실증은 필요한 새 테스트 세션을 쓴다.
+이 ID와 CURRENT의 시험 ID는 출처 참고다. 네 연구 세션으로 위장하거나 과거
+할당 claim/join을 선행 조건으로 삼지 마라. 본인의 실제 세션/Native thread/work
+ID, 선택한 기준 commit과 브랜치를 기록해라. Bridge가 도구 접근 수단이면 현재
+응답에 연결할 연구 작업을 하나 만들고 create(inference=attached, 안정적인
+call_id) → start(원본 전체 과제) → attach 읽기/receipt 수락 → tools를 따른다.
+create에는 task/model/effort/mode를 넣지 마라. 불확실한 요청은 원래 ID/인자로
+회수하고 중복 작업을 만들지 마라. 현재 Pro를 유지하고 별도 Pro 추론을 제출하지 마라.
 
-P0 관찰은 2026-11-06 사용자 제공 증거다. 운영 TUI ChatGPT 요청이
-cdp_operation_timeout으로 실패한 뒤 재입력이 operator_reconciliation_required;
-draft retained로 막혔다. 기록은 app_lane_open_uncertain/opening과 후속
-cdp_operation_timeout/new, pending=[], round="", user_messages/dispatches/
-host_reply_messages=0이며 후자에는 신원만 있고 프로젝트 바인딩은 없었다.
-두 기록의 원본 Lane/round/call 연관성과 실제 전달 사실부터 확인해라.
-Native create/start/attach/execute·읽기 exit0, host present/ready, project/catalog
-조회는 성공했다고 보고됐다. 당시 Provider 주소127.0.0.1:45341을 상수화하지 마라.
-운영 Provider는 별도 호환 복구 바이너리이며 후보 소스/격리 빌드와 다르다.
-history.mode=project와 기존 project ID, 소스의15초 CDP 제한/awaitPromise=true/
-project_read는 단서다. 명령별 시간 증거 없이 project_read를 원인으로 확정하지 마라.
-자동 승인 검토의 app_target_unavailable로 빌드가 미실행된 별도 장애도 추적해라.
-같은 원인인지 Target 선택 문제인지 판별하며 승인 실패를 우회하지 마라.
+개발 루프의 검증 범위를 재사용해라. Native 정책은 create 때만 선택 가능하다:
+Auto Review는 approval_policy=on-request, approvals_reviewer=auto_review;
+Full Access는 approval_policy=never다. 생략은 상속이며 기존 작업·전역 기본값을
+바꾸지 않는다. require_escalated는 세션 정책 전환 기능이 아니다. Native가
+권한·실행·결과·history를 소유하고 두 정책은 같은 정식 도구 경로를 쓴다.
+실제 Full Access 파일 작성/컴파일/수정/재컴파일/같은 작업 계속 실행, 실제 GPT-6
+Guardian 검토 후 실행과 후속 명령, 대역 검토자 거부/불능 시 미실행이 검증됐다.
+일반 명령은 검토 없이 허용될 수 있으므로 명령 성공을 리뷰어 호출로 세지 마라.
+실제 모델의 거부 품질·실제 Target 소실 후 복구·모든 모델/진입점은 미검증이다.
+기본 정책 변경 제언은 충분한 증거 전 보류됐으며 사용자가 결정하기 전 변경하지 마라.
+검토 실패를 승인이나 자동 never 전환으로 처리하지 마라.
 
-cdp/app/app_bridge/host/project/server/operator/operator_native/native_claims/
-mcp_bridge와 실제 TUI/Core 호출자를 추적해라. CDP 큐·응답·단일 연결 점유,
-Target/Session/React Scope/Composer, 화면 전환, 비동기 작업과 응답 유실을 구분해라.
-TUI 입력→Native 수락→Provider 준비→오류→상태 기록→같은 작업 재입력
-→synchronize/reconciliation→후속 수락 또는 구체적 안전 차단까지 확인해라.
-New/Opening/Idle/Dispatching/Running/Unknown/reconciliation_required의
-진입·해제 조건을 확인하고 P0 문서의 여덟 전달 단계를 실제 증거로 구분해라.
-로컬 카운터0이나 연결 종료만으로 비전달/취소를 추정하지 마라.
+현재 기기 바인딩은 소스·inventory가 확인된 unsigned 개발 복구 후보다.
+서명된 설치 패키지·Core/Native·공개 stable은 바꾸지 않았다. CURRENT의 후보,
+서비스/터널 원본 백업과 기존 바이너리를 보존해라. 운영 서비스를 임의 경로의
+새 빌드로 바꾸거나 이 실증을 서명 배포 완료로 보고하지 마라. 같은 커넥터의
+옛 터널 세션이 옛 스키마를 노출했던 문제는 기존 터널 재연결과 d3_refresh로
+검증했다. 현재 계정/터널을 재발견하고 다른 인스턴스로 바꾸지 마라.
 
-CDP/대상 관리는 CDP/AppHost, 외부 요청 전달·재관찰·정산은 Provider,
-Native 입력·writer·승인·도구·정식 기록은 Native가 소유한다. TUI는 확정 상태와
-초안을 표현하고 Core는 Termux 실행 적응을 맡는다. 복구 가능한 원본 Lane/round를
-확인해 같은 작업의 차단을 정상 종료하되 실제 미확정 효과 보호는 유지해라.
-thread/work/history/model/route/승인과 원본 요청 ID를 보존하고 중복 모델 제출·
-도구 실행·입력 손실을 막아라. draft 소비/재제출은 Native 수락 사실로 결정해라.
-단순 timeout 연장·무제한 재시도·오류 무시·강제 초기화·자동 계정/모델 전환으로
-해결하지 마라. timeout 정책 수정에는 정상 실행 시간의 실측 근거가 필요하다.
+다음 최우선 P0는 역방향 Codex TUI → ChatGPT의 cdp_operation_timeout 뒤
+같은 Native 작업 재입력이 operator_reconciliation_required; draft retained로
+막히는 문제다. 현재 attached 실행 복구와 혼동하지 말고 독립적으로 조사해라.
+보고된 app_lane_open_uncertain/opening과 timeout/new 기록, 빈 pending/round /
+user_messages/dispatches, identity만 있고 project가 없는 상태를 현재 소스와
+운영 증거에 대조해라. 당시 port45341을 상수로 만들지 마라. 15초 CDP 제한,
+awaitPromise=true, history.mode=project와 project_read는 단서일 뿐 최초 원인으로
+확정되지 않았다. Guardian의 app-target 준비 실패는 별도로 수정/검증됐지만
+모든 timeout이나 기존 reconciliation 차단이 해결됐다는 의미는 아니다.
 
-준비안과 기존 경계도 독립적으로 재평가해라. 더 간결한 구조가 있으면 기준·통합
-순서·책임·구현을 재조정하고 SPEC/문서를 먼저 맞춰라. 공유 Native 실행과
-공급자별 얇은 추론 연결부, 지원되는 대안과 최소 Native 수정의 비용/정확성을
-비교해라. Provider를 openai로 이름만 맞추는 것은 호환성 증명이 아니다.
-동일 세션의 양방향 전환과 bootstrap modelProviderMismatch도 기존 필수 범위다.
-중복 결정·상태·준비·연결·복구를 통합하고 대체 코드·설정·호출자·시험·문서를
-함께 정리해라. 별도 실행기/기록/복구 상태머신이나 증상별 래퍼를 늘리지 마라.
-통상적 선택은 근거를 짧게 알리고 승인된 범위에서 계속해라.
+실제 CDP 큐/응답, Target/Session/React Scope, 비동기 앱 작업과 연결 수명,
+Provider 요청/라운드 전달, Native 수락·효과·writer, TUI 초안 소비까지 추적해라.
+P0 문서의 여덟 전달 단계를 각각 무엇이 확정됐고 어떤 원본을 관찰해야 하는지로
+정의해라. 연결 종료나 로컬 카운터0은 취소/비전달 증거가 아니다. 원본 Lane /
+round/call을 재관찰·정산하고 안전이 확인되면 같은 작업의 차단을 정상 종료해라.
+미확정 모델 입력·도구를 자동 재전송하지 말고 thread/work/history/model/route /
+승인·초안을 보존해라. timeout 연장·무제한 retry·오류 무시·강제 초기화·자동
+계정/모델 전환은 해법이 아니다. 시간 정책 변경은 정상 실행의 실측이 먼저다.
 
-P0 여섯 사례를 기존 격리 인프라에서 재현/검증해라: (1) 모델 전송 전 timeout,
-(2) Lane Open ACK 유실, (3) 모델 제출 ACK 유실, (4) timeout 후 같은 TUI 작업
-재입력, (5) Composer 부재와 Target 소실 및 승인 검토, (6) TUI/Native/MCP 상태
-일관성. 원본 요청 관찰·입력 수락·한 번만 실행되는 효과를 검증해라. 최초 실패와
-수정 후 성공, 실질 회귀의 격리 결함 주입 실패/복원을 남겨라. 오류 문자열 비교나
-성공 mock만으로 완료하지 마라. 동일 입력의 기존 대형 CI는 다시 돌리지 마라.
+간결한 책임과 데이터 흐름을 먼저 제시하고 SPEC/문서를 구현 전에 맞춰라.
+Native는 정식 실행·승인·writer·기록·컴팩션의 단일 권위다. Provider는 앱/모델
+연결과 외부 요청 전달·재관찰을 소유하고 TUI는 상태와 사용자 의도를 표현한다.
+Core는 Termux 적응을 맡는다. 경계 자체가 잘못됐다면 옮기되 두 번째 실행기 /
+기록/복구 상태머신은 만들지 마라. 실제 소비자를 확인해 중복 결정·준비·상태·
+경로를 통합/삭제하고 대체 코드·설정·호출자·시험·문서를 함께 정리해라.
 
-이후 담당 빌드/연결→분리 AppHost/CDP→실제 Codex TUI→실패/복구→같은 작업의
-후속 입력과 최종 모델 응답을 확인해라. 실제 모델은 기존 승인·유한 비용/할당량
-범위를 확인해 필요한 만큼만 사용해라. 기기/앱/모델 실증에는 @TermuxBridge를
-사용하고 연결이 없으면 독립 소스 작업을 계속하되 기기 실증은 미수행으로 남겨라.
-기존 로그인·계정·브라우저·대화·실행 작업을 보존하고 이미 있는 모바일 런처·
-태스크바·Android 로그인 연동을 재발명하지 마라. CDP 관찰자를 경쟁시키지 마라.
-운영 교체는 기존 서명/배포/롤백 절차를 따르고, 현재 소유 CDP와 정확한
-connector/Provider/state로 scripts/d3_refresh.mjs의 전체 입력 스키마를 갱신한 뒤
-새 Native create/start/attach/execute/finish까지 확인해라.
+동일 Native 세션의 OpenAI↔ChatGPT 양방향 전환과 bootstrap modelProviderMismatch도
+필수다. 공유 Native 로직과 얇은 추론 연결부, 지원되는 대안과 필요한 최소
+Native 호환 수정의 정확성/비용을 비교해라. Provider 이름만 openai로 맞추는 것은
+입증이 아니다. 현재 Native 전환 후보를 옛 서명 런타임에 무리하게 우회 적용하지
+말고 부족한 인터페이스와 Termux 필요성을 증명해라. 최초 진입점에 관계없이
+문맥/기록이 이어져야 하며 자동 fork 누적을 막아라. Native 컴팩션 결과의 소유와
+Chat 갱신/주입을 구분하고 독립적인 Provider 요약기를 관성으로 추가하지 마라.
 
-P0를 우선 완결하고 기존12개 과제·NC-01..29·누적 backlog를 빠짐없이 판별해라.
-관련 구조 문제는 함께 해결하되 무관한 과제를 한 패치에 몰아넣지 마라.
-읽기·쓰기·계속 작업·양방향 전환·컴팩션·중단·재연결의 기존 요구를 보존해라.
-goal.md는 간결히, CURRENT.md는 확정 사실과 미완료로 유지해라. PRO_REVIEW.md에
-최초 실패/근본 원인, reconciliation 전이, A/B/C 공통·독립 판정, 필요한 보호와
-불필요 차단, 책임 변경/대안/삭제·호환, 재현·수정·결함 주입 결과, 실제 TUI
-재입력·모델 완료·Native 연속성, 미완료/배포/롤백을 기록하고 커밋/푸시해라.
+새 격리 시험 세션에서 P0 여섯 사례를 검증해라: 모델 전송 전 timeout, Lane Open
+응답 유실, 모델 제출 ACK 유실, 같은 TUI 작업 재입력, Composer 부재와 Target 소실,
+TUI/Native/MCP 상태 일관성. 읽기·쓰기·계속 작업·양방향 전환·자동/수동 컴팩션·
+중단·재연결도 실제 결과와 세션/work ID를 남겨라. 실패 전후와 실질적인 결함
+주입 실패/복원을 검증하고 문자열 비교·성공 mock으로 완료하지 마라. 입력이
+같은 기존 대형 CI는 반복하지 마라. source/대역/Android/앱/실제 TUI를 구분해라.
+
+기기/앱/모델 실증에는 @TermuxBridge를 쓰고 없으면 가능한 소스 작업을 계속하되
+기기 성공을 주장하지 마라. 실제 모델은 승인된 범위와 유한 비용/할당량 안에서만
+사용해라. 기존 모바일 런처·저장 프로필·태스크바·Android 로그인·noVNC를
+재발명/초기화하지 마라. CDP 관찰자를 경쟁시키지 마라. 실제 runtime 교체는
+기존 서명/배포/롤백 계약을 따르고, 현재 소유 CDP/정확한 connector/Provider/state로
+기존 scripts/d3_refresh.mjs의 전체 스키마와 새 Native 왕복을 확인해라.
+
+우선 과제12개·NC-01..29·누적 backlog를 빠짐없이 판별하고 관련 작업부터 순서대로
+수행해라. 무관한 정리를 한 패치에 몰아넣지 마라. goal.md는 간결하게, CURRENT.md는
+확정 사실과 남은 작업으로 유지해라. PRO_REVIEW.md에 진단/대안/책임 변경/삭제·
+호환 경로/실제 증거/미완료/다음 작업을 기록하고 논리적 단위로 커밋/푸시해라.
 기기 보고서: ~/.cache/codex/acceptance/bridge-design-pro-review/REPORT.md
-소스/대역/Android/실제 모델/물리 UI/서명/활성화를 구분하며 인증정보·capability·
-개인 원시 대화는 공개하지 마라. 완료 기준은 같은 작업을 중복 효과 없이
-정상적으로 계속할 수 있는 것이다.
+최종 보고에는 timeout 최초 실패/근본 원인, reconciliation 전이와 보호/불필요 차단,
+A/B/C의 관계, 수정 책임·회귀/결함 주입, 실제 TUI 재입력·모델 완료·Native 연속성,
+미완료·서명·배포·스키마 갱신·롤백 상태를 구분해라. 인증정보·capability·개인 원시
+대화는 공개하지 마라. 최종 기준은 같은 작업을 중복 효과 없이 계속할 수 있는 것이다.
 ```

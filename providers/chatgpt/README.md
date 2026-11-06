@@ -372,6 +372,23 @@ Native execution path without command approval review; it does not settle
 uncertain effects or authorize unrelated work. An attached Chat remains the
 primary inference source; Auto Review may make a separate reviewer request.
 
+For a new attached task, select one policy on `codex_sessions create`:
+
+```json
+{"action":"create","call_id":"new-development-task","inference":"attached","approval_policy":"never"}
+```
+
+For Auto Review use `"approval_policy":"on-request"` and
+`"approvals_reviewer":"auto_review"` instead. Then start the returned work with
+its controller, complete task and another stable call ID; read/accept
+`codex_attach` before Native tools. Allocation retries preserve the original
+arguments. A retry's old controller is not a new grant after a later join.
+On-request in an unrestricted sandbox still permits ordinary non-dangerous
+commands without review. `require_escalated` alone does not prove a reviewer ran;
+qualification must observe an actual review-triggering rule/action and its result.
+Full Access skips command approval review while retaining Native's other policy
+checks and unfinished-effect protections. Neither choice changes other work.
+
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
 config/auth/model defaults remain protected. Retain profile-pinned generations

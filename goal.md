@@ -1,37 +1,24 @@
-# Active handoff scope
+# Active work
 
-Preserve Codex capability while simplifying responsibility and execution paths.
-SPEC.md owns behavior, AGENTS.md development rules, CURRENT.md proven/pending
-state, and PRO_HANDOFF.md the complete Pro assignment. Reread AGENTS.md after
-recovery; inspect current worktrees, source and live ownership before changes.
+Keep the user's requested capability while reducing duplicate decisions, state,
+preparation and recovery. Reread actual AGENTS.md after recovery; SPEC4.5-4.6 owns
+responsibility contracts, CURRENT.md proven/pending state and PRO_HANDOFF.md the
+complete assignment and preserved12 priorities / NC-01..29 / cumulative backlog.
 
-First restore the ChatGPT → Bridge → attached Native development loop before
-handing broader refactoring to Pro. Diagnose/fix Auto Review failure under
-danger-full-access/on-request/auto_review; expose upstream-supported per-work
-Full Access (danger-full-access/never) through the same execution path. Compare
-matched edit/build/test/continuation scenarios and recommend a default only from
-evidence. Do not change operational defaults or silently switch failed reviews.
-Actual policy propagation, review allow/deny/failure, effect counts, isolation,
-reconnect and real ChatGPT Bridge roundtrip all require proof.
-Current P0 source is fix/attached-native-development-loop-20261106 over the
-operating source attribution0a6518c; prep/pro-baseline remains the independent
-unqualified Native transition candidate. Native policy/compilation/reconnect
-proof with synthetic reviewer replies passed; finish the exact-source artifact,
-actual app reviewer and connected-client schema/Native development gates next.
+The attached Native development prerequisite has source fixes and actual proof:
+Provider/MCP development artifact763c24a, full connector-schema refresh, real
+Native Full Access edit/build/continuation, actual GPT-6 Guardian review and a
+normal follow-up. Synthetic Native tests cover deny/failure enforcement and
+Provider reconnect. Ordinary successful commands are not proof of model review.
+Keep both per-work policies; no operational default change or failure fallback.
+Real model denial quality, live target-loss recovery, universal model/entrance
+coverage and signed publication remain open. See CURRENT for exact evidence.
 
-Keep the reverse Codex TUI → ChatGPT timeout/input-recovery P0 separate unless
-correlated evidence establishes shared cause. Its six required cases remain in
-PRO_HANDOFF.md. Its timeout/input-recovery fix remains unverified.
-
-Pro may reselect the prepared baseline and responsibilities using evidence.
-Compare shared Native execution with thin inference adapters and any genuinely
-supported alternative; provider naming alone proves no compatibility. Preserve
-one Native writer/executor/history/compaction authority. Integrate or delete
-replaced preparation/recovery paths together with callers, tests and contracts.
-
-Retain the12 priorities, NC-01..29 and cumulative backlog in PRO_HANDOFF/CURRENT;
-do not combine unrelated work into P0. Historical goal/delivery details remain
-in handoff/pro-local-baseline-20261106 and are not current activation proof.
-Reuse unchanged accepted evidence. Keep live profiles/jobs and the existing Linux
-launcher intact; no extra Pro inference. Source tests, actual device/model/TUI,
-signed delivery, connector refresh and activation are distinct completion facts.
+Next: hand Pro the working source branch and separate unqualified Native-route
+candidate. Pro may reselect/rework either using evidence. First resolve reverse
+TUI CDP timeout / same-work reconciliation and bootstrap provider mismatch, then
+flatten responsibilities, transitions and Native compaction without a second
+writer/executor/history. Preserve uncertain effects, accounts, existing mobile
+launcher and user edits. Reuse accepted unchanged evidence; no extra Pro inference.
+Source, simulation, actual Native/app/client, physical TUI and signed activation
+remain separate completion boundaries.
