@@ -148,6 +148,8 @@ def probe(args):
             assert rpc('codex_attach',{**bound,'accept':context['receipt']})['accepted']
             rpc('codex_finish',{**bound,'call_id':'native-before-tui-final','text':'NATIVE_BEFORE_TUI_BASELINE'})
             assert rpc('codex_status',{'work_id':bound['work_id']})['phase']=='completed'
+            # Keep automatic title inference separate from task-submission counts.
+            native_rpc(home,'thread/name/set',{'threadId':thread,'name':'Owned Native continuity proof'})
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 80 if display else 44, 160, 0, 0))
         screen_args = [] if display else ['--no-alt-screen']
@@ -473,16 +475,15 @@ def probe(args):
             assert barrier['status']=='ready' and not barrier['inference_submitted']
             assert source_reads()==before_reads
             assert sum(row['op']=='submit' for row in bridge_commands())==before_submits
-            if not created_before_tui:
-                bridge_prefix = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
-                submit('CLI_AFTER_BRIDGE_INPUT')
-                wait(lambda:sum(row['op']=='submit' for row in bridge_commands())==before_submits+1,
-                     'new CLI input starts Provider after Bridge Direct work')
-                wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','CLI after Bridge completes')
-                after_cli = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
-                assert after_cli[:-1]==bridge_prefix and len(after_cli)==len(bridge_prefix)+1
-                assert rpc('codex_status',{'work_id':work['work_id']})['selection']['inference']=='submitted'
-                assert source_reads()==before_reads
+            bridge_prefix = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+            submit('CLI_AFTER_BRIDGE_INPUT')
+            wait(lambda:sum(row['op']=='submit' for row in bridge_commands())==before_submits+1,
+                 'new CLI input starts Provider after Bridge Direct work')
+            wait(lambda:rpc('codex_status',{'work_id':work['work_id']})['phase']=='completed','CLI after Bridge completes')
+            after_cli = native_rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})['thread']['turns']
+            assert after_cli[:-1]==bridge_prefix and len(after_cli)==len(bridge_prefix)+1
+            assert rpc('codex_status',{'work_id':work['work_id']})['selection']['inference']=='submitted'
+            assert source_reads()==before_reads
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
                 'bridge_admissions':admissions,'provider_to_direct_same_work':not bool(created_before_tui),'native_created_before_ordinary_tui_resume':bool(created_before_tui),
@@ -490,8 +491,8 @@ def probe(args):
                 'busy_work_rejected':True,'original_native_prefix_unchanged':True,'exact_effect_and_finish_retry':True,
                 'service_restart_same_work':True,'saved_chat_reads':len(source_reads()),
                 'join_after_all_clients_closed_and_thread_unloaded':True,
-                'bridge_additional_primary_submissions':0,'cli_followup_primary_submissions':0 if created_before_tui else 1,
-                'cli_after_bridge_same_work_completed':not bool(created_before_tui),'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
+                'bridge_additional_primary_submissions':0,'cli_followup_primary_submissions':1,
+                'cli_after_bridge_same_work_completed':True,'native_created_view_was_read_only':'read-only' in screen.lower(),'actual_native_core_and_live_tui':True,
                 'bridge_finals_in_active_viewport':bool(display),
                 'private_public_report_finish_handoff_rejected_before_admission':True,
                 'private_native_report_rejected_before_effect':True,

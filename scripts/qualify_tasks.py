@@ -115,8 +115,8 @@ def materialize_signed_generation(generation, native):
 
 def qualify(generation, parent, public_key, observe_owner=None):
     core = generation / "core"
-    with tempfile.TemporaryDirectory(prefix="tq", dir=parent) as temporary:
-        root = Path(temporary)
+    root = Path(tempfile.mkdtemp(prefix="tq", dir=parent))
+    try:
         home, prefix = root / "h", root / "p"
         identity = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:])["generation_id"]
         native = home / ".local/lib/codex/core/generations" / identity
@@ -314,6 +314,16 @@ requires_openai_auth = false
                 assert "active writer" in str(error), str(error)
             b.close()
             other.terminate(); other.wait(timeout=5)
+            unrelated = int((second_record / "pid").read_text())
+            assert Path(f"/proc/{unrelated}/exe").resolve() == native / "runtime"
+            os.kill(unrelated, signal.SIGSTOP)
+            try:
+                observed = run("termux", "__task-connection-v1", thread)
+                assert observed.returncode == 0, observed.stderr.decode()
+                assert Path(json.loads(observed.stdout)["connection"]["socket"]) == (record / "s").resolve()
+            finally:
+                os.kill(unrelated, signal.SIGCONT)
+            print("PASS an unrelated unresponsive Native server cannot block the selected writer connection")
             # Manager reconnect must reuse A's actual server without a new writer.
             back, back_master = tui(["termux", "task", "reconnect", thread])
             time.sleep(1)
@@ -407,6 +417,10 @@ requires_openai_auth = false
                     assert Path(f"/proc/{pid}/exe").resolve() != native / "runtime", "owned server did not exit before root cleanup"
                 except (OSError, ProcessLookupError):
                     pass
+
+
+    finally:
+        print(f"Owned source/native records retained at {root}", flush=True)
 
 
 if __name__ == "__main__":

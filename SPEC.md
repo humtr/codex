@@ -748,7 +748,9 @@ precedence, installed-route validation and model admission remain unchanged.
   confirmed free; otherwise connection contains execution_home and socket for
   the qualified owner. This local connection metadata is not a public task list,
   credential, new writer registry or execution capability. Unsafe, ambiguous or
-  unresponsive discovery fails rather than preparing a competing writer.
+  unresponsive ownership fails rather than preparing a competing writer. A
+  kernel-verified unrelated server/read-only copy is not a connection prerequisite
+  for that selected task; unfiltered inventory keeps its complete observation scope.
   The frontend connects that owner without applying catalog startup selection to
   it. New/ownerless work retains the resolved configuration coordinator; a generic
   connection operation never replaces an already selected backend. The current

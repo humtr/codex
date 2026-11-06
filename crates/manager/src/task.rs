@@ -509,6 +509,13 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
     let mut tasks = Vec::new();
     let mut seen = BTreeSet::new();
     for server in servers(context, deadline)? {
+        // A selected task depends on its kernel-confirmed writer, not on the
+        // responsiveness of unrelated accounts or loaded read-only copies.
+        if let Some(id) = filter {
+            if !owns_writer(context, id, &server)? {
+                continue;
+            }
+        }
         let mut rpc = match server.connect(deadline) {
             Ok(rpc) => rpc,
             Err(_) => {

@@ -272,9 +272,10 @@ Codex session: work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a,
 thread01a1afb1-8421-7613-9ae9-adfb6d266f17. Its original Native command returned
 process session56351. Broker retained the result and retired its token before a
 queued poll was offered. The original Native command item later records failed /
-exit-1, while the thread is notLoaded and its opaque reservation remains. Native
+exit-1, while the thread was notLoaded and its opaque reservation remained. Native
 can synthesize-1 on cancellation/error, so this is not kernel exit proof and has
-not been used to release the operating claim. No journal, capability or policy
+not been used as the basis for releasing that claim. The later normal Native/host
+Stop confirmations and zero-effect observation are recorded below. No journal, capability or policy
 was forcibly reset. Preserve the original failed/unknown outcome when using
 supported Stop/reconciliation; app failure or an unloaded thread alone is not
 proof that another work's effects ended.
@@ -361,6 +362,17 @@ proves actual MCP development, not Guardian denial quality, every ChatGPT model,
 physical UI or signed public delivery. The earlier real scope-denial failure
 remains an independent open finding.
 
+A separate bounded live submitted-inference trial also completed: work
+98a31c702d42b464493223bf53408e814944f3f4fb9ded83 / thread
+01a1b09e-e7f7-7ec1-93dc-095db180ecd9 returned exactly CONTINUITY_REAL_MODEL_OK.
+The existing source-execution record correlates requested and observed app model
+gpt-6 to Native turn01a1b09f-2506-78b1-8d1c-68af46620866. There was one app
+dispatch, no tool request, no Pro inference, unchanged on-request/auto_review,
+idle/input-ready app state, completed Native work and zero unconfirmed effects.
+See real-model-result.json in the current activation directory. This establishes
+a fresh real app/model path after retirement, not real steering/fault recovery,
+universal model coverage or physical TUI observation.
+
 **Remaining entrance boundary.** Ordinary Native-created-work->TUI resume still
 chooses a different configuration-bound backend and becomes read-only even though
 Native execution/history continue. Keep this failing product acceptance. A
@@ -370,8 +382,8 @@ restart with unchanged history and zero primary submissions; thread
 01a1b006-9f29-7e80-bad6-af60800a864f. It proves the supported connection interface,
 not automatic owner selection or TUI follow-up. Reuse existing live-owner
 discovery and Native authority to repair that connection choice, without another
-writer, executor, transcript or TUI recovery state machine. Real-model reverse
-flow, original project-timeout provenance, all entrance transitions and signed
+writer, executor, transcript or TUI recovery state machine. Real-model fault
+recovery, original project-timeout provenance, all entrance transitions and signed
 publication remain unfinished.
 
 ### Same-Provider TUI owner selection: candidate implementation
@@ -393,6 +405,15 @@ profile transition. The existing Manager IPC function moves from profile UI to
 profile transport, and profile/quota/startup callers reuse it without a forwarding
 wrapper. Native admission, tools, approvals and history are unchanged.
 
+Direct review found that selected-task discovery still awaited unrelated Native
+servers. It now checks the existing kernel writer identity before RPC, retaining
+post-RPC revalidation and complete unfiltered inventory semantics. The actual
+Native gate passes with a non-owner server suspended; removing that selection
+filter in disposable source fails the same query. The original source is restored,
+and independent mutation compiler output prevents fault artifacts from polluting
+the canonical cache. Native records are now retained by this task qualifier.
+See owner-filter-native-actual/fault logs and JSON under the evidence root.
+
 Manager's52 library tests, strict Clippy and release build pass. A disposable
 unknown-writer-as-free fault fails the new connection-query regression and was
 restored. Frontend source assembly/unit checks pass; native frontend compilation,
@@ -405,19 +426,28 @@ normal short TMPDIR fixture (99 bytes); original diagnostics remain. No product
 path guard, timeout or assertion was weakened. No candidate Core/Manager/frontend
 has been installed into the operating generation.
 
+Repository validation reuses unchanged Core238-pass/1-ignored evidence; Manager
+52 library,67 window-path and1 window-launch cases, release-builder46 and runtime-
+binding3 pass with strict workspace Clippy. An initial shared-cache mutation
+artifact was detected by the new failing guard test; its Manager debug output
+was removed and the clean-source affected gates rerun successfully. Subsequent
+fault builds use their own cache. No failed run is counted as green. Hosted
+frontend workflow42210511392 stopped before source compilation on a dependency
+mirror connection; one same-source retry passed acquisition and is compiling.
+
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
 Their source/results/Native records and restore JSONL remain. The Provider cache
 is about14GiB and the independent repository compiler cache about0.5GiB; armed
 executables and immutable current/rollback artifacts remain intact.
 
-## Current architecture review and operating boundary
+## Native-transition candidate and earlier operating evidence
 
 The architecture review has revised responsibility and user-flow contracts in
 SPEC, AGENTS, README and Provider operations documentation. The design worktree is
 $TMPDIR/connectivity-repair-70jt4h2u/architecture on
 design/entry-architecture-20261105 over f8d1a7f. It contains the revised architecture
-contract and review. Implementation is now in
+contract and review. That separate implementation is in
 $TMPDIR/connectivity-repair-70jt4h2u/implementation on
 fix/native-route-transition-20261105. Its common release-builder Native patch
 introduces per-thread route/client/catalog updates through the existing settings
