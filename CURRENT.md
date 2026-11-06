@@ -401,7 +401,7 @@ entrance directions. The operating Core/TUI have not been replaced. Later picker
 alias context rebinding, real-model fault recovery, historical project-timeout
 provenance, broader transitions and signed publication remain unfinished.
 
-### Same-Provider TUI owner selection: qualified development candidate
+### Same-Provider TUI owner selection: implementation and bounded proof
 
 Core owns the existing private connection/home-handoff commands. Shared
 runtime-binding/native.rs observes the qualified process, socket and kernel
@@ -505,10 +505,17 @@ upload. Its downloaded executable has the exact same fd8eb43764a4... SHA256 as
 the actual Android-qualified frontend above, not merely matching source claims.
 It is intentionally cancelled after retaining that executable, before repeating
 accepted TUI/fault/library batches. Native API42297849284 and frontend
-compatibility/lint42298057002 run on the same prepared inputs; the latter reuses
-that newly identified executable. Their results remain pending; this is not a
-successful full/public qualification. The affected local builder source6 and
-frontend assembler/checker12 cases pass. The committed handoff has the same
+compatibility/lint42298057002 use the same prepared inputs; the latter reuses
+that newly identified executable. API42297849284 completes successfully with19
+provider cases and15 initialize cases, including both malformed-default retention
+and managed-policy failure/repair at actual input admission. Its original logs
+are retained in api-f7cab2c-proof. Compatibility42298057002 passes53 TUI,43
+engine and two patch cases, including every required retained topic. Its final
+lint step succeeds; the downloaded formatted/linted patches compare byte-for-byte
+identical. Original logs and patches remain in frontend-f7cab2c-proof. The affected
+local builder source6 and frontend assembler/checker12 cases pass. These focused
+results reuse the accepted unchanged TUI/fault/library and Android evidence; they
+are not a successful full/public qualification. The committed handoff has the same
 complete Native recipe as17dd1d4, checked by the existing verify_recipe consumer.
 
 Earlier defects remain evidence, not waived gates: source613 exact-export drift
