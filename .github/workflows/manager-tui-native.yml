@@ -212,6 +212,14 @@ jobs:
           sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
           printf 'upstream_sha=%s\nsource_sha=%s\ntarget=aarch64-unknown-linux-musl\nprofile=release opt-level=z codegen-units=1 strip=symbols\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
+      - name: Upload unsigned frontend candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: manager-tui-native
+          path: ${{ runner.temp }}/manager-tui-native/artifact
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 1
       - name: Verify Native per-thread provider transitions
         shell: bash
         run: |
@@ -313,14 +321,6 @@ jobs:
           cmp "$original" "$source"
           trap - EXIT
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
-      - name: Upload unsigned frontend candidate
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: manager-tui-native
-          path: ${{ runner.temp }}/manager-tui-native/artifact
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 1
       - name: Prepare bounded nonowner ownership fixture
         shell: bash
         run: |

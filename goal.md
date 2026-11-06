@@ -24,7 +24,9 @@ Canonical resume/fork now reuses the owner's execution home before config/auth/
 draft startup and preserves original arguments. A raw upstream remote experiment
 continued work but lost explicit effort selection, so socket-only composition is
 insufficient. Actual CLI compilation and exact schema equality now pass on
-0820513; Native/TUI regressions and both entrance-direction proofs remain pending; the operating TUI is unchanged. Generated-schema equality now passes;
+0820513. Native config exposed an incorrect error-text assertion; the corrected
+test also proves managed catalog consumption. Remaining Native/TUI gates and
+both entrance-direction proofs are pending; the operating TUI is unchanged. Generated-schema equality now passes;
 the following CLI build exposed an incorrect ThreadId API use, fixed at source.
 Qualify the corrected frontend, including different invocation/owner homes,
 explicit intent and same-work CLI follow-up. Later picker/alias context rebind is

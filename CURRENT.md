@@ -439,8 +439,13 @@ Manager's52 library tests, strict Clippy and release build pass. A disposable
 unknown-writer-as-free fault fails the new connection-query regression and was
 restored. The frontend assembler's11 Python cases and affected qualification-script
 checks pass. Workflow42224074734 at0820513 passes generated-schema equality
-and actual CLI compilation. Native/TUI regression execution and both actual
-entrance-direction tests remain pending.
+and actual CLI compilation. Core provider1/compaction113/Guardian148 and client33
+cases pass; config passes14/15. The required-catalog case incorrectly expects
+model_catalog_json in the OS missing-file error text; the actual loader returns
+NotFound directly. Only the stronger existing6018ad9 test is selected: require
+NotFound, then create a valid managed catalog and verify its model is loaded.
+No Native runtime behavior is changed or unrelated transition code imported.
+Native API/TUI gates and both actual entrance-direction tests remain pending.
 The actual Core/Manager/Native task gate passes the new live-owner/socket query,
 confirmed-free reply, cross-account writer protection, reconnect, cancellation and
 explicit takeover. An initial nested test root made Core's socket111 bytes
@@ -471,7 +476,11 @@ schema equality, but fails CLI compilation at the new owner lookup: upstream
 ThreadId has no FromStr implementation. The code and tests now use its actual
 from_string constructor; this avoidable implementation error is fixed at source,
 not waived. The corrected0820513 build passes actual CLI compilation; the
-remaining Native/TUI gates and both device entrance-direction proofs are pending. This repair does not admit or deploy the
+subsequent config-test assertion failure and remaining gates are described above.
+The existing unsigned CLI artifact upload now precedes independent Native checks,
+so a later failure retains the built executable for diagnosis/device qualification.
+Full job/admission/signing requirements remain unchanged; this does not promote
+a failed run or install a candidate into operation. This repair does not admit or deploy the
 separate Native-transition candidate into the signed operating runtime.
 
 An actual configuration boundary also remains: the completed live model work's
@@ -493,7 +502,10 @@ that controlled regression. Actual app/model success is separate evidence above.
 
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
-Their source/results/Native records and restore JSONL remain. The Provider cache
+Their source/results/Native records and restore JSONL remain. Three additional
+completed continuity fixtures now archive18 matching payloads, reclaiming
+2,291,294,208 allocated bytes with the same source/record/restore preservation.
+The Provider cache
 is about14GiB and the independent repository compiler cache about0.5GiB; armed
 executables and immutable current/rollback artifacts remain intact.
 
