@@ -35,8 +35,15 @@ common Native preparation and normalized Cargo.lock; unrelated tracked, staged,
 renamed or untracked source is rejected. Three-way resolution starts from the
 prepared tree and leaves the real Git index unchanged.
 
-`termux_backend_catalog::bind` owns catalog startup selection after upstream loads
-configuration. `termux_chat_models::reentry_route` plans provider/profile arguments;
+`termux_backend_catalog::bind` resolves startup intent after upstream loads
+configuration. Resume/fork first queries Manager's existing Native-writer discovery
+through `codex termux __task-connection-v1 UUID`; a confirmed live owner supplies
+the endpoint before configuration can prepare a sibling. Generic connection and
+picker reconnection preserve their selected endpoint and perform no preparation.
+The selected owner keeps its execution home; a different home requires an explicit
+execution-profile transition. Native retains attachment/writer admission. New or
+confirmed ownerless work uses the existing exact-catalog startup coordinator.
+`termux_chat_models::reentry_route` plans provider/profile arguments;
 the App hook retains only work-state admission, persistence and re-entry. These
 remain optional frontend code; Core has no dependency on these sources. The
 source Chat picker consumes Provider-generated `chatgpt_desktop` routing, the

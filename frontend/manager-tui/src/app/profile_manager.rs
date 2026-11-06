@@ -6,16 +6,13 @@ use crate::bottom_pane::SelectionViewParams;
 use crate::bottom_pane::popup_consts::accept_cancel_hint_line;
 use crate::keymap::ListAction;
 use crate::keymap::ListKeymap;
+use crate::profile_transport::call_manager as call;
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -78,44 +75,6 @@ async fn load(core: &Path) -> Option<Profiles> {
         return None;
     }
     decode(&bytes)
-}
-
-pub(super) async fn call(core: &Path, args: &[String], seconds: u64) -> Option<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(core).ok()?;
-    if !core.is_absolute()
-        || !metadata.is_file()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o022 != 0
-        || metadata.mode() & 0o111 == 0
-    {
-        return None;
-    }
-    tokio::time::timeout(Duration::from_secs(seconds), async {
-        let mut child = Command::new(core)
-            .arg("termux")
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .ok()?;
-        let mut bytes = Vec::new();
-        child
-            .stdout
-            .take()?
-            .take(262145)
-            .read_to_end(&mut bytes)
-            .await
-            .ok()?;
-        if bytes.len() > 262144 || !child.wait().await.ok()?.success() {
-            return None;
-        }
-        Some(bytes)
-    })
-    .await
-    .ok()
-    .flatten()
 }
 
 fn picker(view: Profiles, keymap: &ListKeymap) -> SelectionViewParams {

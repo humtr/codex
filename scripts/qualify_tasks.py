@@ -291,6 +291,15 @@ requires_openai_auth = false
             rpc.close()
             text = wait_owner(thread, "state=active")
             assert "owner=account-a" in text
+            observed = run("termux", "__task-connection-v1", thread)
+            assert observed.returncode == 0, observed.stderr.decode()
+            connection = json.loads(observed.stdout)
+            assert connection["schema"] == "codex-manager-task-connection-v1"
+            assert connection["connection"]["execution_home"] == str(a)
+            assert Path(connection["connection"]["socket"]) == (record / "s").resolve()
+            free = run("termux", "__task-connection-v1", "12345678-1234-1234-1234-123456789abc")
+            assert free.returncode == 0 and json.loads(free.stdout)["connection"] is None
+            print("PASS qualified connection query selects the live Native writer, not the caller profile")
             if observe_owner is not None:
                 observe_owner(prefix / "bin/codex", env, root, thread, "account-a")
             print("PASS native running-disconnect preserves active writer and discovers account-a")

@@ -341,6 +341,37 @@ jobs:
           cd upstream
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(termux_clipboard) | test(clipboard_copy) | test(copy_export_picker) | test(copy_mode) | test(copy_picker) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag) | test(provider_presentation) | test(side_fork_uses_one_request_for_long_paginated_history) | test(absolute_time_uses_child_timezone) | test(bound_chat_synchronization) | test(active_chat_provider_steer) | test(image_preparation) | test(image_submission_is_portable)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Verify owner query regression detects discarded live ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/tui/src/termux_backend_catalog.rs
+          original="$RUNNER_TEMP/profile-tui-owner-original.rs"
+          cp "$source" "$original"
+          trap 'cp "$original" "$source"' EXIT
+          python3 - "$source" <<'PY'
+          import pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text()
+          fault = 'Ok(Some(owner.socket))'
+          assert source.count(fault) == 1
+          path.write_text(source.replace(fault, 'Ok(None)'))
+          PY
+          set +e
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_backend_catalog_owner_query)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-owner-fault.log"
+          failed=${PIPESTATUS[0]}
+          set -e
+          test "$failed" -ne 0
+          python3 - "$RUNNER_TEMP/profile-tui-owner-fault.log" <<'PY'
+          import pathlib, sys
+          text = pathlib.Path(sys.argv[1]).read_text()
+          assert 'FAIL' in text and 'termux_backend_catalog_owner_query' in text, text[-6000:]
+          assert 'assertion `left == right` failed' in text, text[-6000:]
+          PY
+          cp "$original" "$source"
+          cmp "$original" "$source"
+          trap - EXIT
       - name: Verify active Steer regression detects the next-turn barrier fault
         if: inputs.mutation_check
         shell: bash

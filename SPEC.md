@@ -741,6 +741,22 @@ precedence, installed-route validation and model admission remain unchanged.
   Native history/agent navigation reuses upstream lists, ancestry and UI lifecycle
   without a second history index or new persistent state. Cancellation/error must
   leave the current chat usable.
+- Before the integrated frontend prepares a backend for resume/fork, the private
+  `codex termux __task-connection-v1 THREAD_UUID` reuses that same discovery and
+  revalidates the selected Native writer. Its bounded JSON record has schema
+  `codex-manager-task-connection-v1` and connection=null only when the writer is
+  confirmed free; otherwise connection contains execution_home and socket for
+  the qualified owner. This local connection metadata is not a public task list,
+  credential, new writer registry or execution capability. Unsafe, ambiguous or
+  unresponsive discovery fails rather than preparing a competing writer.
+  The frontend connects that owner without applying catalog startup selection to
+  it. New/ownerless work retains the resolved configuration coordinator; a generic
+  connection operation never replaces an already selected backend. The current
+  execution home must match before attachment: a different owner requires the
+  existing explicit execution-profile transition, not a silent account change.
+  Native still admits attachment/writes and detects races after this observation.
+  This is an optional integrated-frontend contract; Core's ordinary independent
+  runtime launch does not acquire a Manager dependency.
 
 ## 1. Product definition
 

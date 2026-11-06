@@ -1,6 +1,51 @@
 //! The Core-qualified frontend socket belongs to the local execution account.
 use super::AppServerTarget;
 use codex_app_server_client::RemoteAppServerEndpoint;
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
+
+/// Bounded same-generation Manager IPC; Native retains execution authority.
+pub(crate) async fn call_manager(core: &Path, args: &[String], seconds: u64) -> Option<Vec<u8>> {
+    let metadata = std::fs::symlink_metadata(core).ok()?;
+    if !core.is_absolute()
+        || !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o022 != 0
+        || metadata.mode() & 0o111 == 0
+    {
+        return None;
+    }
+    tokio::time::timeout(Duration::from_secs(seconds), async {
+        let mut child = Command::new(core)
+            .arg("termux")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .ok()?;
+        let mut bytes = Vec::new();
+        child
+            .stdout
+            .take()?
+            .take(262145)
+            .read_to_end(&mut bytes)
+            .await
+            .ok()?;
+        if bytes.len() > 262144 || !child.wait().await.ok()?.success() {
+            return None;
+        }
+        Some(bytes)
+    })
+    .await
+    .ok()
+    .flatten()
+}
 
 /// Core owns the server lifecycle for its explicit qualified local endpoint.
 pub(super) fn core_owned(target: &AppServerTarget, termux: bool) -> bool {

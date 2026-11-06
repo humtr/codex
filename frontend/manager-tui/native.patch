@@ -2387,7 +2387,7 @@ index 66f407a..38c169c 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 1b0b08c..fda9a2e 100644
+index 1b0b08c..094c345 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,13 @@ mod experimental_features;
@@ -2415,16 +2415,7 @@ index 1b0b08c..fda9a2e 100644
  mod text_formatting;
  mod text_selection;
  mod theme_picker;
-@@ -591,6 +601,8 @@ async fn start_app_server(
-     environment_manager: Arc<EnvironmentManager>,
-     embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
- ) -> color_eyre::Result<AppServerClient> {
-+    #[cfg(unix)]
-+    termux_backend_catalog::bind(target, &config, &cli_kv_overrides, &loader_overrides).await?;
-     let connection = if matches!(target, AppServerTarget::Embedded) {
-         None
-     } else {
-@@ -1085,7 +1097,7 @@ fn app_server_target_for_launch(
+@@ -1085,7 +1095,7 @@ fn app_server_target_for_launch(
                  allow_embedded_fallback: false,
              }
          }
@@ -2433,7 +2424,7 @@ index 1b0b08c..fda9a2e 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1148,18 +1160,34 @@ pub async fn run_main(
+@@ -1148,18 +1158,34 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -2457,20 +2448,54 @@ index 1b0b08c..fda9a2e 100644
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::profile_manager::ProfileReentry::from_error(err)
-+        {
+         {
 +            return Err(reentry.exec());
 +        }
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::chat_model_reentry::ChatModelReentry::from_error(err)
-         {
++        {
 +            return Err(reentry.exec());
 +        }
 +        match result {
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1352,6 +1380,13 @@ async fn run_ratatui_app(
+@@ -1255,8 +1281,19 @@ async fn run_ratatui_app(
+     session_log::maybe_init(&initial_config);
+ 
+     let startup_app_server = startup_draft
+-        .run_until(
+-            &mut tui,
++        .run_until(&mut tui, async {
++            #[cfg(unix)]
++            termux_backend_catalog::bind(
++                &mut app_server_target,
++                &initial_config,
++                &cli_kv_overrides,
++                &loader_overrides,
++                cli.resume_session_id
++                    .as_deref()
++                    .or(cli.fork_session_id.as_deref())
++                    .and_then(|id| id.parse().ok()),
++            )
++            .await?;
+             start_app_server(
+                 &mut app_server_target,
+                 arg0_paths.clone(),
+@@ -1270,8 +1307,9 @@ async fn run_ratatui_app(
+                 &mut state_db,
+                 environment_manager.clone(),
+                 embedded_network_policy.clone(),
+-            ),
+-        )
++            )
++            .await
++        })
+         .await;
+     tui.terminal_size_tags =
+         launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
+@@ -1352,6 +1390,13 @@ async fn run_ratatui_app(
      let requires_openai_auth = startup_account
          .as_ref()
          .is_some_and(|account| account.requires_openai_auth);
@@ -2484,7 +2509,7 @@ index 1b0b08c..fda9a2e 100644
      let should_show_onboarding = should_show_onboarding(
          login_status,
          requires_openai_auth,
-@@ -1833,50 +1868,95 @@ async fn run_ratatui_app(
+@@ -1833,50 +1878,135 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -2512,12 +2537,62 @@ index 1b0b08c..fda9a2e 100644
 -        {
 -            Ok(Ok(app_server)) => {
 -                // A picker can replace the server; account reads belong to their original session.
--                startup_account = None;
++    let mut app_server = loop {
++        #[cfg(unix)]
++        let live_owner = {
++            let before = app_server_target.clone();
++            let selected = match &session_selection {
++                resume_picker::SessionSelection::Resume(target)
++                | resume_picker::SessionSelection::Fork(target) => Some(target.thread_id),
++                _ => None,
++            };
++            let resolved = if selected.is_some() || app_server.is_none() {
++                startup_draft
++                    .run_until(
++                        &mut tui,
++                        termux_backend_catalog::bind(
++                            &mut app_server_target,
++                            &config,
++                            &cli_kv_overrides,
++                            &loader_overrides,
++                            selected,
++                        ),
++                    )
++                    .await
++                    .map_err(color_eyre::eyre::Report::from)
++                    .and_then(|result| result)
++            } else {
++                Ok(false)
++            };
++            let owned = match resolved {
++                Ok(owned) => owned,
++                Err(error) => {
++                    shutdown_startup_session(app_server.take(), &mut terminal_restore_guard).await;
++                    return Err(error);
++                }
++            };
++            if app_server_target != before {
+                 startup_account = None;
 -                AppServerSession::new(
 -                    backend_id,
 -                    app_server,
 -                    app_server_target.thread_params_mode(),
-+    let mut app_server = loop {
+-                )
+-                .with_local_codex_home(&config.codex_home)
+-                .with_remote_cwd_override(remote_cwd_override.clone())
+-            }
+-            Ok(Err(err)) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err);
++                shutdown_app_server_if_present(app_server.take()).await;
+             }
+-            Err(err) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err.into());
++            owned
++        };
 +        let mut session = match app_server.take() {
 +            Some(app_server) => app_server,
 +            None => match startup_draft
@@ -2537,19 +2612,7 @@ index 1b0b08c..fda9a2e 100644
 +                        environment_manager.clone(),
 +                        embedded_network_policy.clone(),
 +                    ),
-                 )
--                .with_local_codex_home(&config.codex_home)
--                .with_remote_cwd_override(remote_cwd_override.clone())
--            }
--            Ok(Err(err)) => {
--                terminal_restore_guard.restore_silently();
--                session_log::log_session_end();
--                return Err(err);
--            }
--            Err(err) => {
--                terminal_restore_guard.restore_silently();
--                session_log::log_session_end();
--                return Err(err.into());
++                )
 +                .await
 +            {
 +                Ok(Ok(app_server)) => {
@@ -2579,7 +2642,8 @@ index 1b0b08c..fda9a2e 100644
 +        if crate::profile_transport::core_owned(
 +            &app_server_target,
 +            crate::termux_permissions::enabled(),
-+        ) && config.model_catalog.is_none()
++        ) && !live_owner
++            && config.model_catalog.is_none()
 +            && let resume_picker::SessionSelection::Resume(target)
 +            | resume_picker::SessionSelection::Fork(target) = &session_selection
 +        {

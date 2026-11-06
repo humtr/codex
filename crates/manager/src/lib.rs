@@ -387,6 +387,16 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         }
         return task::snapshot(&capture_context()?).map(Some);
     }
+    if is_exact(args.first(), "__task-connection-v1") {
+        let id = args
+            .get(1)
+            .and_then(|value| value.to_str())
+            .ok_or(ERR_USAGE)?;
+        if args.len() != 2 || !canonical_session_id(id) {
+            return Err(ERR_USAGE);
+        }
+        return task::connection(&capture_context()?, id).map(Some);
+    }
     if is_exact(args.first(), "__profile-snapshot-v1") {
         if args.len() != 1 {
             return Err(ERR_USAGE);

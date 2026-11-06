@@ -1,5 +1,6 @@
 //! Upstream loads configuration; Core binds its resolved catalog to the backend.
 use codex_utils_absolute_path::AbsolutePathBuf;
+use serde::Deserialize;
 use std::ffi::OsString;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -39,38 +40,68 @@ fn catalog_bytes(config: &crate::legacy_core::config::Config) -> color_eyre::Res
     Ok(Some(source))
 }
 
-/// Upstream resolves configuration; this adapter owns local catalog selection.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConnectionReply {
+    schema: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    connection: Option<OwnerConnection>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnerConnection {
+    execution_home: std::path::PathBuf,
+    socket: AbsolutePathBuf,
+}
+
+/// Resolve startup intent before connecting; a live writer precedes configuration.
 pub(crate) async fn bind(
     target: &mut crate::AppServerTarget,
     config: &crate::legacy_core::config::Config,
     cli_kv_overrides: &[(String, toml::Value)],
     loader_overrides: &codex_config::LoaderOverrides,
-) -> color_eyre::Result<()> {
+    thread: Option<codex_protocol::ThreadId>,
+) -> color_eyre::Result<bool> {
     if crate::termux_permissions::enabled()
         && matches!(target, crate::AppServerTarget::LocalDaemon { .. })
     {
-        let catalog = catalog_bytes(config)?;
-        if catalog.is_some()
-            || std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() == Ok("resolved-v1")
-        {
-            let core = std::env::var_os("CODEX_PROFILE_CORE")
-                .map(std::path::PathBuf::from)
-                .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
-            let arguments = invocation_args(cli_kv_overrides, loader_overrides);
-            let socket_path = prepare(
-                &core,
-                &config.codex_home,
-                catalog,
-                &arguments,
-                config.cwd.as_path(),
-            )
-            .await?;
+        let core = std::env::var_os("CODEX_PROFILE_CORE")
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
+        let owner = match thread {
+            Some(thread) => owner_connection(&core, &config.codex_home, thread).await?,
+            None => None,
+        };
+        let live_owner = owner.is_some();
+        if let Some(socket_path) = owner {
             *target = crate::AppServerTarget::LocalDaemon {
                 endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket {
                     socket_path,
                 },
                 allow_embedded_fallback: false,
             };
+        } else {
+            let catalog = catalog_bytes(config)?;
+            if catalog.is_some()
+                || std::env::var("CODEX_TERMUX_BACKEND_STARTUP").as_deref() == Ok("resolved-v1")
+            {
+                let arguments = invocation_args(cli_kv_overrides, loader_overrides);
+                let socket_path = prepare(
+                    &core,
+                    &config.codex_home,
+                    catalog,
+                    &arguments,
+                    config.cwd.as_path(),
+                )
+                .await?;
+                *target = crate::AppServerTarget::LocalDaemon {
+                    endpoint: codex_app_server_client::RemoteAppServerEndpoint::UnixSocket {
+                        socket_path,
+                    },
+                    allow_embedded_fallback: false,
+                };
+            }
         }
         // Preserve upstream's read-only feature admission against the actual
         // resolved backend, without offering an installer/restart/embedded path.
@@ -81,8 +112,38 @@ pub(crate) async fn bind(
         {
             color_eyre::eyre::bail!("qualified backend is incompatible: {warning}");
         }
+        return Ok(live_owner);
     }
-    Ok(())
+    Ok(false)
+}
+
+async fn owner_connection(
+    core: &Path,
+    home: &Path,
+    thread: codex_protocol::ThreadId,
+) -> color_eyre::Result<Option<AbsolutePathBuf>> {
+    let bytes = crate::profile_transport::call_manager(
+        core,
+        &["__task-connection-v1".to_owned(), thread.to_string()],
+        12,
+    )
+    .await
+    .ok_or_else(|| color_eyre::eyre::eyre!("qualified Native owner discovery is unavailable"))?;
+    let reply: ConnectionReply = serde_json::from_slice(&bytes)?;
+    if reply.schema != "codex-manager-task-connection-v1" {
+        color_eyre::eyre::bail!("unsupported Native connection metadata");
+    }
+    match reply.connection {
+        Some(owner) => {
+            if owner.execution_home != home {
+                color_eyre::eyre::bail!(
+                    "Native task belongs to another execution profile; select its owner profile before resuming"
+                );
+            }
+            Ok(Some(owner.socket))
+        }
+        None => Ok(None),
+    }
 }
 
 fn invocation_args(
@@ -166,6 +227,64 @@ fn decode_socket(bytes: &[u8]) -> color_eyre::Result<AbsolutePathBuf> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn termux_backend_catalog_owner_query_preserves_identity_and_rejects_unknown_ownership()
+    -> color_eyre::Result<()> {
+        let root = tempfile::tempdir()?;
+        let core = root.path().join("core");
+        let thread: codex_protocol::ThreadId = "12345678-1234-1234-1234-123456789abc".parse()?;
+        let socket = root.path().join("native-socket");
+        let install = |value: serde_json::Value, status: i32| -> color_eyre::Result<()> {
+            std::fs::write(
+                &core,
+                format!(
+                    "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = termux ] && [ \"$2\" = __task-connection-v1 ] && [ \"$3\" = {thread} ] || exit 9\nprintf '%s\\n' '{}'\nexit {status}\n",
+                    value
+                ),
+            )?;
+            std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;
+            Ok(())
+        };
+        let mut reply = serde_json::json!({"schema":"codex-manager-task-connection-v1",
+            "connection":{"execution_home":root.path(), "socket":socket}});
+        install(reply.clone(), 0)?;
+        assert_eq!(
+            owner_connection(&core, root.path(), thread)
+                .await?
+                .as_deref(),
+            Some(socket.as_path())
+        );
+        assert!(
+            owner_connection(&core, &root.path().join("other-home"), thread)
+                .await
+                .is_err()
+        );
+        reply["connection"] = serde_json::Value::Null;
+        install(reply.clone(), 0)?;
+        assert!(
+            owner_connection(&core, root.path(), thread)
+                .await?
+                .is_none()
+        );
+        install(reply.clone(), 1)?;
+        assert!(
+            owner_connection(&core, root.path(), thread).await.is_err(),
+            "query failure cannot be interpreted as a free writer"
+        );
+        reply["schema"] = "unknown".into();
+        install(reply, 0)?;
+        assert!(owner_connection(&core, root.path(), thread).await.is_err());
+        install(
+            serde_json::json!({"schema":"codex-manager-task-connection-v1"}),
+            0,
+        )?;
+        assert!(
+            owner_connection(&core, root.path(), thread).await.is_err(),
+            "missing ownership is not a confirmed free writer"
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn termux_backend_catalog_preserves_full_config_source_instead_of_ui_projection()

@@ -33,7 +33,7 @@ def probe(args):
         stream = pyte.Stream(display)
     # Core's Unix socket uses this root; retain the existing short fixture form.
     root = Path(tempfile.mkdtemp(prefix='ct-', dir=os.environ['TMPDIR']))
-    home, prefix, env = fixture(root, args.core, args.frontend)
+    home, prefix, env = fixture(root, args.core, args.frontend, args.manager)
     if args.fresh_auth_home:
         auth = home / '.codex/auth.json'
         assert json.loads(auth.read_text()) == {
@@ -1132,6 +1132,7 @@ if __name__=='__main__':
     for name in ['core','service-test','report']:
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--frontend',type=Path,help='Optional raw TUI override; omission preserves the installed qualified TUI in the disposable fixture')
+    parser.add_argument('--manager',type=Path,help='Optional Manager override, admitted by the same disposable signed generation')
     parser.add_argument('--settled-failure',action='store_true',help='Actual TUI continuation after confirmed empty inference and pre-dispatch CDP failure')
     parser.add_argument('--provider-binary',type=Path,
         help='Exercise actual synchronization/presentation CLI, overlapping draft and mouse disclosure; requires pyte and wcwidth')

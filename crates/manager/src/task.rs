@@ -585,6 +585,22 @@ pub(super) fn snapshot(context: &Context) -> Result<String, ManagerError> {
     ))
 }
 
+pub(super) fn connection(context: &Context, id: &str) -> Result<String, ManagerError> {
+    let tasks = discover(context, Some(id))?;
+    let connection = match tasks.as_slice() {
+        [] => Value::Null,
+        [task] => {
+            verify_owner(context, task)?;
+            json!({"execution_home": task.server.home, "socket": task.server.socket})
+        }
+        _ => return Err(ERR_TASK),
+    };
+    Ok(format!(
+        "{}\n",
+        json!({"schema": "codex-manager-task-connection-v1", "connection": connection})
+    ))
+}
+
 fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerError> {
     let mut output = String::new();
     for task in tasks {
@@ -623,15 +639,18 @@ pub(super) fn resume_command(
     command.arg("resume").arg(id);
     Ok(command)
 }
-fn reconnect(context: &Context, task: &Task) -> Result<(), ManagerError> {
-    // Verify this exact old/current server immediately before the final exec.
+fn verify_owner(context: &Context, task: &Task) -> Result<(), ManagerError> {
     let mut rpc = task.server.connect(Instant::now() + SCAN_TIME)?;
     if !rpc.loaded()?.iter().any(|id| id == &task.id)
         || !owns_writer(context, &task.id, &task.server)?
     {
         return Err(ERR_TASK);
     }
-    drop(rpc);
+    Ok(())
+}
+fn reconnect(context: &Context, task: &Task) -> Result<(), ManagerError> {
+    // Revalidate the observed Native writer at the connection/exec boundary.
+    verify_owner(context, task)?;
     let _ = resume_command(
         context,
         &task.server.home,
@@ -1087,6 +1106,34 @@ mod tests {
         values.iter().map(OsString::from).collect()
     }
     const ID: &str = "12345678-1234-1234-1234-123456789abc";
+    #[test]
+    fn connection_requires_confirmed_free_writer_when_no_server_is_discovered() {
+        let root = std::env::temp_dir().join(format!(
+            "task-connection-{}-{}",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, 0o700).unwrap();
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: std::env::current_exe().unwrap(),
+        };
+        let reply: Value = serde_json::from_str(&connection(&context, ID).unwrap()).unwrap();
+        assert_eq!(
+            reply,
+            json!({"schema":"codex-manager-task-connection-v1", "connection":null})
+        );
+        let locks = root.join(".codex/thread-writer-locks");
+        fs::create_dir_all(&locks).unwrap();
+        write_new_record(&locks.join(format!("{ID}.lock")), b"unknown writer").unwrap();
+        assert!(
+            connection(&context, ID).is_err(),
+            "unknown ownership cannot select a competing server"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn discovery_counts_live_servers_without_admitting_retired_or_inflight_bindings() {
         let root = std::env::temp_dir().join(format!(

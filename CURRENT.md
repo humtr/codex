@@ -374,6 +374,43 @@ writer, executor, transcript or TUI recovery state machine. Real-model reverse
 flow, original project-timeout provenance, all entrance transitions and signed
 publication remain unfinished.
 
+### Same-Provider TUI owner selection: candidate implementation
+
+An additional actual signed148 TUI-first->Bridge trial passes its first Bridge
+turn, then fails live updates after TUI close/reopen (ct-oyue7f84). Native retains
+all three completed turns; the reopened frontend selects a configuration sibling
+and becomes read-only. This independently reaches the same connection-choice
+defect as the Native-created-work trial. Neither failed acceptance is waived.
+
+The candidate moves backend preparation out of generic connection/picker calls
+into startup-intent resolution. Resume/fork first queries Manager's existing live
+writer discovery through the qualified Core; the read-only task-connection reply
+is revalidated before return. It supplies only execution home/socket, not a new
+ownership registry or execution capability. The frontend connects that owner and
+does not retarget it through catalog preparation. New/confirmed ownerless work
+uses the existing coordinator; different execution homes require an explicit
+profile transition. The existing Manager IPC function moves from profile UI to
+profile transport, and profile/quota/startup callers reuse it without a forwarding
+wrapper. Native admission, tools, approvals and history are unchanged.
+
+Manager's52 library tests, strict Clippy and release build pass. A disposable
+unknown-writer-as-free fault fails the new connection-query regression and was
+restored. Frontend source assembly/unit checks pass; native frontend compilation,
+its regression execution and both actual entrance-direction tests remain pending.
+The actual Core/Manager/Native task gate passes the new live-owner/socket query,
+confirmed-free reply, cross-account writer protection, reconnect, cancellation and
+explicit takeover. An initial nested test root made Core's socket111 bytes
+(limit107), failing before binding. The unchanged product test passes with its
+normal short TMPDIR fixture (99 bytes); original diagnostics remain. No product
+path guard, timeout or assertion was weakened. No candidate Core/Manager/frontend
+has been installed into the operating generation.
+
+Seven completed owned request-continuity fixtures were archived with the existing
+cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
+Their source/results/Native records and restore JSONL remain. The Provider cache
+is about14GiB and the independent repository compiler cache about0.5GiB; armed
+executables and immutable current/rollback artifacts remain intact.
+
 ## Current architecture review and operating boundary
 
 The architecture review has revised responsibility and user-flow contracts in

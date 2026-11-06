@@ -389,7 +389,7 @@ fn render(app: &mut App, refresh_only: bool) {
     }
 }
 pub(super) async fn open(app: &mut App, settings: bool) -> bool {
-    let Some(bytes) = super::profile_manager::call(
+    let Some(bytes) = crate::profile_transport::call_manager(
         &core(),
         &[
             "__switch-view-v2".into(),
@@ -433,7 +433,7 @@ pub(super) fn refresh(app: &mut App) {
             "--model".into(),
             model,
         ];
-        let view = super::profile_manager::call(&core(), &args, 25)
+        let view = crate::profile_transport::call_manager(&core(), &args, 25)
             .await
             .and_then(|b| decode(&b));
         tx.send(AppEvent::QuotaViewReady { generation, view });
@@ -450,7 +450,7 @@ pub(super) fn ready(app: &mut App, generation: u64, view: Option<Value>) {
 }
 pub(super) async fn edit(app: &mut App, value: Value) {
     let args = vec!["rotation".into(), "set".into(), value.to_string()];
-    if super::profile_manager::call(&core(), &args, 3)
+    if crate::profile_transport::call_manager(&core(), &args, 3)
         .await
         .is_none()
     {
@@ -464,7 +464,7 @@ pub(super) fn toggle_session(app: &mut App) {
 }
 pub(super) async fn pause(app: &mut App, id: String, seconds: u64) {
     let args = vec!["rotation".into(), "exclude".into(), id, seconds.to_string()];
-    if super::profile_manager::call(&core(), &args, 3)
+    if crate::profile_transport::call_manager(&core(), &args, 3)
         .await
         .is_none()
     {
@@ -606,7 +606,7 @@ pub(super) async fn automatic(
     // No ordinary-startup network: only a completed turn reaches this handler.
     let model = app.chat_widget.config_ref().model.clone()?;
     let args = vec!["__switch-view-v2".into(), "--model".into(), model.clone()];
-    let view = super::profile_manager::call(&core(), &args, 3)
+    let view = crate::profile_transport::call_manager(&core(), &args, 3)
         .await
         .and_then(|b| decode(&b))?;
     if view["rotation"]["enabled"] != true
@@ -644,7 +644,7 @@ pub(super) async fn automatic(
             "--model".into(),
             model,
         ];
-        let view = super::profile_manager::call(&core(), &args, 25)
+        let view = crate::profile_transport::call_manager(&core(), &args, 25)
             .await
             .and_then(|b| decode(&b));
         tx.send(AppEvent::AutoQuotaReady {
