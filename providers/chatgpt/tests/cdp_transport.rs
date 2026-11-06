@@ -15,7 +15,7 @@ async fn home_context_supports_programmatic_inference_without_a_visible_composer
         let peer = tokio::spawn(async move {
             let (read, mut write) = tokio::io::split(peer);
             let mut reader = BufReader::new(read);
-            let mut inits = 0;
+            let mut discoveries = 0;
             loop {
                 let mut bytes = Vec::new();
                 assert!(reader.read_until(0, &mut bytes).await.unwrap() > 0);
@@ -24,9 +24,15 @@ async fn home_context_supports_programmatic_inference_without_a_visible_composer
                 let mut opened = false;
                 let value = match row["method"].as_str().unwrap() {
                     "Target.getTargets" => {
-                        json!({"targetInfos":[{"targetId":"primary","type":"page","url":"app://-/index.html"}]})
+                        discoveries += 1;
+                        let target = if cold && discoveries == 1 {
+                            "launcher"
+                        } else {
+                            "primary"
+                        };
+                        json!({"targetInfos":[{"targetId":target,"type":"page","url":"app://-/index.html"}]})
                     }
-                    "Target.attachToTarget" => json!({"sessionId":"primary"}),
+                    "Target.attachToTarget" => json!({"sessionId":row["params"]["targetId"]}),
                     "Target.detachFromTarget" => json!({}),
                     "Runtime.evaluate" => {
                         let expression = row["params"]["expression"].as_str().unwrap();
@@ -40,10 +46,10 @@ async fn home_context_supports_programmatic_inference_without_a_visible_composer
                                     json!({"value":{"account":"owned-account","user":"owned-user","structure":"personal"}})
                                 }
                                 "init" => {
-                                    inits += 1;
-                                    json!({"value":{"ready":!cold || inits > 1}})
+                                    json!({"value":{"ready":row["sessionId"]=="primary"}})
                                 }
                                 "open" => {
+                                    assert_eq!(row["sessionId"], "primary");
                                     opened = true;
                                     json!({"value":{"localId":"owned-lane"}})
                                 }
