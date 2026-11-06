@@ -1,5 +1,7 @@
 #![cfg(unix)]
 
+use codex_runtime_binding::native::canonical_session_id;
+
 mod profile;
 mod profile_resume;
 mod profile_view;
@@ -386,19 +388,6 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             return Err(ERR_USAGE);
         }
         return task::snapshot(&capture_context()?).map(Some);
-    }
-    if is_exact(args.first(), "__task-connection-v1") {
-        let id = args
-            .get(1)
-            .and_then(|value| value.to_str())
-            .ok_or(ERR_USAGE)?;
-        if args.len() != 2 || !canonical_session_id(id) {
-            return Err(ERR_USAGE);
-        }
-        return task::connection(&capture_context()?, id).map(Some);
-    }
-    if is_exact(args.first(), "__task-reentry-v1") {
-        return task::reentry(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "__profile-snapshot-v1") {
         if args.len() != 1 {
@@ -1444,17 +1433,6 @@ fn publish_focus_window(context: &Context, enabled: bool) -> Result<(), ManagerE
         let _ = fs::remove_file(temporary);
     }
     result
-}
-
-fn canonical_session_id(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
-            }
-        })
 }
 
 fn notification_focus_action(context: &Context, session_id: Option<&str>) -> String {

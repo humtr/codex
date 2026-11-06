@@ -102,7 +102,9 @@ pub(super) fn switch_with(
     // Destination must be valid before even observing the old writer.
     let home = task::destination(context, Some(target))?;
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !task::writer_free(context, id)? {
+    while !codex_runtime_binding::native::writer_free(&context.home, id)
+        .map_err(|_| task::ERR_TASK)?
+    {
         if Instant::now() >= deadline {
             return Err(ManagerError::operation(
                 "codex termux: profile switch refused; conversation writer is still owned; reconnect to its owner or explicitly use task takeover",

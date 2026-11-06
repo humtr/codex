@@ -742,9 +742,14 @@ precedence, installed-route validation and model admission remain unchanged.
   without a second history index or new persistent state. Cancellation/error must
   leave the current chat usable.
 - Before the integrated frontend prepares a backend for resume/fork, the private
-  `codex termux __task-connection-v1 THREAD_UUID` reuses that same discovery and
-  revalidates the selected Native writer. Its bounded JSON record has schema
-  `codex-manager-task-connection-v1` and connection=null only when the writer is
+  `codex termux __task-connection-v1 THREAD_UUID` is owned by Core and uses the
+  shared runtime-binding Native process/socket/writer observation implementation.
+  Manager task views consume that same observation; their profile labels, Native
+  RPC presentation and explicit task actions remain optional. This discovery and
+  canonical execution-home handoff must work when Manager is unavailable. They
+  observe Native ownership and never authorize or transfer a writer. Its bounded JSON record has schema
+  `codex-manager-task-connection-v1` (retained for the already built frontend
+  consumer) and connection=null only when the writer is
   confirmed free; otherwise connection contains execution_home and socket for
   the qualified owner. This local connection metadata is not a public task list,
   credential, new writer registry or execution capability. Unsafe, ambiguous or
@@ -761,8 +766,8 @@ precedence, installed-route validation and model admission remain unchanged.
   configuration. An unqualified context rebind remains an explicit incomplete
   boundary, not a permanent requirement that the user manually choose profiles.
   For a canonical resume/fork identity known before UI startup, the private
-  `codex termux __task-reentry-v1 THREAD_UUID -- UPSTREAM_ARGV...` reuses Manager's
-  owner verification and Core execution-context builder. It reexecutes the same
+  `codex termux __task-reentry-v1 THREAD_UUID -- UPSTREAM_ARGV...` uses that same
+  Core-owned verified connection and qualified execution context. It reexecutes the same
   qualified Core in that owner's home with the original opaque upstream arguments,
   before any editable startup draft. It starts no separate writer and changes no
   default, permission or inference selection. The frontend removes only Core's

@@ -165,6 +165,8 @@ def probe(args):
             native_rpc(home,'thread/name/set',{'threadId':thread,'name':'Owned Native continuity proof'})
         tui_env = env
         default_before = None
+        preference_before = None
+        preference = home/'.local/share/codex/manager/default-profile-v1'
         owner_settings_before = None
         explicit_args = []
         if created_before_tui:
@@ -188,10 +190,16 @@ def probe(args):
                 env=env,cwd=root/'w',capture_output=True,timeout=15)
             assert selected.returncode == 0
             default_before = selected.stdout
+            preference_before = preference.read_bytes() if preference.exists() else None
             owner_settings_before = owner_settings('before_tui')
             assert owner_settings_before['approvalPolicy'] == 'never'
             requested_effort = 'medium' if owner_settings_before['reasoningEffort'] == 'high' else 'high'
             explicit_args = ['-c',f'model_reasoning_effort="{requested_effort}"']
+        if args.without_manager:
+            # Installed inventory permits optional Manager loss. Preserve the
+            # fixture binary, then require ordinary Core resume to keep working.
+            shutil.move(home/'.local/lib/codex/core/generations/local-permission-fixture/manager',
+                        root/'inactive-fixture-manager')
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 80 if display else 44, 160, 0, 0))
         screen_args = [] if display else ['--no-alt-screen']
@@ -537,15 +545,19 @@ def probe(args):
             assert rpc('codex_status',{'work_id':work['work_id']})['selection']['inference']=='submitted'
             assert source_reads()==before_reads
             if created_before_tui:
-                selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
-                    env=env,cwd=root/'w',capture_output=True,timeout=15)
-                assert selected.returncode == 0 and selected.stdout == default_before
+                if args.without_manager:
+                    assert (preference.read_bytes() if preference.exists() else None) == preference_before
+                else:
+                    selected = subprocess.run([str(prefix/'bin/codex'),'termux','profile','default'],
+                        env=env,cwd=root/'w',capture_output=True,timeout=15)
+                    assert selected.returncode == 0 and selected.stdout == default_before
                 owner_settings_after = owner_settings('after_cli_followup')
                 assert owner_settings_after['reasoningEffort'] == requested_effort, owner_settings_after
                 for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
                     assert owner_settings_after[key] == owner_settings_before[key], key
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
+                'work_id':work['work_id'],'without_optional_manager':args.without_manager,
                 'bridge_admissions':admissions,'provider_to_direct_same_work':not bool(created_before_tui),'native_created_before_ordinary_tui_resume':bool(created_before_tui),
                 'native_created_resume_from_another_home':bool(created_before_tui),
                 'saved_profile_default_unchanged':True,
@@ -1205,6 +1217,7 @@ if __name__=='__main__':
     parser.add_argument('--sibling',action='store_true',help='Qualify explicit stale-client sibling selection, canonical ancestry and mandatory context before effects')
     parser.add_argument('--restart',action='store_true',help='Qualify settled service restart and automatic source observation with no extra native prompt')
     parser.add_argument('--direct', action='store_true', help='Qualify retained source, actual native effect and Stop after Direct transfers, with automatic Provider reentry')
+    parser.add_argument('--without-manager', action='store_true', help='Verify ordinary Native-created resume and continuation without the optional Manager binary')
     parser.add_argument('--native-created', action='store_true', help='Create and complete Native work before ordinary TUI resume; verify same execution backend')
     parser.add_argument('--bridge-first', action='store_true', help='Qualify ordinary Bridge-native admission without saved-Chat reads; actual Native/TUI, synthetic Chat')
     parser.add_argument('--replace-native-owner', action='store_true', help='Retire only the completed owned Native backend before the second Bridge join; verify same work/history and a replacement owner')
@@ -1221,6 +1234,8 @@ if __name__=='__main__':
             'bridge_first','replace_native_owner','join','observer_recovery','binding',
             'source_admission','interrupted','source_timeout'])):
         parser.error('--active-steer requires --provider-binary and its own isolated scenario')
+    if arguments.without_manager and not (arguments.bridge_first and arguments.native_created):
+        parser.error('--without-manager requires --bridge-first --native-created')
     if arguments.replace_native_owner and not (arguments.bridge_first and arguments.native_created):
         parser.error('--replace-native-owner requires --bridge-first --native-created')
     if (arguments.restart or arguments.binding or arguments.join) and not arguments.provider_binary:

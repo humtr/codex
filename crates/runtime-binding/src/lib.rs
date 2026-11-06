@@ -2,6 +2,8 @@
 //! No model schemas, provider policy, filesystem mutation or process lifecycle.
 #![cfg(unix)]
 
+pub mod native;
+
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};

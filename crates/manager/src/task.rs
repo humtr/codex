@@ -1,17 +1,15 @@
 //! Active upstream work assistance. No history index, credentials or writer mutation.
 use super::*;
-use codex_runtime_binding::{Binding, FAMILIES};
+use codex_runtime_binding::native::{self, Server};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use tungstenite::{client::client_with_config, protocol::WebSocketConfig, Message, WebSocket};
 
-const ERR_TASK: ManagerError = ManagerError::operation("codex termux task: owner unavailable, ambiguous, unsafe or unresponsive; no transfer performed");
+pub(super) const ERR_TASK: ManagerError = ManagerError::operation("codex termux task: owner unavailable, ambiguous, unsafe or unresponsive; no transfer performed");
 const LIMIT: usize = 256 * 1024;
-const MAX_SERVERS: usize = 64;
 const MAX_TASKS: usize = 1024;
 const SCAN_TIME: Duration = Duration::from_secs(10);
 const CANCELLED: ManagerError = ManagerError {
@@ -93,91 +91,14 @@ pub(super) fn parse(args: &[OsString]) -> Result<TaskCommand, ManagerError> {
     Ok(command)
 }
 
-#[derive(Debug, Clone)]
-struct Server {
-    home: PathBuf,
-    program: PathBuf,
-    socket: PathBuf,
-    pid: u32,
-    start: String,
+struct Rpc {
+    socket: WebSocket<UnixStream>,
+    next: u64,
+    deadline: Instant,
 }
-impl Server {
-    fn token(&self) -> String {
-        format!("{}:{}", self.pid, self.start)
-    }
-    fn identity(&self) -> Result<(), ManagerError> {
-        if process_start(self.pid)? != self.start
-            || fs::read_link(format!("/proc/{}/exe", self.pid)).map_err(|_| ERR_TASK)?
-                != self.program
-        {
-            return Err(ERR_TASK);
-        }
-        Ok(())
-    }
-    fn stream(&self, deadline: Instant) -> Result<UnixStream, ManagerError> {
-        self.identity()?;
-        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
-        let bytes = self.socket.as_os_str().as_bytes();
-        if bytes.len() >= address.sun_path.len() || bytes.contains(&0) {
-            return Err(ERR_TASK);
-        }
-        for (target, byte) in address.sun_path.iter_mut().zip(bytes) {
-            *target = *byte as libc::c_char;
-        }
-        let raw = unsafe {
-            libc::socket(
-                libc::AF_UNIX,
-                libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-                0,
-            )
-        };
-        if raw < 0 {
-            return Err(ERR_TASK);
-        }
-        let stream = unsafe { UnixStream::from_raw_fd(raw) };
-        loop {
-            if Instant::now() >= deadline {
-                return Err(ERR_TASK);
-            }
-            if unsafe {
-                libc::connect(
-                    raw,
-                    (&address as *const libc::sockaddr_un).cast(),
-                    (std::mem::offset_of!(libc::sockaddr_un, sun_path) + bytes.len() + 1)
-                        as libc::socklen_t,
-                )
-            } == 0
-            {
-                break;
-            }
-            match io::Error::last_os_error().raw_os_error() {
-                Some(libc::EAGAIN | libc::EINTR) => thread::sleep(Duration::from_millis(10)),
-                _ => return Err(ERR_TASK),
-            }
-        }
-        stream.set_nonblocking(false).map_err(|_| ERR_TASK)?;
-        let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
-        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-        if unsafe {
-            libc::getsockopt(
-                stream.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                (&mut peer as *mut libc::ucred).cast(),
-                &mut len,
-            )
-        } != 0
-            || peer.pid != self.pid as i32
-            || peer.uid != unsafe { libc::geteuid() }
-        {
-            return Err(ERR_TASK);
-        }
-        self.identity()?;
-        Ok(stream)
-    }
-    fn connect(&self, deadline: Instant) -> Result<Rpc, ManagerError> {
-        let stream = self.stream(deadline)?;
+impl Rpc {
+    fn connect(server: &Server, deadline: Instant) -> Result<Rpc, ManagerError> {
+        let stream = server.stream(deadline).map_err(|_| ERR_TASK)?;
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or(ERR_TASK)?;
@@ -192,7 +113,7 @@ impl Server {
             .max_frame_size(Some(LIMIT));
         let (socket, _) =
             client_with_config("ws://localhost/", stream, Some(config)).map_err(|_| ERR_TASK)?;
-        self.identity()?;
+        server.identity().map_err(|_| ERR_TASK)?;
         let mut rpc = Rpc {
             socket,
             next: 0,
@@ -206,14 +127,6 @@ impl Server {
             .map_err(|_| ERR_TASK)?;
         Ok(rpc)
     }
-}
-
-struct Rpc {
-    socket: WebSocket<UnixStream>,
-    next: u64,
-    deadline: Instant,
-}
-impl Rpc {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, ManagerError> {
         self.next += 1;
         let id = self.next;
@@ -311,191 +224,11 @@ impl Rpc {
     }
 }
 
-fn process_start(pid: u32) -> Result<String, ManagerError> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|_| ERR_TASK)?;
-    let fields: Vec<_> = stat
-        .rsplit_once(')')
-        .ok_or(ERR_TASK)?
-        .1
-        .split_whitespace()
-        .collect();
-    if matches!(fields.first(), Some(&"Z" | &"X")) {
-        return Err(ERR_TASK);
-    }
-    let start = fields.get(19).ok_or(ERR_TASK)?;
-    if !start.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(ERR_TASK);
-    }
-    Ok((*start).to_owned())
-}
-fn process_exited(pid: u32) -> Result<bool, ManagerError> {
-    let stat = match fs::read_to_string(format!("/proc/{pid}/stat")) {
-        Ok(stat) => stat,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(true),
-        Err(_) => return Err(ERR_TASK),
-    };
-    let fields: Vec<_> = stat
-        .rsplit_once(')')
-        .ok_or(ERR_TASK)?
-        .1
-        .split_whitespace()
-        .collect();
-    Ok(matches!(fields.first(), Some(&"Z" | &"X")) && fields.get(17) == Some(&"1"))
-}
-fn private(path: &Path, directory: bool) -> Result<(), ManagerError> {
-    if inspect_path(path)? != PathPresence::Present {
-        return Err(ERR_TASK);
-    }
-    let m = fs::symlink_metadata(path).map_err(|_| ERR_TASK)?;
-    if m.uid() != unsafe { libc::geteuid() }
-        || m.permissions().mode() & 0o7777 != if directory { 0o700 } else { 0o600 }
-        || if directory { !m.is_dir() } else { !m.is_file() }
-    {
-        return Err(ERR_TASK);
-    }
-    Ok(())
-}
-fn record(path: &Path) -> Result<Vec<u8>, ManagerError> {
-    bounded_record(path, 16384)
-}
-fn bounded_record(path: &Path, limit: u64) -> Result<Vec<u8>, ManagerError> {
-    private(path, false)?;
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|_| ERR_TASK)?;
-    let mut bytes = Vec::new();
-    Read::by_ref(&mut file)
-        .take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| ERR_TASK)?;
-    if bytes.len() as u64 > limit {
-        return Err(ERR_TASK);
-    }
-    Ok(bytes)
-}
 pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
-    Ok(servers(context, Instant::now() + SCAN_TIME)?
+    Ok(native::servers(&context.home, Instant::now() + SCAN_TIME)
+        .map_err(|_| ERR_TASK)?
         .iter()
         .any(|server| server.home == home))
-}
-
-fn servers(context: &Context, deadline: Instant) -> Result<Vec<Server>, ManagerError> {
-    let mut servers = Vec::new();
-    for family in FAMILIES {
-        servers.extend(server_family(context, family, deadline)?);
-        if servers.len() > MAX_SERVERS {
-            return Err(ERR_TASK);
-        }
-    }
-    Ok(servers)
-}
-
-fn server_family(
-    context: &Context,
-    family: &str,
-    deadline: Instant,
-) -> Result<Vec<Server>, ManagerError> {
-    let root = context.home.join(".local/share/codex/core").join(family);
-    if inspect_path(&root)? == PathPresence::Missing {
-        return Ok(Vec::new());
-    }
-    private(&root, true)?;
-    let mut result = Vec::new();
-    for entry in fs::read_dir(&root).map_err(|_| ERR_TASK)? {
-        if Instant::now() >= deadline {
-            return Err(ERR_TASK);
-        }
-        let dir = entry.map_err(|_| ERR_TASK)?.path();
-        private(&dir, true)?;
-        // Core holds this directory's exclusive flock while publishing/restarting.
-        // Never classify an old PID as retired during a new owner's publication.
-        let snapshot = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-            .open(&dir)
-            .map_err(|_| ERR_TASK)?;
-        if unsafe { libc::flock(snapshot.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
-            return Err(ERR_TASK);
-        }
-        let text = String::from_utf8(record(&dir.join("pid"))?).map_err(|_| ERR_TASK)?;
-        let pid = text
-            .trim()
-            .parse::<u32>()
-            .ok()
-            .filter(|p| *p > 1)
-            .ok_or(ERR_TASK)?;
-        let start = match process_start(pid) {
-            Ok(start) => start,
-            Err(_) if process_exited(pid)? => continue,
-            Err(_) => return Err(ERR_TASK),
-        };
-        let Binding { home, program } = Binding::read(&dir, |path, limit| {
-            if inspect_path(path).map_err(|_| io::Error::other("unsafe execution record"))?
-                == PathPresence::Missing
-            {
-                return Err(io::Error::from(io::ErrorKind::NotFound));
-            }
-            bounded_record(path, limit).map_err(|_| io::Error::other("unsafe execution record"))
-        })
-        .map_err(|_| ERR_TASK)?;
-        let generations = context.home.join(".local/lib/codex/core/generations");
-        if program.file_name() != Some(OsStr::new("runtime"))
-            || program.parent().and_then(Path::parent) != Some(generations.as_path())
-        {
-            return Err(ERR_TASK);
-        }
-        match fs::read_link(format!("/proc/{pid}/exe")) {
-            Ok(actual)
-                if actual.as_os_str().as_bytes().strip_suffix(b" (deleted)")
-                    == Some(program.as_os_str().as_bytes()) =>
-            {
-                return Err(ERR_TASK);
-            }
-            Ok(actual) if actual != program => continue,
-            Ok(_) => (),
-            Err(_) if process_exited(pid)? => continue,
-            Err(_) => return Err(ERR_TASK),
-        }
-        private(&home, true)?;
-        if !is_existing_executable(&program)? {
-            return Err(ERR_TASK);
-        }
-        let m = fs::metadata(&program).map_err(|_| ERR_TASK)?;
-        if m.uid() != unsafe { libc::geteuid() } || m.mode() & 0o022 != 0 {
-            return Err(ERR_TASK);
-        }
-        let socket = dir.join("s");
-        let m = fs::symlink_metadata(&socket).map_err(|_| ERR_TASK)?;
-        let physical = if m.file_type().is_symlink() {
-            fs::read_link(&socket).map_err(|_| ERR_TASK)?
-        } else {
-            socket.clone()
-        };
-        if !is_safe_absolute_path(&physical) || inspect_path(&physical)? != PathPresence::Present {
-            return Err(ERR_TASK);
-        }
-        let m = fs::symlink_metadata(&physical).map_err(|_| ERR_TASK)?;
-        if !m.file_type().is_socket()
-            || m.uid() != unsafe { libc::geteuid() }
-            || m.mode() & 0o077 != 0
-        {
-            return Err(ERR_TASK);
-        }
-        result.push(Server {
-            home,
-            program,
-            socket: physical,
-            pid,
-            start,
-        });
-        if result.len() > MAX_SERVERS {
-            return Err(ERR_TASK);
-        }
-    }
-    result.sort_by_key(|s| (s.home.clone(), s.pid));
-    Ok(result)
 }
 
 #[derive(Debug)]
@@ -508,19 +241,19 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
     let deadline = Instant::now() + SCAN_TIME;
     let mut tasks = Vec::new();
     let mut seen = BTreeSet::new();
-    for server in servers(context, deadline)? {
-        // A selected task depends on its kernel-confirmed writer, not on the
-        // responsiveness of unrelated accounts or loaded read-only copies.
-        if let Some(id) = filter {
-            if !owns_writer(context, id, &server)? {
-                continue;
-            }
-        }
-        let mut rpc = match server.connect(deadline) {
+    let servers = match filter {
+        Some(id) => match native::owner(&context.home, id, deadline).map_err(|_| ERR_TASK)? {
+            Some(owner) => vec![owner],
+            None => return Ok(tasks),
+        },
+        None => native::servers(&context.home, deadline).map_err(|_| ERR_TASK)?,
+    };
+    for server in servers {
+        let mut rpc = match Rpc::connect(&server, deadline) {
             Ok(rpc) => rpc,
             Err(_) => {
                 if let Some(id) = filter {
-                    if owns_writer(context, id, &server)?
+                    if native::owns_writer(&context.home, id, &server).map_err(|_| ERR_TASK)?
                         && server
                             .stream(Instant::now() + Duration::from_secs(2))
                             .is_ok()
@@ -545,7 +278,7 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
             }
             let state = rpc.state(&id)?;
             // Loaded read-only copies and former writers are not current owners.
-            if !owns_writer(context, &id, &server)? {
+            if !native::owns_writer(&context.home, &id, &server).map_err(|_| ERR_TASK)? {
                 continue;
             }
             if !seen.insert(id.clone()) || tasks.len() >= MAX_TASKS {
@@ -560,7 +293,7 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
     }
     tasks.sort_by(|a, b| a.id.cmp(&b.id));
     if let Some(id) = filter {
-        if tasks.is_empty() && !writer_free(context, id)? {
+        if tasks.is_empty() && !native::writer_free(&context.home, id).map_err(|_| ERR_TASK)? {
             return Err(ERR_TASK);
         }
     }
@@ -592,22 +325,6 @@ pub(super) fn snapshot(context: &Context) -> Result<String, ManagerError> {
     ))
 }
 
-pub(super) fn connection(context: &Context, id: &str) -> Result<String, ManagerError> {
-    let tasks = discover(context, Some(id))?;
-    let connection = match tasks.as_slice() {
-        [] => Value::Null,
-        [task] => {
-            verify_owner(context, task)?;
-            json!({"execution_home": task.server.home, "socket": task.server.socket})
-        }
-        _ => return Err(ERR_TASK),
-    };
-    Ok(format!(
-        "{}\n",
-        json!({"schema": "codex-manager-task-connection-v1", "connection": connection})
-    ))
-}
-
 fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerError> {
     let mut output = String::new();
     for task in tasks {
@@ -626,7 +343,7 @@ fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerErro
 }
 
 fn execution_command(context: &Context, home: &Path) -> Result<Command, ManagerError> {
-    private(home, true)?;
+    native::private(home, true).map_err(|_| ERR_TASK)?;
     let mut command = Command::new(&context.core_entrypoint);
     command
         .env_remove(CORE_API_ENV)
@@ -652,36 +369,10 @@ pub(super) fn resume_command(
     Ok(command)
 }
 
-pub(super) fn reentry(
-    context: &Context,
-    args: &[OsString],
-) -> Result<Option<String>, ManagerError> {
-    let [id, separator, invocation @ ..] = args else {
-        return Err(ERR_USAGE);
-    };
-    let id = id
-        .to_str()
-        .filter(|id| canonical_session_id(id))
-        .ok_or(ERR_USAGE)?;
-    if separator != "--" || invocation.is_empty() {
-        return Err(ERR_USAGE);
-    }
-    let tasks = discover(context, Some(id))?;
-    let [task] = tasks.as_slice() else {
-        return Err(ERR_TASK);
-    };
-    verify_owner(context, task)?;
-    // The frontend has already parsed this invocation. Preserve its opaque OS
-    // arguments; Native/Core retain command, configuration and policy admission.
-    let _ = execution_command(context, &task.server.home)?
-        .args(invocation)
-        .exec();
-    Err(ERR_LAUNCH)
-}
 fn verify_owner(context: &Context, task: &Task) -> Result<(), ManagerError> {
-    let mut rpc = task.server.connect(Instant::now() + SCAN_TIME)?;
+    let mut rpc = Rpc::connect(&task.server, Instant::now() + SCAN_TIME)?;
     if !rpc.loaded()?.iter().any(|id| id == &task.id)
-        || !owns_writer(context, &task.id, &task.server)?
+        || !native::owns_writer(&context.home, &task.id, &task.server).map_err(|_| ERR_TASK)?
     {
         return Err(ERR_TASK);
     }
@@ -698,47 +389,6 @@ fn reconnect(context: &Context, task: &Task) -> Result<(), ManagerError> {
     )?
     .exec();
     Err(ERR_LAUNCH)
-}
-fn native_file(path: &Path) -> Result<Option<File>, ManagerError> {
-    if inspect_path(path)? == PathPresence::Missing {
-        return Ok(None);
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|_| ERR_TASK)?;
-    let m = file.metadata().map_err(|_| ERR_TASK)?;
-    if !m.is_file() || m.uid() != unsafe { libc::geteuid() } || m.mode() & 0o022 != 0 {
-        return Err(ERR_TASK);
-    }
-    Ok(Some(file))
-}
-pub(super) fn writer_free(context: &Context, id: &str) -> Result<bool, ManagerError> {
-    let directory = context.home.join(".codex/thread-writer-locks");
-    if inspect_path(&directory)? == PathPresence::Missing {
-        return Ok(true);
-    }
-    let Some(coordination) = native_file(&directory.join(".coordination.lock"))? else {
-        return if inspect_path(&directory.join(format!("{id}.lock")))? == PathPresence::Missing {
-            Ok(true)
-        } else {
-            Err(ERR_TASK)
-        };
-    };
-    match coordination.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
-        Err(_) => return Err(ERR_TASK),
-    }
-    let Some(writer) = native_file(&directory.join(format!("{id}.lock")))? else {
-        return Ok(true);
-    };
-    match writer.try_lock() {
-        Ok(()) => Ok(true),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
-        Err(_) => Err(ERR_TASK),
-    }
 }
 fn stop_one(
     rpc: &mut Rpc,
@@ -772,7 +422,7 @@ fn stop_one(
         None => return Err(ERR_TASK),
     };
     if goal_status == Some("active") {
-        if !owns_writer(context, id, server)? {
+        if !native::owns_writer(&context.home, id, server).map_err(|_| ERR_TASK)? {
             return Err(ERR_TASK);
         }
         rpc.call("thread/goal/set", json!({"threadId":id,"status":"paused"}))?;
@@ -789,7 +439,7 @@ fn stop_one(
             }
             _ => "",
         };
-        if !owns_writer(context, id, server)? {
+        if !native::owns_writer(&context.home, id, server).map_err(|_| ERR_TASK)? {
             return Err(ERR_TASK);
         }
         rpc.call("turn/interrupt", json!({"threadId":id,"turnId":turn_id}))?;
@@ -839,12 +489,12 @@ fn descendants(rpc: &mut Rpc, id: &str) -> Result<Vec<String>, ManagerError> {
     Ok(ids.into_iter().filter(|id| loaded.contains(id)).collect())
 }
 fn stop(context: &Context, task: &Task) -> Result<(), ManagerError> {
-    if !owns_writer(context, &task.id, &task.server)? {
+    if !native::owns_writer(&context.home, &task.id, &task.server).map_err(|_| ERR_TASK)? {
         return Err(ERR_TASK);
     }
-    let mut rpc = task.server.connect(Instant::now() + SCAN_TIME)?;
+    let mut rpc = Rpc::connect(&task.server, Instant::now() + SCAN_TIME)?;
     let mut children = descendants(&mut rpc, &task.id)?;
-    if !owns_writer(context, &task.id, &task.server)? {
+    if !native::owns_writer(&context.home, &task.id, &task.server).map_err(|_| ERR_TASK)? {
         return Err(ERR_TASK);
     }
     stop_one(&mut rpc, context, &task.server, &task.id)?;
@@ -853,56 +503,13 @@ fn stop(context: &Context, task: &Task) -> Result<(), ManagerError> {
     children.sort();
     children.dedup();
     for child in children {
-        if owns_writer(context, &child, &task.server)? {
+        if native::owns_writer(&context.home, &child, &task.server).map_err(|_| ERR_TASK)? {
             stop_one(&mut rpc, context, &task.server, &child)?;
         }
     }
     Ok(())
 }
 
-fn owns_writer(context: &Context, id: &str, server: &Server) -> Result<bool, ManagerError> {
-    server.identity()?;
-    let path = context
-        .home
-        .join(format!(".codex/thread-writer-locks/{id}.lock"));
-    let Some(file) = native_file(&path)? else {
-        return Ok(false);
-    };
-    let target = file.metadata().map_err(|_| ERR_TASK)?;
-    let dir = PathBuf::from(format!("/proc/{}/fd", server.pid));
-    for (count, entry) in fs::read_dir(dir).map_err(|_| ERR_TASK)?.enumerate() {
-        if count >= 4096 {
-            return Err(ERR_TASK);
-        }
-        let entry = entry.map_err(|_| ERR_TASK)?;
-        let m = match fs::metadata(entry.path()) {
-            Ok(m) => m,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err(_) => return Err(ERR_TASK),
-        };
-        if m.ino() != target.ino() || m.dev() != target.dev() {
-            continue;
-        }
-        let info = fs::read_to_string(format!(
-            "/proc/{}/fdinfo/{}",
-            server.pid,
-            entry.file_name().to_string_lossy()
-        ))
-        .map_err(|_| ERR_TASK)?;
-        if info.lines().any(|line| {
-            let fields: Vec<_> = line.split_whitespace().collect();
-            fields.len() >= 6
-                && fields[0] == "lock:"
-                && fields[2] == "FLOCK"
-                && fields[4] == "WRITE"
-                && fields[5] == server.pid.to_string()
-        }) {
-            server.identity()?;
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
 pub(super) fn destination(
     context: &Context,
     profile: Option<&ProfileTarget>,
@@ -930,16 +537,19 @@ pub(super) fn destination(
             }
         },
     };
-    private(&home, true)?;
+    native::private(&home, true).map_err(|_| ERR_TASK)?;
     Ok(home)
 }
 fn force_server(context: &Context, task: &Task, token: &str) -> Result<(), ManagerError> {
-    if token != task.server.token() || !owns_writer(context, &task.id, &task.server)? {
+    if token != task.server.token()
+        || !native::owns_writer(&context.home, &task.id, &task.server).map_err(|_| ERR_TASK)?
+    {
         return Err(ERR_TASK);
     }
     drop(
         task.server
-            .stream(Instant::now() + Duration::from_secs(2))?,
+            .stream(Instant::now() + Duration::from_secs(2))
+            .map_err(|_| ERR_TASK)?,
     );
     // Hold a kernel identity before signalling; never fall back to kill(pid).
     let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, task.server.pid, 0) };
@@ -949,10 +559,8 @@ fn force_server(context: &Context, task: &Task, token: &str) -> Result<(), Manag
         ));
     }
     let handle = unsafe { File::from_raw_fd(raw as i32) };
-    task.server.identity()?;
-    let affected = task
-        .server
-        .connect(Instant::now() + Duration::from_secs(2))
+    task.server.identity().map_err(|_| ERR_TASK)?;
+    let affected = Rpc::connect(&task.server, Instant::now() + Duration::from_secs(2))
         .and_then(|mut r| r.loaded());
     match affected {
         Ok(ids) => eprintln!(
@@ -966,7 +574,7 @@ fn force_server(context: &Context, task: &Task, token: &str) -> Result<(), Manag
         ),
     }
     // Scope discovery may take time; an earlier snapshot cannot authorize a signal.
-    if !owns_writer(context, &task.id, &task.server)? {
+    if !native::owns_writer(&context.home, &task.id, &task.server).map_err(|_| ERR_TASK)? {
         return Err(ERR_TASK);
     }
     for (signal, wait) in [
@@ -1014,7 +622,7 @@ fn takeover(context: &Context, task: &Task, command: &TaskCommand) -> Result<(),
         stop(context, task)?;
     }
     let deadline = Instant::now() + SCAN_TIME;
-    while !writer_free(context, &task.id)? {
+    while !native::writer_free(&context.home, &task.id).map_err(|_| ERR_TASK)? {
         if Instant::now() >= deadline {
             return Err(ManagerError::operation("codex termux task: writer is still owned; reconnect or explicitly confirm whole-server termination; no new writer started"));
         }
@@ -1073,10 +681,10 @@ fn choose(context: &Context, tasks: &[Task]) -> Result<Option<String>, ManagerEr
     match answer("1 Reconnect to owner  2 Stop  3 Stop and resume in current account  4 Force whole server and resume  Enter Cancel: ")?.as_str() {
         ""=>Err(CANCELLED),
         "1"=>{reconnect(context,task)?;Ok(None)},
-        "2"=>{stop(context,task)?;Ok(Some(if writer_free(context,&task.id)? {"Task stopped; writer released.\n"} else {"Task stopped; writer still owned by another connection.\n"}.to_owned()))},
+        "2"=>{stop(context,task)?;Ok(Some(if native::writer_free(&context.home,&task.id).map_err(|_| ERR_TASK)? {"Task stopped; writer released.\n"} else {"Task stopped; writer still owned by another connection.\n"}.to_owned()))},
         "3"=>{takeover(context,task,&TaskCommand {action:Action::Takeover,id:Some(task.id.clone()),profile:None,force:None})?;Ok(None)},
         "4"=>{
-            let scope=task.server.connect(Instant::now()+Duration::from_secs(2)).and_then(|mut r|r.loaded());
+            let scope=Rpc::connect(&task.server,Instant::now()+Duration::from_secs(2)).and_then(|mut r|r.loaded());
             match scope {Ok(ids)=>println!("This stops the whole server, including: {}",ids.join(", ")),Err(_)=>println!("This stops the whole server. Other affected tasks are unknown.")};
             let token=task.server.token();
             if answer(&format!("Type {token} to terminate this server (Enter cancels): "))?!=token { return Err(CANCELLED); }
@@ -1104,7 +712,9 @@ pub(super) fn run(context: &Context, command: TaskCommand) -> Result<Option<Stri
         return choose(context, &tasks);
     }
     if command.action == Action::Takeover && tasks.is_empty() && command.force.is_none() {
-        if !writer_free(context, command.id.as_deref().ok_or(ERR_USAGE)?)? {
+        if !native::writer_free(&context.home, command.id.as_deref().ok_or(ERR_USAGE)?)
+            .map_err(|_| ERR_TASK)?
+        {
             return Err(ERR_TASK);
         }
         let home = destination(context, command.profile.as_ref())?;
@@ -1128,7 +738,7 @@ pub(super) fn run(context: &Context, command: TaskCommand) -> Result<Option<Stri
         }
         Action::Stop => {
             stop(context, task)?;
-            Ok(Some(if writer_free(context,&task.id)? { "Task stopped; writer released.\n" } else { "Task stopped; writer still owned by another connection. Use reconnect or explicitly confirmed whole-server takeover.\n" }.to_owned()))
+            Ok(Some(if native::writer_free(&context.home,&task.id).map_err(|_| ERR_TASK)? { "Task stopped; writer released.\n" } else { "Task stopped; writer still owned by another connection. Use reconnect or explicitly confirmed whole-server takeover.\n" }.to_owned()))
         }
         Action::Takeover => {
             takeover(context, task, &command)?;
@@ -1145,34 +755,6 @@ mod tests {
         values.iter().map(OsString::from).collect()
     }
     const ID: &str = "12345678-1234-1234-1234-123456789abc";
-    #[test]
-    fn connection_requires_confirmed_free_writer_when_no_server_is_discovered() {
-        let root = std::env::temp_dir().join(format!(
-            "task-connection-{}-{}",
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&root).unwrap();
-        set_mode(&root, 0o700).unwrap();
-        let context = Context {
-            home: root.clone(),
-            inherited_codex_home: None,
-            core_entrypoint: std::env::current_exe().unwrap(),
-        };
-        let reply: Value = serde_json::from_str(&connection(&context, ID).unwrap()).unwrap();
-        assert_eq!(
-            reply,
-            json!({"schema":"codex-manager-task-connection-v1", "connection":null})
-        );
-        let locks = root.join(".codex/thread-writer-locks");
-        fs::create_dir_all(&locks).unwrap();
-        write_new_record(&locks.join(format!("{ID}.lock")), b"unknown writer").unwrap();
-        assert!(
-            connection(&context, ID).is_err(),
-            "unknown ownership cannot select a competing server"
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
     #[test]
     fn discovery_counts_live_servers_without_admitting_retired_or_inflight_bindings() {
         let root = std::env::temp_dir().join(format!(
@@ -1200,9 +782,9 @@ mod tests {
         let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
         let dead_pid = exited.id();
         assert!(exited.wait().unwrap().success());
-        assert!(process_exited(dead_pid).unwrap());
+        assert!(native::process_exited(dead_pid).unwrap());
         let dead_record = format!("{dead_pid}\n");
-        for index in 0..MAX_SERVERS + 2 {
+        for index in 0..native::MAX_SERVERS + 2 {
             let dir = family.join(format!("{index:016x}"));
             fs::create_dir(&dir).unwrap();
             set_mode(&dir, 0o700).unwrap();
@@ -1300,29 +882,31 @@ mod tests {
         let _socket = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         set_mode(&socket, 0o600).unwrap();
         std::os::unix::fs::symlink(&socket, live.join("s")).unwrap();
-        let found = servers(&context, Instant::now() + SCAN_TIME).unwrap();
+        let found = native::servers(&context.home, Instant::now() + SCAN_TIME).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].home, home);
         assert_eq!(found[0].pid, running.0.id());
-        assert!(servers(&context, Instant::now()).is_err());
+        assert!(native::servers(&context.home, Instant::now()).is_err());
 
         let retired = family.join("0000000000000000");
         let pid_file = retired.join("pid");
         fs::write(&pid_file, format!("{}\n", std::process::id())).unwrap();
-        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
         fs::write(&pid_file, &dead_record).unwrap();
         let publishing = File::open(&retired).unwrap();
         publishing.try_lock().unwrap();
-        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
         drop(publishing);
         fs::write(&pid_file, b"not a PID").unwrap();
-        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
         fs::write(&pid_file, &dead_record).unwrap();
         set_mode(&pid_file, 0o644).unwrap();
-        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
         set_mode(&pid_file, 0o600).unwrap();
         assert_eq!(
-            servers(&context, Instant::now() + SCAN_TIME).unwrap().len(),
+            native::servers(&context.home, Instant::now() + SCAN_TIME)
+                .unwrap()
+                .len(),
             1
         );
         assert_eq!(
@@ -1331,7 +915,7 @@ mod tests {
         );
         // Unlinking a still-running image does not turn its writer into PID reuse.
         fs::remove_file(&program).unwrap();
-        assert!(servers(&context, Instant::now() + SCAN_TIME).is_err());
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
     }
     #[test]
     fn local_connect_full_backlog_obeys_deadline_and_preserves_listener() {
@@ -1346,7 +930,7 @@ mod tests {
             program: std::env::current_exe().unwrap(),
             socket: path,
             pid: std::process::id(),
-            start: process_start(std::process::id()).unwrap(),
+            start: native::process_start(std::process::id()).unwrap(),
         };
         let before = Instant::now();
         assert!(server.stream(before + Duration::from_millis(50)).is_err());
@@ -1433,9 +1017,9 @@ mod tests {
             program: std::env::current_exe().unwrap(),
             socket: path,
             pid: std::process::id(),
-            start: process_start(std::process::id()).unwrap(),
+            start: native::process_start(std::process::id()).unwrap(),
         };
-        let mut rpc = server.connect(Instant::now() + SCAN_TIME).unwrap();
+        let mut rpc = Rpc::connect(&server, Instant::now() + SCAN_TIME).unwrap();
         assert_eq!(rpc.loaded().unwrap(), [ID]);
         assert_eq!(rpc.state(ID).unwrap(), "active");
         drop(rpc);
@@ -1467,15 +1051,15 @@ mod tests {
         let record_path = root.join("record");
         fs::write(&record_path, b"owned").unwrap();
         set_mode(&record_path, 0o600).unwrap();
-        assert_eq!(record(&record_path).unwrap(), b"owned");
+        assert_eq!(native::record(&record_path).unwrap(), b"owned");
         set_mode(&record_path, 0o644).unwrap();
-        assert!(record(&record_path).is_err());
+        assert!(native::record(&record_path).is_err());
         set_mode(&record_path, 0o600).unwrap();
         fs::write(&record_path, vec![0; 16385]).unwrap();
-        assert!(record(&record_path).is_err());
+        assert!(native::record(&record_path).is_err());
         let link = root.join("link");
         std::os::unix::fs::symlink(&record_path, &link).unwrap();
-        assert!(record(&link).is_err());
+        assert!(native::record(&link).is_err());
         assert_eq!(
             account(&context, &context.home.join(".codex")).unwrap(),
             "default"
@@ -1562,7 +1146,7 @@ mod tests {
             inherited_codex_home: None,
             core_entrypoint: std::env::current_exe().unwrap(),
         };
-        assert!(writer_free(&context, ID).unwrap());
+        assert!(native::writer_free(&context.home, ID).unwrap());
         assert!(!root.join(".codex").exists());
         let dir = root.join(".codex/thread-writer-locks");
         fs::create_dir_all(&dir).unwrap();
@@ -1570,20 +1154,20 @@ mod tests {
         let lock = dir.join(format!("{ID}.lock"));
         fs::write(&lock, b"native-bytes").unwrap();
         set_mode(&lock, 0o600).unwrap();
-        assert!(writer_free(&context, ID).is_err());
+        assert!(native::writer_free(&context.home, ID).is_err());
         let coordination = dir.join(".coordination.lock");
         fs::write(&coordination, b"").unwrap();
         set_mode(&coordination, 0o600).unwrap();
         let writer = File::open(&lock).unwrap();
         writer.try_lock().unwrap();
-        assert!(!writer_free(&context, ID).unwrap());
+        assert!(!native::writer_free(&context.home, ID).unwrap());
         assert_eq!(fs::read(&lock).unwrap(), b"native-bytes");
         drop(writer);
-        assert!(writer_free(&context, ID).unwrap());
+        assert!(native::writer_free(&context.home, ID).unwrap());
         assert_eq!(fs::read(&lock).unwrap(), b"native-bytes");
         let coordinator = File::open(&coordination).unwrap();
         coordinator.try_lock().unwrap();
-        assert!(!writer_free(&context, ID).unwrap());
+        assert!(!native::writer_free(&context.home, ID).unwrap());
         drop(coordinator);
         fs::remove_dir_all(root).unwrap();
     }
@@ -1608,7 +1192,7 @@ mod tests {
             program: std::env::current_exe().unwrap(),
             socket: root.join("unused"),
             pid: std::process::id(),
-            start: process_start(std::process::id()).unwrap(),
+            start: native::process_start(std::process::id()).unwrap(),
         };
         let context = Context {
             home: root,

@@ -15,6 +15,8 @@ mod manager_tui;
 #[cfg(unix)]
 mod manual_update;
 #[cfg(unix)]
+mod native_task;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod release_display;
@@ -2974,6 +2976,7 @@ enum PublicDispatchCompletion {
     Provider(Vec<OsString>),
     Doctor(DoctorCommandOutcome),
     TermuxUnavailable(&'static str),
+    NativeTask(String),
 }
 
 #[cfg(unix)]
@@ -2983,6 +2986,7 @@ enum PublicDispatchExecutionError {
     Upstream(RuntimeLaunchError),
     Doctor(LocalDoctorCommandError),
     Manager(std::io::Error),
+    NativeTask(std::io::Error),
 }
 
 #[cfg(unix)]
@@ -2994,7 +2998,8 @@ impl std::fmt::Display for PublicDispatchExecutionError {
             }
             PublicDispatchExecutionError::Upstream(err) => err.fmt(f),
             PublicDispatchExecutionError::Doctor(err) => err.fmt(f),
-            PublicDispatchExecutionError::Manager(err) => err.fmt(f),
+            PublicDispatchExecutionError::Manager(err)
+            | PublicDispatchExecutionError::NativeTask(err) => err.fmt(f),
         }
     }
 }
@@ -3006,7 +3011,8 @@ impl std::error::Error for PublicDispatchExecutionError {
             PublicDispatchExecutionError::UnsupportedDaemon => None,
             PublicDispatchExecutionError::Upstream(err) => Some(err),
             PublicDispatchExecutionError::Doctor(err) => Some(err),
-            PublicDispatchExecutionError::Manager(err) => Some(err),
+            PublicDispatchExecutionError::Manager(err)
+            | PublicDispatchExecutionError::NativeTask(err) => Some(err),
         }
     }
 }
@@ -3037,6 +3043,9 @@ fn execute_public_dispatch<
         PublicDispatchRoute::Doctor(args) => run_local_doctor_command(args, context)
             .map(PublicDispatchCompletion::Doctor)
             .map_err(PublicDispatchExecutionError::Doctor),
+        PublicDispatchRoute::Termux(args) if native_task::handles(&args) => native_task::run(&args)
+            .map(PublicDispatchCompletion::NativeTask)
+            .map_err(PublicDispatchExecutionError::NativeTask),
         PublicDispatchRoute::Termux(args) => execute_termux_manager(
             context.manager_artifact,
             manager_tui::capability_args(args, context.manager_tui_available),
@@ -12400,6 +12409,10 @@ where
         Ok(PublicDispatchCompletion::Doctor(outcome)) => {
             print!("{}", outcome.output);
             doctor_exit_code(outcome.exit_class)
+        }
+        Ok(PublicDispatchCompletion::NativeTask(output)) => {
+            print!("{output}");
+            0
         }
         Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
             eprintln!("{message}");

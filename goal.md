@@ -17,28 +17,20 @@ Steer / explicit-fork proofs passed. Uncertain other remote outcomes stay fenced
 A bounded actual submitted GPT-6 Instant request completed with one app dispatch,
 its model confirmed in the correlated source record, and zero unsettled effects.
 
-Owner selection reuses Manager's verified Native writer discovery before startup
-preparation; generic connections no longer retarget it. Actual Native discovery,
-reentry and unrelated-server isolation proofs pass, including disposable faults.
-Canonical resume/fork reuses the owner's execution home before config/auth/draft
-startup and preserves arguments. Actual CLI/schema compilation passes, but that
-candidate still loses explicit effort on loaded observed-thread resume; plain
-resume also wrongly demands local OpenAI onboarding. Supported Native settings
-admission independently proves the same-work flow possible. The maintained TUI
-now forwards only explicitly selected fields, admits model/effort with Native's
-existing API and reads effective settings; known-owner attachment uses Native's
-authentication. Qualify that actual frontend in both entrance directions,
-including different homes, no OpenAI auth/profile, explicit effort and retained
-permissions/history/defaults. Corrected workflow uses the actual Native API test
-target all and checks independent owner/settings/auth/intent faults. Three actual Android continuation cases now pass, including a fresh home with
-no OpenAI credentials/profile. Hosted Native/TUI gates remain pending after an
-isolated test import fix; no operating TUI update.
-Later picker/alias context rebind is
-still incomplete. No new writer/executor/history, default or credential changes.
-Verify both entrance directions and actual app/model recovery. Preserve input,
-policy, original results and all profiles/mobile desktop state. An actual Guardian
-scope-denial case failed and remains separate; no default-policy recommendation
-or operating default change is established by ordinary command success.
+Both same-Provider entrance directions now pass actual Android continuation,
+including foreign invocation homes, plain resume without OpenAI credentials,
+explicit Native effort and retained permissions/history/default. Further proof
+found a prework regression when optional Manager was absent. Move existing Native
+owner observation into runtime-binding and Core's same connection/home-handoff
+commands; remove Manager's duplicate implementation. The complete no-Manager
+continuation and actual Native discovery/reconnect/cancellation/takeover gate pass.
+Unknown-writer and Manager-dependency faults fail their real regressions; restored
+source passes. Full Rust/Clippy and actual task control pass. Hosted Native TUI regressions
+pass on sourcefa96fe6; its independent fault/API/lint gates remain pending. Finish
+those affected gates and retain the qualified ownership correction for handoff. Operating TUI/Core/
+Manager are unchanged. Later picker/alias rebinding, wider app/model transitions,
+compaction and Guardian's failed scope denial remain unfinished. No extra Pro
+inference or default-policy change. Preserve all original results and profiles.
 
 Then Pro may reject/rework this preparation and the separate Native-route
 candidate for model transitions/compaction, app/config/install lifecycle, remaining

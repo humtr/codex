@@ -313,9 +313,15 @@ requires_openai_auth = false
             if observe_owner is not None:
                 observe_owner(prefix / "bin/codex", env, root, thread, "account-a")
             print("PASS native running-disconnect preserves active writer and discovers account-a")
-            # Cross-account same-ID native resume really fails while A owns the writer.
+            # Ordinary TUI resume reenters the actual owner's execution home.
             other, other_master = tui(["resume", thread])
+            assert "owner=account-a" in wait_owner(thread, "state=active")
+            # Independently exercise Native's cross-home writer fence. TUI
+            # handoff must not be mistaken for creation of a competing server.
+            prepared = run("__app-server-default-v1", account=home / ".codex")
+            assert prepared.returncode == 0, prepared.stderr.decode()
             second_record = bind(home / ".codex")
+            assert Path(prepared.stdout.decode().strip()) == second_record / "s"
             b = Ws(second_record / "s")
             try:
                 b.call("thread/resume", {"threadId": thread, "cwd": str(root)})

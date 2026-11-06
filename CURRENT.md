@@ -549,6 +549,47 @@ owner-tui-first-task-counter-fc52fe7.json (ct-v7eealrv). All three actual
 continuation cases now pass; hosted Native/TUI gates remain pending. The operating
 TUI/Core/Manager remain unchanged.
 
+A further actual boundary test removes only the disposable generation's optional
+Manager. Sourcefc52fe7 then exits at Native owner lookup (ct-awqdueb9), exposing
+an incorrect dependency introduced by this prework. Native process/socket/writer
+observation now moves from Manager task code to runtime-binding/native.rs; Core
+owns the existing connection and canonical home-handoff commands. Manager consumes
+the same observation for its optional RPC/UI/actions. Its duplicate discovery,
+connection endpoint and reentry implementation are removed. Native alone still
+admits writers, inference, execution, approval and history. Existing private JSON
+schema/argv are retained for the actually built frontend consumer. The shared
+module uses the already pinned libc for the existing kernel boundary; both lock
+files are updated. No new executor, account registry or fallback is introduced.
+
+Actual Android owner-without-manager-after.json passes with both Manager and
+OpenAI credentials absent: work3f35cf3c50a173e3dc5c5568b58bb810702c6b43ecbb59d2,
+thread01a1b1d6-7159-7703-afa4-f1b5640259de. Native identity/model/permissions,
+explicit effort, history, default, reconnect and final CLI continuation remain
+verified. Source full Rust gate passes Core239/1-ignored, Manager51 library,
+67 profile-command and1 launch, builder46 and runtime-binding3, plus strict Clippy.
+The old Manager connection test moves to Core. An unknown-writer-as-free fault
+fails that actual Core test; restored source passes. Independently disabling
+Core's private dispatch makes the actual no-Manager continuation fail before TUI
+attachment; the unchanged good candidate passes that same scenario. Faults stay
+in disposable source and independent compiler output, never operating state.
+
+The actual Core/Manager/Native task qualifier initially expected foreign-profile
+TUI resume to create another server. That conflicts with the intended owner-home
+handoff; actual records show no such server. The corrected test keeps ordinary
+TUI reentry and explicitly prepares the second qualified Native server through
+the existing Core API to test Native's cross-home writer fence. Its complete
+actual gate now passes discovery before the first turn, selected live ownership,
+foreign-home handoff, paused unrelated server, reconnect, cancellation, retained
+subscriber fencing and explicit takeover. Manager selected-task actions also use the shared unique-owner selection.
+See native-owner-task-final.log and tqf64n1omp; its final Manager51-library and
+strict-Clippy checks pass. The final profile-resume error-mapping check runs9
+actual integration cases; an initial library-only filter ran zero and is not
+counted as proof. Original failed evidence is retained. These controlled device proofs
+use no real model; hosted Native TUI regressions now pass on sourcefa96fe6; its independent
+fault/API/lint gates remain pending. Broader transitions/compaction,
+picker/alias context rebinding, Guardian scope denial and signed activation are
+still separate unfinished boundaries. No operating runtime is replaced here.
+
 Seven completed owned request-continuity fixtures were archived with the existing
 cleaner:42 manifest-matched payloads,5,346,353,152 allocated bytes reclaimed.
 Their source/results/Native records and restore JSONL remain. Three additional
