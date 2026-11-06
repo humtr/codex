@@ -13,6 +13,9 @@ name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
 not part of that component name. Source qualification, package selection,
 service activation, actual inference and physical UI observation are distinct.
 
+For Linux app launch, saved profiles, mobile display, taskbar, Android-browser
+login and reconnection, follow the [Linux app operating guide](LINUX_APP.md).
+
 ## Bridge design and implementation status
 
 [The revised architecture contract](../../SPEC.md#46-component-responsibilities-and-user-flow-contracts)
@@ -354,9 +357,20 @@ reconciliation; neither permits replay or killing unrelated runtimes.
 An explicit completed-work join/start admits a verified replacement Native
 backend before reserving its new Native turn. It verifies scope, retained calls
 and jobs and rotates the controller/token at that boundary; ordinary status does
-not transfer ownership. This avoids an asynchronous exchange mistaking the already
-recorded new turn for an old request on another owner. Failed or uncertain turns
-remain in history and require explicit reconciliation, not automatic resubmission.
+not transfer ownership. Failed or uncertain turns remain in history and require
+explicit reconciliation, not automatic resubmission. This P0 branch uses the
+operating Native interface; the prepared per-thread route/client/catalog work
+remains on `prep/pro-baseline-20261106` pending its separate qualification.
+
+When creating new work, `approval_policy` optionally selects `on-request` or
+`never`, and `approvals_reviewer` selects `auto_review` or `user`. Omission retains
+Native defaults. Selection goes directly to Native's existing thread creation
+fields with the Termux full-access sandbox; the reply's `native_permissions`
+reports what Native confirmed. These inputs do not change existing work or
+global defaults and are rejected on start/join/resume. `never` uses the same
+Native execution path without command approval review; it does not settle
+uncertain effects or authorize unrelated work. An attached Chat remains the
+primary inference source; Auto Review may make a separate reviewer request.
 
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native

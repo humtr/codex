@@ -65,7 +65,6 @@ struct Connection {
     generation: String,
     app: App,
     initialized: bool,
-    composer: bool,
 }
 #[derive(Clone)]
 enum Source {
@@ -164,14 +163,6 @@ impl Bridge for Remote {
                 _ => unreachable!(),
             };
             let mut guard = connection.lock().await;
-            if !observation
-                && guard
-                    .as_ref()
-                    .is_some_and(|c| c.generation == generation && !c.composer)
-            {
-                let previous = guard.take().unwrap();
-                previous.app.detach().await?;
-            }
             if guard.as_ref().is_some_and(|c| c.generation != generation) {
                 // Reattach only to the newly verified owned host. Lane-level
                 // identity admission below decides whether a settled turn may
@@ -186,14 +177,7 @@ impl Bridge for Remote {
                 };
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 let app = loop {
-                    match client
-                        .app(if observation {
-                            crate::cdp::AppSurface::Authentication
-                        } else {
-                            crate::cdp::AppSurface::Composer
-                        })
-                        .await
-                    {
+                    match client.app().await {
                         Ok(app) => break app,
                         Err(Error("app_target_unavailable"))
                             if tokio::time::Instant::now() < until =>
@@ -207,7 +191,6 @@ impl Bridge for Remote {
                     generation: generation.clone(),
                     app,
                     initialized: false,
-                    composer: !observation,
                 });
             }
             if !observation
@@ -217,10 +200,10 @@ impl Bridge for Remote {
                 )
                 && (!guard.as_ref().unwrap().initialized || command["op"] == "open")
             {
-                let app = guard.as_ref().unwrap().app.clone();
                 let init = json!({"op":"init","owner":owner,"bridgeRevision":context::digest(&include_str!("app_bridge.js")),"returnPath":"mcp","bindings":bindings});
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
+                    let app = guard.as_ref().unwrap().app.clone();
                     let value = evaluate_bridge(&app, &init).await?;
                     if value["ready"] == true {
                         break;
@@ -228,6 +211,17 @@ impl Bridge for Remote {
                     if tokio::time::Instant::now() >= until {
                         return Err(Error("app_scope_unavailable"));
                     }
+                    // A startup launcher can precede the primary page. Keep
+                    // discovery on this client; an unready scope is not proof
+                    // that its current target will become the main app.
+                    guard.take();
+                    app.detach().await?;
+                    let app = app.client.app().await?;
+                    *guard = Some(Connection {
+                        generation: generation.clone(),
+                        app,
+                        initialized: false,
+                    });
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
                 guard.as_mut().unwrap().initialized = true;

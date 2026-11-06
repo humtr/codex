@@ -1509,6 +1509,20 @@ table; its feasibility, exact scope and affected callers require qualification.
 | Process/connection availability | Configured supervisor and transport owner | Shared lifecycle implementation consumes instance configuration; validate local readiness and actual remote reachability separately |
 | Presentation and user intent | Frontend/Chat host; optional Manager conveniences | Render authoritative events and send supported intents; no independent model-policy, app supervisor or recovery engine |
 
+**Attached Native permissions.** `codex_sessions create` optionally accepts
+`approval_policy` (`on-request` or `never`) and `approvals_reviewer` (`user` or
+`auto_review`). Omission inherits Native configuration. An explicit selection
+uses the existing Native `thread/start` approval/reviewer fields with Termux's
+`danger-full-access` sandbox; Native enforces managed constraints and owns the
+effective settings. The creation reply exposes Native's confirmed initial
+permissions, not another mutable Provider policy record. These fields are
+rejected on other actions: start/join/reconnect do not change existing work's
+permissions. Exact allocation retries preserve the complete selected input.
+Both policies use the same Native tools, approvals, effects and history path.
+Auto Review failure never selects `never`; offering Full Access changes no
+operational default. Compare bounded actual development runs before recommending
+a default, and obtain the user's decision before changing that default.
+
 **Session and inference.** A coherent selected task normally retains one Native
 thread across model/entrance changes. Historical source provider/model remains
 provenance, not an unconditional prohibition on a later authorized route.
@@ -1523,6 +1537,35 @@ read its permitted history; requirements on destination use and history access
 remain enforced. If decoding or summarizing old context actually requires that
 source, expose that dependency separately. Do not treat past provenance as an
 active inference credential or silently replace the chosen model.
+Provider control validates Native thread identity, execution home and workspace
+independently of its selected model route. Reading or controlling already admitted
+work must not require the Provider's inference route. Admission of a primary
+inference request to Provider still verifies that Native selected that route;
+moving this check must not admit stale requests from another route.
+Resolve a live thread through its verified Native rendezvous before preparing a
+server. A newly started thread can have a live writer before its rollout exists.
+Ownerless work uses the common default control server; Native alone resolves saved
+route metadata and explicit destination selection. Provider must not choose a
+second server from historical provider affinity. Retain execution-home and
+writer-authority checks.
+Native resume checkpoints a live persistent thread through its conversation
+owner before reading the stored view, even before the first turn. The checkpoint
+includes pending metadata as well as canonical history; low-level file persistence
+alone cannot establish a readable paginated view. Live read/archive use the same
+owner. This starts no inference and preserves writer and observers. Storage
+failure is reported without replacing that writer;
+ephemeral threads are not made persistent as a side effect of resume.
+Provider catalog and transport overrides belong to new configured work or
+explicit Provider inference selection. Generic work observation/control retains
+the route and metadata; default-I/O preparation does not inject a Provider catalog.
+Resuming/forking with explicit attached/submitted inference selects that destination
+through Native without starting a task. Without this selection, allocation retains
+the saved route. Start/join rebinds selected Provider inference through Native at
+turn admission, retaining same-route model settings unless explicitly overridden.
+This refreshes the current transport even if the Provider's endpoint changed.
+Reuse the verified live writer and require its advertised transition capability
+before sending route fields to an older server. Attached inference still starts
+no second primary Chat request. Unsupported updates are rejected before user input.
 Existing Native settings events/persistence are preferred over a Provider route
 ledger. Native owns the transition and observer binding even if a qualified
 implementation must reconnect a backend. Clients do not independently restart
@@ -1541,7 +1584,9 @@ The maintained Native interface extends `thread/settings/update` with optional
 and accepts destination `model_providers` and `model_catalog_json`, not executor
 or permission overrides. Omitted catalog preserves same-route metadata and clears
 the former route's catalog when changing routes, without reopening that former
-file. Managed catalog requirements retain precedence. Managed policy is revalidated.
+file. Managed catalog requirements retain precedence. Managed policy is revalidated; unreadable requirements block input. A malformed
+mutable defaults file alone does not invalidate a live thread's already committed
+route or require that unrelated defaults be repaired before continuing it.
 `initialize.modelProviderUpdates` explicitly advertises support; absence means
 unsupported even when the upstream version matches. Clients must not interpret
 an older server's ignored unknown fields as successful route selection.
@@ -1622,6 +1667,35 @@ Cold start, process restart, auth renewal and connector refresh use the same
 lifecycle path; no parallel watchdog, account repair script or hidden retry queue
 is added. App failure must not shut down unrelated Native/MCP capabilities.
 
+**App failure and subsequent input.** CDP connectivity, target/session presence,
+renderer scope, authentication, project verification and model-input readiness
+are separate observations. A ready host or a successful catalog read does not
+prove that a later input or approval-review request can reach its intended target.
+CDP owns command/response correlation and connection/target lifetime; Provider
+owns external operation delivery and recovery. A CDP timeout or lost connection
+does not prove that an app operation was cancelled or that it did not execute.
+
+Recovery distinguishes failed preparation before dispatch, uncertain Lane open,
+an opened Lane without model input, uncertain model submission, and lost stream
+or final-result observation. Retain the original operation/Lane/round identity
+and recover its outcome through the authoritative app/Native observations. Empty
+local counters alone do not establish non-delivery across the app boundary.
+Never automatically resubmit a possibly delivered model input or Native effect.
+Confirmed non-delivery may resume preparation; uncertain delivery remains fenced
+until its actual outcome is reconciled. Re-observation that establishes safe
+continuation must update the owning state and unblock that same work, rather
+than leave a permanent generic reconciliation failure. An unresolved outcome
+reports the specific missing fact and available recovery action.
+
+The existing Native input barrier consumes that recovered state. Preserve the
+thread/work, history, selected route/model, approvals, writer and original input
+identity. TUI consumes a draft only according to confirmed Native admission;
+its retained text is not proof that the server never accepted that input. Decide
+whether an input can be resubmitted from that admission contract and original
+delivery evidence, not from the error label. TUI has no parallel recovery state
+machine and Core has no Provider repair executor. Approval-review target failure
+does not grant approval or prove general Native execution failure.
+
 One source adapter owns the qualified app interface and its supported app build;
 model discovery, selection, input/results and maintenance reuse that binding.
 An unavailable renderer scope is an adapter/readiness failure, not a reason to
@@ -1675,6 +1749,7 @@ inference where required, Native effects, durable results and the receiving clie
 | Standalone Chat → first integrated work → Chat/Codex continuation | Create/select one Native thread, import available source context once as labelled source data, retain its binding | No fabricated past Native execution; reentry reuses the work and independently observes the source where the host permits |
 | Native automatic/manual compaction while using ChatGPT | Native commits the replacement; Provider delivers it to a renewed/rebound managed Chat at a settled boundary | Actual source context changes and following inference; an ACK that merely resets a local cursor does not prove remote-window renewal |
 | Cold start, account change, reconnect or component update | Reuse configuration/lifecycle authorities and original admissions; retain active jobs and uncertain returns | Actual supervised owner, authenticated route, refreshed connector schemas and new Native roundtrip; failures retain input and do not replay effects |
+| Codex ChatGPT input fails at app/CDP preparation or observation, then user continues | Retain the same Native work and draft/admission identity; Provider re-observes the original Lane/round and settles recoverable state | Pre-dispatch timeout, lost Lane-open reply, lost submit ACK, same-work reinput, missing Composer versus missing Target, and TUI/Native/MCP observations; no duplicate submissions/effects, no approval bypass, specific block only while necessary |
 
 `/fork` remains the user's explicit way to branch work. It is not automatic
 recovery for a routine provider change. If a source cannot supply required context
@@ -4236,8 +4311,13 @@ guest. No implicit app/rootfs installation or profile copying occurs. Preserve
 app home/authentication on shutdown; remove only owned temporary resources.
 Read-only app identity, host status and catalog observations may inspect a unique
 primary app page without a visible composer; they do not install writer hooks or
-grant inference admission. A later mutating operation must reacquire a verified
-composer surface. Home/Plugins navigation alone is not loss of authentication.
+grant inference admission. Programmatic inference uses that same owned primary
+target and validates its app Scope, authenticated identity and API capabilities
+before opening a lane. Visible composer state does not establish those facts and
+is not required on Home/project pages. A composer may disambiguate multiple app
+windows; ambiguous targets still refuse. An unready startup launcher is detached
+and rediscovered on the same CDP client during the existing bounded readiness
+wait. Home/Plugins navigation alone is not loss of authentication.
 A lost host with unsettled lanes is not permission to replay their requests.
 Bind each lane to the app's currently authenticated user/account/workspace and
 owned host generation using identifier-only app state, never a token dump. Check

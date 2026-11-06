@@ -89,6 +89,16 @@ impl Bridge for Synthetic {
         }
 
         let value = match command["op"].as_str().unwrap() {
+            "identity"
+                if self
+                    .path
+                    .parent()
+                    .unwrap()
+                    .join("review-target-unavailable")
+                    .exists() =>
+            {
+                return Box::pin(async { Err(Error("app_target_unavailable")) });
+            }
             "identity" => {
                 json!({"generation":"fixture","account":if self.path.parent().unwrap().join("changed-account").exists(){"changed-synthetic-account"}else{"owned-synthetic-account"},"user":"owned-synthetic-user","structure":"personal",
                     "present":self.commands.lock().unwrap().iter().any(|row|matches!(row["op"].as_str(),Some("open"|"chat_adopt")) && row["lane"]==lane)})

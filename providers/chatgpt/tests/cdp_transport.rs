@@ -2,59 +2,84 @@ use codex_chatgpt_provider::cdp::{Client, Descriptor, Process};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 #[tokio::test]
-async fn login_observation_reads_primary_without_granting_composer_admission() {
-    use codex_chatgpt_provider::cdp::AppSurface;
+async fn home_context_supports_programmatic_inference_without_a_visible_composer() {
+    use codex_chatgpt_provider::app::{Bridge, Remote};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    for surface in [AppSurface::Composer, AppSurface::Authentication] {
-        let expected = surface == AppSurface::Authentication;
+    for cold in [false, true] {
         let (native, peer) = tokio::io::duplex(65536);
         let (read, write) = tokio::io::split(native);
-        let client = Client::pipe(read, write, "login-fixture".into());
+        let remote = Remote::pipe(
+            Client::pipe(read, write, "home-fixture".into()),
+            "owned-bridge".into(),
+        );
         let peer = tokio::spawn(async move {
             let (read, mut write) = tokio::io::split(peer);
             let mut reader = BufReader::new(read);
+            let mut inits = 0;
             loop {
-                let mut row = Vec::new();
-                reader.read_until(0, &mut row).await.unwrap();
-                row.pop();
-                let row: Value = serde_json::from_slice(&row).unwrap();
-                let method = row["method"].as_str().unwrap();
-                let value = match method {
+                let mut bytes = Vec::new();
+                assert!(reader.read_until(0, &mut bytes).await.unwrap() > 0);
+                bytes.pop();
+                let row: Value = serde_json::from_slice(&bytes).unwrap();
+                let mut opened = false;
+                let value = match row["method"].as_str().unwrap() {
                     "Target.getTargets" => {
                         json!({"targetInfos":[{"targetId":"primary","type":"page","url":"app://-/index.html"}]})
                     }
                     "Target.attachToTarget" => json!({"sessionId":"primary"}),
                     "Target.detachFromTarget" => json!({}),
                     "Runtime.evaluate" => {
-                        json!({"result":{"value":row["params"]["expression"]=="verify_login_identity"}})
+                        let expression = row["params"]["expression"].as_str().unwrap();
+                        let result = if let Some((_, command)) =
+                            expression.split_once("const command=")
+                        {
+                            let command: Value =
+                                serde_json::from_str(command.split_once(";\n").unwrap().0).unwrap();
+                            match command["op"].as_str().unwrap() {
+                                "identity" => {
+                                    json!({"value":{"account":"owned-account","user":"owned-user","structure":"personal"}})
+                                }
+                                "init" => {
+                                    inits += 1;
+                                    json!({"value":{"ready":!cold || inits > 1}})
+                                }
+                                "open" => {
+                                    opened = true;
+                                    json!({"value":{"localId":"owned-lane"}})
+                                }
+                                _ => panic!("opening may not submit inference or execute tools"),
+                            }
+                        } else {
+                            assert!(expression.contains("contenteditable"));
+                            json!(false)
+                        };
+                        json!({"result":{"value":result}})
                     }
-                    _ => panic!("login observation issued non-observation command: {method}"),
+                    _ => panic!("app discovery must not navigate or type"),
                 };
-                let mut reply = json!({"id":row["id"],"result":value})
-                    .to_string()
-                    .into_bytes();
-                reply.push(0);
-                write.write_all(&reply).await.unwrap();
-                if method == "Target.detachFromTarget"
-                    || row["params"]["expression"] == "verify_login_identity"
-                {
+                write
+                    .write_all(format!("{}\0", json!({"id":row["id"],"result":value})).as_bytes())
+                    .await
+                    .unwrap();
+                if opened {
                     break;
                 }
             }
         });
-        let result = client.app(surface).await;
-        if expected {
+        if !cold {
             assert_eq!(
-                result
-                    .unwrap()
-                    .evaluate("verify_login_identity")
-                    .await
-                    .unwrap(),
-                true
+                remote.operation(json!({"op":"identity"})).await.unwrap()["account"],
+                "owned-account"
             );
-        } else {
-            assert!(result.is_err());
         }
+        let opened = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            remote.operation(json!({"op":"open","lane":"owned-lane"})),
+        )
+        .await
+        .expect("Home must not wait for a user-created composer")
+        .unwrap();
+        assert_eq!(opened["localId"], "owned-lane");
         peer.await.unwrap();
     }
 }
@@ -139,12 +164,7 @@ async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous
                 assert_eq!(detached, vec!["aux", "main"]);
             }
         });
-        match (
-            case,
-            client
-                .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
-                .await,
-        ) {
+        match (case, client.app().await) {
             (0, Ok(app)) => assert_eq!(app.evaluate("verify_selected").await.unwrap(), true),
             (1, Err(e)) => assert_eq!(e, Error("unique_app_target_required")),
             (2, Err(e)) => assert_eq!(e, Error("app_target_unavailable")),
@@ -156,8 +176,7 @@ async fn auxiliary_index_pages_are_readonly_probed_without_choosing_an_ambiguous
 }
 
 #[tokio::test]
-async fn single_empty_launcher_is_released_before_later_main_window_is_selected() {
-    use codex_chatgpt_provider::protocol::Error;
+async fn primary_without_composer_and_multiple_window_disambiguation_are_separate() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (native, peer) = tokio::io::duplex(65536);
     let (read, write) = tokio::io::split(native);
@@ -207,16 +226,23 @@ async fn single_empty_launcher_is_released_before_later_main_window_is_selected(
         }
         assert_eq!(detached, vec!["launcher", "launcher"]);
     });
-    assert!(matches!(
-        client
-            .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
-            .await,
-        Err(Error("app_target_unavailable"))
-    ));
-    assert!(client
-        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
+    let primary = client.app().await.unwrap();
+    assert_eq!(
+        primary
+            .evaluate("!!document.querySelector('[contenteditable=true]')")
+            .await
+            .unwrap(),
+        false
+    );
+    client
+        .request(
+            "Target.detachFromTarget",
+            json!({"sessionId":"launcher"}),
+            None,
+        )
         .await
-        .is_ok());
+        .unwrap();
+    assert!(client.app().await.is_ok());
     peer.await.unwrap();
 }
 
@@ -367,7 +393,7 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
                 .await
                 .unwrap();
         }
-        for _ in 0..4 {
+        loop {
             let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                 panic!("expected app request")
             };
@@ -402,6 +428,11 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
                 ))
                 .await
                 .unwrap();
+            if request["method"] == "Runtime.evaluate"
+                && request["params"]["expression"] == "({ready:true})"
+            {
+                break;
+            }
         }
     });
     let client = Client::connect(&descriptor).await.unwrap();
@@ -411,10 +442,7 @@ async fn one_authenticated_relay_multiplexes_calls_and_reattaches_only_unique_ow
     );
     assert_eq!(first.unwrap()["echo"], "first");
     assert_eq!(second.unwrap()["echo"], "second");
-    let app = client
-        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
-        .await
-        .unwrap();
+    let app = client.app().await.unwrap();
     assert_eq!(app.evaluate("({ready:true})").await.unwrap()["ready"], true);
     server.await.unwrap();
 }

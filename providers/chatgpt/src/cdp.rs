@@ -20,12 +20,6 @@ use tokio_tungstenite::{
 };
 
 const LIMIT: usize = 16 * 1024 * 1024;
-#[derive(PartialEq, Eq)]
-pub enum AppSurface {
-    Composer,
-    /// Account observation can read the unique primary page on Home/login.
-    Authentication,
-}
 pub fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>, Error> {
     let mut file = File::options()
         .read(true)
@@ -311,7 +305,7 @@ impl Client {
         .await
         .map_err(|_| Error("cdp_operation_timeout"))?
     }
-    pub async fn app(&self, surface: AppSurface) -> Result<App, Error> {
+    pub async fn app(&self) -> Result<App, Error> {
         let result = self.request("Target.getTargets", json!({}), None).await?;
         let targets = result["targetInfos"]
             .as_array()
@@ -330,9 +324,9 @@ impl Client {
         if roots.len() > 16 || ids.len() != roots.len() {
             return Err(Error("unique_app_target_required"));
         }
-        // Work requires a visible composer even for a single initial page.
-        // Read-only authentication can inspect a unique primary page on Home;
-        // the caller still validates the app's authenticated account state.
+        // Home and project pages retain the primary app context without a
+        // visible composer. The source adapter validates that context before
+        // inference. A composer only disambiguates multiple existing windows.
         let probe = r#"(()=>{const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
             return [...document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],textarea')]
                 .some(e=>visible(e)&&!e.disabled);})()"#;
@@ -356,9 +350,7 @@ impl Client {
                     client: self.clone(),
                     session,
                 });
-                if (surface == AppSurface::Authentication && roots_len == 1)
-                    || attached.last().unwrap().evaluate(probe).await? == true
-                {
+                if roots_len == 1 || attached.last().unwrap().evaluate(probe).await? == true {
                     eligible.push(attached.len() - 1);
                 }
             }
@@ -393,7 +385,7 @@ impl Client {
 
 #[derive(Clone)]
 pub struct App {
-    client: Client,
+    pub(crate) client: Client,
     session: String,
 }
 impl App {

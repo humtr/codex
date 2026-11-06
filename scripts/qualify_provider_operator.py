@@ -11,6 +11,7 @@ import pty
 import re
 import select
 import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -160,8 +161,11 @@ def probe(args):
         chat_b = {'openai/session': 'owned-qualification-chat-B', 'openai/subject': 'owned-subject-A'}
         def related(meta):
             return {row['work_id'] for row in rpc('codex_sessions', {'action': 'list'}, metadata=meta)['work'] if row.get('chat_correlated')}
-        created = rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a)
-        assert rpc('codex_sessions', {'action': 'create', 'call_id': 'chat-entry-create'}, metadata=chat_a) == created
+        create_args = {'action': 'create', 'call_id': 'chat-entry-create'}
+        if getattr(args, 'permissions_only', False):
+            create_args.update(inference='attached', approval_policy='on-request', approvals_reviewer='auto_review')
+        created = rpc('codex_sessions', create_args, metadata=chat_a)
+        assert rpc('codex_sessions', create_args, metadata=chat_a) == created
         initial_attach = rpc('codex_attach', {'work_id': created['work_id'],
                              'controller': created['controller']}, metadata=chat_a)
         assert initial_attach['accepted'] is False and initial_attach['receipt'] is None
@@ -229,6 +233,10 @@ def probe(args):
                 {'cmd': value, 'login': False, 'max_output_tokens': 1000} if key == 'exec_command' else {'command': value},
                 'OWNED_NATIVE_COMMAND_' + call_id)
 
+        def zero_exit(result):
+            codes = re.findall(r'(?:Process exited with code |Exit code: )(-?\d+)', json.dumps(result))
+            assert codes and all(code == '0' for code in codes), result
+
         first = command(binding, 'first', 'printf original >> once.txt; printf NATIVE_RESULT_ONE')
         assert 'NATIVE_RESULT_ONE' in json.dumps(first), first
         assert command(binding, 'first', 'printf original >> once.txt; printf NATIVE_RESULT_ONE')['result'] == first['result']
@@ -247,6 +255,99 @@ def probe(args):
         assert sum(row['op']=='submit' for row in review_commands) == 2
         assert all(row['messages'] for row in review_commands if row['op']=='submit')
         print('Independent native automatic reviewer allowed and prevented actual effects',flush=True)
+        if getattr(args, 'permissions_only', False):
+            assert created['native_permissions']['approval_policy'] == 'on-request', created['native_permissions']
+            assert created['native_permissions']['approvals_reviewer'] == 'auto_review'
+            missing = root / 'review-target-unavailable'
+            missing.touch()
+            try:
+                unavailable = execute(binding, 'review-unavailable', command_key, review_args, 'OWNED_REVIEW_UNAVAILABLE')
+            finally:
+                missing.unlink()
+            assert 'app_target_unavailable' in json.dumps(unavailable), unavailable
+            assert (root / 'w/reviewed-effects').read_text() == 'reviewed', 'failed reviewer executed the command'
+            assert 'CONTINUED_AFTER_REVIEW_FAILURE' in json.dumps(command(binding, 'review-recovered', 'printf CONTINUED_AFTER_REVIEW_FAILURE'))
+            rustc = shutil.which('rustc')
+            assert rustc, 'actual Rust compiler required'
+            cases = []
+
+            def development(bound, label):
+                began = time.monotonic()
+                reviews_before = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+                source = 'permissions-' + label + '.rs'
+                executable = 'permissions-' + label
+                patch = '*** Begin Patch\n*** Add File: ' + source + '\n+fn main() { assert_eq!(2 + 3, 5); println!("PERMISSIONS_FIRST"); }\n*** End Patch'
+                execute(bound, label + '-source', patch_key, patch, 'OWNED_PERMISSIONS_SOURCE')
+                compile_command = 'env TMPDIR=' + shlex.quote(str(root / 't')) + ' ' + shlex.quote(rustc) + ' --crate-name permissions ' + source + ' -o ' + executable
+                first = command(bound, label + '-compile', compile_command)
+                zero_exit(first)
+                assert (root / 'w' / executable).is_file(), first
+                first_run = command(bound, label + '-run', './' + executable)
+                zero_exit(first_run)
+                assert 'PERMISSIONS_FIRST' in json.dumps(first_run)
+                patch = '*** Begin Patch\n*** Update File: ' + source + '\n@@\n-fn main() { assert_eq!(2 + 3, 5); println!("PERMISSIONS_FIRST"); }\n+fn main() { assert_eq!(3 + 4, 7); println!("PERMISSIONS_SECOND"); }\n*** End Patch'
+                execute(bound, label + '-modify', patch_key, patch, 'OWNED_PERMISSIONS_MODIFY')
+                zero_exit(command(bound, label + '-recompile', compile_command))
+                second_run = command(bound, label + '-rerun', './' + executable)
+                zero_exit(second_run)
+                assert 'PERMISSIONS_SECOND' in json.dumps(second_run)
+                rpc('codex_finish', {**bound, 'call_id': label + '-finish', 'text': 'OWNED_PERMISSIONS_' + label.upper()})
+                reviews_after = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+                return {'elapsed_seconds': time.monotonic() - began,
+                        'synthetic_model_submissions': reviews_after - reviews_before}
+
+            auto_development = development(binding, 'auto')
+            cases.append({'policy': 'on-request', 'work_id': created['work_id'], 'thread_id': created['thread_id'],
+                          'native_permissions': created['native_permissions'], 'development': auto_development})
+            full_args = {'action': 'create', 'call_id': 'permissions-full-create', 'inference': 'attached',
+                         'approval_policy': 'never'}
+            full = rpc('codex_sessions', full_args)
+            assert full['native_permissions']['approval_policy'] == 'never', full['native_permissions']
+            assert full['native_permissions']['sandbox']['type'] == 'dangerFullAccess', full['native_permissions']
+            full_binding = {key: full[key] for key in ['work_id', 'controller']}
+            assert full['thread_id'] != created['thread_id']
+            reviews_before_full = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+            rpc('codex_sessions', {**full_binding, 'action': 'start', 'call_id': 'permissions-full-start', 'task': 'OWNED_FULL_ACCESS_DEVELOPMENT'})
+            attach(full_binding)
+            full_development = development(full_binding, 'full')
+            reviews_after_full = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+            assert reviews_after_full == reviews_before_full, 'Full Access submitted a reviewer/primary model request'
+            cases.append({'policy': 'never', 'work_id': full['work_id'], 'thread_id': full['thread_id'],
+                          'native_permissions': full['native_permissions'], 'development': full_development})
+            assert config_path.read_bytes() == saved_defaults, 'per-work selection changed global configuration'
+            restart_fixture()
+            for case in cases:
+                resumed = rpc('codex_sessions', {'action': 'join', 'work_id': case['work_id'],
+                    'call_id': 'permissions-reconnect-' + case['policy'], 'task': 'OWNED_PERMISSIONS_RECONNECT'})
+                rebound = {key: resumed[key] for key in ['work_id', 'controller']}
+                assert resumed['thread_id'] == case['thread_id']
+                attach(rebound)
+                label = 'full' if case['policy'] == 'never' else 'auto'
+                before = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+                result = command(rebound, label + '-after-reconnect', './permissions-' + label)
+                assert 'PERMISSIONS_SECOND' in json.dumps(result), result
+                after = sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text()))
+                if case['policy'] == 'never':
+                    assert after == before, 'reconnected Full Access changed approval policy'
+                else:
+                    # The existing explicit prompt rule forces the reviewer on this same Native work.
+                    execute(rebound, 'auto-review-after-reconnect', command_key, review_args, 'OWNED_RECONNECTED_REVIEW')
+                    assert sum(row['op'] == 'submit' for row in json.loads((root / 'bridge-commands.json').read_text())) > after
+                rejected = rpc('codex_sessions', {**rebound, 'action': 'start', 'approval_policy': 'never',
+                    'call_id': label + '-cannot-change-policy', 'task': 'MUST_NOT_RUN'}, True)
+                assert rejected['error'] == 'native_permissions_create_only', rejected
+                rpc('codex_finish', {**rebound, 'call_id': label + '-reconnected-finish', 'text': 'OWNED_PERMISSIONS_RECONNECTED_' + label.upper()})
+                assert rpc('codex_status', {'work_id': case['work_id']})['completed']
+                history = rpc('codex_history', {'work_id': case['work_id']})
+                assert 'OWNED_PERMISSIONS_RECONNECTED_' + label.upper() in json.dumps(history)
+            assert config_path.read_bytes() == saved_defaults
+            args.report.write_text(json.dumps({'mode': 'synthetic_android', 'actual_native': True,
+                'real_model_requests': 0, 'review_failure_no_execution': True,
+                'continued_after_review_failure': True, 'per_work_permissions': cases,
+                'full_access_model_submissions': 0, 'global_configuration_unchanged': True,
+                'file_edit_compile_modify_recompile': True, 'reconnected_same_threads': True}, indent=2) + '\n')
+            print('Actual Native per-work permissions, review failure, compilation and reconnect passed', flush=True)
+            return
         # Child sessions are independent work, never the primary Chat-renewal path.
         child = rpc('codex_sessions', {'action': 'fork', 'call_id': 'independent-child', 'thread_id': created['thread_id']}, metadata=chat_b)
         assert child['thread_id'] != created['thread_id']
@@ -931,15 +1032,19 @@ if __name__ == '__main__':
     parser.add_argument('--inputs', type=Path, help='explicit F source/native/fixture inputs; no historical defaults')
     parser.add_argument('--core', type=Path)
     parser.add_argument('--frontend', type=Path)
+    parser.add_argument('--generation', type=Path, help='explicit installed Native generation for the signed fixture')
     parser.add_argument('--service-test', type=Path)
     parser.add_argument('--provider-binary', type=Path, help='actual Provider CLI used by the native client synchronization gate')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--cold-resume', action='store_true', help='also qualify cold native owner replacement and asynchronous start failure; zero real Chat')
     parser.add_argument('--selected-controls', action='store_true', help='also exercise explicit assignment/controller/budget controls with legacy explicit fixture inputs; zero real Chat')
+    parser.add_argument('--permissions-only', action='store_true', help='qualify per-work approval policies, review failure, real compilation and reconnect; synthetic Chat replies')
     args=parser.parse_args()
     if args.inputs:
+        if args.permissions_only:
+            parser.error('--permissions-only is a scoped development proof, not the declared F7 acceptance')
         from provider_qualification import prepare, path, reference, require, digest
-        require(not any((args.core,args.frontend,args.service_test,args.provider_binary,args.report)), '--inputs cannot be combined with implicit/override selectors')
+        require(not any((args.core,args.frontend,args.generation,args.service_test,args.provider_binary,args.report)), '--inputs cannot be combined with implicit/override selectors')
         resolved=json.loads(prepare(args.inputs).read_text())
         inputs=resolved['inputs']
         require(inputs['limits']['mode']=='synthetic_android' and inputs['cases']==['F7-idempotency'], 'this driver qualifies only its declared synthetic F7 subset')
@@ -960,6 +1065,6 @@ if __name__ == '__main__':
         # retained driver report covers its actual cases, not all F7 boundaries.
         with (args.report.with_suffix('.launch.json')).open('x') as stream:
             json.dump({'resolved_inputs':str(prepare(args.inputs)),'inputs_sha256':resolved['inputs_sha256'],'pid':os.getpid(),'monotonic_ns':time.monotonic_ns(),'new_chat_requests':0},stream)
-    elif not all((args.core,args.frontend,args.service_test,args.report)):
-        parser.error('supply --inputs, or all legacy --core/--frontend/--service-test/--report options')
+    elif not all((args.core,args.service_test,args.report)) or (not args.frontend and not (args.permissions_only and args.generation)):
+        parser.error('supply --inputs, legacy --core/--frontend/--service-test/--report, or --permissions-only with --core/--generation/--service-test/--report')
     probe(args)

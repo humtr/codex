@@ -5,6 +5,121 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Pro handoff entry
+
+Active P0 implementation now uses fix/attached-native-development-loop-20261106
+in the existing pro-baseline worktree, based on the operating source attribution
+0a6518c89417c0d7c727a771ab87f32d32bb856a. Current instructions/contracts were
+carried from6018ad9. Provider implementation and its runtime-binding dependency
+initially matched0a6518c exactly. The prepared transition source remains unchanged
+on prep/pro-baseline-20261106; it is not the current signed Native compatibility
+baseline. Historical activation names a mutable source_worktree now at8de0790;
+use its recorded immutable commit, not that folder HEAD. Existing logs attribute
+the recovery binary to0a6518c but do not independently prove exact binary/source
+identity. Preserve that binary as rollback; establish the next artifact from a
+clean committed source and qualify that same artifact before activation.
+
+The user now asks Codex to restore the attached Native development loop first;
+broader Pro redesign/implementation follows that prerequisite. The prepared source
+and future handoff remain available. Start with
+[PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
+The suggested preparation branch is prep/pro-baseline-20261106. Pro may reselect
+its baseline and reject/rework this preparation when a simpler design is better.
+The incomplete8d095cd model catalog draft is preserved on
+draft/thread-model-catalog-20261106 and reverted from the preparation baseline.
+The Native patch matches c340237 there; later documentation clarifies the P0
+app-failure recovery contract. Neither implies complete acceptance.
+Original local work and both mobile source alternatives remain on their named
+snapshot/archive refs. A three-way preview found26/49 paths with no additional delta;
+23 remaining paths include account/lifecycle changes and8 direct conflicts.
+They were not mechanically merged into production code. PRO_HANDOFF lists them.
+The preparation branch itself made no runtime replacement or model request.
+Current P0 implementation and its separate qualification are described below;
+earlier qualification retains its actual recorded scope.
+
+### Immediate prerequisite: attached Native approval/execution loop
+
+The operating recovery executable is attributed to0a6518c by activation/build
+records; exact binary/source identity is not independently established. Its local
+MCP tools/list has17 tools and no work-creation permission fields. The current
+candidate adds create-only approval_policy/approvals_reviewer selection through
+existing Native thread/start fields with danger-full-access. The reply reports
+Native's effective permissions. Omitted fields inherit configuration; existing
+work, global defaults, execution/history and approval authority remain Native's.
+No alternate executor or review-failure fallback is introduced.
+
+The original failure is correlated to Native Guardian child
+01a1ae5b-b3c3-7b53-81d7-6ce0788e3cd4 and parent
+01a1ae5b-b2f7-7ac3-9d8f-f3593925454f: the reviewer used chatgpt_desktop, and the
+parent recorded the automatic review failure before command execution. The
+original command omitted sandbox_permissions (use_default), not an escalation.
+The Provider lane failed during opening with app_target_unavailable, no round,
+dispatch or user message. Auxiliary reviewer requests skip project resolution;
+project_read is not this reviewer's failure boundary. Guardian's own never /
+read-only settings prevent recursive review and are not the parent's policy.
+
+Actual read-only observation of the existing owned app found its primary page
+and React Scope available with zero visible composers. The source incorrectly
+required a visible composer before programmatic inference. The candidate uses
+the same primary target for observation and inference, with existing app Scope,
+authentication and API admission. Composer probing remains only to disambiguate
+multiple app windows. It removes AppSurface and the separate composer admission /
+reattachment state. Historical screen state at the original failure was not
+recorded; positive actual reviewer/model completion still needs verification.
+
+Android qualification used the installed signed Native generation and synthetic
+reviewer replies: actual allow/deny, review-target failure with no execution,
+subsequent commands on the same work, per-work policy readback, file writing /
+Rust compilation / assertions / modification / recompilation, and Provider
+restart / same-thread reconnect passed. Native restart and real model responses
+are not covered. Original result is retained at
+$TMPDIR/connectivity-repair-70jt4h2u/attached-native-loop/permissions.json.
+Disposable-source faults requiring a composer and dropping approvalPolicy both
+failed the targeted regressions as expected. Final candidate qualification is
+in progress; no accepted check is being rerun merely because of recovery.
+
+Native fixture bootstrap initially failed because an overridden TMPDIR lengthened
+the protected IPC socket beyond SUN_LEN. Qualification now retains the operating
+Native IPC environment; compiler temporaries alone use the owned fixture root.
+No Core/upstream workaround was added. During actual app observation the idle
+old Provider did not exit after normal TERM. After checking no active Native
+effect claims, drivers, pending effects or app rounds, only that stalled Provider
+was terminated and the same old executable restarted. The app, saved desktop,
+accounts, conversations and Native writers were preserved. This is not a new
+candidate deployment; the old shutdown anomaly is not yet explained.
+
+Earlier actual connector list recovered from Transport closed and matched20
+local works (13 completed,4 stopped,3 reconciliation_required); cause is unproven.
+This Codex client's current tool catalog has no Termux Bridge tools. Actual app
+review, connector full-schema refresh, connected ChatGPT Native development and
+signed delivery remain separate pending gates. No operational approval default
+was changed; comparative synthetic timings cannot decide the default. Codex owns
+this bounded prework; Pro handoff follows actual development-path qualification.
+
+### P0 reported app timeout and same-work input recovery
+
+The user supplied a2026-11-06 operating-build incident: Codex ChatGPT inference
+failed with cdp_operation_timeout, then same-work input synchronization returned
+operator_reconciliation_required with the draft retained. Reported lane records
+include app_lane_open_uncertain/opening and a later new lane with identity but no
+project binding, pending entries, round, user messages or dispatches. These are
+reported snapshots, not independent proof of non-delivery or one shared cause.
+Native create/start/attach/execute and read-only exit0, host present/ready and
+project/catalog reads reportedly worked. A build was not executed after automatic
+approval review failed with app_target_unavailable; that review path is distinct
+until correlated evidence establishes otherwise.
+
+The preparation source confirms a15-second CDP request deadline,
+Runtime.evaluate awaitPromise=true and configured-project resolution via
+project_read. No per-command incident timing establishes project_read as the
+first failure. The operating compatible Provider differs from this candidate;
+the reported loopback port45341 is an observation, not fixed configuration.
+Diagnosis, regression reproduction, source fix, real TUI continuation/model
+completion and deployment are all pending. [PRO_HANDOFF.md](PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구)
+defines the prioritized investigation and six required acceptance cases;
+SPEC4.6 defines ownership/recovery behavior. This documentation preparation made
+no runtime/code change and started no model request or new Native work.
+
 ## Current architecture review and operating boundary
 
 The architecture review has revised responsibility and user-flow contracts in
@@ -25,36 +140,150 @@ assembler preserves the prepared tree and index.
 Source assembly and focused build-input/assembler tests passed; the assembler's
 prepared-source preservation regression failed under its injected fault and passed
 after restoration. The repository Rust suite and Clippy passed (the existing
-ignored test remains unqualified). Hosted Native execution of f5088f3 through
+ignored test remains unqualified). Hosted Native execution of5e84795 through
 upstream's `just test` passed the catalog-binding test,113 compaction tests,
-148 Guardian tests and33 client tests. Config policy tests passed14/15; the
-remaining test correctly received a missing required file but expected the JSON
-parse diagnostic instead of the I/O error. Its correction asserts NotFound and
-then verifies the actual required catalog after creating that file. This revised
-case and the public transition/initialize/fault tests are not yet qualified.
-Run41992840346 used the actual stable/experimental schema generators and exposed
-five stale exports. The candidate includes those generated JSON/TS and embedded
-compressed exports, rather than hand-editing schema declarations. The Native
-summary parser also accounts for the observed passing slow-test annotation and
-still rejects the failed scope. Follow the feature branch's latest workflow for
-current qualification; an older run only proves its actual inputs and scope.
+148 Guardian tests,33 client tests and all15 config-policy tests. Actual stable
+and experimental schema generation also matched the committed exports. The public
+API test binary initially exposed three URL borrow errors, corrected in9c10dea.
+Workflow42013998640 ran31 public API cases:26 passed, including both route
+directions with real terminal continuation, warm/cold resume, saved source recovery,
+invalid catalogs, storage failure and recency. Its four empty-thread fixture
+capability omissions and stale mutable-defaults expectation were corrected.
+Workflow42020860564 then passed29/31, including both Legacy empty-thread cases and
+continued original-route requests despite malformed defaults while unreadable
+managed requirements reject input. Two Paginated empty-thread cases returned
+list_turns unsupported after file materialization. Resume had used low-level store
+persistence and bypassed the live conversation's pending metadata. The candidate
+reuses one checked Native checkpoint through that owner for resume, live paginated
+read and archive; initialization keeps its existing lazy checkpoint mode. The
+revised two cases and affected read/archive scopes pass in workflow42025671701
+on83838e8, together with all required nonzero API, initialize, model-binding,
+compaction, Guardian, client and config scopes. Its actual unsigned CLI was
+built, smoked and downloaded with exact source/upstream and original producer
+digest verification. The destination-catalog fault fails as required and passes after restoration;
+runtime-binding and live-resume faults also failed as intended and passed after
+restoration. The entire workflow nevertheless hit its120-minute limit while
+compiling the focused TUI regressions; later gates did not complete. It is not
+a complete successful qualification run. The workflow
+runs API checks first and retains that CLI before disposable faults; this changes
+neither acceptance nor signed deployment. Original logs/results remain under the
+owned repair tree.
+The summary parser accounts for passing slow-test annotations and still rejects
+a failed or zero-test scope. Original workflow logs and generated schema evidence
+remain under the owned repair tree.
 Warm explicit route selection submits the same Native operation. Route replies
 check materialization, event append and flush before claiming persistence.
 The hosted gate includes settings, real-terminal, warm/cold resume, storage and
 catalog failures, compaction, Guardian, client, initialize and config tests plus
-two targeted Native fault checks. Follow the feature branch's latest
+three targeted Native fault checks. Follow the feature branch's latest
 manager-tui-native workflow for current qualification rather than reuse a run
-from an older source. No production runtime was replaced. TUI intent wiring,
-portable compaction, app binding/connector refresh and actual cross-entrance
-inference remain unfinished. Do not treat this source candidate as connectivity
+from an older source. The signed Native is unchanged; the bounded compatible
+Provider app/auth trial is described below. TUI intent wiring,
+portable compaction, permanent app lifecycle integration and actual cross-entrance
+inference remain unfinished. The bounded operating refresh is described below. Do not treat this source candidate as connectivity
 repair or deployment. Original dirty0814be7b work and earlier isolated sources
 and diffs remain preserved. Reread AGENTS.md after recovery and inspect the actual
 proposal diff.
 
-The current owned service responds, while its app observation reports
-app_auth_context_unavailable and ready=false. Exact installed app source exposes
-both chatgpt and chatgptAuthTokens authentication; the old bridge rejected the
-latter at identity and dispatch. The source candidate merges those duplicate
+Android qualification exposed another actual boundary: a live OpenAI thread can
+exist before its rollout. Provider had looked in a newly prepared default server
+before discovering that writer. With real labelled initial context, the revised
+owner-first path resumes the same thread, while the retained earlier executable
+rejects it. Starting attached work then remained pending because Native still
+selected OpenAI. The candidate separates work control from primary inference
+admission and removes Provider's historical-route server selection. Native owns
+cold route resolution on the common control server. Generic allocation preserves
+the route; explicit inference selects its configured destination without starting
+a task. Start/join refreshes that binding and checks the advertised transition
+capability before admitting input. The complete revised Provider source gate passes
+Rust tests/Clippy/release,114 JavaScript tests and the Python checks. A disposable
+fault that treats a missing capability as supported fails the transport regression;
+restoration passes. Actual Android qualification with the current signed Native
+and revised Provider passes same-thread generic OpenAI-work resume, exact repeated
+unsupported destination rejection before input, and rejection of stale primary
+inference on the OpenAI route. Original Native turns/settings remain unchanged.
+The retained earlier Provider rejects the same initial work. This fixture does not
+qualify cross-route file effects: the current signed Native lacks the required
+capability. All owned fixture services were stopped with observed process exit.
+A second Android fixture also passes cold OpenAI-work resume after kernel-confirmed
+writer exit through the common default server, and new Provider catalog/model
+admission by the actual signed Native. It does not submit a model task or qualify
+integrated cross-route file effects. Original outputs and owned Native records
+remain under the repair tree.
+A Native resume extension materializes the existing persistent writer before
+reading its stored view, preserving observers and propagating storage failure. Public two-client, storage and actual saved-route
+request tests cover that change in the current hosted gate; the disposable removal
+fault passed at the recorded scope. Source assembly passed. Actual Android execution with the
+retained final Provider and exact83838e8 unsigned CLI passes all three cases:
+a live empty OpenAI thread, a populated thread, and cold resume after observed
+writer exit through the common server. Each selects ChatGPT on the same thread,
+accepts Native context, executes a real file write and patch through the advertised
+tool catalog, repeats the write request without a duplicate effect, finishes,
+returns to OpenAI with history unchanged and rejects stale Provider primary
+inference. Cold proof also exercises actual Provider-catalog admission. The private
+fixture uses the existing54-byte relocation and signed fixture inventory; it copies
+no user auth or app profile. All owned services and Native processes have observed
+exit. These are local attached-execution proofs with an inert primary inference
+endpoint, not actual Chat model inference, TUI observation or production delivery.
+The signed operating Native is unchanged and does not advertise these updates.
+
+The exact83838e8 Android runtime also passes all8 existing explicitly enabled
+native_compaction device cases with synthetic app replies: manual text and V2
+checkpoint compaction, token-triggered compaction, interrupted compaction recovery,
+public handoff preserving original opaque records, bidirectional continuation,
+explicit fork isolation and original-call question return. These establish actual
+Native behavior with the adapter, not actual Chat inference. In particular, the
+current tests still retain the remote Chat after compaction; its required renewal
+remains unfinished. Original native records and logs are retained under the repair
+tree, and all fixture child runtimes were stopped with observed completion.
+
+The operating service is now a bounded compatible app/auth maintenance trial
+at source0a6518c under the existing supervisor, with its binary, current binding
+and exact prior run command retained under XDG acceptance/connectivity-app-repair.
+The actual replacement observed the prior Provider's kernel exit; an earlier
+normal-stop wait did not confirm exit and is retained as a failed attempt. The
+public signed package and installed Native remain unchanged. This trial must be
+replaced by the accepted compatible signed delivery, or restored from the retained
+run command if abandoned. Connector refresh subsequently passed with the
+restored original desktop below; its fresh Native roundtrip remains unfinished.
+
+The operating Linux app has separately been recovered through its existing
+`desktop_lifecycle.py`/`linux_desktop_trial.py` launcher and saved desktop home,
+selected by `~/.local/share/codex-web-experiment/native-provider/runtime.json`.
+The user confirmed that the app opens correctly and is already logged in.
+The operating service uses retained compatible Provider source0a6518c and the
+current owned desktop descriptor; it does not select the new mobile-desktop
+prototype. That explicit descriptor binding is bounded recovery, not the final
+app lifecycle integration. Its activation/rollback configuration is retained in
+`~/.cache/codex/acceptance/connectivity-app-repair-20261105`.
+The existing D3 refresh succeeded against this saved desktop: all17 complete
+input schemas matched, app caches were invalidated and the live MCP read passed.
+A subsequent sequential Provider host observation returned ready=true. Direct
+relay refresh and Provider observation must not compete for its single CDP peer.
+Ownership cleanup subsequently confirmed normal Native/host Stop for three old
+Codex works with no remaining jobs. Both Native/Provider active effect claims and
+unsettled external receipts were0 at observation. The never-started old Pro
+allocation remains reconciliation_required: its owner exited, no native turn or
+pending/receipt/driver exists, and Native thread/read rejects it as not loaded.
+Provider stop fails in binding/prepare_thread before its fence/retirement step;
+no raw journal edit was used. This is a lifecycle contract/diagnostic gap, not a
+Linux app login failure. It is not proof that the current Codex writer was released.
+New Native create/start/attach/execute/finish through that refreshed client and
+actual-model roundtrips remain unperformed in this recovered operating scope.
+The private noVNC UI now starts its sidebar on the right through its existing
+toggle function; the original asset/manifest and applied patch are retained under
+that recovery directory's `novnc-sidebar`. The manifest records the changed
+private asset. The same desktop was reopened without restarting the app;
+physical sidebar placement has not been observed by the agent. Follow
+`providers/chatgpt/LINUX_APP.md` for app operations rather than rebuilding it.
+
+The earlier diagnosis that the saved desktop held a different account was
+incorrect. Its saved login matched the requested account, and the user confirmed
+that the original app is already logged in. The empty new home was not evidence
+that the existing login was missing. Do not repeat that migration or rebuild.
+
+Exact installed app source exposes both chatgpt and chatgptAuthTokens authentication;
+the old bridge rejected the latter at identity and dispatch. The source candidate merges those duplicate
 predicates and accepts both modes while preserving account/user equality checks.
 All94 app bridge tests pass; removing the second supported mode in disposable
 source fails2 new cases and restoration passes all4 mode/transport combinations.
@@ -232,17 +461,17 @@ successful control-plane poll, and an actual ChatGPT connector sessions-list cal
 returned14 works with AppHost absent. The original Pro create call ID
 pro-bridge-design-20261105-c554880a84cf-create was then recovered as allocation81f001ccecc1753339b40098bffc5a3e60c57dd63b14a0ea,
 Native thread01a1a98a-b913-7542-86a5-e9a2fdac3e68. No start/attach/Pro research
-inference was issued. Reuse the original allocation ID, not another create ID.
+inference was issued. Reconcile that historical allocation rather than treating
+it as a new Pro session; the latest handoff may create its own correctly bound work.
 
-The subsequent owned-app ensure returned app_scope_unavailable and current host
-observation is unready/unknown. No real model inference or canonical connector
-refresh/new Native roundtrip has accepted this changed runtime binding. Preserve
-the exact observed state; do not describe package installation, service liveness
-or list recovery as all-model readiness. The operating configuration, profile
-copy and before-state backups are retained under
+At this earlier incident snapshot, owned-app ensure returned app_scope_unavailable
+and host observation was unready/unknown. Canonical refresh and a new Native
+roundtrip had not accepted that binding. The current recovered app and successful
+refresh are recorded above; actual-model completeness is still unproven. The
+operating configuration and before-state backups are retained under
 $TMPDIR/connectivity-repair-70jt4h2u and the referenced Provider state.
 
-| Boundary | Current evidence |
+| Boundary | Evidence at the earlier architecture stop (historical) |
 | --- | --- |
 | Selected artifacts | Full148/Base147, Provider25; immutable publication/previous generations retained |
 | Selected control service | Signed Provider25 live after bounded operating correction |
@@ -283,8 +512,8 @@ The next implementation follows these dependencies:
    supplies these events. This research can proceed without changing live Chats.
 5. Run the SPEC4.6 user-flow acceptance on actual Native and ordinary Chat models,
    then publish/activate through existing signed paths. Complete canonical refresh
-   and a new connected Native roundtrip after runtime replacement. Only after the
-   primary work is qualified should Pro resume the recovered research allocation.
+   and a new connected Native roundtrip after runtime replacement. The latest user instruction hands the unfinished primary work to Pro now;
+   the earlier instruction to wait for primary completion is superseded.
 
 Real ChatGPT inference, synthetic routing, Native execution, public delivery and
 device/physical UI observations remain separate gates. This batch changes only

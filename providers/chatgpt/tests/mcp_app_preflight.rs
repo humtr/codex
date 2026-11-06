@@ -29,10 +29,7 @@ async fn actual_app_builds_mcp_input_without_local_signatures_or_visible_environ
     let client = Client::connect(&Descriptor::read(&descriptor).unwrap())
         .await
         .unwrap();
-    let app = client
-        .app(codex_chatgpt_provider::cdp::AppSurface::Composer)
-        .await
-        .unwrap();
+    let app = client.app().await.unwrap();
     // Explicit qualification cleanup only: the real service must have released
     // its writer lease and every retained app lane must have acknowledged stop.
     // Neither private native records nor saved remote conversations are removed.
