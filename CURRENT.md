@@ -5,6 +5,18 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Active operating deployment
+
+The user now authorizes completing Core/Manager/TUI operating delivery and
+activation. Use the existing signed exact-source release/update path, retain
+current/rollback and live work, then refresh the actual connector with the owned
+Provider CDP session and complete a fresh Native cycle. Deployment is in progress;
+no new Core/TUI has been activated yet. The source merge preserves the remote
+0.167 discovery commit in history, while this bounded repair explicitly selects
+the operating0.166 tuple and147 demonstrated focused TUI cases. Remote0.167 had
+no successful Core/runtime qualification or paired frontend and is not silently
+adopted. Original dirty0814be7 and its49 paths remain untouched.
+
 ## Pro handoff entry
 
 Active P0 implementation now uses fix/attached-native-development-loop-20261106

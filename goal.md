@@ -26,8 +26,19 @@ retained TUI53/engine43/patch2 plus lint pass. CLI17dd1d4 is byte-identical to t
 Android-tested frontend. Original proof/fault logs are retained; no full public
 qualification or operating Core/TUI/Manager replacement is implied.
 
-Next, Pro may independently reject/rework
-this preparation and the separate Native-route candidate. Remaining scope:
+Current user-authorized batch: deliver and activate the implemented Core/Manager /
+TUI through the existing qualified signed release/update path for operating0.166.
+Preserve current/rollback, profiles, conversations and live Native jobs. Integrate
+source without force; the unrelated unqualified0.167 discovery stays in Git
+history and is not this repair's target. Reuse compatible evidence while closing
+release-required exact-source gates. Confirm public readback and disposable
+update before actual device activation. Then run the existing d3_refresh.mjs with
+the verified live Provider-owned CDP binding, check complete input schemas and
+finish a fresh registered Bridge Native cycle. Source push/build dispatch is not
+operating activation.
+
+After deployment, Pro may independently reject/rework this preparation and the
+separate Native-route candidate. Remaining scope:
 picker/alias context rebinding, original unreconciled work/Guardian, OpenAI <->
 ChatGPT transitions, compaction, app/config/install lifecycle, actual resource
 boundaries and cumulative capabilities. No extra Pro inference or default-policy
