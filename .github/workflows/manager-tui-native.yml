@@ -220,6 +220,79 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 1
+      - name: Prepare bounded nonowner ownership fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          fixture="$(mktemp -d "$RUNNER_TEMP/profile-core-owner.XXXXXX")/core"
+          cat > "$fixture" <<'CORE_FIXTURE'
+          #!/bin/sh
+          printf '%s\n' '{"schema":"codex-manager-profiles-v1","profiles":["default"],"current":"default","current_source":"default","saved_default":"default"}'
+          CORE_FIXTURE
+          chmod 0755 "$fixture"
+          sudo chown 0 "$fixture"
+          echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
+      - name: Focused actual native TUI regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(termux_clipboard) | test(clipboard_copy) | test(copy_export_picker) | test(copy_mode) | test(copy_picker) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag) | test(provider_presentation) | test(side_fork_uses_one_request_for_long_paginated_history) | test(absolute_time_uses_child_timezone) | test(bound_chat_synchronization) | test(active_chat_provider_steer) | test(image_preparation) | test(image_submission_is_portable)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Verify owner and model admission regressions detect their independent faults
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          source=codex-rs/tui/src/termux_backend_catalog.rs
+          original="$RUNNER_TEMP/profile-tui-owner-original.rs"
+          settings_source=codex-rs/tui/src/app_server_session/rollout_history.rs
+          settings_original="$RUNNER_TEMP/profile-tui-settings-original.rs"
+          auth_source=codex-rs/tui/src/profile_transport.rs
+          auth_original="$RUNNER_TEMP/profile-tui-auth-original.rs"
+          mask_source=codex-rs/tui/src/app_server_session.rs
+          mask_original="$RUNNER_TEMP/profile-tui-mask-original.rs"
+          cp "$source" "$original"
+          cp "$mask_source" "$mask_original"
+          cp "$settings_source" "$settings_original"
+          cp "$auth_source" "$auth_original"
+          trap 'cp "$original" "$source"; cp "$settings_original" "$settings_source"; cp "$auth_original" "$auth_source"; cp "$mask_original" "$mask_source"' EXIT
+          python3 - "$source" "$settings_source" "$auth_source" "$mask_source" <<'PY'
+          import pathlib, sys
+          for name, fault, replacement in [
+              (sys.argv[1], 'Ok(Some(owner.socket))', 'Ok(None)'),
+              (sys.argv[2], 'effort: requested_effort,', 'effort: Some(codex_protocol::openai_models::ReasoningEffort::Low),'),
+              (sys.argv[3], '!has_live_owner && selected_provider_requires_auth', 'has_live_owner || selected_provider_requires_auth'),
+              (sys.argv[4], 'if model {', 'if model || effort {'),
+          ]:
+              path = pathlib.Path(name)
+              source = path.read_text()
+              assert source.count(fault) == 1
+              path.write_text(source.replace(fault, replacement))
+          PY
+          set +e
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_backend_catalog_owner_query) | test(termux_backend_catalog_explicit_resume_selection) | test(profile_transport_login_uses_selected_local_provider) | test(termux_backend_catalog_effort_only_resume)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-owner-fault.log"
+          failed=${PIPESTATUS[0]}
+          set -e
+          test "$failed" -ne 0
+          python3 - "$RUNNER_TEMP/profile-tui-owner-fault.log" <<'PY'
+          import pathlib, re, sys
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', pathlib.Path(sys.argv[1]).read_text())
+          for name in ['termux_backend_catalog_owner_query', 'termux_backend_catalog_explicit_resume_selection', 'profile_transport_login_uses_selected_local_provider', 'termux_backend_catalog_effort_only_resume']:
+              assert re.search(r'FAIL[^\n]*' + name, text), text[-6000:]
+          assert re.search(r'Summary[^\n]*4 tests run:[^\n]*4 failed', text), text[-6000:]
+          assert 'assertion `left == right` failed' in text, text[-6000:]
+          PY
+          cp "$original" "$source"
+          cp "$settings_original" "$settings_source"
+          cp "$auth_original" "$auth_source"
+          cp "$mask_original" "$mask_source"
+          cmp "$original" "$source"
+          cmp "$settings_original" "$settings_source"
+          cmp "$auth_original" "$auth_source"
+          cmp "$mask_original" "$mask_source"
+          trap - EXIT
       - name: Verify Native per-thread provider transitions
         shell: bash
         run: |
@@ -233,8 +306,8 @@ jobs:
           done
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --lib -E 'test(provider_tests)' 2>&1 | tee "$RUNNER_TEMP/native-provider-config.log"
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider)' 2>&1 | tee "$RUNNER_TEMP/native-provider-api.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(initialize)' 2>&1 | tee "$RUNNER_TEMP/native-provider-initialize.log"
           python3 - <<'PYTHON'
           import os, re
           from pathlib import Path
@@ -305,7 +378,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
           set +e
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-mutation.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-mutation.log"
           result=${PIPESTATUS[0]}
           set -e
           test "$result" -ne 0
@@ -320,58 +393,7 @@ jobs:
           cp "$original" "$source"
           cmp "$original" "$source"
           trap - EXIT
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test suite -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
-      - name: Prepare bounded nonowner ownership fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(id -u)" != 0
-          fixture="$(mktemp -d "$RUNNER_TEMP/profile-core-owner.XXXXXX")/core"
-          cat > "$fixture" <<'CORE_FIXTURE'
-          #!/bin/sh
-          printf '%s\n' '{"schema":"codex-manager-profiles-v1","profiles":["default"],"current":"default","current_source":"default","saved_default":"default"}'
-          CORE_FIXTURE
-          chmod 0755 "$fixture"
-          sudo chown 0 "$fixture"
-          echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
-      - name: Focused actual native TUI regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd upstream
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(termux_clipboard) | test(clipboard_copy) | test(copy_export_picker) | test(copy_mode) | test(copy_picker) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag) | test(provider_presentation) | test(side_fork_uses_one_request_for_long_paginated_history) | test(absolute_time_uses_child_timezone) | test(bound_chat_synchronization) | test(active_chat_provider_steer) | test(image_preparation) | test(image_submission_is_portable)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
-          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
-      - name: Verify owner query regression detects discarded live ownership
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd upstream
-          source=codex-rs/tui/src/termux_backend_catalog.rs
-          original="$RUNNER_TEMP/profile-tui-owner-original.rs"
-          cp "$source" "$original"
-          trap 'cp "$original" "$source"' EXIT
-          python3 - "$source" <<'PY'
-          import pathlib, sys
-          path = pathlib.Path(sys.argv[1])
-          source = path.read_text()
-          fault = 'Ok(Some(owner.socket))'
-          assert source.count(fault) == 1
-          path.write_text(source.replace(fault, 'Ok(None)'))
-          PY
-          set +e
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_backend_catalog_owner_query)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-owner-fault.log"
-          failed=${PIPESTATUS[0]}
-          set -e
-          test "$failed" -ne 0
-          python3 - "$RUNNER_TEMP/profile-tui-owner-fault.log" <<'PY'
-          import pathlib, sys
-          text = pathlib.Path(sys.argv[1]).read_text()
-          assert 'FAIL' in text and 'termux_backend_catalog_owner_query' in text, text[-6000:]
-          assert 'assertion `left == right` failed' in text, text[-6000:]
-          PY
-          cp "$original" "$source"
-          cmp "$original" "$source"
-          trap - EXIT
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server --test all -E 'test(model_provider_roundtrip_preserves_jobs_history_observers_and_siblings)' 2>&1 | tee "$RUNNER_TEMP/native-provider-restored.log"
       - name: Verify active Steer regression detects the next-turn barrier fault
         if: inputs.mutation_check
         shell: bash
@@ -450,7 +472,7 @@ jobs:
           from pathlib import Path
           path = Path('codex-rs/tui/src/profile_transport.rs')
           text = path.read_text()
-          selected = '        selected_provider_requires_auth\n'
+          selected = '        !has_live_owner && selected_provider_requires_auth\n'
           assert text.count(selected) == 1
           path.write_text(text.replace(selected, '        backend_requires_auth\n'))
           PYTHON
