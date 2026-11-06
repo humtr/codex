@@ -1,28 +1,22 @@
 {
   "schema": 1,
   "upstream": {
-    "version": "0.166.0",
-    "source": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
-    "archive_sha256": "7821b77dda2e6283fb1f63f3165177a271da8833e857cf673c6ca1c9db3bfcc6"
+    "version": "0.167.0",
+    "source": "086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a",
+    "archive_sha256": "0de261ecf1e7f3028a7952f03fca2093f749277d38590b78bb32f8567756bbb7"
   },
   "toolchains": {
     "core_rust": "1.98.0",
     "frontend_rust": "1.95.0"
   },
-  "frontend": {
-    "source": "db307ec3502ef66220faae64f1b85e1a2b888d38",
-    "run_id": "41834657202",
-    "sha256": "e286df9469faf59343c0635edb61a4597f4ee219d3078767e5cd97927bf9fdc7",
-    "input_url": "https://github.com/humtr/codex/releases/download/manager-tui-native-v0.166.0-db307ec3502e/manager-tui-inputs-0.166.0-db307ec3502e.tar.gz",
-    "input_sha256": "ca7ce94577f392d464e61d3606441d4f48a425fc779fb55343efaca9cf740c30"
-  },
+  "frontend": null,
   "qualification": {
     "focused_tests": 144,
     "lock_audit": {
       "external_packages_unchanged": 1308,
-      "normalized_lock_sha256": "360ea1e0ec391255ffc153a73548be524aa5d50c3476f247631cec184c21d4cb",
-      "original_lock_sha256": "22bd51f50864ce40f6686f3350c0547fdd50a8213240f54435ed394f68bf08e6",
-      "workspace_versions_changed": 170
+      "normalized_lock_sha256": "55a002023bcad0b44fbed4a8cf7632d964ac08640c1ac6c7dbd5e905206f9392",
+      "original_lock_sha256": "9e71c74824a7ea114d0a3a4c94e93d81a1ddd13ca8fa6f698cbd1284c2e9ff2f",
+      "workspace_versions_changed": 171
     }
   }
 }
