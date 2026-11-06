@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: Full qualification or only the outstanding API/frontend compatibility checks
+        description: Select full qualification, Native API tests, or retained frontend compatibility checks
         type: choice
         options: [full, native-api, frontend-compatibility]
         default: full
@@ -24,7 +24,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: manager-tui-native
+  group: manager-tui-native-${{ inputs.scope }}
   cancel-in-progress: false
 jobs:
   upstream-baseline:
