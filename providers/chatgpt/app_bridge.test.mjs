@@ -465,7 +465,12 @@ test('a new bridge revision refuses old hooks without replacing active or idle l
  await expect(bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)})).rejects.toThrow('app_bridge_revision_conflict');
  expect(globalThis[slot]).toBe(original);expect(original.lanes.size).toBe(1);
  await expect(rawBridge({op:'init',owner:'owned',bindings})).rejects.toThrow('app_bridge_revision_required');
- await bridge({op:'release',owner:'owned',lane:'active'});await bridge({op:'dispose',owner:'owned'});
+ const retiring={owner:'owned',bridgeRevision:'2'.repeat(64)};
+ await expect(bridge({...retiring,op:'submit',lane:'active',round:'new',messages:[{role:'user',text:'not admitted'}]})).rejects.toThrow('app_bridge_revision_conflict');
+ await expect(bridge({...retiring,op:'snapshot',lane:'active'})).rejects.toThrow('app_bridge_revision_conflict');
+ await expect(bridge({...retiring,owner:'another-owner',op:'stop',lane:'active'})).rejects.toThrow('app_bridge_owner_mismatch');
+ expect((await bridge({...retiring,op:'stop',lane:'active'})).stopped).toBe(true);
+ await bridge({...retiring,op:'release',lane:'active'});await bridge({...retiring,op:'dispose'});
  await bridge({op:'init',owner:'owned',bindings,bridgeRevision:'2'.repeat(64)});
  expect(globalThis[slot].revision).toBe('2'.repeat(64));
 }));
@@ -902,7 +907,7 @@ test('an asynchronous app stream startup failure settles only its owned stream',
  // Disposing a cancelled, quiescent observer does not settle its remote request.
  expect(lane.localCancellationStarted).toBe(true);
  expect(lane.serverStopConfirmed).not.toBe(true);
- expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+ expect(await bridge({op:'dispose',owner:'owned',bridgeRevision:'2'.repeat(64)})).toEqual({disposed:true});
  expect(globalThis[slot]).toBeUndefined();
  expect(lane.error).toBe('app_stream_failed');
  expect(lane.serverStopConfirmed).not.toBe(true);

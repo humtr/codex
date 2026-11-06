@@ -288,10 +288,11 @@ for a new input. Operator observes the authoritative Native result before its
 input barrier and waits through the in-flight completion race; it does not add a
 TUI recovery machine. Stale stream callbacks are fenced by stream identity as
 well as lane epoch. Cold Stop recovers the original transport lane for fencing
-without reviving execution capabilities. A live trial exposed a remaining round
-check that discarded whole-lane Stop when physical/MCP/AppHost rounds differed;
-the follow-up removes that check and the duplicate later Stop branch. A cold
-fixture with the mismatched physical round fails before and passes after. Descriptor maintenance borrows the
+without reviving execution capabilities. Original records also have different
+physical/MCP/AppHost rounds. A focused regression proves the adapter wrongly
+required round equality for whole-lane Stop; the follow-up removes that check
+and its duplicate later branch. This does not establish that it was the first
+live upgrade failure: the actual earlier revision guard below ran first. Descriptor maintenance borrows the
 already-owned CDP connection rather than competing for a second observer.
 
 Native terminal observation now matches original call/process/owner identities
@@ -387,9 +388,20 @@ stopped_lane marker; Stop's existing scoped stopped receipt suffices. Matching
 round counters remain validated, and failed inference is not reclassified as
 success. The new regression fails with the old consumer and covers confirmed
 reply/lost observation plus lost reply/confirmed lane after round divergence.
+The livef23db29 diagnostic then establishes the actual first upgrade rejection:
+app_bridge_revision_conflict blocks Stop itself. The app's global revision guard
+covered retirement as well as new inference. The follow-up scopes that guard to
+new inference/interpretation: Stop/release/dispose retain the same-owner and
+cancellation/quiescence requirements across code revisions. It adds no error-code
+case, legacy-account branch or renderer state reset. New init/submit/snapshot
+still reject incompatible revisions and a foreign owner still cannot stop a lane.
+The source regression fails before/after fault injection; all114 JS cases, the
+11 CDP transport cases and the release build pass. The unchanged Native policy
+and effect checks retain their accepted evidence.
 Fresh connected Native roundtrip, real-model recovery and automatic TUI owner
 selection remain unfinished. Original private observations/rollback bindings are
-at ~/.cache/codex/acceptance/request-continuity-{a7a98c3e0d0c,c64814d14814}/.
+in the source-named request-continuity-* acceptance directories; the live service
+still usesf23db29 until that retirement fix completes qualification/deployment.
 
 ## Current architecture review and operating boundary
 

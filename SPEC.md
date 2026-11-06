@@ -1726,6 +1726,10 @@ has no pending submission, active stream or approval. Unconfirmed remote outcome
 and Native effects remain in their original journals with execution fenced;
 disposal neither resolves them nor admits replay. This lets a quiescent observer
 upgrade/reconnect without making one unknown request own the whole app lifetime.
+The bridge revision guard admits new inference only against its matching code.
+Retiring an existing owned lane (Stop, release or passive dispose) uses ownership
+and its existing cancellation/quiescence contract across revisions; it must not
+initialize replacement hooks or admit execution as part of retirement.
 
 Use the existing operation owner to recover partial/lost observations within
 the admitted deadline and budget. A committed Native tool result remains a

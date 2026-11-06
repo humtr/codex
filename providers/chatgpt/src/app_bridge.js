@@ -214,7 +214,10 @@ async function termuxCodexBridge(command) {
   }
   if (!state && command.op === 'release') return {released:true};
   if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
-  if(!observation&&command.bridgeRevision!=null&&state.revision!==command.bridgeRevision)fail('app_bridge_revision_conflict');
+  // Retiring an owned observer admits no new inference or execution. Its
+  // cancellation/quiescence checks still apply when the implementation changed.
+  const retiring=['stop','release','dispose'].includes(command.op);
+  if(!observation&&!retiring&&command.bridgeRevision!=null&&state.revision!==command.bridgeRevision)fail('app_bridge_revision_conflict');
   const identity = (scope=state.scope) => {
     const auth=scope.get(state.shared.xNt);
     if(auth?.authLoading||auth?.accountLoading)fail('app_auth_loading');
