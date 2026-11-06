@@ -588,6 +588,7 @@ jobs:
             ${{ runner.temp }}/profile-tui-login-mutation.log
             ${{ runner.temp }}/profile-tui-blank-mutation.log
             ${{ runner.temp }}/profile-tui-steer-mutation.log
+            ${{ runner.temp }}/profile-tui-owner-fault.log
             ${{ runner.temp }}/profile-tui-upstream-*.log
             ${{ runner.temp }}/profile-tui-formatted.patch
             ${{ runner.temp }}/profile-tui-native-preparation.json

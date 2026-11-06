@@ -202,7 +202,7 @@ def probe(args):
             owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
             assert owner_settings_after.get('reasoningEffort') == requested_effort
             for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
-                assert owner_settings_after.get(key) == owner_settings_before.get(key), key
+                assert owner_settings_after[key] == owner_settings_before[key], key
             wait(lambda:'NATIVE_BEFORE_TUI_BASELINE' in screen,'ordinary TUI resume retains the Native-created baseline')
 
         def history():
@@ -519,7 +519,7 @@ def probe(args):
                 owner_settings_after = native_rpc(home,'thread/resume',{'threadId':thread})
                 assert owner_settings_after.get('reasoningEffort') == requested_effort
                 for key in ['model','modelProvider','approvalPolicy','approvalsReviewer','sandbox']:
-                    assert owner_settings_after.get(key) == owner_settings_before.get(key), key
+                    assert owner_settings_after[key] == owner_settings_before[key], key
             (root/'bridge-final-native-history.json').write_text(json.dumps(history(),indent=2))
             args.report.write_text(json.dumps({'accepted':True,'fixture':str(root),'thread_id':thread,
                 'bridge_admissions':admissions,'provider_to_direct_same_work':not bool(created_before_tui),'native_created_before_ordinary_tui_resume':bool(created_before_tui),
