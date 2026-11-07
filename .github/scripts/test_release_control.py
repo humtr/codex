@@ -290,6 +290,39 @@ class ReleaseControlTests(unittest.TestCase):
                     self.assertEqual(result['state'],'already-pinned')
                     commit.assert_not_called();dispatch.assert_not_called()
 
+    def test_late_frontend_result_on_documentation_head_keeps_the_accepted_product(self):
+        root=Path(__file__).resolve().parents[2];head='a'*40;product='c'*40;main='b'*40
+        value=control.load(root/'release/upstream.json')
+        value['frontend']={'source':product,'run_id':'123','sha256':'d'*64,
+            'input_url':'https://github.com/humtr/codex/releases/download/owned/input.tar.gz','input_sha256':'e'*64}
+        run={'id':123,'display_title':'Manager TUI native qualification',
+            'path':'.github/workflows/manager-tui-native.yml','head_sha':product,
+            'head_branch':control.SOURCE_BRANCH,'event':'workflow_dispatch',
+            'status':'completed','conclusion':'success','repository':{'full_name':control.REPO}}
+        def api(path,**kwargs):
+            if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':head}}
+            if path=='git/ref/heads/main':return {'object':{'sha':main}}
+            if path.startswith('contents/release-source-v1'):content=product+'\n'
+            elif path.startswith('contents/release-frontend-v1'):content=json.dumps({'source':product,'frontend':None})
+            elif path.startswith('actions/workflows/manager-tui-native.yml/runs'):return {'workflow_runs':[run]}
+            elif path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
+            else:self.fail('unexpected authority access '+path)
+            return {'content':base64.b64encode(content.encode()).decode()}
+        with patch.object(control.subprocess,'check_output',return_value=head+'\n'),\
+             patch.object(control,'api',side_effect=api),patch.object(control,'same_product_inputs',return_value=True),\
+             patch.object(control,'frontend_recipe_matches',return_value=True),\
+             patch.object(control,'successful_run',return_value=({'id':1},[])) as proof,\
+             patch.object(control,'ensure_frontend',return_value=value) as frontend,\
+             patch.object(control,'caller_compatible',return_value=True),patch.object(control,'release_lane',return_value='both'),\
+             patch.object(control,'commit_files',return_value='f'*40) as commit,patch.object(control,'dispatch') as dispatch:
+            result=control.run(root)
+            self.assertEqual(result['source'],product)
+            self.assertEqual([call.args for call in proof.call_args_list],
+                [('rald7-full-acceptance.yml',product),('core-runtime-qualification.yml',product)])
+            self.assertEqual(frontend.call_args.args[1],product)
+            self.assertEqual(commit.call_args.args[2]['release-source-v1'],(product+'\n').encode())
+            self.assertEqual(dispatch.call_args.args[2]['variant'],'full')
+
     def test_focused_native_success_is_never_full_qualification_or_inflight_publication(self):
         sha = 'a' * 40
         run = {'path': '.github/workflows/manager-tui-native.yml', 'head_sha': sha,

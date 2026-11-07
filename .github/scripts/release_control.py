@@ -316,9 +316,10 @@ def run(source, requested_upstream=None):
     before=load(source/'release/upstream.json')
     registered=registered_frontend(before,previous,main)
     product=current
-    if (previous != current and same_product_inputs(source, previous, current)
-            and not frontend_registration_needed(source,registered)):
-        if requested_upstream is None:
+    registration_pending=False
+    if previous != current and same_product_inputs(source, previous, current):
+        registration_pending=frontend_registration_needed(source,registered)
+        if not registration_pending and requested_upstream is None:
             return {'state':'no-product-change','source':current,'accepted_source':previous}
         product=previous
     for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
@@ -335,9 +336,9 @@ def run(source, requested_upstream=None):
                         'url':'https://github.com/'+REPO+'/actions/runs/'+str(failed['id'])}
             return {'state':'awaiting-exact-proof','workflow':workflow,'source':current}
     value=None
-    if product==current:
+    if product==current or registration_pending:
         with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
-            value=ensure_frontend(source,current,Path(temporary),registered)
+            value=ensure_frontend(source,product,Path(temporary),registered)
     selected = value if value is not None else {**before,'frontend':registered}
     binding = {'source': product, 'frontend': selected['frontend']}
     changed_binding = selected['frontend'] != registered
@@ -363,7 +364,7 @@ def run(source, requested_upstream=None):
     }, 'Pin accepted source and qualified composition results '+product[:12])
     dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
                                             'upstream_version':before['upstream']['version']})
-    return {'state':'accepted-product-pinned-public-proof-started','source':current,'main':promoted}
+    return {'state':'accepted-product-pinned-public-proof-started','source':product,'main':promoted}
 
 
 

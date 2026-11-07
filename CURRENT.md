@@ -145,6 +145,14 @@ for published callers without the new record; malformed or mismatched records
 fail validation. Output registration does not rewrite source inputs. Regressions
 exercise retained inputs after CI artifact expiry and documentation-only heads;
 their disposable old-consumer fault fails and restoration passes.
+Documentation-only heads also retain the accepted product when a frontend result
+arrives later: register that result against the already proven source, rather than
+requesting proof of the documentation commit. The affected controller21 tests
+pass; this late-result regression separately confirms baseline0/fault1/restored0.
+Source acceptance42377989505 passes on84ea109; its Core/runtime42377989542 and
+full Native/TUI42377988733 remain in progress. Controller-only follow-up does not
+change their runtime/frontend production inputs; their reusable artifacts still
+require exact admission in the eventual publication.
 Hosted Core/Native compilation, signed delivery, activation and configured Bridge
 refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
 
