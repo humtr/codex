@@ -6,6 +6,24 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Local source-only naming cleanup (not deployed)
+
+The current development branch contains independently committed direct renames:
+`scripts/refresh_chatgpt_connector.mjs`, the Native-trial/combined-route/
+installed-entrypoint Provider qualification tools, and the functional release
+preflight/signing/publication/promotion tools. The source-acceptance workflow now
+resides at `.github/workflows/source-acceptance.yml`. The local code and callers
+use those paths without a legacy alias or parallel executor. CI path classification
+distinguishes normative Markdown from signed Provider assets, release notes and
+qualification fixtures. The final focused checks and source revisions are recorded
+in Git. This is source housekeeping, **not** new Native/Android/model acceptance.
+
+The branch has not been pushed or activated. In particular the newly named GitHub
+workflow has no inherited success from earlier `rald7-full-acceptance.yml` runs;
+any future accepted-source promotion requires the new exact workflow's own proof
+and coordinated accepted-controller references. Existing signed/current and
+rollback generations remain the ones identified below.
+
 ## Active operating deployment
 
 Operating Core/Manager/TUI is Codex0.167.0 Full153/Base152, accepted product source

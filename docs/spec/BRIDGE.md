@@ -857,8 +857,8 @@ inference does not start another primary Chat; it is still integrated workflow.
 Child/reviewer inference and any app acquisition are
 explicit dependent assignments with separately counted cost.
 
-F resolves the native thread/work binding before dispatching each Responses
-request: submitted inference reuses the existing model-adapter/AppHost/McpBridge
+The Provider resolves the native thread/work binding before dispatching each
+Responses request: submitted inference reuses model-adapter/AppHost/McpBridge
 mechanisms; attached-Chat inference reuses the native-control Host without opening
 a primary Chat. Both interfaces are registered in one optional Provider service.
 Codex-origin Responses discover the unique loaded thread across Core's verified
@@ -875,15 +875,16 @@ owner/workspace while rotating its old controller. Ambiguous writers, pending
 effects and stale controllers retain their existing refusals. Explicit Chat-owned
 work remains bound to its selected execution scope until reconciled transfer.
 Existing operator-driven managed execution remains a compatibility route until
-changed-path comparison and H review; its name is not the architecture. Managed
-MCP is the selected new opt-in preference and managed local is an explicit
-before-start alternative. Bare/installed legacy defaults do not change in E/F.
+changed-path comparison and explicit retirement review; its name is not the
+architecture. Managed MCP is the selected new opt-in preference and managed
+local is an explicit before-start alternative. Bare/installed legacy defaults
+remain unchanged by common-route integration.
 Do not add another execution.mode permutation for these roles: keep that setting
 as the legacy default for unbound requests. Within integrated workflow,
 new work selects attached or submitted inference through the common work service; the assignment's route
 remains fixed until an acknowledged transfer. Existing create/resume/fork/start
 inputs keep their meaning when the new selection is absent. The common CLI is
-the optional Provider's candidate work/chats/host facade; G admits its public
+the optional Provider's candidate work/chats/host facade; independent release qualification admits its public
 codex dispatch/packaging separately without making Manager mandatory.
 
 One renderer connection/hook owner is shared, with transport declarations per
@@ -893,7 +894,7 @@ batch, an observed host-permission response or an active owned stream. A saved
 conversation ID alone does not own a new ordinary Chat user request after that
 stream settles. Such input and its ordinary stream pass through unchanged;
 late owned requests remain fenced by Stop and duplicate-delivery rules.
-F must refactor the current
+The Provider must remove the existing
 global app-bridge mode before admitting mixed MCP/local lanes concurrently;
 validate capabilities before inference, pass nonowned Chat requests through
 unchanged and never replace a busy owner's hooks. A capability conflict is an
@@ -925,7 +926,7 @@ ownership uses the explicit reconciled transfer contract, not two simultaneous
 controllers. CLI uses stable work handles; raw private transport IDs are optional
 diagnostic data rather than required user input.
 
-F extends codex_sessions with explicit reasoning selection at creation, genuine
+The common work interface extends codex_sessions with explicit reasoning selection at creation, genuine
 follow-up submission and source-bound event/result retrieval. Discovery declares
 the supported arguments/capabilities; old servers reject unsupported selection
 before starting work. Add codex_chats for list/read only and codex_host for the
@@ -1171,13 +1172,13 @@ A disconnected origin retains the result and delivery state independently of
 work completion. Retry/retrieve the same logical invocation where the client
 supports it; never fabricate a new user message or claim an idle web Chat was
 automatically resumed. App-backed continuation needs the selected original Chat,
-verified ownership and correlated source receipt; F must demonstrate it. A client
+verified ownership and correlated source receipt; qualification must demonstrate it. A client
 that cannot accept background delivery shows pending delivery and a source-bound
 retrieval handle. This retains long-running delegated work without per-turn
 supervisor inference or an invented MCP/Work quota route.
 
 **Saved context and project selection.** New managed workflows use saved Chats in
-an explicitly selected compatible private project; F fixtures select their own
+an explicitly selected compatible private project; Qualification fixtures select their own
 project/configuration rather than changing installed history defaults. Resolve a
 configured project ID first, otherwise show exact owned name matches and require
 selection on ambiguity. Project creation is an explicit configured action with
@@ -1234,7 +1235,7 @@ host observations still cannot establish stream or native-process termination.
 coordinates by default; an extra managed coordinator is an explicit choice with
 separate model cost. Provider assignment parents are not native child ancestry.
 The approved agent extension above defines that boundary. Reuse actual native child/reviewer threads and record assignments,
-findings, corrections and integration in native histories. Required F workflows:
+findings, corrections and integration in native histories. Required orchestration workflows:
 implementation -> independent review -> correction -> accepted integrated result;
 and two independent implementation assignments followed by review/integration.
 The coordinator releases dependent tasks after checking their results, not merely
@@ -1473,7 +1474,7 @@ completion state. Observe events locally without a supervising model turn; send
 one terminal notice to the original live session, plus genuine user questions.
 Notification delivery has its own acknowledgment and cannot determine work success.
 
-Preserve source-bound history cursors. F may cache verified immutable prefixes and
+Preserve source-bound history cursors. A qualified source reader may cache verified immutable prefixes and
 fetch new pages, but must detect truncation/rewrite/branch changes, and must not
 replace canonical history with a second transcript database. Qualification accepts
 explicit candidate, workspace/home, fixture, account/host and connector inputs;
@@ -1492,8 +1493,8 @@ including added common interfaces. The MCP base catalog and Native management
 catalog use one declaration policy, without a per-tool read-only exception.
 Do not change them or reopen their selection as a product-admission prerequisite.
 Only idempotentHint varies by the actual operation contract and implementation.
-E defines logical-request scope, duplicate/unknown-result behavior and shared
-source logic; F qualifies that behavior before applying each declaration. Earlier
+The idempotency contract defines logical-request scope, duplicate/unknown-result
+behavior and shared source logic; fault qualification precedes each declaration. Earlier
 preliminary recommendations are research, not authority over the qualified policy
 below. The hint neither adds a global queue nor proves host parallel scheduling.
 
@@ -1509,9 +1510,9 @@ Implement reuse/coalescing at the relevant operation boundary; do not introduce 
 global serial queue that blocks unrelated work. Preserve native authority, work
 capabilities and requested read/write behavior. An idempotentHint declaration alone
 does not implement these guarantees or establish client-side retry/parallel policy.
-CURRENT records exact preliminary sources, limits, E decisions and F acceptance.
+CURRENT records exact candidate sources, limits, decisions and observed acceptance.
 
-The E implementation contract is scoped logical identity plus a payload
+The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
 generation, native request/turn and Broker token identities. One operation's
 concurrent observers share its dispatch/settlement; unrelated operations are not
@@ -1554,21 +1555,20 @@ intent must remain aligned with memory across Broker failure, including uncertai
 commit. Do not roll memory back alone or admit a new round on ambiguous state.
 Reconcile recorded Broker results before completing that intent, without replaying
 tool effects or submitting another Chat request. Apply selected hint declarations
-only after their F qualification; CURRENT records the completed Rust application
+only after operation-scoped fault qualification; CURRENT records the completed Rust application
 and its exact scope. Implementation alone does not justify declaring every
 mixed-action tool idempotent.
 
-E selects the following declarations for F's actual fault qualification and
-application in the Rust Provider. Source application follows the retained F7
-effect/receipt/restart qualification and still requires its changed-candidate
-checks. It does not change the other immutable annotations or promise a speedup.
+The following declarations require actual operation-scoped fault qualification
+before application in the Rust Provider. Source application follows the retained
+effect/receipt/restart checks and still requires changed-candidate proof. It does not change the other immutable annotations or promise a speedup.
 The original table omitted the common read/host tools: codex_chats follows the
 same fresh-read contract, while codex_host retains false for its mixed surface.
 The retained JavaScript adapter keeps its own declarations and exact-input proof.
 
 | Target idempotentHint | Tools / reason |
 | --- | --- |
-| true, subject to F proof | native_catalog, codex_history, codex_tools, codex_status and codex_chats: fresh observations; native_tool and codex_execute: scoped original Broker result; codex_report, codex_finish and codex_handoff: mandatory keyed intent/settlement; codex_answer: keyed native question; codex_attach: offered generation/source-receipt acceptance |
+| true, subject to operation-scoped fault proof | native_catalog, codex_history, codex_tools, codex_status and codex_chats: fresh observations; native_tool and codex_execute: scoped original Broker result; codex_report, codex_finish and codex_handoff: mandatory keyed intent/settlement; codex_answer: keyed native question; codex_attach: offered generation/source-receipt acceptance |
 | false for the compatible mixed surface | codex_projects: list plus account/project selection without a generation-scoped operation key; codex_host: status plus ensure/open/stop with separate ownership/lifecycle effects; codex_sessions: list plus keyed and legacy unkeyed mutations; codex_native_summary: legacy unkeyed round-scoped input remains; codex_stop: fresh convergence over current work, without a request generation in its old input |
 
 Known validation rejection occurs before intent/dispatch. For virtual MCP results,
@@ -1584,21 +1584,23 @@ format nor controller capability is permission to reactivate a live old writer.
 The expected benefit is fewer duplicate effects, duplicate waits, avoidable
 retries and unsettled completion errors, with less related load. This is an
 unmeasured hypothesis; it does not establish lower model latency, network failure,
-total token use or subscription debit. F measures the affected failure/overhead
-boundaries while verifying the other annotation values remain unchanged.
+total token use or subscription debit. Independent qualification measures the
+affected failure/overhead boundaries while verifying the other annotation
+values remain unchanged.
 
 #### Bridge qualification input and evidence contract
 
 [qualification.schema.json](../../providers/chatgpt/qualification.schema.json) defines
 termux-codex-bridge-qualification-v2. It is an input contract, not an executable
-runner or authorization to launch F. F adds an explicit --inputs manifest option
-to reusable qualification entrypoints, preserving historical invocation/evidence.
-No implicit D2/TMPDIR/tunnel/previous-frontend path is a valid new input. JSON
-schema validates shape; the consumer must also perform the semantic checks below.
+runner or authorization to launch live work. Qualification entrypoints accept an
+explicit --inputs manifest without changing already recorded evidence.
+No implicit historical root/TMPDIR/tunnel/previous-frontend path is a valid
+new input. JSON schema validates shape; the consumer must also perform the
+semantic checks below.
 
 | Input | Required semantics |
 | --- | --- |
-| run_id, cases, routes | Unique owned run; explicit F1–F9 cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Earlier v1 manifests remain original evidence and are not silently accepted as new inputs |
+| run_id, cases, routes | Unique owned run; explicit contract-enumerated cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Earlier v1 manifests remain original evidence and are not silently accepted as new inputs |
 | candidate | Base Git commit plus complete current source-input manifest/hash, including dirty/untracked build inputs; immutable binary, embedded bridge and effective config hashes. A commit ID alone cannot identify this working tree |
 | native | Exact Core/frontend hashes and qualified upstream version/source; canonical isolated execution home and workspace, never the user's active home/project |
 | fixture | Frozen project/tasks/expected checks/seed manifest, including task ordering and per-role ownership. Preparation creates separate short TMPDIR homes/workspaces, preserves socket path bounds and seals inputs before any model action |
@@ -1633,26 +1635,27 @@ responses, host starts, CPU/RSS/bytes/context and all setup/failed-attempt costs
 Keep per-turn timing locally; one final batch audit compares actual diffs/checks
 with the original outputs. A failed or zero-case required gate is unfinished.
 
-F implementation order is common work/per-lane routing and generation dispatch;
-model-free reading/input/return; host management; serial agents then isolated
-parallel agents; changed-path local/synthetic proof; declared necessary live and
-equivalent-efficiency batches. Include the E idempotency recovery cases before
-applying target hints or claiming combined acceptance. G product/Android lifecycle,
-signing, distribution and separate activation remain independent; H preserves
-unique work before retirement. E does not wait for these F/G/H outcomes.
+Common work/per-lane routing and generation dispatch precede model-free
+reading/input/return, host management, serial and isolated parallel agents,
+changed-path local/synthetic proof, and bounded necessary live/efficiency trials.
+Include idempotency recovery cases before applying target hints or claiming
+combined acceptance. Product/Android lifecycle, signing, distribution and
+activation are separate qualification boundaries; preserve unique work before
+retiring an old path. Idempotency repairs need not await delivery/retirement.
 
-F reuses native TUI/CLI thread/child navigation, public progress, questions and
-cancel controls; the optional Provider work/chats/host facade supplies selection,
+The common Provider interface reuses native TUI/CLI thread/child navigation,
+public progress, questions and cancel controls; the optional Provider
+work/chats/host facade supplies selection,
 source reading, scoped Stop and model-free status. A new bespoke agent dashboard
 is not required for the selected workflows. Completion uses the existing
 source-bound notification mechanism with an actual receiver acknowledgment.
-These capabilities remain usable without enhanced TUI or Manager; G retains
-physical UI/composition and packaging proof separately.
+These capabilities remain usable without enhanced TUI or Manager; physical
+UI/composition and packaging retain separate proof.
 
 #### Agent and orchestration extension direction
 
-The entrance-equivalence contract owns the extension boundary and order. Earlier
-F orchestration evidence qualifies Provider assignments/dependencies/evaluations
+The entrance-equivalence contract owns the extension boundary and order. Earlier recorded
+orchestration evidence qualifies Provider assignments/dependencies/evaluations
 and isolated work at its recorded scope, not arbitrary external-agent membership
 in the native /subagents tree or same-Chat independent host inference. Preserve
 those existing capabilities and original costs while qualifying actual native
@@ -1714,7 +1717,7 @@ a Chat-origin integrated-workflow request opens or attaches its selected work
 without initiating Chat or another model. Both then use the same work binding and
 controls. The Provider routes controls/events/results; upstream owns execution, approvals, writers,
 canonical history, context commits and native task lifecycle. The Codex entrance
-may bind those same controls through local functions under D2. There is no Provider
+may bind those same controls through the selected local-function entrypoint. There is no Provider
 shell executor, planning agent, second transcript database or self-review override.
 
 Use upstream's actual tool dispatch, approval and recording path; native results
@@ -1908,7 +1911,7 @@ summary or ready MCP endpoint does not prove a new Chat was created/attached or
 received it. Synthetic transition proof and actual Chat creation/continuation proof
 are separate gates, including host dependencies and measured starts/submissions.
 No real Chat submission, account migration, live installation change or new default
-is implied by Phase B. CURRENT owns detailed scope and proof.
+is implied by this specification. CURRENT owns detailed scope and proof.
 
 ### Approved next architecture: independent execution and optional integrations
 
@@ -2408,7 +2411,7 @@ before replacing its experimental installer. Preserve app authentication and use
 state; importing provider source does not authorize redistributing third-party
 desktop software. Choose the bounded packaging extension from its real reachable
 payload; do not assume the current eight-file inventory already supports it.
-G selects an independent optional Provider payload, outside Base/Full generation
+The optional-component packaging contract selects an independent Provider payload, outside Base/Full generation
 inventories. Core exposes `codex provider install chatgpt --local DIRECTORY` or
 `codex provider install chatgpt --remote HTTPS_DIRECTORY_URL`,
 `codex provider install chatgpt` / `codex provider update chatgpt` (explicit stable
@@ -2485,7 +2488,7 @@ and does not change existing Core dispatch, payload verification or work authori
 Package selection and generated native-profile preparation are distinct. Existing
 profiles/catalogs keep their immutable executable binding until explicit
 `codex provider chatgpt prepare`; install/rollback report selection only. Retain
-generations referenced by existing profiles and running work through H review.
+generations referenced by existing profiles and running work through verified retirement.
 This preserves the current direct-executable auth/checkpoint contract and does not
 silently replace the installed JS adapter or any user-selected model route.
 A default manual update advances the selected Provider independently of a Core
@@ -2493,7 +2496,7 @@ rollback hold. Provider rollback retains its previous/high-water contract; a lat
 explicit `codex update` checks its forward channel again. No background Provider
 update or service/profile restart follows from that selection.
 Authenticated remote delivery/promotion and actual-device activation require their
-separate G proofs/authorization; local fixture signing does not establish either.
+separate signed-release and device proofs/authorization; local fixture signing does not establish either.
 Once the Core interface work is admitted, Manager/provider-only changes must leave
 base inputs unchanged. Upstream/backend changes still require the applicable
 frontend and execution-protocol compatibility proof.

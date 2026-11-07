@@ -14,6 +14,16 @@
 무관한 작업 태도 규칙이다. **`goal.md`가 비어 있다면 현재 별도 장기 목표가
 설정되지 않은 것**이며, 이 문서의 보존된 과제를 자동 장기 목표로 바꾸지 않는다.
 
+**추가 로컬 소스 정리:** 임시 D3/F/G 및 RalD 단계명을 기능별 Provider
+qualification·릴리스 도구 이름으로 직접 변경했고 별도 커밋으로 나눴다.
+정식 커넥터 갱신 파일은 `scripts/refresh_chatgpt_connector.mjs`,
+소스 승인 워크플로는 `.github/workflows/source-acceptance.yml`이다.
+기존 이름의 호환 래퍼는 없다. 이것은 **미푸시·미배포 소스 변경**이며
+실운영 Core/Provider/rollback 교체나 실모델 승인이 아니다. 신규 워크플로
+ID는 기존 RalD7 성공 기록을 승계하지 않는다. 이후 푸시·승격에는 새 정확한
+커밋/워크플로의 수락과 Main 승인 컨트롤러의 상호 참조를 따로 검증해야 한다.
+상세한 변경과 한계는 `CURRENT.md`의 로컬 명칭 정리 및 Git 이력을 확인한다.
+
 - 문서 선작업 기준: `fix/attached-native-development-loop-20261106`의
   `92a33c4821e836dd465c296c6015310d7c76ffec` 이후 변경. 실제 현재
   커밋과 작업 트리 상태는 `git rev-parse HEAD`와 `git status`로 확인한다.

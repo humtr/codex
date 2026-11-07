@@ -80,9 +80,9 @@ the accepted-input controller, reusing a matching build already in progress.
 Provider-only source changes under providers/chatgpt use the independent optional
 provider gate and do not rebuild unchanged Core/Manager or make Bun a Core
 prerequisite. Qualify the Rust package and minimum app-side bridge together.
-After G/H cutover, legacy differential source/tests remain in preserved experiment
-history; the active gate covers Rust, the app bridge, CDP qualification and package
-tools. Missing Rust/device/bridge gates are unfinished, not a reason to fall back
+After qualifying the active Provider Rust package and retiring old experimental
+paths, legacy differential source/tests remain in preserved experiment history;
+the active gate covers Rust, the app bridge, CDP qualification and package tools. Missing Rust/device/bridge gates are unfinished, not a reason to fall back
 to legacy admission. The provider gate must not require Bun/Python merely to
 execute the production adapter. Scope Cargo lock/toolchain/
 shared-build changes by their actual consumers; do not exclude changed shared

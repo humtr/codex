@@ -392,8 +392,9 @@ checks and unfinished-effect protections. Neither choice changes other work.
 Selection does not rewrite existing generated profiles. Explicit `prepare` binds
 the selected immutable executable to the generated native profile; existing native
 config/auth/model defaults remain protected. Retain profile-pinned generations
-through H. Provider work supplies native routing directly without republishing
-shared or per-home profiles; its catalog snapshots stay in its own state.
+until verified retirement. Provider work supplies native routing directly
+without republishing shared or per-home profiles; its catalog snapshots
+stay in its own state.
 Shared `work`, `chats`, `host`, `config`, `serve` and other Provider
 arguments pass through `codex provider chatgpt` to that executable. The original
 direct binary remains usable for pinned profiles and owned services.
@@ -405,10 +406,10 @@ contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inpu
 it excludes desktop software, credentials, conversations and user configuration.
 Local fixture signing and lifecycle evidence do not establish public delivery or
 authorize device activation. See [the package contract](../../docs/spec/BRIDGE.md#optional-provider-packaging-and-selection)
-and [current G acceptance](../../CURRENT.md#delivered-updater-repairs-and-retained-proof).
+and [current signed delivery acceptance](../../CURRENT.md#delivered-updater-repairs-and-retained-proof).
 
 Development retention uses [agent cleanup principles](../../AGENTS.md#execute-with-care).
-The G composition driver archives verified executable copies after success;
+The installed-entrypoint qualification driver archives verified executable copies after success;
 `--keep-payloads` retains them for debugging. Journals, source, results and
 workspaces remain. Restore archived original payloads before reusing a historical
 fixture. Compiler caches are disposable; accepted/current/rollback candidate
@@ -456,8 +457,8 @@ synthetic and recovered-result scopes are accepted in
 [CURRENT](../../CURRENT.md#existing-proof-and-architectural-limits); a universal quality,
 latency, billing or capacity advantage remains unproven.
 
-E/F design/integration, G product/public delivery and H preservation/retirement
-have bounded acceptance at their [recorded scopes](../../CURRENT.md#retained-backlog-areas-and-user-visible-completion).
+Common routing/orchestration, optional Provider publication and historical
+artifact retirement have bounded acceptance at their [recorded scopes](../../CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 Original failed/interrupted cohorts and exact comparison inputs remain preserved.
 Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
 polish stay separate follow-ups. Linux-app removal is not a prerequisite.
@@ -612,8 +613,9 @@ hidden terminal on follow-up. Result receipts expose that binding; old receipts
 without it retain their original strict parent check. `work transfer` and
 `transfer-accept` fence a completed source and require the target receipt before
 changing its route. Actual combined routes/agents/fault/efficiency evidence and
-selected hint application retain their bounded evidence. G public delivery and
-H retirement are complete; see CURRENT for the actual device baseline.
+selected hint application retain their bounded evidence. Provider public
+delivery and historical artifact retirement are recorded as complete; see
+CURRENT for the actual device baseline.
 
 The qualified source candidate waits on local owned-stream state during an
 active input. Completion still requires the saved original message. A failed
@@ -622,18 +624,19 @@ cancel or resend development. HTTP429 starts a shared account cooldown of at
 least60s, increasing up to300s on repeated limits and honoring `Retry-After`.
 `host status` exposes static read/backoff diagnostics. Cooldown observations make
 no saved-Chat HTTP request. Bounded actual Android pacing proof is recorded in
-CURRENT; it does not establish whole-F acceptance.
+CURRENT; it does not establish universal end-to-end acceptance.
 
 The explicit configuration `execution.mode="operator"` requires absolute `execution.core`,
 `execution.home` and `execution.workspace`. `transport.return_path="mcp"` exposes
 the controls through the Chat-side connector; `"local_function"` uses the same
-Operator Host through app local functions without that connector or tunnel. D2
-implements this local binding and compares all four control/transport combinations
-from Codex. All four matched six-task real-development/handoff runs pass; detailed timing,
+Operator Host through app local functions without that connector or tunnel. The
+qualified local binding compares all four control/transport combinations from
+Codex. All four matched six-task real-development/handoff runs pass; detailed timing,
 request counts, independent audits and retained failures are in CURRENT. ChatGPT-first
 local discovery is deferred. The default remains `model_adapter`; binding/transport
-changes need a service restart. An unbound operator configuration is invalid. Current G/H acceptance and the
-operating device are recorded in CURRENT; fresh setup remains the procedure
+changes need a service restart. An unbound operator configuration is invalid.
+Current delivery/retirement acceptance and the operating device are recorded
+in CURRENT; fresh setup remains the procedure
 above. `mcp-stdio` passes the private local bearer;
 never put that credential in Chat prompts or a remote tool argument.
 
@@ -881,9 +884,9 @@ retains its lower priority under [app management and viewer work](../../CURRENT.
 The [recorded app/host capability evidence](../../CURRENT.md#evidence-limits-and-next-execution-point)
 covers authenticated Chat/project APIs, session reuse/input, process ownership,
 connection/readiness/recovery, configuration and shared management surfaces.
-F implements the selected common management interfaces; H preserves reusable
-qualification helpers and retires duplicate launch policy. Viewer usability stays
-a separate physical validation scope.
+The Provider implements the selected common management interfaces; retained
+qualification helpers preserve evidence without duplicate launch policy.
+Viewer usability stays a separate physical validation scope.
 
 ## Device runit services
 
@@ -1077,23 +1080,24 @@ Archive/delete/temporary retention is not admitted. Full contracts are in
 
 ## Verification and migration
 
-Historical live G, D3 and direct-entry drivers no longer select a particular
-device's temporary roots, experimental app installation or tunnel alias. They
+Historical installed-entrypoint, Native trial and direct-entry drivers no longer
+select a particular device's temporary roots, experimental app installation or
+tunnel alias. They
 require explicit existing inputs, validated before preparation. Input names below
 have the prefix `CODEX_QUALIFICATION_`; path inputs must resolve to existing paths.
 These are development-driver inputs, not general user setup options.
 
 | Driver | Explicit input names |
 | --- | --- |
-| G prepare | `PRIOR_ROOT`, `CONNECTOR_REFERENCE`, `BUN`, `TUNNEL_PROFILE`, `TUNNEL_ALIAS` |
-| G cold continuation | `PRIOR_BATCH` |
+| Installed-entrypoint prepare | `PRIOR_ROOT`, `CONNECTOR_REFERENCE`, `BUN`, `TUNNEL_PROFILE`, `TUNNEL_ALIAS` |
+| Installed-entrypoint continuation | `PRIOR_BATCH` |
 | Direct-entry prepare | `D2_ROOT`, `DESKTOP_SESSION`, `CONNECTOR_REFERENCE`, `TUNNEL_PROFILE`, `TUNNEL_ALIAS`, `FRONTEND` |
-| D3 prepare | `DESKTOP_SESSION`, `CONNECTOR_REFERENCE`, `FRONTEND`, `BUN`, `PRIOR_ENVIRONMENT`, `TUNNEL_ALIAS`, `TUNNEL_ENVIRONMENT`, `TUNNEL_PROFILE`; `STOPPED_WORK_PROOF` when its CLI option is absent |
+| Native trial prepare | `DESKTOP_SESSION`, `CONNECTOR_REFERENCE`, `FRONTEND`, `BUN`, `PRIOR_ENVIRONMENT`, `TUNNEL_ALIAS`, `TUNNEL_ENVIRONMENT`, `TUNNEL_PROFILE`; `STOPPED_WORK_PROOF` when its CLI option is absent |
 
 `TUNNEL_ALIAS` is a string. `TUNNEL_PROFILE` is the explicit private JSON profile
 containing `control_plane`; `TUNNEL_ENVIRONMENT` is a private JSON string map or an
 object containing that map as `tunnel_environment`. Keep these inputs private.
-D3 subsequent tunnel operations require the same explicit environment/profile;
+Native trial subsequent tunnel operations require the same explicit environment/profile;
 its admitted case record determines the alias for fault recovery. App refresh
 uses the recorded connector and desktop paths and verifies exact connector
 ownership before app access. A missing input never falls back to a live device.
@@ -1144,10 +1148,11 @@ supervisor-written substitute patch. Preserve unrelated user edits; exercise
 analysis, failure/correction, tests and latest-state resume. The single
 [acceptance matrix](../../CURRENT.md#existing-proof-and-architectural-limits) owns open
 gates. That no-MCP proof alone does not qualify MCP controls; separately recorded
-C/C2, D2/D3 and direct-entry proof apply at their exact inputs/scopes. F common
-integration/general delegation and G's declared product/delivery scope are
-accepted with their recorded limits. Release sequence3 neither repeats earlier
-development nor replaces an old failed result with a passing one.
+Previously recorded Core/Provider, Native trial and direct-entry proofs apply at
+their exact inputs/scopes. Combined-route integration/general delegation and
+optional Provider delivery are accepted within their recorded limits.
+Release sequence3 neither repeats earlier development nor replaces an old
+failed result with a passing one.
 
 The experimental installer/runtime source is retired from the active tree after
 accepted Rust replacement. Exact source, user1m changes/tests and licenses are
