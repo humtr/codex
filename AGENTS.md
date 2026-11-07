@@ -176,6 +176,8 @@ The repository owns this development plane; it needs no external workflow skill.
   `refresh_actions`, invalidates the app's connector/query caches, and compares
   registered actions and live MCP `tools/list` with full input schemas;
   a tool-name-only or server-only check does not satisfy the gate.
+  This integration gate applies to a configured Bridge. A Core-only installation
+  without Provider must qualify and run without acquiring the optional app.
 - Do not reuse a stale qualification desktop descriptor for a newly restarted
   production app. The operating Provider's internally owned CDP pipe differs
   from the disposable D3 relay: first establish a supported, live owned

@@ -1,6 +1,7 @@
 """Exercise the actual frontend assembler with disposable upstream trees."""
 from pathlib import Path
 import subprocess
+import os
 import tempfile
 import unittest
 
@@ -8,6 +9,15 @@ from apply import apply, check_scope
 
 
 class AssemblyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parents[2]
+        target = Path(os.environ.get('CARGO_TARGET_DIR', Path(os.environ.get('XDG_CACHE_HOME', Path.home()/'.cache'))/'codex/check-target')).resolve()
+        environment = {**os.environ, 'CARGO_TARGET_DIR':str(target), 'CARGO_PROFILE_DEV_DEBUG':'0', 'CARGO_INCREMENTAL':'0'}
+        subprocess.run(['cargo','build','--locked','-p','codex-release-builder','--manifest-path',str(root/'Cargo.toml')],
+                       env=environment,check=True,stdout=subprocess.DEVNULL)
+        cls.builder = target/'debug/codex-release-builder'
+
     def test_rebase_retains_prepared_native_changes_and_real_index(self):
         with tempfile.TemporaryDirectory() as temporary:
             upstream, package, target = self.fixture(Path(temporary))
@@ -20,9 +30,9 @@ class AssemblyTests(unittest.TestCase):
             git('-c', 'user.name=Owned', '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'official')
             index = git('write-tree')
             path.write_text(original.replace('line 6', 'integration'))
-            (package / 'native.patch').write_bytes(git('diff', '--binary'))
+            (package / 'native.patch').write_bytes(b'# codex-upstream-base '+git('rev-parse','HEAD').strip()+b'\n'+git('diff', '--binary'))
             path.write_text(original.replace('line 3', 'prepared Native'))
-            self.assertEqual(apply(upstream, package), 1)
+            self.assertEqual(apply(upstream, package, self.builder), 1)
             self.assertEqual(path.read_text(), original.replace('line 3', 'prepared Native').replace('line 6', 'integration'))
             self.assertEqual(git('write-tree'), index)
 
@@ -38,20 +48,37 @@ class AssemblyTests(unittest.TestCase):
                 git('config', 'user.name', 'Owned'); git('config', 'user.email', 'owned@example.invalid')
                 git('add', '.'); git('commit', '-qm', 'official base')
                 path.write_text(original.replace('line 6', 'integration'))
-                (package / 'native.patch').write_bytes(git('diff', '--binary'))
+                (package / 'native.patch').write_bytes(b'# codex-upstream-base '+git('rev-parse','HEAD').strip()+b'\n'+git('diff', '--binary'))
                 shifted = original.replace('line 6' if conflict else 'line 3', 'upstream change')
                 path.write_text(shifted)
                 git('add', '.'); git('commit', '-qm', 'official next release')
                 before_index = git('write-tree')
                 if conflict:
-                    with self.assertRaisesRegex(ValueError, 'merge failed before mutation'):
-                        apply(upstream, package)
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        apply(upstream, package, self.builder)
                     self.assertEqual(path.read_text(), shifted)
                     self.assertFalse((target / 'app/owned.rs').exists())
                 else:
-                    self.assertEqual(apply(upstream, package), 1)
+                    self.assertEqual(apply(upstream, package, self.builder), 1)
                     self.assertEqual(path.read_text(), shifted.replace('line 6', 'integration'))
                 self.assertEqual(git('write-tree'), before_index)
+
+    def test_merge_follows_an_upstream_file_rename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            upstream, package, target = self.fixture(Path(temporary))
+            def git(*args):return subprocess.check_output(['git','-C',str(upstream),*args])
+            path=target/'lib.rs';original=''.join(f'line {i}\n' for i in range(12))
+            path.write_text(original);git('add','.');git('-c','user.name=Owned','-c','user.email=owned@localhost','commit','-qm','base')
+            base=git('rev-parse','HEAD').strip()
+            path.write_text(original.replace('line 6','integration'))
+            (package/'native.patch').write_bytes(b'# codex-upstream-base '+base+b'\n'+git('diff','--binary'))
+            path.write_text(original);git('mv','codex-rs/tui/src/lib.rs','codex-rs/tui/src/relocated.rs')
+            git('-c','user.name=Owned','-c','user.email=owned@localhost','commit','-qam','upstream move')
+            index=git('write-tree')
+            apply(upstream,package,self.builder)
+            self.assertFalse(path.exists())
+            self.assertEqual((target/'relocated.rs').read_text(),original.replace('line 6','integration'))
+            self.assertEqual(git('write-tree'),index)
 
     def test_scope_accepts_catalog_config_and_tui_but_rejects_other_source_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -64,7 +91,7 @@ class AssemblyTests(unittest.TestCase):
             subprocess.run(['git', '-C', str(upstream), 'add', '.'], check=True)
             subprocess.run(['git', '-C', str(upstream), '-c', 'user.name=Owned',
                             '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'owned'], check=True)
-            apply(upstream, package)
+            apply(upstream, package, self.builder)
             config = core.parent / 'config/mod.rs'
             config.parent.mkdir()
             config.write_text('complete catalog source\n')
@@ -100,17 +127,22 @@ class AssemblyTests(unittest.TestCase):
             '--- a/codex-rs/tui/src/lib.rs\n+++ b/codex-rs/tui/src/lib.rs\n'
             '@@ -1 +1,2 @@\n upstream\n+integration\n')
         subprocess.run(['git', 'init', '-q', str(upstream)], check=True)
+        subprocess.run(['git','-C',str(upstream),'add','.'],check=True)
+        subprocess.run(['git','-C',str(upstream),'-c','user.name=Owned fixture','-c','user.email=owned@localhost','commit','-qm','official'],check=True)
+        base=subprocess.check_output(['git','-C',str(upstream),'rev-parse','HEAD']).strip()
+        patch=package/'native.patch'
+        patch.write_bytes(b'# codex-upstream-base '+base+b'\n'+patch.read_bytes())
         return upstream, package, target
 
     def test_real_assembly_preserves_sources_and_refuses_second_application(self):
         with tempfile.TemporaryDirectory() as temporary:
             upstream, package, target = self.fixture(Path(temporary))
-            self.assertEqual(apply(upstream, package), 1)
+            self.assertEqual(apply(upstream, package, self.builder), 1)
             self.assertEqual((target / 'lib.rs').read_text(), 'upstream\nintegration\n')
             self.assertEqual((target / 'app/owned.rs').read_bytes(),
                              (package / 'src/app/owned.rs').read_bytes())
             with self.assertRaises(ValueError):
-                apply(upstream, package)
+                apply(upstream, package, self.builder)
 
     def test_collisions_substitutions_and_bad_patch_fail_before_mutation(self):
         for fault in ('collision', 'source-link', 'parent-link', 'bad-patch'):
@@ -128,7 +160,7 @@ class AssemblyTests(unittest.TestCase):
                 else:
                     (package / 'native.patch').write_text('invalid patch\n')
                 with self.assertRaises((ValueError, subprocess.CalledProcessError)):
-                    apply(upstream, package)
+                    apply(upstream, package, self.builder)
                 self.assertEqual((target / 'lib.rs').read_text(), 'upstream\n')
                 self.assertEqual(list(sentinel.iterdir()), [])
                 if fault == 'collision':

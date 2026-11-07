@@ -33,7 +33,7 @@ const FILES: [&str; 6] = [
 ];
 type Result<T> = std::result::Result<T, String>;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Upstream {
     version: String,
@@ -41,14 +41,14 @@ struct Upstream {
     archive_sha256: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Toolchains {
     core_rust: String,
     frontend_rust: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Qualification {
     focused_tests: u64,
@@ -70,7 +70,7 @@ impl Audit {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Recipe {
     schema: u8,
@@ -226,14 +226,18 @@ pub fn input_bytes() -> &'static [u8] {
 /// The bundled owner-qualified source recipe; version/digest are checked before
 /// a local source build. A new recipe is an updateable wrapper build input.
 pub struct LocalRecipe {
-    pub bytes: &'static [u8],
+    pub bytes: Vec<u8>,
     pub revision: String,
     pub identity: Vec<u8>,
 }
 
 pub fn local_recipe(version: &str, archive_sha256: &str) -> Result<LocalRecipe> {
-    const BYTES: &[u8] = include_bytes!("../../../release/native-runtime.json");
-    let value: Recipe = serde_json::from_slice(BYTES).map_err(|e| e.to_string())?;
+    let mut value: Recipe =
+        serde_json::from_slice(include_bytes!("../../../release/upstream.json"))
+            .map_err(|e| e.to_string())?;
+    // The executor differs; the official source and dependency audit do not.
+    value.toolchains.frontend_rust = super::native_sdk::inputs()?.rust;
+    value._frontend = None;
     if value.upstream.version != version || value.upstream.archive_sha256 != archive_sha256 {
         return Err("no bundled qualified source recipe for the selected official release".into());
     }
@@ -246,7 +250,7 @@ pub fn local_recipe(version: &str, archive_sha256: &str) -> Result<LocalRecipe> 
     ))
     .map_err(|e| e.to_string())?;
     Ok(LocalRecipe {
-        bytes: BYTES,
+        bytes: serde_json::to_vec(&value).map_err(|e| e.to_string())?,
         revision: value.upstream.source,
         identity,
     })
@@ -382,6 +386,72 @@ pub(super) fn probe(binary: &Path, directory: &Path, expected: &[u8]) -> Result<
     result
 }
 
+/// Generate embedded exports from the adapted protocol types using upstream's
+/// own writer. Cargo's exact-test result prevents a renamed writer becoming a
+/// silent zero-test success. This runs only in the disposable build checkout.
+pub fn generate_schema(
+    source: &Path,
+    cargo: &Path,
+    rustc: &Path,
+    target_dir: &Path,
+    toolchain: &str,
+    environment: &BTreeMap<OsString, OsString>,
+) -> Result<()> {
+    for path in [source, cargo, rustc, target_dir] {
+        if !path.is_absolute() {
+            return Err("schema generation requires absolute build paths".into());
+        }
+    }
+    let schema = source.join("codex-rs/app-server-protocol/schema");
+    for experimental in ["0", "1"] {
+        let result = Command::new(cargo)
+            .args([
+                "test",
+                "--release",
+                "--locked",
+                "--target",
+                TARGET,
+                "-p",
+                "codex-app-server-protocol",
+                "--lib",
+                "schema_fixtures_tests::write_schema_fixtures_from_env",
+                "--",
+                "--exact",
+                "--ignored",
+            ])
+            .current_dir(source.join("codex-rs"))
+            .env_clear()
+            .envs(environment)
+            .envs(BUILD)
+            .env("RUSTC", rustc)
+            .env("RUSTUP_TOOLCHAIN", toolchain)
+            .env("CARGO_TARGET_DIR", target_dir)
+            .env("CODEX_APP_SERVER_SCHEMA_ROOT", &schema)
+            .env("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL", experimental)
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(|error| format!("upstream schema generator: {error}"))?;
+        std::io::Write::write_all(&mut std::io::stdout(), &result.stdout)
+            .map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut std::io::stderr(), &result.stderr)
+            .map_err(|e| e.to_string())?;
+        if !result.status.success()
+            || !String::from_utf8_lossy(&result.stdout).contains("1 passed; 0 failed;")
+        {
+            return Err(format!("upstream schema writer did not execute successfully (experimental={experimental}, {})", result.status));
+        }
+    }
+    for mode in ["stable", "experimental"] {
+        if !schema
+            .join(format!("precomputed/app-server-exports-{mode}.json.zst"))
+            .is_file()
+        {
+            return Err(format!("upstream schema writer omitted {mode} exports"));
+        }
+    }
+    Ok(())
+}
+
 /// Build only the source runtime. This grants no signing or installation authority.
 pub fn build(request: &BuildRequest<'_>) -> Result<String> {
     let recipe = recipe(request.recipe)?;
@@ -487,13 +557,21 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
     if audit != recipe.qualification.lock_audit.value()? {
         return Err("source runtime dependency audit differs from exact release input".into());
     }
+    println!("[runtime] generate current Native protocol exports");
+    generate_schema(
+        request.source,
+        request.cargo,
+        request.rustc,
+        request.target_dir,
+        &recipe.toolchains.frontend_rust,
+        &environment,
+    )?;
     git(request.source, &["diff", "--check"])?;
     fs::write(
         request.output.join("source.patch"),
         git(request.source, &["diff", "--binary"])?,
     )
     .map_err(|e| e.to_string())?;
-    super::source::preserve_times(request.source)?;
     println!("[runtime] compile adapted upstream executable");
     let mut cargo = Command::new(request.cargo);
     cargo
@@ -581,6 +659,7 @@ pub(super) fn command(args: &[OsString]) -> i32 {
                 "--openssl",
             ],
             "verify-runtime" => &["--artifact", "--recipe", "--openssl"],
+            "generate-schema" => &["--source", "--recipe", "--target-dir", "--rustc", "--cargo"],
             _ => return Err("unsupported runtime operation".into()),
         };
         if fields.len() != flags.len() || !flags.iter().all(|f| fields.contains_key(f)) {
@@ -592,6 +671,23 @@ pub(super) fn command(args: &[OsString]) -> i32 {
                 fields["--recipe"],
                 fields["--openssl"],
             );
+        }
+        if action == "generate-schema" {
+            let recipe = recipe(fields["--recipe"])?;
+            if git(fields["--source"], &["rev-parse", "HEAD"])?
+                != format!("{}\n", recipe.upstream.source).as_bytes()
+            {
+                return Err("schema source differs from selected official release".into());
+            }
+            generate_schema(
+                fields["--source"],
+                fields["--cargo"],
+                fields["--rustc"],
+                fields["--target-dir"],
+                &recipe.toolchains.frontend_rust,
+                &std::env::vars_os().collect(),
+            )?;
+            return Ok(String::new());
         }
         build(&BuildRequest {
             source: fields["--source"],
@@ -617,6 +713,31 @@ pub(super) fn command(args: &[OsString]) -> i32 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn local_executor_uses_common_official_source_and_its_sdk_toolchain() {
+        let hosted: Recipe =
+            serde_json::from_slice(include_bytes!("../../../release/upstream.json")).unwrap();
+        let selected =
+            local_recipe(&hosted.upstream.version, &hosted.upstream.archive_sha256).unwrap();
+        let local: Recipe = serde_json::from_slice(&selected.bytes).unwrap();
+        assert_eq!(local.upstream.source, hosted.upstream.source);
+        assert_eq!(local.upstream.version, hosted.upstream.version);
+        assert_eq!(
+            local.upstream.archive_sha256,
+            hosted.upstream.archive_sha256
+        );
+        assert_eq!(
+            local.qualification.lock_audit.value().unwrap(),
+            hosted.qualification.lock_audit.value().unwrap()
+        );
+        assert_eq!(
+            local.toolchains.frontend_rust,
+            super::super::native_sdk::inputs().unwrap().rust
+        );
+        assert!(local._frontend.is_none());
+        assert!(local_recipe(&hosted.upstream.version, &"0".repeat(64)).is_err());
+    }
 
     fn root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(

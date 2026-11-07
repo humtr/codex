@@ -79,9 +79,6 @@ jobs:
           git -C upstream remote add origin https://github.com/openai/codex.git
           git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
           git -C upstream checkout --detach FETCH_HEAD
-          patch_base="$(cat experiment/frontend/manager-tui/upstream-base)"
-          [[ "$patch_base" =~ ^[0-9a-f]{40}$ ]]
-          git -C upstream fetch --no-tags --depth=1 origin "$patch_base"
           test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
           test -z "$(git -C upstream status --porcelain)"
       - name: Provision ephemeral source build tools
@@ -124,15 +121,20 @@ jobs:
           key: profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ github.sha }}
           restore-keys: |
             profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
-            profile-tui-display-aarch64-musl-1.95.0-97901140-
+            profile-tui-display-aarch64-musl-${{ env.RUST_VERSION }}-
       - name: Build shared Rust source preparation and normalize release versions
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/frontend/manager-tui -p 'test_*.py'
           CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
             --manifest-path experiment/Cargo.toml --release --locked -p codex-release-builder
           builder="$RUNNER_TEMP/source-tools/release/codex-release-builder"
+          for patch in experiment/crates/release-builder/src/native_route.patch experiment/frontend/manager-tui/native.patch; do
+            patch_base="$("$builder" patch-base --patch "$GITHUB_WORKSPACE/$patch")"
+            if ! git -C upstream cat-file -e "$patch_base^{commit}"; then
+              git -C upstream fetch --no-tags --depth=1 origin "$patch_base"
+            fi
+          done
           "$builder" prepare-source --source "$GITHUB_WORKSPACE/upstream" \
             --version "$UPSTREAM_VERSION" --source-sha "$UPSTREAM_SHA" --frontend provided \
             > "$RUNNER_TEMP/profile-tui-native-preparation.json"
@@ -146,17 +148,10 @@ jobs:
           pristine="$RUNNER_TEMP/profile-tui-pristine/codex-rs/tui/src"
           mkdir -p "$pristine"
           cp upstream/codex-rs/tui/src/slash_command.rs "$pristine/slash_command.rs"
-          python3 experiment/frontend/manager-tui/apply.py upstream --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          python3 experiment/frontend/manager-tui/apply.py upstream --builder "$RUNNER_TEMP/source-tools/release/codex-release-builder" --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
           python3 experiment/frontend/manager-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
           python3 experiment/frontend/manager-tui/apply.py upstream --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
-      - name: Preserve freshness of byte-identical upstream packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$RUNNER_TEMP/source-tools/release/codex-release-builder" preserve-source-times \
-            --source "$GITHUB_WORKSPACE/upstream"
-          git -C upstream diff --check
       - name: Provision pinned upstream test and formatting tools
         shell: bash
         run: |
@@ -195,12 +190,11 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream
-          export CODEX_APP_SERVER_SCHEMA_ROOT="$RUNNER_TEMP/native-protocol-schema"
-          for experimental in 0 1; do
-            CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL="$experimental" just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-protocol --lib --run-ignored only -E 'test(=schema_fixtures_tests::write_schema_fixtures_from_env)' 2>&1 | tee "$RUNNER_TEMP/native-provider-schema-$experimental.log"
-          done
-          tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C "$CODEX_APP_SERVER_SCHEMA_ROOT" .
-          diff -rq codex-rs/app-server-protocol/schema "$CODEX_APP_SERVER_SCHEMA_ROOT" | tee "$RUNNER_TEMP/native-provider-schema-diff.log"
+          "$RUNNER_TEMP/source-tools/release/codex-release-builder" generate-schema \
+            --source "$GITHUB_WORKSPACE/upstream" --recipe "$GITHUB_WORKSPACE/experiment/release/upstream.json" \
+            --target-dir "$CARGO_TARGET_DIR" --rustc "$(command -v rustc)" --cargo "$(command -v cargo)" \
+            2>&1 | tee "$RUNNER_TEMP/native-provider-schema.log"
+          tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C codex-rs/app-server-protocol/schema .
       - name: Reuse identified frontend for compatibility checks
         if: inputs.scope == 'frontend-compatibility'
         shell: bash

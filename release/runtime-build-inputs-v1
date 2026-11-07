@@ -2,6 +2,9 @@ codex-runtime-build-inputs-v1
 recipe	release/runtime-build-inputs-v1
 recipe	.github/scripts/runtime_inputs.py
 recipe	crates/release-builder/src/source.rs
+recipe	crates/release-builder/src/source/patch.rs
+recipe	crates/release-builder/src/source/syntax.rs
+recipe	crates/release-builder/src/source/syntax/permissions.rs
 recipe	crates/release-builder/src/native_route.patch
 recipe	crates/release-builder/src/lib.rs
 recipe	crates/release-builder/src/runtime.rs
@@ -9,7 +12,6 @@ recipe	crates/release-builder/src/native_sdk.rs
 recipe	crates/release-builder/src/native_dependencies.rs
 recipe	crates/release-builder/build.rs
 recipe	release/native-sdk-inputs.json
-recipe	release/native-runtime.json
 recipe	crates/release-builder/Cargo.toml
 recipe	.github/scripts/upstream_release.py
 recipe	.github/workflows/termux-runtime-source.yml

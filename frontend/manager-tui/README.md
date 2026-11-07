@@ -20,13 +20,14 @@ The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. On a disposable official checkout, first run release-builder's
 `prepare-source --frontend provided`, retaining its JSON output as PREPARATION.
-Run `python3 frontend/manager-tui/apply.py UPSTREAM --native-preparation PREPARATION`
+Run `python3 frontend/manager-tui/apply.py UPSTREAM --builder BUILDER --native-preparation PREPARATION`
 once; it preflights collisions and patch applicability before writing.
-`upstream-base` identifies the original integration-patch source. Hosted preparation
-fetches those objects too. When direct context matching fails, the assembler uses
-an isolated Git index for three-way resolution; a conflict leaves the real source
-and index unchanged. A newer release needs no manually rebased patch when that
-merge is clean. Build, scope, native/device and signed acceptance still apply.
+Each patch binds its exact official base in its first line. Fetch that commit
+before preparation; release-builder's `patch-base --patch PATCH` reads the binding.
+The shared Rust producer merges Native and TUI patches through Git's normal
+content/rename merge in a temporary index. Conflicts preserve the checkout and
+real index. The assembler owns collision checks and payload copying, not another
+patch engine. Build, scope, native/device and signed acceptance still apply.
 Do not apply the patch alone. Qualification binds the complete owned source tree
 and assembler as well as the patch, and retains the assembled diff as evidence.
 `apply.py --check-scope --native-preparation PREPARATION` supplies the same read-only

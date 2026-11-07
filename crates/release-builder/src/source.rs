@@ -2,6 +2,9 @@
 //! Work happens only in an explicitly supplied disposable official checkout;
 //! applying a patch does not grant execution or publication authority.
 
+mod patch;
+mod syntax;
+
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -48,39 +51,8 @@ fn git(source: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
-fn native_compatibility(source: &Path, check: bool) -> Result<()> {
-    let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(source)
-        .arg("apply")
-        .arg("--whitespace=error");
-    if check {
-        command.arg("--check");
-    }
-    let mut child = command
-        .arg("-")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("Native compatibility source: {error}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or("Native compatibility source input unavailable")?
-        .write_all(include_bytes!("native_route.patch"))
-        .map_err(|error| format!("Native compatibility source input: {error}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("Native compatibility source: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Native compatibility source failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
+pub fn native_patch_base() -> Result<String> {
+    patch::base(include_bytes!("native_route.patch"))
 }
 
 fn replace(text: &str, old: &str, new: &str, where_: &str) -> Result<String> {
@@ -91,62 +63,24 @@ fn replace(text: &str, old: &str, new: &str, where_: &str) -> Result<String> {
     Ok(text.replacen(old, new, 1))
 }
 
-fn function(
-    text: &str,
-    name: &str,
-    where_: &str,
-    transform: impl FnOnce(&str, &str) -> Result<String>,
-) -> Result<String> {
-    // Official rustfmt output ends the function at its declaration indentation.
-    // Match the declaration, never a release-specific line or byte offset.
-    let mut declarations = Vec::new();
-    let mut offset = 0;
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim_start_matches(' ');
-        let indent = line.len() - trimmed.len();
-        let mut declaration = trimmed;
-        if let Some(tail) = declaration.strip_prefix("pub(") {
-            declaration = tail.split_once(") ").map_or("", |(_, tail)| tail);
-        } else if let Some(tail) = declaration.strip_prefix("pub ") {
-            declaration = tail;
-        }
-        declaration = declaration.strip_prefix("async ").unwrap_or(declaration);
-        if let Some(tail) = declaration
-            .strip_prefix("fn ")
-            .and_then(|t| t.strip_prefix(name))
+fn rust_sources(directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+    {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        if kind.is_dir() {
+            rust_sources(&entry.path(), result)?;
+        } else if kind.is_file()
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "rs")
         {
-            if !tail.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
-                declarations.push((offset, indent, line.len()));
-            }
-        }
-        offset += line.len();
-    }
-    let location = format!("{where_}::{name}");
-    if declarations.len() != 1 {
-        return Err(format!(
-            "{location}: expected one function, found {}",
-            declarations.len()
-        ));
-    }
-    let (start, indent, length) = declarations[0];
-    let closing = format!("{}}}", " ".repeat(indent));
-    let mut stop = start + length;
-    for line in text[stop..].split_inclusive('\n') {
-        stop += line.len();
-        if line.strip_suffix('\n').unwrap_or(line) == closing {
-            let updated = transform(&text[start..stop], &location)?;
-            return Ok(format!("{}{}{}", &text[..start], updated, &text[stop..]));
+            result.push(entry.path());
         }
     }
-    Err(format!("{location}: cannot locate closing brace"))
-}
-
-fn replacements(text: &str, pairs: &[(&str, &str)], where_: &str) -> Result<String> {
-    let mut text = text.to_owned();
-    for (old, new) in pairs {
-        text = replace(&text, old, new, where_)?;
-    }
-    Ok(text)
+    Ok(())
 }
 
 struct Plan<'a> {
@@ -155,19 +89,73 @@ struct Plan<'a> {
 }
 
 impl Plan<'_> {
-    fn edit(
-        &mut self,
-        path: &str,
-        name: &str,
-        transform: impl FnOnce(&str, &str) -> Result<String>,
-    ) -> Result<()> {
-        let path = self.source.join("codex-rs").join(path);
-        let text = match self.changes.get(&path) {
-            Some(text) => text.clone(),
-            None => read(&path)?,
-        };
-        let changed = function(&text, name, &path.display().to_string(), transform)?;
-        self.changes.insert(path, changed);
+    fn operation(&mut self, operation: syntax::Operation) -> Result<()> {
+        let workspace = self.source.join("codex-rs");
+        let mut candidates = Vec::new();
+        manifests(&workspace, &workspace, &mut candidates)?;
+        let mut packages = Vec::new();
+        for path in candidates {
+            let value = toml(&read(&path)?)?;
+            if value
+                .get("package")
+                .and_then(|p| p.get("name"))
+                .and_then(toml::Value::as_str)
+                == Some(operation.package())
+            {
+                packages.push(path);
+            }
+        }
+        if packages.len() != 1 {
+            return Err(format!(
+                "{operation:?}: expected one {} package, found {}",
+                operation.package(),
+                packages.len()
+            ));
+        }
+        let package = packages[0].parent().unwrap();
+        let mut files = Vec::new();
+        rust_sources(&package.join("src"), &mut files)?;
+        if package.join("build.rs").is_file() {
+            files.push(package.join("build.rs"));
+        }
+        let sources = files
+            .into_iter()
+            .map(|path| {
+                let text = match self.changes.get(&path) {
+                    Some(text) => text.clone(),
+                    None => read(&path)?,
+                };
+                Ok((path, text))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut resolvers = BTreeSet::new();
+        if matches!(operation, syntax::Operation::ForegroundProfile) {
+            for (_, text) in &sources {
+                if text.contains("LoaderOverrides") {
+                    resolvers.extend(syntax::profile_resolvers(text)?);
+                }
+            }
+        }
+        let mut selected = Vec::new();
+        for (path, text) in sources {
+            if !text.contains(operation.anchor()) {
+                continue;
+            }
+            if let Some(updated) = operation
+                .adapt(&text, &resolvers)
+                .map_err(|error| format!("{}: {error}", path.display()))?
+            {
+                selected.push((path, updated));
+            }
+        }
+        if selected.len() != 1 {
+            return Err(format!(
+                "{operation:?}: expected one production consumer, found {}",
+                selected.len()
+            ));
+        }
+        let (path, text) = selected.pop().unwrap();
+        self.changes.insert(path, text);
         Ok(())
     }
 }
@@ -177,146 +165,28 @@ fn plan(source: &Path, upstream_tui: bool) -> Result<BTreeMap<PathBuf, String>> 
         source,
         changes: BTreeMap::new(),
     };
-    plan.edit("cli/src/main.rs", "cli_main", |text, where_| {
-        replacements(text, &[
-            ("Some(Subcommand::AppServer(app_server_cli)) => {", "Some(Subcommand::AppServer(app_server_cli)) => {\n            let loader_overrides = loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?;"),
-            ("root_config_overrides,\n                    LoaderOverrides::default(),\n                    strict_config,\n                    startup_config,", "root_config_overrides,\n                    loader_overrides,\n                    strict_config,\n                    startup_config,"),
-            ("root_config_overrides,\n                        LoaderOverrides::default(),\n                        strict_config,\n                        analytics_default_enabled,", "root_config_overrides,\n                        loader_overrides,\n                        strict_config,\n                        analytics_default_enabled,"),
-        ], where_)
-    })?;
-    plan.edit("cli/src/main.rs", "profile_v2_for_subcommand", |text, where_| {
-        let text = replace(text, "    match subcommand {", "    match subcommand {\n        Subcommand::AppServer(server) if server.subcommand.is_none() => Ok(Some(profile_v2)),", where_)?;
-        replace(&text, "and `codex debug prompt-input`.\"", "`codex debug prompt-input`, and foreground `codex app-server`.\"", where_)
-    })?;
-    plan.edit("code-mode-protocol/build.rs", "main", |text, where_| {
-        replace(
-            text,
-            "    config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);",
-            "    config.protoc_executable(match std::env::var_os(\"PROTOC\") {\n        Some(path) => PathBuf::from(path),\n        None => protoc_bin_vendored::protoc_bin_path()?,\n    });\n    println!(\"cargo:rerun-if-env-changed=PROTOC\");",
-            where_,
-        )
-    })?;
-    plan.edit(
-        "uds/src/daemon_directory.rs",
-        "shared_daemon_socket_directory",
-        |text, where_| {
-            replacements(
-                text,
-                &[
-                    (
-                        "fs::canonicalize(\"/tmp\")?",
-                        "fs::canonicalize(\"/proc/self/fd/35\")?",
-                    ),
-                    ("format!(\"codex-daemon-{uid}\")", "format!(\"{uid}\")"),
-                ],
-                where_,
-            )
-        },
-    )?;
-    plan.edit("utils/approval-presets/src/lib.rs", "builtin_approval_presets", |text, where_| {
-        replacements(text, &[
-            (WORKSPACE, FULL_ACCESS),
-            ("PermissionProfile::workspace_write()", "PermissionProfile::Disabled"),
-                    ("Codex can read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files. (Identical to Agent mode)", DESCRIPTION),
-        ], where_)
-    })?;
-    // The enhanced frontend supplies its own presentation and permission UI.
+    for operation in [
+        syntax::Operation::ForegroundProfile,
+        syntax::Operation::ProfileAdmission,
+        syntax::Operation::Protoc,
+        syntax::Operation::SocketRoot,
+        syntax::Operation::ApprovalPreset,
+    ] {
+        plan.operation(operation)?;
+    }
     if upstream_tui {
-        plan.edit("tui/src/app.rs", "auto_review_mode", |text, where_| {
-            replace(
-                text,
-                WORKSPACE,
-                &format!("codex_protocol::models::{FULL_ACCESS}"),
-                where_,
-            )
-        })?;
-        plan.edit(
-            "tui/src/app_server_session.rs",
-            "thread_resume_params_from_config",
-            |text, where_| {
-                replace(
-                    text,
-                    "thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.profile",
-                    "thread_params_mode == ThreadParamsMode::Remote",
-                    where_,
-                )
-            },
-        )?;
-        plan.edit(
-            "tui/src/chatwidget/permission_shortcuts.rs",
-            "handle_permission_shortcut",
-            |text, where_| {
-                replace(
-                    text,
-                    "!matches!(preset.id, \"read-only\" | \"auto\")",
-                    "preset.id != \"auto\"",
-                    where_,
-                )
-            },
-        )?;
-        plan.edit(
-            "tui/src/chatwidget/permission_popups.rs",
-            "preset_matches_current",
-            |text, where_| {
-                replace(
-                    text,
-                    r#""auto" => {
-                let file_system_policy = current_permission_profile.file_system_sandbox_policy();
-                matches!(
-                    current_permission_profile,
-                    PermissionProfile::Managed { .. }
-                ) && file_system_policy.can_write_local_path_with_cwd(cwd, cwd)
-                    && !file_system_policy.has_full_disk_write_access()
-            }"#,
-                    "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),",
-                    where_,
-                )
-            },
-        )?;
-        plan.edit(
-            "tui/src/chatwidget/permissions_menu.rs",
-            "try_select_permission_profile",
-            |text, where_| {
-                replace(
-                    text,
-                    &format!("\":ask-for-approval\" | \":approve-for-me\" => {WORKSPACE}"),
-                    &format!("\":ask-for-approval\" | \":approve-for-me\" => {FULL_ACCESS}"),
-                    where_,
-                )
-            },
-        )?;
-        plan.edit("tui/src/chatwidget/permissions_menu.rs", "permission_preset_description", |text, where_| {
-            replace(text, "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace", DESCRIPTION, where_)
-        })?;
-        plan.edit("tui/src/chatwidget/permissions_menu.rs", "open_permission_profiles_popup", |text, where_| {
-            let binding = r#"        let Some(read_only) = presets.iter().find(|preset| preset.id == "read-only") else {
-            self.add_error_message(
-                "Internal error: missing the 'read-only' approval preset.".to_string(),
-            );
-            return;
-        };
-"#;
-            let item = r#"        items.push(self.builtin_permission_mode_selection_item(
-            &discovery,
-            read_only,
-            ":read-only",
-            permission_preset_description(read_only).to_string(),
-            AskForApproval::from(read_only.approval),
-            ApprovalsReviewer::User,
-        ));
-"#;
-            let text = replace(text, binding, "", where_)?;
-            let text = replace(&text, item, "", where_)?;
-            if text.matches("\":workspace\"").count() != 2 {
-                return Err(format!("{where_}: expected Ask and Auto workspace selections"));
-            }
-            Ok(text.replace("\":workspace\"", FULL_ACCESS))
-        })?;
-        let widget = source.join("codex-rs/tui/src/chatwidget.rs");
-        plan.changes.insert(widget.clone(), replace(&read(&widget)?,
-            "const AUTO_REVIEW_DESCRIPTION: &str = \"Only ask for actions detected as potentially unsafe\";",
-            &format!("const AUTO_REVIEW_DESCRIPTION: &str = \"{REVIEW_DESCRIPTION}\";"),
-            "tui/src/chatwidget.rs::AUTO_REVIEW_DESCRIPTION")?);
+        for operation in [
+            syntax::Operation::AutoReviewMode,
+            syntax::Operation::ResumePermissions,
+            syntax::Operation::PermissionShortcut,
+            syntax::Operation::PermissionMatch,
+            syntax::Operation::PermissionSelection,
+            syntax::Operation::PermissionDescription,
+            syntax::Operation::PermissionMenu,
+            syntax::Operation::AutoReviewDescription,
+        ] {
+            plan.operation(operation)?;
+        }
     }
     for text in plan.changes.values_mut() {
         let imported = format!("use codex_protocol::models::{WORKSPACE};\n");
@@ -354,8 +224,8 @@ pub fn prepare(source: &Path, version: &str, revision: &str, upstream_tui: bool)
         return Err("official workspace version differs from release input".into());
     }
     let changes = plan(source, upstream_tui)?;
-    native_compatibility(source, true)?;
-    native_compatibility(source, false)?;
+    let native = patch::rebase(source, include_bytes!("native_route.patch"))?;
+    patch::apply(source, &native)?;
     for (path, text) in &changes {
         fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
     }
@@ -366,45 +236,6 @@ pub fn prepare(source: &Path, version: &str, revision: &str, upstream_tui: bool)
         .map(|path| std::ffi::OsStr::from_bytes(path).to_string_lossy())
         .collect();
     Ok(json!({"version": version, "source": revision, "changed_files": files}))
-}
-
-pub fn preserve_times(source: &Path) -> Result<()> {
-    let epoch = String::from_utf8(git(source, &["show", "-s", "--format=%ct", "HEAD"])?)
-        .map_err(|error| error.to_string())?
-        .trim()
-        .parse::<libc::time_t>()
-        .map_err(|error| error.to_string())?;
-    let changed = git(source, &["diff", "--name-only", "-z", "HEAD"])?;
-    let changed: BTreeSet<_> = changed.split(|b| *b == 0).collect();
-    let files = git(source, &["ls-files", "-z", "--", "codex-rs"])?;
-    let times = [libc::timespec {
-        tv_sec: epoch,
-        tv_nsec: 0,
-    }; 2];
-    for file in files
-        .split(|b| *b == 0)
-        .filter(|file| !file.is_empty() && !changed.contains(file))
-    {
-        let path = source.join(std::ffi::OsStr::from_bytes(file));
-        let path = std::ffi::CString::new(path.as_os_str().as_bytes())
-            .map_err(|error| error.to_string())?;
-        // Preserve symlink timestamps rather than following them outside the checkout.
-        if unsafe {
-            libc::utimensat(
-                libc::AT_FDCWD,
-                path.as_ptr(),
-                times.as_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        } != 0
-        {
-            return Err(format!(
-                "preserve pristine source time: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn manifests(root: &Path, directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
@@ -607,11 +438,19 @@ fn execute(args: &[OsString]) -> Result<()> {
     let expected: &[&str] = match action {
         "prepare-source" => &["--source", "--version", "--source-sha"],
         "normalize-lock" => &["--source", "--openssl", "--audit"],
-        "preserve-source-times" => &["--source"],
+        "patch-base" => &["--patch"],
+        "apply-source-patch" => &["--source", "--patch"],
         _ => return Err("unsupported source operation".into()),
     };
     if fields.len() != expected.len() || expected.iter().any(|flag| !fields.contains_key(flag)) {
         return Err(format!("{action} requires {}", expected.join(" ")));
+    }
+    if action == "patch-base" {
+        println!(
+            "{}",
+            patch::base(&patch::from_file(Path::new(fields["--patch"]))?)?
+        );
+        return Ok(());
     }
     let source = Path::new(fields["--source"]);
     if !source.is_absolute() || source.is_symlink() || !source.is_dir() {
@@ -631,6 +470,10 @@ fn execute(args: &[OsString]) -> Result<()> {
                 upstream_tui,
             )?
         ),
+        "apply-source-patch" => {
+            let rebased = patch::rebase(source, &patch::from_file(Path::new(fields["--patch"]))?)?;
+            patch::apply(source, &rebased)?;
+        }
         "normalize-lock" => {
             let audit = Path::new(fields["--audit"]);
             if !audit.is_absolute() {
@@ -645,7 +488,6 @@ fn execute(args: &[OsString]) -> Result<()> {
             writeln!(audit, "{report}").map_err(|error| error.to_string())?;
             println!("{report}");
         }
-        "preserve-source-times" => preserve_times(source)?,
         _ => unreachable!(),
     }
     Ok(())
@@ -665,17 +507,37 @@ pub(super) fn command(args: &[OsString]) -> i32 {
 mod tests {
     use super::*;
 
+    fn source_fixture(inputs: &BTreeMap<String, String>) -> PathBuf {
+        let root = fixture();
+        for (relative, text) in inputs {
+            let path = root.join("codex-rs").join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        for (directory, name) in [
+            ("cli", "codex-cli"),
+            ("code-mode-protocol", "codex-code-mode-protocol"),
+            ("uds", "codex-uds"),
+            ("utils/approval-presets", "codex-utils-approval-presets"),
+            ("tui", "codex-tui"),
+        ] {
+            let directory = root.join("codex-rs").join(directory);
+            fs::create_dir_all(directory.join("src")).unwrap();
+            fs::write(
+                directory.join("Cargo.toml"),
+                format!("[package]\nname={name:?}\n"),
+            )
+            .unwrap();
+        }
+        root
+    }
+
     #[test]
     fn native_and_provided_frontends_keep_their_permission_contracts() {
         // Unmodified upstream function inputs exercise the real preparation plan.
         let inputs: BTreeMap<String, String> =
             serde_json::from_str(include_str!("fixtures/source-plan.json")).unwrap();
-        let root = fixture();
-        for (relative, text) in &inputs {
-            let path = root.join("codex-rs").join(relative);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(path, text).unwrap();
-        }
+        let root = source_fixture(&inputs);
         let provided = plan(&root, false).unwrap();
         assert!(provided
             .keys()
@@ -684,24 +546,15 @@ mod tests {
         for (path, text) in &provided {
             assert_eq!(native.get(path), Some(text));
         }
-        assert!(
-            native[&root.join("codex-rs/tui/src/chatwidget/permission_popups.rs")].contains(
-                "\"auto\" => matches!(current_permission_profile, PermissionProfile::Disabled),"
-            )
-        );
+        let popup = &native[&root.join("codex-rs/tui/src/chatwidget/permission_popups.rs")];
+        assert!(!popup.contains("can_write_local_path_with_cwd"));
+        assert!(popup.contains(
+            "\"auto\" => { matches!(current_permission_profile, PermissionProfile::Disabled) }"
+        ));
         let menu = &native[&root.join("codex-rs/tui/src/chatwidget/permissions_menu.rs")];
-        function(
-            menu,
-            "open_permission_profiles_popup",
-            "permission menu",
-            |text, _| {
-                assert!(!text.contains("read_only"));
-                assert!(!text.contains("\":workspace\""));
-                assert!(text.contains(FULL_ACCESS));
-                Ok(text.to_owned())
-            },
-        )
-        .unwrap();
+        assert!(!menu.contains("let Some(read_only)"));
+        assert!(!menu.contains("\":workspace\""));
+        assert!(menu.contains(FULL_ACCESS));
         for (relative, text) in inputs {
             assert_eq!(read(&root.join("codex-rs").join(relative)).unwrap(), text);
         }
@@ -709,35 +562,151 @@ mod tests {
     }
 
     #[test]
-    fn relocation_only_changes_the_selected_function() {
-        let source = "fn earlier() {\n    old_expression();\n}\n\npub(crate) async fn selected(\n) {\n    old_expression();\n}\n\nfn later() {\n    old_expression();\n}\n";
-        let changed = function(source, "selected", "owned.rs", |text, where_| {
-            replace(text, "old_expression()", "new_expression()", where_)
-        })
-        .unwrap();
-        assert_eq!(
-            changed,
-            source.replacen(
-                "    old_expression();\n}\n\nfn later",
-                "    new_expression();\n}\n\nfn later",
-                1
-            )
-        );
+    fn source_operations_follow_private_refactors_and_package_file_moves() {
+        use quote::ToTokens;
+        let current: BTreeMap<String, String> =
+            serde_json::from_str(include_str!("fixtures/source-plan.json")).unwrap();
+        let previous: BTreeMap<String, String> =
+            serde_json::from_str(include_str!("fixtures/source-plan-166.json")).unwrap();
+        for mode in ["current", "previous", "refactored"] {
+            let mut inputs = current.clone();
+            if mode == "previous" {
+                inputs.extend(previous.clone());
+            }
+            if mode == "refactored" {
+                for text in inputs.values_mut() {
+                    *text = text
+                        .replace("dispatch_cli", "dispatch_foreground")
+                        .replace("loader_overrides_for_profile", "resolve_loader")
+                        .replace("interactive", "runtime_args")
+                        .replace("{uid}", "{effective_uid}")
+                        .replace("let uid =", "let effective_uid =");
+                    for name in [
+                        "auto_review_mode",
+                        "thread_resume_params_from_config",
+                        "handle_permission_shortcut",
+                        "preset_matches_current",
+                        "try_select_permission_profile",
+                        "permission_preset_description",
+                        "open_permission_profiles_popup",
+                    ] {
+                        *text = text.replace(name, &format!("relocated_{name}"));
+                    }
+                    *text = syn::parse_file(text)
+                        .unwrap()
+                        .into_token_stream()
+                        .to_string();
+                }
+            }
+            let root = source_fixture(&inputs);
+            if mode == "refactored" {
+                for relative in [
+                    "cli/src/main.rs",
+                    "uds/src/daemon_directory.rs",
+                    "utils/approval-presets/src/lib.rs",
+                ] {
+                    let path = root.join("codex-rs").join(relative);
+                    fs::rename(&path, path.with_file_name("relocated.rs")).unwrap();
+                }
+            }
+            if mode == "refactored" {
+                let cli = root.join("codex-rs/cli/src/relocated.rs");
+                let text = read(&cli).unwrap();
+                let start = text.find("fn resolve_loader (").unwrap();
+                fs::write(cli.with_file_name("profile.rs"), &text[start..]).unwrap();
+                fs::write(&cli, &text[..start]).unwrap();
+            }
+            if mode == "refactored" {
+                for relative in inputs.keys().filter(|path| path.starts_with("tui/")) {
+                    let path = root.join("codex-rs").join(relative);
+                    let moved = path.with_file_name(format!(
+                        "moved_{}",
+                        path.file_name().unwrap().to_str().unwrap()
+                    ));
+                    fs::rename(path, moved).unwrap();
+                }
+            }
+            let native = plan(&root, true).unwrap();
+            assert!(native.len() > 4, "{mode}");
+            let result = plan(&root, false).unwrap();
+            assert_eq!(result.len(), 4, "{mode}");
+            let all = result.values().cloned().collect::<Vec<_>>().join("\n");
+            assert!(all.contains("/proc/self/fd/35"), "{mode}");
+            assert!(all.contains("cargo:rerun-if-env-changed=PROTOC"), "{mode}");
+            assert!(all.contains(DESCRIPTION), "{mode}");
+            let cli = result
+                .iter()
+                .find(|(path, _)| path.starts_with(root.join("codex-rs/cli")))
+                .unwrap()
+                .1;
+            let compact: String = cli.chars().filter(|c| !c.is_whitespace()).collect();
+            let resolver = if mode == "refactored" {
+                "resolve_loader(runtime_args.config_profile_v2.as_ref())?"
+            } else {
+                "loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?"
+            };
+            assert!(
+                compact.contains(&format!("root_config_overrides,{resolver},strict_config")),
+                "{mode}"
+            );
+            assert!(compact.contains("Subcommand::AppServer(server)ifserver.subcommand.is_none()=>Ok(Some(profile_v2))"), "{mode}");
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
-    fn ambiguous_or_changed_source_names_the_responsible_function() {
-        for source in [
-            "fn other() {\n}\n",
-            "fn selected() {\n}\nfn selected() {\n}\n",
-            "fn selected() {\n    changed_expression();\n}\n",
-        ] {
-            let error = function(source, "selected", "owned.rs", |text, where_| {
-                replace(text, "old_expression()", "new_expression()", where_)
-            })
-            .unwrap_err();
-            assert!(error.contains("owned.rs::selected"), "{error}");
+    fn changed_contract_and_extra_deleted_binding_consumer_preserve_sources() {
+        let baseline: BTreeMap<String, String> =
+            serde_json::from_str(include_str!("fixtures/source-plan.json")).unwrap();
+        for fault in ["loader", "read-only-consumer"] {
+            let mut inputs = baseline.clone();
+            if fault == "loader" {
+                let cli = inputs.get_mut("cli/src/main.rs").unwrap();
+                *cli = cli.replace(
+                    "LoaderOverrides::default()",
+                    "LoaderOverrides::constrained()",
+                );
+            } else {
+                let menu = inputs
+                    .get_mut("tui/src/chatwidget/permissions_menu.rs")
+                    .unwrap();
+                *menu = menu.replace(
+                    "let mut items = vec!",
+                    "inspect_extra_consumer(read_only); let mut items = vec!",
+                );
+            }
+            let root = source_fixture(&inputs);
+            let error = plan(&root, true).unwrap_err();
+            assert!(
+                error.contains(if fault == "loader" {
+                    "loader contract changed"
+                } else {
+                    "additional consumers"
+                }),
+                "{error}"
+            );
+            for (name, original) in &inputs {
+                assert_eq!(read(&root.join("codex-rs").join(name)).unwrap(), *original);
+            }
+            fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn test_copies_and_other_transport_callers_are_not_foreground_consumers() {
+        let mut inputs: BTreeMap<String, String> =
+            serde_json::from_str(include_str!("fixtures/source-plan.json")).unwrap();
+        let copy = inputs["cli/src/main.rs"].clone();
+        inputs
+            .get_mut("cli/src/main.rs")
+            .unwrap()
+            .push_str(&format!("\n#[cfg(test)] mod fixture_copy {{ {copy} }}"));
+        let root = source_fixture(&inputs);
+        fs::write(root.join("codex-rs/cli/src/remote.rs"), "fn remote_control() { codex_app_server::run_main_with_transport_options(a, b, LoaderOverrides::default()); }").unwrap();
+        let changes = plan(&root, false).unwrap();
+        assert_eq!(changes.len(), 4);
+        assert!(changes[&root.join("codex-rs/cli/src/main.rs")].contains(&copy));
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn fixture() -> PathBuf {

@@ -105,10 +105,15 @@ jobs:
           key: termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-${{ steps.recipe.outputs.fingerprint }}
           restore-keys: |
             termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
+            termux-source-musl-${{ env.RUST_VERSION }}-
       - name: Build and verify through the shared runtime producer
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
           set -euo pipefail
+          patch_base="$("$CODEX_RELEASE_BUILDER" patch-base --patch "$GITHUB_WORKSPACE/source/crates/release-builder/src/native_route.patch")"
+          if ! git -C upstream cat-file -e "$patch_base^{commit}"; then
+            git -C upstream fetch --no-tags --depth=1 origin "$patch_base"
+          fi
           "$CODEX_RELEASE_BUILDER" build-runtime \
             --source "$GITHUB_WORKSPACE/upstream" \
             --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" \

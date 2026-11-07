@@ -41,6 +41,48 @@ discovery, source adaptation, qualification, signing, promotion and update path;
 do not add another version selector or release controller. The current target
 recorded in CURRENT.md does not limit this ongoing commitment to that version.
 
+The common release builder owns source adaptation for both hosted and local
+executors. Locate supported operations through Rust syntax and their call/data
+relationships, preserving unrelated source and upstream additions; private
+function names, local binding names, formatting and file relocation alone are
+not compatibility failures. Prefer upstream configuration/APIs and remove
+superseded adaptations. Generated protocol outputs come from the adapted type
+definitions through upstream's generator, not a previous version's binary diff.
+Ambiguous or changed contracts remain explicit failures rather than guessed edits.
+Native and optional TUI integration patches each bind their original official
+base in the patch itself. Executors acquire that exact base; the common Rust
+producer uses Git's three-way content/rename merge with a temporary index.
+Conflicts leave the checkout and real index unchanged. Frontend assembly owns
+payload collision checks and copying, not an independent patch engine. Do not
+backdate source files to force compiler-cache reuse; preserve Cargo's normal
+freshness checks and reuse qualified artifacts at their existing admission boundary.
+
+
+An upgrade candidate binds its official source, wrapper source and component
+build inputs once. Build results and qualification references are outputs;
+registering them must not change source inputs and repeat their qualification.
+Reuse independently admitted artifacts with identical production inputs, and
+rerun changed verification without rebuilding unchanged executables. Keep source
+admission, signing, immutable public readback and non-forced promotion as separate
+authority boundaries. The existing controller implements this flow; do not put
+a second release manager above it.
+
+The controller registers an accepted composition in main's `release-frontend-v1`
+with its exact `release-source-v1` source. The pinned main caller passes that result
+to the existing producer; the producer checks the qualified run, source recipe,
+artifact and proof. This result never rewrites development build inputs or starts
+their qualification again. Base can advance independently while a new frontend
+is still qualifying; Full remains on its previous accepted composition until its
+new frontend result is admitted. Historical embedded frontend references remain
+readable for retained sources; new results use the composition record.
+
+Local and hosted builds derive the same official source tuple. Explicit executor
+toolchain profiles retain their own qualification; they must not independently
+pin different upstream versions. Core-only admission and activation never acquire
+Manager, the enhanced TUI or Provider. Configured optional compositions have their
+own integration gates; live connector refresh applies to an installed Bridge,
+not to a Core-only installation with no Provider.
+
 ## Generation-bound TUI admission (2026-10-10)
 
 The0.163 adaptation is termux-fd-remap-v5, bound to official package SHA256
@@ -5378,12 +5420,13 @@ OpenSSL's selected version/SHA-256/TLS-context operations and reads/frees this
 process's capabilities. No network connection or capability modification is needed.
 Core's selected local build uses binary adaptation when its known policy is
 available, otherwise the bundled qualified native source recipe matching the
-selected official version/archive. release/native-runtime.json owns that admitted
-on-device compiler/source contract; release/upstream.json selects remote release
-production. A new remotely qualified upstream does not qualify the device SDK or
-replace its admitted source target. Both are actual inputs to their respective
-consumers and may advance independently. An unavailable source recipe is an explicit unsupported
-target, not permission to run an unverified binary policy. Resolve that selection
+selected official version/archive. `release/upstream.json` owns the common
+source/version/archive/dependency contract for every executor. The on-device
+compiler profile comes from `release/native-sdk-inputs.json`; remote executors use
+the selected hosted toolchain. Qualification remains specific to the executor;
+sharing source selection does not claim an untested SDK build works. An unavailable
+source recipe is an explicit unsupported target, not permission to run an
+unverified binary policy. Resolve that selection
 before acquiring its upstream archive or provisioning build tools. Core owns required
 Termux package preparation, official source acquisition, SDK/dependency caches,
 progress and the existing signing/activation transaction. Source construction uses

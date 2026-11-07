@@ -310,6 +310,23 @@ pub(super) fn prepare(
     } else if head.stdout != format!("{revision}\n").as_bytes() {
         return Err("cached official source revision differs".into());
     }
+    let patch_base = codex_release_builder::source::native_patch_base()?;
+    if !git(&["cat-file", "-e", &format!("{patch_base}^{{commit}}")])
+        .status()
+        .map_err(|error| format!("inspect official compatibility base: {error}"))?
+        .success()
+    {
+        step(
+            &mut git(&[
+                "fetch",
+                "--no-tags",
+                "--depth=1",
+                "https://github.com/openai/codex.git",
+                &patch_base,
+            ]),
+            "fetch exact official compatibility base",
+        )?;
+    }
     let dirty = git(&["status", "--porcelain"])
         .output()
         .map_err(|e| e.to_string())?;

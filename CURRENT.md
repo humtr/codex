@@ -55,9 +55,8 @@ file effect occurs once. Its kernel-observed Native owner runs activated151;
 plain installed TUI resume displays the same history from another execution home.
 New-work approval_policy=never was explicit, as authorized for this isolated
 Full Access trial; no operating default, existing work policy or account changed.
-No separate primary/Pro inference was submitted. At documentation update this
-attached work remains active for the final docs/push; final settlement belongs
-to its Native finish record. The status before docs reports pending_calls0,
+No separate primary/Pro inference was submitted. That attached work subsequently finished with a confirmed Native completion;
+it is not an active development controller. The status before docs reports pending_calls0,
 unconfirmed_effects0 and no active effect reservations. native-owner.json,
 tui-proof.json and its private terminal retain boundary evidence. Guardian's
 scope-denial failure, real model fault recovery, broader model/Provider changes,
@@ -87,6 +86,36 @@ confirmed inactive owned fixtures, retaining source, Native records and restore
 records. No accepted CI was rerun merely to replace that proof.
 
 ### Required upstream upgrade and new real-TUI findings
+
+Implementation of the reviewed continuous-upgrade architecture is now authorized.
+The active batch owns syntax-based minimal adaptation, shared local/hosted inputs,
+candidate/artifact flow and actual0.167 Core-only/composition qualification before
+Pro handoff. No new release or activation is claimed by this authorization.
+
+The current implementation applies syntax-based basic adaptation and the rebased Native
+extension to exact official0.167 source086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a.
+Its actual lock normalization preserves1308 external packages and matches the
+selected171-package dependency audit. The provided frontend assembles20 owned
+modules without collision. Eight source tests pass, including historical0.166,
+0.167 and private-name/format/file-move inputs. Generated protocol artifacts are
+removed from the maintained Native patch and must be regenerated through the
+upstream writer before consuming builds; generator execution and real0.167
+compilation remain unfinished. Local source selection now derives the common
+upstream tuple and the existing native SDK compiler profile; the duplicate
+native-runtime recipe was removed. Source backdating was removed after a real
+Cargo proof returned the obsolete binary with changed/backdated source and the
+correct binary with normal timestamps. Native/TUI patch reconciliation now has
+one Rust/Git merge path with exact base metadata; real rename, conflict, prepared
+source and real-index tests pass. Source and composition mutations fail as
+expected and pass after restoration. Evidence stays under
+$TMPDIR/connectivity-repair-70jt4h2u/upstream167-0md6mz3a/.
+The prior full wrapper Rust gate and168 Python tests passed; affected checks
+cover final source changes before remote qualification. The controller now passes
+qualified frontend results through main's source-bound release-frontend-v1 rather
+than committing output references to development inputs and repeating Core proof.
+Hosted Core/Native compilation, signed delivery, activation and configured Bridge
+refresh remain unfinished. Operating151/runtime0.166 and rollback artifacts are unchanged.
+
 
 Under SPEC's permanent continuous-upstream-upgrade contract, the next target
 is0.167.0. This commitment continues for later official stable releases. The remaining

@@ -166,9 +166,10 @@ const REQUIRED_ARCHIVE_FILES: [&str; 3] = [
 const USAGE: &str = concat!(
     "usage: codex-release-builder prepare-source --source <DISPOSABLE_CHECKOUT> ",
     "--version <MAJOR.MINOR.PATCH> --source-sha <GIT_COMMIT>\n",
+    "       codex-release-builder patch-base --patch <MAINTAINED_PATCH>\n",
+    "       codex-release-builder apply-source-patch --source <DISPOSABLE_CHECKOUT> --patch <MAINTAINED_PATCH>\n",
     "       codex-release-builder normalize-lock --source <CARGO_WORKSPACE> ",
     "--openssl <ABSOLUTE_EXECUTABLE> --audit <ABSENT_FILE>\n",
-    "       codex-release-builder preserve-source-times --source <DISPOSABLE_CHECKOUT>\n",
     "       codex-release-builder prepare-native-sdk --archives <ADMITTED_ARCHIVES> ",
     "--output <ABSENT_DIRECTORY> --tools <NATIVE_TOOL_DIRECTORY>\n",
     "       codex-release-builder native-dependency-inputs --source <OFFICIAL_CHECKOUT> --source-sha <GIT_COMMIT>\n",
@@ -178,6 +179,8 @@ const USAGE: &str = concat!(
     "       codex-release-builder build-runtime --source <DISPOSABLE_CHECKOUT> ",
     "--recipe <RELEASE_INPUT> --output <ABSENT_DIRECTORY> --target-dir <COMPILER_CACHE> ",
     "--rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO> --openssl <ABSOLUTE_EXECUTABLE>\n",
+    "       codex-release-builder generate-schema --source <DISPOSABLE_CHECKOUT> ",
+    "--recipe <RELEASE_INPUT> --target-dir <COMPILER_CACHE> --rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO>\n",
     "       codex-release-builder verify-runtime --artifact <RAW_DIRECTORY> ",
     "--recipe <RELEASE_INPUT> --openssl <ABSOLUTE_EXECUTABLE>\n",
     "       codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
@@ -4000,12 +4003,12 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
-        Some("build-runtime" | "verify-runtime") => runtime::command(&args),
+        Some("build-runtime" | "verify-runtime" | "generate-schema") => runtime::command(&args),
         Some("prepare-native-sdk") => native_sdk::command(&args),
         Some("native-dependency-inputs" | "prepare-native-dependencies") => {
             native_dependencies::command(&args)
         }
-        Some("prepare-source" | "normalize-lock" | "preserve-source-times") => {
+        Some("prepare-source" | "normalize-lock" | "patch-base" | "apply-source-patch") => {
             source::command(&args)
         }
         Some("provider-package") => provider::command(&args),

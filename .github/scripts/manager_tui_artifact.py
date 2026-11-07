@@ -23,8 +23,11 @@ VERSION = _INPUT['upstream']['version']
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
     "frontend/manager-tui/native.patch",
-    "frontend/manager-tui/upstream-base",
     "crates/release-builder/src/source.rs",
+    "crates/release-builder/src/source/patch.rs",
+    "crates/release-builder/src/source/syntax.rs",
+    "crates/release-builder/src/source/syntax/permissions.rs",
+    "crates/release-builder/src/runtime.rs",
     "crates/release-builder/src/native_route.patch",
     "crates/release-builder/src/lib.rs",
     "crates/release-builder/Cargo.toml",

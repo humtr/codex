@@ -27,19 +27,19 @@ pass without new primary inference. Documentation was pushed and Native finish
 confirmed completed. Source/build,
 controlled app, real model, actual client, physical UI and activation stay distinct.
 
-Permanently follow official stable upstream releases under SPEC's continuous
-upgrade contract;0.167.0 is the next target, not the limit. Absorb upstream features, remove superseded local
-behavior and repair the existing source adaptation/discovery/release pipeline for
-repeatable upgrades. Do not revisit whether to upgrade or freeze development on
-0.166. Run42326878869 fails at the obsolete cli_main locator before compilation;
-inspect current dispatch_cli and its callers before adapting. Retain151 as the
-operating/rollback baseline until the new release passes existing delivery gates.
+The user approved implementation of the reviewed continuous-upgrade architecture:
+minimal syntax-based Termux adaptation, upstream feature reuse, common local /
+hosted inputs, immutable candidate/artifact qualification and signed delivery.
+Implement in the existing worktree;0.167 is the first real input, not a version
+exception. Demonstrate unchanged adapters on historical and equivalent refactored
+source, then Core-only execution without Manager/TUI/Provider, followed by optional
+compositions and0.167 delivery/activation. Retain151 and rollback until admission.
 New real TUI trials fail steering (native_context_prefix_changed) and follow-up
 input (model changes to gpt-6.1-sol, then unsupported_desktop_route); CURRENT.md
 records actual thread IDs and the missing model-change provenance.
 
-Pro may independently reject/rework the preparation and separate Native-route
-candidate while implementing that upgrade. Remaining: picker/alias context
+After this preparation and verified upgrade, Pro may independently reject/rework
+the remaining architecture and Native-route candidate. Remaining: picker/alias context
 rebinding, original unreconciled work /
 Guardian, OpenAI <-> ChatGPT transitions, compaction, app/config/install lifecycle,
 Android-browser login forwarding, actual resource boundaries and cumulative

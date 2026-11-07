@@ -1,12 +1,10 @@
 """Assemble owned Manager TUI sources and the bounded upstream integration patch."""
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 import stat
 import subprocess
-import tempfile
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -38,7 +36,7 @@ def check_scope(upstream, native_files=()):
                          ', '.join(path.decode(errors='backslashreplace') for path in unexpected))
 
 
-def apply(upstream, package=PACKAGE):
+def apply(upstream, package, builder):
     upstream = upstream.resolve(strict=True)
     source = package / 'src'
     target = upstream / 'codex-rs/tui/src'
@@ -64,31 +62,9 @@ def apply(upstream, package=PACKAGE):
         payloads.append((path, destination))
     if not payloads:
         raise ValueError('owned frontend source set is empty')
-    patch = package / 'native.patch'
-    # All collisions and patch applicability are checked before any mutation.
-    command = ['git', '-C', str(upstream), 'apply', '--whitespace=error']
-    direct = subprocess.run(command + ['--check', str(patch.resolve())], capture_output=True)
-    if direct.returncode == 0:
-        subprocess.run(command + [str(patch.resolve())], check=True)
-    else:
-        # Locate changed context using Git's original blobs. A scratch index
-        # keeps a merge conflict from changing any upstream file or real index.
-        with tempfile.TemporaryDirectory(prefix='frontend-rebase-') as temporary:
-            environment = {**os.environ, 'GIT_INDEX_FILE': str(Path(temporary) / 'index')}
-            subprocess.run(['git', '-C', str(upstream), 'read-tree', 'HEAD'], env=environment, check=True)
-            # Shared Native preparation is already part of this source. Merge onto
-            # that exact tree, preserving it without touching the real index.
-            subprocess.run(['git', '-C', str(upstream), 'add', '-A', '--', 'codex-rs'], env=environment, check=True)
-            prepared_tree = subprocess.check_output(['git', '-C', str(upstream), 'write-tree'], env=environment).strip().decode()
-            merged = subprocess.run(command + ['--cached', '--3way', str(patch.resolve())],
-                                    env=environment, capture_output=True)
-            if merged.returncode:
-                raise ValueError('frontend source merge failed before mutation; fetch upstream-base objects and inspect conflicts: '
-                                 + merged.stderr.decode(errors='replace'))
-            rebased = subprocess.check_output(['git', '-C', str(upstream), 'diff', '--cached',
-                                               '--binary', prepared_tree], env=environment)
-            subprocess.run(command + ['--check', '-'], input=rebased, check=True)
-            subprocess.run(command + ['-'], input=rebased, check=True)
+    # The common Rust producer owns patch reconciliation for both Native and TUI.
+    subprocess.run([str(builder), 'apply-source-patch', '--source', str(upstream),
+                    '--patch', str((package/'native.patch').resolve())], check=True)
     for source, destination in payloads:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open('xb') as output, source.open('rb') as input_file:
@@ -99,6 +75,7 @@ def apply(upstream, package=PACKAGE):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('upstream', type=Path)
+    parser.add_argument('--builder', type=Path)
     parser.add_argument('--native-preparation', type=Path, required=True,
                         help='existing shared Native source-preparation result')
     parser.add_argument('--check-scope', action='store_true',
@@ -107,4 +84,6 @@ if __name__ == '__main__':
     native_files = preparation_files(options.upstream, options.native_preparation)
     check_scope(options.upstream, native_files)
     if not options.check_scope:
-        print(f'assembled {apply(options.upstream)} owned frontend sources')
+        if options.builder is None:
+            parser.error('--builder is required for source assembly')
+        print(f'assembled {apply(options.upstream, PACKAGE, options.builder)} owned frontend sources')

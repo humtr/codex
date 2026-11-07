@@ -783,8 +783,8 @@ gate. The independent `provider` gate needs qualified Bun for app-bridge and
 development CDP tests;
 ordinary Core checks do not.
 The shared Rust release-builder now owns source adaptation, release lock
-normalization and pristine input timestamps (`prepare-source`, `normalize-lock`,
-`preserve-source-times`). CI builds this tool once and supplies its absolute path
+normalization and protocol export generation (`prepare-source`, `normalize-lock`,
+`generate-schema`). Source timestamps retain Cargo's normal freshness checks. CI builds this tool once and supplies its absolute path
 as `CODEX_RELEASE_BUILDER`; these rules no longer have Python implementations.
 The same Rust library also owns `build-runtime` and `verify-runtime`, used by
 CI for source compilation and transferred artifact checks. Python remains for

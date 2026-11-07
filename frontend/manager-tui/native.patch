@@ -1,5 +1,6 @@
+# codex-upstream-base 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index fbc1090..0234303 100644
+index 80459f4..4d11074 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -10,8 +11,8 @@ index fbc1090..0234303 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -218,9 +217,11 @@ mod backend_banner_fallback;
- mod backend_events;
+@@ -219,9 +218,11 @@ mod backend_events;
+ mod backend_selection;
  pub(crate) mod backend_sessions;
  mod background_requests;
 +#[cfg(unix)]
@@ -23,7 +24,7 @@ index fbc1090..0234303 100644
  mod connector_mentions;
  mod daemon_menu;
  mod daybreak;
-@@ -239,7 +240,13 @@ mod managed_worktree_creation;
+@@ -240,7 +241,13 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -37,7 +38,7 @@ index fbc1090..0234303 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -442,7 +449,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -443,7 +450,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -46,7 +47,7 @@ index fbc1090..0234303 100644
          ),
      }
  }
-@@ -537,6 +544,10 @@ struct InitialHistoryReplayBuffer {
+@@ -535,6 +542,10 @@ struct InitialHistoryReplayBuffer {
  }
  
  pub(crate) struct App {
@@ -57,7 +58,7 @@ index fbc1090..0234303 100644
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1251,6 +1262,10 @@ impl App {
+@@ -1305,6 +1316,10 @@ impl App {
      }
  
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -69,7 +70,7 @@ index fbc1090..0234303 100644
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
          if tui.is_owned_screen() {
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 9b22c93..57771f1 100644
+index 87ccb44..5682de5 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
 @@ -98,6 +98,10 @@ impl App {
@@ -218,10 +219,10 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 550965d..0632812 100644
+index ba6e3f8..6dea605 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -147,6 +147,19 @@ impl App {
+@@ -150,6 +150,19 @@ impl App {
              return Ok(AppRunControl::Continue);
          }
  
@@ -241,7 +242,7 @@ index 550965d..0632812 100644
          if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
              self.verify_managed_daemon().await;
          }
-@@ -494,6 +507,40 @@ impl App {
+@@ -532,6 +545,40 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -282,7 +283,7 @@ index 550965d..0632812 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -923,9 +970,12 @@ impl App {
+@@ -965,9 +1012,12 @@ impl App {
                      self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
                  }
                  self.finish_initial_history_replay_buffer(tui);
@@ -295,7 +296,7 @@ index 550965d..0632812 100644
                  copy_source,
                  cwd,
                  inline_visualization_context,
-@@ -934,13 +984,19 @@ impl App {
+@@ -976,13 +1026,19 @@ impl App {
              } => {
                  self.handle_consolidate_agent_message(
                      tui,
@@ -316,7 +317,7 @@ index 550965d..0632812 100644
              AppEvent::ConsolidateProposedPlan(source) => {
                  let end = self.transcript_cells.len();
                  let start = trailing_run_start::<history_cell::ProposedPlanStreamCell>(
-@@ -1069,8 +1125,8 @@ impl App {
+@@ -1141,8 +1197,8 @@ impl App {
              AppEvent::FatalExitRequest(message) => {
                  return Ok(AppRunControl::Exit(ExitReason::Fatal(message)));
              }
@@ -327,7 +328,7 @@ index 550965d..0632812 100644
              }
              AppEvent::CodexOp(mut op) => {
                  if let AppCommand::OverrideTurnContext {
-@@ -2121,6 +2177,12 @@ impl App {
+@@ -2193,6 +2249,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }
@@ -340,7 +341,7 @@ index 550965d..0632812 100644
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
-@@ -2605,6 +2667,19 @@ impl App {
+@@ -2677,6 +2739,19 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {
@@ -361,7 +362,7 @@ index 550965d..0632812 100644
                  self.select_session_model(app_server, model, effort, service_tier).await;
              }
 diff --git a/codex-rs/tui/src/app/history_pagination.rs b/codex-rs/tui/src/app/history_pagination.rs
-index f721079..6f5da21 100644
+index 74f8b7e..292dc2b 100644
 --- a/codex-rs/tui/src/app/history_pagination.rs
 +++ b/codex-rs/tui/src/app/history_pagination.rs
 @@ -114,6 +114,8 @@ impl App {
@@ -374,10 +375,10 @@ index f721079..6f5da21 100644
              .history_loaded(&self.transcript_cells, inserted.clone());
          if !inserted.is_empty() {
 diff --git a/codex-rs/tui/src/app/resume_preparation.rs b/codex-rs/tui/src/app/resume_preparation.rs
-index 086329b..deb0761 100644
+index 55b8791..74e61de 100644
 --- a/codex-rs/tui/src/app/resume_preparation.rs
 +++ b/codex-rs/tui/src/app/resume_preparation.rs
-@@ -50,16 +50,20 @@ impl App {
+@@ -49,16 +49,20 @@ impl App {
          app_server: &mut AppServerSession,
          target_session: &SessionTarget,
          source: ResumeSource<'_>,
@@ -402,7 +403,7 @@ index 086329b..deb0761 100644
          }
          let permission_overrides = self.resume_permission_overrides(&resume_config);
          let model_settings = match source {
-@@ -72,6 +76,31 @@ impl App {
+@@ -71,6 +75,31 @@ impl App {
              }
          };
  
@@ -434,16 +435,16 @@ index 086329b..deb0761 100644
          if let Some(history_mode) = target_session.history_mode {
              app_server.remember_thread_history_mode(target_session.thread_id, history_mode);
          }
-@@ -99,7 +128,7 @@ impl App {
-                     self.add_session_picker_error(format!(
-                         "Failed to view thread open elsewhere: {read_err}"
-                     ));
--                    return Err(AppRunControl::Continue);
-+                    return Ok(Err(AppRunControl::Continue));
+@@ -108,7 +137,7 @@ impl App {
+                         self.add_session_picker_error(format!(
+                             "Failed to load chat history: {read_err}"
+                         ));
+-                        return Err(AppRunControl::Continue);
++                        return Ok(Err(AppRunControl::Continue));
+                     }
                  }
-             },
-             Err(err) => {
-@@ -107,16 +136,16 @@ impl App {
+             }
+@@ -117,10 +146,10 @@ impl App {
                  self.add_session_picker_error(format!(
                      "Failed to resume session from {path_display}: {err}"
                  ));
@@ -456,18 +457,19 @@ index 086329b..deb0761 100644
              backend_id: app_server.backend_id(),
              config: resume_config,
              local_settings,
-             thread: resumed,
+@@ -128,6 +157,6 @@ impl App {
              read_only,
              history_notice,
+             provider_error,
 -        })
 +        }))
      }
  }
 diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
-index c7dc18d..1ffebe5 100644
+index 9203adf..672808a 100644
 --- a/codex-rs/tui/src/app/session_lifecycle.rs
 +++ b/codex-rs/tui/src/app/session_lifecycle.rs
-@@ -1369,7 +1369,7 @@ impl App {
+@@ -1401,7 +1401,7 @@ impl App {
                  &target_session,
                  super::resume_preparation::ResumeSource::Active,
              )
@@ -477,10 +479,10 @@ index c7dc18d..1ffebe5 100644
              Ok(prepared) => prepared,
              Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index f1e83e5..059183b 100644
+index fca1ef2..740b058 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -965,6 +965,10 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -968,6 +968,10 @@ See the Codex keymap documentation for supported actions and examples."
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
@@ -492,7 +494,7 @@ index f1e83e5..059183b 100644
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index a0efb33..66edf38 100644
+index 3d1c608..ce94da5 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
 @@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
@@ -507,7 +509,7 @@ index a0efb33..66edf38 100644
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index a2d2191..d005731 100644
+index f8d8f9a..e19377c 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -95,7 +95,7 @@ mod recap_generation;
@@ -519,7 +521,7 @@ index a2d2191..d005731 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -3650,7 +3650,7 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
+@@ -3731,7 +3731,7 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
              },
              super::resume_preparation::ResumeSource::Backend(&settings),
          )
@@ -528,7 +530,7 @@ index a2d2191..d005731 100644
      assert!(matches!(result, Err(AppRunControl::Continue)));
      assert_eq!(app.active_thread_id, None);
      let cell = std::iter::from_fn(|| events.try_recv().ok())
-@@ -6408,6 +6408,10 @@ async fn make_test_app() -> Box<App> {
+@@ -6546,6 +6546,10 @@ async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
  
      Box::new(App {
@@ -539,7 +541,7 @@ index a2d2191..d005731 100644
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6534,6 +6538,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6673,6 +6677,10 @@ pub(super) async fn make_test_app_with_channels() -> (
  
      (
          Box::new(App {
@@ -550,7 +552,7 @@ index a2d2191..d005731 100644
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7528,7 +7536,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
+@@ -7668,7 +7676,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
      }
  }
  
@@ -559,7 +561,7 @@ index a2d2191..d005731 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7538,7 +7546,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7678,7 +7686,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
  
@@ -568,7 +570,7 @@ index a2d2191..d005731 100644
      thread_id: ThreadId,
      turn_id: &str,
      status: TurnStatus,
-@@ -8512,7 +8520,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
+@@ -8652,7 +8660,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
                  },
                  super::resume_preparation::ResumeSource::Backend(&settings),
              )
@@ -578,7 +580,7 @@ index a2d2191..d005731 100644
              Ok(prepared) => prepared,
              Err(_) => panic!("saved thread should be ready for attachment"),
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index f781208..189416c 100644
+index 53563c3..a417add 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -43,8 +43,9 @@ use tokio_tungstenite::tungstenite::Error as WebSocketError;
@@ -627,10 +629,10 @@ index ca06b51..341b2a5 100644
                  completed_messages.push(source.clone());
                  app.handle_consolidate_agent_message(
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index e4ecae0..cb9ee32 100644
+index b824a9f..1a44849 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
-@@ -1945,6 +1945,15 @@ impl App {
+@@ -1999,6 +1999,15 @@ impl App {
              ThreadBufferedEvent::Notification(notification) => {
                  self.cache_collab_receiver_threads_for_notification(notification.as_ref());
                  let tip_ready = self.turn_tips.observe(&notification, Instant::now());
@@ -646,7 +648,7 @@ index e4ecae0..cb9ee32 100644
                  self.chat_widget
                      .handle_server_notification(*notification, /*replay_kind*/ None);
                  // History cells queued by completion must be applied before anchoring its tip.
-@@ -1953,6 +1962,8 @@ impl App {
+@@ -2007,6 +2016,8 @@ impl App {
                  }
              }
              ThreadBufferedEvent::Request(request) => {
@@ -673,10 +675,10 @@ index 229d21e..1caed85 100644
          .turn_start(
              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 2adc303..01243f9 100644
+index 9c84885..dbcfef7 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -295,6 +295,12 @@ pub(crate) struct AgentPickerThreadRefresh {
+@@ -296,6 +296,12 @@ pub(crate) struct AgentPickerThreadRefresh {
  #[allow(clippy::large_enum_variant)]
  #[derive(Debug, IntoStaticStr)]
  pub(crate) enum AppEvent {
@@ -689,7 +691,7 @@ index 2adc303..01243f9 100644
      AccountEmailLoaded {
          request_id: uuid::Uuid,
          email: Option<String>,
-@@ -646,6 +652,43 @@ pub(crate) enum AppEvent {
+@@ -650,6 +656,43 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
  
@@ -733,7 +735,7 @@ index 2adc303..01243f9 100644
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
  
-@@ -700,7 +743,7 @@ pub(crate) enum AppEvent {
+@@ -709,7 +752,7 @@ pub(crate) enum AppEvent {
      CodexOp(AppCommand),
  
      /// A blocking image-preparation worker has finished; payload stays with its widget.
@@ -742,7 +744,7 @@ index 2adc303..01243f9 100644
  
      /// Approve one retry of a recent auto-review denial selected in the TUI.
      ApproveRecentAutoReviewDenial {
-@@ -1210,6 +1253,7 @@ pub(crate) enum AppEvent {
+@@ -1219,6 +1262,7 @@ pub(crate) enum AppEvent {
      /// transcript without first writing its provisional render to scrollback.
      ConsolidateAgentMessage {
          source: String,
@@ -750,7 +752,7 @@ index 2adc303..01243f9 100644
          copy_source: Option<String>,
          cwd: PathBuf,
          inline_visualization_context: Option<InlineVisualizationContext>,
-@@ -1238,6 +1282,11 @@ pub(crate) enum AppEvent {
+@@ -1247,6 +1291,11 @@ pub(crate) enum AppEvent {
  
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
@@ -763,10 +765,10 @@ index 2adc303..01243f9 100644
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 683e732..382a6ed 100644
+index ae79c9a..b2ee057 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -369,6 +369,12 @@ pub(crate) enum ThreadSettingsOwner {
+@@ -379,6 +379,12 @@ pub(crate) enum ThreadSettingsOwner {
  pub(crate) enum ResumeModelSettings {
      /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
      OverrideFromCurrentConfig,
@@ -779,7 +781,7 @@ index 683e732..382a6ed 100644
      /// Omits those overrides so app-server restores the settings saved with the thread.
      RestoreFromThread,
      /// Rejoins a loaded thread without changing any of its existing settings.
-@@ -954,6 +960,11 @@ impl AppServerSession {
+@@ -1021,6 +1027,11 @@ impl AppServerSession {
                  "Cloud conversations currently use server-selected permissions."
              );
          }
@@ -791,7 +793,7 @@ index 683e732..382a6ed 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1128,6 +1139,11 @@ impl AppServerSession {
+@@ -1195,6 +1206,11 @@ impl AppServerSession {
          if self.thread_params_mode == ThreadParamsMode::Cloud {
              color_eyre::eyre::bail!("Cloud conversations cannot be forked in the TUI yet.");
          }
@@ -803,7 +805,7 @@ index 683e732..382a6ed 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1390,6 +1406,53 @@ impl AppServerSession {
+@@ -1463,6 +1479,53 @@ impl AppServerSession {
          Ok(response.thread)
      }
  
@@ -857,7 +859,7 @@ index 683e732..382a6ed 100644
      pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
          let request_id = self.next_request_id();
          let _: ThreadArchiveResponse = self
-@@ -2043,30 +2106,56 @@ fn approvals_reviewer_override_from_config(
+@@ -2125,30 +2188,56 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -927,7 +929,7 @@ index 683e732..382a6ed 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2357,6 +2446,28 @@ fn thread_resume_params_from_config(
+@@ -2439,6 +2528,28 @@ fn thread_resume_params_from_config(
              config.model.clone(),
              provider_selection::explicit_provider(&config),
          ),
@@ -956,7 +958,7 @@ index 683e732..382a6ed 100644
          ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
              (None, None)
          }
-@@ -2378,6 +2489,11 @@ fn thread_resume_params_from_config(
+@@ -2460,6 +2571,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -968,7 +970,7 @@ index 683e732..382a6ed 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3927,6 +4043,78 @@ mod tests {
+@@ -4052,6 +4168,78 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
  
@@ -1047,7 +1049,7 @@ index 683e732..382a6ed 100644
      #[tokio::test]
      async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
          let home = tempfile::tempdir()?;
-@@ -4311,6 +4499,29 @@ mod tests {
+@@ -4436,6 +4624,29 @@ mod tests {
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
  
@@ -1078,10 +1080,10 @@ index 683e732..382a6ed 100644
          side_config.ephemeral = true;
          let next_request_id = app_server.next_request_id;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index 98d979a..11fd5c4 100644
+index b072d8f..d94586e 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
-@@ -148,6 +148,68 @@ impl AppServerSession {
+@@ -149,6 +149,68 @@ impl AppServerSession {
          .await
      }
  
@@ -1131,7 +1133,7 @@ index 98d979a..11fd5c4 100644
 +        // The update ACK has no settings payload. Read Native's effective state,
 +        // including any later concurrent selection, without replaying overrides.
 +        let request_id = self.next_request_id();
-+        self.client
++        self.request_handle
 +            .request_typed(ClientRequest::ThreadResume {
 +                request_id,
 +                params: codex_app_server_protocol::ThreadResumeParams {
@@ -1150,7 +1152,7 @@ index 98d979a..11fd5c4 100644
      pub(crate) async fn resume_thread_with_permission_overrides(
          &mut self,
          local_settings: &crate::local_settings::LocalSettings,
-@@ -156,6 +218,13 @@ impl AppServerSession {
+@@ -157,6 +219,13 @@ impl AppServerSession {
          model_settings: ResumeModelSettings,
          permission_overrides: crate::resume_permissions::ResumePermissions,
      ) -> Result<AppServerStartedThread> {
@@ -1164,7 +1166,7 @@ index 98d979a..11fd5c4 100644
          if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
              self.thread_tool_transport().validate_config(&config)?;
          }
-@@ -220,7 +289,6 @@ impl AppServerSession {
+@@ -221,7 +290,6 @@ impl AppServerSession {
                  params: params.clone(),
              })
              .await;
@@ -1172,10 +1174,10 @@ index 98d979a..11fd5c4 100644
          let mut response: ThreadResumeResponse = match resume_response {
              Ok(response) => response,
              Err(TypedRequestError::Server { source, .. })
-@@ -230,7 +298,10 @@ impl AppServerSession {
+@@ -231,7 +299,10 @@ impl AppServerSession {
                  params.exclude_turns = false;
                  let request_id = self.next_request_id();
-                 self.client
+                 self.request_handle
 -                    .request_typed(ClientRequest::ThreadResume { request_id, params })
 +                    .request_typed(ClientRequest::ThreadResume {
 +                        request_id,
@@ -1184,7 +1186,7 @@ index 98d979a..11fd5c4 100644
                      .await
                      .map_err(|err| {
                          bootstrap_request_error("thread/resume failed during TUI bootstrap", err)
-@@ -243,6 +314,18 @@ impl AppServerSession {
+@@ -244,6 +315,18 @@ impl AppServerSession {
                  ));
              }
          };
@@ -1203,11 +1205,131 @@ index 98d979a..11fd5c4 100644
          self.hydrate_initial_thread_history(
              &mut response.thread,
              response.turns_backwards_cursor.clone(),
+diff --git a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
+index 71a652a..132c5c7 100644
+--- a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
++++ b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
+@@ -484,3 +484,115 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()>
+     app_server.shutdown().await?;
+     Ok(())
+ }
++
++#[cfg(unix)]
++#[tokio::test]
++async fn termux_backend_catalog_explicit_resume_selection_uses_native_settings_admission()
++-> Result<()> {
++    use codex_app_server_protocol::{
++        ClientRequest, ThreadResumeParams, ThreadResumeResponse, ThreadSettingsUpdateParams,
++    };
++    use codex_protocol::openai_models::ReasoningEffort;
++    let home = tempfile::tempdir()?;
++    let config = build_config(&home).await;
++    let thread = create_fake_rollout(
++        home.path(),
++        "2025-01-05T12-00-00",
++        "2025-01-05T12:00:00Z",
++        "Original Native history",
++        Some(config.model_provider_id.as_str()),
++        None,
++    )
++    .expect("create original Native history");
++    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
++    let request_id = server.next_request_id();
++    let _: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert!(
++        server
++            .thread_settings_update(ThreadSettingsUpdateParams {
++                thread_id: thread.clone(),
++                effort: Some(ReasoningEffort::Low),
++                approval_policy: Some(codex_app_server_protocol::AskForApproval::Never),
++                approvals_reviewer: Some(codex_app_server_protocol::ApprovalsReviewer::AutoReview),
++                ..Default::default()
++            })
++            .await?
++    );
++    let request_id = server.next_request_id();
++    let original: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread.clone(),
++                ..Default::default()
++            },
++        })
++        .await?;
++    let history = serde_json::to_value(&original.thread.turns)?;
++    let model = original.model.clone();
++    let mut requested = ThreadResumeParams {
++        thread_id: thread.clone(),
++        model: Some(model.clone()),
++        model_provider: Some(original.model_provider.clone()),
++        config: Some(std::collections::HashMap::from([(
++            "model_reasoning_effort".into(),
++            serde_json::json!("high"),
++        )])),
++        ..Default::default()
++    };
++    let admitted = server
++        .admit_resume_model_selection(&requested, original)
++        .await?;
++    assert_eq!(admitted.reasoning_effort, Some(ReasoningEffort::High));
++    assert_eq!(admitted.model, model);
++    assert_eq!(admitted.thread.id, thread);
++    assert_eq!(serde_json::to_value(&admitted.thread.turns)?, history);
++    assert_eq!(
++        admitted.approval_policy,
++        codex_app_server_protocol::AskForApproval::Never
++    );
++    assert_eq!(
++        admitted.approvals_reviewer,
++        codex_app_server_protocol::ApprovalsReviewer::AutoReview
++    );
++    server.thread_settings_update_supported = false;
++    requested
++        .config
++        .as_mut()
++        .unwrap()
++        .insert("model_reasoning_effort".into(), serde_json::json!("low"));
++    assert!(
++        server
++            .admit_resume_model_selection(&requested, admitted)
++            .await
++            .is_err()
++    );
++    let request_id = server.next_request_id();
++    let retained: ThreadResumeResponse = server
++        .client
++        .request_typed(ClientRequest::ThreadResume {
++            request_id,
++            params: ThreadResumeParams {
++                thread_id: thread,
++                ..Default::default()
++            },
++        })
++        .await?;
++    assert_eq!(retained.reasoning_effort, Some(ReasoningEffort::High));
++    assert_eq!(
++        retained.approval_policy,
++        codex_app_server_protocol::AskForApproval::Never
++    );
++    server.shutdown().await?;
++    Ok(())
++}
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index aa50df3..45d55db 100644
+index bcc2456..9150a77 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-@@ -503,6 +503,10 @@ pub enum InputResult {
+@@ -508,6 +508,10 @@ pub enum InputResult {
  }
  
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
@@ -1232,11 +1354,11 @@ index 4c455ed..b842f88 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 68868be..012c90a 100644
+index d2962e8..c19397f 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
-@@ -283,8 +283,8 @@ use self::ide_context::IdeContextState;
- mod input_queue;
+@@ -284,8 +284,8 @@ mod input_queue;
+ mod provider_error;
  mod reconnect;
  use self::input_queue::InputQueueState;
 -mod image_submission;
@@ -1245,7 +1367,7 @@ index 68868be..012c90a 100644
  mod input_restore;
  mod input_submission;
  mod interrupts;
-@@ -447,6 +447,7 @@ use crate::streaming::controller::PlanStreamController;
+@@ -448,6 +448,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
  
@@ -1253,7 +1375,7 @@ index 68868be..012c90a 100644
  use chrono::Local;
  use codex_app_server_protocol::AskForApproval;
  use codex_file_search::FileMatch;
-@@ -458,7 +459,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+@@ -459,7 +460,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
  use codex_protocol::plan_tool::StepStatus;
  use codex_protocol::plan_tool::UpdatePlanArgs;
  use codex_utils_approval_presets::ApprovalPreset;
@@ -1261,7 +1383,7 @@ index 68868be..012c90a 100644
  use strum::IntoEnumIterator;
  use unicode_segmentation::UnicodeSegmentation;
  
-@@ -466,7 +466,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
+@@ -467,7 +467,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
  const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
  const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
  const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
@@ -1269,7 +1391,7 @@ index 68868be..012c90a 100644
  const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
  
-@@ -561,7 +560,7 @@ pub(crate) struct ChatWidget {
+@@ -562,7 +561,7 @@ pub(crate) struct ChatWidget {
      pub(crate) remote_connection: Option<RemoteConnectionStatus>,
      /// Remote app servers cannot read image paths on the TUI host.
      pub(crate) snapshot_local_images: bool,
@@ -1278,7 +1400,7 @@ index 68868be..012c90a 100644
      pub(crate) local_worktree_operations: bool,
      pub(crate) windows_sandbox_local_server: bool,
      pub(crate) windows_sandbox_config: crate::windows_sandbox::WindowsSandboxConfig,
-@@ -1832,7 +1831,7 @@ impl ChatWidget {
+@@ -1835,7 +1834,7 @@ impl ChatWidget {
      }
  
      pub(crate) fn show_external_writer_thread(&mut self) {
@@ -1288,10 +1410,10 @@ index 68868be..012c90a 100644
          self.external_writer_view = true;
          self.pause_unavailable_thread();
 diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
-index 7b2d08c..792f0a5 100644
+index 6e405d2..20ceccf 100644
 --- a/codex-rs/tui/src/chatwidget/constructor.rs
 +++ b/codex-rs/tui/src/chatwidget/constructor.rs
-@@ -141,7 +141,7 @@ impl ChatWidget {
+@@ -143,7 +143,7 @@ impl ChatWidget {
              status_account_display,
              remote_connection: None,
              snapshot_local_images: false,
@@ -1549,7 +1671,7 @@ index fd7fb8f..702693d 100644
          }
          self.bottom_pane.set_pending_input_preview(
 diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
-index bc4a9c1..97da74c 100644
+index 559a851..a2ab075 100644
 --- a/codex-rs/tui/src/chatwidget/input_restore.rs
 +++ b/codex-rs/tui/src/chatwidget/input_restore.rs
 @@ -356,7 +356,7 @@ impl ChatWidget {
@@ -1656,10 +1778,10 @@ index 7d0c740..332d58a 100644
                      text,
                      local_images,
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
-index 5e5d8a9..06bfb9e 100644
+index 617253a..1cb6f05 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
 +++ b/codex-rs/tui/src/chatwidget/interaction.rs
-@@ -151,16 +151,24 @@ impl ChatWidget {
+@@ -152,16 +152,24 @@ impl ChatWidget {
              || key_hint::ctrl(KeyCode::Char('c')).is_press(key_event))
              && self.bottom_pane.no_modal_or_popup_active()
              && !self.should_handle_vim_insert_escape(key_event)
@@ -1688,7 +1810,7 @@ index 5e5d8a9..06bfb9e 100644
              }
              return KeyEventAction::None;
          }
-@@ -241,7 +249,7 @@ impl ChatWidget {
+@@ -242,7 +250,7 @@ impl ChatWidget {
  
          if key_event.kind == KeyEventKind::Press
              && self.chat_keymap.edit_queued_message.is_pressed(key_event)
@@ -1697,7 +1819,7 @@ index 5e5d8a9..06bfb9e 100644
              && self.bottom_pane.no_modal_or_popup_active()
          {
              if let Some(composer) = self.pop_latest_queued_composer_state() {
-@@ -250,7 +258,7 @@ impl ChatWidget {
+@@ -251,7 +259,7 @@ impl ChatWidget {
                  self.refresh_pending_input_preview();
                  self.request_redraw();
              } else {
@@ -1999,10 +2121,10 @@ index 0e896a8..f8cdf09 100644
          if model == LUNA_RESERVE_MODEL {
              return None;
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 79a9018..6deb3bd 100644
+index 44f3c87..df48886 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-@@ -309,6 +309,10 @@ impl ChatWidget {
+@@ -304,6 +304,10 @@ impl ChatWidget {
              SlashCommand::Resume => {
                  self.app_event_tx.send(AppEvent::OpenResumePicker);
              }
@@ -2013,7 +2135,7 @@ index 79a9018..6deb3bd 100644
              SlashCommand::Fork => {
                  self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
              }
-@@ -1363,6 +1367,8 @@ impl ChatWidget {
+@@ -1358,6 +1362,8 @@ impl ChatWidget {
              | SlashCommand::Theme
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
@@ -2072,7 +2194,7 @@ index 42f292b..501dbfb 100644
  mod terminal_program_status;
  mod terminal_title;
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-index 4b77a77..82db3d2 100644
+index 47c6985..b629edb 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 @@ -389,7 +389,7 @@ async fn parent_owned_thread_preserves_queued_input_before_draining() {
@@ -2084,7 +2206,7 @@ index 4b77a77..82db3d2 100644
          action: QueuedInputAction::Plain,
          delivery: MessageDelivery::Unsent,
          pending_pastes: vec![("[Image 1]".to_string(), "pasted contents".to_string())],
-@@ -2581,7 +2581,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
+@@ -2582,7 +2582,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
              let mut rendered = Vec::new();
              let (items, client_user_message_id) = loop {
                  match rx.recv().await.unwrap() {
@@ -2093,7 +2215,7 @@ index 4b77a77..82db3d2 100644
                      AppEvent::InsertHistoryCell(cell) => {
                          rendered.push(cell.display_lines(/*width*/ 80))
                      }
-@@ -2692,8 +2692,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
+@@ -2693,8 +2693,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
          }
          chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
          while let Some(event) = rx.recv().await {
@@ -2104,7 +2226,7 @@ index 4b77a77..82db3d2 100644
                  break;
              }
          }
-@@ -2757,8 +2757,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
+@@ -2758,8 +2758,8 @@ async fn image_preparation_failure_restores_full_input_without_submitting() {
          pixels.save(&path).unwrap();
          chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
          while let Some(event) = rx.recv().await {
@@ -2115,7 +2237,7 @@ index 4b77a77..82db3d2 100644
                  break;
              }
          }
-@@ -2825,13 +2825,13 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2826,13 +2826,13 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                  drop(release);
                  worker.await.unwrap();
                  let id = loop {
@@ -2131,7 +2253,7 @@ index 4b77a77..82db3d2 100644
                      std::fs::remove_file(&message.local_images[0].path).unwrap();
                      assert_eq!(
                          chat.input_queue
-@@ -2854,7 +2854,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2855,7 +2855,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                              .retain(|modality| *modality != InputModality::Image);
                      }
                      chat.model_catalog = Arc::new(ModelCatalog::new(models));
@@ -2140,7 +2262,7 @@ index 4b77a77..82db3d2 100644
                      assert_eq!(chat.bottom_pane.composer_text(), "describe\nnew draft");
                  } else if scenario == "escape" || scenario == "ctrl_c" {
                      chat.on_task_started();
-@@ -2874,7 +2874,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2875,7 +2875,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          );
                          assert_eq!(chat.input_queue.queued_user_messages.len(), 2);
                      }
@@ -2149,7 +2271,7 @@ index 4b77a77..82db3d2 100644
                  } else if scenario == "parent_owned" || scenario == "external_writer" {
                      chat.codex_op_target = CodexOpTarget::AppEvent;
                      if scenario == "parent_owned" {
-@@ -2883,7 +2883,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2884,7 +2884,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          chat.show_external_writer_thread();
                      }
                      assert_eq!(chat.bottom_pane.composer_text(), "describe");
@@ -2158,7 +2280,7 @@ index 4b77a77..82db3d2 100644
                      assert!(drain_insert_history(&mut rx).is_empty());
                  } else if scenario == "interrupt" {
                      chat.input_queue
-@@ -2891,7 +2891,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2892,7 +2892,7 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          .push_back(pending_steer("earlier"));
                      chat.on_interrupted_turn(TurnAbortReason::Interrupted);
                      assert_eq!(chat.bottom_pane.composer_text(), "earlier\ndescribe\nx");
@@ -2167,7 +2289,7 @@ index 4b77a77..82db3d2 100644
                  } else if scenario == "disconnect" {
                      chat.pause_for_disconnect();
                      chat.reconnect_failed();
-@@ -2905,16 +2905,174 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
+@@ -2906,16 +2906,16 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                          normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 80))
                              .replace('◦', "•")
                      );
@@ -2186,6 +2308,10 @@ index 4b77a77..82db3d2 100644
 +                assert!(chat.pending_input_submission.is_none());
              });
      }
+ }
+@@ -2970,3 +2970,161 @@ async fn provider_error_recovers_the_rejected_initial_prompt() {
+     assert!(!chat.input_queue.user_turn_pending_start);
+     assert!(operations.try_recv().is_err());
  }
 +
 +#[cfg(unix)]
@@ -2390,7 +2516,7 @@ index e56ea9b..18b6d7f 100644
                  UserMessageHistoryRecord::UserMessageText,
                  ShellEscapePolicy::Disallow,
 diff --git a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
-index f44ad24..996d853 100644
+index b908218..87f6696 100644
 --- a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
 @@ -124,11 +124,11 @@ async fn initial_prompt_image_preparation_preserves_recall_metadata() {
@@ -2420,7 +2546,7 @@ index f44ad24..996d853 100644
                  }
              }
 diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
-index 2cc3331..0730d81 100644
+index 9fa654f..c68d4ee 100644
 --- a/codex-rs/tui/src/chatwidget/user_messages.rs
 +++ b/codex-rs/tui/src/chatwidget/user_messages.rs
 @@ -78,7 +78,7 @@ pub(super) enum MessageDelivery {
@@ -2442,7 +2568,7 @@ index 2cc3331..0730d81 100644
              delivery: MessageDelivery::Unsent,
              pending_pastes: Vec::new(),
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
-index 29469b2..5caeb50 100644
+index ca006e9..13ef6f3 100644
 --- a/codex-rs/tui/src/cli.rs
 +++ b/codex-rs/tui/src/cli.rs
 @@ -9,6 +9,10 @@ use codex_utils_cli::SharedCliOptions;
@@ -2457,7 +2583,7 @@ index 29469b2..5caeb50 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/clipboard_copy.rs b/codex-rs/tui/src/clipboard_copy.rs
-index fee4d59..ab8e19c 100644
+index 03ce890..ec71124 100644
 --- a/codex-rs/tui/src/clipboard_copy.rs
 +++ b/codex-rs/tui/src/clipboard_copy.rs
 @@ -110,6 +110,18 @@ fn copy_to_clipboard(
@@ -2615,7 +2741,7 @@ index 66f407a..38c169c 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 1b0b08c..87bac87 100644
+index e1bf622..f799d3a 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -138,7 +138,13 @@ mod experimental_features;
@@ -2643,7 +2769,7 @@ index 1b0b08c..87bac87 100644
  mod text_formatting;
  mod text_selection;
  mod theme_picker;
-@@ -1085,7 +1095,7 @@ fn app_server_target_for_launch(
+@@ -1096,7 +1106,7 @@ fn app_server_target_for_launch(
                  allow_embedded_fallback: false,
              }
          }
@@ -2652,7 +2778,7 @@ index 1b0b08c..87bac87 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1148,18 +1158,36 @@ pub async fn run_main(
+@@ -1174,18 +1184,36 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -2666,8 +2792,8 @@ index 1b0b08c..87bac87 100644
      startup_recovery::scope(async move {
          // Startup retains a large future for the whole session. Keep it off callers' stacks,
          // which also need room to construct a replacement chat widget on `/new`.
--        match Box::pin(startup_orchestration::run_main_inner(
-+        let result = Box::pin(startup_orchestration::run_main_inner(
+-        match boxed_future!(startup_orchestration::run_main_inner(
++        let result = boxed_future!(startup_orchestration::run_main_inner(
              cli,
              arg0_paths,
              loader_overrides,
@@ -2691,7 +2817,7 @@ index 1b0b08c..87bac87 100644
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1254,9 +1282,24 @@ async fn run_ratatui_app(
+@@ -1280,9 +1308,24 @@ async fn run_ratatui_app(
      // Initialize high-fidelity session event logging if enabled.
      session_log::maybe_init(&initial_config);
  
@@ -2718,7 +2844,7 @@ index 1b0b08c..87bac87 100644
              start_app_server(
                  &mut app_server_target,
                  arg0_paths.clone(),
-@@ -1270,8 +1313,9 @@ async fn run_ratatui_app(
+@@ -1296,8 +1339,9 @@ async fn run_ratatui_app(
                  &mut state_db,
                  environment_manager.clone(),
                  embedded_network_policy.clone(),
@@ -2730,7 +2856,7 @@ index 1b0b08c..87bac87 100644
          .await;
      tui.terminal_size_tags =
          launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
-@@ -1352,6 +1396,14 @@ async fn run_ratatui_app(
+@@ -1378,6 +1422,14 @@ async fn run_ratatui_app(
      let requires_openai_auth = startup_account
          .as_ref()
          .is_some_and(|account| account.requires_openai_auth);
@@ -2745,7 +2871,7 @@ index 1b0b08c..87bac87 100644
      let should_show_onboarding = should_show_onboarding(
          login_status,
          requires_openai_auth,
-@@ -1833,50 +1885,137 @@ async fn run_ratatui_app(
+@@ -1880,50 +1932,137 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -2947,10 +3073,10 @@ index 91153c6..c73e71d 100644
  use std::time::Duration;
  use uuid::Uuid;
 diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
-index c054f23..b9cf2e2 100644
+index 8b8401c..6443e51 100644
 --- a/codex-rs/tui/src/resume_picker.rs
 +++ b/codex-rs/tui/src/resume_picker.rs
-@@ -3714,11 +3714,12 @@ fn plural_time(value: i64, unit: &str) -> String {
+@@ -4021,11 +4021,12 @@ fn plural_time(value: i64, unit: &str) -> String {
  }
  
  fn format_timestamp(ts: DateTime<Utc>, clock_format: ClockFormat) -> String {
@@ -2968,7 +3094,7 @@ index c054f23..b9cf2e2 100644
  }
  
  fn render_empty_state_line(state: &PickerState) -> Line<'static> {
-@@ -4359,6 +4360,84 @@ mod tests {
+@@ -4667,6 +4668,84 @@ mod tests {
          assert!(row.matches_query(&thread_id.to_string()[..8]));
      }
  
@@ -3053,7 +3179,7 @@ index c054f23..b9cf2e2 100644
      #[test]
      fn relative_time_formats_zero_seconds_as_now() {
          let reference = DateTime::parse_from_rfc3339("2026-05-02T12:00:00Z")
-@@ -4429,8 +4508,20 @@ mod tests {
+@@ -4737,8 +4816,20 @@ mod tests {
          assert!(rendered.contains(
              "Session:    feat(tui): add raw scrollback mode (019dabc1-0ef5-7431-b81c-03037f51f62c)"
          ));
@@ -3130,35 +3256,52 @@ index dfd0538..7557d9c 100644
              | SlashCommand::Delete
              | SlashCommand::Fork
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index 6a8d96c..34e5c71 100644
+index 43331cd..b659f1c 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
-@@ -568,7 +568,10 @@ pub(super) async fn run_main_inner(
+@@ -567,7 +567,9 @@ pub(super) async fn run_main_inner(
      } else {
          None
      };
--    let auto_start_daemon = config.features.enabled(Feature::DaemonAutoStart)
+-    let auto_start_daemon = cfg!(any(unix, windows))
 +    let core_owned =
 +        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
-+    let auto_start_daemon = !core_owned
-+        && config.features.enabled(Feature::DaemonAutoStart)
++    let auto_start_daemon = !core_owned && cfg!(any(unix, windows))
+         && (cli.agents_overview || config.features.enabled(Feature::DaemonAutoStart))
          && implicit_connection
-         && !cli.agents_overview
          && !cli.no_daemon
-@@ -640,7 +643,7 @@ pub(super) async fn run_main_inner(
+@@ -643,14 +645,18 @@ pub(super) async fn run_main_inner(
+             daemon_exclusion = Some("this Windows launcher");
          }
      }
-     // The overview must inspect the shared server's agents regardless of local settings.
--    let compatibility_warning = if cli.agents_overview {
-+    let compatibility_warning = if cli.agents_overview || core_owned {
-         None
-     } else {
-         daemon_recovery::check(
+-    let compatibility_warning = daemon_recovery::check(
+-        &mut startup_draft,
+-        &app_server_target,
+-        &config,
+-        &cli_kv_overrides,
+-        managed_daemon,
+-    )
+-    .await?;
++    let compatibility_warning = if core_owned {
++        None
++    } else {
++        daemon_recovery::check(
++            &mut startup_draft,
++            &app_server_target,
++            &config,
++            &cli_kv_overrides,
++            managed_daemon,
++        )
++        .await?
++    };
+     if compatibility_warning.is_some() {
+         app_server_target = AppServerTarget::Embedded;
+         daemon_exclusion = Some("daemon feature settings");
 diff --git a/codex-rs/tui/src/thread_transcript.rs b/codex-rs/tui/src/thread_transcript.rs
-index b2322a5..9e55c95 100644
+index 807d7ac..8aaa34e 100644
 --- a/codex-rs/tui/src/thread_transcript.rs
 +++ b/codex-rs/tui/src/thread_transcript.rs
-@@ -269,7 +269,10 @@ fn item_to_cells(
+@@ -275,7 +275,10 @@ fn item_to_cells(
              cells.push(Arc::new(cell.with_async_replies(replies, cwd.as_path())));
          }
          ThreadItemPayload::AgentMessage {
@@ -3170,7 +3313,7 @@ index b2322a5..9e55c95 100644
          } => {
              let parsed = parse_assistant_markdown(&text, cwd.as_path());
              if !parsed.visible_markdown.trim().is_empty() {
-@@ -279,7 +282,8 @@ fn item_to_cells(
+@@ -285,7 +288,8 @@ fn item_to_cells(
                          cwd.as_path(),
                          inline_visualization_context,
                      )
@@ -3180,123 +3323,3 @@ index b2322a5..9e55c95 100644
                  ));
              }
          }
-diff --git a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
-index fb315da..ab2869e 100644
---- a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
-+++ b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
-@@ -484,3 +484,115 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()>
-     app_server.shutdown().await?;
-     Ok(())
- }
-+
-+#[cfg(unix)]
-+#[tokio::test]
-+async fn termux_backend_catalog_explicit_resume_selection_uses_native_settings_admission()
-+-> Result<()> {
-+    use codex_app_server_protocol::{
-+        ClientRequest, ThreadResumeParams, ThreadResumeResponse, ThreadSettingsUpdateParams,
-+    };
-+    use codex_protocol::openai_models::ReasoningEffort;
-+    let home = tempfile::tempdir()?;
-+    let config = build_config(&home).await;
-+    let thread = create_fake_rollout(
-+        home.path(),
-+        "2025-01-05T12-00-00",
-+        "2025-01-05T12:00:00Z",
-+        "Original Native history",
-+        Some(config.model_provider_id.as_str()),
-+        None,
-+    )
-+    .expect("create original Native history");
-+    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
-+    let request_id = server.next_request_id();
-+    let _: ThreadResumeResponse = server
-+        .client
-+        .request_typed(ClientRequest::ThreadResume {
-+            request_id,
-+            params: ThreadResumeParams {
-+                thread_id: thread.clone(),
-+                ..Default::default()
-+            },
-+        })
-+        .await?;
-+    assert!(
-+        server
-+            .thread_settings_update(ThreadSettingsUpdateParams {
-+                thread_id: thread.clone(),
-+                effort: Some(ReasoningEffort::Low),
-+                approval_policy: Some(codex_app_server_protocol::AskForApproval::Never),
-+                approvals_reviewer: Some(codex_app_server_protocol::ApprovalsReviewer::AutoReview),
-+                ..Default::default()
-+            })
-+            .await?
-+    );
-+    let request_id = server.next_request_id();
-+    let original: ThreadResumeResponse = server
-+        .client
-+        .request_typed(ClientRequest::ThreadResume {
-+            request_id,
-+            params: ThreadResumeParams {
-+                thread_id: thread.clone(),
-+                ..Default::default()
-+            },
-+        })
-+        .await?;
-+    let history = serde_json::to_value(&original.thread.turns)?;
-+    let model = original.model.clone();
-+    let mut requested = ThreadResumeParams {
-+        thread_id: thread.clone(),
-+        model: Some(model.clone()),
-+        model_provider: Some(original.model_provider.clone()),
-+        config: Some(std::collections::HashMap::from([(
-+            "model_reasoning_effort".into(),
-+            serde_json::json!("high"),
-+        )])),
-+        ..Default::default()
-+    };
-+    let admitted = server
-+        .admit_resume_model_selection(&requested, original)
-+        .await?;
-+    assert_eq!(admitted.reasoning_effort, Some(ReasoningEffort::High));
-+    assert_eq!(admitted.model, model);
-+    assert_eq!(admitted.thread.id, thread);
-+    assert_eq!(serde_json::to_value(&admitted.thread.turns)?, history);
-+    assert_eq!(
-+        admitted.approval_policy,
-+        codex_app_server_protocol::AskForApproval::Never
-+    );
-+    assert_eq!(
-+        admitted.approvals_reviewer,
-+        codex_app_server_protocol::ApprovalsReviewer::AutoReview
-+    );
-+    server.thread_settings_update_supported = false;
-+    requested
-+        .config
-+        .as_mut()
-+        .unwrap()
-+        .insert("model_reasoning_effort".into(), serde_json::json!("low"));
-+    assert!(
-+        server
-+            .admit_resume_model_selection(&requested, admitted)
-+            .await
-+            .is_err()
-+    );
-+    let request_id = server.next_request_id();
-+    let retained: ThreadResumeResponse = server
-+        .client
-+        .request_typed(ClientRequest::ThreadResume {
-+            request_id,
-+            params: ThreadResumeParams {
-+                thread_id: thread,
-+                ..Default::default()
-+            },
-+        })
-+        .await?;
-+    assert_eq!(retained.reasoning_effort, Some(ReasoningEffort::High));
-+    assert_eq!(
-+        retained.approval_policy,
-+        codex_app_server_protocol::AskForApproval::Never
-+    );
-+    server.shutdown().await?;
-+    Ok(())
-+}
