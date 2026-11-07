@@ -8,6 +8,9 @@ from scripts.ci_scope import scope
 class ScopeTests(unittest.TestCase):
     def test_changed_paths(self):
         for paths,want in [(['README.md','CURRENT.md'],'docs'),([], 'docs'),
+                           (['docs/spec/BRIDGE.md','docs/history/GENERATION_ADMISSION.md'],'docs'),
+                           (['providers/chatgpt/NOTICE.md'],'provider'),
+                           (['release/notes.md'],'full'),
                            (['scripts/check.sh','SPEC.md'],'python'),
                            (['.github/scripts/release_signing.py'],'python'),
                            (['scripts/test_ci_scope.py','crates/core/src/main.rs'],'full'),

@@ -6,7 +6,10 @@ import sys
 def scope(paths):
     result='docs'
     for path in paths:
-        if (path.endswith('.md') and not path.startswith('scripts/fixtures/native_trial/')) or path=='.gitignore':continue
+        # Some Markdown files are signed assets, release inputs or live test fixtures.
+        if path == 'release/notes.md':return 'full'
+        if (path.endswith('.md') and path != 'providers/chatgpt/NOTICE.md'
+                and not path.startswith('scripts/fixtures/native_trial/')) or path=='.gitignore':continue
         provider_helper = (path.startswith(('scripts/qualify_provider_', 'scripts/fixtures/native_trial/'))
                            or path in ('scripts/setup_chatgpt_app_metadata.mjs', 'scripts/qualify_mcp_fault_proxy.py',
                                        'scripts/notify_native_qualification.py',

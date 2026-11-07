@@ -188,7 +188,8 @@ def same_product_inputs(source, previous, current):
         subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',previous],check=True,capture_output=True)
     changed = subprocess.check_output(['git','-C',str(source),'diff','--name-only','-z',previous,current])
     paths = changed.decode('utf-8', errors='surrogateescape').split('\0')
-    return all(not path or path.endswith('.md') or path == '.gitignore' for path in paths)
+    return all(not path or (path.endswith('.md') and path != 'release/notes.md')
+               or path == '.gitignore' for path in paths)
 
 
 def frontend_registration_needed(source, pinned):
