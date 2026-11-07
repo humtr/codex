@@ -17,7 +17,7 @@ import tarfile
 import tempfile
 
 from manager_tui_artifact import verify as verify_frontend, verify_recipe
-from upstream_release import load, build_recipe
+from upstream_release import load, build_recipe, bind_frontend
 from release_components import base_fingerprint, verified_published_base
 from rald3_preflight import stable_version
 
@@ -131,9 +131,21 @@ def native_build_inflight(source, runs):
                and frontend_recipe_matches(source,run['head_sha']) for run in runs)
 
 
-def ensure_frontend(source, current, root):
+def registered_frontend(value, product, main):
+    try:
+        content=api('contents/release-frontend-v1?ref='+main)['content']
+    except GitHubFailure as error:
+        if error.detail != 'HTTP 404':raise
+        # Published callers before composition registration embed the result.
+        return value['frontend']
+    encoded=base64.b64decode(content).decode()
+    if not encoded:raise ValueError('empty composition result')
+    return bind_frontend(value,product,encoded)['frontend']
+
+
+def ensure_frontend(source, current, root, pinned):
     value = load(source/'release/upstream.json')
-    pinned = value['frontend']
+    value['frontend'] = pinned
     native = None
     if pinned:
         observed = api('actions/runs/'+pinned['run_id'])
@@ -232,8 +244,7 @@ def same_product_inputs(source, previous, current):
     return all(not path or path.endswith('.md') or path == '.gitignore' for path in paths)
 
 
-def frontend_registration_needed(source):
-    pinned=load(source/'release/upstream.json')['frontend']
+def frontend_registration_needed(source, pinned):
     if pinned and frontend_recipe_matches(source,pinned['source']):
         return False
     recent=api('actions/workflows/manager-tui-native.yml/runs?branch='+SOURCE_BRANCH+'&per_page=20')['workflow_runs']
@@ -302,9 +313,11 @@ def run(source, requested_upstream=None):
     main=api('git/ref/heads/main')['object']['sha']
     pointer=api('contents/release-source-v1?ref='+main)
     previous=base64.b64decode(pointer['content']).decode().strip()
+    before=load(source/'release/upstream.json')
+    registered=registered_frontend(before,previous,main)
     product=current
     if (previous != current and same_product_inputs(source, previous, current)
-            and not frontend_registration_needed(source)):
+            and not frontend_registration_needed(source,registered)):
         if requested_upstream is None:
             return {'state':'no-product-change','source':current,'accepted_source':previous}
         product=previous
@@ -324,17 +337,10 @@ def run(source, requested_upstream=None):
     value=None
     if product==current:
         with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
-            value=ensure_frontend(source,current,Path(temporary))
-    before=load(source/'release/upstream.json')
-    selected = value if value is not None else before
+            value=ensure_frontend(source,current,Path(temporary),registered)
+    selected = value if value is not None else {**before,'frontend':registered}
     binding = {'source': product, 'frontend': selected['frontend']}
-    changed_binding = value is not None and value['frontend'] != before['frontend']
-    if previous == product and changed_binding:
-        try:
-            content=api('contents/release-frontend-v1?ref='+main)['content']
-            changed_binding=json.loads(base64.b64decode(content)) != binding
-        except GitHubFailure as error:
-            if error.detail != 'HTTP 404': raise
+    changed_binding = selected['frontend'] != registered
     if previous==product and not changed_binding and requested_upstream is None:
         return {'state':'already-pinned','source':current}
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']

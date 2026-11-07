@@ -15,8 +15,8 @@ Base/Full smoke, signing, complete public readback, disposable update and
 non-forced stable promotion. The ordinary signed updater reports verified device
 activation; activation-state-v3 selects151 and retains Full148 as previous.
 The activation log is request-continuity-dFZxEe/deploy-activation-151.log.
-This bounded repair remains0.166;0.167 discovery history is preserved, but its
-Core qualification failed and it is not the activated target. Original dirty
+That preceding delivery remains the operating baseline while the authorized
+0.167 upgrade below is being qualified;0.167 is not yet activated. Original dirty
 0814be7 and its49 paths remain untouched.
 
 The installed Native owner image and normal TUI image were independently observed
@@ -98,9 +98,9 @@ Its actual lock normalization preserves1308 external packages and matches the
 selected171-package dependency audit. The provided frontend assembles20 owned
 modules without collision. Eight source tests pass, including historical0.166,
 0.167 and private-name/format/file-move inputs. Generated protocol artifacts are
-removed from the maintained Native patch and must be regenerated through the
-upstream writer before consuming builds; generator execution and real0.167
-compilation remain unfinished. Local source selection now derives the common
+removed from the maintained Native patch and are regenerated through the
+upstream writer before consuming builds; both real export modes pass, while
+complete0.167 compilation remains unfinished. Local source selection now derives the common
 upstream tuple and the existing native SDK compiler profile; the duplicate
 native-runtime recipe was removed. Source backdating was removed after a real
 Cargo proof returned the obsolete binary with changed/backdated source and the
@@ -126,6 +126,25 @@ profiles remain authoritative. Eight affected source tests, including the actual
 Git whitespace gate, and strict workspace Clippy pass locally. New raw-build
 cache wiring re-verifies exact-input results before transfer and retains partial
 compiler output independently; real cache miss/hit qualification is pending.
+Exact source05bbc37 passes Source acceptance42374964750. Core42374964864
+compiles the schema writer once and successfully runs both real export modes,
+then fails actual Native compilation: upstream's Guardian review entrypoint
+still calls the defaults-based provider check removed by the existing Native
+route patch. The follow-up binds that caller to the same managed provider
+validation as other Native inputs; Guardian and approval decisions are unchanged.
+Actual official0.167 preparation, its whitespace gate and all eight source tests
+pass locally. The whitespace regression also has a confirmed disposable
+baseline0/fault101/restored0 result; the first compiler ETXTBSY attempt remains
+separate failed evidence. Original CI and mutation logs remain in the owned
+upstream167 fixture.
+Review also found that composition registration's consumers still consulted
+the development recipe instead of main's accepted output record. The controller
+now reads that source-bound record once for registration, immutable public-input
+reuse and requested rebuilds. Legacy embedded references remain readable only
+for published callers without the new record; malformed or mismatched records
+fail validation. Output registration does not rewrite source inputs. Regressions
+exercise retained inputs after CI artifact expiry and documentation-only heads;
+their disposable old-consumer fault fails and restoration passes.
 Hosted Core/Native compilation, signed delivery, activation and configured Bridge
 refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
 

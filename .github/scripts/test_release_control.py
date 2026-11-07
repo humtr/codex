@@ -17,16 +17,21 @@ class ReleaseControlTests(unittest.TestCase):
     def test_documentation_head_requests_the_existing_accepted_product_without_a_rebuild_or_pointer_write(self):
         root=Path(__file__).resolve().parents[2];head='a'*40;product='c'*40
         version=control.load(root/'release/upstream.json')['upstream']['version']
+        frontend_result={'source':product,'run_id':'123','sha256':'d'*64,
+            'input_url':'https://github.com/humtr/codex/releases/download/owned/input.tar.gz',
+            'input_sha256':'e'*64}
         def api(path,**kwargs):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':head}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/release-frontend-v1'):
+                return {'content':base64.b64encode(json.dumps({'source':product,'frontend':frontend_result}).encode()).decode()}
             if path.startswith('contents/'):return {'content':base64.b64encode((product+'\n').encode()).decode()}
             if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
             self.fail('unexpected authority access '+path)
         for proven in [True,False]:
             with self.subTest(proven=proven),patch.object(control.subprocess,'check_output',return_value=head+'\n'),\
                  patch.object(control,'api',side_effect=api),patch.object(control,'same_product_inputs',return_value=True),\
-                 patch.object(control,'frontend_registration_needed',return_value=False),\
+                 patch.object(control,'frontend_recipe_matches',return_value=True),\
                  patch.object(control,'successful_run',return_value=({'id':1},[]) if proven else (None,[])) as proof,\
                  patch.object(control,'ensure_frontend') as frontend,patch.object(control,'caller_compatible',return_value=True),\
                  patch.object(control,'release_lane',return_value='both'),patch.object(control,'commit_files') as commit,\
@@ -34,12 +39,58 @@ class ReleaseControlTests(unittest.TestCase):
                 if proven:
                     result=control.run(root,version)
                     self.assertEqual(result['state'],'requested-build-started');self.assertEqual(result['source'],product)
-                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'base','upstream_version':version})
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both','upstream_version':version})
                 else:
                     with self.assertRaisesRegex(ValueError,'accepted product proof is missing'):control.run(root,version)
                     dispatch.assert_not_called()
                 self.assertTrue(all(call.args[1]==product for call in proof.call_args_list))
                 frontend.assert_not_called();commit.assert_not_called()
+
+    def test_registered_frontend_reuses_public_inputs_after_ci_artifacts_expire(self):
+        source=Path(__file__).resolve().parents[2];sha='a'*40
+        run={'id':123,'display_title':'Manager TUI native qualification',
+            'path':'.github/workflows/manager-tui-native.yml','head_sha':sha,
+            'head_branch':control.SOURCE_BRANCH,'event':'workflow_dispatch',
+            'status':'completed','conclusion':'success','repository':{'full_name':control.REPO}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);artifact=root/'artifact';proof=root/'proof'
+            artifact.mkdir();proof.mkdir()
+            binary=b'owned artifact; never executed by the controller'
+            (artifact/'codex').write_bytes(binary);(proof/'result').write_text('owned evidence')
+            bundle=control.bundle_inputs(artifact,proof)
+            pinned={'source':sha,'run_id':'123','sha256':hashlib.sha256(binary).hexdigest(),
+                'input_url':'https://github.com/humtr/codex/releases/download/owned/input.tar.gz',
+                'input_sha256':hashlib.sha256(bundle).hexdigest()}
+            def api(path,**kwargs):
+                if path=='contents/release-frontend-v1?ref='+'b'*40:
+                    return {'content':base64.b64encode(json.dumps({'source':sha,'frontend':pinned}).encode()).decode()}
+                if path=='actions/runs/123':return run
+                if path.startswith('actions/workflows/manager-tui-native.yml/runs'):return {'workflow_runs':[]}
+                self.fail('unexpected authority access '+path)
+            def gh(*args,**kwargs):
+                self.assertEqual(args[:4],('release','download','owned','--repo'))
+                (Path(args[-1])/'input.tar.gz').write_bytes(bundle)
+            destination=root/'registration';destination.mkdir()
+            with patch.object(control,'api',side_effect=api),patch.object(control,'gh',side_effect=gh),\
+                 patch.object(control,'frontend_recipe_matches',return_value=True),\
+                 patch.object(control,'verify_frontend') as verify,patch.object(control,'dispatch') as dispatch:
+                value=control.load(source/'release/upstream.json')
+                registered=control.registered_frontend(value,sha,'b'*40)
+                selected=control.ensure_frontend(source,sha,destination,registered)
+                self.assertEqual(selected['frontend'],pinned)
+                self.assertEqual((destination/'0/artifact/codex').read_bytes(),binary)
+                self.assertEqual(verify.call_args.args[0].source_sha,sha)
+                dispatch.assert_not_called()
+
+    def test_composition_lookup_distinguishes_legacy_absence_from_invalid_or_unavailable_record(self):
+        value=control.load(Path(__file__).resolve().parents[2]/'release/upstream.json')
+        with patch.object(control,'api',side_effect=control.GitHubFailure(1,'api','HTTP 404')):
+            self.assertEqual(control.registered_frontend(value,'a'*40,'b'*40),value['frontend'])
+        with patch.object(control,'api',side_effect=control.GitHubFailure(1,'api','HTTP 503')):
+            with self.assertRaises(control.GitHubFailure):control.registered_frontend(value,'a'*40,'b'*40)
+        with patch.object(control,'api',return_value={'content':''}):
+            with self.assertRaisesRegex(ValueError,'empty composition result'):
+                control.registered_frontend(value,'a'*40,'b'*40)
 
     def test_explicit_request_starts_build_for_already_pinned_source_and_reuses_active_publication(self):
         sha='a'*40;root=Path(__file__).resolve().parents[2]
@@ -48,6 +99,8 @@ class ReleaseControlTests(unittest.TestCase):
             def api(path,**kwargs):
                 if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
                 if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+                if path.startswith('contents/release-frontend-v1'):
+                    raise control.GitHubFailure(1,'api','HTTP 404')
                 if path.startswith('contents/'):return {'content':base64.b64encode((sha+'\n').encode()).decode()}
                 if path.startswith('actions/workflows/auto-release-termux.yml/runs'):
                     return {'workflow_runs':[{'status':'in_progress'}] if active else []}
@@ -99,6 +152,8 @@ class ReleaseControlTests(unittest.TestCase):
         def api(path,**kwargs):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/release-frontend-v1'):
+                raise control.GitHubFailure(1,'api','HTTP 404')
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
             self.fail('unexpected authority access '+path)
         failed={'id':42,'path':'.github/workflows/core-runtime-qualification.yml','head_sha':sha,
@@ -178,6 +233,8 @@ class ReleaseControlTests(unittest.TestCase):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
             if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
+            if path.startswith('contents/release-frontend-v1'):
+                raise control.GitHubFailure(1,'api','HTTP 404')
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=False),\
@@ -208,7 +265,9 @@ class ReleaseControlTests(unittest.TestCase):
                 if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':head}}
                 if path=='git/ref/heads/main':return {'object':{'sha':main}}
                 if path.startswith('contents/release-source-v1'):return {'content':base64.b64encode((head+'\n').encode()).decode()}
-                if path.startswith('contents/release-frontend-v1'):return {'content':base64.b64encode(json.dumps(observed).encode()).decode()}
+                if path.startswith('contents/release-frontend-v1'):
+                    if observed is None:raise control.GitHubFailure(1,'api','HTTP 404')
+                    return {'content':base64.b64encode(json.dumps(observed).encode()).decode()}
                 if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
                 self.fail('unexpected authority access '+path)
             with self.subTest(observed=observed),patch.object(control.subprocess,'check_output',return_value=head+'\n'), \
@@ -304,6 +363,8 @@ class ReleaseControlTests(unittest.TestCase):
         def api(path,**kwargs):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
+            if path.startswith('contents/release-frontend-v1'):
+                raise control.GitHubFailure(1,'api','HTTP 404')
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
             if path.startswith('actions/workflows/auto-release-termux.yml/runs'):
                 return {'workflow_runs':[{'status':'in_progress'}]}
@@ -343,6 +404,8 @@ class ReleaseControlTests(unittest.TestCase):
             if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':sha}}
             if path=='git/ref/heads/main':return {'object':{'sha':'b'*40}}
             if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
+            if path.startswith('contents/release-frontend-v1'):
+                raise control.GitHubFailure(1,'api','HTTP 404')
             if path.startswith('contents/'):return {'content':base64.b64encode(('c'*40+'\n').encode()).decode()}
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=True),\
