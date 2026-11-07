@@ -30,6 +30,7 @@ def check_scope(upstream, native_files=()):
     unexpected = sorted(path for path in set((changed + added).split(b'\0'))
                         if path and path != b'codex-rs/Cargo.lock'
                         and path not in native_files
+                        and not path.startswith(b'codex-rs/app-server-protocol/schema/')
                         and not path.startswith(b'codex-rs/tui/'))
     if unexpected:
         raise ValueError('unexpected upstream frontend changes: ' +

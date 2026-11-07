@@ -97,8 +97,12 @@ class AssemblyTests(unittest.TestCase):
             config.write_text('complete catalog source\n')
             (upstream / 'codex-rs/Cargo.lock').write_text('normalized release workspace\n')
             native_files = {b'codex-rs/core/src/config/mod.rs'}
+            schema = upstream / 'codex-rs/app-server-protocol/schema/precomputed'
+            schema.mkdir(parents=True)
+            (schema / 'app-server-exports-stable.json.zst').write_bytes(b'upstream generated protocol output')
             check_scope(upstream, native_files)
-            for path in [core, outside, core.parent / 'new.rs', upstream / 'new.rs']:
+            for path in [core, outside, core.parent / 'new.rs', upstream / 'new.rs',
+                         upstream / 'codex-rs/app-server-protocol/unrelated.rs']:
                 with self.subTest(path=path.relative_to(upstream)):
                     before = path.read_bytes() if path.exists() else None
                     path.write_text('unrelated change\n')

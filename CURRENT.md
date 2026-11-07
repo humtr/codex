@@ -163,6 +163,16 @@ Controller follow-upa11fb69 passes Source acceptance42378723480; Core42378839116
 requalifies that exact source using unchanged runtime inputs. The optional TUI
 correction also leaves the completed Core runtime production inputs unchanged;
 reuse still requires the existing verification/Android/public admission gates.
+The full source15ceb61 passes Source acceptance42380013787. Its TUI42380014206
+was deliberately cancelled during schema generation after review reproduced a
+later qualification defect using the real writer archive from42377988733:
+five generated schema changes were rejected by frontend scope, and the recorded
+formatted patch preceded generation. The workflow now captures the prepared tree
+after generation; the upstream generator's schema directory is admitted while
+unrelated protocol/core writes remain rejected. Real-source scope restoration,
+all13 frontend Python tests and five workflow checks pass. The amended scope
+regression fails under the original guard and passes after restoration; no
+artifact bound, Native policy or source admission gate was weakened.
 Hosted Core/Native compilation, signed delivery, activation and configured Bridge
 refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
 

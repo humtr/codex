@@ -49,6 +49,10 @@ not compatibility failures. Prefer upstream configuration/APIs and remove
 superseded adaptations. Generated protocol outputs come from the adapted type
 definitions through upstream's generator, not a previous version's binary diff.
 Ambiguous or changed contracts remain explicit failures rather than guessed edits.
+The upstream generator owns `app-server-protocol/schema`; frontend scope admits
+those outputs and captures the compiled-source proof after generation. Format
+and lint compare that same prepared tree, and the existing generator archive
+retains the complete generated payload.
 Native and optional TUI integration patches each bind their original official
 base in the patch itself. Executors acquire that exact base; the common Rust
 producer uses Git's three-way content/rename merge with a temporary index.
