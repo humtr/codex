@@ -17,7 +17,7 @@ import termios
 import time
 
 from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
-from rald3_preflight import parse_descriptor
+from release_preflight import parse_descriptor
 
 
 def qualify(generation, parent, public_key):

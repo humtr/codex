@@ -5766,8 +5766,8 @@ fi
     }
 
     #[test]
-    fn test_rald3_deferred_manager_probe_is_unsigned_and_publish_blocking() {
-        let mut fixture = fixture("rald3-deferred-manager", happy_entries("0.150.1"), false);
+    fn test_deferred_manager_probe_is_unsigned_and_publish_blocking() {
+        let mut fixture = fixture("deferred-manager-manager", happy_entries("0.150.1"), false);
         let manager = fixture.root.join("manager-source");
         std::fs::write(&manager, fake_core_elf(ANDROID_AARCH64_INTERPRETER)).unwrap();
         set_mode(&manager, 0o755, "set deferred test Manager mode").unwrap();
@@ -5817,8 +5817,8 @@ fi
     }
 
     #[test]
-    fn test_rald3_deferred_manager_probe_requires_manager_and_android_elf() {
-        let mut missing = fixture("rald3-deferred-missing", happy_entries("0.150.1"), false);
+    fn test_deferred_manager_probe_requires_manager_and_android_elf() {
+        let mut missing = fixture("deferred-manager-missing", happy_entries("0.150.1"), false);
         missing.request.defer_manager_probe = true;
         let error = build_generation(&missing.request).unwrap_err();
         assert_eq!(
@@ -5828,7 +5828,7 @@ fi
         assert!(!missing.request.output.exists());
         missing.remove();
 
-        let mut invalid = fixture("rald3-deferred-invalid", happy_entries("0.150.1"), false);
+        let mut invalid = fixture("deferred-manager-invalid", happy_entries("0.150.1"), false);
         let manager = invalid.root.join("manager-source");
         write_valid_manager_probe(&manager);
         invalid.request.manager = Some(manager);
@@ -5996,8 +5996,8 @@ fi
     }
 
     #[test]
-    fn test_rald45_transition_flag_is_exact_and_legacy_bounded() {
-        let mut fixture = fixture("rald45-transition-flag", happy_entries("0.150.1"), false);
+    fn test_legacy_transition_flag_is_exact_and_legacy_bounded() {
+        let mut fixture = fixture("legacy-transition-flag", happy_entries("0.150.1"), false);
         fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
         fixture.request.legacy_activation_doctor_unsupported = true;
         let parsed = parse_request(request_args(&fixture.request)).unwrap();

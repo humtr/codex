@@ -126,17 +126,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/test_rald3_preflight.py
+          python3 source/.github/scripts/test_release_preflight.py
           python3 -m py_compile \
-            source/.github/scripts/rald3_preflight.py \
-            source/.github/scripts/test_rald3_preflight.py
+            source/.github/scripts/release_preflight.py \
+            source/.github/scripts/test_release_preflight.py
 
       - name: Authenticate current public stable
         id: stable
         shell: bash
         run: |
           set -euo pipefail
-          state="$RUNNER_TEMP/rald3-stable"
+          state="$RUNNER_TEMP/authenticated-stable"
           rm -rf "$state"
           mkdir -p "$state"
 
@@ -187,7 +187,7 @@ jobs:
             jq '{tag_name,draft,prerelease,assets:[.assets[] | select(.name=="codex-package-aarch64-unknown-linux-musl.tar.gz") | {name,digest}]}' \
               "$state/latest-complete.json" > "$state/latest.json"
             jq -e '.draft==false and .prerelease==false' "$state/latest.json"
-            python3 source/.github/scripts/rald3_preflight.py upstream \
+            python3 source/.github/scripts/release_preflight.py upstream \
               "$state/latest.json" > "$state/upstream"
             upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
             archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
@@ -213,8 +213,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 source/.github/scripts/release_components.py acquire-base \
-            --source source --heads "$RUNNER_TEMP/rald3-stable/heads" \
-            --authority "$RUNNER_TEMP/rald3-stable/update-public-key.pem" \
+            --source source --heads "$RUNNER_TEMP/authenticated-stable/heads" \
+            --authority "$RUNNER_TEMP/authenticated-stable/update-public-key.pem" \
             --output "$RUNNER_TEMP/base-input" | tee "$RUNNER_TEMP/base-input.env" >> "$GITHUB_OUTPUT"
           if ! grep -Fqx reuse_base=true "$RUNNER_TEMP/base-input.env"; then
             echo 'Full assembly requires porting add-ons to the latest authenticated base; previous full remains served.' >&2
@@ -297,7 +297,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald3-candidate"
+          work="$RUNNER_TEMP/unsigned-candidate"
           rm -rf "$work"
           mkdir -p "$work"
           builder="$GITHUB_WORKSPACE/source/target/release/codex-release-builder"
@@ -317,7 +317,7 @@ jobs:
           elif test -n '${{ needs.runtime-source.outputs.base_generation }}'; then
             python3 source/.github/scripts/release_components.py candidate-base \
               --base "$RUNNER_TEMP/runtime-base" --core "$core" --source source \
-              --authority "$RUNNER_TEMP/rald3-stable/update-public-key.pem" \
+              --authority "$RUNNER_TEMP/authenticated-stable/update-public-key.pem" \
               --base-generation '${{ needs.runtime-source.outputs.base_generation }}' \
               --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
           else
@@ -360,7 +360,7 @@ jobs:
           # Candidate inventory qualification begins here.
           mode=candidate
           if test "$BASE_ONLY" = true; then mode=base-candidate; fi
-          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+          python3 source/.github/scripts/release_preflight.py "$mode" \
             "$work/candidate" "$upstream_version"
           test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' "$work/candidate/generation.meta")" = r10-browser-helper-bridge-v1
           doctor_capability="$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$work/candidate/generation.meta")"
@@ -392,7 +392,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald3-candidate"
+          work="$RUNNER_TEMP/unsigned-candidate"
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/candidate.tar" -C "$work" candidate
           test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
@@ -402,7 +402,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.decision.outputs.artifact_name }}
-          path: ${{ runner.temp }}/rald3-candidate/candidate.tar
+          path: ${{ runner.temp }}/unsigned-candidate/candidate.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -462,19 +462,19 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.producer.outputs.artifact_name }}
-          path: ${{ runner.temp }}/rald3-download
+          path: ${{ runner.temp }}/candidate-download
 
       - name: Reverify candidate before execution
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald3-smoke"
+          work="$RUNNER_TEMP/candidate-smoke"
           rm -rf "$work"
           mkdir -p "$work"
-          tar -xf "$RUNNER_TEMP/rald3-download/candidate.tar" -C "$work"
+          tar -xf "$RUNNER_TEMP/candidate-download/candidate.tar" -C "$work"
           mode=candidate
           if test "$BASE_ONLY" = true; then mode=base-candidate; fi
-          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+          python3 source/.github/scripts/release_preflight.py "$mode" \
             "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
 
       - name: Provision pinned Android ARM64 bionic userspace
@@ -485,7 +485,7 @@ jobs:
             command -v "$tool" >/dev/null
           done
           test "$(uname -m)" = aarch64
-          root="$RUNNER_TEMP/rald4-bionic"
+          root="$RUNNER_TEMP/android-bionic-fixture"
           rm -rf "$root"
           mkdir -p "$root/bin" "$root/lib64/bionic"
           apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
@@ -528,9 +528,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          candidate="$RUNNER_TEMP/rald3-smoke/candidate"
-          linker="$RUNNER_TEMP/rald4-bionic/bin/linker64"
-          libdir="$RUNNER_TEMP/rald4-bionic/lib64/bionic"
+          candidate="$RUNNER_TEMP/candidate-smoke/candidate"
+          linker="$RUNNER_TEMP/android-bionic-fixture/bin/linker64"
+          libdir="$RUNNER_TEMP/android-bionic-fixture/lib64/bionic"
           test -x "$linker"
           test "$(uname -m)" = aarch64
 
@@ -622,20 +622,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          candidate="$RUNNER_TEMP/rald3-smoke/candidate"
+          candidate="$RUNNER_TEMP/candidate-smoke/candidate"
           mode=qualified-candidate
           if test "$BASE_ONLY" = true; then mode=base-candidate; fi
-          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+          python3 source/.github/scripts/release_preflight.py "$mode" \
             "$candidate" '${{ needs.producer.outputs.upstream_version }}'
-          tar -cf "$RUNNER_TEMP/rald4-qualified.tar" \
-            -C "$RUNNER_TEMP/rald3-smoke" candidate
-          test "$(stat -c '%s' "$RUNNER_TEMP/rald4-qualified.tar")" -lt 1073741824
+          tar -cf "$RUNNER_TEMP/qualified-candidate.tar" \
+            -C "$RUNNER_TEMP/candidate-smoke" candidate
+          test "$(stat -c '%s' "$RUNNER_TEMP/qualified-candidate.tar")" -lt 1073741824
 
       - name: Upload qualified unsigned candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ needs.producer.outputs.qualified_artifact_name }}
-          path: ${{ runner.temp }}/rald4-qualified.tar
+          path: ${{ runner.temp }}/qualified-candidate.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0

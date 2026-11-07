@@ -10,8 +10,8 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
-import test_rald5_publication as fixtures
-from rald5_publication import canonical_release_base
+import test_release_publication as fixtures
+from release_publication import canonical_release_base
 from release_components import CONTROL_ASSETS, FLAT_ASSETS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +23,7 @@ MAIN = 'a' * 40
 
 class PublicTransportTests(unittest.TestCase):
     def fixture(self, current_frontend, candidate_frontend):
-        fixture = fixtures.Rald5PublicationTests('test_verify_public_accepts_exact_pages_tree')
+        fixture = fixtures.ReleasePublicationTests('test_verify_public_accepts_exact_pages_tree')
         fixture.setUp()
         fixture.native_descriptor = True
         self.addCleanup(fixture.tearDown)
@@ -47,8 +47,8 @@ class PublicTransportTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr.decode())
         source = root / 'publication-source/.github/scripts'
         source.mkdir(parents=True)
-        shutil.copy2(ROOT / '.github/scripts/rald5_publication.py', source)
-        for name in ['release_heads.py', 'rald3_preflight.py', 'release_components.py', 'runtime_inputs.py']:
+        shutil.copy2(ROOT / '.github/scripts/release_publication.py', source)
+        for name in ['release_heads.py', 'release_preflight.py', 'release_components.py', 'runtime_inputs.py']:
             shutil.copy2(ROOT/'.github/scripts'/name, source)
         urls = {}
         for signed in (current, fixture.signed):
@@ -188,7 +188,7 @@ class PublicTransportTests(unittest.TestCase):
                 destination.mkdir()
                 env.update(root=str(destination), authority=str(fixture.public_key), candidate=CANDIDATE)
                 actual = script + '\nfetch_generation "$candidate" "https://humtr.github.io/codex/$candidate/update-index-v1" true\n'
-                actual += 'python3 publication-source/.github/scripts/rald5_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "https://humtr.github.io/codex/$candidate/" --require-download-size\n'
+                actual += 'python3 publication-source/.github/scripts/release_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "https://humtr.github.io/codex/$candidate/" --require-download-size\n'
                 result = subprocess.run(['bash', '-ec', actual], cwd=root, env=env,
                                         text=True, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1200:])
@@ -232,7 +232,7 @@ class PublicTransportTests(unittest.TestCase):
                 env.update(root=str(destination), authority=str(fixture.public_key), candidate=generation)
                 index = github+'candidate-update-index-v1'
                 actual = script + '\nfetch_generation "$candidate" "'+index+'" true\n'
-                actual += 'python3 publication-source/.github/scripts/rald5_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "'+canonical_release_base(generation)+'" --require-download-size\n'
+                actual += 'python3 publication-source/.github/scripts/release_publication.py verify-public --root "$root" --public-key "$authority" --generation "$candidate" --release-sequence 12 --release-base "'+canonical_release_base(generation)+'" --require-download-size\n'
                 result = subprocess.run(['bash', '-ec', actual], cwd=root, env=env,
                                         text=True, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1200:])

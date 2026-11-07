@@ -22617,7 +22617,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald45_transition_signal_preserves_public_doctor_semantics() {
+    fn test_legacy_transition_signal_preserves_public_doctor_semantics() {
         assert_eq!(
             public_doctor_capability(
                 R10_BROWSER_HELPER_BRIDGE_METADATA,

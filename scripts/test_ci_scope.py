@@ -9,7 +9,7 @@ class ScopeTests(unittest.TestCase):
     def test_changed_paths(self):
         for paths,want in [(['README.md','CURRENT.md'],'docs'),([], 'docs'),
                            (['scripts/check.sh','SPEC.md'],'python'),
-                           (['.github/scripts/rald4_signing.py'],'python'),
+                           (['.github/scripts/release_signing.py'],'python'),
                            (['scripts/test_ci_scope.py','crates/core/src/main.rs'],'full'),
                            (['Cargo.lock'],'full'),(['install.sh'],'full'),
                            (['.github/workflows/auto-release-termux.yml'],'full'),

@@ -9,8 +9,8 @@ from io import BytesIO
 from urllib.error import HTTPError
 
 import release_heads as channel
-from rald3_preflight import PACKAGE_IDENTITY
-from rald5_publication import BASE_FILES, EXPECTED_FILES, EXTENDED_FILES, ValidationError
+from release_preflight import PACKAGE_IDENTITY
+from release_publication import BASE_FILES, EXPECTED_FILES, EXTENDED_FILES, ValidationError
 
 
 class ReleaseHeadsTests(unittest.TestCase):

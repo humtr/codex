@@ -10,8 +10,8 @@ import unittest
 from unittest.mock import patch
 
 import release_components as component
-import rald5_publication as publication
-import test_rald5_publication as fixtures
+import release_publication as publication
+import test_release_publication as fixtures
 
 ROOT=Path(__file__).resolve().parents[2]
 BASE='local-base-relay-hosted-owned-s60'
@@ -93,7 +93,7 @@ class ComponentsTests(unittest.TestCase):
         return assets,controls
 
     def test_signed_base_and_addons_reconstruct_complete_full_and_reject_wrong_base(self):
-        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')
         base,controls=self.signed_assets(fixture,repo,BASE,True)
         full,_=self.signed_assets(fixture,repo,FULL)
@@ -138,7 +138,7 @@ class ComponentsTests(unittest.TestCase):
             with self.assertRaises(publication.ValidationError):publication.canonical_release_base(invalid)
 
     def test_changed_payload_publication_flattens_base_and_reuses_unchanged_addons(self):
-        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')
         old_base_id='local-base-relay-hosted-old-s10'
         old_full_id='local-relay-hosted-old-s11'
@@ -224,7 +224,7 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr.decode())
 
     def test_display_metadata_is_signed_manifest_bound_and_matches_actual_base(self):
-        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')
         with patch.object(fixtures,'SEQUENCE','10'):
             _,base=self.signed_assets(fixture,repo,BASE,True)
@@ -245,7 +245,7 @@ class ComponentsTests(unittest.TestCase):
         component.compose(full,base,fixture.public_key)
 
     def test_failed_full_repair_acquires_latest_base_not_the_serving_full(self):
-        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'source')
         assets,_=self.signed_assets(fixture,repo,BASE,True)
         heads=fixture.root/'heads';heads.mkdir()
@@ -271,8 +271,8 @@ class ComponentsTests(unittest.TestCase):
 
     def test_core_only_change_reuses_signed_runtime_without_fetching_old_core(self):
         from test_base_qualification import BaseQualificationTests
-        from rald3_preflight import parse_descriptor, verify_base_candidate
-        fixture=fixtures.Rald5PublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        from release_preflight import parse_descriptor, verify_base_candidate
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         repo=self.repository(fixture.root/'runtime-source')
         from test_runtime_inputs import PRODUCER_FILES
         for name in PRODUCER_FILES:

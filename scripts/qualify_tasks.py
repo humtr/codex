@@ -21,7 +21,7 @@ import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
-from rald5_publication import parse_manifest, raw_public_key
+from release_publication import parse_manifest, raw_public_key
 
 
 class Ws:

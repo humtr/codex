@@ -44,7 +44,7 @@ def qualify(args):
     helpers = ('scripts/qualify_provider_product.py', 'scripts/qualify_permission_lifecycle.py',
                'scripts/clean_development.py',
                'scripts/qualify_tasks.py', 'scripts/fixtures/permission-model.json',
-               '.github/scripts/rald3_preflight.py', '.github/scripts/rald5_publication.py')
+               '.github/scripts/release_preflight.py', '.github/scripts/release_publication.py')
     inputs['helpers'] = {}
     for name in helpers:
         copied = root / 'source' / name

@@ -43,8 +43,8 @@ class QualificationInputs(unittest.TestCase):
             q.source_dependencies({"scripts/qualify_provider_operator.py": "hash"})
         q.source_dependencies({name: "hash" for name in (
             "scripts/qualify_provider_operator.py", "scripts/qualify_permission_lifecycle.py",
-            "scripts/qualify_tasks.py", ".github/scripts/rald3_preflight.py",
-            ".github/scripts/rald5_publication.py", "scripts/fixtures/permission-model.json")})
+            "scripts/qualify_tasks.py", ".github/scripts/release_preflight.py",
+            ".github/scripts/release_publication.py", "scripts/fixtures/permission-model.json")})
     def test_unselected_schema_variants_cannot_hide_unsupported_constraints(self):
         with self.assertRaises(q.InvalidInputs):
             q.validate("valid", {"anyOf": [{"type": "string"}, {"unknownConstraint": True}]})

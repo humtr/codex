@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import tomllib
 
-from rald3_preflight import parse_upstream, stable_version, lower_sha256
+from release_preflight import parse_upstream, stable_version, lower_sha256
 from upstream_release import load
 
 LATEST='repos/openai/codex/releases/latest'

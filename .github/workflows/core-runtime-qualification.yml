@@ -9,7 +9,7 @@ on:
       - '.github/workflows/termux-runtime-source.yml'
       - '.github/scripts/runtime_inputs.py'
       - 'release/runtime-build-inputs-v1'
-      - '.github/scripts/rald3_preflight.py'
+      - '.github/scripts/release_preflight.py'
       - '.github/scripts/release_decision.py'
       - '.github/scripts/release_heads.py'
       - '.github/scripts/upstream_release.py'

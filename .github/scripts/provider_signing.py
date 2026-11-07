@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from rald4_signing import (SECRET_NAME, ed25519_raw_public, require_real_directory,
+from release_signing import (SECRET_NAME, ed25519_raw_public, require_real_directory,
                            require_regular_file, write_private_key)
 from provider_publication import verify
 

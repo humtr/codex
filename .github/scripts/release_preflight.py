@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
             print_kv(release_sequence=next_release_sequence(args.current))
         return 0
     except (PreflightError, OSError) as exc:
-        print(f"rald3 preflight: {exc}", file=sys.stderr)
+        print(f"release preflight: {exc}", file=sys.stderr)
         return 1
 
 

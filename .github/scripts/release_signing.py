@@ -156,7 +156,7 @@ def write_private_key(runner_temp: Path, secret: str) -> tuple[Path, Path]:
     encoded = secret.encode("utf-8")
     if not encoded or len(encoded) > PRIVATE_KEY_MAX_BYTES:
         fail("release signing secret is absent or outside its byte bound")
-    key_dir = Path(tempfile.mkdtemp(prefix=".rald4-signing-", dir=runner_temp))
+    key_dir = Path(tempfile.mkdtemp(prefix=".release-signing-", dir=runner_temp))
     key_dir.chmod(0o700)
     key_path = key_dir / "release-key.pem"
     fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         generation = sign(args)
     except (SigningError, OSError) as exc:
-        print(f"rald4 signing: {exc}", file=sys.stderr)
+        print(f"release signing: {exc}", file=sys.stderr)
         return 1
     print(f"signed_generation={generation}")
     return 0

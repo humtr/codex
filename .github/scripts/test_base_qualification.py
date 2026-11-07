@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-import rald3_preflight as preflight
+import release_preflight as preflight
 from test_manager_tui_producer import step
 
 
@@ -115,9 +115,9 @@ class BaseQualificationTests(unittest.TestCase):
                    'WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"\n')
         for fault in (None,'runtime-version','runtime-stderr','core-failure','stale-help'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp);candidate = root/'rald3-smoke/candidate';candidate.mkdir(parents=True)
+                root = Path(tmp);candidate = root/'candidate-smoke/candidate';candidate.mkdir(parents=True)
                 tools = root/'tools';tools.mkdir()
-                linker = root/'rald4-bionic/bin/linker64';linker.parent.mkdir(parents=True)
+                linker = root/'android-bionic-fixture/bin/linker64';linker.parent.mkdir(parents=True)
                 linker.write_text('#!/bin/sh\nprintf \'%s\\n\' \''+(usage if fault != 'stale-help' else 'usage: codex update --help')+'\'\nprintf \'%s\' \''+warning+'\' >&2\nexit '+('1' if fault=='core-failure' else '0')+'\n')
                 linker.chmod(0o755)
                 runtime = candidate/'runtime'

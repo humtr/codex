@@ -364,7 +364,7 @@ def prepare_assets(args: argparse.Namespace) -> None:
         } | component_names,
     )
     exact_entries(signed_root / "releases", {generation})
-    scratch = signed_root / ".rald5-publication-scratch"
+    scratch = signed_root / ".release-publication-scratch"
     if scratch.exists():
         fail("publication scratch path already exists")
     scratch.mkdir(mode=0o700)
@@ -485,7 +485,7 @@ def verify_public(args: argparse.Namespace) -> None:
     public_key = Path(args.public_key).resolve()
     generation = safe_generation(args.generation)
     release_dir = root / generation
-    scratch = root / ".rald5-publication-scratch"
+    scratch = root / ".release-publication-scratch"
     if scratch.exists():
         fail("publication scratch path already exists")
     scratch.mkdir(mode=0o700)
@@ -546,7 +546,7 @@ def main() -> int:
         else:
             raise AssertionError(args.command)
     except (ValidationError, OSError) as exc:
-        print(f"rald5 publication: {exc}", file=sys.stderr)
+        print(f"release publication: {exc}", file=sys.stderr)
         return 1
     return 0
 

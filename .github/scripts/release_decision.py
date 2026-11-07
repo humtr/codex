@@ -4,7 +4,7 @@ import argparse
 import re
 import sys
 
-from rald3_preflight import PreflightError, lower_sha256, positive_decimal, stable_version
+from release_preflight import PreflightError, lower_sha256, positive_decimal, stable_version
 
 
 def decide(a):

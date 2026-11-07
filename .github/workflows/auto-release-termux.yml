@@ -85,19 +85,19 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.producer.outputs.qualified_artifact_name }}
-          path: ${{ runner.temp }}/rald4-qualified-download
+          path: ${{ runner.temp }}/qualified-candidate-download
 
       - name: Reverify qualified candidate and accepted authority
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald4-sign"
+          work="$RUNNER_TEMP/release-signing"
           rm -rf "$work"
           mkdir -p "$work"
-          tar -xf "$RUNNER_TEMP/rald4-qualified-download/rald4-qualified.tar" -C "$work"
+          tar -xf "$RUNNER_TEMP/qualified-candidate-download/qualified-candidate.tar" -C "$work"
           mode=qualified-candidate
           if test '${{ inputs.release_variant }}' = base; then mode=base-candidate; fi
-          python3 source/.github/scripts/rald3_preflight.py "$mode" \
+          python3 source/.github/scripts/release_preflight.py "$mode" \
             "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
           test "$(sed -n 's/^generation_id\t//p' "$work/candidate/generation.meta")" = \
             '${{ needs.producer.outputs.generation_id }}'
@@ -132,17 +132,17 @@ jobs:
           cargo "+$RUST_VERSION" build --release --locked \
             --manifest-path source/Cargo.toml -p codex-release-builder
           test -x source/target/release/codex-release-builder
-          python3 source/.github/scripts/test_rald4_signing.py
+          python3 source/.github/scripts/test_release_signing.py
           python3 -m py_compile \
-            source/.github/scripts/rald4_signing.py \
-            source/.github/scripts/test_rald4_signing.py
+            source/.github/scripts/release_signing.py \
+            source/.github/scripts/test_release_signing.py
 
       - name: Authenticate exact base for release display
         if: inputs.release_variant == 'full'
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald4-sign"
+          work="$RUNNER_TEMP/release-signing"
           python3 source/.github/scripts/release_heads.py \
             --main-sha '${{ needs.producer.outputs.expected_main_sha }}' --variant full \
             --public-key "$work/update-public-key.pem" --output "$work/display-heads"
@@ -157,27 +157,27 @@ jobs:
           CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          release_base="$(python3 source/.github/scripts/rald5_publication.py release-base --generation '${{ needs.producer.outputs.generation_id }}')"
+          release_base="$(python3 source/.github/scripts/release_publication.py release-base --generation '${{ needs.producer.outputs.generation_id }}')"
           component_args=()
           if test '${{ inputs.release_variant }}' = full; then
-            component_args=(--component-base "$RUNNER_TEMP/rald4-sign/display-base")
+            component_args=(--component-base "$RUNNER_TEMP/release-signing/display-base")
           fi
-          python3 source/.github/scripts/rald4_signing.py \
-            --candidate "$RUNNER_TEMP/rald4-sign/candidate" \
-            --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
+          python3 source/.github/scripts/release_signing.py \
+            --candidate "$RUNNER_TEMP/release-signing/candidate" \
+            --accepted-public-key "$RUNNER_TEMP/release-signing/update-public-key.pem" \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
             --release-base "$release_base" \
             --builder "$GITHUB_WORKSPACE/source/target/release/codex-release-builder" \
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
-            --output "$RUNNER_TEMP/rald4-sign/signed-output" \
+            --output "$RUNNER_TEMP/release-signing/signed-output" \
             --component-source "$GITHUB_WORKSPACE/source" "${component_args[@]}"
 
       - name: Independently verify signed candidate
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/rald4-sign"
+          work="$RUNNER_TEMP/release-signing"
           signed="$work/signed-output"
           generation='${{ needs.producer.outputs.generation_id }}'
           authority="$work/update-public-key.pem"
@@ -200,8 +200,8 @@ jobs:
           test "$(sed -n 's/^generation_id\t//p' "$manifest")" = "$generation"
           test "$(sed -n 's/^generation_id\t//p' "$index")" = "$generation"
           actual_release_base="$(sed -n 's/^release_base\t//p' "$index")"
-          test "$actual_release_base" = "$(python3 source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
-          test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
+          test "$actual_release_base" = "$(python3 source/.github/scripts/release_publication.py release-base --generation "$generation")"
+          test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.release-signing-*' -print -quit)"
 
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/signed-candidate.tar" -C "$work" signed-output
@@ -211,7 +211,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ needs.producer.outputs.signed_artifact_name }}
-          path: ${{ runner.temp }}/rald4-sign/signed-candidate.tar
+          path: ${{ runner.temp }}/release-signing/signed-candidate.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -237,18 +237,18 @@ jobs:
           git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
           test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
-          python3 publication-source/.github/scripts/test_rald5_publication.py
-          python3 publication-source/.github/scripts/test_rald5_publication_contract.py
-          python3 publication-source/.github/scripts/test_rald5_promotion.py
+          python3 publication-source/.github/scripts/test_release_publication.py
+          python3 publication-source/.github/scripts/test_release_publication_contract.py
+          python3 publication-source/.github/scripts/test_release_promotion.py
           python3 -m py_compile \
-            publication-source/.github/scripts/rald5_publication.py \
-            publication-source/.github/scripts/rald5_promotion.py
+            publication-source/.github/scripts/release_publication.py \
+            publication-source/.github/scripts/release_promotion.py
 
       - name: Download signed candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.producer.outputs.signed_artifact_name }}
-          path: ${{ runner.temp }}/rald5-signed-download
+          path: ${{ runner.temp }}/signed-candidate-download
 
       - name: Verify and stage immutable Release assets
         id: stage
@@ -259,14 +259,14 @@ jobs:
           set -euo pipefail
           expected_main='${{ needs.producer.outputs.expected_main_sha }}'
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$expected_main"
-          work="$RUNNER_TEMP/rald5-stage"
+          work="$RUNNER_TEMP/signed-candidate-stage"
           rm -rf "$work"
           mkdir -p "$work"
-          tar -xf "$RUNNER_TEMP/rald5-signed-download/signed-candidate.tar" -C "$work"
+          tar -xf "$RUNNER_TEMP/signed-candidate-download/signed-candidate.tar" -C "$work"
           generation='${{ needs.producer.outputs.generation_id }}'
           sequence='${{ needs.producer.outputs.release_sequence }}'
           current='${{ needs.producer.outputs.current_generation }}'
-          release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
+          release_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$generation")"
           authority="$work/update-public-key.pem"
           assets="$work/release-assets"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -274,7 +274,7 @@ jobs:
             --output "$authority" \
             "https://github.com/humtr/codex/releases/download/$current/update-public-key.pem"
           test "$(sha256sum "$authority" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
-          python3 publication-source/.github/scripts/rald5_publication.py prepare-assets \
+          python3 publication-source/.github/scripts/release_publication.py prepare-assets \
             --signed-root "$work/signed-output" \
             --public-key "$authority" \
             --output "$assets" \
@@ -390,9 +390,9 @@ jobs:
           git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
           test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
-          python3 publication-source/.github/scripts/test_rald5_publication.py
-          python3 publication-source/.github/scripts/test_rald5_publication_contract.py
-          python3 publication-source/.github/scripts/test_rald5_promotion.py
+          python3 publication-source/.github/scripts/test_release_publication.py
+          python3 publication-source/.github/scripts/test_release_publication_contract.py
+          python3 publication-source/.github/scripts/test_release_promotion.py
 
       - name: Read back every signed candidate byte from public HTTPS
         shell: bash
@@ -400,7 +400,7 @@ jobs:
           set -euo pipefail
           test "$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')" = \
             '${{ needs.producer.outputs.expected_main_sha }}'
-          root="$RUNNER_TEMP/rald5-public"
+          root="$RUNNER_TEMP/publication-verification"
           rm -rf "$root"
           mkdir -p "$root"
           authority="$root/update-public-key.pem"
@@ -416,7 +416,7 @@ jobs:
             local generation="$1"
             local index_url="$2"
             local require_download_size="${3:-false}"
-            local release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
+            local release_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$generation")"
             local destination="$root/$generation"
             local map=""
             mkdir -p "$destination/helpers"
@@ -460,7 +460,7 @@ jobs:
           import sys
           from pathlib import Path
           sys.path.insert(0, 'publication-source/.github/scripts')
-          from rald5_publication import parse_manifest
+          from release_publication import parse_manifest
           values, files = parse_manifest(Path(sys.argv[1]))
           assert values['generation_id'] == sys.argv[2]
           for record in files:
@@ -522,13 +522,13 @@ jobs:
 
           current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/${{ needs.producer.outputs.current_index_path }}"
           fetch_generation "$current" "$current_index"
-          python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+          python3 publication-source/.github/scripts/release_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$current" \
             --release-sequence '${{ needs.producer.outputs.current_release_sequence }}' \
-            --release-base "$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$current")"
+            --release-base "$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$current")"
 
-          candidate_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$candidate")"
+          candidate_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$candidate")"
           release_url="https://github.com/humtr/codex/releases/download/$candidate"
           candidate_index="$release_url/candidate-update-index-v1"
           ready=false
@@ -570,7 +570,7 @@ jobs:
           assert 'display' in component(Path(sys.argv[1]),sys.argv[2],Path(sys.argv[3]))
           PYDISPLAY
 
-          python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+          python3 publication-source/.github/scripts/release_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$candidate" \
               --require-download-size \
@@ -586,7 +586,7 @@ jobs:
             command -v "$tool" >/dev/null
           done
           sudo test ! -e /system
-          root="$RUNNER_TEMP/rald5-bionic"
+          root="$RUNNER_TEMP/publication-bionic"
           rm -rf "$root"
           mkdir -p "$root/bin" "$root/lib64/bionic"
           apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
@@ -625,10 +625,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/rald5-public"
+          root="$RUNNER_TEMP/publication-verification"
           current='${{ needs.producer.outputs.current_generation }}'
           source="$root/$current"
-          destination="$RUNNER_TEMP/rald5-bootstrap-current"
+          destination="$RUNNER_TEMP/publisher-bootstrap-current"
           rm -rf "$destination"
           python3 - "$source" "$destination" <<'PYBOOT'
           import hashlib
@@ -700,13 +700,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/rald5-public"
+          root="$RUNNER_TEMP/publication-verification"
           current='${{ needs.producer.outputs.current_generation }}'
           candidate='${{ needs.producer.outputs.generation_id }}'
           version='${{ needs.producer.outputs.upstream_version }}'
-          export HOME="$RUNNER_TEMP/rald5-home"
-          export PREFIX="$RUNNER_TEMP/rald5-prefix"
-          export TMPDIR="$RUNNER_TEMP/rald5-tmp"
+          export HOME="$RUNNER_TEMP/publisher-home"
+          export PREFIX="$RUNNER_TEMP/publisher-prefix"
+          export TMPDIR="$RUNNER_TEMP/publisher-temp"
           mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
           export PATH="$PREFIX/bin:/usr/bin:/bin"
           export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
@@ -718,24 +718,24 @@ jobs:
           cp /bin/sh "$PREFIX/bin/sh"
           cp /etc/resolv.conf "$PREFIX/etc/resolv.conf"
           cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
-          bootstrap_current="$RUNNER_TEMP/rald5-bootstrap-current"
+          bootstrap_current="$RUNNER_TEMP/publisher-bootstrap-current"
           test ! -e "$bootstrap_current/compat"
           /bin/sh publication-source/bootstrap/codex-bootstrap \
             "$bootstrap_current/core" "$bootstrap_current" "$root/update-public-key.pem"
           test -x "$PREFIX/bin/codex"
 
-          candidate_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$candidate")"
+          candidate_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$candidate")"
           export CODEX_TERMUX_UPDATE_INDEX_URL="${candidate_base}update-index-v1"
           pre_version="$("$PREFIX/bin/codex" --version | sed -n 's/^codex-cli //p')"
           test -n "$pre_version"
-          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/first-update.out"
           if test "$pre_version" = "$version"; then
-            printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+            printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/first-update.expected"
           else
-            printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+            printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/first-update.expected"
           fi
-          printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
-          printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
+          printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/first-update.expected"
+          printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/first-update.expected"
           snapshot_publications() {
             local label="$1" display_base_generation
             publication_args=()
@@ -751,24 +751,24 @@ jobs:
           }
           snapshot_publications first
           python3 publication-source/.github/scripts/check_update_display.py \
-            --plain "$RUNNER_TEMP/rald5-first-update.expected" --actual "$RUNNER_TEMP/rald5-first-update.out" \
+            --plain "$RUNNER_TEMP/first-update.expected" --actual "$RUNNER_TEMP/first-update.out" \
             --component "$root/display/component-input-v1" --current "$root/$current/release.manifest" \
             --target "$root/$candidate/release.manifest" --allow-legacy "${publication_args[@]}"
           state="$HOME/.local/share/codex/core/activation-state"
           test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
           test "$(sed -n 's/^previous=//p' "$state")" = "$current"
           cmp "$PREFIX/bin/codex" "$root/$candidate/core"
-          "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/rald5-version.out"
-          printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/rald5-version.expected"
-          cmp "$RUNNER_TEMP/rald5-version.expected" "$RUNNER_TEMP/rald5-version.out"
+          "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/version-check.out"
+          printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/version-check.expected"
+          cmp "$RUNNER_TEMP/version-check.expected" "$RUNNER_TEMP/version-check.out"
           set +e
-          "$PREFIX/bin/codex" doctor --json > "$RUNNER_TEMP/rald5-doctor.out"
+          "$PREFIX/bin/codex" doctor --json > "$RUNNER_TEMP/doctor-check.out"
           doctor_rc=$?
           set -e
           test "$doctor_rc" -eq 0 -o "$doctor_rc" -eq 1
-          test -s "$RUNNER_TEMP/rald5-doctor.out"
-          test "$(wc -c < "$RUNNER_TEMP/rald5-doctor.out")" -lt 65536
-          python3 - "$RUNNER_TEMP/rald5-doctor.out" "$doctor_rc" "$candidate" <<'PY'
+          test -s "$RUNNER_TEMP/doctor-check.out"
+          test "$(wc -c < "$RUNNER_TEMP/doctor-check.out")" -lt 65536
+          python3 - "$RUNNER_TEMP/doctor-check.out" "$doctor_rc" "$candidate" <<'PY'
           import json
           from pathlib import Path
           import sys
@@ -844,15 +844,15 @@ jobs:
                       print(f"D\t{root}\t{rel}")
           PY
           }
-          snapshot > "$RUNNER_TEMP/rald5-before-noop"
-          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
-          printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
+          snapshot > "$RUNNER_TEMP/before-noop-update"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/second-update.out" 2> "$RUNNER_TEMP/second-update.err"
+          printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/second-update.expected"
           snapshot_publications current
           python3 publication-source/.github/scripts/check_update_display.py \
-            --plain "$RUNNER_TEMP/rald5-second-update.expected" --actual "$RUNNER_TEMP/rald5-second-update.out" \
+            --plain "$RUNNER_TEMP/second-update.expected" --actual "$RUNNER_TEMP/second-update.out" \
             --component "$root/display/component-input-v1" --current "$root/$candidate/release.manifest" \
             --target "$root/$candidate/release.manifest" "${publication_args[@]}"
-          python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
+          python3 - "$RUNNER_TEMP/second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
 
@@ -865,8 +865,8 @@ jobs:
           if unexpected:
               raise SystemExit(f"unexpected stderr from same-version exact-current proof: {unexpected!r}")
           PYERR
-          snapshot > "$RUNNER_TEMP/rald5-after-noop"
-          diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"
+          snapshot > "$RUNNER_TEMP/after-noop-update"
+          diff -u "$RUNNER_TEMP/before-noop-update" "$RUNNER_TEMP/after-noop-update"
 
       - name: Remove ephemeral bionic interpreter path
         if: always()
@@ -899,15 +899,15 @@ jobs:
           git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
           test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
-          python3 publication-source/.github/scripts/test_rald5_promotion.py
+          python3 publication-source/.github/scripts/test_release_promotion.py
 
           expected='${{ needs.producer.outputs.expected_main_sha }}'
           generation='${{ needs.producer.outputs.generation_id }}'
           current='${{ needs.producer.outputs.current_generation }}'
-          work="$RUNNER_TEMP/rald5-promote"
+          work="$RUNNER_TEMP/promotion-root"
           rm -rf "$work"
           mkdir -p "$work"
-          release_base="$(python3 publication-source/.github/scripts/rald5_publication.py release-base --generation "$generation")"
+          release_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$generation")"
           index_url="${release_base}update-index-v1"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --output "$work/update-index-v1" "$index_url"
@@ -956,7 +956,7 @@ jobs:
             sleep 2
           done
           test -n "$actual"
-          python3 publication-source/.github/scripts/rald5_promotion.py \
+          python3 publication-source/.github/scripts/release_promotion.py \
             --expected "$expected" \
             --new-commit "$new_commit" \
             --actual "$actual" \

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
-from rald5_publication import parse_manifest
+from release_publication import parse_manifest
 
 
 def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False):

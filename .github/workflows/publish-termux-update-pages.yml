@@ -74,7 +74,7 @@ jobs:
 
           test "$(sha256sum stage/update-public-key.pem | awk '{print $1}')" = \
             '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
-          python3 publication-source/.github/scripts/rald5_publication.py restore-assets \
+          python3 publication-source/.github/scripts/release_publication.py restore-assets \
             --assets stage --root site --public-key stage/update-public-key.pem \
             --generation "$GENERATION_ID" --release-sequence "$RELEASE_SEQUENCE" \
             --release-base "https://humtr.github.io/codex/$GENERATION_ID/"

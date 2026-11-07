@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-import test_rald5_publication as fixtures
+import test_release_publication as fixtures
 
 ROOT=Path(__file__).resolve().parents[2]
 BRIDGE='local-hosted-0-161-0-ab644771ac89-manager-tui-bridge'
@@ -20,7 +20,7 @@ class MigrationProcedureTests(unittest.TestCase):
         script=text.split('```sh\n',1)[1].split('```',1)[0]
         for fault in (None,'download','signature','runtime','local','channel'):
             with self.subTest(fault=fault):
-                fixture=fixtures.Rald5PublicationTests('test_verify_public_accepts_exact_pages_tree');fixture.setUp();self.addCleanup(fixture.tearDown)
+                fixture=fixtures.ReleasePublicationTests('test_verify_public_accepts_exact_pages_tree');fixture.setUp();self.addCleanup(fixture.tearDown)
                 with patch.object(fixtures,'GENERATION',BRIDGE),patch.object(fixtures,'BASE','https://humtr.github.io/codex/'+BRIDGE+'/'),patch.object(fixtures,'SEQUENCE','42'):
                     fixture.build_signed(frontend=False);assets=fixture.root/'assets';result=fixture.prepare(assets);self.assertEqual(result.returncode,0,result.stderr)
                 if fault=='signature':(assets/'release.sig').write_bytes(b'bad-signature')
@@ -40,7 +40,7 @@ for name in patterns:
                 (tools/'codex').write_text('#!'+sys.executable+'\n'+'''import hashlib,json,os,subprocess,sys
 from pathlib import Path
 sys.path.insert(0,os.environ['SCRIPTS'])
-from rald5_publication import parse_manifest
+from release_publication import parse_manifest
 a=sys.argv[1:]
 with open(os.environ['CALLS'],'a') as f:f.write(json.dumps(a)+'\\n')
 if a[1:2]==['--local']:

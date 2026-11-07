@@ -13,7 +13,7 @@ import sys
 import tempfile
 import tomllib
 
-from rald5_publication import (BASE_FILES, FLAT_ASSETS, ValidationError, canonical_release_base,
+from release_publication import (BASE_FILES, FLAT_ASSETS, ValidationError, canonical_release_base,
                                parse_manifest, sha256, verify_signature)
 from release_heads import download
 from runtime_inputs import fingerprint as runtime_fingerprint, cargo_dependencies, locked_packages
@@ -189,7 +189,7 @@ def acquire_runtime_base(source, heads, authority, destination, fetch=download):
     if provenance.get('runtime_inputs_sha256') != runtime_fingerprint(source,'HEAD',adapted=True):
         return None  # Historical metadata or genuinely changed runtime inputs.
     acquire_base_files(generation,destination,fetch,exclude={'core'})
-    from rald3_preflight import parse_descriptor
+    from release_preflight import parse_descriptor
     descriptor = parse_descriptor(destination/'generation.meta')
     recipe = json.loads(git(source,'show','HEAD:release/upstream.json'))['upstream']
     if (descriptor['upstream_package_version'] != recipe['version']
@@ -331,7 +331,7 @@ def compose(assets, base, authority, previous=None, fetch=download):
 
 
 def validate_map(value, generation):
-    from rald5_publication import safe_generation
+    from release_publication import safe_generation
     safe_generation(generation)
     if (not generation.startswith(('local-relay-hosted-','local-base-relay-hosted-'))
         or set(value) != {'schema','generation_id','base_generation','manifest_sha256','files'}

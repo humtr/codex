@@ -61,7 +61,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('force:true',text)
         self.assertIn('Bootstrap protected source state and update through immutable composition',text)
         self.assertIn('Prepare manifest-owned current generation bootstrap fixture',text)
-        self.assertIn('rald5-after-noop',text)
+        self.assertIn('after-noop-update',text)
         self.assertNotIn('same_version_acceptance',text)
         self.assertNotIn('legacy_lag_jump_remediation',text)
 

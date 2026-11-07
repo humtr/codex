@@ -11,8 +11,8 @@ import re
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from rald3_preflight import parse_descriptor
-from rald5_publication import (canonical_release_base, parse_index, parse_manifest,
+from release_preflight import parse_descriptor
+from release_publication import (canonical_release_base, parse_index, parse_manifest,
                                raw_public_key, verify_release_tree, verify_signature)
 
 HEADS = {'full': 'update-index-v1', 'base': 'update-index-base-v1'}

@@ -149,7 +149,7 @@ def reference(value):
 def source_dependencies(files):
     if "scripts/qualify_provider_operator.py" in files:
         require({"scripts/qualify_permission_lifecycle.py", "scripts/qualify_tasks.py",
-                 ".github/scripts/rald3_preflight.py", ".github/scripts/rald5_publication.py",
+                 ".github/scripts/release_preflight.py", ".github/scripts/release_publication.py",
                  "scripts/fixtures/permission-model.json"} <= set(files),
                 "source inventory omits transitive native fixture inputs")
 

@@ -12,7 +12,7 @@ import textwrap
 import unittest
 
 HERE = Path(__file__).resolve().parent
-SIGNER = HERE / "rald4_signing.py"
+SIGNER = HERE / "release_signing.py"
 
 
 class SigningBoundaryTests(unittest.TestCase):
@@ -187,7 +187,7 @@ class SigningBoundaryTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.called.exists())
         self.assertFalse((self.root / "signed-output").exists())
-        self.assertEqual(list(self.runner_temp.glob(".rald4-signing-*")), [])
+        self.assertEqual(list(self.runner_temp.glob(".release-signing-*")), [])
 
     def test_absent_secret_fails_closed(self) -> None:
         self._assert_failed_before_builder(self._invoke(None))
@@ -214,7 +214,7 @@ class SigningBoundaryTests(unittest.TestCase):
         result = self._invoke(secret)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
         self.assertTrue(self.called.exists())
-        self.assertEqual(list(self.runner_temp.glob(".rald4-signing-*")), [])
+        self.assertEqual(list(self.runner_temp.glob(".release-signing-*")), [])
         self.assertNotIn(secret.encode(), result.stdout + result.stderr)
         output = self.root / "signed-output"
         for path in output.rglob("*"):

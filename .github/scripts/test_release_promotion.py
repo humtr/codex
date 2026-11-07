@@ -4,7 +4,7 @@ import subprocess
 import sys
 import unittest
 
-SCRIPT = Path(__file__).with_name("rald5_promotion.py")
+SCRIPT = Path(__file__).with_name("release_promotion.py")
 EXPECTED = "1" * 40
 NEW = "2" * 40
 OTHER = "3" * 40
@@ -30,7 +30,7 @@ def run(actual: str, rc: str = "1") -> subprocess.CompletedProcess[bytes]:
     )
 
 
-class Rald5PromotionTests(unittest.TestCase):
+class ReleasePromotionTests(unittest.TestCase):
     def test_observed_new_commit_is_committed_even_after_ambiguous_api_rc(self) -> None:
         result = run(NEW, "1")
         self.assertEqual(result.returncode, 0, result.stderr.decode())

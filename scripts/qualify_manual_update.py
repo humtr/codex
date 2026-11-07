@@ -136,7 +136,7 @@ def probe(args):
             payload_urls[base+'release.json']='current-upstream.json'
             payload_urls[base+'codex-package-aarch64-unknown-linux-musl.tar.gz']=str(archive)
         if args.mode == 'publication-arrives':
-            from rald3_preflight import parse_descriptor
+            from release_preflight import parse_descriptor
             next_fields = parse_descriptor(args.next_generation / 'generation.meta')
             assert next_fields['upstream_package_version'] == latest
             next_identity = next_fields['generation_id']
@@ -269,7 +269,7 @@ def probe(args):
             assert selected['update_key']==prior['update_key']
             assert selected['current_key']!=selected['update_key']
             current=home/'.local/lib/codex/core/generations'/selected['current']
-            from rald3_preflight import parse_descriptor
+            from release_preflight import parse_descriptor
             assert parse_descriptor(current/'generation.meta')['upstream_package_version']==installed
             result['localRefreshPreservedUpstreamAndPublicAuthority']=True
         initial_current=dict(line.split('=',1) for line in initial.decode().splitlines() if '=' in line)['current']
@@ -349,7 +349,7 @@ def probe(args):
             assert selected['current'] == next_identity, selected
             assert selected['previous'] == initial_current, selected
             generation = home/'.local/lib/codex/core/generations'/next_identity
-            from rald3_preflight import parse_descriptor
+            from release_preflight import parse_descriptor
             assert parse_descriptor(generation/'generation.meta')['upstream_package_version'] == latest
             assert (home/'.codex/config.toml').read_bytes() == config_before
             result.update(installedVersion=latest,originalConfigurationPreserved=True,

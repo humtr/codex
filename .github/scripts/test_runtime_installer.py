@@ -12,7 +12,7 @@ PINNED_KEY_SHA256 = "62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2
 STABLE_GENERATION = "local-hosted-0-154-0-37fbbd8033b8-rald45-transition"
 
 
-class Rald6InstallerContract(unittest.TestCase):
+class RuntimeInstallerContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = INSTALLER.read_text()

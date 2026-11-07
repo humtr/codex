@@ -5,9 +5,9 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
-import rald5_publication as publication  # noqa: E402
+import release_publication as publication  # noqa: E402
 
-GENERATION = "local-rald5-contract-1"
+GENERATION = "local-publication-contract-1"
 
 
 def manifest_lines() -> list[str]:
@@ -28,7 +28,7 @@ def manifest_lines() -> list[str]:
     return lines
 
 
-class Rald5PublicationContractTests(unittest.TestCase):
+class ReleasePublicationContractTests(unittest.TestCase):
     def test_base_variant_is_bound_to_its_signed_identity_and_exact_inventory(self):
         lines = manifest_lines()
         lines[1] = 'generation_id\tlocal-base-hosted-0-163-0-proof-s12'
@@ -44,7 +44,7 @@ class Rald5PublicationContractTests(unittest.TestCase):
             publication.parse_manifest(self.write_manifest(full))
 
     def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory(prefix="rald5-contract-")
+        self.temp = tempfile.TemporaryDirectory(prefix="publication-contract-")
         self.root = Path(self.temp.name)
 
     def tearDown(self) -> None:

@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import unittest
 
-import test_rald5_publication as fixtures
+import test_release_publication as fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / '.github/workflows/rald7-full-acceptance.yml'
@@ -78,7 +78,7 @@ class SourceAcceptanceTests(unittest.TestCase):
         script = textwrap.dedent(block.split('        run: |\n', 1)[1])
         with tempfile.TemporaryDirectory(prefix='release-archive-') as temp:
             root = Path(temp)
-            work = root / 'rald3-candidate'
+            work = root / 'unsigned-candidate'
             candidate = work / 'candidate'
             candidate.mkdir(parents=True)
             for rel in ['core', 'manager', 'runtime', 'codex-code-mode-host',

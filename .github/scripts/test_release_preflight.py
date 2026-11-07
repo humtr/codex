@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("rald3_preflight", HERE / "rald3_preflight.py")
+SPEC = importlib.util.spec_from_file_location("release_preflight", HERE / "release_preflight.py")
 assert SPEC and SPEC.loader
 M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)

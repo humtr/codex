@@ -58,7 +58,7 @@ def main() -> int:
     try:
         classify(args.expected, args.new_commit, args.actual, args.update_rc)
     except ValidationError as exc:
-        print(f"rald5 promotion: {exc}", file=sys.stderr)
+        print(f"release promotion: {exc}", file=sys.stderr)
         return 1
     return 0
 

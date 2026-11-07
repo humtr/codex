@@ -15,7 +15,7 @@ spec = importlib.util.spec_from_file_location(
 )
 qualification = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qualification)
-from rald5_publication import EXPECTED_FILES, ValidationError
+from release_publication import EXPECTED_FILES, ValidationError
 
 
 class ClosureTests(unittest.TestCase):

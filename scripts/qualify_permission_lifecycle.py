@@ -23,8 +23,8 @@ import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / '.github/scripts'))
-from rald3_preflight import parse_descriptor
-from rald5_publication import parse_manifest
+from release_preflight import parse_descriptor
+from release_publication import parse_manifest
 from qualify_tasks import Ws, fixture_activation_state
 
 

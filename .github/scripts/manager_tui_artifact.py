@@ -8,7 +8,7 @@ import stat
 import subprocess
 import sys
 
-from rald3_preflight import bounded_read, no_duplicate_object
+from release_preflight import bounded_read, no_duplicate_object
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/manager-tui"))
 from check_command_boundary import nonzero_tests
 from check_upstream_features import verify as verify_upstream_features

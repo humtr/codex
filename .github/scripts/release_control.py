@@ -19,7 +19,7 @@ import tempfile
 from manager_tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load, build_recipe, bind_frontend
 from release_components import base_fingerprint, verified_published_base
-from rald3_preflight import stable_version
+from release_preflight import stable_version
 
 from qualification_signal import (REPO, SOURCE_BRANCH, GitHubFailure, gh, api,
                                   owned_run, accepted_run, successful_run)

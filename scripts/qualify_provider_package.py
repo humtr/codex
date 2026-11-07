@@ -45,8 +45,8 @@ def qualify(args):
     inputs['generation_manifest'] = sha(args.generation / 'release.manifest')
     helpers = ('scripts/qualify_provider_package.py', 'scripts/qualify_permission_lifecycle.py',
                'scripts/qualify_tasks.py', 'scripts/fixtures/permission-model.json',
-               'scripts/clean_development.py', 'scripts/provider_qualification.py', '.github/scripts/rald3_preflight.py',
-               '.github/scripts/rald5_publication.py')
+               'scripts/clean_development.py', 'scripts/provider_qualification.py', '.github/scripts/release_preflight.py',
+               '.github/scripts/release_publication.py')
     inputs['helpers'] = {}
     # Freeze dirty source explicitly; do not label the binary as a clean HEAD build.
     paths = sorted({*source.glob('crates/core/src/**/*.rs'),

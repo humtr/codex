@@ -28,7 +28,7 @@ import time
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
-from rald3_preflight import parse_descriptor
+from release_preflight import parse_descriptor
 from qualify_tasks import fixture_activation_state, materialize_signed_generation
 from qualify_permission_lifecycle import fixture
 

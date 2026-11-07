@@ -8,8 +8,8 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).with_name("rald5_publication.py")
-GENERATION = "local-rald5-fixture-1"
+SCRIPT = Path(__file__).with_name("release_publication.py")
+GENERATION = "local-publication-fixture-1"
 SEQUENCE = "11"
 BASE = f"https://humtr.github.io/codex/{GENERATION}/"
 FILES = [
@@ -40,7 +40,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-class Rald5PublicationTests(unittest.TestCase):
+class ReleasePublicationTests(unittest.TestCase):
     def test_update_display_compact_and_detailed_preserve_changed_component_notes(self):
         from check_update_display import variants
         self.build_signed(frontend=True)
@@ -79,7 +79,7 @@ class Rald5PublicationTests(unittest.TestCase):
                 self.assertTrue(all(other + ' changes:' not in text for text in actual), (path, other))
 
     def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory(prefix="rald5-publication-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="release-publication-test-")
         self.root = Path(self.temp.name)
         self.private_key = self.root / "private.pem"
         self.public_key = self.root / "public.pem"
@@ -100,7 +100,7 @@ class Rald5PublicationTests(unittest.TestCase):
             path.write_bytes((f"fixture:{rel}\n").encode())
             path.chmod(mode)
         if getattr(self, 'native_descriptor', False):
-            from rald3_preflight import PACKAGE_IDENTITY
+            from release_preflight import PACKAGE_IDENTITY
             descriptor = '\n'.join([
                 'codex-local-generation-v2', 'generation_id\t'+GENERATION,
                 'upstream_package_identity\t'+PACKAGE_IDENTITY, 'upstream_package_version\t0.155.0',
