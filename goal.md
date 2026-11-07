@@ -47,3 +47,10 @@ Guardian, OpenAI <-> ChatGPT transitions, compaction, app/config/install lifecyc
 Android-browser login forwarding, actual resource boundaries and cumulative
 capabilities. Preserve profiles, user changes, Native history and rollback.
 Do not start extra Pro inference or change the default approval policy.
+
+Before Pro implementation, reconcile the current docs/runtime provenance and
+review `~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/` as evidence,
+not authority. The installed0.167 `--approve-for-me` implicit Linux sandbox
+shortcut is broken; actual-model scope denial remains failed. The first Pro
+handoff is read-only and must not reinterpret an explicit restricted profile
+as danger-full-access. Preserve 6.2's six-package implementation order.

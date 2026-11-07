@@ -1,5 +1,51 @@
 # Pro 인계: 기존 기능을 보존하는 구조 평탄화
 
+## 0. 현행 기준점과 첫 Pro 검토 단계 (2026-11-08 KST)
+
+이 문서는 현재 작업의 인계와 기존 결정·실패 증거를 함께 보존한다. **실행
+기준점은 아래 확인된 값과 `CURRENT.md` 상단이며, 아래 절의 예전 세션·릴리스
+기록은 별도로 표시된 역사/대안 자료**다. 시작 시 Git HEAD, 프로세스 이미지,
+운영 바인딩을 다시 읽고 원본 커밋과 실제 실행 바이너리를 혼동하지 않는다.
+
+- 문서 선작업 기준: `fix/attached-native-development-loop-20261106`의
+  `92a33c4821e836dd465c296c6015310d7c76ffec` 이후 변경. 실제 현재
+  커밋과 작업 트리 상태는 `git rev-parse HEAD`와 `git status`로 확인한다.
+  원격 `rewrite/rust-core`가 이 문서 기준을 가리키더라도 사용자의 로컬
+  `~/prj/codex` dirty 작업 트리를 자동 병합하거나 작업 공간으로 대체하지 않는다.
+- 실제 활성 Core/Manager/TUI: **Codex 0.167.0 Full153/Base152**,
+  제품 소스 `d3becae26b076a2e29697e24914f223493c7e084`, 별도 검증된
+  Frontend `45533d6a7e5bf50dad3aa9545717f36a6d52d9a9`, Full151 롤백 보존.
+  원본 업스트림 소스는 `release/upstream.json`의 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`.
+  0.167 **로컬 소스 컴파일은 미실시**이고, 서명 공개/Android 실증은 검증된
+  hosted runtime 산출물을 재사용해 통과했다. 기존 세션의 구 세대 app-server
+  프로세스는 독자적인 살아 있는 이미지일 수 있으므로 종료·정리를 추정하지 않는다.
+- 실제 Provider/MCP: 소스 `7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8`의
+  **unsigned 개발 후보**가 사용된 운영 바인딩과 별도 서명 Provider25를 구분한다.
+  17개 커넥터 스키마 갱신은 특정 실제 바인딩의 증거로만 취급한다.
+- 추가 감사의 원본: `~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/`
+  아래 `REPORT.md`, `FOLLOWUP.md`, `CLOSURE.md`, `AUTO_REVIEW_AUDIT.md`,
+  `GAP_AUDIT.md`. 가장 최근 감사에서 `--approve-for-me`의 Termux 시작 실패가
+  확인됐지만 수정·서명 배포되지 않았다. 실제 Native+합성 Guardian
+  allow/deny는 2/2 통과했어도 **실모델 Guardian의 명시적 금지 범위 거부는 과거
+  실패했으며 0.167에서 해결됐다는 증거가 없다.** 명시적 제한 프로필과
+  자동승인 프리셋의 설정 우선순위도 수정 시 보안 회귀 시험 대상이다.
+- Native NC-01~29는 **Partial 22 / Open 7 / 전체 완료 0**. 한정된 Provider
+  병렬 실행·fixture 증거는 모든 도구·Git·외부 효과의 동시성 보호가 아니다.
+  최신 실제 모델 후속 입력·steering, ChatGPT↔OpenAI 전환, compaction,
+  app/CDP 전달 불확실성은 미완료 조건으로 유지한다.
+
+**첫 Pro 단계는 독립적인 읽기 전용 재검증이다.** 실제 사용 가능한 도구
+카탈로그, 기존 source/work 소유권과 위 원본을 확인하고, 보고서의 주장과
+코드를 대조해 결함·잘못된 결론·수정 책임·우선순위를 먼저 보고한다.
+현재 Codex TUI에서 타임아웃이 없었다는 관찰을 ChatGPT 진입점의 복구
+증명으로 확대하지 않는다. 새로운 Native work나 모델 추론은 필요한
+이유·소유권·중복 방지 방법을 확인하기 전 자동 생성하지 않는다.
+기존 work의 후속 요청이면 지원되는 목록/join/attach를 먼저 확인하고,
+새 독립 연구가 명시적으로 필요한 경우에만 **현재 선언된 실제 스키마**로
+생성한다. 과거 `create/start/attach` 예시를 고정 API로 간주하지 않는다.
+이 첫 검토로 서명 릴리스·운영 정책·계정·사용자 대화·사용 중인
+runtime을 수정하지 않는다. 이후 구현은 6.2의 소유 순서에 연결한다.
+
 ## 1. 이번 인계의 범위
 
 사용자의 최신 지시는 Codex가 기본 소스·증거를 정돈한 뒤 Pro가 능동적으로
@@ -625,14 +671,17 @@ Auto Review와 Full Access를 유지하며 기본값 결정은 실제 비교 증
 
 ## 9. Pro에게 보낼 실행 프롬프트
 
-아래는 현재 개발 루프 실증 뒤의 인수용 프롬프트다. 운영 기본값 변경이나 추가
-Pro 추론을 요청한 기록은 아니다. 실제 인수 시 CURRENT와 원격 HEAD를 확인한다.
+아래는 현재 개발 루프 실증 뒤의 인수용 프롬프트다. **첫 단계는 위 0절의
+읽기 전용 독립 감사**다. 검토에 없는 새로운 모델 추론·Native 작업·운영 변경을
+묵시적으로 승인하지 않는다. 실제 인수 시 CURRENT와 원격 HEAD를 확인한다.
 
 ```text
 ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 평탄화와
 미완성 연결 작업을 인수해라. 기존 구현·준비안·경계도 독립적으로 평가하고,
 더 단순하고 올바른 구조가 있으면 재선정·재조정한 뒤 구현과 실제 실증까지
-수행해라. 짧은 초기 평가 후 승인된 범위에서 계속하고 보고서 작성만으로 멈추지 마라.
+수행해라. 단, **첫 단계에서는 읽기 전용으로 소스·증거·실제 바인딩을 확인해
+결함/수정 소유권/우선순위부터 보고하라.** 사용자에게 후속 구현을 위임받은 뒤
+승인된 범위에서 계속하고 보고서 작성만으로 전체 개발이 끝났다고 하지 마라.
 6절의 재조직 계획을 따르되 더 간결한 책임 배분이 입증되면 갱신해라. Codex의
 확대 선작업은 공통 요청 수명·TUI 연속 작업·동일 Provider의 진입점 인계다.
 현재 완료됐다고 가정하지 말고 최신 CURRENT를 확인한다.
@@ -678,7 +727,9 @@ effort 유지, 추론 중 steering/queue 편집/취소, 빈 최종 응답·준�
 작동하는 코드의 출발 후보: fix/attached-native-development-loop-20261106 최신 원격 HEAD
 실제 개발 Provider/MCP 후보의 소스: 7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8
 별도 Native 전환 후보: prep/pro-baseline-20261106 (현재 서명 Native에는 미적용)
-먼저 PRO_HANDOFF.md 전체, AGENTS.md, SPEC.md4.5–4.6, CURRENT.md, goal.md,
+먼저 이 문서 0절과 PRO_HANDOFF.md 전체, AGENTS.md, SPEC.md4.5–4.6,
+CURRENT.md, goal.md, 운영 근거인 `~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/`
+아래 `GAP_AUDIT.md`·`AUTO_REVIEW_AUDIT.md`, 필요할 때
 providers/chatgpt/LINUX_APP.md를 읽어라. 복구/컴팩션/인수 뒤에는 실제 AGENTS.md를
 다시 읽고 현재 diff·새 경로·미해결 사항을 확인하되 통과한 검사를 재시작하지 마라.
 
@@ -697,11 +748,15 @@ Native 작업의 workspace에는 선택한 실제 기기 worktree의 절대 경�
 이전 Pro work_id: 81f001ccecc1753339b40098bffc5a3e60c57dd63b14a0ea
 이 ID와 CURRENT의 시험 ID는 출처 참고다. 네 연구 세션으로 위장하거나 과거
 할당 claim/join을 선행 조건으로 삼지 마라. 본인의 실제 세션/Native thread/work
-ID, 선택한 기준 commit과 브랜치를 기록해라. Bridge가 도구 접근 수단이면 현재
-응답에 연결할 연구 작업을 하나 만들고 create(inference=attached, 안정적인
-call_id) → start(원본 전체 과제) → attach 읽기/receipt 수락 → tools를 따른다.
-create에는 task/model/effort/mode를 넣지 마라. 불확실한 요청은 원래 ID/인자로
-회수하고 중복 작업을 만들지 마라. 현재 Pro를 유지하고 별도 Pro 추론을 제출하지 마라.
+ID, 선택한 기준 commit과 브랜치를 기록해라. **먼저 Bridge의 실제 최신
+native_catalog 및 등록 세션 목록/상태를 읽고, 이 단계의 읽기 전용 작업에
+새 Native 할당이 필요한지 판별한다.** 이미 현재 응답에 붙은 작업이나
+사용자가 지정한 동일 work가 있으면 지원되는 join/attach/도구 경로를 따른다.
+새 작업이 필요한 경우에만 그때 확인한 생성·시작·연결 스키마와 실제
+사용 가능한 입력을 사용한다. 예전 create/start/attach와 inference=attached
+계약은 역사적 증거이지 새로운 호출 인자 선언이 아니다. 불확실한 요청은
+원래 call_id/인자로 회수하고 중복 작업을 만들지 마라. 현재 Pro를 유지하고
+별도 Pro 추론을 제출하지 마라.
 
 개발 루프의 검증 범위를 재사용해라. Native 정책은 create 때만 선택 가능하다:
 Auto Review는 approval_policy=on-request, approvals_reviewer=auto_review;

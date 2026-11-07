@@ -5470,13 +5470,15 @@ construction; an independently active cache owner is a cause-specific failure.
 Before recovering incomplete output, also detect surviving native children whose
 owner exited and released its lease. Preserve their source and outputs.
 Only fully admitted source output enters the ordinary generation builder/signing
-and rollback path. The admitted bundled native tuple is now0.166.0 with Rust1.99.1,
-following actual Termux source compilation, local signing, execution and rollback.
-The preceding0.165 tuple remains recorded in Git and retained Core packages;
-the bundled native target advances independently of installed/rollback runtimes.
-Current minimum acceptance prioritizes the Base0.164→0.166 product path;
-future source recipes and broader module combinations retain their
-separate qualification requirements.
+and rollback path. The selected source tuple follows `release/upstream.json`,
+currently 0.167.0; selection does not imply its local build has been qualified.
+The last independently executed Termux local source-build proof was for 0.166.0
+with Rust 1.99.1, including local signing, execution and rollback. The operating
+0.167.0 signed Full153/Base152 instead reused its separately qualified hosted
+runtime artifact and passed its Android and publication gates. Local 0.167.0
+source compilation remains unperformed. The earlier 0.165 and 0.166 proofs stay
+historical, not implicit acceptance of future local source recipes or module
+combinations. Local and hosted paths retain their own qualification requirements.
 
 Ordinary local results use the existing device-local derived signing authority and
 retain the admitted public update key/baseline. A configured signer whose public

@@ -41,12 +41,15 @@ manual create/start/repair sequence for ordinary work. A model route is not a
 task identity, and renewing a remote Chat does not require another Native thread.
 MCP alone is not proof that every host message was observed or recorded.
 
-**Qualification remains specific to the tested boundary.** Operating Core /
-Manager/TUI151/150 and the actual attached Bridge development loop are verified;
-new real-model TUI steering and follow-up trials fail. Cross-provider transitions,
-compaction and broader lifecycle recovery remain incomplete. Read
-[CURRENT](CURRENT.md) for the operating baseline, next upstream target and exact
-proof limits before treating a release number as complete product acceptance.
+**Qualification remains specific to the tested boundary.** The signed and
+activated operating Core/Manager/TUI is Codex 0.167.0 Full153/Base152, with
+Full151 retained for rollback. Its registered Bridge Native development proof
+does not close the previously reported real-model TUI steering/follow-up failures,
+Guardian scope-denial failure, cross-provider transitions, compaction or broader
+lifecycle recovery. The operating Provider/MCP is a separate unsigned development
+candidate, not a signed Full153 component. Read [CURRENT](CURRENT.md) for the
+exact source, client and device proof limits before treating a release number
+as complete product acceptance.
 
 The source protocol uses `inference=attached|submitted`. Native integrated work
 and intentionally threadless standalone tools remain distinct execution scopes;
@@ -87,7 +90,7 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 The current priority is architecture and entrance continuity: one Native task,
 coherent model transitions, reusable context and configured service/app lifetime.
-[CURRENT](CURRENT.md#current-architecture-review-and-operating-boundary) separates
+[CURRENT](CURRENT.md#active-operating-deployment) separates
 the revised contract from actual implementation and operating acceptance, with
 the next implementation dependencies. Earlier A–H proofs retain their original
 scope; signed delivery and device activation remain distinct. Existing sessions
@@ -478,7 +481,11 @@ time without receiving additional bytes, so a progressing slow download can
 finish; connection and control-request deadlines remain bounded. Already retained
 target/current payloads are verified and reused before downloading them again.
 Local source construction prepares the qualified toolchain/dependencies and
-builds the bundled qualified source tuple (currently0.166 with Rust1.99.1).
+targets the version selected by `release/upstream.json` (currently 0.167.0).
+The last separately executed on-device local source-build proof is for 0.166.0
+with Rust 1.99.1; local source compilation of 0.167.0 has not been performed.
+The signed 0.167.0 delivery used an independently qualified hosted runtime
+artifact, with separate Android and publication acceptance.
 Recognized older binary-adaptation recipes remain available. Unknown source or
 patch patterns stop with a specific reason; arbitrary future-version builds are
 not promised. Ready signed releases need no local compiler.
@@ -776,8 +783,8 @@ Actual standalone lifecycle proof is reproducible with
 `scripts/qualify_core_independence.py --help`, using disposable roots and a fresh
 fixture signing key, with no real account or Chat request.
 
-The repository owns its development rules in `AGENTS.md`, optimized for
-GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.
+The repository owns its development rules in `AGENTS.md` across selected models.
+Use concise context, direct implementation and calibrated reasoning.
 `scripts/check.sh docs`, `python`, `rust`, `provider`, or `full` selects the relevant
 gate. The independent `provider` gate needs qualified Bun for app-bridge and
 development CDP tests;
@@ -790,11 +797,13 @@ The same Rust library also owns `build-runtime` and `verify-runtime`, used by
 CI for source compilation and transferred artifact checks. Python remains for
 independent development tests and CI input metadata/wiring. Core connects native
 source preparation/build to ordinary signing/installation for its qualified tuple.
-Actual Android0.166 source compilation, signing, installation, execution and
-0.164 rollback pass through a resumed owned compiler cache. The final Core also
-verifies/reuses that completed artifact without recompiling. This is distinct
-from an uninterrupted empty-cache build. Exact source, public delivery, device
-activation and remaining work are recorded in
+The earlier Android 0.166 source compilation, signing, installation, execution
+and 0.164 rollback passed through a resumed owned compiler cache; that proof
+does not qualify local 0.167 compilation. The operating 0.167 Full153/Base152
+release instead passed its exact hosted/native-source and Android publication
+gates, signed public readback and device activation, retaining Full151 for
+rollback. Exact source, public delivery, device activation and remaining work
+are recorded in
 [CURRENT](CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.

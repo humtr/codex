@@ -1,8 +1,9 @@
 # Development in humtr/codex
 
-Maintain a small Termux compatibility layer for upstream Codex. These rules are
-optimized for GPT-6.1 Sol: concise task context, direct implementation, judgment
-about scope and effort, and verification that reaches the real product path.
+Maintain a small Termux compatibility layer for upstream Codex. These rules
+apply across selected development models: concise task context, direct
+implementation, judgment about scope and effort, and verification that reaches
+the real product path.
 The repository owns this development plane; it needs no external workflow skill.
 
 ## Collaboration principles

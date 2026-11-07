@@ -70,6 +70,40 @@ explicit high effort remains a Pro finding. The old Manager-removal fixture's
 own Manager query after removal remains a failed fixture, not proof of a Core
 dependency; the accepted controlled-app Full case retains Manager.
 
+### Documentation and Pro review readiness (2026-11-08 KST)
+
+Read-only verification against the actual activation-state and running process
+images confirms selected153 and retained151, while already-running sessions may
+still use older pinned app-server images. The checkout HEAD used for this
+documentation review began at92a33c4; the accepted release **product source**
+is d3becae, independent qualified **frontend**45533d6, official upstream0.167.0
+commit086ccc8, and operating Provider/MCP source7471ed7 is an **unsigned
+development** candidate, not the signed Provider25. Distinguish these identities
+from the later documentation commit. `release/upstream.json` selects0.167.0;
+actual local0.167 source compilation has **not** been performed, despite signed
+hosted-artifact/Android acceptance.
+
+The original audits are retained outside the checkout at
+`~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/`, including
+`REPORT.md`, `FOLLOWUP.md`, `CLOSURE.md`, `AUTO_REVIEW_AUDIT.md` and
+`GAP_AUDIT.md`. Confirmed unclosed defect: the installed0.167 `--approve-for-me`
+CLI shortcut injects unsupported `workspace-write` and exits before TUI startup;
+the source fix, restricted-profile no-downgrade regression and signed delivery
+remain pending. Native runtime+synthetic Guardian allow/deny tests passed2/2;
+they do not establish a fresh live-model Guardian denial. The earlier forbidden
+scratch deletion actually received Guardian allow and executed: never mark this
+security acceptance complete from wiring tests. An isolated `config/read` check
+confirmed that an explicit danger-full-access CLI override wins over an otherwise
+restricted named profile; any implicit shortcut adaptation must fail closed
+against explicit restricted or managed policy.
+
+NC-01..29 current status is Partial22, Open7, completed0. Pro's first step is
+independent **read-only** source/evidence/binding review under `PRO_HANDOFF.md`
+section0; successful current Codex TUI input alone does not close historical
+ChatGPT-entry timeout or actual-model steering. Subsequent implementation remains
+under the original section6.2 six-package dependency order, without creating
+another competing implementation route or requalifying unchanged accepted inputs.
+
 ### Required upstream upgrade and new real-TUI findings
 
 The continuous-upgrade implementation is admitted at exact source
