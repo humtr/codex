@@ -55,8 +55,8 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = "$sha"
           # Do not execute a newly fetched privileged controller until that exact
           # repository-owned source has passed the full source acceptance gate.
-          gh api "repos/humtr/codex/actions/workflows/rald7-full-acceptance.yml/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/source-runs.json"
-          if jq -e --arg sha "$sha" '.workflow_runs | any(.head_sha==$sha and .path==".github/workflows/rald7-full-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and (.event=="push" or .event=="workflow_dispatch") and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/source-runs.json"; then
+          gh api "repos/humtr/codex/actions/workflows/source-acceptance.yml/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/source-runs.json"
+          if jq -e --arg sha "$sha" '.workflow_runs | any(.head_sha==$sha and .path==".github/workflows/source-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and (.event=="push" or .event=="workflow_dispatch") and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/source-runs.json"; then
             echo 'accepted=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Fetch accepted controller for discovery and failure reporting
@@ -67,9 +67,14 @@ jobs:
           main="$(gh api repos/humtr/codex/git/ref/heads/main --jq '.object.sha')"
           accepted="$(gh api "repos/humtr/codex/contents/release-source-v1?ref=$main" --jq '.content' | base64 -d)"
           [[ "$accepted" =~ ^[0-9a-f]{40}$ ]]
+          # The already-pinned source predates the workflow rename. Its old
+          # exact-run proof is historical controller authority, never proof for
+          # the newly fetched candidate. Replace this check when the accepted
+          # source pointer first moves to a source-acceptance-qualified commit.
           for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
-            gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$accepted&per_page=100" \
-              --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and .repository.full_name=="humtr/codex" and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch"))' | grep -Fqx true
+            gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$accepted&per_page=100" > "$RUNNER_TEMP/accepted-runs.json"
+            jq -e --arg sha "$accepted" --arg path ".github/workflows/$workflow" \
+              '.workflow_runs | any(.head_sha==$sha and .path==$path and .conclusion=="success" and .status=="completed" and .repository.full_name=="humtr/codex" and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch"))' "$RUNNER_TEMP/accepted-runs.json" > /dev/null
           done
           git init accepted-controller
           git -C accepted-controller remote add origin https://github.com/humtr/codex.git
