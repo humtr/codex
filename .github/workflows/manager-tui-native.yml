@@ -42,6 +42,7 @@ jobs:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
       CARGO_PROFILE_RELEASE_STRIP: 'symbols'
       CARGO_BUILD_JOBS: '3'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/upstream/codex-rs/target
       CODEX_PROFILE_CORE: ''
     steps:
       - name: Validate qualification selection

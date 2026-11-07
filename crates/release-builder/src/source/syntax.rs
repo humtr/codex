@@ -118,6 +118,19 @@ impl<'a> Edits<'a> {
     fn set(&mut self, span: Span, value: impl Into<String>) {
         self.edits.push((span.byte_range(), value.into()));
     }
+    fn remove_statement(&mut self, span: Span) {
+        let mut range = span.byte_range();
+        let start = self.text[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        let end = self.text[range.end..]
+            .find('\n')
+            .map_or(self.text.len(), |at| range.end + at);
+        if self.text[start..range.start].trim().is_empty()
+            && self.text[range.end..end].trim().is_empty()
+        {
+            range = start..(end + usize::from(end < self.text.len()));
+        }
+        self.edits.push((range, String::new()));
+    }
     fn insert(&mut self, at: usize, value: impl Into<String>) {
         self.edits.push((at..at, value.into()));
     }

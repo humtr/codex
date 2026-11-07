@@ -260,8 +260,8 @@ pub(super) fn adapt(
                         "permissions popup: read-only preset has additional consumers".into(),
                     );
                 }
-                edits.set(statement.span(), "");
-                edits.set(declarations[0].span(), "");
+                edits.remove_statement(statement.span());
+                edits.remove_statement(declarations[0].span());
                 let choices: Vec<_> = nodes
                     .exprs
                     .iter()

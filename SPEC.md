@@ -76,6 +76,16 @@ is still qualifying; Full remains on its previous accepted composition until its
 new frontend result is admitted. Historical embedded frontend references remain
 readable for retained sources; new results use the composition record.
 
+The hosted executor can restore a completed raw build only by its exact existing
+production-input fingerprint. The common verifier checks the complete raw
+inventory, binary digest, official source/version, dependency audit and ELF before
+transfer. A failed cache check fails the job; it does not silently rebuild or
+admit the artifact. Cache reuse skips compilation, not source admission, Android
+qualification, signing or public readback. Public signed Base retention remains
+the durable runtime reuse boundary. Each executor owns its compiler profile;
+the shared schema writer inherits that profile and never substitutes another
+component's code-generation settings.
+
 Local and hosted builds derive the same official source tuple. Explicit executor
 toolchain profiles retain their own qualification; they must not independently
 pin different upstream versions. Core-only admission and activation never acquire

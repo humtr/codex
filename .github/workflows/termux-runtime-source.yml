@@ -93,8 +93,21 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
             --manifest-path source/Cargo.toml --release --locked -p codex-release-builder
           echo "CODEX_RELEASE_BUILDER=$RUNNER_TEMP/source-tools/release/codex-release-builder" >> "$GITHUB_ENV"
-      - name: Restore reusable compile cache
+      - name: Restore completed raw build for identical production inputs
         if: steps.base.outputs.reuse_runtime != 'true'
+        id: raw-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/runtime-artifact
+          key: termux-raw-runtime-v1-${{ steps.recipe.outputs.fingerprint }}
+      - name: Verify restored raw build before qualification
+        if: steps.base.outputs.reuse_runtime != 'true' && steps.raw-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          "$CODEX_RELEASE_BUILDER" verify-runtime --artifact "$RUNNER_TEMP/runtime-artifact" \
+            --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
+      - name: Restore reusable compile cache
+        if: steps.base.outputs.reuse_runtime != 'true' && steps.raw-cache.outputs.cache-hit != 'true'
         id: cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -107,7 +120,8 @@ jobs:
             termux-source-musl-${{ env.RUST_VERSION }}-${{ env.UPSTREAM_SHA }}-
             termux-source-musl-${{ env.RUST_VERSION }}-
       - name: Build and verify through the shared runtime producer
-        if: steps.base.outputs.reuse_runtime != 'true'
+        id: build
+        if: steps.base.outputs.reuse_runtime != 'true' && steps.raw-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           patch_base="$("$CODEX_RELEASE_BUILDER" patch-base --patch "$GITHUB_WORKSPACE/source/crates/release-builder/src/native_route.patch")"
@@ -120,6 +134,12 @@ jobs:
             --target-dir "$CARGO_TARGET_DIR" \
             --rustc "$(command -v rustc)" --cargo "$(command -v cargo)" --openssl /usr/bin/openssl \
             --output "$RUNNER_TEMP/runtime-artifact"
+      - name: Cache completed raw build without granting admission
+        if: steps.build.outcome == 'success' && steps.raw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/runtime-artifact
+          key: termux-raw-runtime-v1-${{ steps.recipe.outputs.fingerprint }}
       - name: Retain runtime and preparation evidence
         if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -129,7 +149,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain reusable compile cache
-        if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.cache.outcome == 'success' && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |

@@ -1,10 +1,11 @@
 //! One Git merge path for maintained source patches. Git owns context and rename
 //! reconciliation; conflicts never modify the checkout or its real index.
 use super::{read, Result};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::DirBuilderExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const HEADER: &str = "# codex-upstream-base ";
@@ -84,7 +85,11 @@ fn oid(bytes: Vec<u8>) -> Result<String> {
     Ok(value.into())
 }
 
-pub(super) fn rebase(source: &Path, patch: &[u8]) -> Result<Vec<u8>> {
+pub(super) fn rebase(
+    source: &Path,
+    patch: &[u8],
+    changes: &BTreeMap<PathBuf, String>,
+) -> Result<Vec<u8>> {
     let base = base(patch)?;
     run(
         source,
@@ -114,6 +119,37 @@ pub(super) fn rebase(source: &Path, patch: &[u8]) -> Result<Vec<u8>> {
         let patched = oid(run(source, Some(&index), &["write-tree"], None)?)?;
         run(source, Some(&index), &["read-tree", "HEAD"], None)?;
         run(source, Some(&index), &["add", "-A", "--", "codex-rs"], None)?;
+        let original = oid(run(source, Some(&index), &["write-tree"], None)?)?;
+        for (path, text) in changes {
+            let relative = path
+                .strip_prefix(source)
+                .map_err(|e| e.to_string())?
+                .to_str()
+                .ok_or("non-UTF-8 adapted source path")?;
+            let mode = String::from_utf8(run(
+                source,
+                None,
+                &["ls-tree", "HEAD", "--", relative],
+                None,
+            )?)
+            .map_err(|e| e.to_string())?;
+            let mode = mode
+                .split_whitespace()
+                .next()
+                .ok_or("adapted source is not tracked")?;
+            let blob = oid(run(
+                source,
+                None,
+                &["hash-object", "-w", "--stdin"],
+                Some(text.as_bytes()),
+            )?)?;
+            run(
+                source,
+                Some(&index),
+                &["update-index", "--cacheinfo", mode, &blob, relative],
+                None,
+            )?;
+        }
         let prepared = oid(run(source, Some(&index), &["write-tree"], None)?)?;
         // Use commits for compatibility with Git versions that do not accept
         // standalone trees in merge-tree. No refs, config or public history change.
@@ -151,10 +187,11 @@ pub(super) fn rebase(source: &Path, patch: &[u8]) -> Result<Vec<u8>> {
             ],
             None,
         )?)?;
+        run(source, None, &["diff", "--check", &original, &merged], None)?;
         let rebased = run(
             source,
             None,
-            &["diff", "--binary", &prepared, &merged],
+            &["diff", "--binary", &original, &merged],
             None,
         )?;
         if !rebased.is_empty() {

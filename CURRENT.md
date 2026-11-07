@@ -109,12 +109,26 @@ one Rust/Git merge path with exact base metadata; real rename, conflict, prepare
 source and real-index tests pass. Source and composition mutations fail as
 expected and pass after restoration. Evidence stays under
 $TMPDIR/connectivity-repair-70jt4h2u/upstream167-0md6mz3a/.
-The prior full wrapper Rust gate and168 Python tests passed; affected checks
-cover final source changes before remote qualification. The controller now passes
-qualified frontend results through main's source-bound release-frontend-v1 rather
-than committing output references to development inputs and repeating Core proof.
+Exact source7a8ad9c passes remote Source acceptance42370988173, including the
+Android/AArch64 wrapper build and full workspace checks. TUI run42371007828 stops
+before generator execution because its new step referenced an undeclared
+CARGO_TARGET_DIR. Core run42370988171 compiles and executes the real upstream
+schema writer successfully in both stable/experimental modes, then stops at
+Git's whitespace gate: AST statement deletion left two indentation-only lines.
+The same official source reproduces those two errors locally. Original logs are
+retained; neither failed run qualifies a runtime or deployment.
+The follow-up fixes delete complete statement lines and merge calculated edits
+with the Native patch in one scratch tree, preflight before the single write,
+retain stdout diagnostics, and declare the executor's cache path. The schema
+producer now consumes Cargo's actual executable metadata, freezes one generator
+and runs both export modes without recompiling it between modes; executor build
+profiles remain authoritative. Eight affected source tests, including the actual
+Git whitespace gate, and strict workspace Clippy pass locally. New raw-build
+cache wiring re-verifies exact-input results before transfer and retains partial
+compiler output independently; real cache miss/hit qualification is pending.
 Hosted Core/Native compilation, signed delivery, activation and configured Bridge
-refresh remain unfinished. Operating151/runtime0.166 and rollback artifacts are unchanged.
+refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
+
 
 
 Under SPEC's permanent continuous-upstream-upgrade contract, the next target

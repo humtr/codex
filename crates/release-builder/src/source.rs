@@ -224,11 +224,8 @@ pub fn prepare(source: &Path, version: &str, revision: &str, upstream_tui: bool)
         return Err("official workspace version differs from release input".into());
     }
     let changes = plan(source, upstream_tui)?;
-    let native = patch::rebase(source, include_bytes!("native_route.patch"))?;
-    patch::apply(source, &native)?;
-    for (path, text) in &changes {
-        fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
-    }
+    let merged = patch::rebase(source, include_bytes!("native_route.patch"), &changes)?;
+    patch::apply(source, &merged)?;
     let changed = git(source, &["diff", "--name-only", "-z", "HEAD"])?;
     let files: Vec<_> = changed
         .split(|byte| *byte == 0)
@@ -471,7 +468,11 @@ fn execute(args: &[OsString]) -> Result<()> {
             )?
         ),
         "apply-source-patch" => {
-            let rebased = patch::rebase(source, &patch::from_file(Path::new(fields["--patch"]))?)?;
+            let rebased = patch::rebase(
+                source,
+                &patch::from_file(Path::new(fields["--patch"]))?,
+                &BTreeMap::new(),
+            )?;
             patch::apply(source, &rebased)?;
         }
         "normalize-lock" => {
@@ -555,9 +556,28 @@ mod tests {
         assert!(!menu.contains("let Some(read_only)"));
         assert!(!menu.contains("\":workspace\""));
         assert!(menu.contains(FULL_ACCESS));
-        for (relative, text) in inputs {
-            assert_eq!(read(&root.join("codex-rs").join(relative)).unwrap(), text);
+        for (relative, text) in &inputs {
+            assert_eq!(read(&root.join("codex-rs").join(relative)).unwrap(), *text);
         }
+        git(&root, &["init", "-q"]).unwrap();
+        git(&root, &["add", "."]).unwrap();
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Source proof",
+                "-c",
+                "user.email=proof@localhost",
+                "commit",
+                "-qm",
+                "Official inputs",
+            ],
+        )
+        .unwrap();
+        for (path, text) in native {
+            fs::write(path, text).unwrap();
+        }
+        git(&root, &["diff", "--check"]).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

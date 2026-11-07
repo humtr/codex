@@ -144,8 +144,9 @@ pub(super) fn output(command: &mut Command, phase: &str) -> Result<Vec<u8>> {
     let result = command.output().map_err(|e| format!("{phase}: {e}"))?;
     if !result.status.success() {
         return Err(format!(
-            "{phase}: {}: {}",
+            "{phase}: {}: {}{}",
             result.status,
+            String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         ));
     }
@@ -403,44 +404,122 @@ pub fn generate_schema(
         }
     }
     let schema = source.join("codex-rs/app-server-protocol/schema");
-    for experimental in ["0", "1"] {
-        let result = Command::new(cargo)
-            .args([
-                "test",
-                "--release",
-                "--locked",
-                "--target",
-                TARGET,
-                "-p",
-                "codex-app-server-protocol",
-                "--lib",
-                "schema_fixtures_tests::write_schema_fixtures_from_env",
-                "--",
-                "--exact",
-                "--ignored",
-            ])
-            .current_dir(source.join("codex-rs"))
-            .env_clear()
-            .envs(environment)
-            .envs(BUILD)
-            .env("RUSTC", rustc)
-            .env("RUSTUP_TOOLCHAIN", toolchain)
-            .env("CARGO_TARGET_DIR", target_dir)
-            .env("CODEX_APP_SERVER_SCHEMA_ROOT", &schema)
-            .env("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL", experimental)
-            .stderr(Stdio::inherit())
-            .output()
-            .map_err(|error| format!("upstream schema generator: {error}"))?;
-        std::io::Write::write_all(&mut std::io::stdout(), &result.stdout)
-            .map_err(|e| e.to_string())?;
-        std::io::Write::write_all(&mut std::io::stderr(), &result.stderr)
-            .map_err(|e| e.to_string())?;
-        if !result.status.success()
-            || !String::from_utf8_lossy(&result.stdout).contains("1 passed; 0 failed;")
-        {
-            return Err(format!("upstream schema writer did not execute successfully (experimental={experimental}, {})", result.status));
+    let compiled = Command::new(cargo)
+        .args([
+            "test",
+            "--release",
+            "--locked",
+            "--target",
+            TARGET,
+            "-p",
+            "codex-app-server-protocol",
+            "--lib",
+            "--no-run",
+            "--message-format=json",
+        ])
+        .current_dir(source.join("codex-rs"))
+        .env_clear()
+        .envs(environment)
+        .env("RUSTC", rustc)
+        .env("RUSTUP_TOOLCHAIN", toolchain)
+        .env("CARGO_TARGET_DIR", target_dir)
+        .env("CODEX_APP_SERVER_SCHEMA_ROOT", &schema)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("schema generator compilation: {e}"))?;
+    let mut artifacts = Vec::new();
+    for line in compiled
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let message: Value =
+            serde_json::from_slice(line).map_err(|e| format!("Cargo generator metadata: {e}"))?;
+        if message["reason"] == "compiler-message" {
+            if let Some(rendered) = message["message"]["rendered"].as_str() {
+                eprint!("{rendered}");
+            }
+        }
+        if message["reason"] == "compiler-artifact" && message["profile"]["test"] == true {
+            if let Some(executable) = message["executable"].as_str() {
+                let manifest = message["manifest_path"]
+                    .as_str()
+                    .ok_or("Cargo generator manifest missing")?;
+                artifacts.push((PathBuf::from(executable), PathBuf::from(manifest)));
+            }
         }
     }
+    if !compiled.status.success() {
+        return Err(format!(
+            "schema generator compilation failed: {}",
+            compiled.status
+        ));
+    }
+    if artifacts.len() != 1 {
+        return Err(format!(
+            "expected one requested generator executable, found {}",
+            artifacts.len()
+        ));
+    }
+    let (executable, manifest) = artifacts.pop().unwrap();
+    let package = manifest
+        .parent()
+        .ok_or("Cargo generator package directory missing")?;
+    let package = fs::canonicalize(package).map_err(|e| e.to_string())?;
+    let workspace = fs::canonicalize(source.join("codex-rs")).map_err(|e| e.to_string())?;
+    let cache = fs::canonicalize(target_dir).map_err(|e| e.to_string())?;
+    let executable = fs::canonicalize(executable).map_err(|e| e.to_string())?;
+    if !package.starts_with(workspace) || !executable.starts_with(cache) {
+        return Err("Cargo generator artifact is outside the selected build context".into());
+    }
+    super::ensure_executable(&executable, "compiled schema generator is not executable")
+        .map_err(|e| e.to_string())?;
+    let temporary = target_dir.join(format!(
+        ".schema-generator-{}-{}",
+        std::process::id(),
+        super::STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&temporary)
+        .map_err(|e| e.to_string())?;
+    let result = (|| {
+        let frozen = temporary.join("generator");
+        fs::copy(&executable, &frozen)
+            .map_err(|e| format!("freeze compiled schema generator: {e}"))?;
+        for experimental in ["0", "1"] {
+            let result = Command::new(&frozen)
+                .args([
+                    "schema_fixtures_tests::write_schema_fixtures_from_env",
+                    "--exact",
+                    "--ignored",
+                ])
+                .current_dir(&package)
+                .env_clear()
+                .envs(environment)
+                .env("CODEX_APP_SERVER_SCHEMA_ROOT", &schema)
+                .env("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL", experimental)
+                .output()
+                .map_err(|e| format!("upstream schema writer: {e}"))?;
+            std::io::Write::write_all(&mut std::io::stdout(), &result.stdout)
+                .map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut std::io::stderr(), &result.stderr)
+                .map_err(|e| e.to_string())?;
+            if !result.status.success()
+                || !String::from_utf8_lossy(&result.stdout).contains("1 passed; 0 failed;")
+            {
+                return Err(format!("upstream schema writer did not execute successfully (experimental={experimental}, {})", result.status));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = fs::remove_dir_all(&temporary) {
+        return Err(format!(
+            "schema generator cleanup failed: {error}; writer error: {:?}",
+            result.as_ref().err()
+        ));
+    }
+    result?;
     for mode in ["stable", "experimental"] {
         if !schema
             .join(format!("precomputed/app-server-exports-{mode}.json.zst"))
@@ -455,7 +534,7 @@ pub fn generate_schema(
 /// Build only the source runtime. This grants no signing or installation authority.
 pub fn build(request: &BuildRequest<'_>) -> Result<String> {
     let recipe = recipe(request.recipe)?;
-    let environment = request
+    let mut environment = request
         .environment
         .cloned()
         .unwrap_or_else(|| std::env::vars_os().collect());
@@ -495,6 +574,11 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
             ));
         }
     }
+    environment.extend(
+        BUILD
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into())),
+    );
     let compiler = |args: &[&str]| {
         output(
             Command::new(request.rustc)
@@ -589,7 +673,6 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         .current_dir(request.source.join("codex-rs"))
         .env_clear()
         .envs(&environment)
-        .envs(BUILD)
         .env("RUSTC", request.rustc)
         .env("RUSTUP_TOOLCHAIN", &recipe.toolchains.frontend_rust)
         .env("CARGO_TARGET_DIR", request.target_dir);
@@ -737,6 +820,42 @@ mod tests {
         );
         assert!(local._frontend.is_none());
         assert!(local_recipe(&hosted.upstream.version, &"0".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn schema_compilation_inherits_its_executor_profile_and_propagates_failure() {
+        let root = root();
+        fs::create_dir_all(root.join("codex-rs/app-server-protocol/schema")).unwrap();
+        let executable = root.join("cargo");
+        let shell = std::env::var_os("PREFIX")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr"))
+            .join("bin/sh");
+        fs::write(&executable, format!("#!{}\nprintf '%s' \"$CARGO_PROFILE_RELEASE_CODEGEN_UNITS\" > \"$CODEX_APP_SERVER_SCHEMA_ROOT/observed-profile\"\nexit 7\n", shell.display())).unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let environment = BTreeMap::from([(
+            OsString::from("CARGO_PROFILE_RELEASE_CODEGEN_UNITS"),
+            OsString::from("1"),
+        )]);
+        let error = generate_schema(
+            &root,
+            &executable,
+            &executable,
+            &root.join("target"),
+            "1.95.0",
+            &environment,
+        )
+        .unwrap_err();
+        assert_eq!(
+            fs::read_to_string(root.join("codex-rs/app-server-protocol/schema/observed-profile"))
+                .unwrap(),
+            "1"
+        );
+        assert!(
+            error.contains("schema generator compilation failed"),
+            "{error}"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn root() -> PathBuf {
