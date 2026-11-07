@@ -56,7 +56,7 @@ class QualificationSignalTests(unittest.TestCase):
             self.assertNotEqual(native_recipe(original), native_recipe(bad))
 
     def test_all_qualification_workflows_use_the_same_relay_and_only_controller_starts_native(self):
-        for name,dependency in [('rald7-full-acceptance.yml','accepted'),('core-runtime-qualification.yml','qualify'),('manager-tui-native.yml','upstream-baseline')]:
+        for name,dependency in [('source-acceptance.yml','accepted'),('core-runtime-qualification.yml','qualify'),('manager-tui-native.yml','upstream-baseline')]:
             text=(ROOT/'.github/workflows'/name).read_text()
             self.assertTrue(text.endswith(signal_job(dependency)),name)
             self.assertIn("if: always()",signal_job(dependency))

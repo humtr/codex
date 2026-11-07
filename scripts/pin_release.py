@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           sha="$(gh api repos/humtr/codex/contents/release-source-v1?ref=${{ github.sha }} --jq '.content' | base64 -d)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
-          for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
+          for workflow in source-acceptance.yml core-runtime-qualification.yml; do
             gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/runs.json"
             jq -e --arg sha "$sha" --arg path ".github/workflows/$workflow" \
               '.workflow_runs | any(.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch") and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/runs.json"
@@ -105,7 +105,7 @@ def source_workflow_registrations():
     # Register discoverable workflow identities, including initial API dispatch
     # before a source workflow has run. Actual dispatch uses source implementation;
     # accidental main execution fails instead of becoming a second proof path.
-    workflows={'rald7-full-acceptance.yml':'Source acceptance',
+    workflows={'source-acceptance.yml':'Source acceptance',
                'core-runtime-qualification.yml':'Independent Core/runtime qualification',
                'manager-tui-native.yml':'Manager TUI native qualification'}
     result={}

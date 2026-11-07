@@ -45,7 +45,7 @@ jobs:
           [[ "$CANDIDATE_TAG" =~ ^chatgpt-input-[a-z0-9-]+$ ]]
           [[ "$GENERATION" =~ ^chatgpt-[a-z0-9][a-z0-9-]{0,110}[a-z0-9]$ ]]
           [[ "$SEQUENCE" =~ ^[1-9][0-9]*$ ]]
-          for workflow in rald7-full-acceptance.yml provider-qualification.yml; do
+          for workflow in source-acceptance.yml provider-qualification.yml; do
             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&per_page=100" \
               --jq '.workflow_runs | any(.head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success" and (.event=="push" or .event=="workflow_dispatch"))' | grep -Fqx true
           done

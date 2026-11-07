@@ -78,7 +78,7 @@ def discover(source, check_only=False):
     if check_only:return {'state':'new-upstream-requires-qualification','upstream':updated['upstream']}
     commit=commit_files(SOURCE_BRANCH,current,{'release/upstream.json':(json.dumps(updated,indent=2)+'\n').encode()},
                         'Prepare official upstream '+updated['upstream']['version']+' for independent base qualification')
-    dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
+    dispatch('source-acceptance.yml',SOURCE_BRANCH)
     dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})
     return {'state':'new-upstream-awaiting-real-proof','source':commit,'version':updated['upstream']['version']}
 

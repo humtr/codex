@@ -52,8 +52,8 @@ jobs:
           cd source
           if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && test "$BEFORE" != 0000000000000000000000000000000000000000 && \
              git fetch --no-tags --depth=1 origin "$BEFORE" &&
-             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rald7-full-acceptance.yml/runs?head_sha=$BEFORE&per_page=100" \
-               --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and (.event=="push" or .event=="workflow_dispatch") and .path==".github/workflows/rald7-full-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex")' | grep -Fqx true; then
+             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/source-acceptance.yml/runs?head_sha=$BEFORE&per_page=100" \
+               --jq '.workflow_runs | any(.conclusion=="success" and .status=="completed" and (.event=="push" or .event=="workflow_dispatch") and .path==".github/workflows/source-acceptance.yml" and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex")' | grep -Fqx true; then
             git diff --name-only -z "$BEFORE" HEAD | python3 scripts/ci_scope.py --stdin | sed 's/^/scope=/' >> "$GITHUB_OUTPUT"
           else
             printf 'scope=full\n' >> "$GITHUB_OUTPUT"
@@ -124,15 +124,15 @@ jobs:
           test -x "$core"
           file "$core" | grep -F 'ARM aarch64'
           readelf -l "$core" | grep -F '/system/bin/linker64'
-          mkdir -p "$RUNNER_TEMP/rald7-android-core"
-          cp "$core" "$RUNNER_TEMP/rald7-android-core/codex"
-          chmod 0755 "$RUNNER_TEMP/rald7-android-core/codex"
+          mkdir -p "$RUNNER_TEMP/source-android-core"
+          cp "$core" "$RUNNER_TEMP/source-android-core/codex"
+          chmod 0755 "$RUNNER_TEMP/source-android-core/codex"
 
       - name: Transfer unsigned test-only Core artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: rald7-accepted-android-core
-          path: ${{ runner.temp }}/rald7-android-core/codex
+          name: source-accepted-android-core
+          path: ${{ runner.temp }}/source-android-core/codex
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -166,25 +166,25 @@ jobs:
       - name: Download accepted Android Core proof artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: rald7-accepted-android-core
-          path: ${{ runner.temp }}/rald7-android-core
+          name: source-accepted-android-core
+          path: ${{ runner.temp }}/source-android-core
 
       - name: Provision pinned Android bionic execution substrate
         shell: bash
         run: |
           set -euo pipefail
-          core="$RUNNER_TEMP/rald7-android-core/codex"
+          core="$RUNNER_TEMP/source-android-core/codex"
           chmod 0755 "$core"
           test -x "$core"
           file "$core" | grep -F 'ARM aarch64'
           readelf -l "$core" | grep -F '/system/bin/linker64'
-          printf 'RALD7_ANDROID_CORE=%s\n' "$core" >> "$GITHUB_ENV"
+          printf 'SOURCE_ANDROID_CORE=%s\n' "$core" >> "$GITHUB_ENV"
 
           for tool in curl base64 unzip debugfs file readelf sha256sum; do
             command -v "$tool" >/dev/null
           done
           sudo test ! -e /system
-          root="$RUNNER_TEMP/rald7-bionic"
+          root="$RUNNER_TEMP/source-bionic"
           mkdir -p "$root/bin" "$root/lib64/bionic"
           apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
@@ -295,18 +295,18 @@ jobs:
             env PATH="$PATH" HOME="$HOME" \
               RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
               CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
-              PREFIX="$PREFIX" TMPDIR="$TMPDIR" RALD7_ANDROID_CORE="$RALD7_ANDROID_CORE" \
+              PREFIX="$PREFIX" TMPDIR="$TMPDIR" SOURCE_ANDROID_CORE="$SOURCE_ANDROID_CORE" \
             bash --noprofile --norc -e -o pipefail -c '
               test "$(id -u)" -ne 0
               cargo test --workspace --locked -- --test-threads=1 \
                 --skip test_r6_builder_publish_output_enters_existing_signed_release_admission \
                 --skip test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority \
                 --skip test_tui_public_local_build_preserves_optional_components_and_matching_version
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
+              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
               grep -F "test result: ok. 1 passed" "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
+              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
               grep -F "test result: ok. 1 passed" "$TMPDIR/test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_tui_public_local_build_preserves_optional_components_and_matching_version -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
+              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_tui_public_local_build_preserves_optional_components_and_matching_version -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
               grep -F "test result: ok. 1 passed" "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
             '
 

@@ -14,7 +14,7 @@ import unittest
 import test_release_publication as fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / '.github/workflows/rald7-full-acceptance.yml'
+WORKFLOW = ROOT / '.github/workflows/source-acceptance.yml'
 RELEASE_WORKFLOW = ROOT / '.github/workflows/qualify-termux-runtime.yml'
 
 
@@ -34,7 +34,7 @@ class SourceAcceptanceTests(unittest.TestCase):
         self.assertEqual(workflow.count('test "$(id -u)" -ne 0'), 2)
         isolated = workflow.split('sudo unshare --mount', 1)[1].split('- name: Clippy warnings', 1)[0]
         self.assertIn('cargo test --workspace --locked', isolated)
-        self.assertEqual(isolated.count('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test'), 3)
+        self.assertEqual(isolated.count('CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test'), 3)
         android_artifact_tests = {
             'test_r6_builder_publish_output_enters_existing_signed_release_admission',
             'test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority',
@@ -42,7 +42,7 @@ class SourceAcceptanceTests(unittest.TestCase):
         }
         self.assertEqual(set(re.findall(r'--skip ([a-z0-9_]+)', isolated)), android_artifact_tests)
         self.assertEqual(set(re.findall(
-            r'CODEX_B10_RELEASE_CORE="\$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::([a-z0-9_]+) -- --exact --nocapture --test-threads=1',
+            r'CODEX_B10_RELEASE_CORE="\$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::([a-z0-9_]+) -- --exact --nocapture --test-threads=1',
             isolated)), android_artifact_tests)
         core = (ROOT / 'crates/core/src/main.rs').read_text()
         for test in android_artifact_tests:

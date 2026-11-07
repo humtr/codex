@@ -66,7 +66,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('legacy_lag_jump_remediation',text)
 
     def test_incremental_scope_requires_a_successful_predecessor(self):
-        text=(ROOT/'.github/workflows/rald7-full-acceptance.yml').read_text()
+        text=(ROOT/'.github/workflows/source-acceptance.yml').read_text()
         scope=text.split('      - name: Select verification scope',1)[1].split('      - name:',1)[0]
         self.assertIn('head_sha=$BEFORE',scope)
         self.assertIn('.conclusion=="success"',scope)

@@ -4993,7 +4993,7 @@ fi
     }
 
     #[test]
-    fn test_rald7_layout_v1_resource_evolution_is_semantic() {
+    fn test_layout_v1_resource_evolution_is_semantic() {
         let mut entries = happy_entries("0.155.0");
         entries[3].data = br#"{
   "pathDir": "codex-path",
@@ -5022,7 +5022,7 @@ fi
             b"ignored-by-termux-generation".to_vec(),
         ));
 
-        let mut fixture = fixture("rald7-layout-v1-evolution", entries, false);
+        let mut fixture = fixture("layout-v1-evolution", entries, false);
         fixture.request.version = "0.155.0".to_owned();
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
         assert_eq!(

@@ -214,7 +214,7 @@ def probe(args):
             {**core_run,'id':77,'head_sha':'b'*40},
             {**core_run,'id':78,'repository':{'full_name':'other/repository'}},
             {**core_run,'id':79,'head_branch':'other-branch'},
-            {**status_run,'id':98,'path':'.github/workflows/rald7-full-acceptance.yml','conclusion':'success'},
+            {**status_run,'id':98,'path':'.github/workflows/source-acceptance.yml','conclusion':'success'},
             core_run,
         ]}))
         (root/'request-run.json').write_text(json.dumps({'repository':{'full_name':'humtr/codex'},
@@ -245,7 +245,7 @@ def probe(args):
             ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/name).read_bytes(),check=True)\n' +
             'elif "/git/ref/heads/" in sys.argv[2]:print("a"*40)\n' +
             'elif "/contents/release/upstream.json" in sys.argv[2]:print(' + repr(latest) + ')\n' +
-            'elif any(name in sys.argv[2] for name in ["rald7-full-acceptance.yml", "core-runtime-qualification.yml"]):\n' +
+            'elif any(name in sys.argv[2] for name in ["source-acceptance.yml", "core-runtime-qualification.yml"]):\n' +
             ' import subprocess\n' +
             ' subprocess.run([' + repr(jq) + ', "-r", sys.argv[-1]],input=(root/"qualification-runs.json").read_bytes(),check=True)\n' +
             'else:print("0")\n')

@@ -173,15 +173,15 @@ class ReleaseControlTests(unittest.TestCase):
 
     def test_only_exact_owned_successful_runs_can_advance(self):
         sha='a'*40
-        run={'path':'.github/workflows/rald7-full-acceptance.yml','head_sha':sha,
+        run={'path':'.github/workflows/source-acceptance.yml','head_sha':sha,
              'head_branch':'rewrite/rust-core','event':'push','status':'completed',
              'conclusion':'success','repository':{'full_name':'humtr/codex'}}
-        self.assertTrue(control.accepted_run(run,'rald7-full-acceptance.yml',sha))
+        self.assertTrue(control.accepted_run(run,'source-acceptance.yml',sha))
         for field,bad in [('head_sha','b'*40),('head_branch','main'),('event','pull_request'),
                           ('status','in_progress'),('conclusion','failure'),
                           ('path','.github/workflows/other.yml'),('repository',{'full_name':'other/codex'})]:
             with self.subTest(field=field):
-                self.assertFalse(control.accepted_run({**run,field:bad},'rald7-full-acceptance.yml',sha))
+                self.assertFalse(control.accepted_run({**run,field:bad},'source-acceptance.yml',sha))
 
     def test_github_failure_reports_status_without_private_response_or_tokens(self):
         error=subprocess.CalledProcessError(1,['gh','release','create'],stderr=b'HTTP 403 opaque-private-value')
@@ -277,7 +277,7 @@ class ReleaseControlTests(unittest.TestCase):
                  patch.object(control,'dispatch') as dispatch:
                 result=control.run(root)
                 self.assertEqual([call.args for call in proof.call_args_list],
-                    [('rald7-full-acceptance.yml',head),('core-runtime-qualification.yml',head)])
+                    [('source-acceptance.yml',head),('core-runtime-qualification.yml',head)])
                 if observed is None:
                     self.assertEqual(result['state'],'accepted-product-pinned-public-proof-started')
                     self.assertEqual(commit.call_args.args[0],'main')
@@ -318,7 +318,7 @@ class ReleaseControlTests(unittest.TestCase):
             result=control.run(root)
             self.assertEqual(result['source'],product)
             self.assertEqual([call.args for call in proof.call_args_list],
-                [('rald7-full-acceptance.yml',product),('core-runtime-qualification.yml',product)])
+                [('source-acceptance.yml',product),('core-runtime-qualification.yml',product)])
             self.assertEqual(frontend.call_args.args[1],product)
             self.assertEqual(commit.call_args.args[2]['release-source-v1'],(product+'\n').encode())
             self.assertEqual(dispatch.call_args.args[2]['variant'],'both')

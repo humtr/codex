@@ -269,7 +269,7 @@ def run(source, requested_upstream=None):
         if not registration_pending and requested_upstream is None:
             return {'state':'no-product-change','source':current,'accepted_source':previous}
         product=previous
-    for workflow in ['rald7-full-acceptance.yml','core-runtime-qualification.yml']:
+    for workflow in ['source-acceptance.yml','core-runtime-qualification.yml']:
         passed, runs=successful_run(workflow,product)
         if not passed:
             if product != current:

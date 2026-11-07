@@ -7,7 +7,7 @@ import re
 
 from release_control import api
 
-WORKFLOWS={'rald7-full-acceptance.yml':'rewrite/rust-core',
+WORKFLOWS={'source-acceptance.yml':'rewrite/rust-core',
            'core-runtime-qualification.yml':'rewrite/rust-core',
            'manager-tui-native.yml':'rewrite/rust-core',
            'auto-release-termux.yml':'main', 'accepted-release-inputs.yml':'main'}

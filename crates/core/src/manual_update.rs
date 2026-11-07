@@ -453,10 +453,7 @@ fn qualification_failure(
     if selected != version {
         return Ok(None);
     }
-    for workflow in [
-        "rald7-full-acceptance.yml",
-        "core-runtime-qualification.yml",
-    ] {
+    for workflow in ["source-acceptance.yml", "core-runtime-qualification.yml"] {
         let query = format!(
             "[.workflow_runs[] | select(.head_sha==\"{source}\" and .head_branch==\"rewrite/rust-core\" and .path==\".github/workflows/{workflow}\" and .repository.full_name==\"humtr/codex\" and (.event==\"push\" or .event==\"workflow_dispatch\"))] | if any(.status!=\"completed\") or any(.status==\"completed\" and .conclusion==\"success\") then \"0\\tpending\" else (.[0] // {{}}) | [(.id // 0), (.conclusion // \"pending\")] | @tsv end"
         );
