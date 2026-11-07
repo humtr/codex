@@ -17,23 +17,24 @@ pass the recorded actual Android controlled-app cases. Existing source, mutation
 Native route, retained-feature and full frontend gates are complete at their
 recorded inputs. No repeat CI is needed without changed inputs or an open concern.
 
-The authorized operating0.166 Core/Manager/TUI batch has reached signed Full151 /
-Base150 publication and actual device activation from exact source76fb7e8,
-retaining Full148 rollback. Current Provider-owned CDP refresh passes17 complete
-schemas. Fresh registered Bridge work063245ce56ad0057e4244448edab019ce4d86c44e174202f
-runs activated Native151: actual Rust write/build/assert/modify/rebuild, one-effect
-exact retry and plain installed TUI resume of the same history from another home
-pass without new primary inference. Documentation was pushed and Native finish
-confirmed completed. Source/build,
-controlled app, real model, actual client, physical UI and activation stay distinct.
+The authorized continuous-upgrade architecture is implemented and admitted:
+syntax/call-based minimal Termux adaptation, one preflighted Git source merge,
+upstream-owned schema generation, shared local/hosted official inputs, source-bound
+composition results and reuse of qualified artifacts. Actual0.166/0.167 and
+equivalent private-name/format/file-move inputs pass; this remains the permanent
+upgrade path beyond0.167, with explicit repair for genuinely changed contracts.
 
-The user approved implementation of the reviewed continuous-upgrade architecture:
-minimal syntax-based Termux adaptation, upstream feature reuse, common local /
-hosted inputs, immutable candidate/artifact qualification and signed delivery.
-Implement in the existing worktree;0.167 is the first real input, not a version
-exception. Demonstrate unchanged adapters on historical and equivalent refactored
-source, then Core-only execution without Manager/TUI/Provider, followed by optional
-compositions and0.167 delivery/activation. Retain151 and rollback until admission.
+Codex0.167 Full153/Base152 is signed, publicly verified and active on this device
+from productd3becae and qualified frontend45533d6. Full Native, Android execution,
+public readback/disposable update and non-forced promotion pass. Existing owned
+CDP refresh verifies17 full schemas; fresh registered Bridge work590fc301… /
+thread01a1b6d5-152f-7410-9738-08289dbcfc1c runs activated Native153 and passes
+Rust write/build/assert/modify/rebuild, complete-request replay with one effect,
+Native finish and plain installed TUI resume from another home. Its initial
+changed-report replay is retained as a rejected fixture input, then corrected
+within the same work. Rollback151, profiles and policy defaults are preserved.
+Source/build, controlled app, real model, actual client and physical UI stay distinct.
+
 New real TUI trials fail steering (native_context_prefix_changed) and follow-up
 input (model changes to gpt-6.1-sol, then unsupported_desktop_route); CURRENT.md
 records actual thread IDs and the missing model-change provenance.
