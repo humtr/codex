@@ -299,14 +299,14 @@ jobs:
             bash --noprofile --norc -e -o pipefail -c '
               test "$(id -u)" -ne 0
               cargo test --workspace --locked -- --test-threads=1 \
-                --skip test_r6_builder_publish_output_enters_existing_signed_release_admission \
-                --skip test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority \
+                --skip test_release_builder_publish_output_enters_existing_signed_release_admission \
+                --skip test_local_build_transport_failure_is_terminal_and_explicit_build_preserves_public_authority \
                 --skip test_tui_public_local_build_preserves_optional_components_and_matching_version
-              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
-              grep -F "test result: ok. 1 passed" "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
-              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
-              grep -F "test result: ok. 1 passed" "$TMPDIR/test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
-              CODEX_B10_RELEASE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_tui_public_local_build_preserves_optional_components_and_matching_version -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
+              CODEX_SOURCE_ACCEPTANCE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_release_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_release_builder_publish_output_enters_existing_signed_release_admission.out"
+              grep -F "test result: ok. 1 passed" "$TMPDIR/test_release_builder_publish_output_enters_existing_signed_release_admission.out"
+              CODEX_SOURCE_ACCEPTANCE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_local_build_transport_failure_is_terminal_and_explicit_build_preserves_public_authority -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_local_build_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
+              grep -F "test result: ok. 1 passed" "$TMPDIR/test_local_build_transport_failure_is_terminal_and_explicit_build_preserves_public_authority.out"
+              CODEX_SOURCE_ACCEPTANCE_CORE="$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::test_tui_public_local_build_preserves_optional_components_and_matching_version -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
               grep -F "test result: ok. 1 passed" "$TMPDIR/test_tui_public_local_build_preserves_optional_components_and_matching_version.out"
             '
 

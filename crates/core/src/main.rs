@@ -5994,7 +5994,7 @@ fn release_platform_matches_this_build(platform: &str, architecture: &str) -> bo
     }
 
     #[cfg(test)]
-    if std::env::var_os("CODEX_B10_RELEASE_CORE").is_some()
+    if std::env::var_os("CODEX_SOURCE_ACCEPTANCE_CORE").is_some()
         && platform == "android"
         && architecture == "aarch64"
     {
@@ -7462,7 +7462,7 @@ fn generation_requirements_for_loaded(
     _manifest: &GenerationManifest,
 ) -> GenerationManifestRequirements<'static> {
     #[cfg(test)]
-    if std::env::var_os("CODEX_B10_RELEASE_CORE").is_some()
+    if std::env::var_os("CODEX_SOURCE_ACCEPTANCE_CORE").is_some()
         && _manifest.expected_platform == "android"
         && _manifest.expected_architecture == "aarch64"
     {
@@ -8445,7 +8445,7 @@ fn local_update_generation_id() -> String {
 #[cfg(unix)]
 fn running_core_artifact_for_local_build() -> Result<std::path::PathBuf, LocalProductError> {
     #[cfg(test)]
-    if let Some(input) = std::env::var_os("CODEX_B10_RELEASE_CORE") {
+    if let Some(input) = std::env::var_os("CODEX_SOURCE_ACCEPTANCE_CORE") {
         return std::fs::canonicalize(input).map_err(|source| LocalProductError::Io {
             operation: "resolve test release Core artifact",
             source,
@@ -13566,21 +13566,21 @@ exit 73
     }
 
     #[cfg(unix)]
-    const PROBE_ROLE: &str = "CODEX_R2_PROBE_ROLE";
+    const PROBE_ROLE: &str = "CODEX_CONFIG_TEST_PROBE_ROLE";
     #[cfg(unix)]
-    const PROBE_SCENARIO: &str = "CODEX_R2_PROBE_SCENARIO";
+    const PROBE_SCENARIO: &str = "CODEX_CONFIG_TEST_PROBE_SCENARIO";
     #[cfg(unix)]
-    const PROBE_RUNTIME: &str = "CODEX_R2_PROBE_RUNTIME";
+    const PROBE_RUNTIME: &str = "CODEX_CONFIG_TEST_PROBE_RUNTIME";
     #[cfg(unix)]
-    const PROBE_RESOLVER: &str = "CODEX_R2_PROBE_RESOLVER";
+    const PROBE_RESOLVER: &str = "CODEX_CONFIG_TEST_PROBE_RESOLVER";
     #[cfg(unix)]
-    const PROBE_CONFIG: &str = "CODEX_R2_PROBE_CONFIG";
+    const PROBE_CONFIG: &str = "CODEX_CONFIG_TEST_PROBE_CONFIG";
     #[cfg(unix)]
-    const PROBE_ROOT: &str = "CODEX_R2_PROBE_ROOT";
+    const PROBE_ROOT: &str = "CODEX_CONFIG_TEST_PROBE_ROOT";
     #[cfg(unix)]
-    const PROBE_STDOUT: &str = "CODEX_R2_PROBE_STDOUT";
+    const PROBE_STDOUT: &str = "CODEX_CONFIG_TEST_PROBE_STDOUT";
     #[cfg(unix)]
-    const PROBE_STDERR: &str = "CODEX_R2_PROBE_STDERR";
+    const PROBE_STDERR: &str = "CODEX_CONFIG_TEST_PROBE_STDERR";
 
     #[cfg(unix)]
     #[test]
@@ -14804,9 +14804,9 @@ exit 73
     }
 
     #[cfg(unix)]
-    const MAIN_PROBE_ROLE: &str = "CODEX_R2_MAIN_PROBE";
+    const MAIN_PROBE_ROLE: &str = "CODEX_MAIN_TEST_PROBE";
     #[cfg(unix)]
-    const MAIN_PROBE_ARGS: &str = "CODEX_R2_MAIN_ARGS";
+    const MAIN_PROBE_ARGS: &str = "CODEX_MAIN_TEST_ARGS";
 
     #[cfg(unix)]
     #[test]
@@ -16145,17 +16145,17 @@ snooze_until	0
     }
 
     #[cfg(unix)]
-    const UPDATE_PROBE_ROLE: &str = "CODEX_R2_UPDATE_PROBE";
+    const UPDATE_PROBE_ROLE: &str = "CODEX_UPDATE_TEST_PROBE";
     #[cfg(unix)]
-    const UPDATE_PROBE_SOURCE: &str = "CODEX_R2_UPDATE_SOURCE";
+    const UPDATE_PROBE_SOURCE: &str = "CODEX_UPDATE_TEST_SOURCE";
     #[cfg(unix)]
-    const UPDATE_PROBE_REMOTE: &str = "CODEX_R2_UPDATE_REMOTE";
+    const UPDATE_PROBE_REMOTE: &str = "CODEX_UPDATE_TEST_REMOTE";
     #[cfg(unix)]
-    const UPDATE_PROBE_CHANNEL: &str = "CODEX_R4_UPDATE_CHANNEL";
+    const UPDATE_PROBE_CHANNEL: &str = "CODEX_UPDATE_TEST_CHANNEL";
     #[cfg(unix)]
-    const UPDATE_PROBE_FORCE: &str = "CODEX_ARH1_UPDATE_FORCE";
+    const UPDATE_PROBE_FORCE: &str = "CODEX_UPDATE_TEST_FORCE";
     #[cfg(unix)]
-    const UPDATE_PROBE_BUILD_LOCAL: &str = "CODEX_RALD1_BUILD_LOCAL";
+    const UPDATE_PROBE_BUILD_LOCAL: &str = "CODEX_UPDATE_TEST_BUILD_LOCAL";
 
     #[cfg(unix)]
     fn b4_termux_openssl() -> std::path::PathBuf {
@@ -16857,7 +16857,7 @@ esac
 
     #[cfg(unix)]
     fn b10_release_core_from_env() -> Option<std::path::PathBuf> {
-        let input = std::env::var_os("CODEX_B10_RELEASE_CORE")?;
+        let input = std::env::var_os("CODEX_SOURCE_ACCEPTANCE_CORE")?;
         let core = std::fs::canonicalize(input).unwrap();
         assert!(core.is_absolute());
         assert!(core.is_file());
@@ -18470,7 +18470,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_r6_builder_publish_output_enters_existing_signed_release_admission() {
+    fn test_release_builder_publish_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
 
         let root = temp_root("b6-builder-admission");
@@ -18660,10 +18660,10 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald2_core_update_never_enters_official_producer_with_maintainer_credentials() {
+    fn test_channel_core_update_never_enters_official_producer_with_maintainer_credentials() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let fixture = b5_channel_fixture("rald2-consumer-only", "rald2-channel-next");
+        let fixture = b5_channel_fixture("channel-consumer-only", "channel-channel-next");
         b5_write_channel_curl(
             &fixture.prefix.join("bin/curl"),
             &fixture.curl_log,
@@ -18673,7 +18673,7 @@ esac
             &fixture.base,
             &fixture
                 .root
-                .join("release-server/source-generations/rald2-channel-next"),
+                .join("release-server/source-generations/channel-channel-next"),
         );
         // A manual update now checks upstream freshness even after installing
         // a ready signed release. The fixture reports that exact version; device
@@ -18703,20 +18703,16 @@ esac
         key_permissions.set_mode(0o600);
         std::fs::set_permissions(&maintainer_key, key_permissions).unwrap();
 
-        let gh_log = fixture.root.join("rald2-gh-log");
+        let gh_log = fixture.root.join("channel-gh-log");
         b7_write_fake_github_cli(
             &fixture.prefix.join("bin/gh"),
             &gh_log,
-            &fixture.root.join("rald2-gh-body"),
+            &fixture.root.join("channel-gh-body"),
             0,
         );
 
-        let ordinary = rald2_run_public_default_channel_update(
-            false,
-            &fixture.home,
-            &fixture.prefix,
-            &fixture.tmp,
-        );
+        let ordinary =
+            run_public_default_channel_update(false, &fixture.home, &fixture.prefix, &fixture.tmp);
         assert_eq!(
             ordinary.status.code(),
             Some(0),
@@ -18749,12 +18745,8 @@ esac
         assert!(!gh_log.exists(), "rollback must not invoke gh");
 
         std::fs::write(&fixture.curl_log, b"").unwrap();
-        let held = rald2_run_public_default_channel_update(
-            false,
-            &fixture.home,
-            &fixture.prefix,
-            &fixture.tmp,
-        );
+        let held =
+            run_public_default_channel_update(false, &fixture.home, &fixture.prefix, &fixture.tmp);
         assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
         assert_human_update_error_contains(
             &held.stderr,
@@ -18765,12 +18757,8 @@ esac
         assert!(!held_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
 
         std::fs::write(&fixture.curl_log, b"").unwrap();
-        let forced = rald2_run_public_default_channel_update(
-            true,
-            &fixture.home,
-            &fixture.prefix,
-            &fixture.tmp,
-        );
+        let forced =
+            run_public_default_channel_update(true, &fixture.home, &fixture.prefix, &fixture.tmp);
         assert_eq!(
             forced.status.code(),
             Some(0),
@@ -18785,12 +18773,12 @@ esac
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
         let state = read_pointer_state(&paths).unwrap().unwrap();
-        assert_eq!(state.current, "rald2-channel-next");
+        assert_eq!(state.current, "channel-channel-next");
         assert_eq!(state.previous.as_deref(), Some("channel-current"));
         assert_eq!(
             read_update_hold(&roots).unwrap(),
             Some(UpdateHoldRecord {
-                generation_id: "rald2-channel-next".to_owned(),
+                generation_id: "channel-channel-next".to_owned(),
                 release_sequence: 2,
             })
         );
@@ -19108,10 +19096,11 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald1_transport_failure_is_terminal_and_explicit_build_preserves_public_authority() {
+    fn test_local_build_transport_failure_is_terminal_and_explicit_build_preserves_public_authority(
+    ) {
         use std::os::unix::fs::PermissionsExt;
 
-        let root = temp_root("rald1-local-derived");
+        let root = temp_root("local-build-local-derived");
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
         let prefix_openssl = prefix.join("bin/openssl");
@@ -19495,7 +19484,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald1_build_local_cli_rejects_combined_selectors() {
+    fn test_local_build_build_local_cli_rejects_combined_selectors() {
         assert_eq!(
             run_core_update(vec![
                 OsString::from("--build-local"),
@@ -19516,8 +19505,11 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald1_self_signed_local_directory_cannot_claim_local_derived_authority() {
-        let fixture = b5_channel_fixture("rald1-self-signed-local", "rald1-unused-channel");
+    fn test_local_build_self_signed_local_directory_cannot_claim_local_derived_authority() {
+        let fixture = b5_channel_fixture(
+            "local-build-self-signed-local",
+            "local-build-unused-channel",
+        );
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
         let before = read_pointer_state(&paths).unwrap().unwrap();
@@ -19529,7 +19521,7 @@ esac
         std::fs::create_dir_all(&source_roots.generation_root).unwrap();
         let forged = b2_write_root_generation(
             &source_roots,
-            "rald1-forged-local-derived",
+            "local-build-forged-local-derived",
             false,
             "supported",
         );
@@ -19562,7 +19554,7 @@ esac
         assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), before);
         assert!(!roots
             .generation_root
-            .join("rald1-forged-local-derived")
+            .join("local-build-forged-local-derived")
             .exists());
 
         remove_temp_root(fixture.root);
@@ -19570,10 +19562,10 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_rald1_ephemeral_key_is_owner_only() {
+    fn test_local_build_ephemeral_key_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
 
-        let root = temp_root("rald1-ephemeral-key-mode");
+        let root = temp_root("local-build-ephemeral-key-mode");
         let openssl = b4_termux_openssl();
         let (private_key, public_key) =
             generate_ephemeral_local_derived_key(&openssl, &root).unwrap();
@@ -19590,7 +19582,7 @@ esac
     fn test_m2_b8_slice3_release_production_to_bootstrap_flow() {
         use std::ffi::OsString;
 
-        let Some(core_input) = std::env::var_os("CODEX_B8_RELEASE_CORE") else {
+        let Some(core_input) = std::env::var_os("CODEX_RUNTIME_TEST_CORE") else {
             return;
         };
         let core = std::fs::canonicalize(core_input).unwrap();
@@ -20082,7 +20074,7 @@ esac
     }
 
     #[cfg(unix)]
-    fn rald2_run_public_default_channel_update(
+    fn run_public_default_channel_update(
         force: bool,
         home: &std::path::Path,
         prefix: &std::path::Path,
@@ -20301,7 +20293,7 @@ esac
     }
 
     #[cfg(unix)]
-    const B8_BOOTSTRAP_PROBE_ROLE: &str = "CODEX_B8_BOOTSTRAP_PROBE";
+    const B8_BOOTSTRAP_PROBE_ROLE: &str = "CODEX_BOOTSTRAP_TEST_PROBE";
 
     #[cfg(unix)]
     #[test]
@@ -20317,11 +20309,11 @@ esac
     }
 
     #[cfg(unix)]
-    const B8_BOOTSTRAP_SWAP_ROLE: &str = "CODEX_B8_BOOTSTRAP_SWAP_PROBE";
+    const B8_BOOTSTRAP_SWAP_ROLE: &str = "CODEX_BOOTSTRAP_TEST_SWAP_PROBE";
     #[cfg(unix)]
-    const B8_BOOTSTRAP_SWAP_SOURCE: &str = "CODEX_B8_BOOTSTRAP_SWAP_SOURCE";
+    const B8_BOOTSTRAP_SWAP_SOURCE: &str = "CODEX_BOOTSTRAP_TEST_SWAP_SOURCE";
     #[cfg(unix)]
-    const B8_BOOTSTRAP_SWAP_REPLACEMENT: &str = "CODEX_B8_BOOTSTRAP_SWAP_REPLACEMENT";
+    const B8_BOOTSTRAP_SWAP_REPLACEMENT: &str = "CODEX_BOOTSTRAP_TEST_SWAP_REPLACEMENT";
 
     #[cfg(unix)]
     fn b8_write_core_swap_wrapper(path: &std::path::Path) {
