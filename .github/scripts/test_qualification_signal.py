@@ -1,12 +1,37 @@
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from qualification_signal import native_recipe, signal_job
+import qualification_signal as qualification
 
 ROOT=Path(__file__).resolve().parents[2]
 
 
 class QualificationSignalTests(unittest.TestCase):
+    def test_runtime_transfer_selects_only_an_owned_successful_exact_source_and_live_artifact(self):
+        source='a'*40
+        good={'id':123,'path':'.github/workflows/core-runtime-qualification.yml','head_sha':source,
+            'head_branch':'rewrite/rust-core','event':'push','repository':{'full_name':'humtr/codex'},
+            'status':'completed','conclusion':'success'}
+        live={'name':'termux-runtime-source','expired':False}
+        cases=[(good,[live],123),({**good,'head_sha':'b'*40},[live],None),
+               ({**good,'head_branch':'main'},[live],None),({**good,'event':'pull_request'},[live],None),
+               ({**good,'conclusion':'failure'},[live],None),
+               (good,[{**live,'expired':True}],None),(good,[],None)]
+        for run,artifacts,expected in cases:
+            def api(path,**kwargs):
+                if path.startswith('actions/workflows/core-runtime-qualification.yml/runs?head_sha='+source):
+                    return {'workflow_runs':[run]}
+                self.assertEqual(path,'actions/runs/123/artifacts?per_page=100')
+                return {'total_count':len(artifacts),'artifacts':artifacts}
+            with self.subTest(run=run,artifacts=artifacts),patch.object(qualification,'api',side_effect=api):
+                self.assertEqual(qualification.qualified_runtime_run(source),expected)
+        for page in [{'total_count':2,'artifacts':[live]},
+                     {'total_count':2,'artifacts':[live,live]}]:
+            with patch.object(qualification,'api',side_effect=[{'workflow_runs':[good]},page]):
+                with self.assertRaises(ValueError):qualification.qualified_runtime_run(source)
+
     def test_only_trigger_metadata_and_exact_isolated_relay_are_reusable(self):
         original='name: Native\non:\n  push:\n    branches: [rewrite/rust-core]\npermissions:\n  contents: read\njobs:\n  upstream-baseline:\n    runs-on: ubuntu-24.04-arm\n'
         changed=original.replace('  push:\n    branches: [rewrite/rust-core]','  workflow_dispatch:')+signal_job('upstream-baseline')

@@ -92,8 +92,9 @@ The continuous-upgrade implementation is admitted at exact source
 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a. Source acceptance42380853062 and
 independent Core/runtime42381322469 pass, including actual Android Core-only
 execution. Mainf4b1161022d63ed3529ba8f2dc1f47e031e48fa8 atomically installs the
-matching caller, accepted source and Base-only composition record. Signed Base
-publication42381826456 is in progress. Full Native/TUI42380853506 is still
+matching caller, accepted source and Base-only composition record. Base publication42381826456 was cancelled before candidate/signing after it
+missed the source-branch cache and started redundant native compilation. No0.167
+public delivery is claimed. Full Native/TUI42380853506 is still
 qualifying; no0.167 device activation or configured-client refresh is claimed.
 Keep operating151/runtime0.166 and its rollback until Full admission.
 
@@ -128,6 +129,25 @@ frontend results against an already accepted product even on a documentation
 head. New results never rewrite development inputs or start their qualification
 again. Published legacy embedded references remain readable only when the new
 composition record is absent; invalid/unavailable records fail distinctly.
+
+The actual cache key71a63ba93e1dd6e0dc3410e2fc65cd6ff172337060585cb6ca16841839449403
+exists only under refs/heads/rewrite/rust-core; the main publication cannot
+restore that child-branch cache ([GitHub cache scope](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)). The correction discovers the raw runtime artifact of a successful
+owned Core qualification for the exact selected source and downloads it across
+workflow refs before common verification. Exact-run/API admission moved from the
+release controller to the existing shared qualification module; both consumers
+use it, with no forwarding wrapper or frontend build dependency. Caches remain
+optional acceleration, not the publication handoff. Musl setup/source compilation
+run only when no verified raw input exists. Advertised download/verification
+failure stops the job; absent/expired input permits normal production. The live
+lookup resolves45533d6 to Core run42381322469. The missing-artifact mutation
+fails and restoration passes; actual corrected cross-ref publication is pending.
+
+The controller also no longer forces Full-only publication when a frontend
+result arrives. Its existing release-lane owner must first establish the signed
+Base; otherwise both lanes run. This preserves a failed/cancelled Base's required
+work. Existing binding/late-result regressions detect the removed override;
+baseline0/fault1/restored0 is recorded. No default policy or runtime changed.
 
 **Resolved findings and original evidence.** Original failures stay under
 $TMPDIR/connectivity-repair-70jt4h2u/upstream167-0md6mz3a/ unless noted.

@@ -21,61 +21,8 @@ from upstream_release import load, build_recipe, bind_frontend
 from release_components import base_fingerprint, verified_published_base
 from rald3_preflight import stable_version
 
-REPO = 'humtr/codex'
-SOURCE_BRANCH = 'rewrite/rust-core'
-
-
-class GitHubFailure(subprocess.CalledProcessError):
-    def __init__(self, code, operation, detail):
-        super().__init__(code,['gh',operation])
-        self.operation,self.detail=operation,detail
-
-    def __str__(self):
-        return 'GitHub '+self.operation+' operation failed: '+self.detail
-
-
-def gh(*args, payload=None):
-    command = ['gh', *args]
-    if payload is not None:
-        command += ['--input', '-']
-    try:
-        result = subprocess.run(command, input=None if payload is None else json.dumps(payload).encode(),
-                                capture_output=True, check=True)
-    except subprocess.CalledProcessError as error:
-        status=re.search(r'HTTP ([0-9]{3})',error.stderr.decode(errors='replace'))
-        detail='HTTP '+status[1] if status else 'exit '+str(error.returncode)
-        # Keep bearer tokens, signed transport URLs and API response bodies out
-        # of logs while preserving an actionable operation/status boundary.
-        raise GitHubFailure(error.returncode,args[0],detail) from None
-    return result.stdout
-
-
-def api(path, *, payload=None, method=None):
-    args = ['api', 'repos/'+REPO+'/'+path]
-    if method:args += ['--method', method]
-    value = gh(*args, payload=payload)
-    return json.loads(value) if value else None
-
-
-def owned_run(run, workflow, sha):
-    if workflow == 'manager-tui-native.yml':
-        title = run.get('display_title')
-        if not isinstance(title, str) or title.startswith('Focused Native '):
-            return False
-    expected={'path':'.github/workflows/'+workflow,'head_sha':sha,'head_branch':SOURCE_BRANCH}
-    return (all(run.get(k)==value for k,value in expected.items())
-            and run.get('event') in ['push','workflow_dispatch']
-            and run.get('repository',{}).get('full_name')==REPO)
-
-
-def accepted_run(run, workflow, sha):
-    return (owned_run(run,workflow,sha) and run.get('status')=='completed'
-            and run.get('conclusion')=='success')
-
-
-def successful_run(workflow, sha):
-    runs = api('actions/workflows/'+workflow+'/runs?head_sha='+sha+'&per_page=100')['workflow_runs']
-    return next((run for run in runs if accepted_run(run, workflow, sha)), None), runs
+from qualification_signal import (REPO, SOURCE_BRANCH, GitHubFailure, gh, api,
+                                  owned_run, accepted_run, successful_run)
 
 
 def commit_files(branch, expected, files, message):

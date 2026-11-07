@@ -1,5 +1,79 @@
-"""One completion relay; it has no qualification or publication authority."""
+"""Shared exact-run admission, source recipes and completion signals."""
+import json
 import re
+import subprocess
+
+REPO = 'humtr/codex'
+SOURCE_BRANCH = 'rewrite/rust-core'
+
+
+class GitHubFailure(subprocess.CalledProcessError):
+    def __init__(self, code, operation, detail):
+        super().__init__(code,['gh',operation])
+        self.operation,self.detail=operation,detail
+
+    def __str__(self):
+        return 'GitHub '+self.operation+' operation failed: '+self.detail
+
+
+def gh(*args, payload=None):
+    command = ['gh', *args]
+    if payload is not None:
+        command += ['--input', '-']
+    try:
+        result = subprocess.run(command, input=None if payload is None else json.dumps(payload).encode(),
+                                capture_output=True, check=True)
+    except subprocess.CalledProcessError as error:
+        status=re.search(r'HTTP ([0-9]{3})',error.stderr.decode(errors='replace'))
+        detail='HTTP '+status[1] if status else 'exit '+str(error.returncode)
+        # Keep bearer tokens, signed transport URLs and API response bodies out
+        # of logs while preserving an actionable operation/status boundary.
+        raise GitHubFailure(error.returncode,args[0],detail) from None
+    return result.stdout
+
+
+def api(path, *, payload=None, method=None):
+    args = ['api', 'repos/'+REPO+'/'+path]
+    if method:args += ['--method', method]
+    value = gh(*args, payload=payload)
+    return json.loads(value) if value else None
+
+
+def owned_run(run, workflow, sha):
+    if workflow == 'manager-tui-native.yml':
+        title = run.get('display_title')
+        if not isinstance(title, str) or title.startswith('Focused Native '):
+            return False
+    expected={'path':'.github/workflows/'+workflow,'head_sha':sha,'head_branch':SOURCE_BRANCH}
+    return (all(run.get(k)==value for k,value in expected.items())
+            and run.get('event') in ['push','workflow_dispatch']
+            and run.get('repository',{}).get('full_name')==REPO)
+
+
+def accepted_run(run, workflow, sha):
+    return (owned_run(run,workflow,sha) and run.get('status')=='completed'
+            and run.get('conclusion')=='success')
+
+
+def successful_run(workflow, sha):
+    runs = api('actions/workflows/'+workflow+'/runs?head_sha='+sha+'&per_page=100')['workflow_runs']
+    return next((run for run in runs if accepted_run(run, workflow, sha)), None), runs
+
+
+def qualified_runtime_run(source):
+    """A completed Core qualification, independent of branch-local cache access."""
+    run, _ = successful_run('core-runtime-qualification.yml', source)
+    if run is None:
+        return None
+    page = api('actions/runs/'+str(run['id'])+'/artifacts?per_page=100')
+    artifacts = page['artifacts']
+    if page['total_count'] != len(artifacts):
+        raise ValueError('incomplete qualified runtime artifact listing')
+    matches = [artifact for artifact in artifacts
+               if artifact['name'] == 'termux-runtime-source' and artifact['expired'] is False]
+    if len(matches) > 1:
+        raise ValueError('ambiguous qualified runtime artifact')
+    return run['id'] if matches else None
 
 
 def signal_job(dependency, legacy=False):

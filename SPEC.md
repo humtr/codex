@@ -82,13 +82,23 @@ readable for retained sources; new results use the composition record.
 
 The hosted executor can restore a completed raw build only by its exact existing
 production-input fingerprint. The common verifier checks the complete raw
-inventory, binary digest, official source/version, dependency audit and ELF before
-transfer. A failed cache check fails the job; it does not silently rebuild or
+inventory, binary digest, official source/version and dependency audit before
+transfer. The candidate builder retains its static AArch64 ELF check when it
+consumes the runtime. A failed cache check fails the job; it does not silently rebuild or
 admit the artifact. Cache reuse skips compilation, not source admission, Android
 qualification, signing or public readback. Public signed Base retention remains
 the durable runtime reuse boundary. Each executor owns its compiler profile;
 the shared schema writer inherits that profile and never substitutes another
 component's code-generation settings.
+
+Cross-workflow delivery uses the raw runtime artifact from a successful owned
+Core qualification of the exact selected source. Branch-scoped caches are only
+an optimization, not the handoff to main publication. Discover the qualified
+run through the shared exact-run admission rules, download its unexpired unique
+runtime artifact and use the common raw verifier before transfer. A missing or
+expired artifact requires normal production; a failed advertised download or
+verification fails the job. Artifact reuse skips native compilation and musl
+dependency preparation; Android, signing and public admission remain required.
 
 Local and hosted builds derive the same official source tuple. Explicit executor
 toolchain profiles retain their own qualification; they must not independently
