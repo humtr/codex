@@ -352,8 +352,6 @@ def run(source, requested_upstream=None):
     variant=release_lane(source,previous,product,main)
     if selected['frontend'] is None:
         variant='base'
-    elif previous==product and changed_binding:
-        variant='full'
     if previous==product and not changed_binding:
         dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
                                                 'upstream_version':before['upstream']['version']})

@@ -284,7 +284,7 @@ class ReleaseControlTests(unittest.TestCase):
                     files=commit.call_args.args[2]
                     self.assertEqual(json.loads(files['release-frontend-v1']),expected)
                     self.assertEqual(files['release-source-v1'],(head+'\n').encode())
-                    self.assertEqual(dispatch.call_args.args[2]['variant'],'full')
+                    self.assertEqual(dispatch.call_args.args[2]['variant'],'both')
                     self.assertEqual(dispatch.call_args.args[:2],('auto-release-termux.yml','main'))
                 else:
                     self.assertEqual(result['state'],'already-pinned')
@@ -321,7 +321,7 @@ class ReleaseControlTests(unittest.TestCase):
                 [('rald7-full-acceptance.yml',product),('core-runtime-qualification.yml',product)])
             self.assertEqual(frontend.call_args.args[1],product)
             self.assertEqual(commit.call_args.args[2]['release-source-v1'],(product+'\n').encode())
-            self.assertEqual(dispatch.call_args.args[2]['variant'],'full')
+            self.assertEqual(dispatch.call_args.args[2]['variant'],'both')
 
     def test_focused_native_success_is_never_full_qualification_or_inflight_publication(self):
         sha = 'a' * 40
