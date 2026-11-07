@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release a G qualification observer lease after a saved native settlement."""
+"""Release an installed-entrypoint qualification observer lease after a saved native settlement."""
 import argparse
 import json
 from pathlib import Path

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded F combined-route batch; local observations never invoke a supervisor model.
+"""Bounded combined-route batch; local observations never invoke a supervisor model.
 
 All task submissions have exclusive intent, explicit finite budgets and immutable
 inputs. Uncertain delivery is retained without replay. Only the final batch is
@@ -150,7 +150,7 @@ class Batch:
 
     def rpc(self, name, args):
         if self.plan.get("agent_fixture"):
-            from qualify_provider_f_agents import validate_control_arguments
+            from qualify_provider_agent_fixtures import validate_control_arguments
             declarations = json.loads((self.root / "fixture-tools.json").read_text())
             validate_control_arguments(declarations, name, args)
         reading = (name == "codex_chats" and args.get("action") == "read"
@@ -364,7 +364,7 @@ class Batch:
                 self.observe(bound, state=status)
                 self.approve(bound, status)
                 if self.plan.get("agent_fixture"):
-                    from qualify_provider_f_agents import observe as observe_fixture
+                    from qualify_provider_agent_fixtures import observe as observe_fixture
                     observe_fixture(self, record, status)
 
     def wait_for_saved_retry(self, seconds, input_id):
@@ -526,7 +526,7 @@ def run(root):
         if batch.plan.get("required_host_capabilities"):
             require_host_capabilities(batch.rpc("codex_host", {"action": "status"}), batch.plan["required_host_capabilities"])
         if batch.plan.get("agent_fixture"):
-            from qualify_provider_f_agents import perform
+            from qualify_provider_agent_fixtures import perform
             result["final_audit"] = perform(root, batch)
             result["control_observations"] = batch.control_observations
             result["automated_gates"] = True

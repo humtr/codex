@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""G packaged-entrypoint live acceptance; one bounded unsupervised batch.
+"""Packaged-entrypoint live acceptance; one bounded unsupervised batch.
 
 Preparation makes no model request. Start is explicit and exclusive. Native work
 uses the installed disposable Core/Provider package. Old work is never replayed.
@@ -26,7 +26,7 @@ sys.path.insert(0, str(SOURCE / 'scripts'))
 from provider_qualification import explicit_input
 from qualify_permission_lifecycle import fixture
 from qualify_provider_chat_entry import control, native_work, InputClient, preflight_native, cli_final_visible
-from qualify_provider_f import Batch, save, stamp, sha, creation_call_id, followup_branch, input_completed
+from qualify_provider_combined_routes import Batch, save, stamp, sha, creation_call_id, followup_branch, input_completed
 
 TASK = '''User-authorized G installed product acceptance in this isolated project. Use native Codex tools for every read, patch, command and test; no Work, computer use, package installation or network. Preserve test_original.py byte-for-byte. First demonstrate its failures. Implement release_label.py parse_label(text): accept exactly chatgpt-NAME-sSEQUENCE, with NAME matching [a-z][a-z0-9]*(?:-[a-z0-9]+)*, and SEQUENCE a canonical positive decimal <= 2**63-1; return (NAME, SEQUENCE). Reject every non-string, invalid separator/case/sequence with ValueError. Add a CLI taking exactly one label argument and printing JSON {"name": NAME, "sequence": SEQUENCE}; invalid input exits 2 without traceback or successful JSON. Add meaningful regression tests, run all tests and report actual changes/results/elapsed seconds using a real clock. Do not change the original tests or loosen requirements. Publish the complete final through the native original result and this saved Chat. Never fabricate, replay an uncertain call or create another primary work.'''
 ORIGINAL = '''import unittest
@@ -137,7 +137,7 @@ def prepare(args):
     preflight_native(root,info,env)
     files=[p for p in root.rglob('*') if p.is_file() and (p.parent==root and p.suffix in ('.py','.mjs','.txt') or p.parent==root/'candidate')]
     sealed={str(p.relative_to(root)):sha(p) for p in files}
-    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
+    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_combined_routes.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
     save(root/'sealed-inputs.json',sealed,True)
     save(root/'setup-complete.json',dict(prepared=True,actual_Chat_requests=0,service_pid=process.pid,public_package_selected=True,native_preflight=True),True)
     print(json.dumps(dict(root=str(root),native_fixture=str(native),prepared=True,actual_Chat_requests=0)))
@@ -212,7 +212,7 @@ def prepare_remaining(prior):
         (root/('task-'+name+'.txt')).write_text(text)
     files=[p for p in root.rglob('*') if p.is_file() and (p.parent==root or p.parent==root/'candidate')]
     sealed={str(p.relative_to(root)):sha(p) for p in files}
-    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
+    sealed.update({str(SOURCE/name):sha(SOURCE/name) for name in ['scripts/provider_qualification.py','scripts/qualify_provider_combined_routes.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']})
     info=json.loads((root/'info.json').read_text())
     config=Path(json.loads((root/'environment-private.json').read_text())['XDG_CONFIG_HOME'])/'codex/providers/chatgpt.toml'
     sealed[str(config)]=sha(config)
@@ -282,7 +282,7 @@ def prepare_cold(root, prior_requests=0):
     (root/'task-cold.txt').write_text(task+'\n')
     files=[root/name for name in ['run.py','notify.py','client.mjs','info.json','environment-private.json','plan.json','baseline-files.json','release_label-before.py','task-cold.txt','refresh-private.json']]
     files+=list((root/'candidate').iterdir())
-    files+=[SOURCE/name for name in ['scripts/provider_qualification.py','scripts/qualify_provider_f.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']]
+    files+=[SOURCE/name for name in ['scripts/provider_qualification.py','scripts/qualify_provider_combined_routes.py','scripts/qualify_provider_chat_entry.py','scripts/qualify_tasks.py','providers/chatgpt/desktop_cdp.mjs']]
     save(root/'sealed-inputs.json',{str(p):sha(p) for p in files if p.is_file()},True)
     save(root/'connection-ready.json',dict(ready=True,Chat_requests=0,recovered_same_endpoint=True),True)
     print(json.dumps(dict(root=str(root),prepared=True,model_requests=0,additional_dispatch_ceiling=request_ceiling)))

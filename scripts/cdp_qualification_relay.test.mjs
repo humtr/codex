@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {relay} from './f_cdp_relay.mjs';
+import {relay} from './cdp_qualification_relay.mjs';
 
 test('private F relay isolates simultaneous client IDs and sessions without browser lifecycle commands',async()=>{
  let next=0;const incoming=[];

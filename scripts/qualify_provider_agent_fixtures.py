@@ -1,4 +1,4 @@
-"""Bounded F agent fixture controls and terminal audit, using the common driver.
+"""Bounded combined-route agent fixture controls and terminal audit, using the common driver.
 
 These hooks only answer the declared fixture question and inject its declared
 Stop/barrier. Development, review, correction and integration use upstream tools.
@@ -42,7 +42,7 @@ def canonical_item(item):
 
 def observe(batch, record, status):
     from qualify_provider_chat_entry import native_work
-    from qualify_provider_f import save, stamp
+    from qualify_provider_combined_routes import save, stamp
     if role(record) == 'agent-coordinator':
         for question in status.get('human_requests', []):
             offered = question.get('params', {}).get('questions', [])
@@ -91,7 +91,7 @@ def observe(batch, record, status):
 
 
 def perform(root, batch):
-    from qualify_provider_f import save
+    from qualify_provider_combined_routes import save
     receipt_check = bool(batch.plan.get('agent_receipt_check'))
     continued = bool(batch.plan.get('agent_continuation'))
     marker = 'F_AGENT_RECEIPTS_DONE' if receipt_check else 'F_AGENTS_CONTINUATION_DONE' if continued else 'F_AGENTS_DONE'
@@ -122,7 +122,7 @@ def receipt_assignments(records):
 
 def audit_receipt_check(root, batch, source, *, cli_root=None):
     from qualify_provider_chat_entry import native_work, cli_final_visible
-    from qualify_provider_f import sha
+    from qualify_provider_combined_routes import sha
     fixture = Path(batch.plan['agent_fixture']['root'])
     roles = receipt_assignments([r for r in native_work(root) if Path(r['workspace']).parent == fixture])
     for row in json.loads((root/'prior-proof.json').read_text())['native_prefixes']:
@@ -149,7 +149,7 @@ def audit_receipt_check(root, batch, source, *, cli_root=None):
 
 def audit_continuation(root, batch, source):
     from qualify_provider_chat_entry import native_work, cli_final_visible
-    from qualify_provider_f import sha
+    from qualify_provider_combined_routes import sha
     fixture = Path(batch.plan['agent_fixture']['root'])
     roles = {role(r):r for r in native_work(root) if Path(r['workspace']).parent == fixture}
     assert len(roles) == 8 and all(r['phase'] == 'stopped' for r in roles.values()), 'continued_tree_stop_unsettled'
@@ -199,7 +199,7 @@ def audit_continuation(root, batch, source):
 
 def audit(root, batch, source):
     from qualify_provider_chat_entry import native_work, cli_final_visible
-    from qualify_provider_f import save, sha
+    from qualify_provider_combined_routes import save, sha
     fixture = Path(batch.plan['agent_fixture']['root'])
     records = [r for r in native_work(root) if Path(r['workspace']).parent == fixture]
     roles = {role(r):r for r in records}

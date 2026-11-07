@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from scripts.qualify_provider_f import Batch
-from scripts.qualify_provider_f_agents import observe, validate_control_arguments, terminal_record, canonical_item, audit_continuation, receipt_assignments
+from scripts.qualify_provider_combined_routes import Batch
+from scripts.qualify_provider_agent_fixtures import observe, validate_control_arguments, terminal_record, canonical_item, audit_continuation, receipt_assignments
 
 
 class AgentFixtureTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class AgentFixtureTests(unittest.TestCase):
             batch=Mock();batch.plan={'agent_fixture':{'root':str(fixture)}};batch.env={}
             source={'public_messages':['F_AGENTS_CONTINUATION_DONE'],'requests':[{}]}
             with patch('qualify_provider_chat_entry.native_work',return_value=records), \
-                    patch('scripts.qualify_provider_f_agents.subprocess.run',return_value=subprocess.CompletedProcess([],0,b'',b'Ran 30 tests')):
+                    patch('scripts.qualify_provider_agent_fixtures.subprocess.run',return_value=subprocess.CompletedProcess([],0,b'',b'Ran 30 tests')):
                 self.assertFalse(audit_continuation(root,batch,source)['full_f_accepted'])
                 failed=home/'sessions/correction-verifier.jsonl'
                 failed.write_text(json.dumps({'type':'event_msg','payload':{'type':'task_complete','last_agent_message':None,'error':{'message':'stream disconnected'}}}))

@@ -29,17 +29,17 @@ if [ "$scope" = provider ]; then
   cargo clippy --manifest-path providers/chatgpt/Cargo.toml --all-targets --locked -- -D warnings
   cargo build --manifest-path providers/chatgpt/Cargo.toml --release --locked
   : "${BUN:?set BUN to the qualified optional-provider Bun executable}"
-  "$BUN" test ./providers/chatgpt/*.test.mjs ./scripts/f_cdp_relay.test.mjs ./scripts/chat_entry_client.test.mjs
+  "$BUN" test ./providers/chatgpt/*.test.mjs ./scripts/cdp_qualification_relay.test.mjs ./scripts/chat_entry_client.test.mjs
   python3 -B -m unittest discover -s providers/chatgpt -p 'test_*.py'
-  python3 -B -m unittest -v scripts/test_provider_qualification.py scripts/test_native_qualification_notice.py scripts/test_provider_f.py scripts/test_provider_f_agents.py
-  python3 -B -m unittest -v scripts/test_provider_g.py scripts/test_qualification_diagnostics.py
+  python3 -B -m unittest -v scripts/test_provider_qualification.py scripts/test_native_qualification_notice.py scripts/test_provider_combined_routes.py scripts/test_provider_agent_fixtures.py
+  python3 -B -m unittest -v scripts/test_provider_installed_entrypoint.py scripts/test_qualification_diagnostics.py
   # Import/CLI checks only; device fixtures and cleanup never run in source CI.
   python3 -B scripts/clean_development.py --help >/dev/null
   python3 -B scripts/qualify_provider_product.py --help >/dev/null
   python3 -B scripts/qualify_provider_adapter_tools.py --help >/dev/null
   python3 -B scripts/qualify_provider_package.py --help >/dev/null
-  python3 -B scripts/qualify_provider_g.py --help >/dev/null
+  python3 -B scripts/qualify_provider_installed_entrypoint.py --help >/dev/null
   python3 -B scripts/qualify_managed_native_lifecycle.py --help >/dev/null
-  python3 -B scripts/release_g_observer.py --help >/dev/null
+  python3 -B scripts/release_native_qualification_observer.py --help >/dev/null
 fi
 git diff --check

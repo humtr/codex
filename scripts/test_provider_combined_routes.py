@@ -6,10 +6,10 @@ from scripts.qualify_provider_chat_entry import control, cli_final_visible, obse
 from pathlib import Path
 from unittest.mock import patch
 from scripts.qualify_provider_operator import submitted_work_binding
-from scripts.qualify_provider_f import Batch, creation_call_id, input_completed, require_host_capabilities, followup_branch, run
+from scripts.qualify_provider_combined_routes import Batch, creation_call_id, input_completed, require_host_capabilities, followup_branch, run
 
 
-class FDriverTests(unittest.TestCase):
+class CombinedRoutesTests(unittest.TestCase):
     def test_native_work_selection_ignores_auxiliary_order_and_matches_original_task(self):
         first, second = 'a'*48, 'b'*48
         rows=[{'op':'submit','messages':[{'role':'user','text':'first request'}],
@@ -115,12 +115,12 @@ class FDriverTests(unittest.TestCase):
     def test_static_inputs_are_rehashed_on_change_and_forced_final_review(self):
         import os
         import hashlib
-        from scripts.qualify_provider_f import sha
+        from scripts.qualify_provider_combined_routes import sha
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);target=root/'static';target.write_bytes(b'original')
             (root/'sealed-inputs.json').write_text(json.dumps({'static':hashlib.sha256(target.read_bytes()).hexdigest()}))
             batch=object.__new__(Batch);batch.root=root;batch.plan={};batch.deadline=float('inf')
-            with patch('scripts.qualify_provider_f.sha',wraps=sha) as hashed:
+            with patch('scripts.qualify_provider_combined_routes.sha',wraps=sha) as hashed:
                 batch.check();batch.check();self.assertEqual(hashed.call_count,1)
                 batch.check(force=True);self.assertEqual(hashed.call_count,2)
                 import time
@@ -131,8 +131,8 @@ class FDriverTests(unittest.TestCase):
 
     def test_wall_deadline_expires_even_when_monotonic_time_has_not_reached_its_limit(self):
         batch=object.__new__(Batch);batch.plan={'deadline_unix_ms':90000};batch.deadline=1000
-        with patch('scripts.qualify_provider_f.time.monotonic',return_value=10), \
-                patch('scripts.qualify_provider_f.time.time',return_value=100), \
+        with patch('scripts.qualify_provider_combined_routes.time.monotonic',return_value=10), \
+                patch('scripts.qualify_provider_combined_routes.time.time',return_value=100), \
                 self.assertRaisesRegex(RuntimeError,'batch_deadline_exhausted'):
             batch.check()
 
@@ -157,8 +157,8 @@ class FDriverTests(unittest.TestCase):
 
     def test_snapshot_rewrites_and_stream_flags_do_not_reset_stalled_activity_budget(self):
         batch=object.__new__(Batch);batch.root=Path('/owned');batch.plan={'max_no_progress_seconds':10}
-        with patch('scripts.qualify_provider_f.native_work',return_value=[]), \
-                patch('scripts.qualify_provider_f.time.monotonic',side_effect=[0,9,11]):
+        with patch('scripts.qualify_provider_combined_routes.native_work',return_value=[]), \
+                patch('scripts.qualify_provider_combined_routes.time.monotonic',side_effect=[0,9,11]):
             batch.check_progress({'messages':[],'streamActive':True})
             batch.check_progress({'messages':[],'streamActive':False})
             with self.assertRaisesRegex(RuntimeError,'activity_stalled'):
@@ -166,8 +166,8 @@ class FDriverTests(unittest.TestCase):
 
     def test_new_public_output_resets_activity_budget_without_declaring_completion(self):
         batch=object.__new__(Batch);batch.root=Path('/owned');batch.plan={'max_no_progress_seconds':10}
-        with patch('scripts.qualify_provider_f.native_work',return_value=[]), \
-                patch('scripts.qualify_provider_f.time.monotonic',side_effect=[0,9,18]):
+        with patch('scripts.qualify_provider_combined_routes.native_work',return_value=[]), \
+                patch('scripts.qualify_provider_combined_routes.time.monotonic',side_effect=[0,9,18]):
             batch.check_progress({'messages':[]})
             batch.check_progress({'messages':[{'id':'new-public-output'}]})
             batch.check_progress({'messages':[{'id':'new-public-output'}]})
@@ -180,10 +180,10 @@ class FDriverTests(unittest.TestCase):
             batch.plan, batch.steps, batch.expected_stops = {}, [], set()
             batch.check.side_effect = RuntimeError("observation budget exhausted")
             batch.client.call.return_value = {}
-            with patch("scripts.qualify_provider_f.Batch",return_value=batch), \
-                    patch("scripts.qualify_provider_f.native_work",return_value=[{"id":"done","phase":"completed","pending":[]},{"id":"unknown-stop","phase":"stop_requested","pending":[]}]), \
-                    patch("scripts.qualify_provider_f.control") as control_request, \
-                    patch("scripts.qualify_provider_f.notify"):
+            with patch("scripts.qualify_provider_combined_routes.Batch",return_value=batch), \
+                    patch("scripts.qualify_provider_combined_routes.native_work",return_value=[{"id":"done","phase":"completed","pending":[]},{"id":"unknown-stop","phase":"stop_requested","pending":[]}]), \
+                    patch("scripts.qualify_provider_combined_routes.control") as control_request, \
+                    patch("scripts.qualify_provider_combined_routes.notify"):
                 run(root)
             control_request.assert_not_called()
             self.assertEqual(json.loads((root / "failure-owned-native-stops-private.json").read_text()),
@@ -201,8 +201,8 @@ class FDriverTests(unittest.TestCase):
         with patch.object(batch,"check"), patch.object(batch,"drain"), \
                 patch.object(batch,"observe_current") as observe, \
                 patch.object(batch,"rpc") as rpc, \
-                patch("scripts.qualify_provider_f.time.monotonic",side_effect=lambda:clock[0]), \
-                patch("scripts.qualify_provider_f.time.sleep",side_effect=advance):
+                patch("scripts.qualify_provider_combined_routes.time.monotonic",side_effect=lambda:clock[0]), \
+                patch("scripts.qualify_provider_combined_routes.time.sleep",side_effect=advance):
             batch.wait_for_saved_retry(60,"original")
         self.assertEqual(clock[0],60)
         self.assertEqual(observe.call_count,12)
@@ -212,7 +212,7 @@ class FDriverTests(unittest.TestCase):
     def test_completed_work_with_original_observer_is_not_polled_again(self):
         batch = object.__new__(Batch)
         batch.root, batch.plan, batch.observers = Path("/owned"), {}, {"done":object()}
-        with patch("scripts.qualify_provider_f.native_work",return_value=[{"id":"done","phase":"completed"},{"id":"active","phase":"running"}]):
+        with patch("scripts.qualify_provider_combined_routes.native_work",return_value=[{"id":"done","phase":"completed"},{"id":"active","phase":"running"}]):
             self.assertEqual([r["id"] for r in batch.current_records()],["active"])
 
     def test_original_cli_code_fences_do_not_require_language_labels_or_remove_code_comments(self):
@@ -233,10 +233,10 @@ class FDriverTests(unittest.TestCase):
                 batch.read.return_value = [{"cursor":{},"messages":[]}]
                 batch.session.side_effect = [{"input_id":"original"}, {"complete":True,"input":{"phase":"completed"}}]
                 batch.client.call.return_value = {}
-                with patch("scripts.qualify_provider_f.Batch",return_value=batch), \
-                        patch("scripts.qualify_provider_f.audit",return_value=[]), \
-                        patch("scripts.qualify_provider_f.notify"), \
-                        patch("scripts.qualify_provider_f.time.monotonic",side_effect=[0,3]):
+                with patch("scripts.qualify_provider_combined_routes.Batch",return_value=batch), \
+                        patch("scripts.qualify_provider_combined_routes.audit",return_value=[]), \
+                        patch("scripts.qualify_provider_combined_routes.notify"), \
+                        patch("scripts.qualify_provider_combined_routes.time.monotonic",side_effect=[0,3]):
                     run(root)
                 self.assertTrue(json.loads((root / "result.json").read_text())["automated_gates"])
                 batch.source_task.assert_called_once_with("general-mcp","owned task","F_GENERAL_COMPLETE",2)
@@ -257,7 +257,7 @@ class FDriverTests(unittest.TestCase):
         batch = object.__new__(Batch)
         batch.root = Path("/owned-fixture")
         batch.plan = {"completed_prior_work":{"old":{}},"preflight_stopped_work":["empty"]}
-        with patch("scripts.qualify_provider_f.native_work",return_value=[{"id":i} for i in ["old","empty","direct","new"]]):
+        with patch("scripts.qualify_provider_combined_routes.native_work",return_value=[{"id":i} for i in ["old","empty","direct","new"]]):
             self.assertEqual([r["id"] for r in batch.current_records()],["direct","new"])
 
 
@@ -280,8 +280,8 @@ class FDriverTests(unittest.TestCase):
         for status in [{}, {"app_lane": None, "host_observation": None},
                        {"app_lane": {"host_block": None}, "host_observation": None},
                        {"app_lane": {}, "host_observation": {}}]:
-            with patch("scripts.qualify_provider_f.subprocess.check_output") as token, \
-                    patch("scripts.qualify_provider_f.urllib.request.urlopen") as send:
+            with patch("scripts.qualify_provider_combined_routes.subprocess.check_output") as token, \
+                    patch("scripts.qualify_provider_combined_routes.urllib.request.urlopen") as send:
                 batch.approve({"thread_id": "owned-thread"}, status)
                 token.assert_not_called()
                 send.assert_not_called()
@@ -301,7 +301,7 @@ class FDriverTests(unittest.TestCase):
             with patch.object(batch, "session", side_effect=replies) as request, \
                     patch.object(batch, "observe"), patch.object(batch, "event"), \
                     patch.object(batch, "check"), patch.object(batch, "drain"), \
-                    patch("scripts.qualify_provider_f.subprocess.check_output") as token:
+                    patch("scripts.qualify_provider_combined_routes.subprocess.check_output") as token:
                 result = batch.managed("mcp", "Owned synthetic task")
                 self.assertEqual(result["controller"], "new-fake-controller")
                 self.assertEqual([c.kwargs["action"] for c in request.call_args_list], ["create", "start", "wait", "wait"])
@@ -331,9 +331,9 @@ class FDriverTests(unittest.TestCase):
         batch = object.__new__(Batch)
         batch.plan, batch.observers = {}, {}
         batch.root = Path("/owned-fixture")
-        with patch("scripts.qualify_provider_f.native_work", return_value=[{"id":"work","native_turn":"turn"}]), \
+        with patch("scripts.qualify_provider_combined_routes.native_work", return_value=[{"id":"work","native_turn":"turn"}]), \
                 patch.object(batch,"rpc",return_value={"native_status":{"type":"notLoaded"}}), \
-                patch("scripts.qualify_provider_f.subprocess.Popen") as spawn:
+                patch("scripts.qualify_provider_combined_routes.subprocess.Popen") as spawn:
             batch.observe({"work_id":"work"})
             spawn.assert_not_called()
 
@@ -347,12 +347,12 @@ class FDriverTests(unittest.TestCase):
             batch.root = Path(directory)
             (batch.root/'work-cli-binding.json').write_text(json.dumps({"execution":{"directory":"old-owner"}}))
             record = {"id":"work","thread":"thread","native_turn":"turn","execution":{"directory":"new-owner","home":"/role/home"}}
-            with patch("scripts.qualify_provider_f.native_work",return_value=[record]), \
+            with patch("scripts.qualify_provider_combined_routes.native_work",return_value=[record]), \
                     patch.object(batch,"rpc",return_value={"native_status":{"type":"idle"}}), \
-                    patch.object(batch,"drain"), patch("scripts.qualify_provider_f.pty.openpty",return_value=(99,100)), \
-                    patch("scripts.qualify_provider_f.fcntl.ioctl"), patch("scripts.qualify_provider_f.os.close"), \
-                    patch("scripts.qualify_provider_f.observer_argv",return_value=["/owned/core","--remote","unix:///new-owner/s"]), \
-                    patch("scripts.qualify_provider_f.subprocess.Popen") as spawn:
+                    patch.object(batch,"drain"), patch("scripts.qualify_provider_combined_routes.pty.openpty",return_value=(99,100)), \
+                    patch("scripts.qualify_provider_combined_routes.fcntl.ioctl"), patch("scripts.qualify_provider_combined_routes.os.close"), \
+                    patch("scripts.qualify_provider_combined_routes.observer_argv",return_value=["/owned/core","--remote","unix:///new-owner/s"]), \
+                    patch("scripts.qualify_provider_combined_routes.subprocess.Popen") as spawn:
                 batch.observe({"work_id":"work"})
                 old.terminate.assert_called_once()
                 self.assertIs(batch.observers['work'][0],spawn.return_value)
@@ -371,8 +371,8 @@ class FDriverTests(unittest.TestCase):
                 if batch.control_observations == 1:
                     raise AssertionError('read rejected')
                 return {'complete':False}
-            with patch.object(batch,'check'),patch.object(batch,'event'),patch('scripts.qualify_provider_f.time.sleep'), \
-                    patch('scripts.qualify_provider_f.control',side_effect=first_failed) as request:
+            with patch.object(batch,'check'),patch.object(batch,'event'),patch('scripts.qualify_provider_combined_routes.time.sleep'), \
+                    patch('scripts.qualify_provider_combined_routes.control',side_effect=first_failed) as request:
                 self.assertEqual(batch.rpc('codex_sessions',{'action':'chat_result','input_id':'owned'}),{'complete':False})
                 self.assertEqual(request.call_count,2)
                 batch.control_observations=0
@@ -394,7 +394,7 @@ class FDriverTests(unittest.TestCase):
         batch.info, batch.env = {}, {}
         batch.root = Path("/owned-fixture")
         with patch.object(batch, "check"), patch.object(batch, "event") as events, \
-                patch("scripts.qualify_provider_f.control", side_effect=RuntimeError("uncertain")) as request:
+                patch("scripts.qualify_provider_combined_routes.control", side_effect=RuntimeError("uncertain")) as request:
             with self.assertRaisesRegex(RuntimeError, "uncertain"):
                 batch.rpc("codex_sessions", {"action": "start"})
             request.assert_called_once()
@@ -436,7 +436,7 @@ class FDriverTests(unittest.TestCase):
         batch.control_observations = 2
         batch.plan = {"max_control_observations": 2}
         batch.info, batch.env = {}, {}
-        with patch.object(batch, "check"), patch("scripts.qualify_provider_f.control") as request:
+        with patch.object(batch, "check"), patch("scripts.qualify_provider_combined_routes.control") as request:
             with self.assertRaisesRegex(AssertionError, "budget_exhausted"):
                 batch.rpc("codex_status", {})
             request.assert_not_called()

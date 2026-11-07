@@ -5,11 +5,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts import qualify_provider_g as g
+from scripts import qualify_provider_installed_entrypoint as g
 from scripts.qualify_permission_lifecycle import server_paths
 
 
-class GDriver(unittest.TestCase):
+class InstalledEntrypointTests(unittest.TestCase):
     def test_installed_runtime_discovery_requires_the_exact_selected_image(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as name:
             home=Path(name)
