@@ -10,12 +10,34 @@ delivery and device activation. None substitutes for the next boundary.
 The user now authorizes completing Core/Manager/TUI operating delivery and
 activation. Use the existing signed exact-source release/update path, retain
 current/rollback and live work, then refresh the actual connector with the owned
-Provider CDP session and complete a fresh Native cycle. Deployment is in progress;
-no new Core/TUI has been activated yet. The source merge preserves the remote
+Provider CDP session and complete a fresh Native cycle. Source f485bec passes
+acceptance42309525783 and Core/runtime42309525953; controller registration adfda2e
+passes acceptance42313302563 and Core/runtime42313304961. Public run42315049610
+publishes signed Base149 (adfda2e) after Android smoke, complete public readback,
+disposable update and non-forced stable promotion. Full is correctly deferred as
+frontend-unqualified. The device still runs Full148/Base147: no new Core/TUI has
+been activated. Full Native qualification42309527072 remains in progress.
+The source merge preserves the remote
 0.167 discovery commit in history, while this bounded repair explicitly selects
 the operating0.166 tuple and147 demonstrated focused TUI cases. Remote0.167 had
 no successful Core/runtime qualification or paired frontend and is not silently
 adopted. Original dirty0814be7 and its49 paths remain untouched.
+
+The f485bec CLI SHA256 is
+eb5b8a5caf86970b4a8c6544424b689dd12c08abf8cce60a0d7d7f3cf74ab8a5,
+different from the earlier Android-tested CLI despite identical native.patch and
+dependency audit. Its actual Android Full fixture passes ordinary foreign-home
+Native resume, explicit effort, Bridge effects/results/retries, restart and TUI
+follow-up with retained model, permissions, history and default. Thread
+01a1b34b-ae35-7473-9f83-d4c2d8c4d561; owner-full-f485bec.json/log retains proof.
+This uses controlled app replies and zero real model requests, not an actual
+ChatGPT client or physical screen observation. Original failed trials are kept:
+the old explicit --remote fixture does not exercise Core owner discovery; the
+Manager-removal fixture incorrectly queries Manager at its final default check.
+The Full fixture retains Manager and all original assertions; no product code,
+policy or expected result was weakened. The existing cleaner archives24
+manifest-matched payloads (3,055,058,944 allocated bytes) from these four confirmed
+inactive owned fixtures, preserving source, Native records and restore records.
 
 The first operating-deployment source is ed1f66c: source acceptance42306525389
 passes actual Android Core and workspace proofs. Core/runtime42306525316 fails
@@ -36,10 +58,12 @@ native-runtime-prepare-actual.json and native-runtime-lock-actual.json. The sour
 fixture at runtime-preflight-7xuhzcbd is owned qualification input, not another
 implementation checkout. Superseded Native run42306523578 is intentionally
 cancelled; its old source cannot close the new exact-source release gate.
-The full Native CI budget is150 minutes: the observed75-minute base/TUI/library /
-API sequence plus roughly32 minutes of retained-feature/lint work leaves little
-room at120 for the two Native route fault/restoration builds. This changes only
-CI capacity, not any product/CDP deadline or acceptance condition.
+Full Native run42309527072 takes96 minutes before API admission, rather than the
+earlier75-minute estimate through API checks. Its existing150-minute budget cannot
+be changed while running. Future CI budget is240 minutes for cold compilation,
+the two Native route fault/restoration pairs and retained-feature/lint checks.
+Keep the current run; successful unchanged recipe evidence remains reusable.
+This changes only CI capacity, not a product/CDP deadline or acceptance condition.
 
 ## Pro handoff entry
 

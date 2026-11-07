@@ -30,9 +30,9 @@ jobs:
   upstream-baseline:
     name: ${{ inputs.scope == 'full' && 'Build and test native switch selection' || format('Focused native {0}', inputs.scope) }}
     runs-on: ubuntu-24.04-arm
-    # Full TUI/API/retained-feature gates plus independent TUI and Native route
-    # mutations, each with restored-source proof, share this job budget.
-    timeout-minutes: 150
+    # Cold builds can take 96 minutes before API tests; Native fault/restoration
+    # rebuilds and retained-feature/lint gates still have to complete afterward.
+    timeout-minutes: 240
     env:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
