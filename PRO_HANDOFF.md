@@ -7,6 +7,13 @@
 기록은 별도로 표시된 역사/대안 자료**다. 시작 시 Git HEAD, 프로세스 이미지,
 운영 바인딩을 다시 읽고 원본 커밋과 실제 실행 바이너리를 혼동하지 않는다.
 
+`SPEC.md`는 버전과 무관한 규범 사양이며, 그 상세 계약은
+`docs/spec/USER_INTERFACES.md`, `docs/spec/BRIDGE.md`,
+`docs/spec/DELIVERY.md`에 있다. 세대별 과거 패치·수용 기록은
+`docs/history/GENERATION_ADMISSION.md`로 분리됐다. `AGENTS.md`는 모델과
+무관한 작업 태도 규칙이다. **`goal.md`가 비어 있다면 현재 별도 장기 목표가
+설정되지 않은 것**이며, 이 문서의 보존된 과제를 자동 장기 목표로 바꾸지 않는다.
+
 - 문서 선작업 기준: `fix/attached-native-development-loop-20261106`의
   `92a33c4821e836dd465c296c6015310d7c76ffec` 이후 변경. 실제 현재
   커밋과 작업 트리 상태는 `git rev-parse HEAD`와 `git status`로 확인한다.
@@ -372,7 +379,8 @@ CDP/대상 관리는 CDP/AppHost, 원본 앱 요청 전달·관찰·정산은 Pr
 단일 CDP 관찰자를 경쟁시키지 않고 기존 앱·프로필·대화를 초기화하지 않는다.
 소스/대역/기기/실제 모델/TUI/서명/운영 활성화는 각각 증거를 구분한다.
 
-`goal.md`에는 활성 범위만, `CURRENT.md`에는 확인된 사실과 미완료만 유지한다.
+사용자가 장기 목표를 명시한 경우에만 `goal.md`를 작성하고, 그 외에는 비워둔다.
+`CURRENT.md`에는 확인된 사실과 미완료만 유지한다.
 `PRO_REVIEW.md`와 기존 기기 REPORT.md에 다음을 보고한다: 최초 확인 실패와
 근본 원인, reconciliation 진입/해제 전이, A/B/C의 공통/독립 판정, 필요한
 보호와 불필요 차단, 수정 책임·통합/삭제/호환, 최초 실패/수정/결함 주입 결과,
@@ -728,7 +736,8 @@ effort 유지, 추론 중 steering/queue 편집/취소, 빈 최종 응답·준�
 실제 개발 Provider/MCP 후보의 소스: 7471ed71a0efc97dbb6d97cb092f3d5ab01d10d8
 별도 Native 전환 후보: prep/pro-baseline-20261106 (현재 서명 Native에는 미적용)
 먼저 이 문서 0절과 PRO_HANDOFF.md 전체, AGENTS.md, SPEC.md4.5–4.6,
-CURRENT.md, goal.md, 운영 근거인 `~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/`
+CURRENT.md와 SPEC의 관련 상세 계약, 비어 있을 수 있는 goal.md,
+운영 근거인 `~/.cache/codex/acceptance/upstream-167-pr-audit-20261108/`
 아래 `GAP_AUDIT.md`·`AUTO_REVIEW_AUDIT.md`, 필요할 때
 providers/chatgpt/LINUX_APP.md를 읽어라. 복구/컴팩션/인수 뒤에는 실제 AGENTS.md를
 다시 읽고 현재 diff·새 경로·미해결 사항을 확인하되 통과한 검사를 재시작하지 마라.
@@ -836,7 +845,8 @@ TUI/Native/MCP 상태 일관성. 읽기·쓰기·계속 작업·양방향 전환
 기존 scripts/d3_refresh.mjs의 전체 스키마와 새 Native 왕복을 확인해라.
 
 우선 과제12개·NC-01..29·누적 backlog를 빠짐없이 판별하고 관련 작업부터 순서대로
-수행해라. 무관한 정리를 한 패치에 몰아넣지 마라. goal.md는 간결하게, CURRENT.md는
+수행해라. 무관한 정리를 한 패치에 몰아넣지 마라. 사용자가 별도 활성 장기
+목표를 지정하지 않았다면 goal.md는 비워두고, CURRENT.md는
 확정 사실과 남은 작업으로 유지해라. PRO_REVIEW.md에 진단/대안/책임 변경/삭제·
 호환 경로/실제 증거/미완료/다음 작업을 기록하고 논리적 단위로 커밋/푸시해라.
 기기 보고서: ~/.cache/codex/acceptance/bridge-design-pro-review/REPORT.md

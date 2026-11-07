@@ -161,9 +161,9 @@ Chat re-entry, retaining prior turns and the explicit interruption. The later
 6aa2280 Provider discovery correction has hosted/private Android and signed public
 Provider acceptance (release sequence3), including a distinct same-thread
 report-only final. Accepted scopes and the actual device baseline are in
-[CURRENT](../../CURRENT.md#current-status-and-next-action).
+[CURRENT](../../CURRENT.md#active-operating-deployment).
 
-The [ChatGPT-operated MCP workflow](../../CURRENT.md#chatgpt-entry-and-task-management)
+The [ChatGPT-operated MCP workflow](../../CURRENT.md#attached-native-development-loop-verified-scope-and-active-development-artifact)
 has bounded actual/synthetic integration and G delivery acceptance in CURRENT.
 TUI displays the same bound work and
 receives native execution plus public report/final events; it does not become
@@ -179,7 +179,7 @@ execution socket; a generic resume may select another backend and encounter an
 external writer. This does not close every real-Chat cross-provider/downshift/
 cold-resume or physical UI gate. The shared bridge, completed E design and bounded F integration,
 G delivery and H retirement are recorded in
-[CURRENT](../../CURRENT.md#evidence-map-and-limits).
+[CURRENT](../../CURRENT.md#evidence-limits-and-next-execution-point).
 The retained shared Provider CLI/MCP work/read/management interfaces use native
 records, public progress/questions, cancellation and source-bound completion.
 Provider assignment ancestry is separate from actual native child navigation;

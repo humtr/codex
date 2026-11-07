@@ -364,7 +364,7 @@ Core·TUI와 주입한 MCP envelope의 시험은 통과했으며 실제 ChatGPT�
 
 ### 6.3 검토 순서와 결과별 채택 기준
 
-실행 의미는 [SPEC](SPEC.md#work-recording-scope-and-entry-selection)에 채택했다.
+실행 의미는 [SPEC](docs/spec/BRIDGE.md#work-recording-scope-and-entry-selection)에 채택했다.
 다음 검토 단계 중 호스트 기반 실증과 기본 구성 선정은 완료했다. 정책 강제와
 완성된 도구의 선택·품질 시험은 제품 구현/수용 단계이며 미실행으로 구분한다.
 

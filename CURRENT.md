@@ -1,6 +1,7 @@
 # Product state and completion roadmap
 
-SPEC.md owns behavior and component boundaries. AGENTS.md owns development rules
+SPEC.md and its linked normative annexes own behavior and component boundaries.
+AGENTS.md owns development principles
 and must be reread after recovery. This file distinguishes source implementation,
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.

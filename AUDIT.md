@@ -10,8 +10,8 @@ Bridge가 받은 요청을 기존 Native 작업에 등록하는 경로를 우선
 **2026-10-27 문서 정리 시점의 적용 범위.** 아래 본문은 원본 감사 시점의 판정과
 제안을 보존한다. 현재 구현 명세로 그대로 사용하지 않는다. Full119·Provider15의
 서명 배포와 기기 적용은 완료됐으며, 실제 시험 범위와 다음 작업은
-[CURRENT의 수용 시험표](CURRENT.md#implemented-but-incompletely-qualified)와
-[작업 순서](CURRENT.md#product-completion-scope-and-work-order)가 소유한다.
+[CURRENT의 수용 시험표](CURRENT.md#review-acceptance-and-implementation-gates)와
+[작업 순서](CURRENT.md#retained-backlog-areas-and-user-visible-completion)가 소유한다.
 
 | 원본 감사의 표현·제안 | 현재 채택한 계약과 상태 |
 | --- | --- |
@@ -206,7 +206,7 @@ PID31409의 부재와 profile lease 가용성을 별도 확인했으며 정상 �
 ## 전송 설계 작성안과 기존 구현·업스트림 비교
 
 작성 기준은 `fd04849`이며 아래는 구현 전 작성안이다. 규범 원칙과 요청 작성안은
-[SPEC의 input preparation 절](SPEC.md#input-preparation-and-execution-settings-implementation-draft)에
+[SPEC의 input preparation 절](docs/spec/BRIDGE.md#input-preparation-and-execution-settings)에
 반영했다. 별도 입력 엔진·설정 관리자·전송 계층을 추가하는 안은 채택하지 않는다.
 
 ### 책임과 변경 범위
@@ -476,7 +476,7 @@ legacy-lane-reference-fields.json, legacy-large-files-and-boundaries.json이다.
 이 보고서는 원본·코드를 다시 대조한 기술 판정이다. 별도 감사 모델이나
 GPT Pro 검토를 수행한 것으로 주장하지 않는다. 제품 코드 변경·새 모델 시험·
 빌드·배포·서비스 재시작은 이번 문서 감사에서 수행하지 않았다.
-규범 계약은 [SPEC](SPEC.md#entrance-equivalence-and-continuous-development-binding),
+규범 계약은 [SPEC](docs/spec/BRIDGE.md#entrance-equivalence-and-continuous-development-binding),
 실제 상태는 [CURRENT](CURRENT.md)가 소유한다. 아래 API와 단계는 명시적으로
 현재 구현과 구분한다.
 

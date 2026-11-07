@@ -7,7 +7,7 @@ applies its approval/reviewer policy and owns canonical history. Neither Core no
 Manager links Provider implementation. Manager and enhanced TUI are not required
 for the upstream configuration route.
 
-[CURRENT](../../CURRENT.md#current-architecture-review-and-operating-boundary) owns the selected generations,
+[CURRENT](../../CURRENT.md#active-operating-deployment) owns the selected generations,
 signed delivery evidence and actual running owners. Provider is the component
 name; `chatgpt` is its CLI identifier. A release sequence is package metadata,
 not part of that component name. Source qualification, package selection,
@@ -38,7 +38,7 @@ remain historical evidence, not current architecture or universal acceptance.
 
 ## Existing execution surfaces
 
-The [work-recording contract](../../SPEC.md#work-recording-scope-and-entry-selection)
+The [work-recording contract](../../docs/spec/BRIDGE.md#work-recording-scope-and-entry-selection)
 now has source MCP tools `local_context`, `local_execute` and `local_process`.
 They reuse Core's threadless command execution, socket validation and durable
 operation recovery, without a model catalog/login, Native work, Native approval
@@ -140,7 +140,7 @@ settings or changing saved defaults. Cold continuation reads the original Native
 thread's provider before preparing its server. The shared owner record and actual
 service image still need matched activation. This startup path does not establish
 cross-provider transition or receiving-client continuity. See
-[the current boundary](../../CURRENT.md#current-architecture-review-and-operating-boundary).
+[the current boundary](../../CURRENT.md#active-operating-deployment).
 
 The Linux app account is read from its current authenticated state. Account IDs,
 workspace IDs and connector IDs are not compiled into Provider. Configure the
@@ -299,7 +299,7 @@ existing credentials/remote registration; include private bounded logs,
 dependency/readiness checks and persistent disable/restore operations. The
 runtime check must establish Android compatibility before enabling the tunnel;
 an executable name or a successful version print alone does not establish it.
-The [service and tunnel targets](../../SPEC.md#explicit-device-service-integration)
+The [service and tunnel targets](../../docs/spec/BRIDGE.md#explicit-device-service-integration)
 make the patched Android tunnel individually selectable and part of future Full.
 Normal installation consumes validated prebuilt binaries; independent tunnel
 update/rollback remains available. Release and explicit source-build/recovery
@@ -313,7 +313,7 @@ This document does not introduce a new command or change installed behavior.
 ### Optional package selection
 
 Public Core/Full90 and later expose these commands without Manager or enhanced
-TUI. [CURRENT](../../CURRENT.md#current-architecture-review-and-operating-boundary) owns this device's selected
+TUI. [CURRENT](../../CURRENT.md#active-operating-deployment) owns this device's selected
 release; other installations must first update Core to a compatible signed generation.
 
 ```sh
@@ -404,10 +404,10 @@ private Ed25519 key, OpenSSL and absent output directory. The signed inventory
 contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inputs.json;
 it excludes desktop software, credentials, conversations and user configuration.
 Local fixture signing and lifecycle evidence do not establish public delivery or
-authorize device activation. See [the package contract](../../SPEC.md#optional-provider-packaging-and-selection)
+authorize device activation. See [the package contract](../../docs/spec/BRIDGE.md#optional-provider-packaging-and-selection)
 and [current G acceptance](../../CURRENT.md#delivered-updater-repairs-and-retained-proof).
 
-Development retention uses [CURRENT's cleanup/restore procedure](../../AGENTS.md#work).
+Development retention uses [agent cleanup principles](../../AGENTS.md#execute-with-care).
 The G composition driver archives verified executable copies after success;
 `--keep-payloads` retains them for debugging. Journals, source, results and
 workspaces remain. Restore archived original payloads before reusing a historical
@@ -450,14 +450,14 @@ Saved-Chat discovery/read works from both entrances for work-linked or unrelated
 accessible conversations. Preserve message order, source and branch identity;
 page the full requested range and expose unavailable content. Reading starts no
 model task, resumes no work and transfers no control. General delegation and
-[agent/orchestration](../../SPEC.md#agent-and-orchestration-extension-direction)
+[agent/orchestration](../../docs/spec/BRIDGE.md#agent-and-orchestration-extension-direction)
 reuse this common bridge and independent native roles/contexts. Their actual,
 synthetic and recovered-result scopes are accepted in
 [CURRENT](../../CURRENT.md#existing-proof-and-architectural-limits); a universal quality,
 latency, billing or capacity advantage remains unproven.
 
 E/F design/integration, G product/public delivery and H preservation/retirement
-have bounded acceptance at their [recorded scopes](../../CURRENT.md#unified-development-order-and-user-visible-completion).
+have bounded acceptance at their [recorded scopes](../../CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 Original failed/interrupted cohorts and exact comparison inputs remain preserved.
 Detailed context-capacity policy, optional SIWC/app-free research and viewer/setup
 polish stay separate follow-ups. Linux-app removal is not a prerequisite.
@@ -517,7 +517,7 @@ remain enforced. Repeated source participants, including after interruption, mus
 accept their current Native context before effects. A Provider continuation imports
 full Native context and clears source divergence only after completion.
 
-The [entrance contract](../../SPEC.md#entrance-equivalence-and-continuous-development-binding)
+The [entrance contract](../../docs/spec/BRIDGE.md#entrance-equivalence-and-continuous-development-binding)
 requires one actual execution and preserved response quality. General Android/web
 requests start outside Provider's renderer: model guidance can encourage Bridge
 use, but original host input/message identity and the later host public final must
@@ -743,7 +743,7 @@ one authority:
 `~/.config/codex/providers/chatgpt.toml`.
 Broader ChatGPT setup/management UX is deferred; explicit project selection and
 configuration/operations will remain its authority. Scope and priority are in
-[CURRENT.md](../../CURRENT.md#current-architecture-review-and-operating-boundary).
+[CURRENT.md](../../CURRENT.md#active-operating-deployment).
 
 - `models` reads `catalog.models`; `catalog` generates native model JSON.
 - `config show|effective|validate|edit` inspects or edits settings. Effective output
@@ -1073,7 +1073,7 @@ conversations and personalization. Duplicate/inaccessible destinations fail, and
 uncertain create is reconciled before retry. Destination changes affect new lanes.
 Project grouping reduces clutter, not stored history or established message costs.
 Archive/delete/temporary retention is not admitted. Full contracts are in
-[SPEC](../../SPEC.md#approved-provider-configuration-context-and-remote-project-behavior).
+[SPEC](../../docs/spec/BRIDGE.md#approved-provider-configuration-context-and-remote-project-behavior).
 
 ## Verification and migration
 

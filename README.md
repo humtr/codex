@@ -672,9 +672,14 @@ without this helper. See SPEC for authoritative scope and failure behavior.
 ## Documents
 
 - [Provider guide](providers/chatgpt/README.md) — connection, login and work controls
-- [SPEC.md](SPEC.md) — normative product and architecture contract
+- [SPEC.md](SPEC.md) — release-independent normative product specification
+- [User and Manager interface contracts](docs/spec/USER_INTERFACES.md) — detailed interactive behavior
+- [Native and Bridge contracts](docs/spec/BRIDGE.md) — sessions, models, transport and recovery
+- [Runtime and release contracts](docs/spec/DELIVERY.md) — build, signing, update and rollback
+- [Historical generation admission](docs/history/GENERATION_ADMISSION.md) — non-normative patch and test evidence
 - [CURRENT.md](CURRENT.md) — operating baseline, proof and deferred work
-- [AGENTS.md](AGENTS.md) — repository-local execution and safety rules
+- [AGENTS.md](AGENTS.md) — model-independent agent working principles
+- [goal.md](goal.md) — optional user-defined active long-term goal (empty when none)
 
 ## Branches
 
@@ -789,6 +794,18 @@ Use concise context, direct implementation and calibrated reasoning.
 gate. The independent `provider` gate needs qualified Bun for app-bridge and
 development CDP tests;
 ordinary Core checks do not.
+
+When an installed, configured Bridge's live Core/Provider/MCP runtime is
+replaced, refresh its registered connector through the maintained
+`scripts/d3_refresh.mjs` procedure using the **verified current owned** app/CDP
+binding, exact connector, deployed Provider binary and current Provider state.
+It must invalidate the app action/query cache, compare the complete registered
+and live MCP input schemas and confirm a fresh Native roundtrip through that
+client. A missing live app/connector binding leaves this configured-Bridge
+acceptance step incomplete; a Core-only installation does not require or
+acquire an optional app. Do not run the procedure against an old disposable
+desktop descriptor or replace the native execution/approval owner.
+
 The shared Rust release-builder now owns source adaptation, release lock
 normalization and protocol export generation (`prepare-source`, `normalize-lock`,
 `generate-schema`). Source timestamps retain Cargo's normal freshness checks. CI builds this tool once and supplies its absolute path
