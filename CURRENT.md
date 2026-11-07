@@ -193,7 +193,7 @@ rule; actual changed/ambiguous Native/TUI contracts still fail explicitly and
 require adaptation before promotion. Preserve operating/rollback generations
 during repair; a failed qualification is not a version-freeze policy.
 
-New actual user trials narrow the earlier controlled-app evidence. Thread
+Reported pre-upgrade user trials narrow the earlier controlled-app evidence. Thread
 01a1b508-c8ce-7fb2-9831-028cc8c892f4 completes the first Rust loop with actual
 tool results. Its following turn records gpt-6.1-sol instead of the initial
 chatgpt-desktop/gpt-6 and fails unsupported_desktop_route. The model-change input
@@ -201,8 +201,9 @@ provenance is missing; do not attribute it to the user or infer a current route
 from the historical session header. Thread
 01a1b511-dfd5-7db3-9977-57582422267e accepts steering input, then fails
 native_context_prefix_changed with no Native tool result in that trial.
-These real-model continuation/steering trials fail; preserve both as regressions
-when absorbing0.167 and repairing Provider/Native/TUI contracts. Earlier
+Those real-model continuation/steering trials failed and were not repeated with
+a real model after0.167 activation. Preserve both as regressions when repairing
+Provider/Native/TUI contracts. Earlier
 plain-resume display and controlled-app passes remain bounded evidence.
 
 ## Pro handoff entry

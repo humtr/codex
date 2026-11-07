@@ -35,9 +35,10 @@ changed-report replay is retained as a rejected fixture input, then corrected
 within the same work. Rollback151, profiles and policy defaults are preserved.
 Source/build, controlled app, real model, actual client and physical UI stay distinct.
 
-New real TUI trials fail steering (native_context_prefix_changed) and follow-up
-input (model changes to gpt-6.1-sol, then unsupported_desktop_route); CURRENT.md
-records actual thread IDs and the missing model-change provenance.
+Reported pre-upgrade real TUI trials failed steering (native_context_prefix_changed)
+and follow-up input (model changes to gpt-6.1-sol, then unsupported_desktop_route).
+They have not been repeated with a real model after this upgrade; retain them as
+regressions. CURRENT.md records thread IDs and missing model-change provenance.
 
 After this preparation and verified upgrade, Pro may independently reject/rework
 the remaining architecture and Native-route candidate. Remaining: picker/alias context
