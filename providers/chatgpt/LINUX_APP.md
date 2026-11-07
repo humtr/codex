@@ -104,7 +104,7 @@ Provider의 앱 관찰을 동시에 실행하지 않는다. 연결 점유를 앱
 각각 확인한다.
 
 Core/Provider/MCP를 교체한 뒤에는 저장된 연결 설정과 현재 소유 세션으로 기존
-`scripts/d3_refresh.mjs`를 사용한다. 앱 캐시 갱신과 전체 입력 스키마 일치를 확인하고,
+`scripts/refresh_chatgpt_connector.mjs`를 사용한다. 앱 캐시 갱신과 전체 입력 스키마 일치를 확인하고,
 새 Native 작업의 create/start/attach/execute/finish까지 이어 간다.
 이 절차와 단순히 앱 화면을 여는 요청을 혼동하지 않는다.
 
@@ -116,5 +116,5 @@ MCP 명령, 커넥터가 가리키는 터널과 Native가 확인한 실행 설�
 
 새 로컬 MCP 프로세스와 원격 커넥터의 전체 스키마가 다르면, 옛 터널 세션의
 카탈로그인지 먼저 확인한다. 활성 효과가 없고 같은 소유 터널임을 확인한 뒤
-기존 supervisor로 해당 터널만 재연결하고 같은 `scripts/d3_refresh.mjs` 검사를
+기존 supervisor로 해당 터널만 재연결하고 같은 `scripts/refresh_chatgpt_connector.mjs` 검사를
 수행한다. 새 터널·커넥터·로그인을 만들거나 무조건 재시도하는 복구기를 넣지 않는다.

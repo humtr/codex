@@ -135,7 +135,7 @@ def prepare(root):
     client = (SOURCE / "scripts/chat_entry_client.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", json.dumps(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "client.mjs").write_text(client)
-    refresh = (SOURCE / "scripts/d3_refresh.mjs").read_text().replace(
+    refresh = (SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", json.dumps(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "refresh.mjs").write_text(refresh)
     shutil.copy2(d2 / "manage.py", root / "manage.py")

@@ -224,7 +224,7 @@ thread/read는 -32600 `thread not loaded`로 거부됐다. Provider stop은 그�
   `~/.cache/codex/acceptance/request-continuity-7471ed71a0ef/`에 있다. 이전763c24a와 그 전
   `connectivity-app-repair-20261105`는 이전 복구 기록/롤백 근거다. 설치된 패키지와
   실제 실행 이미지를 구분하며 비공개 제어값은 출력하지 않는다.
-- 기존 `scripts/d3_refresh.mjs`로 앱 캐시 무효화, **17개 전체 입력 스키마 일치**,
+- 기존 `scripts/refresh_chatgpt_connector.mjs`로 앱 캐시 무효화, **17개 전체 입력 스키마 일치**,
   실제 MCP 조회를 완료했다. 이후 새 Native create/start/attach/execute/finish,
   파일 수정/빌드/계속 작업과 실제 GPT-6 Guardian 검토가 통과했다. 해당 work/thread
   ID와 범위는 CURRENT에 있다. 실제 TUI 정상화·모든 모델 성공으로 확대하지 않는다.
@@ -374,7 +374,7 @@ CDP/대상 관리는 CDP/AppHost, 원본 앱 요청 전달·관찰·정산은 Pr
 미수행으로 남긴다. 승인 검토 실패는 승인으로 바꾸지 않는다.
 
 운영 교체는 기존 서명·배포·롤백 계약을 따른다. 갱신 후 현재 소유한 CDP 연결과
-정확한 connector/Provider/state로 `scripts/d3_refresh.mjs`의 전체 입력 스키마
+정확한 connector/Provider/state로 `scripts/refresh_chatgpt_connector.mjs`의 전체 입력 스키마
 새로고침을 완료하고 새 Native create/start/attach/execute/finish를 확인한다.
 단일 CDP 관찰자를 경쟁시키지 않고 기존 앱·프로필·대화를 초기화하지 않는다.
 소스/대역/기기/실제 모델/TUI/서명/운영 활성화는 각각 증거를 구분한다.
@@ -522,7 +522,7 @@ Provider 이름 변경이나 TUI 재시작을 호환성 증거로 삼지 않는�
 통합 후보에서 수행한다. 현재7471ed7 개발 실행본·원본 rollback과 원래 dirty 소스를
 보존하고, prep/draft/archive는 비교 입력으로 다룬다. 필요한 변경만 의미 단위로
 통합한다. 폐기 전 실제 소비자와 복원 필요를 확인한다. live 교체 후 기존
-scripts/d3_refresh.mjs로 전체 schema와 새 Native 왕복을 확인한다.
+scripts/refresh_chatgpt_connector.mjs로 전체 schema와 새 Native 왕복을 확인한다.
 
 5의 NC 배치는 읽기/snapshot(01~04), 파일/경로 효과(05~12), Git 자원(13~16),
 빌드·cache·임시 출력/정리(17~20), repo/계정/외부 권한(21~25), 진입점·복구·
@@ -842,7 +842,7 @@ TUI/Native/MCP 상태 일관성. 읽기·쓰기·계속 작업·양방향 전환
 사용해라. 기존 모바일 런처·저장 프로필·태스크바·Android 로그인·noVNC를
 재발명/초기화하지 마라. CDP 관찰자를 경쟁시키지 마라. 실제 runtime 교체는
 기존 서명/배포/롤백 계약을 따르고, 현재 소유 CDP/정확한 connector/Provider/state로
-기존 scripts/d3_refresh.mjs의 전체 스키마와 새 Native 왕복을 확인해라.
+기존 scripts/refresh_chatgpt_connector.mjs의 전체 스키마와 새 Native 왕복을 확인해라.
 
 우선 과제12개·NC-01..29·누적 backlog를 빠짐없이 판별하고 관련 작업부터 순서대로
 수행해라. 무관한 정리를 한 패치에 몰아넣지 마라. 사용자가 별도 활성 장기

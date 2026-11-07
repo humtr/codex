@@ -404,7 +404,7 @@ def prepare(args):
     backend = backend.replace("root+'/protocol.json'", "root+'/plan.json'")
     backend = backend.replace("termux.codex.d2.acceptance.v1", "termux.codex.d3.acceptance.v1")
     (root / "backend.mjs").write_text(backend)
-    refresh = (SOURCE / "scripts/d3_refresh.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
+    refresh = (SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "refresh.mjs").write_text(refresh)
     app_setup = (SOURCE / "scripts/d3_app_setup.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "app_setup.mjs").write_text(app_setup)
@@ -479,7 +479,7 @@ def seal(root):
         shutil.copy2(source, root / name)
     (root / "app_setup.mjs").write_text((SOURCE / "scripts/d3_app_setup.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs"))))
-    (root / "refresh.mjs").write_text((SOURCE / "scripts/d3_refresh.mjs").read_text().replace(
+    (root / "refresh.mjs").write_text((SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs"))))
     plan = json.loads((root / "plan.json").read_text())
     plan["project"] = project

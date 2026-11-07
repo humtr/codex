@@ -13,6 +13,7 @@ on:
       - scripts/test_provider_qualification.py
       - scripts/chat_entry_client.mjs
       - scripts/d3_*
+      - scripts/refresh_chatgpt_connector.mjs
       - scripts/test_d3_notify.py
       - scripts/test_provider_f.py
       - scripts/test_provider_f_agents.py

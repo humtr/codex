@@ -163,7 +163,7 @@ def connect(root):
     after=run('tunnel-after',['tunnel-client','runtimes','status',alias,'--json'])
     assert after['process_running'] and after['healthy'] and after['ready']
     plan=json.loads((root/'plan.json').read_text())
-    refresh=subprocess.run([plan['bun'],str(SOURCE/'scripts/d3_refresh.mjs'),str(root)],capture_output=True,timeout=260)
+    refresh=subprocess.run([plan['bun'],str(SOURCE/'scripts/refresh_chatgpt_connector.mjs'),str(root)],capture_output=True,timeout=260)
     (root/'refresh.stdout').write_bytes(refresh.stdout);(root/'refresh.stderr').write_bytes(refresh.stderr)
     assert refresh.returncode==0,'backend MCP refresh/probe failed; no model submitted'
     require_connector_ready(json.loads((root/'refresh-private.json').read_text()))

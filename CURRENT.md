@@ -34,7 +34,7 @@ Provider-owned CDP binding reports app ready/complete. The stale temporary
 descriptor lifecycle and Android-browser login forwarding remain Pro work;
 prior user login success does not close those defects.
 
-After Core activation, existing scripts/d3_refresh.mjs passes refresh_actions,
+After Core activation, the then-named scripts/d3_refresh.mjs passed refresh_actions,
 app query-cache invalidation, all17 complete registered/live input schemas and
 actual MCP readiness on that current owned binding and the exact saved connector.
 Private proof is ~/.cache/codex/acceptance/upstream-167-d3becae/. Through this
@@ -1633,9 +1633,11 @@ no live login, credential, service or work binding is changed here.
 ### Deferred connector-refresh production integration
 
 Decision605c9b5 is retained: only after P0-1/P0-2 and all NC implementation/
-acceptance, refactor existing `scripts/d3_refresh.mjs` into a phase-neutral
-supported deployment component. One implementation owns refresh_actions,
-app query-cache invalidation, exact connector/account/owner verification, full
+acceptance, integrate the phase-neutral `scripts/refresh_chatgpt_connector.mjs`
+into the supported deployment lifecycle. The entrypoint rename itself is not
+proof of integration or an authorization to refresh a live connector. One
+implementation owns refresh_actions, app query-cache invalidation, exact
+connector/account/owner verification, full
 registered/live schema agreement and actual read-only readiness. Source builds
 alone do not refresh clients. Activation must bind the **current live** owned
 Linux session and exact deployed binary/state; historical descriptors and the

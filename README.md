@@ -797,7 +797,7 @@ ordinary Core checks do not.
 
 When an installed, configured Bridge's live Core/Provider/MCP runtime is
 replaced, refresh its registered connector through the maintained
-`scripts/d3_refresh.mjs` procedure using the **verified current owned** app/CDP
+`scripts/refresh_chatgpt_connector.mjs` procedure using the **verified current owned** app/CDP
 binding, exact connector, deployed Provider binary and current Provider state.
 It must invalidate the app action/query cache, compare the complete registered
 and live MCP input schemas and confirm a fresh Native roundtrip through that

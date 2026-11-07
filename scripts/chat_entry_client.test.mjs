@@ -73,7 +73,7 @@ test('cleanup retains the original error in an exclusive evidence file',()=>{
 });
 
 test('connector refresh identifies nested gateway rate limits inside HTTP 424',()=>{
- const refresh=readFileSync(new URL('./d3_refresh.mjs',import.meta.url),'utf8');
+ const refresh=readFileSync(new URL('./refresh_chatgpt_connector.mjs',import.meta.url),'utf8');
  const parse=eval('('+refresh.match(/function responseFailure\(error\)\{[\s\S]*?\n\}/)[0]+')');
  expect(parse({responseStatus:424,message:JSON.stringify({detail:{upstream_status:429}})})).toEqual({status:424,upstream_status:429});
  expect(parse({status:429,message:'rate limited'})).toEqual({status:429,upstream_status:null});
@@ -85,7 +85,7 @@ test('connector refresh honors an existing cooldown before connector or network 
  try{
   writeFileSync(join(root,'info.json'),JSON.stringify({state:join(root,'state'),connector_reference:join(root,'must-not-be-read')}));
   writeFileSync(join(root,'connector-refresh-cooldown.json'),JSON.stringify({not_before_unix_ms:Date.now()+60000}));
-  const result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  const result=spawnSync(process.execPath,[new URL('./refresh_chatgpt_connector.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain('MCP refresh cooldown active; no network request');
  }finally{rmSync(root,{recursive:true});}
@@ -96,23 +96,23 @@ test('connector refresh rejects a mismatched configured name before app access',
  try{
   writeFileSync(join(root,'info.json'),JSON.stringify({connector_name:'Termux Bridge',connector_reference:join(root,'connector.json')}));
   writeFileSync(join(root,'connector.json'),JSON.stringify({matches:[{name:'Different connector',connector_id:'owned'}]}));
-  const result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  const result=spawnSync(process.execPath,[new URL('./refresh_chatgpt_connector.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain('exact_owned_connector_required');
  }finally{rmSync(root,{recursive:true});}
 });
 
-const refreshSource=readFileSync(new URL('./d3_refresh.mjs',import.meta.url),'utf8');
+const refreshSource=readFileSync(new URL('./refresh_chatgpt_connector.mjs',import.meta.url),'utf8');
 test('connector refresh requires explicit paths before app access',()=>{
  const root=mkdtempSync(join(process.env.TMPDIR,'g-refresh-inputs-'));
  try{
   writeFileSync(join(root,'info.json'),JSON.stringify({}));
-  let result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  let result=spawnSync(process.execPath,[new URL('./refresh_chatgpt_connector.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain('explicit_connector_reference_required');
   writeFileSync(join(root,'connector.json'),JSON.stringify({matches:[{name:'Termux Bridge',connector_id:'owned'}]}));
   writeFileSync(join(root,'info.json'),JSON.stringify({connector_reference:join(root,'connector.json')}));
-  result=spawnSync(process.execPath,[new URL('./d3_refresh.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
+  result=spawnSync(process.execPath,[new URL('./refresh_chatgpt_connector.mjs',import.meta.url).pathname,root],{encoding:'utf8'});
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain('explicit_desktop_session_required');
  }finally{rmSync(root,{recursive:true});}

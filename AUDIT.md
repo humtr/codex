@@ -680,7 +680,7 @@ source_observation_unavailable을 표시한다. primary 도구 기능까지 비�
 
 검증 경로에도 독립적인 결함이 있다. [qualify_provider_g.py:111](scripts/qualify_provider_g.py#L111)는
 현재도 expected_tools 16개를 만들며 codex_projects를 빠뜨린다.
-[d3_refresh.mjs:43](scripts/d3_refresh.mjs#L43)의 operator fallback은14개라
+[d3_refresh.mjs:43](https://github.com/humtr/codex/blob/535c4282d342c3500fa4300f0b347ffcbaacd9e6/scripts/d3_refresh.mjs#L43)의 operator fallback은14개라
 codex_host/chats/projects가 빠진다. 실제 연결된17개 이름으로 기존의 순수
 require_connector_ready를 실행하니 다른 준비/스키마 조건을 만족하는 입력도
 "actual backend MCP catalog/read probe missing"으로 거부했다.
@@ -1393,7 +1393,7 @@ D는 추가로 핵심 producer→consumer 흐름을 직접 대조한 파일이�
 | [scripts/d3_contract.py](scripts/d3_contract.py) | 152 | D |
 | [scripts/d3_fault_proxy.py](scripts/d3_fault_proxy.py) | 99 | S |
 | [scripts/d3_notify.py](scripts/d3_notify.py) | 148 | S |
-| [scripts/d3_refresh.mjs](scripts/d3_refresh.mjs) | 145 | D |
+| [scripts/d3_refresh.mjs](https://github.com/humtr/codex/blob/535c4282d342c3500fa4300f0b347ffcbaacd9e6/scripts/d3_refresh.mjs) | 145 | D |
 | [scripts/deploy_release_redirect.py](scripts/deploy_release_redirect.py) | 72 | S |
 | [scripts/f_cdp_relay.mjs](scripts/f_cdp_relay.mjs) | 72 | S |
 | [scripts/f_cdp_relay.test.mjs](scripts/f_cdp_relay.test.mjs) | 22 | S |
