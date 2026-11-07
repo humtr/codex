@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from upstream_release import build_recipe, environment, load
+from upstream_release import bind_frontend, build_recipe, environment, load
 
 AUTHORITY = Path(__file__).resolve().parents[2] / 'release/upstream.json'
 
@@ -64,6 +64,22 @@ class ReleaseInputsTests(unittest.TestCase):
             changed = copy.deepcopy(baseline)
             changed[section][field] = value
             self.assertNotEqual(build_recipe(baseline), build_recipe(changed))
+
+    def test_exact_composition_result_is_consumed_without_changing_build_inputs(self):
+        baseline=load(AUTHORITY);source='a'*40
+        frontend={'source':'b'*40,'run_id':'123','sha256':'c'*64,
+            'input_url':'https://github.com/humtr/codex/releases/download/owned/input.tar.gz',
+            'input_sha256':'d'*64}
+        encoded=json.dumps({'source':source,'frontend':frontend})
+        bound=bind_frontend(baseline,source,encoded)
+        self.assertEqual(build_recipe(bound),build_recipe(baseline))
+        self.assertEqual(environment(bound,'core')['MANAGER_TUI_RUN_ID'],'123')
+        self.assertIsNone(baseline['frontend'])
+        with self.assertRaisesRegex(ValueError,'another product source'):
+            bind_frontend(baseline,'e'*40,encoded)
+        for fault in [{'source':source,'frontend':{**frontend,'input_url':'https://foreign.invalid/input.tar.gz'}},
+                      {'source':source,'frontend':frontend,'approval':'skip'}]:
+            with self.assertRaises(ValueError):bind_frontend(baseline,source,json.dumps(fault))
 
     def test_workflows_load_authority_before_builds(self):
         root = AUTHORITY.parents[1]

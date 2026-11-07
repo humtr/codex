@@ -33,6 +33,10 @@ def load(path):
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 16384:
         raise ValueError('invalid release input file')
     value = json.loads(path.read_text(), object_pairs_hook=unique)
+    return validate(value)
+
+
+def validate(value):
     exact(value, ['schema', 'upstream', 'toolchains', 'frontend', 'qualification'])
     if type(value['schema']) is not int or value['schema'] != 1:
         raise ValueError('unsupported release input schema')
@@ -68,6 +72,20 @@ def load(path):
     return value
 
 
+def bind_frontend(value, source, encoded):
+    """Composition consumes an admitted result without rewriting build inputs."""
+    if not encoded:
+        return value
+    if len(encoded.encode()) > 16384:
+        raise ValueError('frontend result exceeds control bound')
+    binding = json.loads(encoded, object_pairs_hook=unique)
+    exact(binding, ['source', 'frontend'])
+    match(source, r'[0-9a-f]{40}')
+    if binding['source'] != source:
+        raise ValueError('frontend result belongs to another product source')
+    return validate({**value, 'frontend': binding['frontend']})
+
+
 def build_recipe(value):
     # Accepted artifact references are output, not inputs to their own build.
     # Updating run/digests must not invalidate a byte-identical source recipe.
@@ -94,9 +112,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path', type=Path)
     parser.add_argument('--component', choices=['core', 'frontend'], required=True)
+    parser.add_argument('--frontend-binding', default='')
+    parser.add_argument('--source-sha')
     args = parser.parse_args()
     try:
-        for key, value in environment(load(args.path), args.component).items():
+        for key, value in environment(bind_frontend(load(args.path), args.source_sha, args.frontend_binding), args.component).items():
             print(key + '=' + value)
     except (OSError, ValueError, TypeError) as error:
         parser.exit(1, str(error) + '\n')

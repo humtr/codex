@@ -3,6 +3,10 @@ name: Read-only Termux qualification
 on:
   workflow_call:
     inputs:
+      frontend_binding:
+        description: Exact-source qualified frontend result, independent of build inputs
+        type: string
+        default: ''
       source_sha:
         required: true
         type: string
@@ -53,6 +57,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  FRONTEND_BINDING: ${{ inputs.frontend_binding }}
   BASE_ONLY: ${{ inputs.base_only || inputs.release_variant == 'base' }}
   CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
   ANDROID_API: '24'
@@ -115,7 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core --source-sha "$CODEX_SOURCE_SHA" --frontend-binding "$FRONTEND_BINDING" >> "$GITHUB_ENV"
 
       - name: Verify source preflight helpers
         shell: bash
@@ -451,7 +456,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core --source-sha "$CODEX_SOURCE_SHA" --frontend-binding "$FRONTEND_BINDING" >> "$GITHUB_ENV"
 
       - name: Download unsigned candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

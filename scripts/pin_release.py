@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.source.outputs.sha }}
+      frontend_binding: ${{ steps.source.outputs.frontend_binding }}
     steps:
       - name: Resolve exact accepted product source
         id: source
@@ -51,6 +52,15 @@ jobs:
               '.workflow_runs | any(.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch") and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/runs.json"
           done
           printf 'sha=%s\\n' "$sha" >> "$GITHUB_OUTPUT"
+          gh api "repos/humtr/codex/contents/release-frontend-v1?ref=${{ github.sha }}" --jq '.content' | base64 -d > "$RUNNER_TEMP/frontend.json"
+          SOURCE_SHA="$sha" python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import json, os
+          with open(os.environ['RUNNER_TEMP']+'/frontend.json') as stream:
+              binding=json.load(stream)
+          if set(binding) != {'source','frontend'} or binding['source'] != os.environ['SOURCE_SHA']:
+              raise ValueError('composition result differs from accepted product source')
+          print('frontend_binding='+json.dumps(binding,separators=(',',':')))
+          PYTHON
 """
     jobs = []
     for variant, name in [('base', 'base'), ('full', 'release')]:
@@ -66,6 +76,7 @@ jobs:
     uses: humtr/codex/.github/workflows/auto-release-termux.yml@{sha}
     with:
       source_sha: ${{{{ needs.source.outputs.sha }}}}
+      frontend_binding: "{'' if variant == 'base' else '${{ needs.source.outputs.frontend_binding }}'}"
       release_variant: {variant}
       publish: ${{{{ github.event_name == 'schedule' || inputs.publish }}}}
       rebuild_current: ${{{{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}}}

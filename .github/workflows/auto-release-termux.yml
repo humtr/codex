@@ -3,6 +3,10 @@ name: Qualified Termux release
 on:
   workflow_call:
     inputs:
+      frontend_binding:
+        description: Exact-source qualified frontend result, independent of build inputs
+        type: string
+        default: ''
       source_sha:
         required: true
         type: string
@@ -28,6 +32,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  FRONTEND_BINDING: ${{ inputs.frontend_binding }}
   CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
   PUBLIC_INDEX_PATH: ${{ inputs.release_variant == 'base' && 'update-index-base-v1' || 'update-index-v1' }}
   PUBLIC_INDEX_URL: https://raw.githubusercontent.com/humtr/codex/main/${{ inputs.release_variant == 'base' && 'update-index-base-v1' || 'update-index-v1' }}
@@ -44,6 +49,7 @@ jobs:
     uses: ./.github/workflows/qualify-termux-runtime.yml
     with:
       source_sha: ${{ inputs.source_sha }}
+      frontend_binding: ${{ inputs.frontend_binding }}
       publish: ${{ inputs.publish }}
       rebuild_current: ${{ inputs.rebuild_current }}
       base_only: false
@@ -73,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core >> "$GITHUB_ENV"
+          python3 source/.github/scripts/upstream_release.py source/release/upstream.json --component core --source-sha "$CODEX_SOURCE_SHA" --frontend-binding "$FRONTEND_BINDING" >> "$GITHUB_ENV"
 
       - name: Download qualified unsigned candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

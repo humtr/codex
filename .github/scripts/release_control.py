@@ -326,14 +326,16 @@ def run(source, requested_upstream=None):
         with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
             value=ensure_frontend(source,current,Path(temporary))
     before=load(source/'release/upstream.json')
-    if value is not None and value!=before:
-        updated=commit_files(SOURCE_BRANCH,current,{'release/upstream.json':(json.dumps(value,indent=2)+'\n').encode()},
-                             'Refresh qualified frontend input binding')
-        # GitHub's own token commits do not trigger push workflows.
-        dispatch('rald7-full-acceptance.yml',SOURCE_BRANCH)
-        dispatch('core-runtime-qualification.yml',SOURCE_BRANCH,{'rebuild_current':'true'})
-        return {'state':'frontend-inputs-bound-awaiting-source-proof','source':updated}
-    if previous==product and requested_upstream is None:
+    selected = value if value is not None else before
+    binding = {'source': product, 'frontend': selected['frontend']}
+    changed_binding = value is not None and value['frontend'] != before['frontend']
+    if previous == product and changed_binding:
+        try:
+            content=api('contents/release-frontend-v1?ref='+main)['content']
+            changed_binding=json.loads(base64.b64decode(content)) != binding
+        except GitHubFailure as error:
+            if error.detail != 'HTTP 404': raise
+    if previous==product and not changed_binding and requested_upstream is None:
         return {'state':'already-pinned','source':current}
     public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
     if any(run['status'] != 'completed' for run in public_runs):
@@ -341,12 +343,18 @@ def run(source, requested_upstream=None):
     if not caller_compatible(source,main):
         return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
     variant=release_lane(source,previous,product,main)
-    if previous==product:
+    if selected['frontend'] is None:
+        variant='base'
+    elif previous==product and changed_binding:
+        variant='full'
+    if previous==product and not changed_binding:
         dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
                                                 'upstream_version':before['upstream']['version']})
         return {'state':'requested-build-started','source':product,'version':requested_upstream,'variant':variant}
-    promoted=commit_files('main',main,{'release-source-v1':(current+'\n').encode()},
-                          'Pin accepted base/full product source '+current[:12])
+    promoted=commit_files('main',main,{
+        'release-source-v1':(product+'\n').encode(),
+        'release-frontend-v1':(json.dumps(binding,sort_keys=True)+'\n').encode(),
+    }, 'Pin accepted source and qualified composition results '+product[:12])
     dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
                                             'upstream_version':before['upstream']['version']})
     return {'state':'accepted-product-pinned-public-proof-started','source':current,'main':promoted}

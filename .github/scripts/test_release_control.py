@@ -34,7 +34,7 @@ class ReleaseControlTests(unittest.TestCase):
                 if proven:
                     result=control.run(root,version)
                     self.assertEqual(result['state'],'requested-build-started');self.assertEqual(result['source'],product)
-                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both','upstream_version':version})
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'base','upstream_version':version})
                 else:
                     with self.assertRaisesRegex(ValueError,'accepted product proof is missing'):control.run(root,version)
                     dispatch.assert_not_called()
@@ -63,7 +63,7 @@ class ReleaseControlTests(unittest.TestCase):
                 self.assertEqual(result['state'],expected)
                 commit.assert_not_called()
                 if expected=='requested-build-started':
-                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'both','upstream_version':version})
+                    dispatch.assert_called_once_with('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':'base','upstream_version':version})
                 else:dispatch.assert_not_called()
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),\
              patch.object(control,'api',return_value={'object':{'sha':sha}}),\
@@ -186,8 +186,8 @@ class ReleaseControlTests(unittest.TestCase):
              patch.object(control,'commit_files',return_value='d'*40) as commit,patch.object(control,'dispatch') as dispatch:
             result=control.run(root)
             self.assertEqual(result['state'],'accepted-product-pinned-public-proof-started')
-            self.assertEqual(set(commit.call_args.args[2]),{'release-source-v1'})
-            self.assertEqual(dispatch.call_args.args[2]['variant'],'both')
+            self.assertEqual(set(commit.call_args.args[2]),{'release-source-v1','release-frontend-v1'})
+            self.assertEqual(dispatch.call_args.args[2]['variant'],'base')
         with patch.object(control.subprocess,'check_output',return_value=sha+'\n'),patch.object(control,'api',side_effect=api),\
              patch.object(control,'same_product_inputs',return_value=False),\
              patch.object(control,'successful_run',side_effect=[({'id':1},[]),(None,[])]),\
@@ -195,6 +195,41 @@ class ReleaseControlTests(unittest.TestCase):
             self.assertEqual(control.run(root)['state'],'awaiting-exact-proof')
             commit.assert_not_called()
             self.assertEqual(dispatch.call_args.args[0],'core-runtime-qualification.yml')
+
+    def test_frontend_result_promotes_composition_without_rewriting_or_requalifying_source(self):
+        root=Path(__file__).resolve().parents[2];head='a'*40;main='b'*40
+        value=control.load(root/'release/upstream.json')
+        value['frontend']={'source':head,'run_id':'123','sha256':'d'*64,
+            'input_url':'https://github.com/humtr/codex/releases/download/owned/input.tar.gz',
+            'input_sha256':'e'*64}
+        expected={'source':head,'frontend':value['frontend']}
+        for observed in [None,expected]:
+            def api(path,**kwargs):
+                if path=='git/ref/heads/rewrite/rust-core':return {'object':{'sha':head}}
+                if path=='git/ref/heads/main':return {'object':{'sha':main}}
+                if path.startswith('contents/release-source-v1'):return {'content':base64.b64encode((head+'\n').encode()).decode()}
+                if path.startswith('contents/release-frontend-v1'):return {'content':base64.b64encode(json.dumps(observed).encode()).decode()}
+                if path.startswith('actions/workflows/auto-release-termux.yml/runs'):return {'workflow_runs':[]}
+                self.fail('unexpected authority access '+path)
+            with self.subTest(observed=observed),patch.object(control.subprocess,'check_output',return_value=head+'\n'), \
+                 patch.object(control,'api',side_effect=api),patch.object(control,'successful_run',return_value=({'id':1},[])) as proof, \
+                 patch.object(control,'ensure_frontend',return_value=value),patch.object(control,'caller_compatible',return_value=True), \
+                 patch.object(control,'release_lane',return_value='both'),patch.object(control,'commit_files',return_value='f'*40) as commit, \
+                 patch.object(control,'dispatch') as dispatch:
+                result=control.run(root)
+                self.assertEqual([call.args for call in proof.call_args_list],
+                    [('rald7-full-acceptance.yml',head),('core-runtime-qualification.yml',head)])
+                if observed is None:
+                    self.assertEqual(result['state'],'accepted-product-pinned-public-proof-started')
+                    self.assertEqual(commit.call_args.args[0],'main')
+                    files=commit.call_args.args[2]
+                    self.assertEqual(json.loads(files['release-frontend-v1']),expected)
+                    self.assertEqual(files['release-source-v1'],(head+'\n').encode())
+                    self.assertEqual(dispatch.call_args.args[2]['variant'],'full')
+                    self.assertEqual(dispatch.call_args.args[:2],('auto-release-termux.yml','main'))
+                else:
+                    self.assertEqual(result['state'],'already-pinned')
+                    commit.assert_not_called();dispatch.assert_not_called()
 
     def test_focused_native_success_is_never_full_qualification_or_inflight_publication(self):
         sha = 'a' * 40
