@@ -51,6 +51,30 @@ def metadata(path):
                       object_pairs_hook=no_duplicate_object)
 
 
+def verify_focused(log, workflow):
+    count = nonzero_tests(log)
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', log)
+    passed = re.findall(r'(?m)^[ \t]*PASS[ \t]+\[[^\]\n]+\][ \t]+'
+                        r'(?:\([ \t]*\d+[ \t]*/[ \t]*\d+[ \t]*\)[ \t]+)?'
+                        r'codex-tui[ \t]+([^\s]+)[ \t]*$', text)
+    if len(passed) != count or len(set(passed)) != count:
+        raise ValueError('native focused execution records differ from the summary')
+    commands = [line for line in workflow.splitlines()
+                if 'just test ' in line and 'profile-tui-focused.log' in line]
+    if len(commands) != 1:
+        raise ValueError('native focused test selection is ambiguous or missing')
+    filters = re.findall(r"-E '([^'\n]+)'", commands[0])
+    if len(filters) != 1:
+        raise ValueError('unsupported native focused test selection')
+    scopes = re.findall(r'test\(([A-Za-z0-9_]+)\)', filters[0])
+    remainder = re.sub(r'test\([A-Za-z0-9_]+\)', '', filters[0])
+    if not scopes or remainder.strip(' |\t'):
+        raise ValueError('unsupported native focused test selection')
+    missing = [scope for scope in scopes if not any(scope in name for name in passed)]
+    if missing:
+        raise ValueError('native focused proof is missing scopes: '+', '.join(missing))
+
+
 def verify_recipe(source, source_sha):
     inputs = load_release(source / 'release/upstream.json')
     for relative in INPUTS:
@@ -72,8 +96,8 @@ def verify_recipe(source, source_sha):
         path = Path(temporary) / 'upstream.json'
         path.write_bytes(qualified_input)
         qualified = load_release(path)
-        # This is a proof requirement, not a compiler input. verify() checks the
-        # retained executed-test log against the current count after recipe reuse.
+        # Retained schema1 readers require this field. Current proof admission
+        # uses declared scope coverage, independently of additional upstream tests.
         qualified['qualification']['focused_tests'] = inputs['qualification']['focused_tests']
         if build_recipe(qualified) != build_recipe(inputs):
             raise ValueError('native release recipe differs from qualified source')
@@ -126,8 +150,7 @@ def verify(args):
     if args.proof.is_symlink() or proof.is_symlink():
         raise ValueError("native proof root is not an owned directory")
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
-    if nonzero_tests(log) != inputs['qualification']['focused_tests']:
-        raise ValueError("actual native regression set is not qualified")
+    verify_focused(log, (args.source / INPUTS[0]).read_text())
     verify_upstream_features(proof)
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")
     linted = bounded_read(proof / "profile-tui-linted.patch", 1024 * 1024, "linted native patch")

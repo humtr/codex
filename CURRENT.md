@@ -172,8 +172,13 @@ profile or operating-service change was made in this upgrade batch.
 readback/disposable update, non-forced stable promotion, ordinary device update,
 then the existing owned D3 full-schema refresh and fresh registered Native loop
 with kernel-observed owner. Physical screen observation and real-model steering
-are separate. Review the retained numeric focused_tests admission requirement
-against future upstream test additions without weakening actual behavior coverage.
+are separate. Frontend proof admission now derives required scopes from the
+qualified workflow and matches unique actual PASS records to its successful
+summary. Additional upstream tests are accepted; missing scopes, duplicate or
+incomplete records, zero execution and failures are rejected. The retained actual
+147-test log passes the new check. Four artifact-CLI tests and a disposable
+missing-scope baseline0/fault1/restored0 pass. Schema1 focused_tests remains for
+existing parsers/retained sources, with no exact-count freeze for new admission.
 
 SPEC's continuous-upstream-upgrade contract applies to every later official
 stable, not only0.167. Existing upstream_discovery.py and

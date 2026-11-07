@@ -80,6 +80,12 @@ is still qualifying; Full remains on its previous accepted composition until its
 new frontend result is admitted. Historical embedded frontend references remain
 readable for retained sources; new results use the composition record.
 
+Frontend proof admission checks the nonzero successful summary against unique
+actual PASS records and requires every focus scope declared by the qualified
+workflow. Added upstream tests do not invalidate that proof; missing scopes or
+incomplete execution do. The schema1 focused_tests field remains readable for
+retained input/parser consumers, not as the current artifact's exact test count.
+
 The hosted executor can restore a completed raw build only by its exact existing
 production-input fingerprint. The common verifier checks the complete raw
 inventory, binary digest, official source/version and dependency audit before

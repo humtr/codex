@@ -15,6 +15,29 @@ TOOL = Path(__file__).with_name("manager_tui_artifact.py")
 
 
 class NativeArtifactTests(unittest.TestCase):
+    def workflow(self):
+        return ('jobs:\n  upstream-baseline:\n    timeout-minutes: 90\n    steps:\n'
+                '      - run: |\n'
+                "          just test -p codex-tui --lib -E 'test(required_owner) | test(required_model)' "
+                '2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"\n')
+
+    def focused_log(self, names=('required_owner', 'required_model')):
+        return (''.join(f'PASS [0.01s] ({i}/{len(names)}) codex-tui tests::{name}\n'
+                        for i,name in enumerate(names,1))+
+                f'Summary [3s] {len(names)} tests run: {len(names)} passed\n')
+
+    def test_focused_admission_accepts_added_tests_and_detects_missing_scopes_or_records(self):
+        qualifier.verify_focused(self.focused_log(),self.workflow())
+        qualifier.verify_focused(self.focused_log(('required_owner','required_model','new_upstream_test')),
+                                 self.workflow())
+        for log in [self.focused_log(('required_owner','new_upstream_test')),
+                    self.focused_log(('required_owner','required_owner')),
+                    self.focused_log().replace('PASS [0.01s] (1/2) codex-tui tests::required_owner\n',''),
+                    'Summary [3s] 0 tests run: 0 passed\n',
+                    self.focused_log().replace('2 passed','1 passed, 1 failed')]:
+            with self.subTest(log=log),self.assertRaises(ValueError):
+                qualifier.verify_focused(log,self.workflow())
+
     def fixture(self, root):
         source = root / "source"
         source.mkdir()
@@ -27,7 +50,9 @@ class NativeArtifactTests(unittest.TestCase):
             if relative == "frontend/manager-tui/src":
                 path = path / "owned.rs"
             path.parent.mkdir(parents=True, exist_ok=True)
-            if relative == '.github/scripts/upstream_release.py':
+            if relative == qualifier.INPUTS[0]:
+                path.write_text(self.workflow())
+            elif relative == '.github/scripts/upstream_release.py':
                 path.write_bytes((qualifier.RELEASE_INPUT.parents[1] / relative).read_bytes())
             else:
                 path.write_text("owned native source input\n")
@@ -56,8 +81,7 @@ class NativeArtifactTests(unittest.TestCase):
         (artifact / "native.patch").write_bytes(patch)
         proof = root / "proof" / "_temp"
         proof.mkdir(parents=True)
-        count=json.loads(release.read_text())['qualification']['focused_tests']
-        (proof / "profile-tui-focused.log").write_text(f"Summary [3s] {count} tests run: {count} passed, 5632 skipped\n")
+        (proof / "profile-tui-focused.log").write_text(self.focused_log())
         for suite, (package, _, topics) in SUITES.items():
             (proof / f"profile-tui-upstream-{suite}.log").write_text(
                 "".join(f"PASS [0.01s] {package} {name}\n" for name in topics.values()) +
@@ -122,8 +146,8 @@ class NativeArtifactTests(unittest.TestCase):
                 if fault is None:
                     self.assertEqual(result.stdout, "manager_tui_sha256\t" + digest + "\n")
 
-    def test_reuse_scheduling_and_count_metadata_still_requires_current_actual_proof(self):
-        for fault in [None, "count", "command", "timeout-expression"]:
+    def test_reuse_scheduling_and_legacy_count_still_requires_current_scope_proof(self):
+        for fault in [None, "legacy-count", "scope", "command", "timeout-expression"]:
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
                 fixture = list(self.fixture(Path(temp)))
                 source, artifact, _, old_sha, _, run, run_file = fixture
@@ -139,25 +163,26 @@ class NativeArtifactTests(unittest.TestCase):
                 qualified["qualification"]["focused_tests"] -= 1
                 release.write_text(json.dumps(qualified))
                 workflow = source / qualifier.INPUTS[0]
-                workflow.write_text('jobs:\n  upstream-baseline:\n    timeout-minutes: 90\n'
-                                    '    steps:\n      - run: echo build\n')
+                workflow.write_text(self.workflow())
                 sha = commit()
                 fixture[3] = sha
                 run["head_sha"] = sha
                 run_file.write_text(json.dumps(run))
                 path = artifact / "source.txt"
                 path.write_text(path.read_text().replace(old_sha, sha))
-                if fault == "count":
+                if fault == "legacy-count":
                     current["qualification"]["focused_tests"] -= 1
                 release.write_text(json.dumps(current))
                 workflow.write_text(workflow.read_text().replace('90', '120'))
                 if fault == "command":
-                    workflow.write_text(workflow.read_text().replace('echo build', 'echo changed'))
+                    workflow.write_text(workflow.read_text().replace('just test', 'just changed'))
+                if fault == "scope":
+                    workflow.write_text(workflow.read_text().replace('test(required_model)', 'test(new_required_scope)'))
                 if fault == "timeout-expression":
                     workflow.write_text(workflow.read_text().replace('120', '${{ inputs.budget }}'))
                 commit()
                 result = self.invoke(fixture)
-                self.assertEqual(result.returncode == 0, fault is None, result.stderr)
+                self.assertEqual(result.returncode == 0, fault in (None,'legacy-count'), result.stderr)
 
     def test_actual_cli_refuses_missing_extra_symlink_and_directory_artifacts_or_proof(self):
         cases = ["missing-" + name for name in sorted(qualifier.FILES)]
