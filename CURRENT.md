@@ -87,117 +87,81 @@ records. No accepted CI was rerun merely to replace that proof.
 
 ### Required upstream upgrade and new real-TUI findings
 
-Implementation of the reviewed continuous-upgrade architecture is now authorized.
-The active batch owns syntax-based minimal adaptation, shared local/hosted inputs,
-candidate/artifact flow and actual0.167 Core-only/composition qualification before
-Pro handoff. No new release or activation is claimed by this authorization.
+The continuous-upgrade implementation is admitted at exact source
+45533d6a7e5bf50dad3aa9545717f36a6d52d9a9, following official0.167.0 source
+086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a. Source acceptance42380853062 and
+independent Core/runtime42381322469 pass, including actual Android Core-only
+execution. Mainf4b1161022d63ed3529ba8f2dc1f47e031e48fa8 atomically installs the
+matching caller, accepted source and Base-only composition record. Signed Base
+publication42381826456 is in progress. Full Native/TUI42380853506 is still
+qualifying; no0.167 device activation or configured-client refresh is claimed.
+Keep operating151/runtime0.166 and its rollback until Full admission.
 
-The current implementation applies syntax-based basic adaptation and the rebased Native
-extension to exact official0.167 source086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a.
-Its actual lock normalization preserves1308 external packages and matches the
-selected171-package dependency audit. The provided frontend assembles20 owned
-modules without collision. Eight source tests pass, including historical0.166,
-0.167 and private-name/format/file-move inputs. Generated protocol artifacts are
-removed from the maintained Native patch and are regenerated through the
-upstream writer before consuming builds; both real export modes pass, while
-complete0.167 compilation remains unfinished. Local source selection now derives the common
-upstream tuple and the existing native SDK compiler profile; the duplicate
-native-runtime recipe was removed. Source backdating was removed after a real
-Cargo proof returned the obsolete binary with changed/backdated source and the
-correct binary with normal timestamps. Native/TUI patch reconciliation now has
-one Rust/Git merge path with exact base metadata; real rename, conflict, prepared
-source and real-index tests pass. Source and composition mutations fail as
-expected and pass after restoration. Evidence stays under
-$TMPDIR/connectivity-repair-70jt4h2u/upstream167-0md6mz3a/.
-Exact source7a8ad9c passes remote Source acceptance42370988173, including the
-Android/AArch64 wrapper build and full workspace checks. TUI run42371007828 stops
-before generator execution because its new step referenced an undeclared
-CARGO_TARGET_DIR. Core run42370988171 compiles and executes the real upstream
-schema writer successfully in both stable/experimental modes, then stops at
-Git's whitespace gate: AST statement deletion left two indentation-only lines.
-The same official source reproduces those two errors locally. Original logs are
-retained; neither failed run qualifies a runtime or deployment.
-The follow-up fixes delete complete statement lines and merge calculated edits
-with the Native patch in one scratch tree, preflight before the single write,
-retain stdout diagnostics, and declare the executor's cache path. The schema
-producer now consumes Cargo's actual executable metadata, freezes one generator
-and runs both export modes without recompiling it between modes; executor build
-profiles remain authoritative. Eight affected source tests, including the actual
-Git whitespace gate, and strict workspace Clippy pass locally. New raw-build
-cache wiring re-verifies exact-input results before transfer and retains partial
-compiler output independently; real cache miss/hit qualification is pending.
-Exact source05bbc37 passes Source acceptance42374964750. Core42374964864
-compiles the schema writer once and successfully runs both real export modes,
-then fails actual Native compilation: upstream's Guardian review entrypoint
-still calls the defaults-based provider check removed by the existing Native
-route patch. The follow-up binds that caller to the same managed provider
-validation as other Native inputs; Guardian and approval decisions are unchanged.
-Actual official0.167 preparation, its whitespace gate and all eight source tests
-pass locally. The whitespace regression also has a confirmed disposable
-baseline0/fault101/restored0 result; the first compiler ETXTBSY attempt remains
-separate failed evidence. Original CI and mutation logs remain in the owned
-upstream167 fixture.
-Review also found that composition registration's consumers still consulted
-the development recipe instead of main's accepted output record. The controller
-now reads that source-bound record once for registration, immutable public-input
-reuse and requested rebuilds. Legacy embedded references remain readable only
-for published callers without the new record; malformed or mismatched records
-fail validation. Output registration does not rewrite source inputs. Regressions
-exercise retained inputs after CI artifact expiry and documentation-only heads;
-their disposable old-consumer fault fails and restoration passes.
-Documentation-only heads also retain the accepted product when a frontend result
-arrives later: register that result against the already proven source, rather than
-requesting proof of the documentation commit. The affected controller21 tests
-pass; this late-result regression separately confirms baseline0/fault1/restored0.
-Source acceptance42377989505 passes on84ea109; its Core/runtime42377989542 and
-Core-only Android execution pass. Full Native/TUI42377988733 fails compilation
-at two integration contracts: complete-history reads retain the former client
-field, and upstream's newly added backend-switch caller does not propagate our
-existing outer preparation error. The follow-up uses request_handle for the
-production read and three retained tests, and propagates preparation failure
-before any UI/draft replacement. No new recovery branch or swallowed error was
-introduced. The assembled official source passes whitespace and scope checks;
-the13 frontend Python checks pass. Original full failure log is retained as
-upstream167-0md6mz3a/tui-84ea109-failure.log. Actual TUI compilation remains open.
-Controller follow-upa11fb69 passes Source acceptance42378723480; Core42378839116
-requalifies that exact source using unchanged runtime inputs. The optional TUI
-correction also leaves the completed Core runtime production inputs unchanged;
-reuse still requires the existing verification/Android/public admission gates.
-The full source15ceb61 passes Source acceptance42380013787. Its TUI42380014206
-was deliberately cancelled during schema generation after review reproduced a
-later qualification defect using the real writer archive from42377988733:
-five generated schema changes were rejected by frontend scope, and the recorded
-formatted patch preceded generation. The workflow now captures the prepared tree
-after generation; the upstream generator's schema directory is admitted while
-unrelated protocol/core writes remain rejected. Real-source scope restoration,
-all13 frontend Python tests and five workflow checks pass. The amended scope
-regression fails under the original guard and passes after restoration; no
-artifact bound, Native policy or source admission gate was weakened.
-Hosted Core/Native compilation, signed delivery, activation and configured Bridge
-refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
+**Implemented ownership.** The common Rust producer locates basic Termux
+adaptations through syntax/call relationships and combines them with the Native
+patch in one preflighted Git merge/write. Native and TUI patches retain their own
+exact upstream base. The frontend assembler owns collision checks and source
+copying; its separate patch engine and duplicate base record were removed.
+Actual historical0.166/0.167 and equivalent private-name, format and file-move
+inputs pass. The official lock audit retains1308 external packages and171
+normalized workspace packages. The provided frontend assembles20 owned modules.
 
+Generated protocol exports come from the current upstream writer, not maintained
+binary diffs. One compiled writer produces both stable/experimental exports;
+executor profiles remain authoritative. The schema directory belongs to that
+writer. Prepared-source evidence is captured after generation so final lint
+compares the actual compiled tree; unrelated protocol/Core writes remain
+rejected. Complete generated payloads retain the existing separate archive.
+Local and hosted source selection derive one official tuple; local Native SDK
+and hosted compiler profiles remain separate. The duplicate local runtime
+recipe and source backdating were removed. Actual local0.167 source compilation
+has not been performed. A real Cargo fault returned the old executable after a
+changed source was backdated and the new executable with normal timestamps.
 
+**Qualification and reuse.** The first0.167 Core build42377989542 passes.
+Controller-only follow-ups42378839116 and42380516611 and current42381322469
+reuse the verified complete raw artifact and skip Native recompilation while
+retaining their Android admission. Partial compiler caches remain independent.
+The existing controller reads main's source-bound composition once, retains
+immutable public frontend inputs after CI artifact expiry, and registers late
+frontend results against an already accepted product even on a documentation
+head. New results never rewrite development inputs or start their qualification
+again. Published legacy embedded references remain readable only when the new
+composition record is absent; invalid/unavailable records fail distinctly.
 
-Under SPEC's permanent continuous-upstream-upgrade contract, the next target
-is0.167.0. This commitment continues for later official stable releases. The remaining
-question is how to absorb upstream changes with less adaptation friction and
-reusable automation. Keep activated0.166/151 available until its successor is
-qualified; do not treat that operating baseline as a version freeze. Existing
-upstream_discovery.py and accepted-release-inputs.yml already discover official
-stable inputs and drive qualification. Improve that path, not another controller;
-review affected adaptations and remove behavior superseded by upstream.
-The scheduled controller has prepared0.167 in development release/upstream.json
-at b09a41a543a2d8fe06faafc69f3bdfa9034ce199; retain that target. The operating
-signed generation remains151 from76fb7e8 until qualified delivery replaces it.
+**Resolved findings and original evidence.** Original failures stay under
+$TMPDIR/connectivity-repair-70jt4h2u/upstream167-0md6mz3a/ unless noted.
 
-Run42326878869 failed during exact source adaptation, before runtime compilation:
-cli/src/main.rs::cli_main: expected one function, found0. Official0.167 source
-086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a reorganizes CLI dispatch as dispatch_cli;
-review the obsolete function-name assumption at the source producer. This does
-not establish that0.167 cannot support the product. Original failure log:
-request-continuity-dFZxEe/upstream-167-runtime-42326878869.log. Repair adaptation,
-then use the existing build/Android/sign/readback/promotion/update gates and
-post-activation connector refresh without version-specific bypasses.
+| Finding | Correction / bounded proof |
+| --- | --- |
+| Private cli_main lookup rejected official dispatch_cli before compilation | Syntax/call-based adaptation replaces private-name/indentation matching. Original run42326878869 log remains in request-continuity-dFZxEe/ |
+| New TUI generator step lacked CARGO_TARGET_DIR | Executor declares its actual cache path; shared writer inherits its profile |
+| AST statement deletion left indentation-only lines | Delete complete statement lines; one merged tree is checked before writing. Eight source tests and disposable baseline0/fault101/restored0 pass |
+| Guardian input still called a removed provider check | Use the same managed provider validation as other Native inputs; Core compiles/runs. Guardian policy and the separate scope-denial defect are unchanged |
+| New TUI backend caller and complete-history reads used former interfaces | Propagate preparation error before UI/draft adoption and use request_handle in the reader and its three retained tests; full TUI qualification remains open. Original tui-84ea109-failure.log is retained |
+| Schema generation invalidated source-scope and format/lint evidence | Real writer archive reproduces five rejected changes; capture after generation and admit only the generator's schema directory. Scope regression baseline0/fault1/restored0 and13 frontend tests pass. Known-invalid run42380014206 was cancelled before further compilation |
+| Output consumers still consulted development inputs or treated late results as a new product | All21 controller tests pass; retained-input and late-result faults each fail and pass after restoration |
+
+Strict workspace Clippy, affected workflow/Python checks and actual source
+preparation pass at their recorded inputs. The initial mutation-fixture import
+failure and compiler ETXTBSY remain failed setup evidence, separate from the
+confirmed mutation sequences. No extra primary/Pro inference, policy default,
+profile or operating-service change was made in this upgrade batch.
+
+**Remaining boundaries.** Finish current full TUI qualification, signing/public
+readback/disposable update, non-forced stable promotion, ordinary device update,
+then the existing owned D3 full-schema refresh and fresh registered Native loop
+with kernel-observed owner. Physical screen observation and real-model steering
+are separate. Review the retained numeric focused_tests admission requirement
+against future upstream test additions without weakening actual behavior coverage.
+
+SPEC's continuous-upstream-upgrade contract applies to every later official
+stable, not only0.167. Existing upstream_discovery.py and
+accepted-release-inputs.yml derive official source/toolchain/lock inputs and drive
+the same admission path. Ordinary private refactors need no version-specific
+rule; actual changed/ambiguous Native/TUI contracts still fail explicitly and
+require adaptation before promotion. Preserve operating/rollback generations
+during repair; a failed qualification is not a version-freeze policy.
 
 New actual user trials narrow the earlier controlled-app evidence. Thread
 01a1b508-c8ce-7fb2-9831-028cc8c892f4 completes the first Rust loop with actual
