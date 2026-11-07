@@ -628,9 +628,18 @@ index be77be3..a2f5b5a 100644
              .map_err(|error| config_load_error(&error))?;
          let submission = self
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
-index eeed287..479e71b 100644
+index eeed287..a3dd6bd 100644
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -194,7 +194,7 @@ impl TurnRequestProcessor {
+         self.ensure_direct_input_allowed(request_id, thread.as_ref())
+             .await?;
+         self.config_manager
+-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
++            .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+         match self
 @@ -389,7 +389,7 @@ impl TurnRequestProcessor {
          self.ensure_direct_input_allowed(request_id, thread.as_ref())
              .await?;
