@@ -46,8 +46,9 @@ jobs:
           [[ "$GENERATION" =~ ^chatgpt-[a-z0-9][a-z0-9-]{0,110}[a-z0-9]$ ]]
           [[ "$SEQUENCE" =~ ^[1-9][0-9]*$ ]]
           for workflow in source-acceptance.yml provider-qualification.yml; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&per_page=100" \
-              --jq '.workflow_runs | any(.head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success" and (.event=="push" or .event=="workflow_dispatch"))' | grep -Fqx true
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&per_page=100" > "$RUNNER_TEMP/qualification-runs.json"
+            jq -e --arg sha "$SOURCE_SHA" --arg path ".github/workflows/$workflow" \
+              '.workflow_runs | any(.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success" and (.event=="push" or .event=="workflow_dispatch"))' "$RUNNER_TEMP/qualification-runs.json"
           done
           git init source
           git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"

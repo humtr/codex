@@ -1,4 +1,5 @@
 """Protect release privilege boundaries and parse every executable shell step."""
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -74,6 +75,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("RUST_VERSION: '1.",text)
         self.assertIn('product/release/upstream.json --component core',text)
         self.assertIn('source/release/upstream.json --component core',text)
+
+    def test_source_and_provider_gates_reject_mismatched_run_metadata(self):
+        sha='a'*40
+        checks=[
+            ('.github/workflows/source-acceptance.yml', 'source-acceptance.yml'),
+            ('.github/workflows/provider-release.yml', 'provider-qualification.yml'),
+            ('.github/workflows/provider-release.yml', 'source-acceptance.yml'),
+        ]
+        for file, workflow in checks:
+            text=(ROOT/file).read_text()
+            expressions=re.findall(r"'(\.workflow_runs \| any\([^']+\))'",text)
+            self.assertEqual(len(expressions),1,file)
+            path='.github/workflows/'+workflow
+            good={'head_sha':sha,'path':path,'head_branch':'rewrite/rust-core',
+                  'repository':{'full_name':'humtr/codex'},'event':'push',
+                  'status':'completed','conclusion':'success'}
+            def evaluate(run):
+                args=['jq','-e','--arg','sha',sha,'--arg','path',path,expressions[0]]
+                return subprocess.run(args,input=json.dumps({'workflow_runs':[run]}),
+                                      text=True,capture_output=True).returncode
+            with self.subTest(file=file,workflow=workflow):
+                self.assertEqual(evaluate(good),0)
+                for field, bad in [
+                    ('head_sha','b'*40),('path','.github/workflows/rald7-full-acceptance.yml'),
+                    ('head_branch','main'),('repository',{'full_name':'other/codex'}),
+                    ('event','pull_request'),('status','in_progress'),('conclusion','failure')]:
+                    with self.subTest(field=field):
+                        self.assertNotEqual(evaluate({**good,field:bad}),0)
 
     def test_default_branch_registrations_have_no_second_proof_or_publication_path(self):
         entries=source_workflow_registrations()
