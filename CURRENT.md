@@ -7,63 +7,84 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Active operating deployment
 
-The user now authorizes completing Core/Manager/TUI operating delivery and
-activation. Use the existing signed exact-source release/update path, retain
-current/rollback and live work, then refresh the actual connector with the owned
-Provider CDP session and complete a fresh Native cycle. Source f485bec passes
-acceptance42309525783 and Core/runtime42309525953; controller registration adfda2e
-passes acceptance42313302563 and Core/runtime42313304961. Public run42315049610
-publishes signed Base149 (adfda2e) after Android smoke, complete public readback,
-disposable update and non-forced stable promotion. Full is correctly deferred as
-frontend-unqualified. The device still runs Full148/Base147: no new Core/TUI has
-been activated. Full Native qualification42309527072 remains in progress.
-The source merge preserves the remote
-0.167 discovery commit in history, while this bounded repair explicitly selects
-the operating0.166 tuple and147 demonstrated focused TUI cases. Remote0.167 had
-no successful Core/runtime qualification or paired frontend and is not silently
-adopted. Original dirty0814be7 and its49 paths remain untouched.
+Operating Core/Manager/TUI is now Codex0.166.0 Full151/Base150, exact source
+76fb7e85fc228555684d209b21e04014b3b12736. Full Native qualification42324991132
+passes on3f338aa with the240-minute CI budget. Source acceptance42335504823 and
+Core/runtime42335506754 pass on76fb7e8. Public workflow42335901727 passes Android
+Base/Full smoke, signing, complete public readback, disposable update and
+non-forced stable promotion. The ordinary signed updater reports verified device
+activation; activation-state-v3 selects151 and retains Full148 as previous.
+The activation log is request-continuity-dFZxEe/deploy-activation-151.log.
+This bounded repair remains0.166;0.167 discovery history is preserved, but its
+Core qualification failed and it is not the activated target. Original dirty
+0814be7 and its49 paths remain untouched.
 
-The f485bec CLI SHA256 is
-eb5b8a5caf86970b4a8c6544424b689dd12c08abf8cce60a0d7d7f3cf74ab8a5,
-different from the earlier Android-tested CLI despite identical native.patch and
-dependency audit. Its actual Android Full fixture passes ordinary foreign-home
-Native resume, explicit effort, Bridge effects/results/retries, restart and TUI
-follow-up with retained model, permissions, history and default. Thread
-01a1b34b-ae35-7473-9f83-d4c2d8c4d561; owner-full-f485bec.json/log retains proof.
-This uses controlled app replies and zero real model requests, not an actual
-ChatGPT client or physical screen observation. Original failed trials are kept:
-the old explicit --remote fixture does not exercise Core owner discovery; the
-Manager-removal fixture incorrectly queries Manager at its final default check.
-The Full fixture retains Manager and all original assertions; no product code,
-policy or expected result was weakened. The existing cleaner archives24
-manifest-matched payloads (3,055,058,944 allocated bytes) from these four confirmed
-inactive owned fixtures, preserving source, Native records and restore records.
+The installed Native owner image and normal TUI image were independently observed
+as generation151/runtime and151/helpers/2. The installed TUI capability reply is
+codex-termux-resolved-startup-v1 in Core's actual TERM=xterm-256color environment.
+A plain codex resume from a different invocation home renders this fresh Native
+work's history without submitting a new model prompt. This is actual Android
+terminal rendering, not physical screen observation or a new real-model fault
+trial. The earlier controlled-app proof retains the wider follow-up/steering /
+queue/fork scope described below.
 
-The first operating-deployment source is ed1f66c: source acceptance42306525389
-passes actual Android Core and workspace proofs. Core/runtime42306525316 fails
-before compilation in Native-mode permission source preparation. The earlier
-mode split accidentally indented three raw source-match strings; upstream6ff's
-functions had not changed. Restore those original literals without a fallback,
-whitespace-relaxation rule or approval-policy change. The new source-plan fixture
-contains unmodified function inputs extracted from exact6ff. The real plan now
-checks both provided/native modes, shared preparation equivalence, Native
-permission presentation and non-mutating preflight.
+After the user completed login, the existing inactive account Provider service
+was rebound from its dead temporary desktop descriptor to the existing launcher's
+verified current desktop. Only that supervisor's descriptor changed; its
+7471ed7 executable, state, port, profile and saved connector remain the same.
+The existing supervisor starts it normally and host ensure reports present/ready.
+Another live default Provider instance was observed separately and left untouched;
+its directory name is not exact-source evidence. Saved mobile display, taskbar,
+profiles and conversations were preserved. The stale-descriptor lifecycle and
+Android-browser login forwarding failure remain work for package4; user login
+success does not prove that forwarding defect was fixed.
 
-The added regression fails on the original defect, passes after correction, and
-fails again when that exact indentation fault is injected into disposable source.
-Builder47/strict Clippy pass; the complete official0.166 Native-mode preparation
-and exact dependency audit also pass locally. Evidence stays under request-
-continuity-dFZxEe as native-source-plan-{before,after,mutation,builder}.log,
-native-runtime-prepare-actual.json and native-runtime-lock-actual.json. The source
-fixture at runtime-preflight-7xuhzcbd is owned qualification input, not another
-implementation checkout. Superseded Native run42306523578 is intentionally
-cancelled; its old source cannot close the new exact-source release gate.
-Full Native run42309527072 takes96 minutes before API admission, rather than the
-earlier75-minute estimate through API checks. Its existing150-minute budget cannot
-be changed while running. Future CI budget is240 minutes for cold compilation,
-the two Native route fault/restoration pairs and retained-feature/lint checks.
-Keep the current run; successful unchanged recipe evidence remains reusable.
-This changes only CI capacity, not a product/CDP deadline or acceptance condition.
+The existing scripts/d3_refresh.mjs then passes refresh_actions, app query-cache
+invalidation, all17 complete registered/live input schemas and the MCP probe with
+the current Provider-owned CDP session and exact saved connector. Private evidence
+and the old supervisor run are at ~/.cache/codex/acceptance/core-tui-151/;
+refresh-after-rebind.log is the accepted refresh. The earlier wrong/default
+binding attempt and its429 remain failed evidence, not a passing client check.
+No new refresh implementation, extra CDP observer or automatic retry was added.
+
+Through that refreshed registered Termux Bridge client, fresh attached work
+063245ce56ad0057e4244448edab019ce4d86c44e174202f / thread
+01a1b470-5f83-78c1-b39f-76506ab0924d passes real file writing, Rust compilation /
+assertion, source modification/recompilation and an exact request retry whose
+file effect occurs once. Its kernel-observed Native owner runs activated151;
+plain installed TUI resume displays the same history from another execution home.
+New-work approval_policy=never was explicit, as authorized for this isolated
+Full Access trial; no operating default, existing work policy or account changed.
+No separate primary/Pro inference was submitted. At documentation update this
+attached work remains active for the final docs/push; final settlement belongs
+to its Native finish record. The status before docs reports pending_calls0,
+unconfirmed_effects0 and no active effect reservations. native-owner.json,
+tui-proof.json and its private terminal retain boundary evidence. Guardian's
+scope-denial failure, real model fault recovery, broader model/Provider changes,
+compaction and all-model coverage are not closed by this deployment.
+
+The release-preparation defect was three accidentally reindented raw source-match
+literals in Native-mode permissions, corrected in f485bec against exact upstream
+6ff without fallback or policy change. Original-defect, restored and disposable
+mutation results, builder47/strict Clippy and actual0.166 source preparation /
+dependency audit remain under request-continuity-dFZxEe/native-source-plan-* and
+native-runtime-{prepare,lock}-actual.json. Earlier full run42309527072 reached
+retained-feature checks but was cancelled at the150-minute CI limit; its original
+2,619,340-byte log remains deploy-native-f485bec-timeout.log. Its preceding TUI147,
+four TUI faults, Native/API19/initialize15 and two Native fault/restoration pairs
+retain their scoped evidence. Completed run42324991132 closes the full gate;
+optional Native faults were not falsely reported as rerun. Changing CI capacity
+did not change product/CDP deadlines or weaken acceptance.
+
+The f485bec actual Android Full fixture also passed canonical foreign-home resume,
+explicit effort, Bridge effects/results/retries, restart and TUI follow-up under
+controlled app replies with zero real model requests. Original failed trials stay
+preserved: raw --remote ignores explicit high effort and remains a Pro review
+item; the old Manager-removal fixture queried Manager after removing it. The Full
+fixture retains Manager and every original assertion. The existing cleaner
+archived24 manifest-matched payloads (3,055,058,944 allocated bytes) from four
+confirmed inactive owned fixtures, retaining source, Native records and restore
+records. No accepted CI was rerun merely to replace that proof.
 
 ## Pro handoff entry
 
@@ -111,9 +132,9 @@ activation, rollback bindings, connector refresh and fresh Native proof are at
 The earlier763c24a attached-loop artifact and its original qualification remain at
 ~/.cache/codex/acceptance/attached-native-loop-763c24a37776/ as rollback/evidence.
 This is an unsigned development recovery artifact, not signed public delivery.
-The installed signed Provider, Core/Native generation and public stable heads
-were not replaced. Replace the recovery binding through the qualified signed
-lifecycle when publication is accepted; retain its exact old service run,
+The signed Provider package remains unchanged; Core/Native and public stable
+are now151/150 as recorded above. Replace the development Provider binding through
+the qualified signed lifecycle when publication is accepted; retain its old service run,
 tunnel profile/run and previous executable until that rollback boundary closes.
 Native authentication references in existing generated profiles retain their
 compatible immutable helper; new work uses the current Provider's Native route.
@@ -413,8 +434,9 @@ physical-screen observation.
 **Operating recovery and current client.** Clean7471ed7 was packaged/read back;
 the account service and its existing tunnel now run that exact candidate on the
 original port/profile. Normal supervisor exit and saved service/tunnel bindings
-preserve rollback. Other accounts, signed Provider25 and Native148/147 remain
-unchanged. Original blocking work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a
+preserve rollback. At that earlier recovery, other accounts, signed Provider25
+and Native148/147 were unchanged; Core/Native activation is now recorded above.
+Original blocking work9ff79cddaec8b95d2a30126df47379d3e27a0d0866b3bd1a
 (thread01a1afb1-8421-7613-9ae9-adfb6d266f17) and original steering work
 1b35b0749f4c1c67c06dfac2249bfd5c05b599b6fd58fd8a
 (thread01a1af43-26f0-71c0-ad89-5012b14c52f6) both received Native and host Stop
@@ -457,9 +479,9 @@ verified owner first demonstrated the supported connection interface (thread
 01a1b006-9f29-7e80-bad6-af60800a864f), with two Bridge turns, live viewport results,
 exact retries, Provider restart and zero primary submissions. The candidate below
 now qualifies automatic canonical owner selection and full TUI follow-up in both
-entrance directions. The operating Core/TUI have not been replaced. Later picker /
-alias context rebinding, real-model fault recovery, historical project-timeout
-provenance, broader transitions and signed publication remain unfinished.
+entrance directions. Operating Core/Manager/TUI is now151/150 as recorded above.
+Later picker/alias context rebinding, real-model fault recovery, historical
+project-timeout provenance and broader transitions remain unfinished.
 
 ### Same-Provider TUI owner selection: implementation and bounded proof
 
@@ -590,11 +612,13 @@ under the evidence root; Git retains the earlier source and detailed diagnosis.
 
 **Remaining boundaries.** A later picker/alias selecting another execution home
 still needs draft-preserving context rebinding. Wider provider/model transitions,
-compaction, real app target-loss recovery, Guardian's failed scope denial and
-signed publication/activation remain open. The intervening source of an observed
+compaction, real app target-loss recovery and Guardian's failed scope denial
+remain open. Signed Core/Manager/TUI publication/activation is recorded above.
+The intervening source of an observed
 execution-home/settings change was not recorded; skill paths and current config
-cannot establish who changed it. No operating Core/TUI/Manager is replaced here;
-operating development Provider7471 and its earlier connector refresh are separate.
+cannot establish who changed it. That source proof alone did not replace the
+operating Core/Manager/TUI; the completed151/150 activation and subsequent live
+connector refresh are recorded above.
 
 Completed owned fixture payloads are archived with scripts/clean_development.py;
 source, original results, Native records and removal/restore JSONL remain. Before
@@ -709,7 +733,8 @@ fixture uses the existing54-byte relocation and signed fixture inventory; it cop
 no user auth or app profile. All owned services and Native processes have observed
 exit. These are local attached-execution proofs with an inert primary inference
 endpoint, not actual Chat model inference, TUI observation or production delivery.
-The signed operating Native is unchanged and does not advertise these updates.
+The signed operating151 Native does not advertise these separate candidate
+updates; its activation did not integrate the Native-transition branch.
 
 The exact83838e8 Android runtime also passes all8 existing explicitly enabled
 native_compaction device cases with synthetic app replies: manual text and V2

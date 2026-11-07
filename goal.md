@@ -7,41 +7,29 @@ original12 priorities, NC-01..29 and cumulative backlog.
 
 Packages1/2 have bounded implementation and proof. Request settlement7471ed7 is
 committed, pushed and active as an unsigned source-bound development Provider/MCP
-artifact. Original blocking/steering works received normal Native/host Stop;
-the shared reservation cleared without replay or forced reset. Existing connector
-refresh passed17 full schemas. Actual registered Bridge Rust edit/build/modify /
-retest, exact retry with one effect and unchanged on-request/auto_review passed.
-One bounded actual GPT-6 Instant request completed; other uncertain outcomes and
-Guardian's failed scope denial remain protected/open.
+artifact. Normal Stop cleared the original blocking/steering reservations without
+replay or forced reset; Guardian's failed scope denial and other uncertain
+outcomes remain protected/open. Existing operating defaults are unchanged.
 
 Core/shared runtime-binding owns Native rendezvous independently of optional
-Manager. Canonical same-Provider resume in both entrance directions passes actual
-Android continuation, including foreign homes, no Manager/OpenAI credentials,
-explicit effort and retained Native identity/permissions/history/default. Active
-Steer/queue/cancel, empty/preparation failure recovery and explicit fork pass with
-controlled app replies and zero real model requests. Source Rust/strict Clippy,
-actual Native task control and independent fault detection pass at their recorded
-inputs. Hosted TUI147/four faults are reused; current API19/initialize15 and
-retained TUI53/engine43/patch2 plus lint pass. CLI17dd1d4 is byte-identical to the
-Android-tested frontend. Original proof/fault logs are retained; no full public
-qualification or operating Core/TUI/Manager replacement is implied.
+Manager. Canonical same-Provider resume, explicit effort and Native/TUI follow-up
+pass the recorded actual Android controlled-app cases. Existing source, mutation,
+Native route, retained-feature and full frontend gates are complete at their
+recorded inputs. No repeat CI is needed without changed inputs or an open concern.
 
-Current user-authorized batch: deliver and activate the implemented Core/Manager /
-TUI through the existing qualified signed release/update path for operating0.166.
-Preserve current/rollback, profiles, conversations and live Native jobs. Integrate
-source without force; the unrelated unqualified0.167 discovery stays in Git
-history and is not this repair's target. Reuse compatible evidence while closing
-release-required exact-source gates. Confirm public readback and disposable
-update before actual device activation. Then run the existing d3_refresh.mjs with
-the verified live Provider-owned CDP binding, check complete input schemas and
-finish a fresh registered Bridge Native cycle. Source push/build dispatch is not
-operating activation.
+The authorized operating0.166 Core/Manager/TUI batch has reached signed Full151 /
+Base150 publication and actual device activation from exact source76fb7e8,
+retaining Full148 rollback. Current Provider-owned CDP refresh passes17 complete
+schemas. Fresh registered Bridge work063245ce56ad0057e4244448edab019ce4d86c44e174202f
+runs activated Native151: actual Rust write/build/assert/modify/rebuild, one-effect
+exact retry and plain installed TUI resume of the same history from another home
+pass without new primary inference. Finish docs/push and normal Native settlement;
+its final completion is authoritative in the Native record. Source/build,
+controlled app, real model, actual client, physical UI and activation stay distinct.
 
-After deployment, Pro may independently reject/rework this preparation and the
-separate Native-route candidate. Remaining scope:
-picker/alias context rebinding, original unreconciled work/Guardian, OpenAI <->
-ChatGPT transitions, compaction, app/config/install lifecycle, actual resource
-boundaries and cumulative capabilities. No extra Pro inference or default-policy
-change. Preserve profiles, user changes, Native history and rollback artifacts.
-Reuse unchanged proof; source, simulated app, actual Native/app/client, physical
-UI, signed delivery and activation remain distinct boundaries.
+Pro may independently reject/rework this preparation and the separate Native-route
+candidate. Remaining: picker/alias context rebinding, original unreconciled work /
+Guardian, OpenAI <-> ChatGPT transitions, compaction, app/config/install lifecycle,
+Android-browser login forwarding, actual resource boundaries and cumulative
+capabilities. Preserve profiles, user changes, Native history and rollback.
+Do not start extra Pro inference or change the default approval policy.

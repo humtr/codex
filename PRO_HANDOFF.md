@@ -25,10 +25,13 @@ Guardian 검토 후 명령 실행·후속 명령, 대역 검토자의 거부/불
 
 이 개발 루프와 역방향 Codex TUI→ChatGPT의 아래 P0 CDP/입력 장애는 구분한다.
 공유 검토자/AppHost/provider 경계는 실제 요청 상관관계로 확인한다. 역방향 TUI
-복구를 attached 실행의 선행 조건으로 두지 않는다. Codex의 수정은 Native 정책
-전달과 앱의 불필요한 Composer 의존 제거이며 Core/Native 실행기를 바꾸지 않았다.
-개발 후보의 실제 앱 검토와 Bridge 왕복은 통과했지만 서명된 정식 배포·물리 TUI
-관찰은 별도 미완료다. 선작업 범위는6절 계획에 따라 TUI 연속 작업과 동일
+복구를 attached 실행의 선행 조건으로 두지 않는다. 초기 개발 루프 수정은
+Native 정책 전달과 앱의 불필요한 Composer 의존 제거였으며
+별도 실행기를 만들지 않았다. 이후 Core의 Native 소유자 연결 선택도 수정했다.
+개발 Provider 후보의 실제 앱 검토와 Bridge 왕복은 통과했다. Core/Manager/TUI는
+0.166 Full151/Base150으로 서명 배포·기기 활성화됐고 같은 작업의 일반 TUI 표시도
+확인했다. 물리 화면 관찰과 실제 모델 장애 복구는 별도 미완료다.
+선작업 범위는6절 계획에 따라 TUI 연속 작업과 동일
 Provider의 두 진입점 인계까지 확대한다. Pro는 검증된 범위를 재사용해 모델
 전환·컴팩션과 나머지 평탄화를 인수하되,
 준비한 구조도 독립적으로 재조정한다.
@@ -46,7 +49,7 @@ Provider의 두 진입점 인계까지 확대한다. Pro는 검증된 범위를 
 
 | 역할 | 브랜치 / 기준 커밋 | 사용 방법 |
 | --- | --- | --- |
-| **현재 선작업 소스** | `fix/attached-native-development-loop-20261106` / 최신 선작업·검증 상태는 `CURRENT.md` | 기존 `pro-baseline` 작업공간을 재사용한다. 운영 Provider는 검증된 `7471ed7`, 서명 Native는148/147이다. TUI 후보의 빌드·양방향 실증·운영 적용은 CURRENT에서 각각 확인한다. 별도 Native 전환 후보와 혼동하지 않는다. |
+| **현재 선작업 소스** | `fix/attached-native-development-loop-20261106` / 최신 선작업·검증 상태는 `CURRENT.md` | 기존 `pro-baseline` 작업공간을 재사용한다. 운영 Provider는 검증된 `7471ed7`, 서명 Native/Core/Manager/TUI는0.166 Full151/Base150, 정확한 소스76fb7e85fc228555684d209b21e04014b3b12736이며 기기 활성화됐다. 검증 경계는 CURRENT에서 각각 확인한다. 별도 Native 전환 후보와 혼동하지 않는다. |
 | **준비 기준 브랜치** | `prep/pro-baseline-20261106` | Pro 작업 브랜치의 출발 후보. 미완성 catalog 초안을 분리하고 이 문서·운영 사실을 맞췄다. Pro는 다른 출발점이 더 적절하면 재선정할 수 있다. |
 | 이전 전체 인계 보존 | `fix/native-route-transition-20261105` / `eeb6f9d808cd2dc7319a3d94f07010d650f3d281` | Native 초안까지 포함했던 원본 인계. 강제 변경 없이 보존했다. |
 | 마지막 기록 기준 | `c340237982102a100de81aa70aca60b0617477eb` | 현재 복구 전의 기록 기준. 이후 인계 변경을 함께 읽는다. |
@@ -57,7 +60,8 @@ Provider의 두 진입점 인계까지 확대한다. Pro는 검증된 범위를 
 | 책임 경계 재검토 | `design/entry-architecture-20261105` / `604df76bb30f361543246a7face53004b1f3d55a` | 기존 경계도 재검토한다는 설계의 근거. 구현 완료 증거는 아니다. |
 
 `rewrite/rust-core`는 구현/재사용 가능한 릴리스 로직의 소유자이고 `main`은
-검증된 정확한 소스를 가리키는 호출자다. 이 인계는 stable 승격이나 배포가 아니다.
+검증된 정확한 소스를 가리키는 호출자다. Core/Manager/TUI151/150의 stable 승격과
+기기 활성화는 완료됐다. 이 문서 자체를 다른 후보의 배포 승인으로 해석하지 않는다.
 공개 이력과 자산을 강제 덮어쓰지 않는다.
 
 먼저 `AGENTS.md`, `SPEC.md` 4.5–4.6, `CURRENT.md`,
@@ -159,7 +163,8 @@ thread/read는 -32600 `thread not loaded`로 거부됐다. Provider stop은 그�
   모바일 화면·태스크바·Android 브라우저 로그인 코드를 다시 만들지 않는다.
 - 현재 연결된 계정의 서비스와 MCP 명령은 clean `7471ed7`에서 빌드·inventory 검증한
   **개발 복구 후보**다. 최신 Native 전환 후보나 서명된 정식 배포가 아니다. 기존
-  데스크톱 descriptor를 쓰며 정식 앱 수명 통합은 남았다. 다른 계정 인스턴스를
+  런처의 현재 데스크톱 descriptor로 정상 재연결했으며 정식 앱 수명 통합은 남았다.
+  다른 계정 인스턴스를
   이 바인딩과 혼동하지 않고 Native/MCP 부팅을 optional 앱에 종속시키지 않는다.
 - 현재 후보·바인딩·이전 서비스/터널 백업과 증거는
   `~/.cache/codex/acceptance/request-continuity-7471ed71a0ef/`에 있다. 이전763c24a와 그 전
@@ -364,15 +369,16 @@ Provider 저널 전체의 active/unconfirmed effect는0건이다. 예전 전역 
 재실행하지 말고 변경된 입력과 아직 완료되지 않은 경계에 맞게 검증한다.
 취소된 작업·0개 실행·소스 조립 성공을 통과 증거로 바꾸지 않는다.
 
-현재 선작업 검증: CURRENT.md의 Request settlement implementation을 함께 읽는다.
-요청/원본 결과 정산의 작업 diff와 Android Native/TUI의 빈 응답·준비 timeout 후
-재입력 및 active steering 실증이 있다. 실제 Chat 모델/운영 적용과 구분한다.
-Native에서 만든 작업을 보통 TUI로 여는 인계 시험은 다른 backend 선택 때문에
-아직 실패한다. 원래 소유자에 upstream --remote로 직접 연결한 별도 실험은
-재시작·입력/도구 결과/공개 진행·최종 표시까지 통과했다. 인터페이스 부족으로
-단정하거나 보통 resume 검사를 이 명시적 연결 실험으로 대체하지 않는다.
-자동 연결 선택은 실제 Native 소유자와 일치시켜야 한다. 다른 작업의 process56351
-예약은 exit-1이 실제 종료 증거가 아니므로 운영 상태에서 아직 해제하지 않았다.
+현재 선작업 검증은 CURRENT.md의 Request settlement implementation과
+Same-Provider TUI owner selection 및 Active operating deployment를 함께 읽는다.
+초기 일반 resume의 다른 backend 선택 실패는 Core/shared runtime-binding의
+실제 Native 소유자 관찰로 수정했고, 양쪽 시작 방향·외부 홈·명시적 effort·
+선택적 Manager 없는 계속 실행까지 실제 Android 대역 앱 경로에서 통과했다.
+151/150 운영 활성화 뒤 새 등록 Bridge의 Rust 수정/빌드/재실행·한 번만 효과가
+나는 재시도와 일반 TUI의 같은 작업 기록 표시도 확인했다. 원본 실패·raw --remote의
+명시적 effort 누락·실제 모델/물리 화면/미확정 결과의 한계는 보존한다.
+다른 작업의 process56351 예약은 이전 관찰에서 exit-1만으로 종료를 입증하지
+못했으며, 현재 실제 소유자/결과 없이 임의 해제하지 않는다.
 
 ## 6. 우선 정리·연구·구현할 내용
 
@@ -624,8 +630,10 @@ ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 �
 effort 유지, 추론 중 steering/queue 편집/취소, 빈 최종 응답·준비 timeout 뒤
 후속 입력, 명시적 fork의 부모 기록 보존까지 통과했다. 이 시험은 통제한 앱
 응답이며 실제 모델 요청은0회다. 앞서 검증한 실제 모델·등록 Bridge 증거와
-구분해라. 운영 Core/TUI/Manager는 아직 이 후보로 교체하지 않았다.
-최종 Native 통합 검사와 서명/활성화 상태는 CURRENT의 실제 결과를 확인해라.
+구분해라. Core/Manager/TUI는0.166 Full151/Base150으로 서명 공개·기기 활성화됐다.
+실제 등록 Bridge의 새 작업에서 Rust 수정/컴파일/재실행·중복 없는 정확 재시도와
+일반 TUI의 같은 기록 표시도 통과했다. 전체 Native gate와 배포 증거의 정확한
+입력·범위는 CURRENT를 확인하고 같은 대형 CI를 다시 시작하지 마라.
 
 저장소: https://github.com/humtr/codex
 작동하는 코드의 출발 후보: fix/attached-native-development-loop-20261106 최신 원격 HEAD
@@ -669,10 +677,14 @@ Target 소실 후 복구·모든 모델/진입점은 아직 미확정/미검증�
 기본 정책 변경 제언은 충분한 증거 전 보류됐으며 사용자가 결정하기 전 변경하지 마라.
 검토 실패를 승인이나 자동 never 전환으로 처리하지 마라.
 
-현재 기기 바인딩은 소스·inventory가 확인된 unsigned 개발 복구 후보다.
-서명된 설치 패키지·Core/Native·공개 stable은 바꾸지 않았다. CURRENT의 후보,
-서비스/터널 원본 백업과 기존 바이너리를 보존해라. 운영 서비스를 임의 경로의
-새 빌드로 바꾸거나 이 실증을 서명 배포 완료로 보고하지 마라. 같은 커넥터의
+현재 Provider/MCP 바인딩은 소스·inventory가 확인된7471ed7 unsigned 개발 복구
+후보이고 서명 Provider 패키지는 그대로다. Core/Native/Manager/TUI·공개 stable은
+정식 경로로151/150으로 갱신됐으며 이전148을 롤백으로 보존한다. 두 사실을
+혼동하지 마라. CURRENT의 정확한 소스, 서비스/터널 백업과 기존 바이너리를
+보존하고 운영 서비스를 임의 새 빌드로 바꾸지 마라. 기존 런처의 현재 데스크톱에
+Provider를 재연결하고 d3_refresh로17개 전체 스키마를 검증했다. 데스크톱 임시
+descriptor의 서비스 결합과 Android 브라우저 로그인 전달 실패는 여전히 남았다.
+사용자의 로그인 완료를 그 결함 수정으로 계산하지 마라. 같은 커넥터의
 옛 터널 세션이 옛 스키마를 노출했던 문제는 기존 터널 재연결과 d3_refresh로
 검증했다. 현재 계정/터널을 재발견하고 다른 인스턴스로 바꾸지 마라.
 
