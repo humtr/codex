@@ -1,4 +1,4 @@
-# D3 disposable Rust development project
+# Disposable Native trial Rust development project
 
 Only work in this project. Native Codex owns execution and canonical history.
 Preserve this file, REQUIREMENTS.md and the original_tests module in src/main.rs.

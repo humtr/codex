@@ -1,4 +1,4 @@
-# Frozen D3 starting contract
+# Frozen Native trial starting contract
 
 The existing dependency-free Rust CLI reads UTF-8 commands from stdin. Blank lines
 are ignored. `add ACCOUNT SIGNED_I64` adjusts an account; balances cannot be negative.

@@ -16,4 +16,4 @@ with os.fdopen(fd, "a") as stream:
     stream.flush()
     os.fsync(stream.fileno())
 time.sleep(a.delay)
-print("D3_EFFECT_RETURNED_" + a.label.upper(), flush=True)
+print("NATIVE_PROBE_RETURNED_" + a.label.upper(), flush=True)

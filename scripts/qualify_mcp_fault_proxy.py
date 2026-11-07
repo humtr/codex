@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One owned D3 MCP stdio fault: preserve a returned result, then close the link.
+"""One owned Native trial MCP stdio fault: preserve a returned result, then close the link.
 
 The Provider/native executor is unchanged. Never retry a request. The effect file
 and exact tools/call response must both exist before the cut can fire.
@@ -55,7 +55,7 @@ def run(root, command):
             except (ValueError, TypeError):
                 exact_probe = False
             eligible = eligible and arguments.get("name", "").endswith("exec_command") and exact_probe
-            eligible = eligible and b"D3_EFFECT_RETURNED_FAULT" in line and "result" in value
+            eligible = eligible and b"NATIVE_PROBE_RETURNED_FAULT" in line and "result" in value
             if eligible:
                 try:
                     fd = os.open(root / "fault-fired.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

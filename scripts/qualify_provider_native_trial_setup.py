@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D3 setup qualification with local fixtures only; never contact a model."""
+"""Native trial setup qualification with local fixtures only; never contact a model."""
 import argparse
 import json
 import os
@@ -72,7 +72,7 @@ fn run()->Result<String,String> {
  ledger::apply(&mut state,&parse::parse(&text)?)?;
  let output=report::render(&state);
  if let Some(path)=state_path.filter(|_|!dry) {
-  let temp=path.with_file_name(format!(".d3-owned-{}",std::process::id()));
+  let temp=path.with_file_name(format!(".trial-owned-{}",std::process::id()));
   let mut f=std::fs::OpenOptions::new().write(true).create_new(true).open(&temp).map_err(|e|e.to_string())?;
   let result=(||{f.write_all(output.as_bytes())?;f.sync_all()?;std::fs::rename(&temp,&path)})();
   if result.is_err() {let _=std::fs::remove_file(&temp);}
@@ -97,7 +97,7 @@ def automatic_three_turn_control(work, baseline, fault=False, candidate_case=Non
     save(root / "prior-service/info.json", {})
     save(root / "prior-service/environment-private.json", {})
     count = 2 if fault else 3
-    finals = ["D3_A1_INDETERMINATE", "D3_A2_COMPLETE"] if fault else ["D3_B1_COMPLETE", "D3_B2_COMPLETE", "D3_C1_COMPLETE"]
+    finals = ["NATIVE_PROBE_DELIVERY_UNCERTAIN", "NATIVE_PROBE_FOLLOWUP_COMPLETE"] if fault else ["LEDGER_TRANSFER_COMPLETE", "LEDGER_PERSISTENCE_COMPLETE", "LEDGER_DRY_RUN_COMPLETE"]
     if fault:
         stub = case / "mcp-stdio"
         stub.write_text(f'''#!{sys.executable}
@@ -107,7 +107,7 @@ for line in sys.stdin:
  if 'id' not in r:continue
  if r['method']=='initialize':v={{'protocolVersion':'2025-06-18','capabilities':{{}},'serverInfo':{{'name':'local-peer','version':'1'}}}}
  elif r['method']=='tools/list':v={{'tools':[{{'name':x}} for x in ['native_catalog','native_tool']+{[f'control_{i}' for i in range(12)] if mode == 'operator' else []!r}]}}
- else:v={{'isError':False,'content':[{{'text':json.dumps({{'id':'local-probe','name':'functions.exec_command','output':'D3_EFFECT_RETURNED_FAULT\\n'}})}}]}}
+ else:v={{'isError':False,'content':[{{'text':json.dumps({{'id':'local-probe','name':'functions.exec_command','output':'NATIVE_PROBE_RETURNED_FAULT\\n'}})}}]}}
  print(json.dumps({{'jsonrpc':'2.0','id':r['id'],'result':v}}),flush=True)
 ''')
         stub.chmod(0o700)
@@ -115,7 +115,7 @@ for line in sys.stdin:
     script.write_text(f'''#!{sys.executable}
 import json,os,pathlib,time,tty,subprocess,sys
 tty.setraw(0)
-path=pathlib.Path(os.environ['D3_CONTROL_RECORD'])
+path=pathlib.Path(os.environ['NATIVE_PROBE_CONTROL_RECORD'])
 path.parent.mkdir(parents=True,exist_ok=True)
 with path.open('a') as f:f.write(json.dumps({{'type':'session_meta','payload':{{'id':'local-control'}}}})+'\\n')
 os.write(1,b'GPT-6 ready')
@@ -143,7 +143,7 @@ while True:time.sleep(60)
     record = home / "sessions/rollout.jsonl"
     save(case / "info.json", {"core": str(script), "workspace": str(case / "w"), "home": str(home), "mode": mode,
                              "binary": str(Path(sys.executable).resolve()), "pid": os.getpid(), "state": "local-owned-state"})
-    save(case / "environment-private.json", {**os.environ, "D3_CONTROL_RECORD": str(record)})
+    save(case / "environment-private.json", {**os.environ, "NATIVE_PROBE_CONTROL_RECORD": str(record)})
     for step in range(1, count + 1):
         (case / f"request-{step}.txt").write_text(f"local synthetic task {step}")
     save(case / "tasks.json", {"kind": "fault" if fault else "normal", "count": count,
@@ -179,11 +179,11 @@ while True:time.sleep(60)
         if method == "thread/read":
             return {"thread": {"id": "local-control", "status": {"type": "idle"}, "turns": [{"id": "local-1", "status": "completed", "items": [
                 {"id": "local-probe", "type": "commandExecution", "command": "python3 -B probe.py --root ../effects --label fault", "cwd": str(case / "w"),
-                 "status": "completed", "aggregatedOutput": "D3_EFFECT_RETURNED_FAULT", "exitCode": 0}]}]}}
+                 "status": "completed", "aggregatedOutput": "NATIVE_PROBE_RETURNED_FAULT", "exitCode": 0}]}]}}
         if method == "thread/backgroundTerminals/list":
             return {"data": [], "nextCursor": None}
         if method == "thread/inject_items":
-            assert not injections and "D3_EFFECT_RETURNED_FAULT" in json.dumps(args["items"])
+            assert not injections and "NATIVE_PROBE_RETURNED_FAULT" in json.dumps(args["items"])
             injections.append(1)
             return {}
         assert method == "turn/start"
@@ -194,7 +194,7 @@ while True:time.sleep(60)
             assert recoveries == [1], "A2 submitted before owned connection recovery"
             assert connected == [1] and injections == ([1] if mode == "model_adapter" else [])
             assert (case / "effects/fault.effects").read_text() == "fault\n"
-            (case / "w/recovery-note.txt").write_text("effect_count: 1\nD3_EFFECT_RETURNED_FAULT\n")
+            (case / "w/recovery-note.txt").write_text("effect_count: 1\nNATIVE_PROBE_RETURNED_FAULT\n")
         submits.append(step)
         with record.open("a") as stream:
             for event in [{"type": "task_started", "turn_id": f"local-{step}"},
@@ -250,7 +250,7 @@ while True:time.sleep(60)
                 final = json.loads((case / f"complete-{step}.json").read_text())["native_final"]
                 assert final["payload"]["type"] == "task_complete"
             if fault:
-                assert (case / "w/recovery-note.txt").read_text().count("D3_EFFECT_RETURNED_FAULT") == 1
+                assert (case / "w/recovery-note.txt").read_text().count("NATIVE_PROBE_RETURNED_FAULT") == 1
                 assert controller.expected_result_cut(case, self.calls, self.returns)
             reviews.append("batch")
             return True
@@ -278,7 +278,7 @@ while True:time.sleep(60)
 def qualify(root):
     source_inputs = {str(p): sha(p) for p in [Path(controller.__file__), Path(__file__),
                      Path(__file__).with_name("qualify_provider_external_contract.py"), Path(__file__).with_name("qualify_mcp_fault_proxy.py")]}
-    work = Path(tempfile.mkdtemp(prefix="d3setup.", dir=os.environ["TMPDIR"]))
+    work = Path(tempfile.mkdtemp(prefix="trial.", dir=os.environ["TMPDIR"]))
     archive = Path(json.loads((root / "plan.json").read_text())["cache"]) / "setup-validation"
     archive.mkdir(exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix="attempt-", dir=archive))
@@ -351,7 +351,7 @@ def qualify(root):
 for line in sys.stdin:
  r=json.loads(line)
  with open(sys.argv[1],'a') as f:f.write(str(r['id'])+'\\n')
- print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':{'content':[{'type':'text','text':'D3_EFFECT_RETURNED_FAULT'}]}}),flush=True)
+ print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':{'content':[{'type':'text','text':'NATIVE_PROBE_RETURNED_FAULT'}]}}),flush=True)
 ''')
     case = work / "proxy"
     (case / "effects").mkdir(parents=True)
@@ -372,7 +372,7 @@ for line in sys.stdin:
     checks.append({"name": "MCP-pass-through-exact-boundary-EOF-no-replay", "accepted": True})
     calls = {"start": {"name": "functions.exec_command", "arguments": json.dumps({"cmd": "python3 -B probe.py --root ../effects --label long --delay 8", "yield_time_ms": 1000})},
              "collect": {"name": "functions.write_stdin", "arguments": json.dumps({"session_id": 123})}}
-    returns = {"start": {"output": "Process running with session ID 123"}, "collect": {"output": "D3_EFFECT_RETURNED_LONG"}}
+    returns = {"start": {"output": "Process running with session ID 123"}, "collect": {"output": "NATIVE_PROBE_RETURNED_LONG"}}
     long_result_proof(calls, returns)
     calls["collect"]["arguments"] = json.dumps({"session_id": 999})
     try:
@@ -403,7 +403,7 @@ for line in sys.stdin:
     boundary.thread = "local-boundary"
     boundary.work = {"work_id": "local-boundary"}
     boundary.calls = {"one": {"name": "exec_command", "arguments": json.dumps({"cmd": "python3 -B probe.py --root ../effects --label fault"})}}
-    good_return = {"call_id": "one", "output": "D3_EFFECT_RETURNED_FAULT"}
+    good_return = {"call_id": "one", "output": "NATIVE_PROBE_RETURNED_FAULT"}
     boundary.returns = {"one": good_return}
     save(boundary.case / "withheld-mcp-result-private.json", {"result": {"isError": False, "content": [{"text": json.dumps(good_return)}]}})
     save(boundary.case / "fault-fired.json", {"effect_count": 1, "forwarded_to_Chat": False, "result_sha256": sha(boundary.case / "withheld-mcp-result-private.json")})
@@ -526,7 +526,7 @@ for line in sys.stdin:
     history = {"id": handoff.thread, "status": {"type": "idle"}, "turns": [
         {"id": "old-turn", "status": "completed", "items": [
             {"id": "original-command", "type": "commandExecution", "command": "python3 -B probe.py --root ../effects --label fault",
-             "cwd": "/owned/disposable", "status": "completed", "aggregatedOutput": "D3_EFFECT_RETURNED_FAULT", "exitCode": 0}]}]}
+             "cwd": "/owned/disposable", "status": "completed", "aggregatedOutput": "NATIVE_PROBE_RETURNED_FAULT", "exitCode": 0}]}]}
     injected = []
     def handoff_rpc(home, method, args):
         assert args["threadId"] == handoff.thread
@@ -647,8 +647,8 @@ for line in sys.stdin:
         assert not controller.terminal_for_turn({"type": "event_msg", "payload": {"type": event, "turn_id": "same"}}, "same")
     assert not controller.terminal_for_turn({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "old"}}, "same")
     assert controller.terminal_for_turn({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "same"}}, "same")
-    assert controller.completion_claimed("**D3_A2_COMPLETE**\n소요시간: 약 1초", "D3_A2_COMPLETE")
-    assert not controller.completion_claimed("D3_A2_COMPLETE를 선언하지 않습니다.\n소요시간: 약 1초", "D3_A2_COMPLETE")
+    assert controller.completion_claimed("**NATIVE_PROBE_FOLLOWUP_COMPLETE**\n소요시간: 약 1초", "NATIVE_PROBE_FOLLOWUP_COMPLETE")
+    assert not controller.completion_claimed("NATIVE_PROBE_FOLLOWUP_COMPLETE를 선언하지 않습니다.\n소요시간: 약 1초", "NATIVE_PROBE_FOLLOWUP_COMPLETE")
     checks.append({"name": "exact-turn-terminal-and-affirmative-completion-no-denial-false-positive", "accepted": True})
     immutable_root = work / "immutable-inputs"
     immutable_root.mkdir()
@@ -692,7 +692,7 @@ for line in sys.stdin:
     assert all(sha(Path(p)) == value for p, value in source_inputs.items()), "setup sources changed during qualification"
     result = {"accepted": True, "checks": checks, "groups": len(checks), "model_requests": 0,
               "live_chat_trial": False, "work": str(work), "root": str(root),
-              "limits": "Local controller/contracts/proxy proof only; live Provider/Chat behavior remains untested in D3."}
+              "limits": "Local controller/contracts/proxy proof only; live Provider/Chat behavior remains untested in this trial."}
     save(output / "review.json", result)
     save(archive / "review.json", {**result, "attempt": str(output),
          "controller_sha256": source_inputs[str(Path(controller.__file__))], "validator_sha256": source_inputs[str(Path(__file__).with_name("qualify_provider_external_contract.py"))],

@@ -1,4 +1,4 @@
-// D3-owned project/title metadata only. Never submit a model message.
+// Trial-owned project/title metadata only. Never submit a model message.
 import {readFileSync, writeFileSync, existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {connectDesktop} from '../providers/chatgpt/desktop_cdp.mjs';
@@ -19,7 +19,7 @@ try {
   if(!prior&&existsSync(intent))throw Error('Project operation already requested; inspect readback, never recreate blindly');
   if(!reconcileOnly)writeFileSync(intent,JSON.stringify({name,prior,UTC:new Date().toISOString()}),{flag:'wx',mode:0o600});
   const value=await c.evaluate(`(async()=>{
-   const b=eval('('+${JSON.stringify(bridge)}+')'),owner=${JSON.stringify('D3-setup:'+root)};
+   const b=eval('('+${JSON.stringify(bridge)}+')'),owner=${JSON.stringify('native-trial-setup:'+root)};
    if(globalThis[Symbol.for('termux.codex.app.bridge.v1')])throw Error('Existing app bridge must be settled; do not replace its owner');
    await b({op:'init',owner,bridgeRevision:${JSON.stringify(revision)},returnPath:'mcp',bindings:{initial:'app://-/assets/app-initial-ed5807835d97.js',shared:'app://-/assets/app-shared-2d77298f0100.js'}});
    try {
@@ -67,13 +67,13 @@ try {
   const topic=(route.startsWith('fault')?'결과단절·복구'+(automatic?'·자동재연결':'')+(plan.qualification==='unattended_from_start'?'·무감독시험':''):'개발1~3')+(failed?'·'+failed+'턴실패':'');
   const rows=[];
   for(const [index,chat] of data.saved.entries()) {
-   const title='D3-'+combo+':'+topic+(data.saved.length>1?'·대화'+(index+1):'');
+   const title='Native trial-'+combo+':'+topic+(data.saved.length>1?'·대화'+(index+1):'');
    const result=await c.evaluate(`(async()=>{
     const api=(await import('app://-/assets/app-shared-2d77298f0100.js')).$wt;
     const id=${JSON.stringify(chat.conversationId)},title=${JSON.stringify(title)};
     const options={parameters:{path:{conversation_id:id}}};
     const raw=await api.safeGet('/conversation/{conversation_id}',options),before=raw?.data??raw;
-    if(before.gizmo_id!==${JSON.stringify(project.id)}||before.is_temporary_chat!==false)throw Error('Wrong D3 destination');
+    if(before.gizmo_id!==${JSON.stringify(project.id)}||before.is_temporary_chat!==false)throw Error('Wrong owned trial destination');
     const hash=async v=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(v))))].map(x=>x.toString(16).padStart(2,'0')).join('');
     const original=await hash(before.mapping);
     if(before.title!==title)await api.safePatch('/conversation/{conversation_id}',{...options,requestBody:{title},retry:'never'});

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare/run a bounded, unattended D3 trial. Preparing never submits inference.
+"""Prepare/run a bounded, unattended Native trial. Preparing never submits inference.
 
 An explicit start launches one detached local process. Completion/result/state
 checks sequence frozen prompts; quality contracts run after all work ends.
@@ -216,7 +216,7 @@ def expected_result_cut(case, calls, returns):
         qualified = (call.get("namespace", "") + "." + call["name"]).lstrip(".")
         assert original["id"] == identity and original["name"] == qualified
     assert original["output"] == returns[identity]["output"]
-    assert "D3_EFFECT_RETURNED_FAULT" in str(original["output"])
+    assert "NATIVE_PROBE_RETURNED_FAULT" in str(original["output"])
     return True
 
 
@@ -292,48 +292,48 @@ Do not create a new primary thread or deliberately replace the saved Chat.
 """
 
 TASKS = [
-    """D3_B1. Extend this existing Rust CLI with `transfer FROM TO POSITIVE_I64`.
+    """Ledger transfer. Extend this existing Rust CLI with `transfer FROM TO POSITIVE_I64`.
 Add Command::Transfer(String,String,i64). Missing source, insufficient funds,
 nonpositive amount and destination overflow are errors. Self-transfer validates
 source/funds but leaves balances unchanged. ledger::apply must apply an ENTIRE
 batch atomically: any error leaves the original Ledger unchanged. Keep add and
 sorted TSV output, line-numbered parse errors, stderr/exit2/no stdout on error.
-Update README. No persistence or dry-run yet. Final marker D3_B1_COMPLETE.
+Update README. No persistence or dry-run yet. Final marker LEDGER_TRANSFER_COMPLETE.
 """,
-    """D3_B2. Add --state PATH, loading an existing strict UTF-8 TSV ledger and
+    """Ledger persistence. Add --state PATH, loading an existing strict UTF-8 TSV ledger and
 applying the complete stdin batch to it. Missing file starts empty. Duplicate
 accounts, malformed records, negative/out-of-range balances are errors. On success
 print the usual sorted report AND atomically replace PATH, using an owned unique
 temp in its parent after validation/serialization. Errors preserve target bytes,
 remove only owned temp, stderr/exit2/no stdout/panic. Default without --state stays
-unchanged. Update README. No dry-run yet. Final marker D3_B2_COMPLETE.
+unchanged. Update README. No dry-run yet. Final marker LEDGER_PERSISTENCE_COMPLETE.
 """,
-    """D3_C1. Add --dry-run, composable with --state PATH in either argument order:
+    """Ledger dry-run. Add --dry-run, composable with --state PATH in either argument order:
 validate and print the projected sorted report, but never create/modify the state
 file or leave a temp. Normal commit stays unchanged. Preserve all error behavior.
 Also run this owned native probe EXACTLY ONCE, through exec_command with
 yield_time_ms=1000: `python3 -B probe.py --root ../effects --label long --delay 8`.
 Use write_stdin to collect its ORIGINAL session's eventual output; do not rerun it.
-Require D3_EFFECT_RETURNED_LONG, then verify ../effects/long.effects has one line.
-Update README, test dry-run/no-write cases. Final marker D3_C1_COMPLETE.
+Require NATIVE_PROBE_RETURNED_LONG, then verify ../effects/long.effects has one line.
+Update README, test dry-run/no-write cases. Final marker LEDGER_DRY_RUN_COMPLETE.
 """,
 ]
 FAULT_TASKS = [
-    """D3_A1. Run EXACTLY ONCE `python3 -B probe.py --root ../effects --label fault`.
+    """Native probe interruption. Run EXACTLY ONCE `python3 -B probe.py --root ../effects --label fault`.
 An explicitly owned trial proxy will close the MCP stdio transport AFTER native
 execution/result exists but BEFORE forwarding that original MCP result to Chat.
 Never rerun the command or infer rollback from a missing response. Reconcile native
 history/current results if accessible. Do not alter the probe or effects file.
 If delivery fails, state what is known without inventing success. If genuinely
-reconciled in this turn, final marker D3_A1_RECONCILED.
+reconciled in this turn, final marker NATIVE_PROBE_RECONCILED.
 """,
-    """D3_A2. Genuine follow-up after the owned result-delivery interruption. Stay
+    """Native probe reconciliation. Genuine follow-up after the owned result-delivery interruption. Stay
 in the SAME primary native thread. Reconcile latest canonical calls/results and
 current state. Read ../effects/fault.effects: it must contain exactly one `fault`
 line. Do not execute the earlier command again, delete evidence or guess pending
 effects. If fully reconciled, create recovery-note.txt with the known effect count
-and original result marker D3_EFFECT_RETURNED_FAULT, using native apply_patch;
-verify it and report D3_A2_COMPLETE. If reconciliation remains uncertain, explain
+and original result marker NATIVE_PROBE_RETURNED_FAULT, using native apply_patch;
+verify it and report NATIVE_PROBE_FOLLOWUP_COMPLETE. If reconciliation remains uncertain, explain
 the actual uncertainty; never claim completion or silently change route.
 """,
 ]
@@ -360,7 +360,7 @@ def prepare(args):
     d2 = args.d2.resolve()
     frozen = json.loads((d2 / "corrected-candidate-inputs.json").read_text())
     assert all(sha(SOURCE / path) == digest for path, digest in frozen["source"].items()), "D2 input drift"
-    root = Path(tempfile.mkdtemp(prefix="d3.", dir=os.environ["TMPDIR"]))
+    root = Path(tempfile.mkdtemp(prefix="trial.", dir=os.environ["TMPDIR"]))
     root.chmod(0o700)
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "codex/acceptance" / root.name
     cache.mkdir(parents=True, mode=0o700)
@@ -402,7 +402,7 @@ def prepare(args):
     (root / "manage.py").write_text(manage.replace(old, new))
     backend = (d2 / "backend.mjs").read_text().replace(str(d2), str(root))
     backend = backend.replace("root+'/protocol.json'", "root+'/plan.json'")
-    backend = backend.replace("termux.codex.d2.acceptance.v1", "termux.codex.d3.acceptance.v1")
+    backend = backend.replace("termux.codex.d2.acceptance.v1", "termux.codex.native-trial.acceptance.v1")
     (root / "backend.mjs").write_text(backend)
     refresh = (SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "refresh.mjs").write_text(refresh)
@@ -449,7 +449,7 @@ def prepare(args):
         env["CARGO_NET_OFFLINE"] = "true"
         save(case / "environment-private.json", env)
         for command in [["git", "init", "-q"], ["git", "add", "."],
-                        ["git", "-c", "user.name=Owned trial", "-c", "user.email=owned@example.invalid", "commit", "-qm", "frozen D3 baseline"]]:
+                        ["git", "-c", "user.name=Owned trial", "-c", "user.email=owned@example.invalid", "commit", "-qm", "frozen native trial baseline"]]:
             subprocess.run(command, cwd=case / "w", env=env, check=True, capture_output=True)
         tasks = FAULT_TASKS if name.startswith("fault") else TASKS
         for index, task in enumerate(tasks, 1):
@@ -579,7 +579,7 @@ def regression_proof(project, previous, output, env):
     modules = sorted(project.glob("src/test_*.rs"))
     added = [p for p in modules if not (previous / p.relative_to(project)).exists()]
     assert added, "each development turn needs a new src/test_*.rs regression module"
-    trial = Path(tempfile.mkdtemp(prefix="d3red.", dir=os.environ["TMPDIR"]))
+    trial = Path(tempfile.mkdtemp(prefix="trial-red.", dir=os.environ["TMPDIR"]))
     green = trial / "green"
     red = trial / "red"
     shutil.copytree(project, green, ignore=shutil.ignore_patterns(".git", "target"))
@@ -666,7 +666,7 @@ def long_result_proof(calls, returns):
     session = int(match[1])
     collected = [str(returns[identity]["output"]) for identity, call in calls.items()
                  if call.get("name", "").endswith("write_stdin") and json.loads(call["arguments"])["session_id"] == session]
-    assert any("D3_EFFECT_RETURNED_LONG" in result for result in collected), "original session result not returned"
+    assert any("NATIVE_PROBE_RETURNED_LONG" in result for result in collected), "original session result not returned"
 
 
 class Trial:
@@ -823,7 +823,7 @@ class Trial:
             assert (self.case / "effects/fault.effects").read_text() == "fault\n"
             assert (self.case / "fault-fired.json").exists(), "fault boundary not exercised"
             if step == 2:
-                assert "D3_EFFECT_RETURNED_FAULT" in (project / "recovery-note.txt").read_text()
+                assert "NATIVE_PROBE_RETURNED_FAULT" in (project / "recovery-note.txt").read_text()
         else:
             contract = self.root / ("contract-revision2.py" if (self.root / "validator-repair.json").exists() else "contract.py")
             suffix = "-corrected" if (self.root / "validator-repair.json").exists() else ""
@@ -883,7 +883,7 @@ class Trial:
     def check_recovery_stdio(self):
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "D3-recovery-readiness", "version": "1"}}},
+                "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "native-trial-recovery-readiness", "version": "1"}}},
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}]
         process = subprocess.Popen([str(self.case / "mcp-stdio")], env=self.env,
@@ -925,7 +925,7 @@ class Trial:
         (self.case / "recovery-checkpoint.stderr").write_bytes(result.stderr)
         assert result.returncode == 0, "public recovery history rejected; preserve without submission"
         item = json.loads(result.stdout)
-        assert "D3_EFFECT_RETURNED_FAULT" in json.dumps(item), "original native return absent from handoff"
+        assert "NATIVE_PROBE_RETURNED_FAULT" in json.dumps(item), "original native return absent from handoff"
         save(self.case / "recovery-handoff-private.json", item)
         save(self.case / "recovery-handoff-intent.json", {"thread": self.thread,
              "handoff_sha256": sha(self.case / "recovery-handoff-private.json"), **now()}, exclusive=True)
@@ -966,7 +966,7 @@ class Trial:
                 try:
                     final = json.loads((self.case / f"complete-{step}.json").read_text())["native_final"]
                     if not (fault and step == 1):
-                        marker = "D3_A2_COMPLETE" if fault else ("D3_B1_COMPLETE", "D3_B2_COMPLETE", "D3_C1_COMPLETE")[step - 1]
+                        marker = "NATIVE_PROBE_FOLLOWUP_COMPLETE" if fault else ("LEDGER_TRANSFER_COMPLETE", "LEDGER_PERSISTENCE_COMPLETE", "LEDGER_DRY_RUN_COMPLETE")[step - 1]
                         text = final["payload"].get("last_agent_message") or ""
                         assert completion_claimed(text, marker), "affirmative native completion marker absent"
                         assert re.search(r"소요시간:.*(?:초|분)", text.splitlines()[-1]), "native numeric timing footer absent"
@@ -1152,7 +1152,7 @@ class Trial:
         public_finals = ["\n".join(part for part in m.get("content", {}).get("parts", []) if isinstance(part, str))
                          for chat in app["saved"] for m in chat["publicMessages"]
                          if m.get("author", {}).get("role") == "assistant" and m.get("channel") in (None, "final")]
-        for marker in (["D3_A2_COMPLETE"] if fault else ["D3_B1_COMPLETE", "D3_B2_COMPLETE", "D3_C1_COMPLETE"]):
+        for marker in (["NATIVE_PROBE_FOLLOWUP_COMPLETE"] if fault else ["LEDGER_TRANSFER_COMPLETE", "LEDGER_PERSISTENCE_COMPLETE", "LEDGER_DRY_RUN_COMPLETE"]):
             assert any(completion_claimed(value, marker) and "소요시간:" in value.splitlines()[-1] for value in public_finals if value), "saved Chat affirmative final/timing footer absent"
         project = self.plan["project"]["id"]
         titles = json.loads((self.case / "titles.json").read_text())
