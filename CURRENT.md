@@ -88,15 +88,24 @@ records. No accepted CI was rerun merely to replace that proof.
 ### Required upstream upgrade and new real-TUI findings
 
 The continuous-upgrade implementation is admitted at exact source
-45533d6a7e5bf50dad3aa9545717f36a6d52d9a9, following official0.167.0 source
-086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a. Source acceptance42380853062 and
-independent Core/runtime42381322469 pass, including actual Android Core-only
-execution. Mainf4b1161022d63ed3529ba8f2dc1f47e031e48fa8 atomically installs the
-matching caller, accepted source and Base-only composition record. Base publication42381826456 was cancelled before candidate/signing after it
-missed the source-branch cache and started redundant native compilation. No0.167
-public delivery is claimed. Full Native/TUI42380853506 is still
-qualifying; no0.167 device activation or configured-client refresh is claimed.
-Keep operating151/runtime0.166 and its rollback until Full admission.
+d3becae26b076a2e29697e24914f223493c7e084, following official0.167.0 source
+086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a. Source acceptance42386665179 and
+Core/runtime42386783962 pass, including actual Android Core-only execution.
+Main's caller and accepted product both selectd3becae. Base publication42387355145
+passes signing, complete public readback, disposable update and non-forced stable
+promotion. In that actual main workflow, qualified Core artifact download and
+common verification pass; musl setup and native recompilation are skipped.
+The complete transfer log is public-d3-qualified-runtime-transfer.log below.
+
+Full Native/TUI42380853506 builds actual0.167 CLI and passes focused regressions,
+the owner/model fault check and Native inference/configuration libraries; Provider
+API and remaining retained-feature/lint gates are still running. Its production
+inputs matchd3becae, so that existing build continues without redispatch.
+No0.167 Full device activation or configured-client refresh is claimed. Keep
+operating Full151/runtime0.166 and its rollback until Full admission. Earlier
+Base publication42381826456 was cancelled before candidate/signing when main's
+branch cache miss exposed redundant native compilation; its log remains as
+public-455-crossref-cache-miss.log. It is not a passing delivery.
 
 **Implemented ownership.** The common Rust producer locates basic Termux
 adaptations through syntax/call relationships and combines them with the Native
@@ -141,7 +150,7 @@ optional acceleration, not the publication handoff. Musl setup/source compilatio
 run only when no verified raw input exists. Advertised download/verification
 failure stops the job; absent/expired input permits normal production. The live
 lookup resolves45533d6 to Core run42381322469. The missing-artifact mutation
-fails and restoration passes; actual corrected cross-ref publication is pending.
+fails and restoration passes; corrected cross-ref publication42387355145 passes.
 
 The controller also no longer forces Full-only publication when a frontend
 result arrives. Its existing release-lane owner must first establish the signed
@@ -168,8 +177,8 @@ failure and compiler ETXTBSY remain failed setup evidence, separate from the
 confirmed mutation sequences. No extra primary/Pro inference, policy default,
 profile or operating-service change was made in this upgrade batch.
 
-**Remaining boundaries.** Finish current full TUI qualification, signing/public
-readback/disposable update, non-forced stable promotion, ordinary device update,
+**Remaining boundaries.** Finish current full TUI qualification and Full signing /
+public readback/disposable update, non-forced promotion and ordinary device update,
 then the existing owned D3 full-schema refresh and fresh registered Native loop
 with kernel-observed owner. Physical screen observation and real-model steering
 are separate. Frontend proof admission now derives required scopes from the
