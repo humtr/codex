@@ -84,6 +84,19 @@ index 87ccb44..5682de5 100644
                  tracing::warn!(
                      skipped,
                      "app-server event consumer lagged; dropping ignored events"
+diff --git a/codex-rs/tui/src/app/backend_selection.rs b/codex-rs/tui/src/app/backend_selection.rs
+index 5e777ba..00a682f 100644
+--- a/codex-rs/tui/src/app/backend_selection.rs
++++ b/codex-rs/tui/src/app/backend_selection.rs
+@@ -61,7 +61,7 @@ impl App {
+             };
+             let prepared = match self
+                 .prepare_target_session(tui, destination, &target, ResumeSource::Backend(&settings))
+-                .await
++                .await?
+             {
+                 Ok(prepared) => prepared,
+                 Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
 index 8a04d72..d7425a9 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
@@ -765,7 +778,7 @@ index 9c84885..dbcfef7 100644
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index ae79c9a..b2ee057 100644
+index ae79c9a..83c4a58 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
 @@ -379,6 +379,12 @@ pub(crate) enum ThreadSettingsOwner {
@@ -825,7 +838,7 @@ index ae79c9a..b2ee057 100644
 +        loop {
 +            let request_id = self.next_request_id();
 +            let page: codex_app_server_protocol::ThreadTurnsListResponse = self
-+                .client
++                .request_handle
 +                .request_typed(ClientRequest::ThreadTurnsList {
 +                    request_id,
 +                    params: codex_app_server_protocol::ThreadTurnsListParams {
@@ -1206,7 +1219,7 @@ index b072d8f..d94586e 100644
              &mut response.thread,
              response.turns_backwards_cursor.clone(),
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
-index 71a652a..132c5c7 100644
+index 71a652a..f40d3c0 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
 @@ -484,3 +484,115 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()>
@@ -1236,7 +1249,7 @@ index 71a652a..132c5c7 100644
 +    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
 +    let request_id = server.next_request_id();
 +    let _: ThreadResumeResponse = server
-+        .client
++        .request_handle
 +        .request_typed(ClientRequest::ThreadResume {
 +            request_id,
 +            params: ThreadResumeParams {
@@ -1258,7 +1271,7 @@ index 71a652a..132c5c7 100644
 +    );
 +    let request_id = server.next_request_id();
 +    let original: ThreadResumeResponse = server
-+        .client
++        .request_handle
 +        .request_typed(ClientRequest::ThreadResume {
 +            request_id,
 +            params: ThreadResumeParams {
@@ -1308,7 +1321,7 @@ index 71a652a..132c5c7 100644
 +    );
 +    let request_id = server.next_request_id();
 +    let retained: ThreadResumeResponse = server
-+        .client
++        .request_handle
 +        .request_typed(ClientRequest::ThreadResume {
 +            request_id,
 +            params: ThreadResumeParams {

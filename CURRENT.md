@@ -150,9 +150,19 @@ arrives later: register that result against the already proven source, rather th
 requesting proof of the documentation commit. The affected controller21 tests
 pass; this late-result regression separately confirms baseline0/fault1/restored0.
 Source acceptance42377989505 passes on84ea109; its Core/runtime42377989542 and
-full Native/TUI42377988733 remain in progress. Controller-only follow-up does not
-change their runtime/frontend production inputs; their reusable artifacts still
-require exact admission in the eventual publication.
+Core-only Android execution pass. Full Native/TUI42377988733 fails compilation
+at two integration contracts: complete-history reads retain the former client
+field, and upstream's newly added backend-switch caller does not propagate our
+existing outer preparation error. The follow-up uses request_handle for the
+production read and three retained tests, and propagates preparation failure
+before any UI/draft replacement. No new recovery branch or swallowed error was
+introduced. The assembled official source passes whitespace and scope checks;
+the13 frontend Python checks pass. Original full failure log is retained as
+upstream167-0md6mz3a/tui-84ea109-failure.log. Actual TUI compilation remains open.
+Controller follow-upa11fb69 passes Source acceptance42378723480; Core42378839116
+requalifies that exact source using unchanged runtime inputs. The optional TUI
+correction also leaves the completed Core runtime production inputs unchanged;
+reuse still requires the existing verification/Android/public admission gates.
 Hosted Core/Native compilation, signed delivery, activation and configured Bridge
 refresh remain unfinished. Operating151/runtime0.166 and rollback are unchanged.
 
