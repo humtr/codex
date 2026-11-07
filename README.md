@@ -3,6 +3,14 @@
 This repository is the clean rewrite of the Termux compatibility layer for the
 upstream Codex CLI.
 
+**Keeping up with upstream is a permanent product requirement.** This wrapper
+continues to adopt official stable Codex releases and their features. We adapt
+the Termux layer, remove local code superseded by upstream and improve the
+existing automated upgrade path. Compatibility failures require repair; the
+current working release remains available until the next is qualified. This
+applies to future releases as well as the current target. See the
+[continuous upstream upgrade contract](SPEC.md#continuous-upstream-upgrades).
+
 The product has one public command, `codex`, and four components:
 
 - a minimal native Rust Core that makes the upstream runtime work correctly on
@@ -33,13 +41,12 @@ manual create/start/repair sequence for ordinary work. A model route is not a
 task identity, and renewing a remote Chat does not require another Native thread.
 MCP alone is not proof that every host message was observed or recorded.
 
-**Current qualification is incomplete.** Full148 and Provider25 package selection
-does not establish working cross-provider resume, all active service bindings,
-Chat app readiness or receiving-client continuity. Cross-provider resume is
-blocked in the qualified Native interface; fixture Provider reconnection lost
-live TUI updates. Recent transport list recovery does not establish actual
-model inference. Read [CURRENT](CURRENT.md) before treating an old success claim
-or a historical Provider sequence as operating acceptance.
+**Qualification remains specific to the tested boundary.** Operating Core /
+Manager/TUI151/150 and the actual attached Bridge development loop are verified;
+new real-model TUI steering and follow-up trials fail. Cross-provider transitions,
+compaction and broader lifecycle recovery remain incomplete. Read
+[CURRENT](CURRENT.md) for the operating baseline, next upstream target and exact
+proof limits before treating a release number as complete product acceptance.
 
 The source protocol uses `inference=attached|submitted`. Native integrated work
 and intentionally threadless standalone tools remain distinct execution scopes;

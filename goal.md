@@ -23,12 +23,24 @@ retaining Full148 rollback. Current Provider-owned CDP refresh passes17 complete
 schemas. Fresh registered Bridge work063245ce56ad0057e4244448edab019ce4d86c44e174202f
 runs activated Native151: actual Rust write/build/assert/modify/rebuild, one-effect
 exact retry and plain installed TUI resume of the same history from another home
-pass without new primary inference. Finish docs/push and normal Native settlement;
-its final completion is authoritative in the Native record. Source/build,
+pass without new primary inference. Documentation was pushed and Native finish
+confirmed completed. Source/build,
 controlled app, real model, actual client, physical UI and activation stay distinct.
 
-Pro may independently reject/rework this preparation and the separate Native-route
-candidate. Remaining: picker/alias context rebinding, original unreconciled work /
+Permanently follow official stable upstream releases under SPEC's continuous
+upgrade contract;0.167.0 is the next target, not the limit. Absorb upstream features, remove superseded local
+behavior and repair the existing source adaptation/discovery/release pipeline for
+repeatable upgrades. Do not revisit whether to upgrade or freeze development on
+0.166. Run42326878869 fails at the obsolete cli_main locator before compilation;
+inspect current dispatch_cli and its callers before adapting. Retain151 as the
+operating/rollback baseline until the new release passes existing delivery gates.
+New real TUI trials fail steering (native_context_prefix_changed) and follow-up
+input (model changes to gpt-6.1-sol, then unsupported_desktop_route); CURRENT.md
+records actual thread IDs and the missing model-change provenance.
+
+Pro may independently reject/rework the preparation and separate Native-route
+candidate while implementing that upgrade. Remaining: picker/alias context
+rebinding, original unreconciled work /
 Guardian, OpenAI <-> ChatGPT transitions, compaction, app/config/install lifecycle,
 Android-browser login forwarding, actual resource boundaries and cumulative
 capabilities. Preserve profiles, user changes, Native history and rollback.

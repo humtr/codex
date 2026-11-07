@@ -28,6 +28,11 @@ The repository owns this development plane; it needs no external workflow skill.
 
 ## Context and ownership
 
+- Follow the [continuous upstream upgrade contract](SPEC.md#continuous-upstream-upgrades).
+  This wrapper must keep adopting official stable Codex releases beyond the current
+  target. Decide how to adapt and automate upgrades, not whether to keep following
+  upstream. Remove obsolete local replacements; qualification failures require
+  repair while preserving operating/rollback generations, not a version freeze.
 - SPEC.md owns product behavior, runtime/security boundaries and update/rollback.
 - CURRENT.md records the operating baseline, remaining work and useful proof.
   Consult it when relevant; update stale state instead of appending a diary.

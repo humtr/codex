@@ -23,6 +23,24 @@ fallback or runtime migration is claimed. Historical
 release versions below describe retained compatibility, not the latest installed
 release.
 
+## Continuous upstream upgrades
+
+This product is a Termux wrapper for upstream Codex. Continuously following new
+official stable releases is a permanent requirement, including every release
+after the current upgrade target. Upgrade adoption is settled; engineering work
+determines how to absorb upstream changes with minimal compatibility friction
+and repeatable automation. Preserve upstream features and behavior, retain only
+necessary Termux adaptations and remove local replacements made obsolete by
+upstream. Adapt this wrapper to evolving upstream interfaces.
+
+Qualification determines when an update can be activated. A compatibility
+failure is work to repair the adaptation and existing release pipeline, not a
+reason to freeze development on an older version. Preserve the operating and
+rollback generations during that repair. Extend the existing official-release
+discovery, source adaptation, qualification, signing, promotion and update path;
+do not add another version selector or release controller. The current target
+recorded in CURRENT.md does not limit this ongoing commitment to that version.
+
 ## Generation-bound TUI admission (2026-10-10)
 
 The0.163 adaptation is termux-fd-remap-v5, bound to official package SHA256

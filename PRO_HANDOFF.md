@@ -382,6 +382,15 @@ Same-Provider TUI owner selection 및 Active operating deployment를 함께 읽�
 
 ## 6. 우선 정리·연구·구현할 내용
 
+**업스트림 정식 버전을 계속 흡수하는 것은 이 래퍼의 상시 의무다.**0.167.0은 이번
+대상일 뿐이며 이후 버전에도 같은 원칙을 적용한다. SPEC의 Continuous upstream
+upgrades 계약을 따른다. Pro가 결정할 것은 업그레이드 여부가
+아니라 새 업스트림 기능을 존중하면서 기존 수정의 마찰을 줄이는 구현 방법이다.
+기존 발견·소스 적응·검증·서명·승격·기기 업데이트 자동화를 개선한다. 업스트림이
+대체한 자체 코드는 정리하고 필요한 Termux 적응만 유지한다. 현재0.166은 후속
+버전 검증 중의 운영/롤백 기준이며 개발 버전 동결 방침이 아니다.
+CURRENT의0.167 소스 적응 실패와 새 실제 TUI 실패 두 건을 우선 입력으로 쓴다.
+
 ### 6.1 재조직 원칙과 선작업 경계
 
 목표는 양쪽 진입점에서 같은 Native 작업의 입력·실행·결과를 유지하고,
@@ -624,6 +633,27 @@ ChatGPT의 현재 Pro 추론과 @TermuxBridge로 humtr/codex의 책임 경계 �
 6절의 재조직 계획을 따르되 더 간결한 책임 배분이 입증되면 갱신해라. Codex의
 확대 선작업은 공통 요청 수명·TUI 연속 작업·동일 Provider의 진입점 인계다.
 현재 완료됐다고 가정하지 말고 최신 CURRENT를 확인한다.
+
+이 프로젝트는 업스트림 Codex를 계속 따라가는 Termux 래퍼다. SPEC의 Continuous
+upstream upgrades는 상시 계약이며 이번0.167.0뿐 아니라 이후 정식 버전도 계속
+반영해야 한다. 업그레이드 채택 여부를 다시 결정하지 마라. 새 기능을
+흡수하고 업스트림이 대체한 자체 구현을 제거하면서 필요한 Termux 적응을 유지해라.
+기존 upstream_discovery.py/accepted-release-inputs.yml과 release-builder의 경로를
+개선해 다음 버전도 같은 절차로 반영되게 해라. 별도 릴리스 관리자나 버전별
+우회표를 만들지 마라. 기존0.167 Core run42326878869는 컴파일 전에 cli_main을
+찾지 못해 실패했다. 공식 소스의 dispatch_cli 재구성과 실제 호출자를 확인하고
+생산자에서 수정해라. 기존 운영0.166/151과 rollback을 보존하며 새 소스의 검증 /
+서명·공개 readback·승격·기기 활성화·커넥터 갱신까지 이어가라.
+
+새 실제 TUI 실패도 포함해라. thread01a1b508-c8ce-7fb2-9831-028cc8c892f4는 첫
+Rust 루프 뒤 후속 턴 모델이 chatgpt-desktop/gpt-6에서 gpt-6.1-sol로 달라진 기록과
+unsupported_desktop_route가 있다. 전환을 유발한 입력은 미확인이다. 사용자에게
+원인을 돌리거나 세션 최초 provider 값으로 현재 route를 추정하지 마라.
+thread01a1b511-dfd5-7db3-9977-57582422267e는 steering 수락 뒤
+native_context_prefix_changed로 종료됐고 실제 도구 결과가 없다. 두 경우를
+하나의 원인으로 단정하지 말고 Native 입력/설정·Provider 문맥·TUI 수락 계약을
+추적해라. 문맥 검사 삭제나 모델명 강제 고정 대신 같은 작업의 실제 재입력과
+steering을 통과시켜라. 아래 대역 앱 통과를 실제 모델 통과로 확대하지 마라.
 
 현재 선작업은 실제 Android에서 양쪽 시작 방향의 같은 작업 계속 실행, 외부
 실행 홈에서 원래 소유 홈 복귀, OpenAI 인증·선택적 Manager 없이 재개, 명시적

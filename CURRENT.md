@@ -86,6 +86,41 @@ archived24 manifest-matched payloads (3,055,058,944 allocated bytes) from four
 confirmed inactive owned fixtures, retaining source, Native records and restore
 records. No accepted CI was rerun merely to replace that proof.
 
+### Required upstream upgrade and new real-TUI findings
+
+Under SPEC's permanent continuous-upstream-upgrade contract, the next target
+is0.167.0. This commitment continues for later official stable releases. The remaining
+question is how to absorb upstream changes with less adaptation friction and
+reusable automation. Keep activated0.166/151 available until its successor is
+qualified; do not treat that operating baseline as a version freeze. Existing
+upstream_discovery.py and accepted-release-inputs.yml already discover official
+stable inputs and drive qualification. Improve that path, not another controller;
+review affected adaptations and remove behavior superseded by upstream.
+The scheduled controller has prepared0.167 in development release/upstream.json
+at b09a41a543a2d8fe06faafc69f3bdfa9034ce199; retain that target. The operating
+signed generation remains151 from76fb7e8 until qualified delivery replaces it.
+
+Run42326878869 failed during exact source adaptation, before runtime compilation:
+cli/src/main.rs::cli_main: expected one function, found0. Official0.167 source
+086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a reorganizes CLI dispatch as dispatch_cli;
+review the obsolete function-name assumption at the source producer. This does
+not establish that0.167 cannot support the product. Original failure log:
+request-continuity-dFZxEe/upstream-167-runtime-42326878869.log. Repair adaptation,
+then use the existing build/Android/sign/readback/promotion/update gates and
+post-activation connector refresh without version-specific bypasses.
+
+New actual user trials narrow the earlier controlled-app evidence. Thread
+01a1b508-c8ce-7fb2-9831-028cc8c892f4 completes the first Rust loop with actual
+tool results. Its following turn records gpt-6.1-sol instead of the initial
+chatgpt-desktop/gpt-6 and fails unsupported_desktop_route. The model-change input
+provenance is missing; do not attribute it to the user or infer a current route
+from the historical session header. Thread
+01a1b511-dfd5-7db3-9977-57582422267e accepts steering input, then fails
+native_context_prefix_changed with no Native tool result in that trial.
+These real-model continuation/steering trials fail; preserve both as regressions
+when absorbing0.167 and repairing Provider/Native/TUI contracts. Earlier
+plain-resume display and controlled-app passes remain bounded evidence.
+
 ## Pro handoff entry
 
 Active P0 implementation now uses fix/attached-native-development-loop-20261106
