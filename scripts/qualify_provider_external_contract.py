@@ -11,7 +11,7 @@ import tempfile
 
 
 API_TEST = r'''
-#[cfg(test)] mod d3_external_contract {
+#[cfg(test)] mod external_ledger_contract {
     use super::*;
     #[test] fn entire_batch_rolls_back() {
         let mut state = ledger::Ledger::new();
@@ -59,7 +59,7 @@ def check(project, stage, output):
     if stage:
         with (work / "src/main.rs").open("a") as stream:
             stream.write(API_TEST)
-    target = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "codex/d3-contract-target" / trial.name
+    target = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "codex/native-trial-contract-target" / trial.name
     env = {**os.environ, "CARGO_TARGET_DIR": str(target), "CARGO_NET_OFFLINE": "true"}
     checks = []
 
@@ -71,7 +71,7 @@ def check(project, stage, output):
 
     command(["cargo", "test", "--offline", "--locked"], "cargo-test")
     command(["cargo", "build", "--offline", "--locked"], "cargo-build")
-    binary = target / "debug/d3-ledger"
+    binary = target / "debug/native-trial-ledger"
 
     def cli(text, args=(), expected=None, error=False):
         result = subprocess.run([str(binary), *map(str, args)], input=text.encode() if isinstance(text, str) else text,

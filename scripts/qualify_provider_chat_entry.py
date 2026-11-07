@@ -33,7 +33,7 @@ if not (SOURCE / "scripts").is_dir():
 sys.path.insert(0, str(SOURCE / "scripts"))
 from provider_qualification import explicit_input
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
-from qualify_provider_d3 import stop_owned_pid
+from qualify_provider_native_trial import stop_owned_pid
 
 
 def stamp():
@@ -262,7 +262,7 @@ def setup(root):
     finally:
         client.close()
     files = ["run.py", "client.mjs", "refresh.mjs", "manage.py", "plan.json", "request-1.txt", "request-2.txt", "candidate/provider", "candidate/app_bridge.js", "config/codex/providers/chatgpt.toml", "baseline/ledger.py", "baseline/test_original.py"]
-    helpers = [SOURCE / "scripts/provider_qualification.py", SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_provider_d3.py", SOURCE / "scripts/qualify_tasks.py", SOURCE / "providers/chatgpt/desktop_cdp.mjs"]
+    helpers = [SOURCE / "scripts/provider_qualification.py", SOURCE / "scripts/qualify_permission_lifecycle.py", SOURCE / "scripts/qualify_provider_native_trial.py", SOURCE / "scripts/qualify_tasks.py", SOURCE / "providers/chatgpt/desktop_cdp.mjs"]
     save(root / "sealed-inputs.json", {**{name: sha(root / name) for name in files}, **{str(path): sha(path) for path in helpers}})
     save(root / "setup-complete.json", {"model_requests": 0, "provider_has_app_host": False, **stamp()})
     print(json.dumps({"setup_ready": True, "root": str(root), "model_requests": 0}))

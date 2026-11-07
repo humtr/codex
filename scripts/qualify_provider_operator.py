@@ -23,7 +23,7 @@ import tomllib
 import urllib.error
 import urllib.request
 from qualify_permission_lifecycle import fixture, server_paths, rpc as native_rpc
-from qualify_provider_d3 import stop_owned_pid
+from qualify_provider_native_trial import stop_owned_pid
 
 TOKEN = '88c34e80b76d5b9289cc2719f6d43fb2d7d33f8c1f680a42'
 

@@ -30,7 +30,7 @@ if not (SOURCE / "scripts").is_dir():
     SOURCE = Path(json.loads((Path(__file__).parent / "plan.json").read_text())["repository"])
 sys.path.insert(0, str(SOURCE / "scripts"))
 from qualify_provider_chat_entry import InputClient, control, native_work, observer_argv, observer_env, cli_final_visible
-from d3_notify import send as notify
+from notify_native_qualification import send as notify
 
 
 def stamp():

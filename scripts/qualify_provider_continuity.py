@@ -20,7 +20,7 @@ import urllib.request
 
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN, fixture_auth
-from qualify_provider_d3 import stop_owned_pid
+from qualify_provider_native_trial import stop_owned_pid
 from qualify_tasks import Ws
 from qualification_diagnostics import terminal_screen_lines
 

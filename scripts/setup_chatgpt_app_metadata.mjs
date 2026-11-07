@@ -6,7 +6,7 @@ import {connectDesktop} from '../providers/chatgpt/desktop_cdp.mjs';
 const root=process.argv[2], action=process.argv[3], route=process.argv[4];
 const setupPlan=JSON.parse(readFileSync(root+'/plan.json','utf8'));
 if(typeof setupPlan.desktop_session!=='string')throw Error('explicit_desktop_session_required');
-const name='Termux Provider: D3';
+const name='Termux Provider: Native Trial';
 const bridge=readFileSync(root+'/candidate/app_bridge.js','utf8');
 const revision=createHash('sha256').update(JSON.stringify(bridge)).digest('hex');
 const c=await connectDesktop(setupPlan.desktop_session,undefined,{app:true});

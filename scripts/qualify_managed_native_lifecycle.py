@@ -25,7 +25,7 @@ import urllib.request
 
 from qualify_permission_lifecycle import fixture, rpc as native_rpc, server_paths
 from qualify_provider_operator import TOKEN
-from qualify_provider_d3 import stop_owned_pid
+from qualify_provider_native_trial import stop_owned_pid
 from qualify_provider_chat_entry import native_work
 from qualification_diagnostics import native_thread_settled, process_fact
 from qualify_tasks import Ws

@@ -19,7 +19,7 @@ import urllib.error
 
 from qualify_permission_lifecycle import fixture, server_paths
 from qualify_tasks import Ws
-from qualify_provider_d3 import open_pidfd, stop_owned_pid
+from qualify_provider_native_trial import open_pidfd, stop_owned_pid
 
 
 def probe(args):

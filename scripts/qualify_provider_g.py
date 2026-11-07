@@ -197,7 +197,7 @@ def prepare_remaining(prior):
     plan['assignment_budget']=dict(plan['assignment_budget'],max_app_starts=16)
     save(root/'plan.json',plan,True)
     (root/'run.py').write_text(Path(__file__).read_text())
-    shutil.copy2(SOURCE/'scripts/d3_notify.py',root/'notify.py')
+    shutil.copy2(SOURCE/'scripts/notify_native_qualification.py',root/'notify.py')
     (root/'task.txt').write_text(TASK+'\n')
     for name in plan['cases']:
         workspace=root/('w-'+name);workspace.mkdir()
@@ -261,7 +261,7 @@ def prepare_cold(root, prior_requests=0):
     target=next(w for w in native_work(root) if w['selection']['inference']=='attached')
     assert target['phase']=='stopped' and not target['pending']
     shutil.copytree(prior/'candidate',root/'candidate')
-    shutil.copy2(SOURCE/'scripts/d3_notify.py',root/'notify.py')
+    shutil.copy2(SOURCE/'scripts/notify_native_qualification.py',root/'notify.py')
     (root/'run.py').write_text(Path(__file__).read_text())
     (root/'client.mjs').write_text((SOURCE/'scripts/chat_entry_client.mjs').read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'",json.dumps(str(SOURCE/'providers/chatgpt/desktop_cdp.mjs'))))
     info=json.loads((root/'info.json').read_text())
@@ -348,7 +348,7 @@ def cold(root):
         result['ended']=stamp();save(root/'result.json',result,True)
         (root/'turns.md').write_text('# G Termux cold follow-up\n\n'+json.dumps(result,ensure_ascii=False,indent=2)+'\n')
         if (root/'notification-binding.json').exists():
-            from d3_notify import send
+            from notify_native_qualification import send
             send(root)
 
 
@@ -393,7 +393,7 @@ def run(root):
         result['ended']=stamp();save(root/'result.json',result)
         (root/'turns.md').write_text('# G installed product turns\n\n'+''.join('## '+v['name']+'\n\n'+str(v['elapsed_seconds'])+' seconds\n\n' for v in result.get('steps',[])))
         if (root/'notification-binding.json').exists():
-            from d3_notify import send
+            from notify_native_qualification import send
             send(root)
 
 

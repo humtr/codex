@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts import d3_notify as notify
+from scripts import notify_native_qualification as notify
 
 
 class NotificationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="d3notice.", dir=os.environ["TMPDIR"])
+        self.temporary = tempfile.TemporaryDirectory(prefix="native-qualification-notice.", dir=os.environ["TMPDIR"])
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.binary = self.root / "core"

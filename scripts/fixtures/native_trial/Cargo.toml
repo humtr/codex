@@ -1,5 +1,5 @@
 [package]
-name = "d3-ledger"
+name = "native-trial-ledger"
 version = "0.1.0"
 edition = "2021"
 

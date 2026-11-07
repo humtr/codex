@@ -369,11 +369,11 @@ def prepare(args):
     shutil.copy2(d2 / "candidate-corrected/codex-chatgpt-provider", root / "candidate/provider")
     shutil.copy2(d2 / "candidate-corrected/app_bridge.js", root / "candidate/app_bridge.js")
     assert sha(root / "candidate/provider") == frozen["binary_sha256"]
-    for source, name in [(Path(__file__), "run.py"), (SOURCE / "scripts/d3_contract.py", "contract.py"),
-                         (SOURCE / "scripts/d3_fault_proxy.py", "fault_proxy.py"),
-                         (SOURCE / "scripts/d3_notify.py", "notify.py")]:
+    for source, name in [(Path(__file__), "run.py"), (SOURCE / "scripts/qualify_provider_external_contract.py", "contract.py"),
+                         (SOURCE / "scripts/qualify_mcp_fault_proxy.py", "fault_proxy.py"),
+                         (SOURCE / "scripts/notify_native_qualification.py", "notify.py")]:
         shutil.copy2(source, root / name)
-    shutil.copytree(SOURCE / "scripts/fixtures/d3", root / "baseline")
+    shutil.copytree(SOURCE / "scripts/fixtures/native_trial", root / "baseline")
     subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=root / "baseline", check=True, capture_output=True)
     fault_only = getattr(args, "fault_only", False)
     order = (["fault_operator", "fault_adapter"] if fault_only else
@@ -406,7 +406,7 @@ def prepare(args):
     (root / "backend.mjs").write_text(backend)
     refresh = (SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "refresh.mjs").write_text(refresh)
-    app_setup = (SOURCE / "scripts/d3_app_setup.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
+    app_setup = (SOURCE / "scripts/setup_chatgpt_app_metadata.mjs").read_text().replace("'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs")))
     (root / "app_setup.mjs").write_text(app_setup)
     prior = root / "prior-service"
     prior.mkdir()
@@ -443,7 +443,7 @@ def prepare(args):
         (config / "chatgpt.toml").write_text('version=1\n[model]\ndefault="chatgpt-desktop/gpt-6"\nreasoning_effort="high"\n'
             '[transport]\nreturn_path="mcp"\nconnector_name="Termux Bridge"\n[execution]\nmode=' + json.dumps(mode) + '\n' +
             ''.join(key + '=' + json.dumps(info[key]) + '\n' for key in ("core", "home", "workspace")) +
-            '\n[history]\nmode="project"\nproject_name="Termux Provider: D3"\ncreate_if_missing=false\n')
+            '\n[history]\nmode="project"\nproject_name="Termux Provider: Native Trial"\ncreate_if_missing=false\n')
         env["XDG_CONFIG_HOME"] = str(case / "config")
         env["CARGO_TARGET_DIR"] = str(cache / "compiler" / name)
         env["CARGO_NET_OFFLINE"] = "true"
@@ -471,13 +471,13 @@ def prepare(args):
 def seal(root):
     assert not (root / "launch-intent.json").exists() and not (root / "run-started.json").exists()
     project = json.loads((root / "project.json").read_text())
-    assert project["name"] == "Termux Provider: D3" and project["compatible"]
-    for source, name in [(SOURCE / "scripts/qualify_provider_d3.py", "run.py"),
-                         (SOURCE / "scripts/d3_contract.py", "contract.py"),
-                         (SOURCE / "scripts/d3_fault_proxy.py", "fault_proxy.py"),
-                         (SOURCE / "scripts/d3_notify.py", "notify.py")]:
+    assert project["name"] == "Termux Provider: Native Trial" and project["compatible"]
+    for source, name in [(SOURCE / "scripts/qualify_provider_native_trial.py", "run.py"),
+                         (SOURCE / "scripts/qualify_provider_external_contract.py", "contract.py"),
+                         (SOURCE / "scripts/qualify_mcp_fault_proxy.py", "fault_proxy.py"),
+                         (SOURCE / "scripts/notify_native_qualification.py", "notify.py")]:
         shutil.copy2(source, root / name)
-    (root / "app_setup.mjs").write_text((SOURCE / "scripts/d3_app_setup.mjs").read_text().replace(
+    (root / "app_setup.mjs").write_text((SOURCE / "scripts/setup_chatgpt_app_metadata.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs"))))
     (root / "refresh.mjs").write_text((SOURCE / "scripts/refresh_chatgpt_connector.mjs").read_text().replace(
         "'../providers/chatgpt/desktop_cdp.mjs'", repr(str(SOURCE / "providers/chatgpt/desktop_cdp.mjs"))))
@@ -487,7 +487,7 @@ def seal(root):
         case = root / name
         path = case / "config/codex/providers/chatgpt.toml"
         text = path.read_text().split('\n[history]')[0]
-        path.write_text(text + '\n[history]\nmode="project"\nproject_name="Termux Provider: D3"\ncreate_if_missing=false\nproject_id=' + json.dumps(project["id"]) + '\n')
+        path.write_text(text + '\n[history]\nmode="project"\nproject_name="Termux Provider: Native Trial"\ncreate_if_missing=false\nproject_id=' + json.dumps(project["id"]) + '\n')
         tasks = FAULT_TASKS if name.startswith("fault") else TASKS
         for index, task in enumerate(tasks, 1):
             (case / f"request-{index}.txt").write_text(task + "\n" + task_rules(name, plan))

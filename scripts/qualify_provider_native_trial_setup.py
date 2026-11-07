@@ -11,9 +11,9 @@ import sys
 import tempfile
 from unittest.mock import patch
 
-import qualify_provider_d3 as controller
-from qualify_provider_d3 import AppendWatch, Trial, long_result_proof, regression_proof, save, sha, stop_owned_pid
-from d3_contract import check
+import qualify_provider_native_trial as controller
+from qualify_provider_native_trial import AppendWatch, Trial, long_result_proof, regression_proof, save, sha, stop_owned_pid
+from qualify_provider_external_contract import check
 
 
 def reference(baseline, work):
@@ -131,7 +131,7 @@ if {fault!r}:
  emit('response_item',{{'type':'function_call','name':'exec_command','namespace':'functions','arguments':args,'call_id':'local-probe'}})
  emit('response_item',{{'type':'function_call_output','output':result.stdout,'call_id':'local-probe'}})
  request={{'jsonrpc':'2.0','id':1,'method':'tools/call','params':{{'name':'native_tool','arguments':{{'name':'functions.exec_command','input':args}}}}}}
- cut=subprocess.run([sys.executable,'-B',{str(Path(controller.__file__).with_name('d3_fault_proxy.py'))!r},'--root',str(case),'--',str(case/'mcp-stdio')],input=json.dumps(request).encode()+b'\\n',capture_output=True)
+ cut=subprocess.run([sys.executable,'-B',{str(Path(controller.__file__).with_name('qualify_mcp_fault_proxy.py'))!r},'--root',str(case),'--',str(case/'mcp-stdio')],input=json.dumps(request).encode()+b'\\n',capture_output=True)
  assert cut.returncode==42 and not cut.stdout
 emit('event_msg',{{'type':'error','turn_id':'local-1','message':'intermediate transport error; completion follows'}})
 time.sleep(.1)
@@ -277,7 +277,7 @@ while True:time.sleep(60)
 
 def qualify(root):
     source_inputs = {str(p): sha(p) for p in [Path(controller.__file__), Path(__file__),
-                     Path(__file__).with_name("d3_contract.py"), Path(__file__).with_name("d3_fault_proxy.py")]}
+                     Path(__file__).with_name("qualify_provider_external_contract.py"), Path(__file__).with_name("qualify_mcp_fault_proxy.py")]}
     work = Path(tempfile.mkdtemp(prefix="d3setup.", dir=os.environ["TMPDIR"]))
     archive = Path(json.loads((root / "plan.json").read_text())["cache"]) / "setup-validation"
     archive.mkdir(exist_ok=True)
@@ -345,7 +345,7 @@ def qualify(root):
     finally:
         watch.close()
     checks.append({"name": "append-partial-nested-detached-truncation", "accepted": True})
-    proxy = Path(__file__).with_name("d3_fault_proxy.py")
+    proxy = Path(__file__).with_name("qualify_mcp_fault_proxy.py")
     child = work / "fake_mcp.py"
     child.write_text('''import json,sys
 for line in sys.stdin:
@@ -695,8 +695,8 @@ for line in sys.stdin:
               "limits": "Local controller/contracts/proxy proof only; live Provider/Chat behavior remains untested in D3."}
     save(output / "review.json", result)
     save(archive / "review.json", {**result, "attempt": str(output),
-         "controller_sha256": source_inputs[str(Path(controller.__file__))], "validator_sha256": source_inputs[str(Path(__file__).with_name("d3_contract.py"))],
-         "proxy_sha256": source_inputs[str(Path(__file__).with_name("d3_fault_proxy.py"))], "source_inputs": source_inputs})
+         "controller_sha256": source_inputs[str(Path(controller.__file__))], "validator_sha256": source_inputs[str(Path(__file__).with_name("qualify_provider_external_contract.py"))],
+         "proxy_sha256": source_inputs[str(Path(__file__).with_name("qualify_mcp_fault_proxy.py"))], "source_inputs": source_inputs})
     print(json.dumps({k: result[k] for k in ("accepted", "groups", "model_requests", "live_chat_trial")}))
 
 
