@@ -1,1 +1,1 @@
-{"frontend": null, "source": "d3becae26b076a2e29697e24914f223493c7e084"}
+{"frontend": {"input_sha256": "4a9b21c016dfef88c2d361666bd97ff43acf737acaa9f2a6277a8edca6c2d7ef", "input_url": "https://github.com/humtr/codex/releases/download/manager-tui-native-v0.167.0-45533d6a7e5b/manager-tui-inputs-0.167.0-45533d6a7e5b.tar.gz", "run_id": "42380853506", "sha256": "00db6bf56161ec9a3aa9021d84b316608f3b57ccbb9a69746f7152aa3886947f", "source": "45533d6a7e5bf50dad3aa9545717f36a6d52d9a9"}, "source": "d3becae26b076a2e29697e24914f223493c7e084"}
