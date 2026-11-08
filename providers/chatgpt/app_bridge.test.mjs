@@ -618,7 +618,9 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
  expect(snapshot.streamActive).toBe(false);
  expect(snapshot.terminals).toEqual(status==='completed'?['done']:[]);
- expect(snapshot.error).toBe(status==='completed'?null:status==='failed'?'app_completion_failed':'app_completion_interrupted');
+ // Once the SDK reports terminal failure, preserve the observed HTTP resume 404;
+  // a later completed response still supersedes that transient observation.
+  expect(snapshot.error).toBe(status==='completed'?null:status==='failed'?'app_http_not_found':'app_completion_interrupted');
  expect(f.sent).toHaveLength(1);
  await submit('second');await Promise.resolve();
  completed('completed');raw.onResume({type:'error',attemptCount:9,error:{responseStatus:503}});
