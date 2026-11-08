@@ -780,7 +780,7 @@ async function termuxCodexBridge(command) {
     lane.stopRequested = true;
     const who=identity(),sameAccount=()=>['account','user','structure'].every(k=>identity()[k]===who[k]&&(!lane.accountIdentity||lane.accountIdentity[k]===who[k]));
     if(!sameAccount())fail('app_account_changed');
-    const completed=()=>!lane.localCancellationStarted&&lane.terminals.includes('done')&&lane.pending!==true&&lane.streamActive!==true;
+    const completed=()=>!lane.localCancellationStarted&&(lane.terminals.includes('done')||!lane.priorStreamUnsettled&&lane.serverId==null&&lane.error!=null&&lane.transportObservation?.http_rejection?.stage==='stream')&&lane.pending!==true&&lane.streamActive!==true;
     if(completed())lane.completedBeforeCancellation=true;
     // Low-level eHt/JU only cancels the client transport. It does not call the
     // installed client's stopCompletion -> /stop_conversation operation.

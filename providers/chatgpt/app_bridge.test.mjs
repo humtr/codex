@@ -632,7 +632,11 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  await submit('second');await Promise.resolve();
  completed('completed');raw.onResume({type:'error',attemptCount:9,error:{responseStatus:503}});
  const next=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
- expect(next.round).toBe('second');expect(next.terminals).toEqual([]);expect(next.streamActive).toBe(true);expect(next.transportObservation).toBe(null);
+ expect(next.round).toBe('second');expect(next.terminals).toEqual([]);expect(next.streamActive).toBe(true);
+ expect(next.transportObservation.resume).toBeUndefined();
+ expect(next.transportObservation.first_error).toBeUndefined();
+ expect(next.transportObservation.http_rejection).toBeUndefined();
+ expect(next.transportObservation.wire_request).toMatchObject({stage:'sdk_stream_post',path:'/f/conversation',method:'POST'});
  f.submitOptions.onCompletion('completed');
  await bridge({op:'release',owner:'owned',lane:'recovered'});
 }));
@@ -999,6 +1003,24 @@ for(const finish of ['stream-error','sdk-failed'])test('HTTP 413 resume is a typ
  expect(snapshot.streamActive).toBe(false);
  expect(f.sent).toHaveLength(1);
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE REQUEST TEXT');
+}));
+
+test('initial stream HTTP 413 without server conversation id settles Stop without remote stopCompletion',async()=>fixture(async({f,bindings})=>{
+ f.suppressServerId=true;
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'initial-413',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'initial-413',round:'original',messages:[{role:'user',text:'Oversized initial request'}]});
+ await Promise.resolve();
+ const stream=f.options[0],privateError={responseStatus:413,message:'PRIVATE REQUEST TEXT'};
+ stream.onStreamErrorObserved(privateError);
+ f.submitOptions.onCompletion('failed');
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'initial-413'});
+ expect(snapshot.error).toBe('app_http_payload_too_large');
+ expect(snapshot.serverId).toBeUndefined();
+ expect(snapshot.transportObservation.http_rejection).toEqual({stage:'stream',http_status:413});
+ const stopped=await bridge({op:'stop',owner:'owned',lane:'initial-413'});
+ expect(stopped.stopped).toBe(true);
 }));
 
 for(const op of ['chat_read','chat_adopt'])for(const status of [401,403,404,429,500,503,null])test(op+' failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{
