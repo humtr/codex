@@ -507,6 +507,22 @@ impl SubmittedInput {
 
 // The same canonical input boundary decides both AppHost's stopped-round
 // continuation and Operator's permission to retire an active predecessor.
+/// An HTTP rejection is transport observation, not a Native turn or
+/// execution failure. Keep its cause distinct while preserving the work.
+pub(crate) fn http_failure(code: Option<&str>) -> Option<Error> {
+    let code = match code? {
+        "app_http_payload_too_large" => "app_http_payload_too_large",
+        "app_http_rate_limited" => "app_http_rate_limited",
+        "app_http_authentication_required" => "app_http_authentication_required",
+        "app_http_forbidden" => "app_http_forbidden",
+        "app_http_not_found" => "app_http_not_found",
+        "app_http_server_error" => "app_http_server_error",
+        "app_http_rejected" => "app_http_rejected",
+        _ => return None,
+    };
+    Some(Error(code))
+}
+
 pub(crate) fn appended_steer(previous: &Request, current: &Request) -> bool {
     previous.thread == current.thread
         && previous.turn.is_some()
@@ -2256,6 +2272,9 @@ async fn exchange(
         if state["error"].is_string() {
             lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
+            if let Some(reason) = http_failure(state["error"].as_str()) {
+                return Err(reason);
+            }
             return Err(Error(match state["error"].as_str() {
                 Some("mcp_host_authentication_required") => "mcp_host_authentication_required",
                 Some("mcp_host_confirmation_required") => "mcp_host_confirmation_required",

@@ -5683,7 +5683,8 @@ impl Operator {
                     .operation(json!({"op":"snapshot","lane":marker}))
                     .await?;
                 if snapshot["error"].is_string() {
-                    return Err(Error("operator_app_round_failed"));
+                    return Err(crate::app::http_failure(snapshot["error"].as_str())
+                        .unwrap_or(Error("operator_app_round_failed")));
                 }
                 if snapshot["stopped"] == true {
                     return Ok(());
@@ -6014,7 +6015,9 @@ impl Operator {
                                     }
                                 }
                                 let failure=if snapshot["error"].is_string() {
-                                    Some(("operator_app_round_failed","ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
+                                    let code=crate::app::http_failure(snapshot["error"].as_str())
+                                        .map(|error|error.0).unwrap_or("operator_app_round_failed");
+                                    Some((code,"ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
                                 } else if waiting.is_none() && host_settled(&snapshot)
                                     && snapshot["messages"].as_array().is_some_and(|messages|messages.iter().any(|message|
                                         message["author"]["role"]=="assistant" && message["channel"]=="final"

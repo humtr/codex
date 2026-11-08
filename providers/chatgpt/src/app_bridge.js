@@ -9,7 +9,18 @@ async function termuxCodexBridge(command) {
     typeof auth.accountId==='string' && auth.accountId && auth.accountId===auth.authenticatedAccountId &&
     typeof auth.userId==='string' && auth.userId && auth.userId===auth.authenticatedUserId &&
     ['personal','workspace'].includes(auth.accountStructure);
-  const failureCode=(lane,fallback)=>['assignment_app_budget_exhausted','assignment_time_budget_exhausted'].includes(lane.admissionCause)?lane.admissionCause:fallback;
+  const failureCode=(lane,fallback)=>{
+    if(['assignment_app_budget_exhausted','assignment_time_budget_exhausted'].includes(lane.admissionCause))return lane.admissionCause;
+    const status=lane.transportObservation?.http_rejection?.http_status;
+    if(status===413)return 'app_http_payload_too_large';
+    if(status===429)return 'app_http_rate_limited';
+    if(status===401)return 'app_http_authentication_required';
+    if(status===403)return 'app_http_forbidden';
+    if(status===404)return 'app_http_not_found';
+    if(status>=500&&status<600)return 'app_http_server_error';
+    if(status>=400&&status<500)return 'app_http_rejected';
+    return fallback;
+  };
   const completion=lane=>{
     const epoch=lane.epoch,serial=(lane.streamSerial??0)+1;
     return status=>{
@@ -23,7 +34,7 @@ async function termuxCodexBridge(command) {
         // evidence that inference or its saved result has failed.
         if(lane.terminals.includes('done')||status==='failed'&&lane.streamActive&&
           ['checking','started'].includes(lane.transportObservation?.reattach))return;
-        lane.error=status==='failed'?'app_completion_failed':'app_completion_interrupted';
+        lane.error=status==='failed'?failureCode(lane,'app_completion_failed'):'app_completion_interrupted';
         lane.streamActive=false;
       }
     };
@@ -136,6 +147,8 @@ async function termuxCodexBridge(command) {
             network:typeof network==='boolean'?network:error?.errorKind==='network'?true:null};
           lane.transportObservation??={};
           lane.transportObservation.first_error??=value;
+          if(Number.isInteger(value.http_status)&&value.http_status>=400&&value.http_status<600&&value.network!==true)
+            lane.transportObservation.http_rejection={stage,http_status:value.http_status};
         };
         const previousObserved=options.onStreamErrorObserved,previousResume=options.onResume;
         options.onStreamErrorObserved=value=>{observeError('stream',value);return previousObserved?.(value);};
