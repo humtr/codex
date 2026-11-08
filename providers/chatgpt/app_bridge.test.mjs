@@ -609,7 +609,7 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  raw.onResume({type:'error',attemptCount:1,error:{responseStatus:404,error:'PRIVATE ERROR'},isNetworkError:false});
  let snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
  expect(snapshot.terminals).toEqual([]);expect(snapshot.streamActive).toBe(true);
- expect(snapshot.transportObservation).toEqual({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1}});
+ expect(snapshot.transportObservation).toEqual({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1},http_rejection:{stage:'resume',http_status:404}});
  // The app hydrates the saved final and invokes its high-level completion,
  // without invoking raw.onComplete. Public text alone cannot settle the lane.
  f.nodes={final:{message:{id:'final',author:{role:'assistant'},recipient:'all',channel:'final',content:{content_type:'text',parts:['Recovered answer']},status:'finished_successfully',end_turn:true}}};
