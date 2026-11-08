@@ -1,0 +1,32 @@
+name: Stopped Native claim regression
+on:
+  push:
+    branches: [fix/stopped-native-shared-claim-reconciliation]
+permissions:
+  contents: read
+concurrency:
+  group: stopped-native-claim-regression
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact temporary test source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run stopped-claim regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("source/providers/chatgpt/Cargo.toml", "rb"))["package"]["rust-version"])')
+          rustup toolchain install "$version" --profile minimal --component rustfmt
+          cd source
+          cargo "+$version" fmt --manifest-path providers/chatgpt/Cargo.toml --all -- --check
+          cargo "+$version" test --manifest-path providers/chatgpt/Cargo.toml --locked --lib nc_confirmed_stop_releases_orphaned_physical_claim_after_mirror_settled
