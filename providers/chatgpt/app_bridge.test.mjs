@@ -311,7 +311,7 @@ async function fixture(run){
   const approved=options.toolApproval?{id:"app-approval",author:{role:"tool"},metadata:{jit_plugin_data:{from_client:{type:options.toolApproval.action,target_message_id:options.toolApproval.targetMessageId,remember_answer:options.toolApproval.actionData?.remember_answer??false}}}}:undefined;
   const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,approved,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
   const client=globalThis.appBridgeFixture.client;
-  options.onServerThreadIdChange?.('server-owned');
+  if(!globalThis.appBridgeFixture.suppressServerId)options.onServerThreadIdChange?.(options.conversationId?.startsWith('owned-')||!options.conversationId?'server-owned':options.conversationId);
   const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
   client.startCompletionStream({request,...globalThis.appBridgeFixture.streamCallbacks});
   if(globalThis.appBridgeFixture.holdSubmission)await new Promise(resolve=>{globalThis.appBridgeFixture.releaseSubmission=resolve;});
@@ -327,9 +327,10 @@ async function fixture(run){
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
-for(const outcome of ['recovered','recovered-413','second-failure','terminal','unavailable','stop','account','superseded'])
+for(const outcome of ['recovered','recovered-413','recovered-413-token-only','second-failure','terminal','unavailable','stop','account','superseded'])
 test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixture(async({f,bindings})=>{
  let failed=0;const resumes=[];
+ f.suppressServerId=outcome==='recovered-413-token-only';
  f.streamCallbacks={onRecoverableError:()=>{failed++;f.submitOptions.onCompletion('failed');}};
  f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
  f.client.resumeCompletionStream=options=>{resumes.push(options);return 'same-response-observer';};
@@ -339,7 +340,12 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  await Promise.resolve();
  const original=f.options[0],lane=globalThis[slot].lanes.get('reattach');
  original.onResumeToken({conversationId:'server-owned',resumeToken:'SECRET'});
- const oversizedResume=outcome==='recovered-413';
+ if(outcome==='recovered-413-token-only'){
+  expect(lane.serverId).toBe('server-owned');
+  expect(()=>f.submitOptions.onServerThreadIdChange('other-response')).toThrow('app_conversation_identity_changed');
+  expect(lane.serverId).toBe('server-owned');
+ }
+ const oversizedResume=outcome==='recovered-413'||outcome==='recovered-413-token-only';
  original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:!oversizedResume,error:oversizedResume?{responseStatus:413}:{errorKind:'network'}});
  let resolveStatus;
  f.chatGet=async(path,options)=>{
@@ -358,12 +364,12 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  if(outcome==='stop')lane.stopRequested=true;
  if(outcome==='account')f.authLoading=true;
  if(outcome==='superseded')lane.streamSerial++;
- resolveStatus();await new Promise(resolve=>setTimeout(resolve,0));
- if(['recovered','recovered-413','second-failure'].includes(outcome)){
+ resolveStatus?.();await new Promise(resolve=>setTimeout(resolve,0));
+ if(['recovered','recovered-413','recovered-413-token-only','second-failure'].includes(outcome)){
   expect(resumes).toHaveLength(1);
   expect(resumes[0].request).toEqual({conversation_id:'server-owned',offset:42});
   expect(resumes[0].conduitToken).toBe('SECRET');
-  if(outcome==='recovered'||outcome==='recovered-413'){
+  if(outcome==='recovered'||outcome==='recovered-413'||outcome==='recovered-413-token-only'){
    resumes[0].onUpdate({message:{id:'same-response-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['Recovered final']}}});
    resumes[0].onComplete({reason:'done'});
    f.submitOptions.onCompletion('failed');

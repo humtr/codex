@@ -140,7 +140,20 @@ async function termuxCodexBridge(command) {
         let resumeToken,resumeOffset,resumeNetwork=false,reattached=false;
         const current=()=>lane.epoch===epoch&&lane.streamSerial===serial&&!lane.stopRequested;
         const previousToken=options.onResumeToken;
-        options.onResumeToken=value=>{if(current())resumeToken=value;return previousToken?.(value);};
+        options.onResumeToken=value=>{
+          if(current()){
+            resumeToken=value;
+            const id=value?.conversationId,auth=scope.get(shared.xNt),who=lane.accountIdentity;
+            // This owned SDK response token can identify the original server
+            // conversation even when the separate ID-change callback was lost.
+            // Bind only once; a conflicting or cross-account token is not proof.
+            if(lane.serverId==null&&typeof id==='string'&&id.length<=256&&
+              /^[a-zA-Z0-9_-]+$/.test(id)&&typeof value?.resumeToken==='string'&&value.resumeToken&&
+              (owned.conversation_id==null||owned.conversation_id===lane.localId||owned.conversation_id===id)&&
+              chatAuth(auth)&&auth.accountId===who.account&&auth.userId===who.user&&auth.accountStructure===who.structure)lane.serverId=id;
+          }
+          return previousToken?.(value);
+        };
         const observeError=(stage,error,network)=>{
           if(lane.epoch!==epoch||lane.streamSerial!==serial)return;
           const value={stage,http_status:Number.isInteger(error?.responseStatus)?error.responseStatus:null,
@@ -840,7 +853,11 @@ async function termuxCodexBridge(command) {
     const epoch = lane.epoch;
     const options = {conversationId: lane.localId,parentMessageId:lane.selectedParent??undefined,conversationOrigin:null,tppExecutionTarget:null,requestInput:{isEverydayWorkMode:false},projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
       onCompletion:completion(lane),
-      onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
+      onServerThreadIdChange: id => {
+        if(typeof id!=='string'||!id||id.length>256||!/^[-a-zA-Z0-9_]+$/.test(id))fail('app_conversation_identity_invalid');
+        if(lane.serverId!=null&&lane.serverId!==id)fail('app_conversation_identity_changed');
+        lane.serverId=id;
+      },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
     lane.pending = true;
     try {
