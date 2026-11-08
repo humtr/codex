@@ -284,10 +284,19 @@ async function termuxCodexBridge(command) {
       }
       lane.sent.add(ids);
       const before = options.chatgptSse?.onBeforeRequestStart;
+      // Inspect the final JSON body handed to the SDK HTTP stream transport,
+      // not the Provider's earlier Native input projection. Never retain body
+      // text or authentication data in the observation.
+      const bodyBytes=typeof options?.body==='string'?new TextEncoder().encode(options.body).byteLength:null;
       return state.saved.streamPost.call(this,path,{...options,retry: undefined,chatgptSse: {...options.chatgptSse,onBeforeRequestStart(value) {
         if (lane.starts.has(ids)) fail('app_dispatch_replayed');
         before?.(value);
         lane.starts.add(ids); lane.roundStarts++;
+        lane.transportObservation??={};
+        lane.transportObservation.wire_request={stage:'sdk_stream_post',path,method:'POST',
+          body_utf8_bytes:bodyBytes,message_count:roles.length,
+          user_role_objects:roles.filter(role=>role==='user').length,
+          tool_role_objects:roles.filter(role=>role==='tool').length};
         if(!hostReply&&roles.includes('user'))lane.dispatchedInput={
           conversation_id:request.conversation_id??null,parent_message_id:request.parent_message_id??null,
           requested_model:request.model??null,

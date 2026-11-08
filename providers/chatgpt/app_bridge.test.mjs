@@ -616,7 +616,7 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  raw.onResume({type:'error',attemptCount:1,error:{responseStatus:404,error:'PRIVATE ERROR'},isNetworkError:false});
  let snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
  expect(snapshot.terminals).toEqual([]);expect(snapshot.streamActive).toBe(true);
- expect(snapshot.transportObservation).toEqual({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1},http_rejection:{stage:'resume',http_status:404}});
+ expect(snapshot.transportObservation).toMatchObject({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1},http_rejection:{stage:'resume',http_status:404}});
  // The app hydrates the saved final and invokes its high-level completion,
  // without invoking raw.onComplete. Public text alone cannot settle the lane.
  f.nodes={final:{message:{id:'final',author:{role:'assistant'},recipient:'all',channel:'final',content:{content_type:'text',parts:['Recovered answer']},status:'finished_successfully',end_turn:true}}};
@@ -991,6 +991,11 @@ for(const finish of ['stream-error','sdk-failed'])test('HTTP 413 resume is a typ
  const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'too-large'});
  expect(snapshot.error).toBe('app_http_payload_too_large');
  expect(snapshot.transportObservation).toMatchObject({first_error:{stage:'resume',http_status:413,network:false},resume:{stage:'error',attempt:0}});
+ const bytes=Buffer.byteLength(JSON.stringify(f.sent[0]),'utf8');
+ expect(snapshot.transportObservation.wire_request).toMatchObject({
+  stage:'sdk_stream_post',path:'/f/conversation',method:'POST',body_utf8_bytes:bytes,
+  message_count:f.sent[0].messages.length,user_role_objects:f.sent[0].messages.filter(m=>m.author.role==='user').length
+ });
  expect(snapshot.streamActive).toBe(false);
  expect(f.sent).toHaveLength(1);
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE REQUEST TEXT');

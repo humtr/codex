@@ -11,6 +11,7 @@ use codex_chatgpt_provider::{
 };
 use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     fs::{self, File},
     os::{
@@ -144,6 +145,7 @@ struct Rpc {
     input: tokio::process::ChildStdin,
     output: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
     buffered: Vec<Value>,
+    expected_http_413: bool,
 }
 impl Rpc {
     async fn send(&mut self, value: Value) {
@@ -173,7 +175,12 @@ impl Rpc {
                         .unwrap()
                         .expect("native app-server exited");
                     let value: Value = serde_json::from_str(&line).unwrap();
-                    if value["method"] == "error" {
+                    if value["method"] == "error"
+                        && !(self.expected_http_413
+                            && value["params"]["error"]["codexErrorInfo"]["httpConnectionFailed"]
+                                ["httpStatusCode"]
+                                == 413)
+                    {
                         panic!("native fixture error: {}", value["params"]["error"]);
                     }
                     if predicate(&value) {
@@ -269,6 +276,12 @@ async fn interrupted_native_automatic_compaction_preserves_history_and_resumes_l
     native_context_fixture(Scenario::InterruptedAutomatic).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit CODEX_PROVIDER_NATIVE pointing to a qualified Android runtime"]
+async fn failed_native_turn_accepts_official_compaction_without_replaying_input() {
+    native_context_fixture(Scenario::FailedCompact).await;
+}
+
 #[derive(Clone, Copy)]
 enum Scenario {
     Compact,
@@ -279,6 +292,7 @@ enum Scenario {
     Question,
     Automatic,
     InterruptedAutomatic,
+    FailedCompact,
 }
 async fn native_context_fixture(scenario: Scenario) {
     let handoff = matches!(
@@ -429,6 +443,8 @@ async fn native_context_fixture(scenario: Scenario) {
     let trace = root.0.join("request-trace.jsonl");
     let native_requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     let captured = native_requests.clone();
+    let reject_first_response =
+        Arc::new(AtomicBool::new(matches!(scenario, Scenario::FailedCompact)));
     let router = service
         .router()
         .route(
@@ -482,6 +498,7 @@ async fn native_context_fixture(scenario: Scenario) {
         .layer(axum::middleware::from_fn(
             move |request: axum::extract::Request, next: axum::middleware::Next| {
                 let trace = trace.clone();
+                let reject_first_response = reject_first_response.clone();
                 async move {
                     let (parts, body) = request.into_parts();
                     let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
@@ -505,6 +522,16 @@ async fn native_context_fixture(scenario: Scenario) {
                             .open(&trace)
                             .unwrap();
                         writeln!(file, "{value}").unwrap();
+                    }
+                    if parts.uri.path() == "/v1/responses"
+                        && reject_first_response.swap(false, Ordering::SeqCst)
+                    {
+                        use axum::response::IntoResponse;
+                        return (
+                            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                            "fixture HTTP 413",
+                        )
+                            .into_response();
                     }
                     next.run(axum::extract::Request::from_parts(
                         parts,
@@ -564,11 +591,54 @@ async fn native_context_fixture(scenario: Scenario) {
         input: child.stdin.take().unwrap(),
         output: BufReader::new(child.stdout.take().unwrap()).lines(),
         buffered: Vec::new(),
+        expected_http_413: false,
     };
     rpc.call(1,"initialize",json!({"clientInfo":{"name":"termux-provider-qualification","version":"1"},"capabilities":{"experimentalApi":true}})).await;
     rpc.send(json!({"method":"initialized","params":{}})).await;
     let response=rpc.call(2,"thread/start",json!({"cwd":root.0.join("work"),"model":if cross_provider{"native-fixture"}else{"chatgpt-desktop/gpt-6"},"modelProvider":if cross_provider{"native_fixture"}else{"chatgpt_desktop"},"approvalPolicy":"never","sandbox":"danger-full-access"})).await;
     let thread = response["thread"]["id"].as_str().unwrap();
+    if matches!(scenario, Scenario::FailedCompact) {
+        rpc.expected_http_413 = true;
+        let started = rpc.call(3,"turn/start",json!({"threadId":thread,"input":[{"type":"text","text":"Original owned failed request: do not replay"}]})).await;
+        let failed = rpc
+            .matching(|v| {
+                v["method"] == "turn/completed"
+                    && v["params"]["turn"]["id"] == started["turn"]["id"]
+            })
+            .await;
+        assert_eq!(failed["params"]["turn"]["status"], "failed");
+        let state = rpc
+            .call(
+                4,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":false}),
+            )
+            .await;
+        assert_eq!(state["thread"]["status"]["type"], "systemError");
+        rpc.call(5, "thread/compact/start", json!({"threadId":thread}))
+            .await;
+        rpc.matching(|v| {
+            v["method"] == "item/completed" && v["params"]["item"]["type"] == "contextCompaction"
+        })
+        .await;
+        rpc.matching(|v| v["method"] == "turn/completed" && v["params"]["threadId"] == thread)
+            .await;
+        rpc.turn(6, thread, "Continue after native-owned recovery")
+            .await;
+        drop(rpc);
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        stop.cancel();
+        server.await.unwrap();
+        host.shutdown().await;
+        root.preserve_native();
+        println!(
+            "{}",
+            json!({"sameNativeThread":true,"failedTurnPreserved":true,
+            "failedNativeSystemError":true,"officialCompactSucceeded":true})
+        );
+        return;
+    }
     if matches!(scenario, Scenario::Question) {
         let started=rpc.call(3,"turn/start",json!({"threadId":thread,"input":[{"type":"text","text":"Ask the owned native question and use its actual answer"}],"collaborationMode":{"mode":"plan","settings":{"model":"chatgpt-desktop/gpt-6","reasoning_effort":"none","developer_instructions":null}}})).await;
         let question = rpc
@@ -827,6 +897,7 @@ async fn native_context_fixture(scenario: Scenario) {
                 input: child.stdin.take().unwrap(),
                 output: BufReader::new(child.stdout.take().unwrap()).lines(),
                 buffered: Vec::new(),
+                expected_http_413: false,
             };
             rpc.call(20,"initialize",json!({"clientInfo":{"name":"termux-transition-fixture","version":"1"},"capabilities":{"experimentalApi":true}})).await;
             rpc.send(json!({"method":"initialized","params":{}})).await;
@@ -866,6 +937,7 @@ async fn native_context_fixture(scenario: Scenario) {
                 input: child.stdin.take().unwrap(),
                 output: BufReader::new(child.stdout.take().unwrap()).lines(),
                 buffered: Vec::new(),
+                expected_http_413: false,
             };
             rpc.call(34,"initialize",json!({"clientInfo":{"name":"termux-fork-fixture","version":"1"},"capabilities":{"experimentalApi":true}})).await;
             rpc.send(json!({"method":"initialized","params":{}})).await;
@@ -932,6 +1004,7 @@ async fn native_context_fixture(scenario: Scenario) {
                 input: child.stdin.take().unwrap(),
                 output: BufReader::new(child.stdout.take().unwrap()).lines(),
                 buffered: Vec::new(),
+                expected_http_413: false,
             };
             rpc.call(23,"initialize",json!({"clientInfo":{"name":"termux-transition-fixture","version":"1"},"capabilities":{"experimentalApi":true}})).await;
             rpc.send(json!({"method":"initialized","params":{}})).await;

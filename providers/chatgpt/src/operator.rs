@@ -780,6 +780,13 @@ fn controller_matches(record: &Record, args: &Value) -> bool {
             "running" | "waiting_native" | "native_summary"
         )
 }
+fn compact_phase_admissible(record: &Record) -> bool {
+    record.phase == "completed"
+        || (record.phase == "waiting_native"
+            && !record.accepted
+            && record.driver.is_none()
+            && record.pending.is_empty())
+}
 fn same_assignment_parent(left: Option<&str>, right: Option<&str>) -> bool {
     left.is_some() && left == right
 }
@@ -3915,19 +3922,40 @@ impl Operator {
             Some("compact") => {
                 let (record, native) = self.binding(&args, false).await?;
                 if args["controller"].as_str() != Some(&record.capability)
-                    || record.phase != "completed"
+                    || !compact_phase_admissible(&record)
                 {
                     return Err(Error("native_writer_unsettled"));
                 }
                 self.verify_identity(&record).await?;
+                // Native permits official compaction after a failed turn once
+                // its writer is settled. The Provider's completed work phase
+                // is not Native's compaction admission contract.
+                if record.phase == "waiting_native" {
+                    if !self.broker.unsettled(&record.token).await?.is_empty()
+                        || !self.owned_jobs(&native, &record).await?.is_empty()
+                    {
+                        return Err(Error("native_writer_unsettled"));
+                    }
+                    let state = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":record.thread,"includeTurns":false}),
+                        )
+                        .await?;
+                    if state["thread"]["status"]["type"] != "systemError" {
+                        return Err(Error("native_writer_unsettled"));
+                    }
+                }
                 {
                     let mut works = self.works.lock().await;
                     let work = works.get_mut(&record.thread).unwrap();
-                    if work.record.phase != "completed"
+                    if work.record.phase != record.phase
                         || work.stops_in_progress != 0
                         || work.active.is_some()
                         || work.record.capability != record.capability
                         || work.record.generation != record.generation
+                        || work.record.accepted != record.accepted
+                        || work.record.pending != record.pending
                     {
                         return Err(Error("native_writer_unsettled"));
                     }
@@ -7129,6 +7157,28 @@ mod local_tests {
             workspace: None,
             assignment: None,
         }
+    }
+
+    #[test]
+    fn failed_native_compaction_requires_settled_controller_before_native_check() {
+        let mut record = fixture_record(std::path::Path::new("/owned-test"));
+        assert!(
+            compact_phase_admissible(&record),
+            "Native systemError with no active controller/effects can compact"
+        );
+        record.accepted = true;
+        assert!(!compact_phase_admissible(&record));
+        record.accepted = false;
+        record.pending.push("unreturned-command".into());
+        assert!(!compact_phase_admissible(&record));
+        record.pending.clear();
+        record.driver = Some("unsettled-model-lease".into());
+        assert!(!compact_phase_admissible(&record));
+        record.driver = None;
+        record.phase = "running".into();
+        assert!(!compact_phase_admissible(&record));
+        record.phase = "completed".into();
+        assert!(compact_phase_admissible(&record));
     }
 
     #[test]

@@ -1030,6 +1030,16 @@ a nonempty summary. Whitespace and key order are insignificant; unknown/duplicat
 fields and unsupported versions are rejected. It neither decodes OpenAI's foreign
 opaque reasoning nor reads retired `ocx1:` records.
 Native compaction and model/hash transitions remain upstream lifecycle operations.
+An official Native compaction can also start after a failed turn while Native
+reports `systemError`, provided its owned controller is current and no active
+round, unreturned tool call, unsettled broker effect or owned background process
+remains. The Provider does not require its own `completed` work label for this
+Native operation and never edits Native rollout/DB to compact history.
+For a refused SDK stream, the existing per-round transport observation records
+the HTTP stage/status and the UTF-8 JSON body size handed to the SDK
+`/f/conversation` stream transport. It contains no request content or auth
+tokens; the measured SDK body is not a claim about post-transport encoding or
+the server's acceptance threshold.
 
 `checkpoint --thread ID --from-model ID --model ID --effort EFFORT [--state PATH]`
 reads a complete settled public snapshot from stdin and emits an external-context
