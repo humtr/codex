@@ -684,6 +684,24 @@ async fn unknown_host_block_is_a_last_observation_not_a_live_attached_wait() {
 }
 
 #[tokio::test]
+async fn http_413_snapshot_preserves_native_submission_and_specific_status() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().host_block = Some("app_http_payload_too_large".into());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("app_http_payload_too_large")
+    );
+    let state = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(state["app_dispatches"], 1);
+    assert_eq!(state["user_role_objects"], 1);
+    assert_eq!(state["phase"], "unknown");
+    let submitted = app.state.lock().unwrap().commands.iter().filter(|v| v["op"] == "submit").count();
+    assert_eq!(submitted, 1, "the original request must not be replayed");
+}
+
+#[tokio::test]
 async fn failed_app_snapshot_preserves_observed_submission_counts() {
     let root = Root::new();
     let app = Arc::new(App::default());

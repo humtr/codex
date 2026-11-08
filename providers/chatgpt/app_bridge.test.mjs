@@ -969,6 +969,24 @@ test('an asynchronous app stream startup failure settles only its owned stream',
  expect(f.sent).toHaveLength(0);
 }));
 
+for(const finish of ['stream-error','sdk-failed'])test('HTTP 413 resume is a typed refusal without resubmitting Native input: '+finish,async()=>fixture(async({f,bindings})=>{
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'too-large',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'too-large',round:'original',messages:[{role:'user',text:'One original request'}]});
+ await Promise.resolve();
+ const stream=f.options[0],privateError={responseStatus:413,message:'PRIVATE REQUEST TEXT'};
+ stream.onResume({type:'error',attemptCount:0,error:privateError,isNetworkError:false});
+ if(finish==='stream-error')stream.onError(privateError);
+ else f.submitOptions.onCompletion('failed');
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'too-large'});
+ expect(snapshot.error).toBe('app_http_payload_too_large');
+ expect(snapshot.transportObservation).toMatchObject({first_error:{stage:'resume',http_status:413,network:false},resume:{stage:'error',attempt:0}});
+ expect(snapshot.streamActive).toBe(false);
+ expect(f.sent).toHaveLength(1);
+ expect(JSON.stringify(snapshot)).not.toContain('PRIVATE REQUEST TEXT');
+}));
+
 for(const op of ['chat_read','chat_adopt'])for(const status of [401,403,404,429,500,503,null])test(op+' failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  f.chatGet=async()=>{throw Object.assign(Error('private request token must not escape'),{responseStatus:status});};
