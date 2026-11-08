@@ -776,13 +776,8 @@ mod tests {
             .unwrap();
         assert!(!Guard::has_stopped_unexecuted(&cwd, Some(&home), "running-work").unwrap());
         assert_eq!(
-            Guard::settle_stopped_unexecuted(
-                &cwd,
-                Some(&home),
-                "running-work",
-                &BTreeSet::new()
-            )
-            .unwrap(),
+            Guard::settle_stopped_unexecuted(&cwd, Some(&home), "running-work", &BTreeSet::new())
+                .unwrap(),
             0
         );
         assert_eq!(

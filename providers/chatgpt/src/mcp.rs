@@ -2694,7 +2694,9 @@ mod native_concurrency_tests {
             .reconcile_stopped_unexecuted(&["stopped-work"], &[&token], &BTreeSet::new())
             .await
             .unwrap();
-        assert!(broker.has_stopped_shared_unexecuted("stopped-work", &root).unwrap());
+        assert!(broker
+            .has_stopped_shared_unexecuted("stopped-work", &root)
+            .unwrap());
         assert_eq!(
             broker
                 .settle_stopped_shared_unexecuted("stopped-work", &root, &BTreeSet::new())
