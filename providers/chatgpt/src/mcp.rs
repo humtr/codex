@@ -945,15 +945,42 @@ impl Broker {
         self.journal.write(&key, &state)?;
         Ok(())
     }
-    pub(crate) fn has_pending_processes(&self, lanes: &[&str]) -> Result<bool, Error> {
+    pub(crate) fn active_claim_ids(&self, lanes: &[&str]) -> Result<BTreeSet<String>, Error> {
         let state: ActiveEffects = self
             .journal
             .read(&digest(&"native-effect-claims-v1"))?
             .unwrap_or_default();
         Ok(state
             .claims
+            .iter()
+            .filter(|(_, claim)| lanes.contains(&claim.lane.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect())
+    }
+    pub(crate) fn has_pending_processes(&self, lanes: &[&str]) -> Result<bool, Error> {
+        let state: ActiveEffects = self
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))?
+            .unwrap_or_default();
+        for claim in state
+            .claims
             .values()
-            .any(|claim| lanes.contains(&claim.lane.as_str()) && claim.session_id.is_some()))
+            .filter(|claim| lanes.contains(&claim.lane.as_str()))
+        {
+            if claim.session_id.is_some() {
+                return Ok(true);
+            }
+            if let Some(token) = claim.turn_token.as_deref() {
+                if self
+                    .journal
+                    .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
+                    .is_some_and(|turn| turn.retired)
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
     /// Native's committed command end is independent of an app's next poll.
     /// These items are read through the verified original Native work binding;
@@ -964,39 +991,77 @@ impl Broker {
         workspace: &Path,
         history: &[Value],
     ) -> Result<(), Error> {
-        let _registry = self.registry.lock().await;
+        let mut registry = self.registry.lock().await;
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut ended = BTreeMap::<String, BTreeMap<String, u64>>::new();
+        let mut retired_settled = false;
         for (id, claim) in &state.claims {
-            let Some(session) = claim
-                .session_id
-                .filter(|_| lanes.contains(&claim.lane.as_str()))
+            if !lanes.contains(&claim.lane.as_str()) {
+                continue;
+            }
+            if let Some(session) = claim.session_id {
+                if history.iter().any(|row| {
+                    let item = &row["item"];
+                    item["type"] == "commandExecution"
+                        && item["id"].as_str().is_some_and(|native_id| {
+                            native_id == id
+                                || state.external.contains_key(id)
+                                    && external_effect_id(&claim.lane, native_id) == *id
+                        })
+                        && item["processId"]
+                            .as_str()
+                            .and_then(|value| value.parse::<u64>().ok())
+                            == Some(session)
+                        && matches!(item["status"].as_str(), Some("completed" | "failed"))
+                        // Native uses -1 for unconfirmed errors and 124 for its
+                        // timeout path, which can request termination before wait.
+                        // Neither sentinel independently establishes process exit.
+                        && item["exitCode"].as_i64().is_some_and(|code| code >= 0 && code != 124)
+                }) {
+                    ended
+                        .entry(claim.lane.clone())
+                        .or_default()
+                        .insert(id.clone(), session);
+                }
+                continue;
+            }
+            let Some(token) = claim.turn_token.as_deref() else {
+                continue;
+            };
+            let Some(result) = history
+                .iter()
+                .find(|row| row["item"]["id"].as_str() == Some(id.as_str()))
+                .and_then(|row| native_history_item_result(&row["item"]))
             else {
                 continue;
             };
-            if history.iter().any(|row| {
-                let item = &row["item"];
-                item["type"] == "commandExecution"
-                    && item["id"].as_str().is_some_and(|native_id| {
-                        native_id == id
-                            || state.external.contains_key(id)
-                                && external_effect_id(&claim.lane, native_id) == *id
-                    })
-                    && item["processId"]
-                        .as_str()
-                        .and_then(|value| value.parse::<u64>().ok())
-                        == Some(session)
-                    && matches!(item["status"].as_str(), Some("completed" | "failed"))
-                    // Native uses -1 for unconfirmed errors and 124 for its
-                    // timeout path, which can request termination before wait.
-                    // Neither sentinel independently establishes process exit.
-                    && item["exitCode"].as_i64().is_some_and(|code| code >= 0 && code != 124)
-            }) {
-                ended
-                    .entry(claim.lane.clone())
-                    .or_default()
-                    .insert(id.clone(), session);
+            let mut turn = match registry.turns.get(token).cloned() {
+                Some(turn) => turn,
+                None => match self
+                    .journal
+                    .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
+                {
+                    Some(turn) => turn,
+                    None => continue,
+                },
+            };
+            if !turn.retired || turn.lane != claim.lane {
+                continue;
+            }
+            let mut updated = false;
+            for call in turn.calls.values_mut() {
+                if call.id == *id && call.offered && call.result.is_none() {
+                    call.result = Some(result.clone());
+                    updated = true;
+                }
+            }
+            if updated {
+                self.persist(token, &turn)?;
+                if registry.turns.contains_key(token) {
+                    registry.turns.insert(token.to_owned(), turn);
+                }
+                retired_settled = true;
             }
         }
         for (lane, sessions) in &ended {
@@ -1015,6 +1080,11 @@ impl Broker {
                     .is_some_and(|processes| processes.contains_key(id))
             });
             self.journal.write(&key, &state)?;
+            self.changed.notify_waiters();
+        }
+        drop(registry);
+        if retired_settled {
+            self.reconcile_persisted_integrated_receipts()?;
             self.changed.notify_waiters();
         }
         Ok(())
@@ -2229,6 +2299,31 @@ impl Broker {
         Router::new()
             .route("/mcp", axum::routing::post(http))
             .with_state(self)
+    }
+}
+
+pub(crate) fn native_history_item_result(item: &Value) -> Option<Value> {
+    if !matches!(item["status"].as_str(), Some("completed" | "failed")) {
+        return None;
+    }
+    match item["type"].as_str() {
+        Some("commandExecution") => {
+            let code = item["exitCode"]
+                .as_i64()
+                .filter(|code| *code >= 0 && *code != 124)?;
+            let output = item["aggregatedOutput"].as_str().unwrap_or("");
+            Some(json!({
+                "type": "function_call_output",
+                "call_id": item["id"],
+                "output": format!("Process exited with code {code}\nOutput:\n{output}")
+            }))
+        }
+        Some("fileChange") => Some(json!({
+            "type": "custom_tool_call_output",
+            "call_id": item["id"],
+            "output": item["status"]
+        })),
+        _ => None,
     }
 }
 
@@ -3840,6 +3935,82 @@ mod native_concurrency_tests {
             .admit_external_tool("other", "write", &update.name, &update.input, &root)
             .await
             .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn nc_retired_mcp_turn_unreturned_command_settles_from_native_history() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let broker = Broker::new(journal);
+        let token = broker
+            .register_scoped("owner", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let command = Arguments {
+            call_id: "restart-cmd".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"printf ok"}).to_string(),
+            report: "run command".into(),
+        };
+        broker.enqueue(&token, &command).await.unwrap();
+        let offered = broker.offer(&token).await.unwrap();
+        let id = offered[0]["id"].as_str().unwrap().to_owned();
+        broker.retire(&token, true).await.unwrap();
+        assert!(broker.has_pending_processes(&["owner"]).unwrap());
+        assert!(broker.active_claim_ids(&["owner"]).unwrap().contains(&id));
+        let other_token = broker
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let write = patch("file", "alpha", "ALPHA");
+        assert_eq!(
+            broker
+                .admit_external_tool("other", "ext-write", &write.name, &write.input, &root)
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        broker.enqueue(&other_token, &write).await.unwrap();
+        assert!(broker.offer(&other_token).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&other_token, write.clone()).await.unwrap()["error"],
+            "native_resource_busy"
+        );
+        for incomplete in [
+            json!([{"turn_id":"t1","item":{"id":id,"type":"commandExecution","status":"inProgress","exitCode":0}}]),
+            json!([{"turn_id":"t1","item":{"id":id,"type":"commandExecution","status":"failed","exitCode":-1}}]),
+            json!([{"turn_id":"t1","item":{"id":id,"type":"commandExecution","status":"failed","exitCode":124}}]),
+        ] {
+            broker
+                .settle_native_processes(&["owner"], &root, incomplete.as_array().unwrap())
+                .await
+                .unwrap();
+            assert!(broker.has_pending_processes(&["owner"]).unwrap());
+        }
+        let committed = vec![json!({
+            "turn_id": "t1",
+            "item": {
+                "id": id,
+                "type": "commandExecution",
+                "status": "completed",
+                "exitCode": 0,
+                "aggregatedOutput": "ok\n"
+            }
+        })];
+        broker
+            .settle_native_processes(&["owner"], &root, &committed)
+            .await
+            .unwrap();
+        assert!(!broker.has_pending_processes(&["owner"]).unwrap());
+        assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+        assert_eq!(
+            broker.recorded_calls(&token).unwrap(),
+            vec![json!({"id":id,"offered":true,"settled":true})]
+        );
+        let mut retry = write;
+        retry.call_id = "write-after-settle".into();
+        broker.enqueue(&other_token, &retry).await.unwrap();
+        let offered_other = broker.offer(&other_token).await.unwrap();
+        assert_eq!(offered_other.len(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 }
