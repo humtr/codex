@@ -784,7 +784,6 @@ fn controller_matches(record: &Record, args: &Value) -> bool {
 fn compact_phase_admissible(record: &Record) -> bool {
     record.phase == "completed"
         || (record.phase == "waiting_native"
-            && record.native_turn.is_some()
             && !record.accepted
             && record.driver.is_none()
             && record.pending.is_empty())
