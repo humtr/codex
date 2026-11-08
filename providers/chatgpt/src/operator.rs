@@ -784,6 +784,7 @@ fn controller_matches(record: &Record, args: &Value) -> bool {
 fn compact_phase_admissible(record: &Record) -> bool {
     record.phase == "completed"
         || (record.phase == "waiting_native"
+            && record.native_turn.is_some()
             && !record.accepted
             && record.driver.is_none()
             && record.pending.is_empty())
@@ -3981,18 +3982,23 @@ impl Operator {
                     return Err(Error("native_writer_unsettled"));
                 }
                 // Native permits official compaction after a failed turn once
-                // its writer is settled. The Provider's completed work phase
-                // is not Native's compaction admission contract.
-                if record.phase == "waiting_native" {
-                    let state = native
-                        .call(
-                            "thread/read",
-                            json!({"threadId":record.thread,"includeTurns":false}),
-                        )
-                        .await?;
-                    if state["thread"]["status"]["type"] != "systemError" {
-                        return Err(Error("native_writer_unsettled"));
-                    }
+                // its writer is settled (in-memory `systemError` or `idle`
+                // after `thread/resume` during `claim`). The Provider's
+                // completed work phase is not Native's compaction admission contract.
+                let resumed = self
+                    .resume_unloaded_native(&record, &native, receipt)
+                    .await?;
+                let state = native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":false}),
+                    )
+                    .await?;
+                if !matches!(
+                    state["thread"]["status"]["type"].as_str(),
+                    Some("idle" | "systemError")
+                ) {
+                    return Err(Error("native_writer_unsettled"));
                 }
                 let (previous_phase, previous_accepted) = {
                     let mut works = self.works.lock().await;
@@ -4007,7 +4013,9 @@ impl Operator {
                     {
                         return Err(Error("native_writer_unsettled"));
                     }
-                    self.mutation_intent(receipt)?;
+                    if !resumed {
+                        self.mutation_intent(receipt)?;
+                    }
                     let previous_phase = work.record.phase.clone();
                     let previous_accepted = work.record.accepted;
                     self.broker.retire(&work.record.token, false).await?;
@@ -7985,7 +7993,7 @@ mod local_tests {
                                 "id": "compact-thread",
                                 "cwd": workspace,
                                 "modelProvider": "chatgpt_desktop",
-                                "status": {"type": "systemError"},
+                                "status": {"type": if compact_attempts == 0 { "systemError" } else { "idle" }},
                                 "turns": [{"id": "failed-turn", "status": "failed"}]
                             }
                         }
